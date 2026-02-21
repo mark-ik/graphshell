@@ -12,7 +12,7 @@ use log::warn;
 use servo::{Image, PixelFormat, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent};
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 const NODE_THUMBNAIL_WIDTH: u32 = 256;
 const NODE_THUMBNAIL_HEIGHT: u32 = 192;
@@ -27,7 +27,7 @@ pub(crate) struct ThumbnailCaptureResult {
 
 pub(crate) fn request_pending_thumbnail_captures(
     graph_app: &GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     result_tx: &Sender<ThumbnailCaptureResult>,
     in_flight: &mut HashSet<WebViewId>,
 ) {
@@ -95,7 +95,7 @@ pub(crate) fn request_pending_thumbnail_captures(
 
 pub(crate) fn load_pending_thumbnail_results(
     graph_app: &GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     result_rx: &Receiver<ThumbnailCaptureResult>,
     in_flight: &mut HashSet<WebViewId>,
 ) -> Vec<GraphIntent> {
@@ -158,7 +158,7 @@ fn embedder_image_to_rgba(image: &Image) -> (usize, usize, Vec<u8>) {
 
 pub(crate) fn load_pending_favicons(
     ctx: &egui::Context,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
     texture_cache: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
 ) -> Vec<GraphIntent> {

@@ -249,13 +249,13 @@ fn init_app(
         });
     }
 
-    let (opts, mut preferences, servoshell_preferences) =
+    let (opts, mut preferences, app_preferences) =
         match parse_command_line_arguments(args.as_slice()) {
             ArgumentParsingResult::ContentProcess(..) => {
                 unreachable!("OHOS does not have support for multiprocess yet.")
             },
-            ArgumentParsingResult::ChromeProcess(opts, preferences, servoshell_preferences) => {
-                (opts, preferences, servoshell_preferences)
+            ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
+                (opts, preferences, app_preferences)
             },
             ArgumentParsingResult::Exit => std::process::exit(0),
             ArgumentParsingResult::ErrorParsing => std::process::exit(1),
@@ -265,7 +265,7 @@ fn init_app(
         preferences.set_value("viewport_meta_enabled", PrefValue::Bool(true));
     }
 
-    if servoshell_preferences.log_to_file {
+    if app_preferences.log_to_file {
         let mut servo_log = PathBuf::from(&native_values.cache_dir);
         servo_log.push("servo.log");
         if crate::egl::ohos::LOGGER.set_file_writer(servo_log).is_err() {
@@ -273,9 +273,9 @@ fn init_app(
         }
     }
 
-    crate::init_tracing(servoshell_preferences.tracing_filter.as_deref());
+    crate::init_tracing(app_preferences.tracing_filter.as_deref());
     #[cfg(target_env = "ohos")]
-    crate::egl::ohos::set_log_filter(servoshell_preferences.log_filter.as_deref());
+    crate::egl::ohos::set_log_filter(app_preferences.log_filter.as_deref());
 
     Ok(App::new(AppInitOptions {
         host: Rc::new(HostCallbacks::new()),
@@ -283,7 +283,7 @@ fn init_app(
         initial_url: Some(options.url),
         opts,
         preferences,
-        servoshell_preferences,
+        app_preferences,
         #[cfg(feature = "webxr")]
         xr_discovery: None,
     }))

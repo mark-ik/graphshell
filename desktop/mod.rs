@@ -9,6 +9,7 @@ pub(crate) mod app;
 pub(crate) mod cli;
 pub(crate) mod dialog;
 mod dialog_panels;
+pub(crate) mod embedder;
 pub(crate) mod event_loop;
 #[cfg(feature = "gamepad")]
 pub(crate) mod gamepad;
@@ -18,8 +19,9 @@ mod graph_search_ui;
 mod gui;
 mod gui_frame;
 pub(crate) mod headed_window;
-mod headless_window;
+pub(crate) mod headless_window;
 mod keyutils;
+mod lifecycle_intents;
 mod lifecycle_reconcile;
 mod nav_targeting;
 mod persistence_ops;

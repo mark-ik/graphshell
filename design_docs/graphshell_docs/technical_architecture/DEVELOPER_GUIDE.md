@@ -1,7 +1,7 @@
 # Graphshell Developer Guide
 
-**Last Updated:** February 11, 2026  
-**For:** New contributors and AI assistants  
+**Last Updated:** February 20, 2026
+**For:** New contributors and AI assistants
 **See Also:** [QUICKSTART.md](QUICKSTART.md), [ARCHITECTURAL_OVERVIEW.md](ARCHITECTURAL_OVERVIEW.md)
 
 ---
@@ -10,9 +10,9 @@
 
 **Graphshell** is a spatial browser built on Servo where webpages are nodes in a force-directed graph.
 
-- **Location:** `ports/graphshell/` (~7,000 LOC, 137 tests)
-- **Status:** Phase 1 refinement complete (11/11 steps)
-- **Active Work:** Feature Target 2 (Thumbnails & Favicons)
+- **Location:** project root (standalone crate, servo is a git dep)
+- **Status:** M1 complete; M2 active (workspace routing, graph UX polish, edge traversal, settings)
+- **Build:** `cargo build` / `cargo run` (no mach needed)
 
 ---
 
@@ -21,25 +21,25 @@
 ### Build & Run
 ```bash
 # Build (release mode recommended)
-./mach build -r graphshell
+cargo build --release
 
 # Run
-./mach run -r graphshell -- https://example.com
+cargo run --release -- https://example.com
 
 # Run with logging
-RUST_LOG=debug ./mach run -r graphshell
+RUST_LOG=debug cargo run -- https://example.com
 
 # Clean build (if stuck)
-./mach clean
+cargo clean
 ```
 
 ### Testing
 ```bash
-# Run all graphshell tests
-./mach test-unit graphshell
+# Run all tests
+cargo test
 
 # Run specific test
-cd ports/graphshell && cargo test test_name --lib
+cargo test test_name --lib
 
 # Count passing tests
 cargo test --lib 2>&1 | grep "test result"
@@ -47,8 +47,8 @@ cargo test --lib 2>&1 | grep "test result"
 
 ### Code Quality
 ```bash
-./mach fmt           # Format code
-./mach clippy graphshell  # Lint
+cargo fmt            # Format code
+cargo clippy         # Lint
 cargo check          # Check compilation
 ```
 
@@ -61,38 +61,35 @@ cargo check          # Check compilation
 1. **UTF-8 Safety:** Always use `util::truncate_with_ellipsis()` for string truncation
 2. **Persistence Discipline:** Every mutation must call `log_mutation()` before applying
 3. **Test Coverage:** Every bug fix needs a regression test
-4. **URL Identity:** URLs are stable keys; NodeIndex is a session-local handle
+4. **UUID Identity:** Node UUID is identity; URL is mutable metadata and can be duplicated
 5. **Tests in Same File:** Use `#[cfg(test)]` modules in implementation files
 
 ### Architecture Constraints
 
-- **No breaking Servo core:** Graphshell changes isolated to `ports/graphshell/`
+- **No breaking Servo core:** Servo is a git dep; graphshell changes are local only
 - **NodeKey stability:** petgraph StableGraph ensures NodeKey survives deletions
 - **Webview mapping:** `webview_to_node` and `node_to_webview` are inverses
-- **Physics sync:** Worker graph must match app graph for positions to be valid
+- **Lifecycle boundary:** reducer state mutates via intents; reconcile performs runtime side effects
 
 ---
 
 ## Module Map (Quick Reference)
 
-### Core Data (~600 LOC)
-- **`graph/mod.rs`** (461 lines) — StableGraph wrapper, Node/Edge types
-- **`graph/egui_adapter.rs`** (163 lines) — Graph → egui_graphs conversion
+### Core Data
+- **`graph/mod.rs`** (~1.0k) — StableGraph wrapper, UUID identity, Node/Edge types
+- **`graph/egui_adapter.rs`** — Graph -> egui_graphs projection
 
-### Physics (~606 LOC)
-- **`physics/mod.rs`** (385 lines) — Force-directed engine
-- **`physics/worker.rs`** (221 lines) — Background thread
+### UI + Runtime
+-- **`desktop/gui.rs`** (~1.7k) — top-level GUI integration/orchestration
+-- **`desktop/gui_frame.rs`** (~1.1k) — frame phases and apply/reconcile sequencing
+-- **`desktop/toolbar_ui.rs`** (~2.7k) — omnibar, settings, workspace/persistence UI
+-- **`desktop/webview_controller.rs`** (~0.4k) — webview submit/close/reconcile helpers
+-- **`render/mod.rs`** (~3.1k) — graph/tile rendering and interaction
 
-### UI (~1,477 LOC)
-- **`desktop/gui.rs`** (794 lines) — Servo integration, webview lifecycle
-- **`desktop/webview_controller.rs`** (278 lines) — Webview lifecycle/sync helpers
-- **`render/mod.rs`** (467 lines) — egui_graphs rendering, events
-- **`input/mod.rs`** (216 lines) — Keyboard shortcuts
-
-### State & Persistence (~1,760 LOC)
-- **`app.rs`** (1010 lines) — Application state, view model
-- **`persistence/mod.rs`** (518 lines) — fjall log + redb snapshots
-- **`persistence/types.rs`** (232 lines) — LogEntry variants, serialization
+### State & Persistence
+-- **`app.rs`** (~5.4k) — reducer, lifecycle helpers, workspace routing, undo/redo
+- **`persistence/mod.rs`** — fjall log + redb snapshots
+- **`persistence/types.rs`** — LogEntry variants and snapshot schema
 
 ### Utilities
 - **`util.rs`** (66 lines) — String truncation, utilities
@@ -223,18 +220,14 @@ app.egui_state_dirty = true;  // Force rebuild
 
 ## Current Work Status
 
-**Phase:** Phase 1 Refinement complete (11/11 steps)  
-**Next:** Feature Target 2 (Thumbnails & Favicons)
+**Phase:** M1 complete (FT1-6); M2 active
+**Active:** Workspace routing, graph UX polish, edge traversal, settings architecture
 
-### Recent Changes (Session Feb 11, 2026)
-- ✅ Phase 1 refinement complete (Steps 1-11)
-- ✅ Webview controller extracted, persistence UX added
-- Test count: 80 → 137 (all passing)
+### Known Issues
 
-### Known Issues (Post-Refinement)
-1. **gui.rs still large** (~794 lines) — consider further decomposition
-2. **No unit tests for gui.rs/webview_controller.rs** — integration only
-3. **Thumbnails/favicons not implemented** — Feature Target 2
+1. **Large modules** remain (`app.rs`, `render/mod.rs`, `toolbar_ui.rs`, `gui.rs`) — staged decomposition still planned.
+2. **Lifecycle contract migration** is active (`2026-02-20_embedder_decomposition_plan.md`): reconcile/runtime model and backpressure policy are still evolving.
+3. **Selection-state hardening** follow-up remains active as graph/tile behavior expands.
 
 ---
 
@@ -244,7 +237,7 @@ app.egui_state_dirty = true;  // Force rebuild
 |--------|--------|--------|
 | Nodes @ 45 FPS | 500 | Not measured (benchmarks pending) |
 | Nodes @ 30 FPS | 1000 | Not measured |
-| Test coverage | 90%+ | 137 tests (gui.rs lacks unit tests) |
+| Test coverage | Rising | Run `cargo test --lib -- --list` for current totals |
 | Startup time | <2s | Not measured |
 
 ---
@@ -253,10 +246,10 @@ app.egui_state_dirty = true;  // Force rebuild
 
 ### Before Committing
 ```bash
-./mach fmt                  # Format
-./mach clippy graphshell    # Lint
-./mach test-unit graphshell # Test
-git add -A ports/graphshell
+cargo fmt            # Format
+cargo clippy         # Lint
+cargo test           # Test
+git add -A
 git commit -m "Step X: Summary..."
 ```
 
@@ -279,10 +272,11 @@ Step X: Short summary (50 chars max)
 ## Troubleshooting Checklist
 
 ### Build Fails
-- [ ] Run `./mach clean`
-- [ ] Check Rust version: `rustc --version` (need 1.91.0+)
-- [ ] Check disk space (~25GB needed)
-- [ ] Try debug build: `./mach build -d graphshell`
+
+- [ ] Run `cargo clean`
+- [ ] Check Rust version: `rustc --version` (toolchain pinned in `rust-toolchain.toml`)
+- [ ] Check disk space (~25GB needed for servo git dep build)
+- [ ] Try debug build: `cargo build`
 
 ### Tests Fail
 - [ ] Use `TempDir` for test isolation
@@ -300,9 +294,9 @@ Step X: Short summary (50 chars max)
 ## Resources
 
 ### Documentation
-- **[README.md](README.md)** — Project overview
+- **[DOC_README.md](../../DOC_README.md)** — Canonical project documentation index
 - **[ARCHITECTURAL_OVERVIEW.md](ARCHITECTURAL_OVERVIEW.md)** — Implementation details
-- **[IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md)** — Feature targets
+- **[IMPLEMENTATION_ROADMAP.md](../implementation_strategy/IMPLEMENTATION_ROADMAP.md)** — Feature targets
 - **[QUICKSTART.md](QUICKSTART.md)** — Command reference
 - **[CODEBASE_MAP.md](CODEBASE_MAP.md)** — Detailed module map
 
@@ -317,4 +311,5 @@ Step X: Short summary (50 chars max)
 ### Servo
 - [API Documentation](https://doc.servo.org/servo/)
 - [GitHub](https://github.com/servo/servo)
-- [Style Guide](../../../../STYLE_GUIDE.md)
+- [Servo Contribution Guide](https://github.com/servo/servo/blob/main/docs/HACKING_QUICKSTART.md)
+

@@ -40,7 +40,7 @@ impl AppEvent {
 /// display server. Ideally, we could use the headed winit event loop in both modes, but on Linux,
 /// the event loop requires a display server, which prevents running servoshell in a console.
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum ServoShellEventLoop {
+pub(crate) enum AppEventLoop {
     /// A real Winit windowing event loop.
     Winit(EventLoop<AppEvent>),
     /// A fake event loop which contains a signalling flag used to ensure
@@ -49,13 +49,13 @@ pub(crate) enum ServoShellEventLoop {
     Headless(Arc<HeadlessEventLoop>),
 }
 
-impl ServoShellEventLoop {
-    pub(crate) fn headless() -> ServoShellEventLoop {
-        ServoShellEventLoop::Headless(Default::default())
+impl AppEventLoop {
+    pub(crate) fn headless() -> AppEventLoop {
+        AppEventLoop::Headless(Default::default())
     }
 
-    pub(crate) fn headed() -> ServoShellEventLoop {
-        ServoShellEventLoop::Winit(
+    pub(crate) fn headed() -> AppEventLoop {
+        AppEventLoop::Winit(
             WinitEventLoop::with_user_event()
                 .build()
                 .expect("Could not start winit event loop"),
@@ -63,31 +63,31 @@ impl ServoShellEventLoop {
     }
 }
 
-impl ServoShellEventLoop {
+impl AppEventLoop {
     pub(crate) fn event_loop_proxy(&self) -> Option<EventLoopProxy<AppEvent>> {
         match self {
-            ServoShellEventLoop::Winit(event_loop) => Some(event_loop.create_proxy()),
-            ServoShellEventLoop::Headless(..) => None,
+            AppEventLoop::Winit(event_loop) => Some(event_loop.create_proxy()),
+            AppEventLoop::Headless(..) => None,
         }
     }
 
     pub fn create_event_loop_waker(&self) -> Box<dyn EventLoopWaker> {
         match self {
-            ServoShellEventLoop::Winit(event_loop) => {
+            AppEventLoop::Winit(event_loop) => {
                 Box::new(HeadedEventLoopWaker::new(event_loop))
             },
-            ServoShellEventLoop::Headless(data) => Box::new(HeadlessEventLoopWaker(data.clone())),
+            AppEventLoop::Headless(data) => Box::new(HeadlessEventLoopWaker(data.clone())),
         }
     }
 
     pub fn run_app(self, app: &mut App) {
         match self {
-            ServoShellEventLoop::Winit(event_loop) => {
+            AppEventLoop::Winit(event_loop) => {
                 event_loop
                     .run_app(app)
                     .expect("Failed while running events loop");
             },
-            ServoShellEventLoop::Headless(event_loop) => event_loop.run_app(app),
+            AppEventLoop::Headless(event_loop) => event_loop.run_app(app),
         }
     }
 }

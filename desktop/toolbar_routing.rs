@@ -6,7 +6,7 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::desktop::nav_targeting;
 use crate::desktop::webview_controller;
 use crate::graph::NodeKey;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) enum ToolbarNavAction {
     Back,
@@ -27,7 +27,7 @@ pub(crate) struct ToolbarSubmitResult {
 
 pub(crate) fn run_nav_action(
     graph_app: &GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     focused_toolbar_node: Option<NodeKey>,
     action: ToolbarNavAction,
 ) -> bool {
@@ -57,7 +57,7 @@ pub(crate) fn submit_address_bar_intents(
     is_graph_view: bool,
     focused_toolbar_node: Option<NodeKey>,
     split_open_requested: bool,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     searchpage: &str,
 ) -> ToolbarSubmitResult {
     let focused_webview_id =

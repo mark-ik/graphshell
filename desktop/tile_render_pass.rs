@@ -19,12 +19,12 @@ use super::webview_backpressure::{self, WebviewCreationBackpressureState};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::running_app_state::RunningAppState;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
     pub graph_app: &'a mut GraphBrowserApp,
-    pub window: &'a ServoShellWindow,
+    pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a mut Tree<TileKind>,
     pub tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     pub tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,

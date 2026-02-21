@@ -15,6 +15,7 @@ use winit::window::Window;
 
 use super::dialog_panels::{self, DialogPanelsArgs};
 use super::headed_window::HeadedWindow;
+use super::lifecycle_intents;
 use super::lifecycle_reconcile::{self, RuntimeReconcileArgs};
 use super::nav_targeting;
 use super::persistence_ops;
@@ -31,14 +32,14 @@ use super::toolbar_ui::{self, OmnibarSearchSession, ToolbarUiArgs, ToolbarUiOutp
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_controller;
 use crate::app::{
-    GraphBrowserApp, GraphIntent, PendingConnectedOpenScope, PendingNodeOpenRequest,
+    GraphBrowserApp, GraphIntent, LifecycleCause, PendingConnectedOpenScope, PendingNodeOpenRequest,
     PendingTileOpenMode, UnsavedWorkspacePromptAction, UnsavedWorkspacePromptRequest,
 };
 use crate::graph::NodeKey;
 use crate::input;
 use crate::render;
 use crate::running_app_state::RunningAppState;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 fn tile_open_mode_from_pending(
     mode: crate::app::PendingTileOpenMode,
@@ -109,9 +110,10 @@ fn restore_named_workspace_snapshot(
                             request.key,
                             pending_tile_mode_to_tile_mode(request.mode),
                         );
-                        graph_app.apply_intents([GraphIntent::PromoteNodeToActive {
-                            key: request.key,
-                        }]);
+                        graph_app.apply_intents([lifecycle_intents::promote_node_to_active(
+                            request.key,
+                            LifecycleCause::Restore,
+                        )]);
                     }
                     graph_app
                         .note_workspace_activated(name, workspace_nodes_from_tree(&restored_tree));
@@ -351,7 +353,8 @@ fn connected_targets_for_open(
 pub(crate) struct PreFrameIngestArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a GraphBrowserApp,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) app_state: &'a RunningAppState,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     pub(crate) thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
@@ -371,6 +374,7 @@ pub(crate) fn ingest_pre_frame(
     let PreFrameIngestArgs {
         ctx,
         graph_app,
+        app_state,
         window,
         favicon_textures,
         thumbnail_capture_tx,
@@ -386,7 +390,7 @@ pub(crate) fn ingest_pre_frame(
     ));
     let (semantic_intents, pending_open_child_webviews, responsive_webviews) =
         semantic_event_pipeline::graph_intents_and_responsive_from_events(
-            window.take_pending_graph_events(),
+            app_state.take_pending_graph_events(),
         );
     frame_intents.extend(semantic_intents);
     frame_intents.extend(thumbnail_pipeline::load_pending_favicons(
@@ -442,6 +446,12 @@ pub(crate) fn apply_intents_if_any(
     for _ in 0..redo_count {
         let _ = graph_app.perform_redo(layout_json.clone());
     }
+
+    #[cfg(debug_assertions)]
+    debug_assert!(
+        intents.is_empty(),
+        "intent buffer must be drained by apply_intents_if_any"
+    );
 }
 
 fn is_user_undoable_intent(intent: &GraphIntent) -> bool {
@@ -483,7 +493,7 @@ pub(crate) fn open_pending_child_webviews_for_tiles<F>(
 pub(crate) struct KeyboardPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
@@ -507,7 +517,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     F1: FnMut(
         &mut Tree<TileKind>,
         &mut GraphBrowserApp,
-        &ServoShellWindow,
+        &EmbedderWindow,
         &Option<Rc<RunningAppState>>,
         &Rc<OffscreenRenderingContext>,
         &Rc<WindowRenderingContext>,
@@ -593,7 +603,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) winit_window: &'a Window,
     pub(crate) state: &'a RunningAppState,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) focused_webview_hint: Option<WebViewId>,
     pub(crate) graph_surface_focused: bool,
@@ -706,7 +716,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
 pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
     pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
@@ -737,6 +747,8 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         webview_creation_backpressure,
     } = args;
 
+    let reconcile_start_index = frame_intents.len();
+
     lifecycle_reconcile::reconcile_runtime(RuntimeReconcileArgs {
         graph_app,
         tiles_tree,
@@ -752,13 +764,29 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         frame_intents,
     });
 
+    #[cfg(debug_assertions)]
+    {
+        for intent in &frame_intents[reconcile_start_index..] {
+            debug_assert!(
+                !matches!(intent, GraphIntent::Undo | GraphIntent::Redo),
+                "reconcile must not emit undo/redo intents"
+            );
+        }
+    }
+
     apply_intents_if_any(graph_app, tiles_tree, frame_intents);
+
+    #[cfg(debug_assertions)]
+    debug_assert!(
+        frame_intents.is_empty(),
+        "frame intents must be empty after reconcile-and-apply phase"
+    );
 }
 
 pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) headed_window: &'a HeadedWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -1076,9 +1104,15 @@ pub(crate) fn run_post_render_phase<FActive>(
             key: source,
             multi_select: false,
         });
-        intents.push(GraphIntent::PromoteNodeToActive { key: source });
+        intents.push(lifecycle_intents::promote_node_to_active(
+            source,
+            LifecycleCause::UserSelect,
+        ));
         for node in &connected {
-            intents.push(GraphIntent::PromoteNodeToActive { key: *node });
+            intents.push(lifecycle_intents::promote_node_to_active(
+                *node,
+                LifecycleCause::ActiveTileVisible,
+            ));
         }
         graph_app.apply_intents(intents);
 

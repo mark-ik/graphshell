@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher};
 use egui::{Color32, Id, Response, Sense, Stroke, TextStyle, Ui, Vec2, WidgetText, vec2};
 use egui_tiles::{Behavior, Container, SimplificationOptions, TabState, Tile, TileId, Tiles, UiResponse};
 
-use crate::app::{GraphBrowserApp, GraphIntent, SearchDisplayMode};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, SearchDisplayMode};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::render;
 use crate::render::GraphAction;
@@ -18,6 +18,7 @@ use crate::util::truncate_with_ellipsis;
 
 use super::selection_range::inclusive_index_range;
 use super::tile_kind::TileKind;
+use super::lifecycle_intents;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PendingOpenMode {
@@ -250,15 +251,19 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     ui.label("Missing node for this tile.");
                     return UiResponse::None;
                 };
-                if let Some(crash) = self.graph_app.get_node_crash_state(*node_key) {
+                if let Some(crash) = self.graph_app.runtime_crash_state_for_node(*node_key) {
+                    let crash_reason = crash.message.as_deref().unwrap_or("unknown");
                     ui.colored_label(
                         egui::Color32::from_rgb(220, 120, 120),
-                        format!("Tab crashed: {}", crash.reason),
+                        format!("Tab crashed: {}", crash_reason),
                     );
                     ui.horizontal(|ui| {
                         if ui.button("Reload").clicked() {
                             self.pending_graph_intents
-                                .push(GraphIntent::PromoteNodeToActive { key: *node_key });
+                                .push(lifecycle_intents::promote_node_to_active(
+                                    *node_key,
+                                    LifecycleCause::UserSelect,
+                                ));
                         }
                         if ui.button("Close Tile").clicked() {
                             self.pending_closed_nodes.push(*node_key);
@@ -268,7 +273,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         ui.small("Crash reported a backtrace.");
                     }
                     if let Ok(elapsed) =
-                        std::time::SystemTime::now().duration_since(crash.crashed_at)
+                        std::time::SystemTime::now().duration_since(crash.blocked_at)
                     {
                         ui.small(format!("Crashed {}s ago", elapsed.as_secs()));
                     }
@@ -295,7 +300,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 multi_select: false,
                             });
                             self.pending_graph_intents
-                                .push(GraphIntent::PromoteNodeToActive { key: *node_key });
+                                .push(lifecycle_intents::promote_node_to_active(
+                                    *node_key,
+                                    LifecycleCause::UserSelect,
+                                ));
                         }
                     });
                 }

@@ -27,11 +27,14 @@ use winit::window::Window;
 use super::graph_search_flow::{self, GraphSearchFlowArgs};
 use super::graph_search_ui::{self, GraphSearchUiArgs};
 use super::gui_frame::{self, PreFrameIngestArgs, ToolbarDialogPhaseArgs};
+use super::lifecycle_intents;
 use super::persistence_ops;
 use super::semantic_event_pipeline;
 use super::thumbnail_pipeline::{self, ThumbnailCaptureResult};
 use super::tile_compositor;
+#[cfg(test)]
 use super::tile_grouping;
+#[cfg(test)]
 use super::tile_invariants;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
@@ -41,15 +44,26 @@ use super::toolbar_ui::OmnibarSearchSession;
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_status_sync;
 use crate::app::{
-    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, PendingTileOpenMode,
-    SearchDisplayMode, ToastAnchorPreference,
+    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, LifecycleCause,
+    PendingTileOpenMode, SearchDisplayMode, ToastAnchorPreference,
 };
 use crate::desktop::event_loop::AppEvent;
 use crate::desktop::headed_window;
 use crate::graph::NodeKey;
 use crate::running_app_state::RunningAppState;
 use crate::search::fuzzy_match_node_keys;
-use crate::window::{GraphSemanticEvent, ServoShellWindow};
+use crate::window::{GraphSemanticEvent, EmbedderWindow};
+
+struct ToolbarState {
+    location: String,
+    location_dirty: bool,
+    location_submitted: bool,
+    show_clear_data_confirm: bool,
+    load_status: LoadStatus,
+    status_text: Option<String>,
+    can_go_back: bool,
+    can_go_forward: bool,
+}
 
 /// The user interface of a headed servoshell. Currently this is implemented via
 /// egui.
@@ -61,32 +75,11 @@ pub struct Gui {
     tiles_tree: Tree<TileKind>,
     toolbar_height: Length<f32, DeviceIndependentPixel>,
 
-    location: String,
-
-    /// Whether the location has been edited by the user without clicking Go.
-    location_dirty: bool,
-
-    /// Whether the address bar Enter was pressed (consumed on next frame).
-    location_submitted: bool,
-
-    /// Whether to show the "clear saved graph data" confirmation dialog.
-    show_clear_data_confirm: bool,
-
-    /// The [`LoadStatus`] of the active `WebView`.
-    load_status: LoadStatus,
-
-    /// The text to display in the status bar on the bottom of the window.
-    status_text: Option<String>,
+    toolbar_state: ToolbarState,
     /// Non-blocking toast notifications.
     toasts: egui_notify::Toasts,
     /// System clipboard handle.
     clipboard: Option<Clipboard>,
-
-    /// Whether or not the current `WebView` can navigate backward.
-    can_go_back: bool,
-
-    /// Whether or not the current `WebView` can navigate forward.
-    can_go_forward: bool,
 
     /// Handle to the GPU texture of the favicon.
     ///
@@ -281,18 +274,20 @@ impl Gui {
             context,
             tiles_tree,
             toolbar_height: Default::default(),
-            location: initial_url.to_string(),
-            location_dirty: false,
-            location_submitted: false,
-            show_clear_data_confirm: false,
-            load_status: LoadStatus::Complete,
-            status_text: None,
+            toolbar_state: ToolbarState {
+                location: initial_url.to_string(),
+                location_dirty: false,
+                location_submitted: false,
+                show_clear_data_confirm: false,
+                load_status: LoadStatus::Complete,
+                status_text: None,
+                can_go_back: false,
+                can_go_forward: false,
+            },
             toasts: egui_notify::Toasts::default()
                 .with_anchor(Self::toast_anchor(graph_app.toast_anchor_preference))
                 .with_margin(egui::vec2(12.0, 12.0)),
             clipboard: Clipboard::new().ok(),
-            can_go_back: false,
-            can_go_forward: false,
             favicon_textures: Default::default(),
             graph_app,
             tile_rendering_contexts: HashMap::new(),
@@ -465,7 +460,7 @@ impl Gui {
     }
 
     pub(crate) fn request_location_submit(&mut self) {
-        self.location_submitted = true;
+        self.toolbar_state.location_submitted = true;
     }
 
     pub(crate) fn request_command_palette_toggle(&mut self) {
@@ -491,14 +486,14 @@ impl Gui {
         self.graph_app.show_command_palette
             || self.graph_app.show_help_panel
             || self.graph_app.show_physics_panel
-            || self.show_clear_data_confirm
+            || self.toolbar_state.show_clear_data_confirm
     }
 
     /// Update the user interface, but do not paint the updated state.
     pub(crate) fn update(
         &mut self,
         state: &RunningAppState,
-        window: &ServoShellWindow,
+        window: &EmbedderWindow,
         headed_window: &headed_window::HeadedWindow,
     ) {
         // Note: We need Rc<RunningAppState> for webview creation, but this method
@@ -518,10 +513,7 @@ impl Gui {
             context,
             tiles_tree,
             toolbar_height,
-            location,
-            location_dirty,
-            location_submitted,
-            show_clear_data_confirm,
+            toolbar_state,
             toasts,
             clipboard,
             favicon_textures,
@@ -560,6 +552,7 @@ impl Gui {
                 PreFrameIngestArgs {
                     ctx,
                     graph_app,
+                    app_state: state,
                     window,
                     favicon_textures,
                     thumbnail_capture_tx,
@@ -586,8 +579,8 @@ impl Gui {
                     graph_search_filter_mode,
                     graph_search_matches,
                     graph_search_active_match_index,
-                    location,
-                    location_dirty,
+                    location: &mut toolbar_state.location,
+                    location_dirty: &mut toolbar_state.location_dirty,
                     frame_intents: &mut frame_intents,
                     graph_search_available,
                 },
@@ -660,14 +653,14 @@ impl Gui {
                     tiles_tree,
                     focused_webview_hint: *focused_webview_hint,
                     graph_surface_focused: self.graph_surface_focused,
-                    can_go_back: self.can_go_back,
-                    can_go_forward: self.can_go_forward,
-                    location,
-                    location_dirty,
-                    location_submitted,
+                    can_go_back: toolbar_state.can_go_back,
+                    can_go_forward: toolbar_state.can_go_forward,
+                    location: &mut toolbar_state.location,
+                    location_dirty: &mut toolbar_state.location_dirty,
+                    location_submitted: &mut toolbar_state.location_submitted,
                     focus_location_field_for_search: graph_search_output
                         .focus_location_field_for_search,
-                    show_clear_data_confirm,
+                    show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
                     omnibar_search_session: &mut self.omnibar_search_session,
                     toasts,
                     tile_rendering_contexts,
@@ -753,7 +746,10 @@ impl Gui {
                 }
                 // A node created from omnibar submit in detail-mode fallback starts as Cold.
                 // Promote it so lifecycle reconciliation can instantiate its webview.
-                frame_intents.push(GraphIntent::PromoteNodeToActive { key: node_key });
+                frame_intents.push(lifecycle_intents::promote_node_to_active(
+                    node_key,
+                    LifecycleCause::UserSelect,
+                ));
             }
             gui_frame::open_pending_child_webviews_for_tiles(
                 graph_app,
@@ -875,7 +871,7 @@ impl Gui {
     fn toggle_tile_view(
         tiles_tree: &mut Tree<TileKind>,
         graph_app: &mut GraphBrowserApp,
-        window: &ServoShellWindow,
+        window: &EmbedderWindow,
         app_state: &Option<Rc<RunningAppState>>,
         base_rendering_context: &Rc<OffscreenRenderingContext>,
         window_rendering_context: &Rc<WindowRenderingContext>,
@@ -930,8 +926,8 @@ impl Gui {
 
     /// Updates the location field from the given [`RunningAppState`], unless the user has started
     /// editing it without clicking Go, returning true iff it has changed (needing an egui update).
-    fn update_location_in_toolbar(&mut self, window: &ServoShellWindow) -> bool {
-        if self.location.trim_start().starts_with('@') {
+    fn update_location_in_toolbar(&mut self, window: &EmbedderWindow) -> bool {
+        if self.toolbar_state.location.trim_start().starts_with('@') {
             // Preserve active omnibar node-search query text while cycling matches.
             return false;
         }
@@ -944,8 +940,8 @@ impl Gui {
         });
         let focused_webview_id = self.focused_webview_id();
         webview_status_sync::update_location_in_toolbar(
-            self.location_dirty,
-            &mut self.location,
+            self.toolbar_state.location_dirty,
+            &mut self.toolbar_state.location,
             has_webview_tiles,
             selected_node_url,
             focused_webview_id,
@@ -953,34 +949,38 @@ impl Gui {
         )
     }
 
-    fn update_load_status(&mut self, window: &ServoShellWindow) -> bool {
+    fn update_load_status(&mut self, window: &EmbedderWindow) -> bool {
         let focused_webview_id = self.focused_webview_id();
         webview_status_sync::update_load_status(
-            &mut self.load_status,
-            &mut self.location_dirty,
+            &mut self.toolbar_state.load_status,
+            &mut self.toolbar_state.location_dirty,
             focused_webview_id,
             window,
         )
     }
 
-    fn update_status_text(&mut self, window: &ServoShellWindow) -> bool {
+    fn update_status_text(&mut self, window: &EmbedderWindow) -> bool {
         let focused_webview_id = self.focused_webview_id();
-        webview_status_sync::update_status_text(&mut self.status_text, focused_webview_id, window)
+        webview_status_sync::update_status_text(
+            &mut self.toolbar_state.status_text,
+            focused_webview_id,
+            window,
+        )
     }
 
-    fn update_can_go_back_and_forward(&mut self, window: &ServoShellWindow) -> bool {
+    fn update_can_go_back_and_forward(&mut self, window: &EmbedderWindow) -> bool {
         let focused_webview_id = self.focused_webview_id();
         webview_status_sync::update_can_go_back_and_forward(
-            &mut self.can_go_back,
-            &mut self.can_go_forward,
+            &mut self.toolbar_state.can_go_back,
+            &mut self.toolbar_state.can_go_forward,
             focused_webview_id,
             window,
         )
     }
 
-    /// Updates all fields taken from the given [`ServoShellWindow`], such as the location field.
+    /// Updates all fields taken from the given [`EmbedderWindow`], such as the location field.
     /// Returns true iff the egui needs an update.
-    pub(crate) fn update_webview_data(&mut self, window: &ServoShellWindow) -> bool {
+    pub(crate) fn update_webview_data(&mut self, window: &EmbedderWindow) -> bool {
         // Note: We must use the "bitwise OR" (|) operator here instead of "logical OR" (||)
         //       because logical OR would short-circuit if any of the functions return true.
         //       We want to ensure that all functions are called. The "bitwise OR" operator
@@ -1043,6 +1043,7 @@ impl Gui {
 mod tests {
     use super::*;
     use egui_tiles::{Container, Tile, TileId, Tiles, Tree};
+    use crate::window::GraphSemanticEventKind;
 
     /// Create a unique WebViewId for testing.
     fn test_webview_id() -> servo::WebViewId {
@@ -1056,6 +1057,14 @@ mod tests {
             }
         });
         servo::WebViewId::new(base::id::PainterId::next())
+    }
+
+    fn event(kind: GraphSemanticEventKind) -> GraphSemanticEvent {
+        static NEXT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        GraphSemanticEvent {
+            seq: NEXT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            kind,
+        }
     }
 
     fn tree_with_graph_root() -> Tree<TileKind> {
@@ -1594,24 +1603,24 @@ mod tests {
         let w2 = test_webview_id();
         let w3 = test_webview_id();
         let events = vec![
-            GraphSemanticEvent::UrlChanged {
+            event(GraphSemanticEventKind::UrlChanged {
                 webview_id: w1,
                 new_url: "https://a.com".to_string(),
-            },
-            GraphSemanticEvent::HistoryChanged {
+            }),
+            event(GraphSemanticEventKind::HistoryChanged {
                 webview_id: w2,
                 entries: vec!["https://x.com".to_string()],
                 current: 0,
-            },
-            GraphSemanticEvent::PageTitleChanged {
+            }),
+            event(GraphSemanticEventKind::PageTitleChanged {
                 webview_id: w1,
                 title: Some("A".to_string()),
-            },
-            GraphSemanticEvent::CreateNewWebView {
+            }),
+            event(GraphSemanticEventKind::CreateNewWebView {
                 parent_webview_id: w1,
                 child_webview_id: w3,
                 initial_url: Some("https://child.com".to_string()),
-            },
+            }),
         ];
 
         let intents = graph_intents_from_semantic_events(events);
@@ -1643,11 +1652,11 @@ mod tests {
     #[test]
     fn test_graph_intents_from_semantic_events_maps_webview_crashed() {
         let wv = test_webview_id();
-        let events = vec![GraphSemanticEvent::WebViewCrashed {
+        let events = vec![event(GraphSemanticEventKind::WebViewCrashed {
             webview_id: wv,
             reason: "renderer panic".to_string(),
             has_backtrace: true,
-        }];
+        })];
 
         let intents = graph_intents_from_semantic_events(events);
         assert_eq!(intents.len(), 1);
@@ -1665,26 +1674,26 @@ mod tests {
     fn test_graph_intents_and_responsive_from_events_redirect_like_sequence_preserves_order() {
         let wv = test_webview_id();
         let events = vec![
-            GraphSemanticEvent::UrlChanged {
+            event(GraphSemanticEventKind::UrlChanged {
                 webview_id: wv,
                 new_url: "https://redirect-a.example".into(),
-            },
-            GraphSemanticEvent::UrlChanged {
+            }),
+            event(GraphSemanticEventKind::UrlChanged {
                 webview_id: wv,
                 new_url: "https://redirect-b.example".into(),
-            },
-            GraphSemanticEvent::PageTitleChanged {
+            }),
+            event(GraphSemanticEventKind::PageTitleChanged {
                 webview_id: wv,
                 title: Some("Final".into()),
-            },
-            GraphSemanticEvent::HistoryChanged {
+            }),
+            event(GraphSemanticEventKind::HistoryChanged {
                 webview_id: wv,
                 entries: vec![
                     "https://start.example".into(),
                     "https://redirect-b.example".into(),
                 ],
                 current: 1,
-            },
+            }),
         ];
 
         let (intents, created_children, responsive_webviews) =
@@ -1720,19 +1729,19 @@ mod tests {
         let parent = test_webview_id();
         let child = test_webview_id();
         let events = vec![
-            GraphSemanticEvent::UrlChanged {
+            event(GraphSemanticEventKind::UrlChanged {
                 webview_id: parent,
                 new_url: "https://parent.example".into(),
-            },
-            GraphSemanticEvent::CreateNewWebView {
+            }),
+            event(GraphSemanticEventKind::CreateNewWebView {
                 parent_webview_id: parent,
                 child_webview_id: child,
                 initial_url: Some("https://child.example".into()),
-            },
-            GraphSemanticEvent::PageTitleChanged {
+            }),
+            event(GraphSemanticEventKind::PageTitleChanged {
                 webview_id: parent,
                 title: Some("Parent".into()),
-            },
+            }),
         ];
 
         let (intents, created_children, responsive_webviews) =
@@ -1766,24 +1775,24 @@ mod tests {
         app.map_webview_to_node(parent_wv, parent);
 
         let events = vec![
-            GraphSemanticEvent::UrlChanged {
+            event(GraphSemanticEventKind::UrlChanged {
                 webview_id: parent_wv,
                 new_url: "https://parent-updated.com".into(),
-            },
-            GraphSemanticEvent::HistoryChanged {
+            }),
+            event(GraphSemanticEventKind::HistoryChanged {
                 webview_id: parent_wv,
                 entries: vec!["https://a.com".into(), "https://b.com".into()],
                 current: 1,
-            },
-            GraphSemanticEvent::PageTitleChanged {
+            }),
+            event(GraphSemanticEventKind::PageTitleChanged {
                 webview_id: parent_wv,
                 title: Some("Updated Parent".into()),
-            },
-            GraphSemanticEvent::CreateNewWebView {
+            }),
+            event(GraphSemanticEventKind::CreateNewWebView {
                 parent_webview_id: parent_wv,
                 child_webview_id: child_wv,
                 initial_url: Some("https://child.com".into()),
-            },
+            }),
         ];
 
         let intents = graph_intents_from_semantic_events(events);

@@ -4,7 +4,7 @@
 
 use servo::{LoadStatus, WebViewId};
 
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) fn update_location_in_toolbar(
     location_dirty: bool,
@@ -12,7 +12,7 @@ pub(crate) fn update_location_in_toolbar(
     has_webview_tiles: bool,
     selected_node_url: Option<String>,
     focused_webview_id: Option<WebViewId>,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
 ) -> bool {
     if location_dirty {
         return false;
@@ -44,7 +44,7 @@ pub(crate) fn update_load_status(
     load_status: &mut LoadStatus,
     location_dirty: &mut bool,
     focused_webview_id: Option<WebViewId>,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
 ) -> bool {
     let state_status = focused_webview_id
         .and_then(|id| window.webview_by_id(id))
@@ -63,7 +63,7 @@ pub(crate) fn update_load_status(
 pub(crate) fn update_status_text(
     status_text: &mut Option<String>,
     focused_webview_id: Option<WebViewId>,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
 ) -> bool {
     let state_status = focused_webview_id
         .and_then(|id| window.webview_by_id(id))
@@ -76,7 +76,7 @@ pub(crate) fn update_can_go_back_and_forward(
     can_go_back: &mut bool,
     can_go_forward: &mut bool,
     focused_webview_id: Option<WebViewId>,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
 ) -> bool {
     let (state_can_go_back, state_can_go_forward) = focused_webview_id
         .and_then(|id| window.webview_by_id(id))

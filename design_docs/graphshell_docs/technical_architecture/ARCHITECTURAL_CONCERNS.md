@@ -50,7 +50,7 @@ The desired architecture for managing state is not yet fully implemented.
 
 The documentation explicitly identifies areas of duplicated state.
 
-- **Selection State**: [implementation_strategy/2026-02-14_selection_semantics_plan.md](implementation_strategy/2026-02-14_selection_semantics_plan.md) was created to address the problem of duplicated selection state between different components. This is a known weakness in the current component wiring that can lead to UI inconsistencies and bugs.
+- **Selection State**: [implementation_strategy/2026-02-14_selection_semantics_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md) was created to address the problem of duplicated selection state between different components. This is a known weakness in the current component wiring that can lead to UI inconsistencies and bugs.
 - **Status (Feb 17)**: Keep as active concern only to the extent unresolved items remain in the selection semantics plan.
 ---
 
@@ -70,7 +70,7 @@ The architectural documents do not specify how the application should behave whe
 
 - **Gap**: A robust browser architecture must be resilient to crashes in content processes. It is unclear from the documents whether such a crash would be gracefully handled (e.g., by displaying a "crashed tab" message) or if it would risk taking down the entire Graphshell application.
 - **Impact**: Without a clear strategy, the application's stability is at risk from misbehaving web content.
-- **Status (Feb 17)**: Implemented for desktop graphshell paths (semantic event -> reducer demote/unmap -> tile crash banner/actions), as documented in [implementation_strategy/2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) under "Crash Handling Policy (Specified 2026-02-17)". Remaining limitations are upstream API surface concerns (for example web-content accessibility), not missing crash policy wiring in graphshell desktop.
+- **Status (Feb 17)**: Implemented for desktop graphshell paths (semantic event -> reducer demote/unmap -> tile crash banner/actions), as documented in [implementation_strategy/2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) under "Crash Handling Policy (Specified 2026-02-17)". Remaining limitations are upstream API surface concerns (for example web-content accessibility), not missing crash policy wiring in graphshell desktop.
 
 ---
 
@@ -78,6 +78,8 @@ The architectural documents do not specify how the application should behave whe
 
 The primary UI component remains large and may have too many responsibilities, despite recent refactoring.
 
-- **Concern**: `desktop/gui.rs` has grown to ~2,840 lines (as of Feb 17), well beyond the ~800-1000 lines noted in `DEVELOPER_GUIDE.md` and `CODEBASE_MAP.md`.
+- **Concern**: `desktop/gui.rs` is ~1,741 lines (as of Feb 21), still above the ~800-1000 guideline noted in `DEVELOPER_GUIDE.md` and `CODEBASE_MAP.md`.
 - **Impact**: Large, monolithic components are difficult to understand, maintain, and test. This file's size suggests it may be a "god object" for the UI layer, and further decomposition might be necessary to improve the health of the UI architecture.
+
+
 

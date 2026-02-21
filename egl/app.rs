@@ -24,9 +24,9 @@ use url::Url;
 
 use crate::egl::host_trait::HostTrait;
 use crate::parser::location_bar_input_to_url;
-use crate::prefs::ServoShellPreferences;
+use crate::prefs::AppPreferences;
 use crate::running_app_state::RunningAppState;
-use crate::window::{PlatformWindow, ServoShellWindow, ServoShellWindowId};
+use crate::window::{PlatformWindow, EmbedderWindow, EmbedderWindowId};
 
 const INPUT_TARGET_FALLBACK_WARN_INTERVAL: Duration = Duration::from_secs(60);
 
@@ -66,7 +66,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         Some(self)
     }
 
-    fn id(&self) -> ServoShellWindowId {
+    fn id(&self) -> EmbedderWindowId {
         0.into()
     }
 
@@ -91,13 +91,13 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         false
     }
 
-    fn rebuild_user_interface(&self, _: &RunningAppState, _: &ServoShellWindow) {}
+    fn rebuild_user_interface(&self, _: &RunningAppState, _: &EmbedderWindow) {}
 
     #[cfg_attr(target_os = "android", expect(unused_variables))]
     fn update_user_interface_state(
         &self,
         state: &RunningAppState,
-        window: &ServoShellWindow,
+        window: &EmbedderWindow,
     ) -> bool {
         let Some(webview_id) = self.preferred_input_webview_id(window) else {
             return false;
@@ -164,7 +164,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         title_changed || url_changed || back_forward_changed || load_status_changed
     }
 
-    fn request_repaint(&self, window: &ServoShellWindow) {
+    fn request_repaint(&self, window: &EmbedderWindow) {
         window.repaint_webviews();
     }
 
@@ -269,7 +269,7 @@ pub(crate) struct AppInitOptions {
     pub initial_url: Option<String>,
     pub opts: Opts,
     pub preferences: Preferences,
-    pub servoshell_preferences: ServoShellPreferences,
+    pub app_preferences: AppPreferences,
     #[cfg(feature = "webxr")]
     pub xr_discovery: Option<servo::webxr::Discovery>,
 }
@@ -298,14 +298,14 @@ impl App {
 
         let initial_url = init.initial_url.and_then(|string| Url::parse(&string).ok());
         let initial_url = initial_url
-            .or_else(|| Url::parse(&init.servoshell_preferences.homepage).ok())
+            .or_else(|| Url::parse(&init.app_preferences.homepage).ok())
             .or_else(|| Url::parse("about:blank").ok())
             .expect("Failed to parse initial URL");
 
         let user_content_manager = Rc::new(UserContentManager::new(&servo));
         let state = Rc::new(RunningAppState::new(
             servo,
-            init.servoshell_preferences,
+            init.app_preferences,
             init.event_loop_waker,
             user_content_manager,
             init.preferences,
@@ -359,11 +359,11 @@ impl App {
         &self.state.servo
     }
 
-    pub(crate) fn servoshell_preferences(&self) -> &ServoShellPreferences {
-        &self.state.servoshell_preferences
+    pub(crate) fn app_preferences(&self) -> &AppPreferences {
+        &self.state.app_preferences
     }
 
-    pub(crate) fn window(&self) -> Rc<ServoShellWindow> {
+    pub(crate) fn window(&self) -> Rc<EmbedderWindow> {
         self.state
             .windows()
             .values()
@@ -452,7 +452,7 @@ impl App {
     /// Load an URL in a specific WebView.
     pub fn load_uri_for_webview(&self, webview_id: WebViewId, location: &str) {
         let Some(url) =
-            location_bar_input_to_url(location, &self.servoshell_preferences().searchpage)
+            location_bar_input_to_url(location, &self.app_preferences().searchpage)
         else {
             warn!("failed to parse location");
             return;

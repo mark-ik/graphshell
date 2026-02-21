@@ -20,11 +20,11 @@ use servo::{
 };
 use winit::dpi::PhysicalSize;
 
-use crate::prefs::ServoShellPreferences;
-use crate::window::{MIN_WINDOW_INNER_SIZE, PlatformWindow, ServoShellWindow, ServoShellWindowId};
+use crate::prefs::AppPreferences;
+use crate::window::{MIN_WINDOW_INNER_SIZE, PlatformWindow, EmbedderWindow, EmbedderWindowId};
 
 pub struct HeadlessWindow {
-    id: ServoShellWindowId,
+    id: EmbedderWindowId,
     fullscreen: Cell<bool>,
     device_pixel_ratio_override: Option<Scale<f32, DeviceIndependentPixel, DevicePixel>>,
     inner_size: Cell<DeviceIntSize>,
@@ -35,10 +35,10 @@ pub struct HeadlessWindow {
 }
 
 impl HeadlessWindow {
-    pub fn new(servoshell_preferences: &ServoShellPreferences) -> Rc<Self> {
-        let size = servoshell_preferences.initial_window_size;
+    pub fn new(app_preferences: &AppPreferences) -> Rc<Self> {
+        let size = app_preferences.initial_window_size;
 
-        let device_pixel_ratio_override = servoshell_preferences.device_pixel_ratio_override;
+        let device_pixel_ratio_override = app_preferences.device_pixel_ratio_override;
         let device_pixel_ratio_override: Option<Scale<f32, DeviceIndependentPixel, DevicePixel>> =
             device_pixel_ratio_override.map(Scale::new);
         let hidpi_factor = device_pixel_ratio_override.unwrap_or_else(Scale::identity);
@@ -48,7 +48,7 @@ impl HeadlessWindow {
         let rendering_context =
             SoftwareRenderingContext::new(physical_size).expect("Failed to create WR surfman");
 
-        let screen_size = servoshell_preferences
+        let screen_size = app_preferences
             .screen_size_override
             .map_or(inner_size * 2, |screen_size_override| {
                 (screen_size_override.to_f32() * hidpi_factor).to_i32()
@@ -80,7 +80,7 @@ impl Drop for HeadlessWindow {
 }
 
 impl PlatformWindow for HeadlessWindow {
-    fn id(&self) -> ServoShellWindowId {
+    fn id(&self) -> EmbedderWindowId {
         self.id
     }
 
@@ -99,7 +99,7 @@ impl PlatformWindow for HeadlessWindow {
         self.window_position.set(point);
     }
 
-    fn request_repaint(&self, window: &ServoShellWindow) {
+    fn request_repaint(&self, window: &EmbedderWindow) {
         window.repaint_webviews();
     }
 

@@ -4,25 +4,27 @@
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::time::Instant;
 
 use egui_tiles::Tree;
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 use sysinfo::System;
 
-use crate::app::{GraphBrowserApp, GraphIntent, MemoryPressureLevel};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, MemoryPressureLevel};
 use crate::desktop::tile_compositor;
 use crate::desktop::tile_kind::TileKind;
 use crate::desktop::tile_runtime;
+use crate::desktop::lifecycle_intents;
 use crate::desktop::webview_backpressure::{self, WebviewCreationBackpressureState};
 use crate::desktop::webview_controller;
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::running_app_state::RunningAppState;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) struct RuntimeReconcileArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
     pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
@@ -90,12 +92,22 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     for node_key in args.graph_app.take_warm_cache_evictions() {
         if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
             args.window.close_webview(webview_id);
-            args.frame_intents
-                .push(GraphIntent::UnmapWebview { webview_id });
+            args.frame_intents.push(GraphIntent::UnmapWebview { webview_id });
         }
         args.tile_rendering_contexts.remove(&node_key);
-        args.frame_intents
-            .push(GraphIntent::DemoteNodeToCold { key: node_key });
+        // Workspace-aware demotion:
+        let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
+        if is_workspace_member {
+            args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
+                node_key,
+                LifecycleCause::WarmLruEviction,
+            ));
+        } else {
+            args.frame_intents.push(lifecycle_intents::demote_node_to_cold(
+                node_key,
+                LifecycleCause::NodeRemoval,
+            ));
+        }
     }
     args.tile_favicon_textures
         .retain(|node_key, _| args.graph_app.graph.get_node(*node_key).is_some());
@@ -112,14 +124,20 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .collect();
     let has_webview_tiles = !tile_nodes.is_empty();
     for node_key in active_tile_nodes.iter().copied() {
+        if args.graph_app.is_runtime_blocked(node_key, Instant::now()) {
+            continue;
+        }
         let should_promote = args
             .graph_app
             .graph
             .get_node(node_key)
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false);
-        if should_promote && args.graph_app.get_node_crash_state(node_key).is_none() {
-            args.graph_app.promote_node_to_active(node_key);
+        if should_promote && !args.graph_app.is_crash_blocked(node_key) {
+            args.frame_intents.push(lifecycle_intents::promote_node_to_active(
+                node_key,
+                LifecycleCause::ActiveTileVisible,
+            ));
         }
     }
     let prewarm_selected_node = args
@@ -127,7 +145,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         .get_single_selected_node()
         .filter(|node_key| !active_tile_nodes.contains(node_key))
         .filter(|node_key| args.graph_app.get_webview_for_node(*node_key).is_none())
-        .filter(|node_key| args.graph_app.get_node_crash_state(*node_key).is_none());
+        .filter(|node_key| !args.graph_app.is_runtime_blocked(*node_key, Instant::now()))
+        .filter(|node_key| !args.graph_app.is_crash_blocked(*node_key));
     if let Some(node_key) = prewarm_selected_node
         && args
             .graph_app
@@ -136,7 +155,10 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false)
     {
-        args.graph_app.promote_node_to_active(node_key);
+        args.frame_intents.push(lifecycle_intents::promote_node_to_active(
+            node_key,
+            LifecycleCause::SelectedPrewarm,
+        ));
     }
 
     if has_webview_tiles {
@@ -201,22 +223,128 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             {
                 if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
                     args.window.close_webview(webview_id);
-                    args.frame_intents
-                        .push(GraphIntent::UnmapWebview { webview_id });
+                    args.frame_intents.push(GraphIntent::UnmapWebview { webview_id });
                 }
                 args.tile_rendering_contexts.remove(&node_key);
-                args.frame_intents
-                    .push(GraphIntent::DemoteNodeToCold { key: node_key });
+                let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
+                if is_workspace_member {
+                    args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
+                        node_key,
+                        LifecycleCause::MemoryPressureWarning,
+                    ));
+                } else {
+                    args.frame_intents.push(lifecycle_intents::demote_node_to_cold(
+                        node_key,
+                        LifecycleCause::MemoryPressureCritical,
+                    ));
+                }
             }
         }
         for node_key in args
             .graph_app
             .take_active_webview_evictions(&protected_active_nodes)
         {
-            args.frame_intents
-                .push(GraphIntent::DemoteNodeToWarm { key: node_key });
+            let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
+            if is_workspace_member {
+                args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
+                    node_key,
+                    LifecycleCause::ActiveLruEviction,
+                ));
+            } else {
+                args.frame_intents.push(lifecycle_intents::demote_node_to_cold(
+                    node_key,
+                    LifecycleCause::ActiveLruEviction,
+                ));
+            }
         }
     } else {
         args.webview_creation_backpressure.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MemoryPressureLevel, pressure_adjusted_active_limit};
+
+    #[test]
+    fn test_pressure_adjusted_active_limit_respects_bounds() {
+        assert_eq!(
+            pressure_adjusted_active_limit(4, MemoryPressureLevel::Unknown),
+            4
+        );
+        assert_eq!(
+            pressure_adjusted_active_limit(4, MemoryPressureLevel::Normal),
+            4
+        );
+        assert_eq!(
+            pressure_adjusted_active_limit(4, MemoryPressureLevel::Warning),
+            3
+        );
+        assert_eq!(
+            pressure_adjusted_active_limit(1, MemoryPressureLevel::Warning),
+            1
+        );
+        assert_eq!(
+            pressure_adjusted_active_limit(4, MemoryPressureLevel::Critical),
+            1
+        );
+    }
+
+    #[test]
+    fn test_reconcile_runtime_has_no_direct_lifecycle_mutation_calls() {
+        let source = include_str!("lifecycle_reconcile.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            !production_source.contains("graph_app.promote_node_to_active("),
+            "reconcile must emit lifecycle intents, not call direct promotion helpers"
+        );
+        assert!(
+            !production_source.contains("graph_app.demote_node_to_warm("),
+            "reconcile must emit lifecycle intents, not call direct demotion helpers"
+        );
+        assert!(
+            !production_source.contains("graph_app.demote_node_to_cold("),
+            "reconcile must emit lifecycle intents, not call direct demotion helpers"
+        );
+    }
+
+    #[test]
+    fn test_retry_exhaustion_sets_blocked_and_prevents_recreate_loop() {
+        let source = include_str!("lifecycle_reconcile.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("is_runtime_blocked("),
+            "reconcile must gate promote/prewarm when runtime is blocked"
+        );
+    }
+
+    #[test]
+    fn test_memory_pressure_demotion_includes_cause_and_order_is_stable() {
+        let source = include_str!("lifecycle_reconcile.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let warning_pos = production_source
+            .find("LifecycleCause::MemoryPressureWarning")
+            .expect("warning cause must be present");
+        let critical_pos = production_source
+            .find("LifecycleCause::MemoryPressureCritical")
+            .expect("critical cause must be present");
+        assert!(
+            warning_pos < critical_pos,
+            "warning demotion path should appear before critical demotion path"
+        );
+    }
+
+    #[test]
+    fn test_lifecycle_reconcile_emits_promote_intents_not_direct_mutation() {
+        let source = include_str!("lifecycle_reconcile.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("lifecycle_intents::promote_node_to_active("),
+            "reconcile should emit promote intents via lifecycle_intents adapter"
+        );
+        assert!(
+            !production_source.contains("graph_app.promote_node_to_active("),
+            "reconcile must not directly mutate promote lifecycle state"
+        );
     }
 }

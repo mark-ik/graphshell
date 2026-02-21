@@ -13,12 +13,12 @@ use crate::desktop::tile_kind::TileKind;
 use crate::desktop::tile_runtime;
 use crate::desktop::webview_controller;
 use crate::graph::NodeKey;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,

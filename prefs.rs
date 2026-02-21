@@ -43,7 +43,7 @@ pub(crate) static EXPERIMENTAL_PREFS: &[&str] = &[
 
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 #[derive(Clone)]
-pub(crate) struct ServoShellPreferences {
+pub(crate) struct AppPreferences {
     /// A URL to load when starting servoshell.
     pub url: Option<String>,
     /// An override value for the device pixel ratio.
@@ -98,7 +98,7 @@ pub(crate) struct ServoShellPreferences {
     pub log_to_file: bool,
 }
 
-impl Default for ServoShellPreferences {
+impl Default for AppPreferences {
     fn default() -> Self {
         Self {
             clean_shutdown: false,
@@ -220,7 +220,7 @@ pub fn read_prefs_map(txt: &str) -> HashMap<String, PrefValue> {
 #[expect(clippy::large_enum_variant)]
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 pub(crate) enum ArgumentParsingResult {
-    ChromeProcess(Opts, Preferences, ServoShellPreferences),
+    ChromeProcess(Opts, Preferences, AppPreferences),
     ContentProcess(String),
     Exit,
     ErrorParsing,
@@ -693,7 +693,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
             default_window_size.min(screen_size_override)
         });
 
-    let servoshell_preferences = ServoShellPreferences {
+    let app_preferences = AppPreferences {
         url: Some(cmd_args.url),
         no_native_titlebar: cmd_args.no_native_titlebar,
         device_pixel_ratio_override: cmd_args.device_pixel_ratio,
@@ -758,7 +758,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
         force_ipc: cmd_args.force_ipc,
     };
 
-    ArgumentParsingResult::ChromeProcess(opts, preferences, servoshell_preferences)
+    ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences)
 }
 
 #[cfg(test)]
@@ -825,15 +825,15 @@ fn test_create_prefs_map() {
 }
 
 #[cfg(test)]
-fn test_parse(arg: &str) -> (Opts, Preferences, ServoShellPreferences) {
+fn test_parse(arg: &str) -> (Opts, Preferences, AppPreferences) {
     // bpaf requires the arguments that are separated by whitespace to be different elements of the vector.
     let args_split: Vec<&str> = arg.split_whitespace().collect();
     match parse_command_line_arguments(args_split.as_slice()) {
         ArgumentParsingResult::ContentProcess(..) => {
             unreachable!("No preferences for content process")
         },
-        ArgumentParsingResult::ChromeProcess(opts, preferences, servoshell_preferences) => {
-            (opts, preferences, servoshell_preferences)
+        ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
+            (opts, preferences, app_preferences)
         },
         ArgumentParsingResult::Exit | ArgumentParsingResult::ErrorParsing => {
             unreachable!("We always have valid preference in our test cases")

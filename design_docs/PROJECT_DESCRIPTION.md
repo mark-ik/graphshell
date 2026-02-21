@@ -7,38 +7,11 @@
 - Clipping: DOM inspection & element extraction from nodes into graph UI as nodes
 - Local-first, permissions-based P2P co-op browsing
 
-## AI Disclaimer
+## Features
 
-First, a disclaimer: I use and have used AI to support this project.
+### Graph UI: spatial representation of a browsing session.
 
-The idea itself is not the product of AI. I have years of notes in which I drafted the graph browser idea and the decentralized network component. I iterated my way into the insight that users should own their data, not be tracked, and we ourselves can capture much richer browsing insights than trackers. That's the second, prospective half of this project, the Verse bit.
-
-I'm not an experienced developer in the least but I've got opinions, a smidgen of coding experience, and honestly, I want to learn how to use these discursive tools and see how far I can get with them. I've also followed the Servo community for years, despite not being a real developer: please contribute if you are able!
-
-This is an open source, non-commercial effort. These ideas work much better open source forever as far as I'm concerned.
-
-## History
-
-My first inkling of this idea actually came from a mod for the game Rimworld, which added a relationship manager that arranged your colonists or factions spatially with links defining their relationships. It occurred to me that this UI, reminiscent of a mind map, would be a good fit for representing tabs spatially, and that there were a lot of rule-based options for how to arrange not just the browsing data, but tons of data patterns in computing.
-
-I learned there was a name for this sort of UI: a force-directed node graph.  a repeating, branching pattern of nodes connected to nodes by lines (edges). The nodes are browser tabs (or any file, document, applet, application, etc.), edges represent the relationship between the two nodes (clicked hyperlink, historical previous-next association, user-associated), and all nodes have both attractive and repellant forces which orient the graph’s elements.
-
-Depending on the behavior you want from the graph or the data you’re trying to represent, you alter the canvas's physics and node/edge rules/types. You could filter, search, create new rules and implement graph topologies conducive to representing particular datasets: trees, buses, self-closing rings, etc.
-
-This leads to rich, opinionated web browsing datasets, and the opportunity to pool our resources to visualize the accessible web with collective browsing history that is anonymous, permissions- and reputation-based, peer-to-peer, and open source. The best implementation of both halves would be somewhere between federated googles combined with subreddits with an Obsidian-esque personal data management layer.
-
-Other inspirations:
-
-- The Internet Map <https://internet-map.net/>
-- YaCy (decentralized search index)
-- Syncthing (open source device sync)
-- Obsidian (canvas, plugins)
-- Anytype (IPFS, shared vaults)
-
-## Planned Features
-
-### Graph UI: visual representation of a browsing session. No more history list: you could just look and see where you’re at and where you’ve been
-
+- petgraph + egui_graphs: force directed node graph UI
 - Organize web resources beyond webpages: documents, notes, files, and applets coexist in graph as nodes!
 - Lasso Zoning: prescribe exclusionary or inclusionary sections of the graph for specific access/domains
 - Rule-based node motility: physics system allows nodes to organize themselves according to your rules/the graph structure
@@ -52,14 +25,13 @@ Other inspirations:
 - - Level-of-detail rendering prevents information overload; zooming out groups by selectable categories, such as time, domain, origin, relatedness, or other sorting rules.
 - Mods: use the rules someone else set up for their graph, like physics parameters, custom node/edge/filter types, canvas region definitions, or extend the capabilities of the app.
 
-### Detail View
+### Workbench
 
-- When a node is opened, you get the familiar tab ui, with tabs organized according to your graph, recency, chronology, relatedness, domain, or origin, or other sorting rules.
-- Clipping: DOM inspection & element extraction from detail view into graph UI as nodes
-- Split view: viewport split between graph and detail view(s)
-- Groups of nodes connected to a hub node would be recognized as a collapsible group
-- Drag and reorganize support reflected in graph structure (drag a tab onto a tab to link them in the graph).
-- Tiling view manager, allowing multiple webviews to exist within the graphshell context.
+- egui_tiles provides tiling view manager called Workbench.
+- Workbench provides persistent, instanced workspaces, with reflowable tabs, panes, and a rendering context for webviews/content
+- Clipping: DOM inspection & element extraction from workspace into graph
+- Split view: arbitrary viewport split between graph pane and workspace panes
+- Graph semantics respected by workbench: auto-grouping, node membership to multiple workspaces, node lifecycle tied to tab ifecycle
 
 ### Sessions
 
@@ -82,6 +54,7 @@ Other inspirations:
 ### P2P Co-op Browsing
 
 - - Make browsing a collaborative activity, where the changes one person makes to a shared graph are synchronized with the rest of the participants.
+- - Everyone uses their own workbench: interacting with tabs in a workspace is local, not shared (except for what you surface) and the lobby is the graph.
 - - Async: check in/check out model with diffs
 - - Live: Version-controlled, realtime edits with time synchronized web processes (to watch netflix with the homies, research, cooperatively use web-hosted applications...)
 
@@ -112,3 +85,31 @@ Other inspirations:
 - - Semantic browsing suggestions, the equivalent of desire paths for browsing, communally sourced.
 - - Voluntary or compensated sharing/forking of user graphs, reminiscent of git.
 - - Scrape-resistant network topology requiring permission and potentially compensation for access.
+
+## History
+
+My first inkling of this idea actually came from a mod for the game Rimworld, which added a relationship manager that arranged your colonists or factions spatially with links defining their relationships. It occurred to me that this UI, reminiscent of a mind map, would be a good fit for representing tabs spatially, and that there were a lot of rule-based options for how to arrange not just the browsing data, but tons of data patterns in computing.
+
+I learned there was a name for this sort of UI: a force-directed node graph.  a repeating, branching pattern of nodes connected to nodes by lines (edges). The nodes are browser tabs (or any file, document, applet, application, etc.), edges represent the relationship between the two nodes (clicked hyperlink, historical previous-next association, user-associated), and all nodes have both attractive and repellant forces which orient the graph’s elements.
+
+Depending on the behavior you want from the graph or the data you’re trying to represent, you alter the canvas's physics and node/edge rules/types. You could filter, search, create new rules and implement graph topologies conducive to representing particular datasets: trees, buses, self-closing rings, etc.
+
+This leads to rich, opinionated web browsing datasets, and the opportunity to pool our resources to visualize the accessible web with collective browsing history that is anonymous, permissions- and reputation-based, peer-to-peer, and open source. The best implementation of both halves would be somewhere between federated googles combined with subreddits with an Obsidian-esque personal data management layer.
+
+Other inspirations:
+
+- The Internet Map <https://internet-map.net/>
+- YaCy (decentralized search index)
+- Syncthing (open source device sync)
+- Obsidian (canvas, plugins)
+- Anytype (IPFS, shared vaults)
+
+## AI Disclaimer
+
+First, a disclaimer: I use and have used AI to support this project.
+
+The idea itself is not the product of AI. I have years of notes in which I drafted the graph browser idea and the decentralized network component. I iterated my way into the insight that users should own their data, not be tracked, and we ourselves can capture much richer browsing insights than trackers. That's the second, prospective half of this project, the Verse bit.
+
+I'm not an experienced developer in the least but I've got opinions, a smidgen of coding experience, and honestly, I want to learn how to use these discursive tools and see how far I can get with them. I've also followed the Servo community for years, despite not being a real developer: please contribute if you are able!
+
+This is an open source, non-commercial effort. These ideas work much better open source forever as far as I'm concerned.

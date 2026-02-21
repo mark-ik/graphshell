@@ -101,7 +101,7 @@ Paths 1 and 2 can disagree within the same frame. If tile A is focused in the ti
 
 Legacy `manage_lifecycle()` has been removed. The bridge now lives in focused helpers in `webview_controller.rs` and `gui.rs`:
 - reconciliation emits lifecycle intents (`MapWebviewToNode`, `UnmapWebview`, `PromoteNodeToActive`, `DemoteNodeToCold`),
-- frame code applies semantic intents first, then reconciliation/lifecycle intents at frame boundaries.
+- frame code applies intents once, then reconciliation; follow-up intents are queued for the next frame.
 
 ### `handle_interface_commands()` fate
 
@@ -156,19 +156,23 @@ This invariant should be enforced with a code comment at the apply site and, in 
 
 - **Graph mutations** (add/remove node, add edge, update URL): atomic per intent, logged to persistence.
 - **Lifecycle flag changes** (promote/demote): atomic per intent, **not logged** (derived from runtime state, not persistent).
-- **Reconciliation**: best-effort with backpressure. If webview creation fails, retry up to 3 frames, then demote to Cold and log a warning. Prevents infinite retry loops (e.g., GPU memory exhaustion).
+- **Reconciliation**: best-effort with explicit backpressure. If webview creation fails, reconcile marks runtime-blocked with a retry deadline (backoff) to prevent hot retry loops while preserving desired lifecycle state.
 - **No rollback across intents** in a batch. Each intent is independent. If intent 2 of 5 fails, intents 1, 3, 4, 5 still apply.
 
 ## Lifecycle Intent Vocabulary
 
-Four new `GraphIntent` variants:
+This section documents the original Phase A baseline. The authoritative lifecycle contract has
+since moved to:
+`implementation_strategy/2026-02-21_lifecycle_intent_model.md`.
 
-- **`PromoteNodeToActive { key: NodeKey }`** -- sets `node.lifecycle = Active`. Does not create a webview (that's reconciliation's job).
-- **`DemoteNodeToCold { key: NodeKey }`** -- sets `node.lifecycle = Cold`, clears webview mapping.
-- **`MapWebviewToNode { webview_id: WebViewId, key: NodeKey }`** -- registers bidirectional mapping in `webview_to_node` / `node_to_webview`.
-- **`UnmapWebview { webview_id: WebViewId }`** -- removes mapping.
+Historical baseline variants:
 
-**Answer to the Phase A success question**: "When `GraphIntent::PromoteNodeToActive` is applied, what creates the webview?" -- The reconciliation pass sees an Active node without a webview and creates one.
+- **`PromoteNodeToActive { key: NodeKey }`**
+- **`DemoteNodeToCold { key: NodeKey }`**
+- **`MapWebviewToNode { webview_id: WebViewId, key: NodeKey }`**
+- **`UnmapWebview { webview_id: WebViewId }`**
+
+Phase A answer remains unchanged: reconciliation creates the webview after promotion.
 
 ## Implementation Phases
 
@@ -184,9 +188,9 @@ Four new `GraphIntent` variants:
 - [x] Implement handlers in `apply_intent()` (`promote_node_to_active`, `demote_node_to_cold`, `map_webview_to_node`, `unmap_webview`)
 - [x] Extract reconciliation duties out of the legacy `manage_lifecycle()` shape
 - [x] Remove legacy `manage_lifecycle()` path (lifecycle now emitted as intents from reconciliation helpers)
-- [x] Update frame loop in `gui.rs` to apply semantic intents, reconcile lifecycle, then apply lifecycle intents
+- [x] Update frame loop in `gui.rs` to collect intents, apply `apply_intents()`, then run `reconcile_webview_lifecycle()`
 - [x] Update `WebViewCreated` handler (`app.rs`) to use lifecycle intents internally
-- [x] Add failure backpressure: retry counter on nodes, demote after 3 failed creation probes (timeout/no-confirmation heuristic in `gui.rs`)
+- [x] Add failure backpressure: explicit runtime-blocked state with cooldown (`MarkRuntimeBlocked` / `ClearRuntimeBlocked`)
 - [x] Add tests for lifecycle intents/reconciliation behavior (`app.rs` + `webview_controller.rs` unit coverage)
 - [x] Document phase gap invariant in code comments (`gui.rs`)
 
@@ -194,7 +198,7 @@ Four new `GraphIntent` variants:
 
 - **Stale state between phases**: After apply sets Active, before reconcile creates webview, any code reading lifecycle state sees "active but no webview." *Mitigation*: phase gap invariant -- no reads between apply and reconcile. The gap is sub-frame (microseconds).
 - **Reconciliation loses intent context**: It sees "node Active, no webview" but not *why* (user pressed N? Servo callback? Restoration from graph view?). *Mitigation*: all webview creations are currently identical (URL + rendering context). If differentiated creation is needed later, encode in node data, not in the reconciliation pass.
-- **Infinite retry without backpressure**: If webview creation fails (e.g., GPU memory), reconcile retries every frame forever. *Mitigation*: retry counter on nodes, demote to Cold after 3 failures.
+- **Infinite retry without backpressure**: If webview creation fails (e.g., GPU memory), reconcile retries every frame forever. *Mitigation*: mark runtime-blocked with backoff and retry after the deadline.
 - **Reducer scope growth**: 21 variants (17 current + 4 new). *Mitigation*: reducer stays pure and testable. Split into sub-reducers by domain (graph, lifecycle, UI) later if needed.
 
 **Comparison**: Servoshell uses synchronous command execution (no gap between intent and effect). Firefox uses fully async actor pairs (gap is large but handled by explicit "not yet ready" states). Graphshell's two-phase is the middle ground -- gap exists but is sub-frame.

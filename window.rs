@@ -4,6 +4,8 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 use euclid::Scale;
@@ -12,12 +14,24 @@ use servo::{
     AuthenticationRequest, ConsoleLogLevel, Cursor, DeviceIndependentIntRect,
     DeviceIndependentPixel, DeviceIntPoint, DeviceIntSize, DevicePixel, EmbedderControl,
     EmbedderControlId, GenericSender, InputEventId, InputEventResult, MediaSessionEvent,
-    PermissionRequest, RenderingContext, ScreenGeometry, WebView, WebViewBuilder, WebViewId,
+    PermissionRequest, RenderingContext, ScreenGeometry, Servo, UserContentManager, WebView,
+    WebViewBuilder, WebViewDelegate, WebViewId,
 };
 use url::Url;
 
 use crate::app::RendererId;
 use crate::running_app_state::{RunningAppState, UserInterfaceCommand, WebViewCollection};
+
+pub(crate) trait WebViewCreationContext {
+    fn servo(&self) -> &Servo;
+    fn user_content_manager(&self) -> Rc<UserContentManager>;
+    fn webview_delegate(self: Rc<Self>) -> Rc<dyn WebViewDelegate>;
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    fn gamepad_provider(&self) -> Option<Rc<crate::desktop::gamepad::AppGamepadProvider>>;
+}
 
 // This should vary by zoom level and maybe actual text size (focused or under cursor)
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
@@ -31,9 +45,9 @@ pub(crate) const LINE_WIDTH: f32 = 76.0;
 pub(crate) const MIN_WINDOW_INNER_SIZE: DeviceIntSize = DeviceIntSize::new(100, 100);
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
-pub(crate) struct ServoShellWindowId(u64);
+pub(crate) struct EmbedderWindowId(u64);
 
-impl From<u64> for ServoShellWindowId {
+impl From<u64> for EmbedderWindowId {
     fn from(value: u64) -> Self {
         Self(value)
     }
@@ -41,7 +55,13 @@ impl From<u64> for ServoShellWindowId {
 
 /// Graph-relevant semantic events emitted from Servo delegate callbacks.
 #[derive(Clone, Debug)]
-pub(crate) enum GraphSemanticEvent {
+pub(crate) struct GraphSemanticEvent {
+    pub(crate) seq: u64,
+    pub(crate) kind: GraphSemanticEventKind,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum GraphSemanticEventKind {
     UrlChanged {
         webview_id: RendererId,
         new_url: String,
@@ -67,10 +87,10 @@ pub(crate) enum GraphSemanticEvent {
     },
 }
 
-pub(crate) struct ServoShellWindow {
+pub(crate) struct EmbedderWindow {
     /// The [`WebView`]s that have been added to this window.
     pub(crate) webview_collection: RefCell<WebViewCollection>,
-    /// A handle to the [`PlatformWindow`] that servoshell is rendering in.
+    /// A handle to the [`PlatformWindow`] that graphshell is rendering in.
     platform_window: Rc<dyn PlatformWindow>,
     /// Whether or not this window should be closed at the end of the spin of the next event loop.
     close_scheduled: Cell<bool>,
@@ -87,20 +107,23 @@ pub(crate) struct ServoShellWindow {
     pending_thumbnail_capture_requests: RefCell<Vec<WebViewId>>,
     /// Pending graph semantic events emitted from delegate callbacks.
     pending_graph_events: RefCell<Vec<GraphSemanticEvent>>,
+    /// Global sequence source so graph semantic event order is deterministic across windows.
+    graph_event_sequence: Arc<AtomicU64>,
     /// Optional runtime tracing for delegate/event ordering diagnostics.
     trace_graph_events: bool,
     /// Monotonic startup timestamp used for trace log deltas.
     trace_graph_events_started_at: Instant,
-    /// Sequence number for graph semantic events in this window.
-    trace_graph_events_seq: Cell<u64>,
     /// Sequence number for graph event queue drains.
     trace_graph_event_drains: Cell<u64>,
     /// Pending [`UserInterfaceCommand`] that have yet to be processed by the main loop.
     pending_commands: RefCell<Vec<UserInterfaceCommand>>,
 }
 
-impl ServoShellWindow {
-    pub(crate) fn new(platform_window: Rc<dyn PlatformWindow>) -> Self {
+impl EmbedderWindow {
+    pub(crate) fn new(
+        platform_window: Rc<dyn PlatformWindow>,
+        graph_event_sequence: Arc<AtomicU64>,
+    ) -> Self {
         Self {
             webview_collection: Default::default(),
             platform_window,
@@ -110,29 +133,35 @@ impl ServoShellWindow {
             pending_favicon_loads: Default::default(),
             pending_thumbnail_capture_requests: Default::default(),
             pending_graph_events: Default::default(),
+            graph_event_sequence,
             trace_graph_events: std::env::var_os("GRAPHSHELL_TRACE_DELEGATE_EVENTS").is_some(),
             trace_graph_events_started_at: Instant::now(),
-            trace_graph_events_seq: Cell::new(0),
             trace_graph_event_drains: Cell::new(0),
             pending_commands: Default::default(),
         }
     }
 
-    pub(crate) fn id(&self) -> ServoShellWindowId {
+    pub(crate) fn id(&self) -> EmbedderWindowId {
         self.platform_window().id()
     }
 
-    pub(crate) fn create_and_activate_toplevel_webview(
+    pub(crate) fn create_and_activate_toplevel_webview<T>(
         &self,
-        state: Rc<RunningAppState>,
+        state: Rc<T>,
         url: Url,
-    ) -> WebView {
+    ) -> WebView
+    where
+        T: WebViewCreationContext + 'static,
+    {
         let webview = self.create_toplevel_webview(state, url);
         self.activate_webview(webview.id());
         webview
     }
 
-    pub(crate) fn create_toplevel_webview(&self, state: Rc<RunningAppState>, url: Url) -> WebView {
+    pub(crate) fn create_toplevel_webview<T>(&self, state: Rc<T>, url: Url) -> WebView
+    where
+        T: WebViewCreationContext + 'static,
+    {
         self.create_toplevel_webview_with_context(
             state,
             url,
@@ -140,17 +169,20 @@ impl ServoShellWindow {
         )
     }
 
-    pub(crate) fn create_toplevel_webview_with_context(
+    pub(crate) fn create_toplevel_webview_with_context<T>(
         &self,
-        state: Rc<RunningAppState>,
+        state: Rc<T>,
         url: Url,
         rendering_context: Rc<dyn RenderingContext>,
-    ) -> WebView {
+    ) -> WebView
+    where
+        T: WebViewCreationContext + 'static,
+    {
         let webview = WebViewBuilder::new(state.servo(), rendering_context)
             .url(url)
             .hidpi_scale_factor(self.platform_window.hidpi_scale_factor())
-            .user_content_manager(state.user_content_manager.clone())
-            .delegate(state.clone())
+            .user_content_manager(state.user_content_manager())
+            .delegate(state.clone().webview_delegate())
             .build();
 
         #[cfg(all(
@@ -183,7 +215,7 @@ impl ServoShellWindow {
         self.platform_window().rendering_context().present();
     }
 
-    /// Whether or not this [`ServoShellWindow`] should close.
+    /// Whether or not this [`EmbedderWindow`] should close.
     pub(crate) fn should_close(&self) -> bool {
         self.close_scheduled.get()
     }
@@ -302,10 +334,10 @@ impl ServoShellWindow {
     }
 
     pub(crate) fn notify_url_changed(&self, webview: WebView, new_url: Url) {
-        let event = GraphSemanticEvent::UrlChanged {
+        let event = self.new_graph_semantic_event(GraphSemanticEventKind::UrlChanged {
             webview_id: webview.id(),
             new_url: new_url.to_string(),
-        };
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
@@ -317,21 +349,21 @@ impl ServoShellWindow {
         entries: Vec<Url>,
         current: usize,
     ) {
-        let event = GraphSemanticEvent::HistoryChanged {
+        let event = self.new_graph_semantic_event(GraphSemanticEventKind::HistoryChanged {
             webview_id: webview.id(),
             entries: entries.into_iter().map(|u| u.to_string()).collect(),
             current,
-        };
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
     }
 
     pub(crate) fn notify_page_title_changed(&self, webview: WebView, title: Option<String>) {
-        let event = GraphSemanticEvent::PageTitleChanged {
+        let event = self.new_graph_semantic_event(GraphSemanticEventKind::PageTitleChanged {
             webview_id: webview.id(),
             title,
-        };
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
@@ -342,11 +374,11 @@ impl ServoShellWindow {
         parent_webview: WebView,
         child_webview: WebView,
     ) {
-        let event = GraphSemanticEvent::CreateNewWebView {
+        let event = self.new_graph_semantic_event(GraphSemanticEventKind::CreateNewWebView {
             parent_webview_id: parent_webview.id(),
             child_webview_id: child_webview.id(),
             initial_url: child_webview.url().map(|u| u.to_string()),
-        };
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
@@ -358,11 +390,11 @@ impl ServoShellWindow {
         reason: String,
         backtrace: Option<String>,
     ) {
-        let event = GraphSemanticEvent::WebViewCrashed {
+        let event = self.new_graph_semantic_event(GraphSemanticEventKind::WebViewCrashed {
             webview_id: webview.id(),
             reason,
             has_backtrace: backtrace.as_deref().is_some_and(|b| !b.is_empty()),
-        };
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
@@ -409,64 +441,62 @@ impl ServoShellWindow {
         if !self.trace_graph_events {
             return;
         }
-        let seq = self.trace_graph_events_seq.get() + 1;
-        self.trace_graph_events_seq.set(seq);
         let elapsed_ms = self.trace_graph_events_started_at.elapsed().as_millis();
-        match event {
-            GraphSemanticEvent::UrlChanged {
+        match &event.kind {
+            GraphSemanticEventKind::UrlChanged {
                 webview_id,
                 new_url,
             } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=url_changed webview={:?} url={}",
-                    seq, elapsed_ms, webview_id, new_url
+                    event.seq, elapsed_ms, webview_id, new_url
                 );
             },
-            GraphSemanticEvent::HistoryChanged {
+            GraphSemanticEventKind::HistoryChanged {
                 webview_id,
                 entries,
                 current,
             } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=history_changed webview={:?} entries_len={} current={}",
-                    seq,
+                    event.seq,
                     elapsed_ms,
                     webview_id,
                     entries.len(),
                     current
                 );
             },
-            GraphSemanticEvent::PageTitleChanged { webview_id, title } => {
+            GraphSemanticEventKind::PageTitleChanged { webview_id, title } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=title_changed webview={:?} title_present={}",
-                    seq,
+                    event.seq,
                     elapsed_ms,
                     webview_id,
                     title.as_deref().is_some_and(|t| !t.is_empty())
                 );
             },
-            GraphSemanticEvent::CreateNewWebView {
+            GraphSemanticEventKind::CreateNewWebView {
                 parent_webview_id,
                 child_webview_id,
                 initial_url,
             } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=create_new parent={:?} child={:?} initial_url_present={}",
-                    seq,
+                    event.seq,
                     elapsed_ms,
                     parent_webview_id,
                     child_webview_id,
                     initial_url.as_deref().is_some_and(|u| !u.is_empty())
                 );
             },
-            GraphSemanticEvent::WebViewCrashed {
+            GraphSemanticEventKind::WebViewCrashed {
                 webview_id,
                 reason,
                 has_backtrace,
             } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=webview_crashed webview={:?} reason_len={} has_backtrace={}",
-                    seq,
+                    event.seq,
                     elapsed_ms,
                     webview_id,
                     reason.len(),
@@ -474,6 +504,17 @@ impl ServoShellWindow {
                 );
             },
         }
+    }
+
+    fn new_graph_semantic_event(&self, kind: GraphSemanticEventKind) -> GraphSemanticEvent {
+        let seq = self.graph_event_sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        GraphSemanticEvent { seq, kind }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enqueue_test_graph_event_kind(&self, kind: GraphSemanticEventKind) {
+        let event = self.new_graph_semantic_event(kind);
+        self.pending_graph_events.borrow_mut().push(event);
     }
 
     pub(crate) fn show_embedder_control(
@@ -528,7 +569,7 @@ impl ServoShellWindow {
 /// be used in a servoshell execution. This currently includes headed (winit) and headless
 /// windows.
 pub(crate) trait PlatformWindow {
-    fn id(&self) -> ServoShellWindowId;
+    fn id(&self) -> EmbedderWindowId;
     fn screen_geometry(&self) -> ScreenGeometry;
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
     fn device_hidpi_scale_factor(&self) -> Scale<f32, DeviceIndependentPixel, DevicePixel>;
@@ -539,17 +580,17 @@ pub(crate) trait PlatformWindow {
     /// not repaint, but should prepare the user interface for painting when it is
     /// actually requested.
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
-    fn rebuild_user_interface(&self, _: &RunningAppState, _: &ServoShellWindow) {}
+    fn rebuild_user_interface(&self, _: &RunningAppState, _: &EmbedderWindow) {}
     /// Inform the `Window` that the state of a `WebView` has changed and that it should
     /// do an incremental update of user interface state. Returns `true` if the user
     /// interface actually changed and a rebuild  and repaint is needed, `false` otherwise.
-    fn update_user_interface_state(&self, _: &RunningAppState, _: &ServoShellWindow) -> bool {
+    fn update_user_interface_state(&self, _: &RunningAppState, _: &EmbedderWindow) -> bool {
         false
     }
     /// Request that the window redraw itself. It is up to the window to do this
     /// once the windowing system is ready. If this is a headless window, the redraw
     /// will happen immediately.
-    fn request_repaint(&self, _: &ServoShellWindow);
+    fn request_repaint(&self, _: &EmbedderWindow);
     /// Request a new outer size for the window, including external decorations.
     /// This should be the same as `window.outerWidth` and `window.outerHeight``
     fn request_resize(&self, webview: &WebView, outer_size: DeviceIntSize)
@@ -604,7 +645,7 @@ pub(crate) trait PlatformWindow {
     /// Preferred webview target for user-input-like routing on this platform window.
     /// Defaults to the window-global active id; headed graphshell overrides this to use
     /// tile-focused targeting.
-    fn preferred_input_webview_id(&self, window: &ServoShellWindow) -> Option<WebViewId> {
+    fn preferred_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
         window.webview_collection.borrow().active_id()
     }
 
@@ -621,4 +662,56 @@ pub(crate) trait PlatformWindow {
     }
 
     fn notify_accessibility_tree_update(&self, _: WebView, _: accesskit::TreeUpdate) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+    use servo::WebViewId;
+
+    use super::{EmbedderWindow, GraphSemanticEventKind};
+    use crate::desktop::headless_window::HeadlessWindow;
+    use crate::prefs::AppPreferences;
+
+    fn test_webview_id() -> WebViewId {
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+        WebViewId::new(PainterId::next())
+    }
+
+    #[test]
+    fn test_graph_event_sequence_stamped_at_emission_across_windows() {
+        let prefs = AppPreferences::default();
+        let shared_seq = Arc::new(AtomicU64::new(0));
+        let window_a = EmbedderWindow::new(HeadlessWindow::new(&prefs), shared_seq.clone());
+        let window_b = EmbedderWindow::new(HeadlessWindow::new(&prefs), shared_seq);
+
+        window_a.enqueue_test_graph_event_kind(GraphSemanticEventKind::UrlChanged {
+            webview_id: test_webview_id(),
+            new_url: "https://a.example".into(),
+        });
+        window_b.enqueue_test_graph_event_kind(GraphSemanticEventKind::PageTitleChanged {
+            webview_id: test_webview_id(),
+            title: Some("B".into()),
+        });
+        window_a.enqueue_test_graph_event_kind(GraphSemanticEventKind::WebViewCrashed {
+            webview_id: test_webview_id(),
+            reason: "boom".into(),
+            has_backtrace: false,
+        });
+
+        let mut merged = Vec::new();
+        merged.extend(window_b.take_pending_graph_events());
+        merged.extend(window_a.take_pending_graph_events());
+        merged.sort_by_key(|event| event.seq);
+
+        let seqs = merged.into_iter().map(|e| e.seq).collect::<Vec<_>>();
+        assert_eq!(seqs, vec![1, 2, 3]);
+    }
 }

@@ -16,7 +16,7 @@ use crate::desktop::tile_kind::TileKind;
 use crate::desktop::tile_runtime;
 use crate::desktop::webview_controller;
 use crate::graph::NodeKey;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) fn restore_tiles_tree_from_persistence(graph_app: &GraphBrowserApp) -> Tree<TileKind> {
     let mut tiles = Tiles::default();
@@ -80,7 +80,7 @@ pub(crate) fn build_membership_index_from_layouts(
 
 pub(crate) fn switch_persistence_store(
     graph_app: &mut GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     tiles_tree: &mut Tree<TileKind>,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,

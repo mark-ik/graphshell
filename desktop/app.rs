@@ -9,7 +9,6 @@ use std::rc::Rc;
 use std::time::Instant;
 use std::{env, fs};
 
-use servo::protocol_handler::ProtocolRegistry;
 use servo::user_contents::UserStyleSheet;
 use servo::{
     EventLoopWaker, Opts, Preferences, ServoBuilder, ServoUrl, UserContentManager, UserScript,
@@ -21,17 +20,17 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::WindowId;
 
 use super::event_loop::AppEvent;
-use crate::desktop::event_loop::ServoShellEventLoop;
+use crate::desktop::event_loop::AppEventLoop;
 use crate::desktop::headed_window::HeadedWindow;
 use crate::desktop::headless_window::HeadlessWindow;
 use crate::desktop::protocols;
 use crate::desktop::tracing::trace_winit_event;
 use crate::parser::get_default_url;
-use crate::prefs::ServoShellPreferences;
+use crate::prefs::AppPreferences;
 use crate::running_app_state::RunningAppState;
 #[cfg(feature = "gamepad")]
-use crate::running_app_state::ServoshellGamepadProvider;
-use crate::window::{PlatformWindow, ServoShellWindowId};
+use crate::running_app_state::AppGamepadProvider;
+use crate::window::{PlatformWindow, EmbedderWindowId};
 
 pub(crate) enum AppState {
     Initializing,
@@ -42,7 +41,7 @@ pub(crate) enum AppState {
 pub struct App {
     opts: Opts,
     preferences: Preferences,
-    servoshell_preferences: ServoShellPreferences,
+    app_preferences: AppPreferences,
     waker: Box<dyn EventLoopWaker>,
     event_loop_proxy: Option<EventLoopProxy<AppEvent>>,
     initial_url: ServoUrl,
@@ -55,21 +54,21 @@ impl App {
     pub fn new(
         opts: Opts,
         preferences: Preferences,
-        servo_shell_preferences: ServoShellPreferences,
-        event_loop: &ServoShellEventLoop,
+        app_preferences: AppPreferences,
+        event_loop: &AppEventLoop,
     ) -> Self {
         let initial_url = get_default_url(
-            servo_shell_preferences.url.as_deref(),
+            app_preferences.url.as_deref(),
             env::current_dir().unwrap(),
             |path| fs::metadata(path).is_ok(),
-            &servo_shell_preferences,
+            &app_preferences,
         );
 
         let t = Instant::now();
         App {
             opts,
             preferences,
-            servoshell_preferences: servo_shell_preferences,
+            app_preferences: app_preferences,
             waker: event_loop.create_event_loop_waker(),
             event_loop_proxy: event_loop.event_loop_proxy(),
             initial_url: initial_url.clone(),
@@ -81,17 +80,9 @@ impl App {
 
     /// Initialize Application once event loop start running.
     pub fn init(&mut self, active_event_loop: Option<&ActiveEventLoop>) {
-        let mut protocol_registry = ProtocolRegistry::default();
-        let _ = protocol_registry.register(
-            "urlinfo",
-            protocols::urlinfo::UrlInfoProtocolHander::default(),
-        );
-        let _ =
-            protocol_registry.register("servo", protocols::servo::ServoProtocolHandler::default());
-        let _ = protocol_registry.register(
-            "resource",
-            protocols::resource::ResourceProtocolHandler::default(),
-        );
+        let mut scheme_router = protocols::router::AppSchemeRouter::new();
+        scheme_router.register_default_handlers();
+        let protocol_registry = scheme_router.into_registry();
 
         let servo_builder = ServoBuilder::default()
             .opts(self.opts.clone())
@@ -114,7 +105,7 @@ impl App {
         servo.setup_logging();
 
         let user_content_manager = Rc::new(UserContentManager::new(&servo));
-        for script in load_userscripts(self.servoshell_preferences.userscripts_directory.as_deref())
+        for script in load_userscripts(self.app_preferences.userscripts_directory.as_deref())
             .expect("Loading userscripts failed")
         {
             user_content_manager.add_script(Rc::new(script));
@@ -128,12 +119,12 @@ impl App {
 
         let running_state = Rc::new(RunningAppState::new(
             servo,
-            self.servoshell_preferences.clone(),
+            self.app_preferences.clone(),
             self.waker.clone(),
             user_content_manager,
             self.preferences.clone(),
             #[cfg(feature = "gamepad")]
-            ServoshellGamepadProvider::maybe_new().map(Rc::new),
+            AppGamepadProvider::maybe_new().map(Rc::new),
         ));
         running_state.open_window(platform_window, self.initial_url.as_url().clone());
 
@@ -146,16 +137,16 @@ impl App {
         active_event_loop: Option<&ActiveEventLoop>,
     ) -> Rc<dyn PlatformWindow> {
         assert_eq!(
-            self.servoshell_preferences.headless,
+            self.app_preferences.headless,
             active_event_loop.is_none()
         );
 
         let Some(active_event_loop) = active_event_loop else {
-            return HeadlessWindow::new(&self.servoshell_preferences);
+            return HeadlessWindow::new(&self.app_preferences);
         };
 
         HeadedWindow::new(
-            &self.servoshell_preferences,
+            &self.app_preferences,
             active_event_loop,
             self.event_loop_proxy
                 .clone()
@@ -202,7 +193,7 @@ impl ApplicationHandler<AppEvent> for App {
             return;
         };
 
-        if let Some(window) = state.window(ServoShellWindowId::from(u64::from(window_id))) {
+        if let Some(window) = state.window(EmbedderWindowId::from(u64::from(window_id))) {
             if let Some(headed_window) = window.platform_window().as_headed_window() {
                 headed_window.handle_winit_window_event(state.clone(), window, window_event);
             }
@@ -222,7 +213,7 @@ impl ApplicationHandler<AppEvent> for App {
 
         if let Some(window) = app_event
             .window_id()
-            .and_then(|window_id| state.window(ServoShellWindowId::from(u64::from(window_id))))
+            .and_then(|window_id| state.window(EmbedderWindowId::from(u64::from(window_id))))
         {
             if let Some(headed_window) = window.platform_window().as_headed_window() {
                 headed_window.handle_winit_app_event(&window, app_event);

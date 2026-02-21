@@ -47,8 +47,8 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 **Execution order now:**
 
-1. Navigation control-plane stabilization (see [2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md))
-2. Selection consolidation (see [2026-02-14_selection_semantics_plan.md](implementation_strategy/2026-02-14_selection_semantics_plan.md))
+1. Navigation control-plane stabilization (see [2026-02-16_architecture_and_navigation_plan.md](2026-02-16_architecture_and_navigation_plan.md))
+2. Selection consolidation (see [2026-02-14_selection_semantics_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md))
 3. FT2 thumbnail completion ✅
 4. FT6 search/filtering (`nucleo`) ✅
 
@@ -58,12 +58,12 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 **Goal**: Users can browse real websites, and each page becomes a node in the graph.
 
-**Implementation** (in `desktop/gui.rs`, 1096 lines):
+**Implementation** (in `desktop/gui.rs`, ~1741 lines):
 
 - Full webview lifecycle: create/destroy webviews based on view state
 - Graph view: destroy all webviews (prevent framebuffer bleed-through), save node list for restoration
 - Detail view: recreate webviews for saved nodes, create for newly focused nodes
-- Navigation tracking: `sync_webviews_to_graph()` detects URL changes, creates nodes + edges
+- Navigation tracking: delegate-driven semantic events (`notify_url_changed`, `request_create_new`, `notify_history_changed`) emit `GraphIntent` and create nodes/edges
 - Edge creation: Hyperlink for new navigation, History for back/forward (detected by existing reverse edge)
 - URL bar: Enter in graph view updates node URL and switches to detail view
 - Bidirectional mapping: `HashMap<WebViewId, NodeKey>` and inverse in `app.rs`
@@ -72,7 +72,7 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 1. Handle keyboard (may change view or clear graph)
 2. Webview lifecycle (destroy/create based on current view)
-3. Sync webviews to graph (only in detail view — detects URL changes, creates edges)
+3. Collect/apply intents (UI + delegate semantic events)
 4. Toolbar + tab bar rendering
 5. Physics update
 6. View rendering (graph OR detail, exclusive)
@@ -164,7 +164,7 @@ These five features enable the core MVP: **users can browse real websites in a s
 - **rkyv 0.8**: Zero-copy serialization for both log entries and snapshots
 - Startup recovery: load latest redb snapshot → replay fjall log entries since snapshot timestamp
 - Aligned data handling: redb bytes aren't aligned for rkyv; copy to `AlignedVec` before deserializing
-- URL-based identity for persistence (petgraph NodeIndex values change across sessions)
+- UUID-based identity for persistence (URL is mutable metadata; petgraph NodeIndex values change across sessions)
 - 19 unit tests covering serialization, log replay, snapshot roundtrip
 
 **Validation**:
@@ -195,22 +195,23 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 ---
 
-### Feature Target 5: Center Camera on Graph ✅ COMPLETE
+### Feature Target 5: Smart Fit ✅ COMPLETE
 
-**Goal**: Press `C` key → camera moves to show all nodes (auto-fit).
+**Goal**: Press `Z` key → fit selected bounds when 2+ nodes are selected; otherwise fit full graph.
 
 **Implementation**:
 
-- `C` key sets `fit_to_screen_requested = true` one-shot flag in `app.rs`
+- `Z` key sets smart-fit action in `app.rs` (selection-aware fit)
 - `render/mod.rs` passes flag to egui_graphs `SettingsNavigation::fit_to_screen()`
 - egui_graphs calculates bounding box and adjusts zoom/pan automatically
 - Flag cleared after use (one-shot behavior)
 
 **Validation**:
 
-- [x] Press C → camera fits all nodes in viewport
+- [x] Press Z (0–1 selected) → camera fits full graph in viewport
+- [x] Press Z (2+ selected) → camera fits selected nodes in viewport
 - [x] Works at any zoom level
-- [x] Press C multiple times → deterministic result
+- [x] Press Z multiple times → deterministic result
 
 ---
 
@@ -457,4 +458,5 @@ These five features enable the core MVP: **users can browse real websites in a s
 - **Project Vision**: `PROJECT_DESCRIPTION.md`
 - **Architecture**: `ARCHITECTURAL_OVERVIEW.md`
 - **Code**: `ports/graphshell/` (~4,500 LOC in core modules)
+
 

@@ -85,7 +85,7 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Build or reuse egui_graphs state (rebuild always when filtering is active).
     if app.egui_state.is_none() || app.egui_state_dirty || filtered_graph.is_some() {
-        let crashed_nodes: HashSet<NodeKey> = app.crashed_node_keys().collect();
+        let crashed_nodes: HashSet<NodeKey> = app.crash_blocked_node_keys().collect();
         let memberships_by_uuid: HashMap<Uuid, Vec<String>> = graph_for_render
             .nodes()
             .map(|(_, node)| {
@@ -288,7 +288,7 @@ fn draw_hovered_node_tooltip(ui: &Ui, app: &GraphBrowserApp) {
     };
     let pointer_pos = ui.input(|i| i.pointer.latest_pos());
 
-    let lifecycle_text = if app.get_node_crash_state(key).is_some() {
+    let lifecycle_text = if app.is_crash_blocked(key) {
         "Crashed".to_string()
     } else {
         match node.lifecycle {
@@ -417,7 +417,7 @@ fn apply_search_node_visuals(
         .nodes()
         .map(|(key, node)| {
             let mut color = lifecycle_color(node.lifecycle);
-            if app.get_node_crash_state(key).is_some() {
+            if app.is_crash_blocked(key) {
                 color = Color32::from_rgb(205, 112, 82);
             }
 
@@ -448,7 +448,7 @@ fn apply_search_node_visuals(
             if app.selected_nodes.primary() == Some(key) {
                 color = Color32::from_rgb(255, 200, 100);
             } else if app.selected_nodes.contains(&key) && hovered != Some(key) {
-                color = if app.get_node_crash_state(key).is_some() {
+                color = if app.is_crash_blocked(key) {
                     Color32::from_rgb(205, 112, 82)
                 } else {
                     lifecycle_color(node.lifecycle)

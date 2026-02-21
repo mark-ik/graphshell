@@ -74,11 +74,19 @@ pub struct SelectionState {
     revision: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeBlockReason {
+    CreateRetryExhausted,
+    Crash,
+}
+
 #[derive(Debug, Clone)]
-pub struct NodeCrashState {
-    pub reason: String,
+pub struct RuntimeBlockState {
+    pub reason: RuntimeBlockReason,
+    pub retry_at: Option<Instant>,
+    pub message: Option<String>,
     pub has_backtrace: bool,
-    pub crashed_at: SystemTime,
+    pub blocked_at: SystemTime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,6 +292,24 @@ pub enum MemoryPressureLevel {
     Normal,
     Warning,
     Critical,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleCause {
+    UserSelect,
+    ActiveTileVisible,
+    SelectedPrewarm,
+    WorkspaceRetention,
+    ActiveLruEviction,
+    WarmLruEviction,
+    MemoryPressureWarning,
+    MemoryPressureCritical,
+    Crash,
+    CreateRetryExhausted,
+    ExplicitClose,
+    NodeRemoval,
+    Restore,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -584,12 +610,24 @@ pub enum GraphIntent {
     TogglePrimaryNodePin,
     PromoteNodeToActive {
         key: NodeKey,
+        cause: LifecycleCause,
     },
     DemoteNodeToCold {
         key: NodeKey,
+        cause: LifecycleCause,
     },
     DemoteNodeToWarm {
         key: NodeKey,
+        cause: LifecycleCause,
+    },
+    MarkRuntimeBlocked {
+        key: NodeKey,
+        reason: RuntimeBlockReason,
+        retry_at: Option<Instant>,
+    },
+    ClearRuntimeBlocked {
+        key: NodeKey,
+        cause: LifecycleCause,
     },
     MapWebviewToNode {
         webview_id: RendererId,
@@ -661,8 +699,8 @@ pub struct GraphBrowserApp {
     /// Bidirectional mapping between renderer instances and graph nodes
     webview_to_node: HashMap<RendererId, NodeKey>,
     node_to_webview: HashMap<NodeKey, RendererId>,
-    /// Runtime-only crash metadata keyed by graph node.
-    node_crash_state: HashMap<NodeKey, NodeCrashState>,
+    /// Runtime-only block/backoff metadata keyed by graph node.
+    runtime_block_state: HashMap<NodeKey, RuntimeBlockState>,
 
     /// Nodes that had webviews before switching to graph view (for restoration).
     /// Managed by the webview_controller module.
@@ -953,7 +991,7 @@ impl GraphBrowserApp {
             selected_nodes: SelectionState::new(),
             webview_to_node: HashMap::new(),
             node_to_webview: HashMap::new(),
-            node_crash_state: HashMap::new(),
+            runtime_block_state: HashMap::new(),
             active_webview_nodes: Vec::new(),
             active_lru: Vec::new(),
             active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,
@@ -1046,7 +1084,7 @@ impl GraphBrowserApp {
             selected_nodes: SelectionState::new(),
             webview_to_node: HashMap::new(),
             node_to_webview: HashMap::new(),
-            node_crash_state: HashMap::new(),
+            runtime_block_state: HashMap::new(),
             active_webview_nodes: Vec::new(),
             active_lru: Vec::new(),
             active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,
@@ -1327,7 +1365,7 @@ impl GraphBrowserApp {
                 // Single-selecting an unloaded node should prewarm it (without opening a tile).
                 if !multi_select
                     && self.selected_nodes.primary() == Some(key)
-                    && !self.node_crash_state.contains_key(&key)
+                    && !self.is_crash_blocked(key)
                     && self.get_webview_for_node(key).is_none()
                     && self
                         .graph
@@ -1335,7 +1373,7 @@ impl GraphBrowserApp {
                         .map(|node| node.lifecycle != crate::graph::NodeLifecycle::Active)
                         .unwrap_or(false)
                 {
-                    self.promote_node_to_active(key);
+                    self.promote_node_to_active_with_cause(key, LifecycleCause::SelectedPrewarm);
                 }
             },
             GraphIntent::UpdateSelection { keys, mode } => {
@@ -1418,14 +1456,25 @@ impl GraphBrowserApp {
                     });
                 }
             },
-            GraphIntent::PromoteNodeToActive { key } => {
-                self.promote_node_to_active(key);
+            GraphIntent::PromoteNodeToActive { key, cause } => {
+                self.promote_node_to_active_with_cause(key, cause);
             },
-            GraphIntent::DemoteNodeToWarm { key } => {
-                self.demote_node_to_warm(key);
+            GraphIntent::DemoteNodeToWarm { key, cause } => {
+                self.demote_node_to_warm_with_cause(key, cause);
             },
-            GraphIntent::DemoteNodeToCold { key } => {
-                self.demote_node_to_cold(key);
+            GraphIntent::DemoteNodeToCold { key, cause } => {
+                self.demote_node_to_cold_with_cause(key, cause);
+            },
+            GraphIntent::MarkRuntimeBlocked {
+                key,
+                reason,
+                retry_at,
+            } => {
+                self.mark_runtime_blocked(key, reason, retry_at);
+            },
+            GraphIntent::ClearRuntimeBlocked { key, cause } => {
+                let _ = cause;
+                self.clear_runtime_blocked(key);
             },
             GraphIntent::MapWebviewToNode { webview_id, key } => {
                 self.map_webview_to_node(webview_id, key);
@@ -1455,7 +1504,10 @@ impl GraphBrowserApp {
                     webview_id: child_webview_id,
                     key: child_node,
                 });
-                self.apply_intent(GraphIntent::PromoteNodeToActive { key: child_node });
+                self.apply_intent(GraphIntent::PromoteNodeToActive {
+                    key: child_node,
+                    cause: LifecycleCause::Restore,
+                });
                 if let Some(parent_key) = parent_node {
                     let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
                 }
@@ -1564,15 +1616,11 @@ impl GraphBrowserApp {
                 has_backtrace,
             } => {
                 if let Some(node_key) = self.get_node_for_webview(webview_id) {
-                    self.node_crash_state.insert(
-                        node_key,
-                        NodeCrashState {
-                            reason: reason.clone(),
-                            has_backtrace,
-                            crashed_at: SystemTime::now(),
-                        },
-                    );
-                    self.demote_node_to_cold(node_key);
+                    self.mark_runtime_crash_blocked(node_key, reason.clone(), has_backtrace);
+                    self.apply_intent(GraphIntent::DemoteNodeToCold {
+                        key: node_key,
+                        cause: LifecycleCause::Crash,
+                    });
                 } else {
                     let _ = self.unmap_webview(webview_id);
                 }
@@ -2411,7 +2459,7 @@ impl GraphBrowserApp {
         self.node_to_webview.clear();
         self.active_lru.clear();
         self.warm_cache_lru.clear();
-        self.node_crash_state.clear();
+        self.runtime_block_state.clear();
         self.active_webview_nodes.clear();
         self.pending_node_context_target = None;
         self.pending_open_node_request = None;
@@ -2467,7 +2515,7 @@ impl GraphBrowserApp {
         self.node_to_webview.clear();
         self.active_lru.clear();
         self.warm_cache_lru.clear();
-        self.node_crash_state.clear();
+        self.runtime_block_state.clear();
         self.active_webview_nodes.clear();
         self.pending_node_context_target = None;
         self.pending_open_node_request = None;
@@ -2545,12 +2593,86 @@ impl GraphBrowserApp {
         self.webview_to_node.get(&webview_id).copied()
     }
 
-    pub fn get_node_crash_state(&self, node_key: NodeKey) -> Option<&NodeCrashState> {
-        self.node_crash_state.get(&node_key)
+    pub fn runtime_block_state_for_node(&self, node_key: NodeKey) -> Option<&RuntimeBlockState> {
+        self.runtime_block_state.get(&node_key)
     }
 
-    pub fn crashed_node_keys(&self) -> impl Iterator<Item = NodeKey> + '_ {
-        self.node_crash_state.keys().copied()
+    pub fn mark_runtime_blocked(
+        &mut self,
+        node_key: NodeKey,
+        reason: RuntimeBlockReason,
+        retry_at: Option<Instant>,
+    ) {
+        if self.graph.get_node(node_key).is_none() {
+            self.runtime_block_state.remove(&node_key);
+            return;
+        }
+        self.runtime_block_state
+            .insert(
+                node_key,
+                RuntimeBlockState {
+                    reason,
+                    retry_at,
+                    message: None,
+                    has_backtrace: false,
+                    blocked_at: SystemTime::now(),
+                },
+            );
+    }
+
+    pub fn clear_runtime_blocked(&mut self, node_key: NodeKey) {
+        self.runtime_block_state.remove(&node_key);
+    }
+
+    pub fn mark_runtime_crash_blocked(
+        &mut self,
+        node_key: NodeKey,
+        message: String,
+        has_backtrace: bool,
+    ) {
+        if self.graph.get_node(node_key).is_none() {
+            self.runtime_block_state.remove(&node_key);
+            return;
+        }
+        self.runtime_block_state.insert(
+            node_key,
+            RuntimeBlockState {
+                reason: RuntimeBlockReason::Crash,
+                retry_at: None,
+                message: Some(message),
+                has_backtrace,
+                blocked_at: SystemTime::now(),
+            },
+        );
+    }
+
+    pub fn runtime_crash_state_for_node(&self, node_key: NodeKey) -> Option<&RuntimeBlockState> {
+        self.runtime_block_state
+            .get(&node_key)
+            .filter(|state| state.reason == RuntimeBlockReason::Crash)
+    }
+
+    pub fn crash_blocked_node_keys(&self) -> impl Iterator<Item = NodeKey> + '_ {
+        self.runtime_block_state.iter().filter_map(|(key, state)| {
+            (state.reason == RuntimeBlockReason::Crash).then_some(*key)
+        })
+    }
+
+    pub fn is_crash_blocked(&self, node_key: NodeKey) -> bool {
+        self.runtime_crash_state_for_node(node_key).is_some()
+    }
+
+    pub fn is_runtime_blocked(&mut self, node_key: NodeKey, now: Instant) -> bool {
+        let Some(state) = self.runtime_block_state.get(&node_key) else {
+            return false;
+        };
+        if let Some(retry_at) = state.retry_at
+            && retry_at <= now
+        {
+            self.runtime_block_state.remove(&node_key);
+            return false;
+        }
+        true
     }
 
     /// Get the renderer ID for a given node
@@ -2944,24 +3066,70 @@ impl GraphBrowserApp {
     }
 
     /// Promote a node to Active lifecycle (mark as needing webview)
+    #[allow(dead_code)]
     pub fn promote_node_to_active(&mut self, node_key: NodeKey) {
+        self.promote_node_to_active_with_cause(node_key, LifecycleCause::Restore);
+    }
+
+    pub fn promote_node_to_active_with_cause(
+        &mut self,
+        node_key: NodeKey,
+        cause: LifecycleCause,
+    ) {
         use crate::graph::NodeLifecycle;
+        if self.graph.get_node(node_key).is_none() {
+            return;
+        }
+
+        // Guard against automatic crash loops: only explicit user/restore flows can
+        // clear crash state and reactivate immediately.
+        let is_crashed = self.is_crash_blocked(node_key);
+        if is_crashed
+            && !matches!(cause, LifecycleCause::UserSelect | LifecycleCause::Restore)
+        {
+            return;
+        }
+
         if let Some(node) = self.graph.get_node_mut(node_key) {
             node.lifecycle = NodeLifecycle::Active;
         }
         self.touch_active_node(node_key);
         self.remove_warm_cache_node(node_key);
-        self.node_crash_state.remove(&node_key);
+        self.runtime_block_state.remove(&node_key);
+        if matches!(cause, LifecycleCause::UserSelect | LifecycleCause::Restore) {
+            self.runtime_block_state.remove(&node_key);
+        }
     }
 
     /// Demote a node to Warm lifecycle (keep mapped webview alive in cache).
+    #[allow(dead_code)]
     pub fn demote_node_to_warm(&mut self, node_key: NodeKey) {
+        self.demote_node_to_warm_with_cause(node_key, LifecycleCause::WorkspaceRetention);
+    }
+
+    pub fn demote_node_to_warm_with_cause(&mut self, node_key: NodeKey, cause: LifecycleCause) {
         use crate::graph::NodeLifecycle;
+        if self.graph.get_node(node_key).is_none() {
+            return;
+        }
+
+        // Some causes are always hard-cold.
+        if matches!(
+            cause,
+            LifecycleCause::Crash
+                | LifecycleCause::ExplicitClose
+                | LifecycleCause::NodeRemoval
+                | LifecycleCause::MemoryPressureCritical
+        ) {
+            self.demote_node_to_cold_with_cause(node_key, cause);
+            return;
+        }
+
         let has_mapped_webview = self.node_to_webview.contains_key(&node_key);
-        if let Some(node) = self.graph.get_node_mut(node_key)
-            && has_mapped_webview
-        {
+        if let Some(node) = self.graph.get_node_mut(node_key) {
             node.lifecycle = NodeLifecycle::Warm;
+        }
+        if has_mapped_webview {
             self.touch_warm_cache_node(node_key);
         } else {
             self.remove_warm_cache_node(node_key);
@@ -2970,17 +3138,31 @@ impl GraphBrowserApp {
     }
 
     /// Demote a node to Cold lifecycle (mark as not needing webview)
+    #[allow(dead_code)]
     pub fn demote_node_to_cold(&mut self, node_key: NodeKey) {
+        self.demote_node_to_cold_with_cause(node_key, LifecycleCause::NodeRemoval);
+    }
+
+    pub fn demote_node_to_cold_with_cause(&mut self, node_key: NodeKey, cause: LifecycleCause) {
         use crate::graph::NodeLifecycle;
+        if self.graph.get_node(node_key).is_none() {
+            return;
+        }
         if let Some(node) = self.graph.get_node_mut(node_key) {
             node.lifecycle = NodeLifecycle::Cold;
         }
         self.remove_active_node(node_key);
         self.remove_warm_cache_node(node_key);
+        if !matches!(cause, LifecycleCause::Crash) {
+            self.runtime_block_state.remove(&node_key);
+        }
         // Also unmap webview association if it exists
         if let Some(webview_id) = self.node_to_webview.get(&node_key).copied() {
             self.webview_to_node.remove(&webview_id);
             self.node_to_webview.remove(&node_key);
+        }
+        if !matches!(cause, LifecycleCause::Crash) {
+            self.runtime_block_state.remove(&node_key);
         }
     }
 
@@ -3389,7 +3571,8 @@ impl GraphBrowserApp {
             }
             self.remove_active_node(node_key);
             self.remove_warm_cache_node(node_key);
-            self.node_crash_state.remove(&node_key);
+            self.runtime_block_state.remove(&node_key);
+            self.runtime_block_state.remove(&node_key);
             self.node_last_active_workspace.remove(&node_key);
             if let Some(node_id) = node_id {
                 self.node_workspace_membership.remove(&node_id);
@@ -3483,7 +3666,8 @@ impl GraphBrowserApp {
         self.node_to_webview.clear();
         self.active_lru.clear();
         self.warm_cache_lru.clear();
-        self.node_crash_state.clear();
+        self.runtime_block_state.clear();
+        self.runtime_block_state.clear();
         self.node_last_active_workspace.clear();
         self.node_workspace_membership.clear();
         self.current_workspace_is_synthesized = false;
@@ -3518,7 +3702,8 @@ impl GraphBrowserApp {
         self.node_to_webview.clear();
         self.active_lru.clear();
         self.warm_cache_lru.clear();
-        self.node_crash_state.clear();
+        self.runtime_block_state.clear();
+        self.runtime_block_state.clear();
         self.node_last_active_workspace.clear();
         self.node_workspace_membership.clear();
         self.current_workspace_is_synthesized = false;
@@ -3860,7 +4045,7 @@ mod tests {
             app.graph.get_node(key).unwrap().lifecycle,
             NodeLifecycle::Cold
         );
-        assert!(app.get_node_crash_state(key).is_some());
+        assert!(app.runtime_crash_state_for_node(key).is_some());
 
         app.apply_intents([GraphIntent::SelectNode {
             key,
@@ -4887,7 +5072,7 @@ mod tests {
     }
 
     #[test]
-    fn test_demote_to_warm_requires_mapping_and_sets_lifecycle() {
+    fn test_demote_to_warm_sets_desired_lifecycle_without_mapping() {
         use crate::graph::NodeLifecycle;
 
         let mut app = GraphBrowserApp::new_for_testing();
@@ -4897,7 +5082,7 @@ mod tests {
         app.demote_node_to_warm(key);
         assert_eq!(
             app.graph.get_node(key).unwrap().lifecycle,
-            NodeLifecycle::Active
+            NodeLifecycle::Warm
         );
         assert!(app.warm_cache_lru.is_empty());
 
@@ -4909,6 +5094,140 @@ mod tests {
             NodeLifecycle::Warm
         );
         assert_eq!(app.warm_cache_lru, vec![key]);
+    }
+
+    #[test]
+    fn test_policy_promote_does_not_auto_reactivate_crashed_node() {
+        use crate::graph::NodeLifecycle;
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, key);
+        app.apply_intents([GraphIntent::WebViewCrashed {
+            webview_id: wv,
+            reason: "boom".to_string(),
+            has_backtrace: false,
+        }]);
+        assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Cold);
+        assert!(app.runtime_crash_state_for_node(key).is_some());
+
+        app.apply_intents([GraphIntent::PromoteNodeToActive {
+            key,
+            cause: LifecycleCause::ActiveTileVisible,
+        }]);
+
+        assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Cold);
+        assert!(app.runtime_crash_state_for_node(key).is_some());
+    }
+
+    #[test]
+    fn test_policy_user_select_can_reactivate_and_clear_crash_state() {
+        use crate::graph::NodeLifecycle;
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, key);
+        app.apply_intents([GraphIntent::WebViewCrashed {
+            webview_id: wv,
+            reason: "boom".to_string(),
+            has_backtrace: false,
+        }]);
+
+        app.apply_intents([GraphIntent::PromoteNodeToActive {
+            key,
+            cause: LifecycleCause::UserSelect,
+        }]);
+
+        assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Active);
+        assert!(app.runtime_crash_state_for_node(key).is_none());
+    }
+
+    #[test]
+    fn test_crash_path_requires_explicit_clear_before_auto_reactivate() {
+        use crate::graph::NodeLifecycle;
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, key);
+        app.apply_intents([GraphIntent::WebViewCrashed {
+            webview_id: wv,
+            reason: "boom".to_string(),
+            has_backtrace: false,
+        }]);
+
+        app.apply_intents([GraphIntent::PromoteNodeToActive {
+            key,
+            cause: LifecycleCause::ActiveTileVisible,
+        }]);
+        assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Cold);
+        assert!(app.runtime_crash_state_for_node(key).is_some());
+
+        app.apply_intents([GraphIntent::PromoteNodeToActive {
+            key,
+            cause: LifecycleCause::UserSelect,
+        }]);
+        assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Active);
+        assert!(app.runtime_crash_state_for_node(key).is_none());
+    }
+
+    #[test]
+    fn test_policy_explicit_close_clears_crash_state() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, key);
+        app.apply_intents([GraphIntent::WebViewCrashed {
+            webview_id: wv,
+            reason: "boom".to_string(),
+            has_backtrace: false,
+        }]);
+        assert!(app.runtime_crash_state_for_node(key).is_some());
+
+        app.apply_intents([GraphIntent::DemoteNodeToCold {
+            key,
+            cause: LifecycleCause::ExplicitClose,
+        }]);
+
+        assert!(app.runtime_crash_state_for_node(key).is_none());
+    }
+
+    #[test]
+    fn test_mark_runtime_blocked_and_expiry_unblocks_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let retry_at = Instant::now() + Duration::from_millis(5);
+        app.apply_intents([GraphIntent::MarkRuntimeBlocked {
+            key,
+            reason: RuntimeBlockReason::CreateRetryExhausted,
+            retry_at: Some(retry_at),
+        }]);
+        assert!(app.is_runtime_blocked(key, Instant::now()));
+        assert!(!app.is_runtime_blocked(key, retry_at + Duration::from_millis(1)));
+        assert!(app.runtime_block_state_for_node(key).is_none());
+    }
+
+    #[test]
+    fn test_promote_clears_runtime_block_state() {
+        use crate::graph::NodeLifecycle;
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        app.apply_intents([
+            GraphIntent::MarkRuntimeBlocked {
+                key,
+                reason: RuntimeBlockReason::CreateRetryExhausted,
+                retry_at: Some(Instant::now() + Duration::from_secs(1)),
+            },
+            GraphIntent::PromoteNodeToActive {
+                key,
+                cause: LifecycleCause::Restore,
+            },
+        ]);
+        assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Active);
+        assert!(app.runtime_block_state_for_node(key).is_none());
     }
 
     #[test]
@@ -5037,19 +5356,22 @@ mod tests {
             NodeLifecycle::Cold
         ));
         assert_eq!(
-            app.get_node_crash_state(key)
-                .map(|state| state.reason.as_str()),
+            app.runtime_crash_state_for_node(key)
+                .and_then(|state| state.message.as_deref()),
             Some("gpu reset")
         );
         assert!(app.get_node_for_webview(wv_id).is_none());
         assert!(app.get_webview_for_node(key).is_none());
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive { key }]);
+        app.apply_intents([GraphIntent::PromoteNodeToActive {
+            key,
+            cause: LifecycleCause::Restore,
+        }]);
         assert!(matches!(
             app.graph.get_node(key).unwrap().lifecycle,
             NodeLifecycle::Active
         ));
-        assert!(app.get_node_crash_state(key).is_none());
+        assert!(app.runtime_crash_state_for_node(key).is_none());
     }
 
     #[test]
@@ -5065,10 +5387,10 @@ mod tests {
             reason: "boom".to_string(),
             has_backtrace: true,
         }]);
-        assert!(app.get_node_crash_state(key).is_some());
+        assert!(app.runtime_crash_state_for_node(key).is_some());
 
         app.clear_graph();
-        assert!(app.get_node_crash_state(key).is_none());
+        assert!(app.runtime_crash_state_for_node(key).is_none());
     }
 
     // --- TEST-1: webview mapping ---

@@ -51,7 +51,7 @@ Servo provides two distinct signals that drive the graph (no Servo modifications
 
 ## Research Conclusions (2026-02-15)
 
-The architecture plan identified a previous mismatch (URL-polling assumptions and fragmented routing). For desktop tile flow, this has been addressed: navigation semantics are delegate-driven, structural node creation is not polling-driven, and mutations route through intent/reconciliation boundaries. Remaining deferred scope is EGL/WebDriver explicit-target parity. See [2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md).
+The architecture plan identified a previous mismatch (URL-polling assumptions and fragmented routing). For desktop tile flow, this has been addressed: navigation semantics are delegate-driven, structural node creation is not polling-driven, and mutations route through intent/reconciliation boundaries. Remaining deferred scope is EGL/WebDriver explicit-target parity. See [2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md).
 
 ### Edge Types
 
@@ -63,7 +63,7 @@ The architecture plan identified a previous mismatch (URL-polling assumptions an
 | `History` | Back/forward detection (existing reverse edge) | Navigation reversal |
 | `UserGrouped` | Explicit split-open grouping gesture (`Shift + Double-click` in graph) | User deliberately associated two nodes |
 
-**Edge Traversal Model** (planned replacement): `EdgeType` will be replaced by `EdgePayload` containing `Vec<Traversal>` records. Each traversal captures the full navigation event (from_url, to_url, timestamp, trigger). This model preserves repeat navigations, timing data, and enables commutative P2P sync. See [2026-02-20_edge_traversal_impl_plan.md](implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) for implementation timeline.
+**Edge Traversal Model** (planned replacement): `EdgeType` will be replaced by `EdgePayload` containing `Vec<Traversal>` records. Each traversal captures the full navigation event (from_url, to_url, timestamp, trigger). This model preserves repeat navigations, timing data, and enables commutative P2P sync. See [2026-02-20_edge_traversal_impl_plan.md](../implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) for implementation timeline.
 
 ### Pane Membership and Workspaces
 
@@ -72,30 +72,31 @@ The architecture plan identified a previous mismatch (URL-polling assumptions an
 - **New root node** (N key, no parent): Creates a new tab container in the tile tree.
 - **Tab move** (drag between panes): Moves the tile. `UserGrouped` creation for drag-move is follow-up work; current explicit grouping trigger is split-open.
 
-**Workspace routing** (in development): Opening a node predictably restores the expected workspace context. Nodes track workspace membership (UUID → set of workspace names). Routing resolver uses recency and membership index to decide whether to restore an existing workspace or open in current workspace. See [2026-02-19_workspace_routing_and_membership_plan.md](implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md).
+**Workspace routing** (in development): Opening a node predictably restores the expected workspace context. Nodes track workspace membership (UUID → set of workspace names). Routing resolver uses recency and membership index to decide whether to restore an existing workspace or open in current workspace. See [2026-02-19_workspace_routing_and_membership_plan.md](../implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md).
 
 ### Node Lifecycle
 
-**Current code** implements a three-tier lifecycle model (see `graph/mod.rs` `NodeLifecycle` enum):
+**Current code** implements a three-tier desired lifecycle model (see `graph/mod.rs` `NodeLifecycle` enum) with an observed runtime layer managed by reconciliation:
 
-| State | Has webview? | Shown in tab bar? | Shown in graph? | LRU eviction |
+| Desired state | Has webview? | Shown in tab bar? | Shown in graph? | LRU eviction |
 |-------|-------------|-------------------|-----------------|-------------|
-| **Active** | Yes (visible) | Yes (highlighted) | Yes (full color) | LRU cache (default: 4 slots) |
-| **Warm** | Yes (backgrounded) | Yes (dimmed) | Yes (medium color) | LRU cache (default: 12 slots) |
-| **Cold** | No (metadata only) | Yes (dimmed) | Yes (dimmed) | Unlimited |
+| **Active** | Yes (Mapped) | Yes (highlighted) | Yes (full color) | LRU cache (default: 4 slots) |
+| **Warm** | Maybe (Mapped or Unmapped; policy-controlled) | Yes (dimmed) | Yes (medium color) | LRU cache (default: 12 slots) |
+| **Cold** | No (Unmapped) | Yes (dimmed) | Yes (dimmed) | Unlimited |
 
 **Lifecycle transitions:**
-- Focus a node → `PromoteToActive` intent → creates/reactivates webview
-- Navigate away from a tab → `DemoteToWarm` intent → webview persists but not visible
-- Active LRU overflow → `DemoteToWarm` intent (oldest non-pinned active node)
-- Warm LRU overflow → `EvictWarmToCold` intent → webview destroyed, metadata retained
+- Focus a node → `PromoteNodeToActive` intent → reconcile creates/reactivates webview
+- Navigate away from a tab → `DemoteNodeToWarm` intent → webview may remain mapped (policy)
+- Active LRU overflow → `DemoteNodeToWarm` intent (oldest non-pinned active node)
+- Warm LRU overflow → `DemoteNodeToCold` intent → webview destroyed, metadata retained
 - Memory pressure (warning/critical) → stronger eviction cascade (Active → Warm → Cold)
-- Close tab tile → `DemoteToWarm` or `EvictWarmToCold` (depending on warm cache fullness)
+- Close tab tile → `DemoteNodeToWarm` or `DemoteNodeToCold` (based on warm cache policy)
+- Create failures/crashes → `MarkRuntimeBlocked` with backoff; `ClearRuntimeBlocked` on recovery
 - Delete node → `RemoveNode` intent → node removed from graph entirely
 
-**Lifecycle Intent Vocabulary**: `PromoteToActive`, `DemoteToWarm`, `EvictWarmToCold`, `Reactivate`, `Destroy` drive webview creation/destruction through the reconciliation phase.
+**Lifecycle Intent Vocabulary** (authoritative): `PromoteNodeToActive`, `DemoteNodeToWarm`, `DemoteNodeToCold`, `MarkRuntimeBlocked`, `ClearRuntimeBlocked`, plus runtime mapping intents (`MarkRuntimeCreatePending`, `MarkRuntimeCreateConfirmed`).
 
-See [2026-02-19_persistence_hub_plan.md](implementation_strategy/2026-02-19_persistence_hub_plan.md) for LRU budget policy details and [2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) for lifecycle intent flow.
+See [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) for the full desired/observed model, invariants, and cause metadata.
 
 ### Intent-Based Mutation
 
@@ -103,8 +104,8 @@ All user interactions produce intents processed at a single sync point per frame
 
 **Two-Phase Apply Model:**
 
-1. **Phase 1 — Pure Reducer** (state mutation): Processes `GraphIntent` enum, updates graph structure and node metadata, emits `WebViewReconciliationIntent` for runtime side effects.
-2. **Phase 2 — Reconciliation** (webview lifecycle): Creates/destroys webviews based on lifecycle intents, navigates webviews to updated URLs, updates tile tree focus/layout.
+1. **Phase 1 — Pure Reducer** (state mutation): Processes `GraphIntent`, updates graph structure and desired lifecycle state. No Servo calls.
+2. **Phase 2 — Reconciliation** (webview lifecycle): Converges observed runtime state toward desired state; creates/destroys webviews, applies blocked/backoff policy, and emits follow-up intents for the next frame if needed.
 
 **Phase gap invariant**: Sub-frame gap between phases prevents contradictory webview state (e.g., navigating a destroyed webview, creating duplicate webviews for the same node).
 
@@ -116,7 +117,7 @@ Sources of intents:
 
 **Delegate-driven routing**: Servo callbacks → GraphIntent emission → reducer application → reconciliation effects. No polling, no fragmented mutation paths.
 
-See [2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) for detailed phase specification and [ARCHITECTURAL_OVERVIEW.md](ARCHITECTURAL_OVERVIEW.md) for the architectural summary.
+See [2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) for detailed phase specification and [ARCHITECTURAL_OVERVIEW.md](ARCHITECTURAL_OVERVIEW.md) for the architectural summary.
 
 ---
 
@@ -174,7 +175,7 @@ Servo provides the full back/forward list via `notify_history_changed(webview, e
 - **Search integration**: Omnibar searches node tags (fuzzy match via nucleo).
 - **Visual indicator**: Bookmark icon overlay on tagged nodes in graph view.
 
-See [2026-02-19_persistence_hub_plan.md](implementation_strategy/2026-02-19_persistence_hub_plan.md) Phase 1 and [2026-02-20_settings_architecture_plan.md](implementation_strategy/2026-02-20_settings_architecture_plan.md) for UI delivery.
+See [2026-02-19_persistence_hub_plan.md](../implementation_strategy/2026-02-19_persistence_hub_plan.md) Phase 1 and [2026-02-20_settings_architecture_plan.md](../implementation_strategy/2026-02-20_settings_architecture_plan.md) for UI delivery.
 
 ---
 
@@ -186,7 +187,7 @@ See [2026-02-19_persistence_hub_plan.md](implementation_strategy/2026-02-19_pers
 - Downloads page (`graphshell://settings/downloads`) shows in-progress + completed downloads
 - Download metadata stored per-node for provenance
 
-**Implementation note**: Download tracking integrates with settings architecture (`graphshell://` internal URL scheme). See [2026-02-20_settings_architecture_plan.md](implementation_strategy/2026-02-20_settings_architecture_plan.md).
+**Implementation note**: Download tracking integrates with settings architecture (`graphshell://` internal URL scheme). See [2026-02-20_settings_architecture_plan.md](../implementation_strategy/2026-02-20_settings_architecture_plan.md).
 
 ---
 
@@ -204,7 +205,7 @@ See [2026-02-19_persistence_hub_plan.md](implementation_strategy/2026-02-19_pers
 - **Highlight mode** (default): Matching nodes highlighted in gold, dimmed non-matches remain visible.
 - **Filter mode** (toggle in search panel): Hide non-matching nodes entirely, collapse edges to preserved nodes.
 
-**Faceted search** (planned): Filter by lifecycle state, edge type, traversal recency, tag, visit count. See [2026-02-19_graph_ux_polish_plan.md](implementation_strategy/2026-02-19_graph_ux_polish_plan.md) Phase 4 for DOI/relevance weighting integration.
+**Faceted search** (planned): Filter by lifecycle state, edge type, traversal recency, tag, visit count. See [2026-02-19_graph_ux_polish_plan.md](../implementation_strategy/2026-02-19_graph_ux_polish_plan.md) Phase 4 for DOI/relevance weighting integration.
 
 ---
 
@@ -230,13 +231,14 @@ See [2026-02-19_persistence_hub_plan.md](implementation_strategy/2026-02-19_pers
 
 **Core architecture:**
 - [ARCHITECTURAL_OVERVIEW.md](ARCHITECTURAL_OVERVIEW.md) — implementation status, data structures, key decisions
-- [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) — feature targets and validation tests
+- [IMPLEMENTATION_ROADMAP.md](../implementation_strategy/IMPLEMENTATION_ROADMAP.md) — feature targets and validation tests
 
 **Implementation plans:**
-- [2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) — two-phase apply model, lifecycle intents
-- [2026-02-20_edge_traversal_impl_plan.md](implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) — EdgeType → EdgePayload migration
-- [2026-02-19_workspace_routing_and_membership_plan.md](implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md) — workspace membership index and routing resolver
-- [2026-02-20_settings_architecture_plan.md](implementation_strategy/2026-02-20_settings_architecture_plan.md) — `graphshell://` internal URL scheme
-- [2026-02-19_persistence_hub_plan.md](implementation_strategy/2026-02-19_persistence_hub_plan.md) — bookmarks (tags), node history, LRU lifecycle budgets
-- [2026-02-19_graph_ux_polish_plan.md](implementation_strategy/2026-02-19_graph_ux_polish_plan.md) — search modes (Highlight/Filter), DOI/relevance
+- [2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) — two-phase apply model, lifecycle intents
+- [2026-02-20_edge_traversal_impl_plan.md](../implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) — EdgeType → EdgePayload migration
+- [2026-02-19_workspace_routing_and_membership_plan.md](../implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md) — workspace membership index and routing resolver
+- [2026-02-20_settings_architecture_plan.md](../implementation_strategy/2026-02-20_settings_architecture_plan.md) — `graphshell://` internal URL scheme
+- [2026-02-19_persistence_hub_plan.md](../implementation_strategy/2026-02-19_persistence_hub_plan.md) — bookmarks (tags), node history, LRU lifecycle budgets
+- [2026-02-19_graph_ux_polish_plan.md](../implementation_strategy/2026-02-19_graph_ux_polish_plan.md) — search modes (Highlight/Filter), DOI/relevance
+
 

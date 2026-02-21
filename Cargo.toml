@@ -2,9 +2,10 @@
 name = "graphshell"
 build = "build.rs"
 version = "0.0.1"
-authors = ["The Servo Project Developers"]
+authors = ["@mark-ik"]
 license = "MPL-2.0"
 edition = "2024"
+readme = "README.md"
 publish = false
 rust-version = "1.86.0"
 
@@ -36,7 +37,7 @@ winresource = "0.1"
 
 [package.metadata.winresource]
 FileDescription = "GraphShell Browser"
-LegalCopyright = "© The Verso Project Developers"
+LegalCopyright = "Copyright (C) 2024 The GraphShell Authors"
 OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
@@ -64,6 +65,7 @@ webxr = ["servo/webxr"]
 [dependencies]
 accesskit = { version = "0.24.0", features = ["serde"] }
 bpaf = { version = "0.9.23", features = ["derive"] }
+backon = "1"
 cfg-if = "1.0.4"
 crossbeam-channel = "0.5"
 dpi = "0.1"
@@ -77,6 +79,7 @@ log = "0.4.29"
 mime_guess = "2.0.5"
 raw-window-handle = "0.6"
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "aws-lc-rs"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = "1"
 toml = "0.8"
@@ -140,8 +143,7 @@ gilrs = "0.11.1"
 glow = "0.16.0"
 headers = "0.4"
 serde_json = "1.0"
-ureq = { version = "2.10", default-features = true, features = ["json"] }
-sysinfo = "0.30"
+sysinfo = "0.37"
 # For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
 servo_allocator = { git = "https://github.com/servo/servo.git", branch = "main", package = "servo_allocator" }
 surfman = { version = "0.11.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
@@ -168,4 +170,7 @@ objc2-foundation = { version = "0.3.1", default-features = false, features = [
 
 [dev-dependencies]
 base = { git = "https://github.com/servo/servo.git", branch = "main", package = "base" }
+insta = "1"
+proptest = "1"
+rstest = "0.26"
 tempfile = "3"

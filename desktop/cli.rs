@@ -5,7 +5,7 @@
 use std::{env, panic};
 
 use crate::desktop::app::App;
-use crate::desktop::event_loop::ServoShellEventLoop;
+use crate::desktop::event_loop::AppEventLoop;
 use crate::panic_hook;
 use crate::prefs::{ArgumentParsingResult, parse_command_line_arguments};
 
@@ -20,10 +20,10 @@ pub fn main() {
 
     // Skip the first argument, which is the binary name.
     let args: Vec<String> = env::args().skip(1).collect();
-    let (opts, preferences, servoshell_preferences) = match parse_command_line_arguments(&*args) {
+    let (opts, preferences, app_preferences) = match parse_command_line_arguments(&*args) {
         ArgumentParsingResult::ContentProcess(token) => return servo::run_content_process(token),
-        ArgumentParsingResult::ChromeProcess(opts, preferences, servoshell_preferences) => {
-            (opts, preferences, servoshell_preferences)
+        ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
+            (opts, preferences, app_preferences)
         },
         ArgumentParsingResult::Exit => {
             std::process::exit(0);
@@ -33,16 +33,16 @@ pub fn main() {
         },
     };
 
-    crate::init_tracing(servoshell_preferences.tracing_filter.as_deref());
+    crate::init_tracing(app_preferences.tracing_filter.as_deref());
 
-    let clean_shutdown = servoshell_preferences.clean_shutdown;
-    let event_loop = match servoshell_preferences.headless {
-        true => ServoShellEventLoop::headless(),
-        false => ServoShellEventLoop::headed(),
+    let clean_shutdown = app_preferences.clean_shutdown;
+    let event_loop = match app_preferences.headless {
+        true => AppEventLoop::headless(),
+        false => AppEventLoop::headed(),
     };
 
     {
-        let mut app = App::new(opts, preferences, servoshell_preferences, &event_loop);
+        let mut app = App::new(opts, preferences, app_preferences, &event_loop);
         event_loop.run_app(&mut app);
     }
 

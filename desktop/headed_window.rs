@@ -53,11 +53,11 @@ use crate::desktop::dialog::Dialog;
 use crate::desktop::event_loop::AppEvent;
 use crate::desktop::gui::Gui;
 use crate::desktop::keyutils::CMD_OR_CONTROL;
-use crate::prefs::ServoShellPreferences;
+use crate::prefs::AppPreferences;
 use crate::running_app_state::RunningAppState;
 use crate::window::{
-    LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE, PlatformWindow, ServoShellWindow,
-    ServoShellWindowId,
+    LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE, PlatformWindow, EmbedderWindow,
+    EmbedderWindowId,
 };
 
 pub(crate) const INITIAL_WINDOW_TITLE: &str = "Servo";
@@ -111,13 +111,13 @@ pub struct HeadedWindow {
 
 impl HeadedWindow {
     pub(crate) fn new(
-        servoshell_preferences: &ServoShellPreferences,
+        app_preferences: &AppPreferences,
         event_loop: &ActiveEventLoop,
         event_loop_proxy: EventLoopProxy<AppEvent>,
         initial_url: Url,
     ) -> Rc<Self> {
-        let no_native_titlebar = servoshell_preferences.no_native_titlebar;
-        let inner_size = servoshell_preferences.initial_window_size;
+        let no_native_titlebar = app_preferences.no_native_titlebar;
+        let inner_size = app_preferences.initial_window_size;
         let window_attr = winit::window::Window::default_attributes()
             .with_title(INITIAL_WINDOW_TITLE.to_string())
             .with_decorations(!no_native_titlebar)
@@ -156,7 +156,7 @@ impl HeadedWindow {
             .or_else(|| winit_window.available_monitors().nth(0))
             .expect("No monitor detected");
 
-        let (screen_size, screen_scale) = servoshell_preferences.screen_size_override.map_or_else(
+        let (screen_size, screen_scale) = app_preferences.screen_size_override.map_or_else(
             || (monitor.size(), winit_window.scale_factor()),
             |size| (PhysicalSize::new(size.width, size.height), 1.0),
         );
@@ -196,8 +196,8 @@ impl HeadedWindow {
             rendering_context.clone(),
             window_rendering_context.clone(),
             initial_url,
-            servoshell_preferences.graph_data_dir.clone(),
-            servoshell_preferences.graph_snapshot_interval_secs,
+            app_preferences.graph_data_dir.clone(),
+            app_preferences.graph_snapshot_interval_secs,
         ));
 
         debug!("Created window {:?}", winit_window.id());
@@ -209,11 +209,11 @@ impl HeadedWindow {
             inner_size: Cell::new(inner_size),
             monitor,
             screen_size,
-            device_pixel_ratio_override: servoshell_preferences.device_pixel_ratio_override,
+            device_pixel_ratio_override: app_preferences.device_pixel_ratio_override,
             xr_window_poses: RefCell::new(vec![]),
             modifiers_state: Cell::new(ModifiersState::empty()),
             window_rendering_context,
-            touch_event_simulator: servoshell_preferences
+            touch_event_simulator: app_preferences
                 .simulate_touch_events
                 .then(Default::default),
             pending_keyboard_events: Default::default(),
@@ -235,7 +235,7 @@ impl HeadedWindow {
         self.gui.borrow().focused_webview_id()
     }
 
-    fn focused_webview(&self, window: &ServoShellWindow) -> Option<WebView> {
+    fn focused_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
         self.focused_webview_id()
             .and_then(|id| window.webview_by_id(id))
     }
@@ -259,7 +259,7 @@ impl HeadedWindow {
     fn handle_keyboard_input(
         &self,
         state: Rc<RunningAppState>,
-        window: &ServoShellWindow,
+        window: &EmbedderWindow,
         winit_event: KeyEvent,
     ) {
         // First, handle servoshell key bindings that are not overridable by, or visible to, the page.
@@ -372,7 +372,7 @@ impl HeadedWindow {
     fn handle_intercepted_key_bindings(
         &self,
         state: Rc<RunningAppState>,
-        window: &ServoShellWindow,
+        window: &EmbedderWindow,
         key_event: &KeyboardEvent,
     ) -> bool {
         let Some(active_webview) = self.focused_webview(window) else {
@@ -524,7 +524,7 @@ impl HeadedWindow {
 
     pub(crate) fn for_each_active_dialog(
         &self,
-        window: &ServoShellWindow,
+        window: &EmbedderWindow,
         focused_webview_id: Option<WebViewId>,
         toolbar_offset: Length<f32, DeviceIndependentPixel>,
         callback: impl Fn(&mut Dialog) -> bool,
@@ -641,7 +641,7 @@ impl HeadedWindow {
     pub(crate) fn handle_winit_window_event(
         &self,
         state: Rc<RunningAppState>,
-        window: Rc<ServoShellWindow>,
+        window: Rc<EmbedderWindow>,
         event: WindowEvent,
     ) {
         if event == WindowEvent::RedrawRequested {
@@ -1056,7 +1056,7 @@ impl HeadedWindow {
         }
     }
 
-    pub(crate) fn handle_winit_app_event(&self, _window: &ServoShellWindow, app_event: AppEvent) {
+    pub(crate) fn handle_winit_app_event(&self, _window: &EmbedderWindow, app_event: AppEvent) {
         if let AppEvent::Accessibility(ref event) = app_event {
             // TODO(#41930): Forward accesskit_winit::WindowEvent events to Servo where appropriate
 
@@ -1076,7 +1076,7 @@ impl PlatformWindow for HeadedWindow {
         Some(self)
     }
 
-    fn preferred_input_webview_id(&self, window: &ServoShellWindow) -> Option<WebViewId> {
+    fn preferred_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
         if let Ok(gui) = self.gui.try_borrow() {
             return gui.focused_tile_webview_id();
         }
@@ -1118,11 +1118,11 @@ impl PlatformWindow for HeadedWindow {
             .unwrap_or_else(|| self.device_hidpi_scale_factor())
     }
 
-    fn rebuild_user_interface(&self, state: &RunningAppState, window: &ServoShellWindow) {
+    fn rebuild_user_interface(&self, state: &RunningAppState, window: &EmbedderWindow) {
         self.gui.borrow_mut().update(state, window, self);
     }
 
-    fn update_user_interface_state(&self, _: &RunningAppState, window: &ServoShellWindow) -> bool {
+    fn update_user_interface_state(&self, _: &RunningAppState, window: &EmbedderWindow) -> bool {
         let title = self
             .focused_webview(window)
             .and_then(|webview| {
@@ -1141,7 +1141,7 @@ impl PlatformWindow for HeadedWindow {
         self.gui.borrow_mut().update_webview_data(window)
     }
 
-    fn request_repaint(&self, _window: &ServoShellWindow) {
+    fn request_repaint(&self, _window: &EmbedderWindow) {
         self.winit_window.request_redraw();
     }
 
@@ -1228,7 +1228,7 @@ impl PlatformWindow for HeadedWindow {
         self.apply_platform_cursor(cursor);
     }
 
-    fn id(&self) -> ServoShellWindowId {
+    fn id(&self) -> EmbedderWindowId {
         let id: u64 = self.winit_window.id().into();
         id.into()
     }

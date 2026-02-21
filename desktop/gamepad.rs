@@ -19,12 +19,12 @@ pub struct HapticEffect {
     pub request: GamepadHapticEffectRequest,
 }
 
-pub(crate) struct ServoshellGamepadProvider {
+pub(crate) struct AppGamepadProvider {
     handle: RefCell<Gilrs>,
     haptic_effects: RefCell<HashMap<usize, HapticEffect>>,
 }
 
-impl ServoshellGamepadProvider {
+impl AppGamepadProvider {
     pub(crate) fn maybe_new() -> Option<Self> {
         let handle = match Gilrs::new() {
             Ok(handle) => handle,
@@ -242,7 +242,7 @@ impl ServoshellGamepadProvider {
     }
 }
 
-impl GamepadProvider for ServoshellGamepadProvider {
+impl GamepadProvider for AppGamepadProvider {
     fn handle_haptic_effect_request(&self, request: GamepadHapticEffectRequest) {
         match request.request_type() {
             GamepadHapticEffectRequestType::Play(effect_type) => {

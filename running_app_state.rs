@@ -5,11 +5,12 @@
 //! Shared state and methods for desktop and EGL implementations.
 
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::ops::Deref;
 use std::rc::Rc;
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use euclid::Rect;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 #[cfg(all(
@@ -19,24 +20,27 @@ use image::{DynamicImage, ImageFormat, RgbaImage};
 use libc::c_char;
 use log::{error, info, warn};
 use servo::{
-    AllowOrDenyRequest, AuthenticationRequest, CSSPixel, ConsoleLogLevel, CreateNewWebViewRequest,
-    DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId, EventLoopWaker,
-    GenericSender, InputEvent, InputEventId, InputEventResult, JSValue, LoadStatus,
+    pref, AllowOrDenyRequest, AuthenticationRequest, CSSPixel, ConsoleLogLevel,
+    CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId,
+    EventLoopWaker, GenericSender, InputEvent, InputEventId, InputEventResult, JSValue, LoadStatus,
     MediaSessionEvent, PermissionRequest, PrefValue, Preferences, ScreenshotCaptureError, Servo,
     ServoDelegate, ServoError, TraversalId, UserContentManager, WebDriverCommandMsg,
     WebDriverJSResult, WebDriverLoadStatus, WebDriverScriptCommand, WebDriverSenders, WebView,
-    WebViewDelegate, WebViewId, pref,
+    WebViewDelegate, WebViewId,
 };
 use url::Url;
 
+use crate::desktop::embedder::EmbedderCore;
 #[cfg(all(
     feature = "gamepad",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
-pub(crate) use crate::desktop::gamepad::ServoshellGamepadProvider;
-use crate::prefs::{EXPERIMENTAL_PREFS, ServoShellPreferences};
+pub(crate) use crate::desktop::gamepad::AppGamepadProvider;
+use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
 use crate::webdriver::WebDriverEmbedderControls;
-use crate::window::{PlatformWindow, ServoShellWindow, ServoShellWindowId};
+use crate::window::{
+    EmbedderWindow, EmbedderWindowId, GraphSemanticEvent, PlatformWindow, WebViewCreationContext,
+};
 
 #[cfg(all(
     any(coverage, llvm_pgo),
@@ -149,7 +153,7 @@ pub(crate) struct RunningAppState {
         feature = "gamepad",
         not(any(target_os = "android", target_env = "ohos"))
     ))]
-    gamepad_provider: Option<Rc<ServoshellGamepadProvider>>,
+    gamepad_provider: Option<Rc<AppGamepadProvider>>,
 
     /// The [`WebDriverSenders`] used to reply to pending WebDriver requests.
     pub(crate) webdriver_senders: RefCell<WebDriverSenders>,
@@ -169,10 +173,7 @@ pub(crate) struct RunningAppState {
     pub(crate) webdriver_receiver: Option<Receiver<WebDriverCommandMsg>>,
 
     /// servoshell specific preferences created during startup of the application.
-    pub(crate) servoshell_preferences: ServoShellPreferences,
-
-    /// A handle to the Servo instance.
-    pub(crate) servo: Servo,
+    pub(crate) app_preferences: AppPreferences,
 
     /// Whether or not the application has achieved stable image output. This is used
     /// for the `exit_after_stable_image` option.
@@ -188,20 +189,16 @@ pub(crate) struct RunningAppState {
     /// Whether the user has enabled experimental preferences.
     experimental_preferences_enabled: Cell<bool>,
 
-    /// The set of [`ServoShellWindow`]s that currently exist for this instance of servoshell.
-    // This is the last field of the struct to ensure that windows are dropped *after* all
-    // other references to the relevant rendering contexts have been destroyed.
-    // See https://github.com/servo/servo/issues/36711.
-    windows: RefCell<HashMap<ServoShellWindowId, Rc<ServoShellWindow>>>,
-
-    /// The currently focused [`ServoShellWindow`], if one is focused.
-    focused_window: RefCell<Option<Rc<ServoShellWindow>>>,
+    /// Owns embedder runtime state (Servo + windows + focused window + event drains).
+    /// Keep this as the last field so windows drop after other runtime references.
+    /// See https://github.com/servo/servo/issues/36711.
+    embedder_core: EmbedderCore,
 }
 
 impl RunningAppState {
     pub(crate) fn new(
         servo: Servo,
-        servoshell_preferences: ServoShellPreferences,
+        app_preferences: AppPreferences,
         event_loop_waker: Box<dyn EventLoopWaker>,
         user_content_manager: Rc<UserContentManager>,
         default_preferences: Preferences,
@@ -209,11 +206,12 @@ impl RunningAppState {
             feature = "gamepad",
             not(any(target_os = "android", target_env = "ohos"))
         ))]
-        gamepad_provider: Option<Rc<ServoshellGamepadProvider>>,
+        gamepad_provider: Option<Rc<AppGamepadProvider>>,
     ) -> Self {
         servo.set_delegate(Rc::new(ServoShellServoDelegate));
+        let embedder_core = EmbedderCore::new(servo);
 
-        let webdriver_receiver = servoshell_preferences.webdriver_port.get().map(|port| {
+        let webdriver_receiver = app_preferences.webdriver_port.get().map(|port| {
             let (embedder_sender, embedder_receiver) = unbounded();
             webdriver_server::start_server(
                 port,
@@ -225,11 +223,9 @@ impl RunningAppState {
         });
 
         let experimental_preferences_enabled =
-            Cell::new(servoshell_preferences.experimental_preferences_enabled);
+            Cell::new(app_preferences.experimental_preferences_enabled);
 
         Self {
-            windows: Default::default(),
-            focused_window: Default::default(),
             #[cfg(all(
                 feature = "gamepad",
                 not(any(target_os = "android", target_env = "ohos"))
@@ -239,12 +235,12 @@ impl RunningAppState {
             webdriver_embedder_controls: Default::default(),
             pending_webdriver_events: Default::default(),
             webdriver_receiver,
-            servoshell_preferences,
-            servo,
+            app_preferences,
             achieved_stable_image: Default::default(),
             exit_scheduled: Default::default(),
             user_content_manager,
             experimental_preferences_enabled,
+            embedder_core,
         }
     }
 
@@ -252,12 +248,13 @@ impl RunningAppState {
         self: &Rc<Self>,
         platform_window: Rc<dyn PlatformWindow>,
         initial_url: Url,
-    ) -> Rc<ServoShellWindow> {
-        let window = Rc::new(ServoShellWindow::new(platform_window.clone()));
+    ) -> Rc<EmbedderWindow> {
+        let window = Rc::new(EmbedderWindow::new(
+            platform_window.clone(),
+            self.embedder_core.graph_event_sequence_source(),
+        ));
         window.create_and_activate_toplevel_webview(self.clone(), initial_url);
-        self.windows
-            .borrow_mut()
-            .insert(window.id(), window.clone());
+        self.embedder_core.insert_window(window.clone());
 
         // If the window already has platform focus, mark it as focused in our application state.
         if platform_window.has_platform_focus() {
@@ -267,24 +264,22 @@ impl RunningAppState {
         window
     }
 
-    pub(crate) fn windows<'a>(
-        &'a self,
-    ) -> Ref<'a, HashMap<ServoShellWindowId, Rc<ServoShellWindow>>> {
-        self.windows.borrow()
+    pub(crate) fn windows<'a>(&'a self) -> Ref<'a, HashMap<EmbedderWindowId, Rc<EmbedderWindow>>> {
+        self.embedder_core.windows()
     }
 
-    pub(crate) fn focused_window(&self) -> Option<Rc<ServoShellWindow>> {
-        self.focused_window.borrow().clone()
+    pub(crate) fn focused_window(&self) -> Option<Rc<EmbedderWindow>> {
+        self.embedder_core.focused_window()
     }
 
-    pub(crate) fn focus_window(&self, window: Rc<ServoShellWindow>) {
+    pub(crate) fn focus_window(&self, window: Rc<EmbedderWindow>) {
         window.focus();
-        *self.focused_window.borrow_mut() = Some(window);
+        self.embedder_core.focus_window(window);
     }
 
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
-    pub(crate) fn window(&self, id: ServoShellWindowId) -> Option<Rc<ServoShellWindow>> {
-        self.windows.borrow().get(&id).cloned()
+    pub(crate) fn window(&self, id: EmbedderWindowId) -> Option<Rc<EmbedderWindow>> {
+        self.embedder_core.window(id)
     }
 
     pub(crate) fn webview_by_id(&self, webview_id: WebViewId) -> Option<WebView> {
@@ -297,14 +292,14 @@ impl RunningAppState {
     }
 
     pub(crate) fn servo(&self) -> &Servo {
-        &self.servo
+        self.embedder_core.servo()
     }
 
     #[cfg(all(
         feature = "gamepad",
         not(any(target_os = "android", target_env = "ohos"))
     ))]
-    pub(crate) fn gamepad_provider(&self) -> Option<Rc<ServoshellGamepadProvider>> {
+    pub(crate) fn gamepad_provider(&self) -> Option<Rc<AppGamepadProvider>> {
         self.gamepad_provider.clone()
     }
 
@@ -314,7 +309,7 @@ impl RunningAppState {
         // Note that when not explicitly required to shutdown, we still keep Servo alive
         // when all tabs are closed when `webdriver_port` enabled, which is necessary
         // to run wpt test using servodriver.
-        self.servoshell_preferences.webdriver_port.set(None);
+        self.app_preferences.webdriver_port.set(None);
         self.exit_scheduled.set(true);
 
         #[cfg(all(
@@ -352,24 +347,20 @@ impl RunningAppState {
             return;
         }
         for pref in EXPERIMENTAL_PREFS {
-            self.servo.set_preference(pref, PrefValue::Bool(new_value));
+            self.embedder_core
+                .servo()
+                .set_preference(pref, PrefValue::Bool(new_value));
         }
     }
 
-    /// Close any [`ServoShellWindow`] that doesn't have an open [`WebView`].
+    /// Close any [`EmbedderWindow`] that doesn't have an open [`WebView`].
     fn close_empty_windows(&self) {
-        self.windows.borrow_mut().retain(|_, window| {
-            if !self.exit_scheduled.get() && !window.should_close() {
-                return true;
-            }
+        self.embedder_core
+            .close_empty_windows(self.exit_scheduled.get());
+    }
 
-            if let Some(focused_window) = self.focused_window() {
-                if Rc::ptr_eq(window, &focused_window) {
-                    *self.focused_window.borrow_mut() = None;
-                }
-            }
-            false
-        });
+    pub(crate) fn take_pending_graph_events(&self) -> Vec<GraphSemanticEvent> {
+        self.embedder_core.drain_window_graph_events()
     }
 
     /// Spins the internal application event loop.
@@ -384,7 +375,7 @@ impl RunningAppState {
         create_platform_window: Option<&dyn Fn(Url) -> Rc<dyn PlatformWindow>>,
     ) -> bool {
         // We clone here to avoid a double borrow. User interface commands can update the list of windows.
-        let windows: Vec<_> = self.windows.borrow().values().cloned().collect();
+        let windows: Vec<_> = self.embedder_core.windows().values().cloned().collect();
         for window in windows {
             window.handle_interface_commands(self, create_platform_window);
         }
@@ -399,13 +390,13 @@ impl RunningAppState {
             self.handle_gamepad_events();
         }
 
-        self.servo.spin_event_loop();
+        self.embedder_core.servo().spin_event_loop();
 
-        for window in self.windows.borrow().values() {
+        for window in self.embedder_core.windows().values() {
             window.update_and_request_repaint_if_necessary(self);
         }
 
-        if self.servoshell_preferences.exit_after_stable_image && self.achieved_stable_image.get() {
+        if self.app_preferences.exit_after_stable_image && self.achieved_stable_image.get() {
             self.schedule_exit();
         }
 
@@ -413,8 +404,8 @@ impl RunningAppState {
 
         // When no more windows are open, exit the application. Do not do this when
         // running WebDriver, which expects to keep running with no WebView open.
-        if self.servoshell_preferences.webdriver_port.get().is_none()
-            && self.windows.borrow().is_empty()
+        if self.app_preferences.webdriver_port.get().is_none()
+            && self.embedder_core.window_count() == 0
         {
             self.schedule_exit()
         }
@@ -425,16 +416,11 @@ impl RunningAppState {
     pub(crate) fn maybe_window_for_webview_id(
         &self,
         webview_id: WebViewId,
-    ) -> Option<Rc<ServoShellWindow>> {
-        for window in self.windows.borrow().values() {
-            if window.contains_webview(webview_id) {
-                return Some(window.clone());
-            }
-        }
-        None
+    ) -> Option<Rc<EmbedderWindow>> {
+        self.embedder_core.maybe_window_for_webview_id(webview_id)
     }
 
-    pub(crate) fn window_for_webview_id(&self, webview_id: WebViewId) -> Rc<ServoShellWindow> {
+    pub(crate) fn window_for_webview_id(&self, webview_id: WebViewId) -> Rc<EmbedderWindow> {
         self.maybe_window_for_webview_id(webview_id)
             .expect("Looking for unexpected WebView: {webview_id:?}")
     }
@@ -449,8 +435,8 @@ impl RunningAppState {
     /// If we are exiting after achieving a stable image or we want to save the display of the
     /// [`WebView`] to an image file, request a screenshot of the [`WebView`].
     fn maybe_request_screenshot(&self, webview: WebView) {
-        let output_path = self.servoshell_preferences.output_image_path.clone();
-        if !self.servoshell_preferences.exit_after_stable_image && output_path.is_none() {
+        let output_path = self.app_preferences.output_image_path.clone();
+        if !self.app_preferences.exit_after_stable_image && output_path.is_none() {
             return;
         }
 
@@ -472,7 +458,7 @@ impl RunningAppState {
                 Err(error) => {
                     error!("Could not take screenshot: {error:?}");
                     return;
-                },
+                }
             };
 
             let image_format = ImageFormat::from_path(&output_path).unwrap_or(ImageFormat::Png);
@@ -567,16 +553,16 @@ impl RunningAppState {
                 // Webdriver only handles 1 script command at a time, so we can
                 // safely set a new interrupt sender and remove the previous one here.
                 self.set_script_command_interrupt_sender(Some(response_sender.clone()));
-            },
+            }
             WebDriverScriptCommand::AddLoadStatusSender(webview_id, load_status_sender) => {
                 self.set_load_status_sender(*webview_id, load_status_sender.clone());
-            },
+            }
             WebDriverScriptCommand::RemoveLoadStatusSender(webview_id) => {
                 self.remove_load_status_sender(*webview_id);
-            },
+            }
             _ => {
                 self.set_script_command_interrupt_sender(None);
-            },
+            }
         }
     }
 
@@ -617,8 +603,8 @@ impl RunningAppState {
         gamepad_provider.handle_gamepad_events(active_webview);
     }
 
-    pub(crate) fn handle_focused(&self, window: Rc<ServoShellWindow>) {
-        *self.focused_window.borrow_mut() = Some(window.clone());
+    pub(crate) fn handle_focused(&self, window: Rc<EmbedderWindow>) {
+        self.embedder_core.focus_window(window);
     }
 
     /// Interrupt any ongoing WebDriver-based script evaluation.
@@ -645,7 +631,41 @@ impl RunningAppState {
     }
 }
 
-impl WebViewDelegate for RunningAppState {
+impl WebViewCreationContext for RunningAppState {
+    fn servo(&self) -> &Servo {
+        self.servo()
+    }
+
+    fn user_content_manager(&self) -> Rc<UserContentManager> {
+        self.user_content_manager.clone()
+    }
+
+    fn webview_delegate(self: Rc<Self>) -> Rc<dyn WebViewDelegate> {
+        Rc::new(RunningAppStateWebViewDelegate { state: self })
+    }
+
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    fn gamepad_provider(&self) -> Option<Rc<AppGamepadProvider>> {
+        self.gamepad_provider()
+    }
+}
+
+struct RunningAppStateWebViewDelegate {
+    state: Rc<RunningAppState>,
+}
+
+impl Deref for RunningAppStateWebViewDelegate {
+    type Target = RunningAppState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl WebViewDelegate for RunningAppStateWebViewDelegate {
     fn screen_geometry(&self, webview: WebView) -> Option<servo::ScreenGeometry> {
         Some(
             self.platform_window_for_webview_id(webview.id())
@@ -715,7 +735,7 @@ impl WebViewDelegate for RunningAppState {
         // When WebDriver is enabled, do not focus and raise the WebView to the top,
         // as that is what the specification expects. Otherwise, we would like `window.open()`
         // to create a new foreground tab
-        if self.servoshell_preferences.webdriver_port.get().is_none() {
+        if self.app_preferences.webdriver_port.get().is_none() {
             window.activate_webview(webview.id());
         } else {
             webview.hide();
@@ -788,7 +808,7 @@ impl WebViewDelegate for RunningAppState {
     }
 
     fn show_embedder_control(&self, webview: WebView, embedder_control: EmbedderControl) {
-        if self.servoshell_preferences.webdriver_port.get().is_some() {
+        if self.app_preferences.webdriver_port.get().is_some() {
             if matches!(&embedder_control, EmbedderControl::SimpleDialog(..)) {
                 self.interrupt_webdriver_script_evaluation();
 
@@ -813,7 +833,7 @@ impl WebViewDelegate for RunningAppState {
     }
 
     fn hide_embedder_control(&self, webview: WebView, embedder_control_id: EmbedderControlId) {
-        if self.servoshell_preferences.webdriver_port.get().is_some() {
+        if self.app_preferences.webdriver_port.get().is_some() {
             self.webdriver_embedder_controls
                 .hide_embedder_control(webview.id(), embedder_control_id);
             return;

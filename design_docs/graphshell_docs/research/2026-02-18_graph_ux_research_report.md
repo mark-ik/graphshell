@@ -19,13 +19,14 @@ A comprehensive reference for force-directed graph interaction design, physics p
 | Open node in split pane | Shift+Double-click | ✅ |
 | Move (drag) node | Drag node | ✅ physics pauses during drag |
 | Toggle physics | `T` | ✅ |
-| Fit to screen | `C` | ✅ |
+| Smart fit (graph or selection) | `Z` | ✅ |
 | Create node | `N` | ✅ |
 | Delete selected | `Delete` | ✅ |
 | Clear graph | `Ctrl+Shift+Delete` | ✅ |
 | Graph search/filter | `Ctrl+F` | ✅ |
 | Toggle graph/detail view | `Home` / `Esc` | ✅ |
 | Physics panel | `P` | ✅ |
+| Keyboard zoom | `+` / `-` / `0` | ✅ |
 | Help panel | `F1` / `?` | ✅ |
 
 ### 1.2 Physics Parameters (egui_graphs `FruchtermanReingoldState`)
@@ -270,7 +271,7 @@ Current shortcuts plus recommended additions:
 | Key | Action | Status |
 | --- | --- | --- |
 | `T` | Toggle physics | ✅ |
-| `C` | Fit graph to screen | ✅ |
+| `Z` | Smart fit (selection or full graph) | ✅ |
 | `N` | Create new node | ✅ |
 | `Delete` | Remove selected nodes | ✅ |
 | `Ctrl+Shift+Delete` | Clear graph | ✅ |

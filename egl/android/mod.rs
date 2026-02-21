@@ -167,13 +167,13 @@ pub extern "C" fn Java_org_servo_servoview_JNIServo_init<'local>(
     crate::init_crypto();
     servo::resources::set(Box::new(ResourceReaderInstance::new()));
 
-    let (opts, mut preferences, servoshell_preferences) =
+    let (opts, mut preferences, app_preferences) =
         match parse_command_line_arguments(init_opts.args.as_slice()) {
             ArgumentParsingResult::ContentProcess(..) => {
                 unreachable!("Android does not have support for multiprocess yet.")
             },
-            ArgumentParsingResult::ChromeProcess(opts, preferences, servoshell_preferences) => {
-                (opts, preferences, servoshell_preferences)
+            ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
+                (opts, preferences, app_preferences)
             },
             ArgumentParsingResult::Exit => {
                 std::process::exit(0);
@@ -183,7 +183,7 @@ pub extern "C" fn Java_org_servo_servoview_JNIServo_init<'local>(
 
     preferences.set_value("viewport_meta_enabled", servo::PrefValue::Bool(true));
 
-    crate::init_tracing(servoshell_preferences.tracing_filter.as_deref());
+    crate::init_tracing(app_preferences.tracing_filter.as_deref());
 
     let (display_handle, window_handle) = unsafe {
         (
@@ -201,7 +201,7 @@ pub extern "C" fn Java_org_servo_servoview_JNIServo_init<'local>(
             initial_url: init_opts.url,
             opts,
             preferences,
-            servoshell_preferences,
+            app_preferences,
             #[cfg(feature = "webxr")]
             xr_discovery: init_opts.xr_discovery,
         });

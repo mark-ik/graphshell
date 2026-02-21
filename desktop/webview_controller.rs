@@ -12,11 +12,12 @@ use std::collections::HashSet;
 
 use servo::WebViewId;
 
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::desktop::lifecycle_intents;
 use crate::graph::NodeKey;
 use crate::parser::location_bar_input_to_url;
 use crate::search::fuzzy_match_node_keys;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 use euclid::default::Point2D;
 
 fn reconcile_mappings_and_selection(
@@ -126,7 +127,7 @@ fn intents_for_omnibox_node_search(app: &GraphBrowserApp, query: &str) -> (bool,
 /// delegate events routed through GraphIntent reducer paths.
 pub(crate) fn sync_to_graph_intents(
     app: &mut GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
 ) -> Vec<GraphIntent> {
     // Track which webviews we've seen (to remove stale mappings later).
     let mut seen_webviews = HashSet::new();
@@ -153,7 +154,7 @@ pub(crate) fn handle_address_bar_submit_intents(
     is_graph_view: bool,
     focused_node: Option<NodeKey>,
     focused_webview: Option<WebViewId>,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     searchpage: &str,
 ) -> AddressBarIntentOutcome {
     let input = url.trim();
@@ -219,7 +220,10 @@ pub(crate) fn handle_address_bar_submit_intents(
                         key: node_key,
                         new_url: parsed_url.as_str().to_string(),
                     },
-                    GraphIntent::PromoteNodeToActive { key: node_key },
+                    lifecycle_intents::promote_node_to_active(
+                        node_key,
+                        LifecycleCause::Restore,
+                    ),
                 ],
             };
         }
@@ -244,7 +248,7 @@ pub(crate) fn handle_address_bar_submit_intents(
 pub(crate) fn close_webviews_for_nodes(
     app: &GraphBrowserApp,
     nodes: &[NodeKey],
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
 ) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
     for &node_key in nodes {
@@ -252,7 +256,10 @@ pub(crate) fn close_webviews_for_nodes(
             window.close_webview(wv_id);
             intents.push(GraphIntent::UnmapWebview { webview_id: wv_id });
         }
-        intents.push(GraphIntent::DemoteNodeToCold { key: node_key });
+        intents.push(lifecycle_intents::demote_node_to_cold(
+            node_key,
+            LifecycleCause::ExplicitClose,
+        ));
     }
     intents
 }
@@ -260,7 +267,7 @@ pub(crate) fn close_webviews_for_nodes(
 /// Close all current webviews and clear their app mappings.
 pub(crate) fn close_all_webviews(
     app: &GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
 ) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
     let webviews_to_close: Vec<WebViewId> =
@@ -269,7 +276,10 @@ pub(crate) fn close_all_webviews(
         window.close_webview(wv_id);
         intents.push(GraphIntent::UnmapWebview { webview_id: wv_id });
         if let Some(node_key) = app.get_node_for_webview(wv_id) {
-            intents.push(GraphIntent::DemoteNodeToCold { key: node_key });
+            intents.push(lifecycle_intents::demote_node_to_cold(
+                node_key,
+                LifecycleCause::ExplicitClose,
+            ));
         }
     }
     intents

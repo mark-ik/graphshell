@@ -116,16 +116,38 @@ Phase 1 ships Tier 1. Tier 2 is an incremental upgrade per page.
 
 #### 1.2 Settings Node Identity
 
-`graphshell://` nodes are treated as regular nodes for all graph purposes. The URL is stable and
-unique — two navigations to `graphshell://settings/physics` open the same node (URL-deduplication,
-existing behavior via `get_node_by_url`). The node's title is set by the internal page name
-(e.g., "Physics Settings").
+`graphshell://` nodes are treated as regular nodes for all graph purposes. By default, duplicate
+internal pages are allowed (multiple nodes can point at the same `graphshell://` URL). The node's
+title is set by the internal page name (e.g., "Physics Settings").
 
 **Special behavior:**
 - Settings nodes are never auto-deleted (they carry `is_pinned = true` by default, or a new
   `is_internal: bool` flag prevents deletion).
 - They do not generate traversal records (navigating *to* a settings page from a content node
   does not push a traversal — `graphshell://` URLs are excluded from `push_traversal`).
+
+#### Optional Deduplication Policy (General-Purpose, Toggleable)
+
+If deduplication is desirable, it should be implemented as a **general node policy** rather than a
+settings-only exception. The policy should be toggleable and apply to any canonicalized node class
+(internal pages, applets, widgets, web apps), not just `graphshell://` URLs.
+
+Proposed mechanism (optional, off by default):
+
+- Add `NodeIdentityPolicy` with `AllowDuplicates` (default) and `DeduplicateByCanonicalKey`.
+- When enabled, a node can carry an optional `canonical_key` (string). If present, the graph
+  uses it to locate an existing node and reuses it instead of creating a duplicate.
+- `canonical_key` is not limited to URLs. Example keys:
+  - `internal:settings/physics`
+  - `applet:diagnostics`
+  - `widget:downloads`
+  - `webapp:https://app.example.com`
+
+If implemented, the toggle should live in `graphshell://settings/appearance` or an Advanced
+section under `graphshell://settings/persistence` as "Node identity policy".
+
+This keeps deduplication reusable for future node classes while avoiding special-case logic for
+settings pages. If it proves unnecessary, the default policy remains fully compatible.
 
 **Tasks**
 

@@ -8,10 +8,11 @@ use std::rc::Rc;
 use egui_tiles::{Tile, Tree};
 use servo::{OffscreenRenderingContext, WebViewId};
 
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::desktop::lifecycle_intents;
 use crate::desktop::tile_kind::TileKind;
 use crate::graph::{NodeKey, NodeLifecycle};
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) fn reset_runtime_webview_state(
     tiles_tree: &mut Tree<TileKind>,
@@ -87,7 +88,7 @@ pub(crate) fn remove_webview_tile_for_node(tiles_tree: &mut Tree<TileKind>, node
 pub(crate) fn prune_stale_webview_tiles(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &mut GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
@@ -110,7 +111,7 @@ pub(crate) fn prune_stale_webview_tiles(
 
 pub(crate) fn close_webview_for_node(
     graph_app: &mut GraphBrowserApp,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     node_key: NodeKey,
     lifecycle_intents: &mut Vec<GraphIntent>,
@@ -127,7 +128,10 @@ pub(crate) fn close_webview_for_node(
             .map(|node| node.lifecycle)
             .unwrap_or(NodeLifecycle::Cold);
         if lifecycle != NodeLifecycle::Warm {
-            lifecycle_intents.push(GraphIntent::DemoteNodeToWarm { key: node_key });
+            lifecycle_intents.push(lifecycle_intents::demote_node_to_warm(
+                node_key,
+                LifecycleCause::WorkspaceRetention,
+            ));
         }
         return;
     }
@@ -136,5 +140,8 @@ pub(crate) fn close_webview_for_node(
         window.close_webview(wv_id);
         lifecycle_intents.push(GraphIntent::UnmapWebview { webview_id: wv_id });
     }
-    lifecycle_intents.push(GraphIntent::DemoteNodeToCold { key: node_key });
+    lifecycle_intents.push(lifecycle_intents::demote_node_to_cold(
+        node_key,
+        LifecycleCause::NodeRemoval,
+    ));
 }

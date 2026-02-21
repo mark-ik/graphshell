@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use winit::window::Window;
 
 use super::tile_grouping;
+use super::protocols::router::{self, OutboundFetchError};
 use super::toolbar_routing::{self, ToolbarNavAction, ToolbarOpenMode};
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut, LassoMouseBinding,
@@ -26,7 +27,7 @@ use crate::desktop::tile_kind::TileKind;
 use crate::graph::NodeKey;
 use crate::running_app_state::{RunningAppState, UserInterfaceCommand};
 use crate::search::{fuzzy_match_items, fuzzy_match_node_keys};
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 const WORKSPACE_PIN_NAME: &str = "workspace:pin:space";
 const OMNIBAR_DROPDOWN_MAX_ROWS: usize = 8;
@@ -123,7 +124,7 @@ pub(crate) struct ToolbarUiArgs<'a> {
     pub winit_window: &'a Window,
     pub state: &'a RunningAppState,
     pub graph_app: &'a mut GraphBrowserApp,
-    pub window: &'a ServoShellWindow,
+    pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a Tree<TileKind>,
     pub focused_toolbar_node: Option<NodeKey>,
     pub has_webview_tiles: bool,
@@ -818,7 +819,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiArgs<'_>) -> ToolbarUiOutput {
                                 }
                             } else if trimmed_location.len() >= OMNIBAR_PROVIDER_MIN_QUERY_LEN {
                                 let provider = default_search_provider_from_searchpage(
-                                    &state.servoshell_preferences.searchpage,
+                                    &state.app_preferences.searchpage,
                                 )
                                 .unwrap_or(SearchProviderKind::DuckDuckGo);
                                 let (initial_matches, should_fetch_provider) =
@@ -868,7 +869,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiArgs<'_>) -> ToolbarUiOutput {
                                     has_webview_tiles,
                                 );
                                 let provider = default_search_provider_from_searchpage(
-                                    &state.servoshell_preferences.searchpage,
+                                    &state.app_preferences.searchpage,
                                 )
                                 .unwrap_or(SearchProviderKind::DuckDuckGo);
                                 *omnibar_search_session = Some(OmnibarSearchSession {
@@ -1410,7 +1411,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiArgs<'_>) -> ToolbarUiOutput {
                                             focused_toolbar_node,
                                             split_open_requested,
                                             window,
-                                            &state.servoshell_preferences.searchpage,
+                                            &state.app_preferences.searchpage,
                                         );
                                     frame_intents.extend(submit_result.intents);
                                     if submit_result.mark_clean {
@@ -1534,16 +1535,17 @@ fn fetch_provider_search_suggestions(
     query: &str,
 ) -> Result<Vec<String>, ProviderSuggestionError> {
     let suggest_url = provider_suggest_url(provider, query);
-    let response = ureq::get(&suggest_url).call();
-    let Ok(response) = response else {
-        return Err(ProviderSuggestionError::Network);
-    };
-    let status = response.status();
-    if status >= 400 {
-        return Err(ProviderSuggestionError::HttpStatus(status));
-    }
-    let Ok(body) = response.into_string() else {
-        return Err(ProviderSuggestionError::Parse);
+    let body = match router::fetch_text(&suggest_url) {
+        Ok(body) => body,
+        Err(OutboundFetchError::HttpStatus(status)) => {
+            return Err(ProviderSuggestionError::HttpStatus(status));
+        },
+        Err(
+            OutboundFetchError::Network
+            | OutboundFetchError::InvalidUrl
+            | OutboundFetchError::UnsupportedScheme,
+        ) => return Err(ProviderSuggestionError::Network),
+        Err(OutboundFetchError::Body) => return Err(ProviderSuggestionError::Parse),
     };
     parse_provider_suggestion_body(&body, query).ok_or(ProviderSuggestionError::Parse)
 }

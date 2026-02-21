@@ -1,0 +1,14 @@
+---
+source: desktop/semantic_event_pipeline.rs
+assertion_line: 314
+expression: trace
+---
+(
+    [
+        "create",
+        "url",
+        "crash",
+    ],
+    1,
+    3,
+)

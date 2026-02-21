@@ -23,7 +23,7 @@ pub fn get_default_url(
     url_opt: Option<&str>,
     cwd: impl AsRef<Path>,
     exists: impl FnOnce(&PathBuf) -> bool,
-    preferences: &crate::prefs::ServoShellPreferences,
+    preferences: &crate::prefs::AppPreferences,
 ) -> ServoUrl {
     // If the url is not provided, we fallback to the homepage in prefs,
     // or a blank page in case the homepage is not set either.

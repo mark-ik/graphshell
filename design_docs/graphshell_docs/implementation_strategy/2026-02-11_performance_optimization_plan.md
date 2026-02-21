@@ -47,8 +47,9 @@ new performance axes not present in the original:
   - Label simplification at distance: hide node labels when egui_graphs zoom < threshold
     (read from `MetadataFrame`); show only node color/shape.
 - Phase 3: Physics tuning
-  - Benchmark spatial queries in `physics/` at 500 and 1000 nodes. Adjust Barnes-Hut
-    cell size and theta threshold for the target node counts.
+  - Benchmark physics cost at 500 and 1000 nodes. If a Barnes-Hut or other approximation
+    path exists, tune its cell size and theta threshold. If not, treat Barnes-Hut as a
+    future scaling lever that requires a custom physics path or upstream support.
   - `#pin` nodes: verify they are already excluded from force displacement updates
     (pinned = no velocity update). These are free wins at high pin counts.
   - `#focus` nodes: center-attraction force adds to the per-node force accumulation.
@@ -85,7 +86,7 @@ new performance axes not present in the original:
 ## Outputs
 
 - Performance report: baseline metrics at 100/500/1000 nodes with profiling.
-- Tuned physics cell size and theta defaults.
+- Tuned physics approximation parameters (cell size/theta) if a Barnes-Hut path exists; otherwise documented FR-only tuning baselines.
 - Viewport culling and badge budget implementation.
 - Settings entries for performance thresholds.
 
@@ -95,6 +96,8 @@ new performance axes not present in the original:
 - The `MetadataFrame` post-frame constraint means viewport culling applies to the
   *following* frame, introducing one frame of lag on camera moves. This is acceptable
   — culling a node that just moved off-screen one frame late is invisible to the user.
+- Barnes-Hut is not implemented in the current egui_graphs path. It remains a valid
+  large-graph scaling option, but requires a custom physics path or upstream support.
 - Node dissolution (Phase 5) and visual clustering (Phase 4) are alternatives, not
   complements. Implement dissolution first; only add clustering if the graph still
   degrades at scale despite dissolution.

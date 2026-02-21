@@ -19,26 +19,26 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 
 ### Foundation (~7,000 LOC total; core graph + physics ~1,300 LOC minimum)
 
-**Graph Core** (`graph/mod.rs`, 461 lines)
+**Graph Core** (`graph/mod.rs`)
 - `Graph`: petgraph `StableGraph<Node, EdgeType, Directed>` as primary store
-- `Node`: URL, title, position, velocity, pinned, lifecycle (Active/Cold), favicon data, thumbnail data, history entries
+- `Node`: UUID identity, URL/title metadata, position, pinned, lifecycle (Active/Warm/Cold), favicon/thumbnail/session data
 - `EdgeType`: Hyperlink (new tab from parent), History (back/forward), UserGrouped (explicit split-open grouping gesture).
 - `NodeKey = NodeIndex`, `EdgeKey = EdgeIndex` — stable handles surviving deletions
 - `url_to_nodes: HashMap<String, Vec<NodeKey>>` for URL lookup with duplicate URL support
 - `out_neighbors()`, `in_neighbors()`, `has_edge_between()` for traversal
 - Snapshot serialization: `to_snapshot()` / `from_snapshot()` for persistence
 
-**egui_graphs Adapter** (`graph/egui_adapter.rs`, 163 lines)
+**egui_graphs Adapter** (`graph/egui_adapter.rs`)
 - `EguiGraphState`: converts `Graph` → egui_graphs `Graph` via `to_graph_custom()`
 - Sets position, label, color, radius, selection from node data
-- Lifecycle-based styling: Active (blue, r=15), Cold (gray, r=10), Selected (gold)
+- Lifecycle-based styling: Active/Warm/Cold tiers (with selected override)
 - Rebuilt only when `egui_state_dirty` flag is set (structural changes)
 
-**Tile Tree** (`desktop/gui.rs` tile integration)
+**Tile Tree** (`desktop/gui.rs` + `desktop/tile_runtime.rs`)
 - egui_tiles multi-pane runtime: tile tree, per-pane rendering contexts, tile layout persistence
 - Each tile pane has a tab bar showing its cluster's nodes (connected by edges)
 - Tile-derived view state (legacy `View` enum retired)
-- Tab bars are projections of graph clusters; closing a tab tile demotes node lifecycle to `Cold` (node remains until explicit delete)
+- Tab bars are projections of graph clusters; closing/eviction paths demote to `Warm` or `Cold` via lifecycle intents
 
 **Physics Runtime** (`app.rs` + `render/mod.rs`) — **Implemented via egui_graphs**
 - Force-directed layout uses egui_graphs `FruchtermanReingoldState`
@@ -46,7 +46,7 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 - Physics panel controls operate directly on FR state (damping, attraction, repulsion, scale, run/pause)
 - Previous custom physics module/worker path has been removed from active runtime
 
-**Rendering** (`render/mod.rs`, 339 lines)
+**Rendering** (`render/mod.rs`)
 - Delegates graph visualization to `egui_graphs::GraphView` widget
 - Built-in zoom/pan navigation (`SettingsNavigation`), dragging + selection (`SettingsInteraction`)
 - Event-driven: NodeDoubleClick → focus, NodeDragStart/End → physics pause, NodeMove → position sync
@@ -57,11 +57,11 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 **Input** (`input/mod.rs`, 87 lines)
 - Mouse interaction delegated to egui_graphs (drag, pan, zoom, selection, double-click)
 - Keyboard shortcuts (guarded — disabled when text field has focus):
-  - `T` toggle physics, `C` fit to screen, `P` physics panel, `N` new node
+  - `T` toggle physics, `Z` smart fit, `+`/`-`/`0` zoom controls, `P` physics panel, `N` new node
   - `Home`/`Esc` toggle Graph/Detail view
   - `Del` remove selected, `Ctrl+Shift+Del` clear graph
 
-**Application State** (`app.rs`, 590 lines)
+**Application State** (`app.rs`)
 - Tile-derived view state (graph pane vs detail panes determined by tile tree)
 - Bidirectional webview↔node mapping: `HashMap<WebViewId, NodeKey>` and inverse
 - Selection management (single/multi), focus switching
@@ -77,7 +77,7 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 - Startup recovery: load latest snapshot → replay log entries since snapshot
 - Aligned data handling: `AlignedVec` for rkyv deserialization from redb bytes
 
-**Servo Integration** (`desktop/gui.rs` + `desktop/webview_controller.rs`, ~1,100 lines total)
+**Servo Integration** (`desktop/gui.rs` + `desktop/webview_controller.rs`, ~2,100 lines total)
 - Full webview lifecycle: create/destroy webviews based on tile tree state
 - Graph view: destroy all webviews (prevent framebuffer bleed), save node list for restoration
 - Detail view: recreate webviews for saved nodes, create for newly focused nodes
@@ -89,9 +89,9 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 
 **In active development:**
 
-1. **Navigation control-plane follow-up** — desktop delegate-driven routing is implemented; remaining parity work is EGL/WebDriver explicit targeting ([plan](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md))
-2. **Selection consolidation** — Remove duplicated selection state ([plan](implementation_strategy/2026-02-14_selection_semantics_plan.md))
-3. **Physics follow-up** — Keep FR tuning/profile work visible after migration ([plan](implementation_strategy/2026-02-14_physics_migration_plan.md))
+1. **Navigation control-plane follow-up** — desktop delegate-driven routing is implemented; remaining parity work is EGL/WebDriver explicit targeting ([plan](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md))
+2. **Selection consolidation** — Remove duplicated selection state ([plan](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md))
+3. **Physics follow-up** — Keep FR tuning/profile work visible after migration ([plan](../../archive_docs/checkpoint_2026-02-19/2026-02-14_physics_migration_plan.md))
 
 **Phase 2+ features (not started):**
 
@@ -135,7 +135,7 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 - Removes custom physics/worker complexity while keeping force-directed behavior
 - Keeps layout integration inside GraphView (single framework path)
 - Supports the existing physics panel and interaction model with fewer bespoke subsystems
-- See [2026-02-14_physics_migration_plan.md](implementation_strategy/2026-02-14_physics_migration_plan.md)
+- See [2026-02-14_physics_migration_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_physics_migration_plan.md)
 
 **Why post-frame zoom clamp?**
 - egui_graphs has no built-in zoom bounds
@@ -162,21 +162,22 @@ All user interactions and lifecycle events flow through intent/reconciliation bo
 
 **Phase 1 — Pure Reducer** (state mutation):
 - Processes `GraphIntent` enum (CreateNode, UpdateUrl, AddEdge, etc.)
-- Updates graph structure, node metadata
-- Emits `WebViewReconciliationIntent` for runtime effects
+- Updates graph structure, node metadata, and desired lifecycle state
+- No Servo calls; all side effects deferred
 
 **Phase 2 — Reconciliation** (webview side effects):
-- Creates/destroys webviews based on lifecycle intents
-- Navigates webviews to updated URLs
-- Updates tile tree focus/layout
+- Converges observed runtime state toward desired lifecycle state
+- Creates/destroys webviews based on desired state and backpressure policy
+- Emits follow-up intents for the next frame when required
 
 **Invariant**: Sub-frame gap between phases. No mid-frame mixed mutation prevents contradictory webview state (e.g., navigating a destroyed webview, creating duplicate webviews for the same node).
 
-**Lifecycle Intent Vocabulary**: `PromoteToActive`, `DemoteToWarm`, `EvictWarmToCold`, `Reactivate`, `Destroy` — explicit transitions between node lifecycle states drive webview creation/destruction.
+**Lifecycle Intent Vocabulary (authoritative)**: `PromoteNodeToActive`, `DemoteNodeToWarm`, `DemoteNodeToCold`, `MarkRuntimeBlocked`, `ClearRuntimeBlocked`, plus runtime mapping intents (`MarkRuntimeCreatePending`, `MarkRuntimeCreateConfirmed`).
+For full details (causes, desired vs observed runtime states, invariants), see [implementation_strategy/2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md).
 
 **Delegate-driven routing**: Servo callbacks → GraphIntent emission → reducer application → reconciliation effects. No polling, no fragmented mutation paths.
 
-See [2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) for full specification and phase-by-phase implementation timeline.
+See [2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) for full specification and phase-by-phase implementation timeline.
 
 **Why nodes ARE tabs (not representations of tabs)?**
 - Node identity is the tab itself (stable UUID), not its URL
@@ -316,14 +317,16 @@ Scope: Readme/docs and selected files from GraphRAG, Midori Desktop, egui_node_g
 
 **Design Specs**:
 - [GRAPHSHELL_AS_BROWSER.md](GRAPHSHELL_AS_BROWSER.md) — Unified graph-tile-webview behavioral specification
-- [IMPLEMENTATION_ROADMAP.md](IMPLEMENTATION_ROADMAP.md) — Feature targets and execution order
+- [IMPLEMENTATION_ROADMAP.md](../implementation_strategy/IMPLEMENTATION_ROADMAP.md) — Feature targets and execution order
 
 **Implementation Plans**:
-- [2026-02-16_architecture_and_navigation_plan.md](implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) — Architecture and navigation consolidation
-- [2026-02-14_physics_migration_plan.md](implementation_strategy/2026-02-14_physics_migration_plan.md) — Physics migration
-- [2026-02-14_selection_semantics_plan.md](implementation_strategy/2026-02-14_selection_semantics_plan.md) — Selection consolidation
+- [2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) — Architecture and navigation consolidation
+- [2026-02-14_physics_migration_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_physics_migration_plan.md) — Physics migration
+- [2026-02-14_selection_semantics_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md) — Selection consolidation
 
 **Checkpoint Analyses**:
 - `archive_docs/checkpoint_2026-02-10/2026-02-10_crate_refactor_plan.md` — egui_graphs + petgraph + kiddo integration history
 - `archive_docs/checkpoint_2026-02-09/Claude ANALYSIS 2.9.26.md` — Codebase audit & recommendations
+
+
 

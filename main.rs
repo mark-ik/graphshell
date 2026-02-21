@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! The `servoshell` test application.
+//! The `graphshell` application.
 //!
 //! Creates a `Servo` instance with a example implementation of a working
 //! web browser.
@@ -38,14 +38,13 @@ fn main() {
         if #[cfg(not(any(target_os = "android", target_env = "ohos")))] {
             graphshell::main()
         } else {
-            // Android: see ports/servoshell/egl/android/mod.rs.
-            // OpenHarmony: see ports/servoshell/egl/ohos/mod.rs.
+            // Android: see egl/android/mod.rs.
+            // OpenHarmony: see egl/ohos/mod.rs.
             println!(
-                "Cannot run the servoshell `bin` executable on platforms such as \
+                "Cannot run the graphshell `bin` executable on platforms such as \
                  Android or OpenHarmony. On these platforms you need to compile \
-                 the servoshell library as a `cdylib` and integrate it with the \
-                 platform app code into an `apk` (android) or `hap` (OpenHarmony).\
-                 For Android `mach build` will do these steps automatically for you."
+                 the graphshell library as a `cdylib` and integrate it with the \
+                 platform app code into an `apk` (android) or `hap` (OpenHarmony)."
             );
         }
     }

@@ -14,7 +14,7 @@ use crate::desktop::tile_runtime;
 use crate::desktop::webview_backpressure::{self, WebviewCreationBackpressureState};
 use crate::graph::NodeKey;
 use crate::running_app_state::RunningAppState;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TileOpenMode {
@@ -25,7 +25,7 @@ pub(crate) enum TileOpenMode {
 pub(crate) struct ToggleTileViewArgs<'a> {
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
-    pub(crate) window: &'a ServoShellWindow,
+    pub(crate) window: &'a EmbedderWindow,
     pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
     pub(crate) base_rendering_context: &'a Rc<OffscreenRenderingContext>,
     pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,

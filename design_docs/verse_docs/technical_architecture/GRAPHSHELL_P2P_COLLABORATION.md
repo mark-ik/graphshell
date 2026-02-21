@@ -622,6 +622,7 @@ pub struct PortableMetadata {
 
 ## Related
 
-- Browser behavior spec: [GRAPHSHELL_AS_BROWSER.md](../GRAPHSHELL_AS_BROWSER.md)
-- Architecture decisions and milestones: [../ARCHITECTURE_DECISIONS.md](../ARCHITECTURE_DECISIONS.md), [../IMPLEMENTATION_ROADMAP.md](../IMPLEMENTATION_ROADMAP.md)
-- Verse research and tokenization: [VERSE.md](VERSE.md)
+- Browser behavior spec: [GRAPHSHELL_AS_BROWSER.md](../../graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md)
+- Architecture decisions and milestones: [../ARCHITECTURE_DECISIONS.md](../../archive_docs/checkpoint_2026-02-01/technical_architecture/ARCHITECTURE_DECISIONS.md), [../IMPLEMENTATION_ROADMAP.md](../../graphshell_docs/implementation_strategy/IMPLEMENTATION_ROADMAP.md)
+- Verse research and tokenization: [VERSE.md](../research/VERSE.md)
+

@@ -431,3 +431,4 @@ ipfs = []                           # IPFS resolver selection (§4.3)
 - **`symphonia` over `rodeo` alone**: `symphonia` is the pure-Rust decoding layer (FLAC, MP3, OGG, WAV, AAC). `rodio` handles OS audio output. Splitting them keeps the decoder testable without hardware.
 - **PDF is the one C dep in Tier 1**: PDFium (`pdfium-render`) has the best fidelity and is actively maintained by Google. MuPDF (`mupdf-sys`) is lighter and AGPL; the license may be a problem if graphshell is ever distributed commercially. Track as open question (§11 Q6).
 - **No video in Tier 1**: The only realistic pure-Rust video path would route through `ffmpeg` FFI. That's a 10MB+ C dependency that affects every build for a feature most graph browsing sessions won't use. Tier 3 until proven necessary.
+

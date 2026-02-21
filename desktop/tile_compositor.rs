@@ -19,7 +19,7 @@ use servo::{
 use crate::app::GraphBrowserApp;
 use crate::desktop::tile_kind::TileKind;
 use crate::graph::NodeKey;
-use crate::window::ServoShellWindow;
+use crate::window::EmbedderWindow;
 
 pub(crate) fn active_webview_tile_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKey, egui::Rect)> {
     let mut tile_rects = Vec::new();
@@ -68,7 +68,7 @@ pub(crate) fn webview_for_frame_activation(
 }
 
 pub(crate) fn activate_focused_webview_for_frame(
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     focused_webview_hint: &mut Option<WebViewId>,
@@ -82,7 +82,7 @@ pub(crate) fn activate_focused_webview_for_frame(
 
 pub(crate) fn composite_active_webview_tiles(
     ctx: &egui::Context,
-    window: &ServoShellWindow,
+    window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     active_tile_rects: Vec<(NodeKey, egui::Rect)>,
