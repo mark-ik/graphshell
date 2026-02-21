@@ -1,0 +1,171 @@
+[package]
+name = "graphshell"
+build = "build.rs"
+version = "0.0.1"
+authors = ["The Servo Project Developers"]
+license = "MPL-2.0"
+edition = "2024"
+publish = false
+rust-version = "1.86.0"
+
+[workspace]
+
+[lib]
+name = "graphshell"
+path = "lib.rs"
+bench = false
+
+[[bin]]
+name = "graphshell"
+path = "main.rs"
+bench = false
+
+[lints.rust]
+# These are not official flags but still used for testing and pgo.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)', 'cfg(llvm_pgo)'] }
+
+# Some of these dependencies are only needed for a specific target OS, but
+# since build-scripts can't detect the Cargo target OS at build-time, we
+# must unconditionally add these dependencies. See https://github.com/rust-lang/cargo/issues/4932
+[build-dependencies]
+# macOS only
+cc = "1.2"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+[package.metadata.winresource]
+FileDescription = "GraphShell Browser"
+LegalCopyright = "© The Verso Project Developers"
+OriginalFilename = "graphshell.exe"
+ProductName = "GraphShell Browser"
+
+[features]
+default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr"]
+crown = ["servo/crown"]
+debugmozjs = ["servo/debugmozjs"]
+gamepad = ["servo/gamepad"]
+jitspew = ["servo/jitspew"]
+js_backtrace = ["servo/js_backtrace"]
+js_jit = ["servo/js_jit"]
+max_log_level = ["log/release_max_level_info"]
+media-gstreamer = ["servo/media-gstreamer"]
+native-bluetooth = ["servo/native-bluetooth"]
+profilemozjs = ["servo/profilemozjs"]
+refcell_backtrace = ["servo/refcell_backtrace"]
+tracing = ["dep:tracing", "dep:tracing-subscriber", "servo/tracing"]
+tracing-hitrace = ["tracing", "dep:hitrace"]
+tracing-perfetto = ["tracing", "dep:tracing-perfetto"]
+vello = ["servo/vello"]
+webgl_backtrace = ["servo/webgl_backtrace"]
+webgpu = ["servo/webgpu"]
+webxr = ["servo/webxr"]
+
+[dependencies]
+accesskit = { version = "0.24.0", features = ["serde"] }
+bpaf = { version = "0.9.23", features = ["derive"] }
+cfg-if = "1.0.4"
+crossbeam-channel = "0.5"
+dpi = "0.1"
+euclid = "0.22"
+hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
+image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
+keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
+libc = "0.2"
+servo = { git = "https://github.com/servo/servo.git", branch = "main", package = "libservo", features = ["background_hang_monitor", "bluetooth", "testbinding"], default-features = false }
+log = "0.4.29"
+mime_guess = "2.0.5"
+raw-window-handle = "0.6"
+rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "aws-lc-rs"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = "1"
+toml = "0.8"
+tracing = { version = "0.1.44", optional = true }
+tracing-perfetto = { version = "0.1.5", optional = true }
+tracing-subscriber = { version = "0.3.22", optional = true, features = ["env-filter"] }
+url = "2.5"
+uuid = { version = "1.21.0", features = ["serde", "v4"] }
+rand = "0.8"
+webdriver_server = { git = "https://github.com/servo/servo.git", branch = "main", package = "webdriver_server" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+jni = "0.21.1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+backtrace = "0.3"
+
+[target.'cfg(target_env = "ohos")'.dependencies]
+env_filter = "0.1.4"
+euclid = "0.22"
+hilog = "0.2.2"
+# force inprocess until we add multi-process support for ohos
+ipc-channel = { version = "0.21", features = ["force-inprocess"] }
+napi-derive-ohos = "1.1.6"
+napi-ohos = "1.1.6"
+ohos-abilitykit-sys = { version = "0.1.4", features = ["api-14"] }
+ohos-deviceinfo = "0.1.0"
+ohos-ime = "0.4.2"
+ohos-ime-sys = "0.2.3"
+ohos-vsync = "0.1.3"
+ohos-window-manager-sys = { version = "0.1", features = ["api-14"] }
+xcomponent-sys = { version = "0.3.5", features = ["api-14", "keyboard-types"] }
+
+[target.'cfg(any(target_os = "android", target_env = "ohos"))'.dependencies]
+base = { git = "https://github.com/servo/servo.git", branch = "main", package = "base" }
+nix = { version = "0.30", features = ["fs"] }
+serde_json = "1.0"
+surfman = { version = "0.11.0", features = ["sm-angle-default", "chains"] }
+
+[target.'cfg(not(any(target_os = "android", target_env = "ohos", target_os = "ios")))'.dependencies]
+dirs = "6.0"
+egui = { version = "0.33.3", features = ["accesskit"] }
+egui-file-dialog = "0.12.0"
+egui-winit = { version = "0.33.3", default-features = false, features = ["accesskit", "clipboard", "wayland"] }
+egui_glow = { version = "0.33.3", features = ["winit"] }
+egui_graphs = { version = "0.29.0", features = ["events"] }
+egui_tiles = { version = "0.14.1", features = ["serde"] }
+egui-notify = "0.21"
+arboard = "3"
+nucleo = "0.5.0"
+petgraph = { version = "0.8.3", features = ["serde-1"] }
+rstar = "0.12"
+fjall = "3"
+redb = "3"
+rkyv = { version = "0.8", features = ["std"] }
+aes-gcm = "0.10.3"
+keyring = "3"
+zstd = "0.13"
+gilrs = "0.11.1"
+glow = "0.16.0"
+headers = "0.4"
+serde_json = "1.0"
+ureq = { version = "2.10", default-features = true, features = ["json"] }
+sysinfo = "0.30"
+# For optional feature servo_allocator/use-system-allocator and servo_allocator/allocation-tracking
+servo_allocator = { git = "https://github.com/servo/servo.git", branch = "main", package = "servo_allocator" }
+surfman = { version = "0.11.0", features = ["sm-raw-window-handle-06", "sm-x11", "chains"] }
+winit = "0.30.12"
+
+[target.'cfg(any(all(target_os = "linux", not(target_env = "ohos")), target_os = "macos"))'.dependencies]
+sig = "1.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+servo = { git = "https://github.com/servo/servo.git", branch = "main", package = "libservo", features = ["no-wgl"] }
+windows-sys = { version = "0.61", features = ["Win32_Graphics_Gdi", "Win32_System_Console"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "NSColorSpace",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3.1", default-features = false, features = [
+    "std",
+] }
+
+[dev-dependencies]
+base = { git = "https://github.com/servo/servo.git", branch = "main", package = "base" }
+tempfile = "3"
