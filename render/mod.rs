@@ -647,17 +647,15 @@ fn apply_scroll_zoom_without_ctrl(
     }
 
     let graph_rect = ui.max_rect();
-    let (pointer_pos, ctrl_pressed, zoom_delta, smooth_scroll_y, raw_scroll_y) = ui.input(|i| {
+    let (pointer_pos, zoom_delta, smooth_scroll_y, raw_scroll_y) = ui.input(|i| {
         (
             i.pointer.latest_pos(),
-            i.modifiers.ctrl,
             i.zoom_delta(),
             i.smooth_scroll_delta.y,
             i.raw_scroll_delta.y,
         )
     });
-    if ctrl_pressed
-        || (zoom_delta - 1.0).abs() > f32::EPSILON
+    if (zoom_delta - 1.0).abs() > f32::EPSILON
         || !ui.rect_contains_pointer(graph_rect)
     {
         let velocity_id = egui::Id::new("graph_scroll_zoom_velocity");

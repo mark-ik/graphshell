@@ -29,8 +29,11 @@ use super::graph_search_ui::{self, GraphSearchUiArgs};
 use super::gui_frame::{self, PreFrameIngestArgs, ToolbarDialogPhaseArgs};
 use super::lifecycle_intents;
 use super::persistence_ops;
+#[cfg(test)]
 use super::semantic_event_pipeline;
-use super::thumbnail_pipeline::{self, ThumbnailCaptureResult};
+use super::thumbnail_pipeline::ThumbnailCaptureResult;
+#[cfg(test)]
+use super::thumbnail_pipeline;
 use super::tile_compositor;
 #[cfg(test)]
 use super::tile_grouping;
@@ -52,7 +55,9 @@ use crate::desktop::headed_window;
 use crate::graph::NodeKey;
 use crate::running_app_state::RunningAppState;
 use crate::search::fuzzy_match_node_keys;
-use crate::window::{GraphSemanticEvent, EmbedderWindow};
+use crate::window::EmbedderWindow;
+#[cfg(test)]
+use crate::window::GraphSemanticEvent;
 
 struct ToolbarState {
     location: String,
@@ -63,6 +68,35 @@ struct ToolbarState {
     status_text: Option<String>,
     can_go_back: bool,
     can_go_forward: bool,
+}
+
+struct GuiRuntimeState {
+    graph_search_open: bool,
+    graph_search_query: String,
+    graph_search_filter_mode: bool,
+    graph_search_matches: Vec<NodeKey>,
+    graph_search_active_match_index: Option<usize>,
+    focused_webview_hint: Option<WebViewId>,
+    graph_surface_focused: bool,
+    focus_ring_webview_id: Option<WebViewId>,
+    focus_ring_started_at: Option<Instant>,
+    focus_ring_duration: Duration,
+    omnibar_search_session: Option<OmnibarSearchSession>,
+    command_palette_toggle_requested: bool,
+}
+
+pub(crate) struct GuiUpdateInput<'a> {
+    pub(crate) state: &'a RunningAppState,
+    pub(crate) window: &'a EmbedderWindow,
+    pub(crate) headed_window: &'a headed_window::HeadedWindow,
+}
+
+pub(crate) struct GuiUpdateOutput;
+
+struct PreFramePhaseOutput {
+    frame_intents: Vec<GraphIntent>,
+    pending_open_child_webviews: Vec<WebViewId>,
+    responsive_webviews: HashSet<WebViewId>,
 }
 
 /// The user interface of a headed servoshell. Currently this is implemented via
@@ -104,21 +138,6 @@ pub struct Gui {
     /// WebViews with an in-flight thumbnail request.
     thumbnail_capture_in_flight: HashSet<WebViewId>,
 
-    /// Whether the graph search UI is visible.
-    graph_search_open: bool,
-
-    /// Current graph search query text.
-    graph_search_query: String,
-
-    /// Search mode: hide non-matching nodes when enabled.
-    graph_search_filter_mode: bool,
-
-    /// Ranked node matches for the current search query.
-    graph_search_matches: Vec<NodeKey>,
-
-    /// Active result index in `graph_search_matches`.
-    graph_search_active_match_index: Option<usize>,
-
     /// Runtime backpressure state for tile-driven webview creation retries.
     webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState>,
 
@@ -131,25 +150,8 @@ pub struct Gui {
     /// Cached reference to RunningAppState for webview creation
     state: Option<Rc<RunningAppState>>,
 
-    /// Last explicitly focused webview target in tile mode.
-    focused_webview_hint: Option<WebViewId>,
-    /// Explicit focus owner flag for graph pane interactions.
-    graph_surface_focused: bool,
-
-    /// Last webview that triggered focus-ring pulse.
-    focus_ring_webview_id: Option<WebViewId>,
-
-    /// Start timestamp for current focus-ring pulse.
-    focus_ring_started_at: Option<Instant>,
-
-    /// Duration for focus-ring pulse.
-    focus_ring_duration: Duration,
-
-    /// Session state for `@` omnibar fuzzy-node iteration.
-    omnibar_search_session: Option<OmnibarSearchSession>,
-
-    /// One-shot command palette toggle requested by window event routing.
-    command_palette_toggle_requested: bool,
+    /// Runtime UI state used by the frame coordinator and toolbar/search flows.
+    runtime_state: GuiRuntimeState,
 }
 
 impl Drop for Gui {
@@ -166,7 +168,6 @@ impl Drop for Gui {
         self.context.destroy();
     }
 }
-
 impl Gui {
     fn toast_anchor(anchor: ToastAnchorPreference) -> egui_notify::Anchor {
         match anchor {
@@ -295,22 +296,24 @@ impl Gui {
             thumbnail_capture_tx,
             thumbnail_capture_rx,
             thumbnail_capture_in_flight: HashSet::new(),
-            graph_search_open: false,
-            graph_search_query: String::new(),
-            graph_search_filter_mode: initial_search_filter_mode,
-            graph_search_matches: Vec::new(),
-            graph_search_active_match_index: None,
             webview_creation_backpressure: HashMap::new(),
             webview_accessibility_updates_dropped: 0,
             webview_accessibility_warned: false,
             state: None,
-            focused_webview_hint: None,
-            graph_surface_focused: false,
-            focus_ring_webview_id: None,
-            focus_ring_started_at: None,
-            focus_ring_duration: Duration::from_millis(500),
-            omnibar_search_session: None,
-            command_palette_toggle_requested: false,
+            runtime_state: GuiRuntimeState {
+                graph_search_open: false,
+                graph_search_query: String::new(),
+                graph_search_filter_mode: initial_search_filter_mode,
+                graph_search_matches: Vec::new(),
+                graph_search_active_match_index: None,
+                focused_webview_hint: None,
+                graph_surface_focused: false,
+                focus_ring_webview_id: None,
+                focus_ring_started_at: None,
+                focus_ring_duration: Duration::from_millis(500),
+                omnibar_search_session: None,
+                command_palette_toggle_requested: false,
+            },
         }
     }
 
@@ -424,13 +427,13 @@ impl Gui {
     }
 
     pub(crate) fn focused_webview_id(&self) -> Option<WebViewId> {
-        if self.graph_surface_focused {
+        if self.runtime_state.graph_surface_focused {
             return None;
         }
         tile_compositor::focused_webview_id_for_tree(
             &self.tiles_tree,
             &self.graph_app,
-            self.focused_webview_hint,
+            self.runtime_state.focused_webview_hint,
         )
     }
 
@@ -438,18 +441,19 @@ impl Gui {
         self.focused_webview_id()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn active_tile_webview_id(&self) -> Option<WebViewId> {
         tile_compositor::focused_webview_id_for_tree(&self.tiles_tree, &self.graph_app, None)
     }
 
     pub(crate) fn set_focused_webview_id(&mut self, webview_id: WebViewId) {
-        self.focused_webview_hint = Some(webview_id);
-        self.graph_surface_focused = false;
+        self.runtime_state.focused_webview_hint = Some(webview_id);
+        self.runtime_state.graph_surface_focused = false;
     }
 
     pub(crate) fn focus_graph_surface(&mut self) {
-        self.focused_webview_hint = None;
-        self.graph_surface_focused = true;
+        self.runtime_state.focused_webview_hint = None;
+        self.runtime_state.graph_surface_focused = true;
     }
 
     pub(crate) fn location_has_focus(&self) -> bool {
@@ -464,7 +468,7 @@ impl Gui {
     }
 
     pub(crate) fn request_command_palette_toggle(&mut self) {
-        self.command_palette_toggle_requested = true;
+        self.runtime_state.command_palette_toggle_requested = true;
     }
 
     pub(crate) fn egui_wants_keyboard_input(&self) -> bool {
@@ -496,6 +500,19 @@ impl Gui {
         window: &EmbedderWindow,
         headed_window: &headed_window::HeadedWindow,
     ) {
+        let _ = self.run_update(GuiUpdateInput {
+            state,
+            window,
+            headed_window,
+        });
+    }
+
+    fn run_update(&mut self, input: GuiUpdateInput<'_>) -> GuiUpdateOutput {
+        let GuiUpdateInput {
+            state,
+            window,
+            headed_window,
+        } = input;
         // Note: We need Rc<RunningAppState> for webview creation, but this method
         // is called from trait methods that only provide &RunningAppState.
         // The caller should have Rc available at the call site.
@@ -523,17 +540,25 @@ impl Gui {
             thumbnail_capture_tx,
             thumbnail_capture_rx,
             thumbnail_capture_in_flight,
+            webview_creation_backpressure,
+            state: app_state,
+            runtime_state,
+            ..
+        } = self;
+        let GuiRuntimeState {
             graph_search_open,
             graph_search_query,
             graph_search_filter_mode,
             graph_search_matches,
             graph_search_active_match_index,
-            webview_creation_backpressure,
-            state: app_state,
             focused_webview_hint,
+            graph_surface_focused,
+            focus_ring_webview_id,
+            focus_ring_started_at,
+            focus_ring_duration,
+            omnibar_search_session,
             command_palette_toggle_requested,
-            ..
-        } = self;
+        } = runtime_state;
 
         let winit_window = headed_window.winit_window();
         *toasts = std::mem::take(toasts)
@@ -541,56 +566,31 @@ impl Gui {
             .with_margin(egui::vec2(12.0, 12.0));
         context.run(winit_window, |ctx| {
             graph_app.tick_frame();
-            let mut frame_intents = Vec::new();
-            let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
-            if *command_palette_toggle_requested {
-                *command_palette_toggle_requested = false;
-                frame_intents.push(GraphIntent::ToggleCommandPalette);
-            }
-
-            let pre_frame = gui_frame::ingest_pre_frame(
-                PreFrameIngestArgs {
-                    ctx,
-                    graph_app,
-                    app_state: state,
-                    window,
-                    favicon_textures,
-                    thumbnail_capture_tx,
-                    thumbnail_capture_rx,
-                    thumbnail_capture_in_flight,
-                },
-                &mut frame_intents,
+            let pre_frame = Self::run_pre_frame_phase(
+                ctx,
+                graph_app,
+                state,
+                window,
+                favicon_textures,
+                thumbnail_capture_tx,
+                thumbnail_capture_rx,
+                thumbnail_capture_in_flight,
+                command_palette_toggle_requested,
             );
-            let pending_open_child_webviews = pre_frame.pending_open_child_webviews;
-            let responsive_webviews = pre_frame.responsive_webviews;
+            let mut frame_intents = pre_frame.frame_intents;
+            let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
 
-            let graph_search_available = Self::active_webview_tile_node(tiles_tree).is_none();
-            graph_app.search_display_mode = if *graph_search_filter_mode {
-                SearchDisplayMode::Filter
-            } else {
-                SearchDisplayMode::Highlight
-            };
-            let mut graph_search_output = graph_search_flow::handle_graph_search_flow(
-                GraphSearchFlowArgs {
-                    ctx,
-                    graph_app,
-                    graph_search_open,
-                    graph_search_query,
-                    graph_search_filter_mode,
-                    graph_search_matches,
-                    graph_search_active_match_index,
-                    location: &mut toolbar_state.location,
-                    location_dirty: &mut toolbar_state.location_dirty,
-                    frame_intents: &mut frame_intents,
-                    graph_search_available,
-                },
-                |graph_app, query, matches, active_index| {
-                    refresh_graph_search_matches(graph_app, query, matches, active_index);
-                },
-                |matches, active_index, delta| {
-                    step_graph_search_active_match(matches, active_index, delta);
-                },
-                |matches, active_index| active_graph_search_match(matches, active_index),
+            let mut graph_search_output = Self::run_graph_search_phase(
+                ctx,
+                graph_app,
+                tiles_tree,
+                graph_search_open,
+                graph_search_query,
+                graph_search_filter_mode,
+                graph_search_matches,
+                graph_search_active_match_index,
+                toolbar_state,
+                &mut frame_intents,
             );
 
             gui_frame::handle_keyboard_phase(
@@ -605,7 +605,7 @@ impl Gui {
                     app_state,
                     rendering_context,
                     window_rendering_context,
-                    responsive_webviews: &responsive_webviews,
+                    responsive_webviews: &pre_frame.responsive_webviews,
                     webview_creation_backpressure,
                     suppress_toggle_view: graph_search_output.suppress_toggle_view,
                 },
@@ -643,53 +643,32 @@ impl Gui {
                 },
             );
 
-            let toolbar_dialog_phase = gui_frame::handle_toolbar_dialog_phase(
-                ToolbarDialogPhaseArgs {
-                    ctx,
-                    winit_window,
-                    state,
-                    graph_app,
-                    window,
-                    tiles_tree,
-                    focused_webview_hint: *focused_webview_hint,
-                    graph_surface_focused: self.graph_surface_focused,
-                    can_go_back: toolbar_state.can_go_back,
-                    can_go_forward: toolbar_state.can_go_forward,
-                    location: &mut toolbar_state.location,
-                    location_dirty: &mut toolbar_state.location_dirty,
-                    location_submitted: &mut toolbar_state.location_submitted,
-                    focus_location_field_for_search: graph_search_output
-                        .focus_location_field_for_search,
-                    show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
-                    omnibar_search_session: &mut self.omnibar_search_session,
-                    toasts,
-                    tile_rendering_contexts,
-                    tile_favicon_textures,
-                    favicon_textures,
-                },
+            let (toolbar_visible, is_graph_view) = Self::run_toolbar_phase(
+                ctx,
+                winit_window,
+                state,
+                graph_app,
+                window,
+                tiles_tree,
+                *focused_webview_hint,
+                *graph_surface_focused,
+                toolbar_state,
+                graph_search_output.focus_location_field_for_search,
+                omnibar_search_session,
+                toasts,
+                tile_rendering_contexts,
+                tile_favicon_textures,
+                favicon_textures,
+                app_state,
+                rendering_context,
+                window_rendering_context,
+                &pre_frame.responsive_webviews,
+                webview_creation_backpressure,
                 &mut frame_intents,
+                &mut open_node_tile_after_intents,
             );
-            let toolbar_output = toolbar_dialog_phase.toolbar_output;
-            let is_graph_view = toolbar_dialog_phase.is_graph_view;
-            if toolbar_output.toggle_tile_view_requested {
-                Self::toggle_tile_view(
-                    tiles_tree,
-                    graph_app,
-                    window,
-                    app_state,
-                    rendering_context,
-                    window_rendering_context,
-                    tile_rendering_contexts,
-                    &responsive_webviews,
-                    webview_creation_backpressure,
-                    &mut frame_intents,
-                );
-            }
-            if let Some(open_mode) = toolbar_output.open_selected_mode_after_submit {
-                open_node_tile_after_intents = Some(Self::open_mode_from_toolbar(open_mode));
-            }
 
-            if toolbar_output.toolbar_visible && *graph_search_open && is_graph_view {
+            if toolbar_visible && *graph_search_open && is_graph_view {
                 graph_search_ui::render_graph_search_window(
                     GraphSearchUiArgs {
                         ctx,
@@ -708,52 +687,15 @@ impl Gui {
 
             // Phase 1: apply semantic/UI intents before lifecycle reconciliation.
             gui_frame::apply_intents_if_any(graph_app, tiles_tree, &mut frame_intents);
-
-            if let Some(open_request) = graph_app.take_pending_open_node_request() {
-                open_node_tile_after_intents = Some(Self::open_mode_from_pending(open_request.mode));
-                graph_app.select_node(open_request.key, false);
-            }
-
-            if let Some(open_mode) = open_node_tile_after_intents
-                && let Some(node_key) = graph_app.get_single_selected_node()
-            {
-                if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-                    graph_app.capture_undo_checkpoint(Some(layout_json));
-                }
-                let anchor_before_open = if open_mode == TileOpenMode::Tab {
-                    gui_frame::active_webview_tile_node(tiles_tree)
-                } else {
-                    None
-                };
-                let node_already_in_workspace = tiles_tree.tiles.iter().any(|(_, tile)| {
-                    matches!(
-                        tile,
-                        Tile::Pane(TileKind::WebView(existing_key)) if *existing_key == node_key
-                    )
-                });
-                tile_view_ops::open_or_focus_webview_tile_with_mode(
-                    tiles_tree, node_key, open_mode,
-                );
-                if open_mode == TileOpenMode::Tab
-                    && !node_already_in_workspace
-                    && let Some(anchor) = anchor_before_open
-                    && anchor != node_key
-                {
-                    frame_intents.push(GraphIntent::CreateUserGroupedEdge {
-                        from: anchor,
-                        to: node_key,
-                    });
-                }
-                // A node created from omnibar submit in detail-mode fallback starts as Cold.
-                // Promote it so lifecycle reconciliation can instantiate its webview.
-                frame_intents.push(lifecycle_intents::promote_node_to_active(
-                    node_key,
-                    LifecycleCause::UserSelect,
-                ));
-            }
+            Self::handle_pending_open_node_after_intents(
+                graph_app,
+                tiles_tree,
+                &mut open_node_tile_after_intents,
+                &mut frame_intents,
+            );
             gui_frame::open_pending_child_webviews_for_tiles(
                 graph_app,
-                pending_open_child_webviews,
+                pre_frame.pending_open_child_webviews,
                 |node_key| {
                     tile_view_ops::open_or_focus_webview_tile_with_mode(
                         tiles_tree,
@@ -773,7 +715,7 @@ impl Gui {
                     tile_rendering_contexts,
                     tile_favicon_textures,
                     favicon_textures,
-                    responsive_webviews: &responsive_webviews,
+                    responsive_webviews: &pre_frame.responsive_webviews,
                     webview_creation_backpressure,
                 },
                 &mut frame_intents,
@@ -797,13 +739,13 @@ impl Gui {
                     app_state,
                     rendering_context,
                     window_rendering_context,
-                    responsive_webviews: &responsive_webviews,
+                    responsive_webviews: &pre_frame.responsive_webviews,
                     webview_creation_backpressure,
                     focused_webview_hint,
-                    graph_surface_focused: self.graph_surface_focused,
-                    focus_ring_webview_id: &mut self.focus_ring_webview_id,
-                    focus_ring_started_at: &mut self.focus_ring_started_at,
-                    focus_ring_duration: self.focus_ring_duration,
+                    graph_surface_focused: *graph_surface_focused,
+                    focus_ring_webview_id,
+                    focus_ring_started_at,
+                    focus_ring_duration: *focus_ring_duration,
                     toasts,
                 },
                 |matches, active_index| active_graph_search_match(matches, active_index),
@@ -811,6 +753,161 @@ impl Gui {
             Self::handle_pending_clipboard_copy_requests(graph_app, clipboard, toasts);
             toasts.show(ctx);
         });
+
+        GuiUpdateOutput
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_pre_frame_phase(
+        ctx: &egui::Context,
+        graph_app: &mut GraphBrowserApp,
+        state: &RunningAppState,
+        window: &EmbedderWindow,
+        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+        thumbnail_capture_tx: &Sender<ThumbnailCaptureResult>,
+        thumbnail_capture_rx: &Receiver<ThumbnailCaptureResult>,
+        thumbnail_capture_in_flight: &mut HashSet<WebViewId>,
+        command_palette_toggle_requested: &mut bool,
+    ) -> PreFramePhaseOutput {
+        let mut frame_intents = Vec::new();
+        if *command_palette_toggle_requested {
+            *command_palette_toggle_requested = false;
+            frame_intents.push(GraphIntent::ToggleCommandPalette);
+        }
+
+        let pre_frame = gui_frame::ingest_pre_frame(
+            PreFrameIngestArgs {
+                ctx,
+                graph_app,
+                app_state: state,
+                window,
+                favicon_textures,
+                thumbnail_capture_tx,
+                thumbnail_capture_rx,
+                thumbnail_capture_in_flight,
+            },
+            &mut frame_intents,
+        );
+        PreFramePhaseOutput {
+            frame_intents,
+            pending_open_child_webviews: pre_frame.pending_open_child_webviews,
+            responsive_webviews: pre_frame.responsive_webviews,
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn run_graph_search_phase(
+        ctx: &egui::Context,
+        graph_app: &mut GraphBrowserApp,
+        tiles_tree: &Tree<TileKind>,
+        graph_search_open: &mut bool,
+        graph_search_query: &mut String,
+        graph_search_filter_mode: &mut bool,
+        graph_search_matches: &mut Vec<NodeKey>,
+        graph_search_active_match_index: &mut Option<usize>,
+        toolbar_state: &mut ToolbarState,
+        frame_intents: &mut Vec<GraphIntent>,
+    ) -> graph_search_flow::GraphSearchFlowOutput {
+        let graph_search_available = Self::active_webview_tile_node(tiles_tree).is_none();
+        graph_app.search_display_mode = if *graph_search_filter_mode {
+            SearchDisplayMode::Filter
+        } else {
+            SearchDisplayMode::Highlight
+        };
+        graph_search_flow::handle_graph_search_flow(
+            GraphSearchFlowArgs {
+                ctx,
+                graph_app,
+                graph_search_open,
+                graph_search_query,
+                graph_search_filter_mode,
+                graph_search_matches,
+                graph_search_active_match_index,
+                location: &mut toolbar_state.location,
+                location_dirty: &mut toolbar_state.location_dirty,
+                frame_intents,
+                graph_search_available,
+            },
+            |graph_app, query, matches, active_index| {
+                refresh_graph_search_matches(graph_app, query, matches, active_index);
+            },
+            |matches, active_index, delta| {
+                step_graph_search_active_match(matches, active_index, delta);
+            },
+            |matches, active_index| active_graph_search_match(matches, active_index),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_toolbar_phase(
+        ctx: &egui::Context,
+        winit_window: &Window,
+        state: &RunningAppState,
+        graph_app: &mut GraphBrowserApp,
+        window: &EmbedderWindow,
+        tiles_tree: &mut Tree<TileKind>,
+        focused_webview_hint: Option<WebViewId>,
+        graph_surface_focused: bool,
+        toolbar_state: &mut ToolbarState,
+        focus_location_field_for_search: bool,
+        omnibar_search_session: &mut Option<OmnibarSearchSession>,
+        toasts: &mut egui_notify::Toasts,
+        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+        tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+        app_state: &Option<Rc<RunningAppState>>,
+        rendering_context: &Rc<OffscreenRenderingContext>,
+        window_rendering_context: &Rc<WindowRenderingContext>,
+        responsive_webviews: &HashSet<WebViewId>,
+        webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+        frame_intents: &mut Vec<GraphIntent>,
+        open_node_tile_after_intents: &mut Option<TileOpenMode>,
+    ) -> (bool, bool) {
+        let toolbar_dialog_phase = gui_frame::handle_toolbar_dialog_phase(
+            ToolbarDialogPhaseArgs {
+                ctx,
+                winit_window,
+                state,
+                graph_app,
+                window,
+                tiles_tree,
+                focused_webview_hint,
+                graph_surface_focused,
+                can_go_back: toolbar_state.can_go_back,
+                can_go_forward: toolbar_state.can_go_forward,
+                location: &mut toolbar_state.location,
+                location_dirty: &mut toolbar_state.location_dirty,
+                location_submitted: &mut toolbar_state.location_submitted,
+                focus_location_field_for_search,
+                show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
+                omnibar_search_session,
+                toasts,
+                tile_rendering_contexts,
+                tile_favicon_textures,
+                favicon_textures,
+            },
+            frame_intents,
+        );
+        let toolbar_output = toolbar_dialog_phase.toolbar_output;
+        let is_graph_view = toolbar_dialog_phase.is_graph_view;
+        if toolbar_output.toggle_tile_view_requested {
+            Self::toggle_tile_view(
+                tiles_tree,
+                graph_app,
+                window,
+                app_state,
+                rendering_context,
+                window_rendering_context,
+                tile_rendering_contexts,
+                responsive_webviews,
+                webview_creation_backpressure,
+                frame_intents,
+            );
+        }
+        if let Some(open_mode) = toolbar_output.open_selected_mode_after_submit {
+            *open_node_tile_after_intents = Some(Self::open_mode_from_toolbar(open_mode));
+        }
+
+        (toolbar_output.toolbar_visible, is_graph_view)
     }
 
     fn handle_pending_clipboard_copy_requests(
@@ -892,6 +989,52 @@ impl Gui {
             webview_creation_backpressure,
             lifecycle_intents,
         });
+    }
+
+    fn handle_pending_open_node_after_intents(
+        graph_app: &mut GraphBrowserApp,
+        tiles_tree: &mut Tree<TileKind>,
+        open_node_tile_after_intents: &mut Option<TileOpenMode>,
+        frame_intents: &mut Vec<GraphIntent>,
+    ) {
+        if let Some(open_request) = graph_app.take_pending_open_node_request() {
+            *open_node_tile_after_intents = Some(Self::open_mode_from_pending(open_request.mode));
+            graph_app.select_node(open_request.key, false);
+        }
+
+        if let Some(open_mode) = *open_node_tile_after_intents
+            && let Some(node_key) = graph_app.get_single_selected_node()
+        {
+            if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
+                graph_app.capture_undo_checkpoint(Some(layout_json));
+            }
+            let anchor_before_open = if open_mode == TileOpenMode::Tab {
+                gui_frame::active_webview_tile_node(tiles_tree)
+            } else {
+                None
+            };
+            let node_already_in_workspace = tiles_tree.tiles.iter().any(|(_, tile)| {
+                matches!(
+                    tile,
+                    Tile::Pane(TileKind::WebView(existing_key)) if *existing_key == node_key
+                )
+            });
+            tile_view_ops::open_or_focus_webview_tile_with_mode(tiles_tree, node_key, open_mode);
+            if open_mode == TileOpenMode::Tab
+                && !node_already_in_workspace
+                && let Some(anchor) = anchor_before_open
+                && anchor != node_key
+            {
+                frame_intents.push(GraphIntent::CreateUserGroupedEdge {
+                    from: anchor,
+                    to: node_key,
+                });
+            }
+            frame_intents.push(lifecycle_intents::promote_node_to_active(
+                node_key,
+                LifecycleCause::UserSelect,
+            ));
+        }
     }
 
     fn has_active_webview_tile(&self) -> bool {
@@ -1894,10 +2037,12 @@ mod tests {
     }
 }
 
+#[cfg(test)]
 fn graph_intents_from_semantic_events(events: Vec<GraphSemanticEvent>) -> Vec<GraphIntent> {
     semantic_event_pipeline::graph_intents_from_semantic_events(events)
 }
 
+#[cfg(test)]
 fn graph_intents_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
 ) -> (Vec<GraphIntent>, Vec<WebViewId>, HashSet<WebViewId>) {
@@ -1945,6 +2090,7 @@ fn active_graph_search_match(matches: &[NodeKey], active_index: Option<usize>) -
     matches.get(idx).copied()
 }
 
+#[cfg(test)]
 fn graph_intent_for_thumbnail_result(
     graph_app: &GraphBrowserApp,
     result: &ThumbnailCaptureResult,

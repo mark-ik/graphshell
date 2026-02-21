@@ -88,10 +88,182 @@ Remaining / Follow-up:
 Define a practical, architecture-aligned plan for:
 
 - explicit edge creation and deletion UX,
-- a command palette (context menu + command registry) that routes through intents,
+- an authoritative command registry with a registry-driven command palette that routes through intents,
 - multi-node selection semantics that simplify edge workflows.
 
 This is a desktop-focused plan for graphshell prototype iteration.
+
+## Authoritative Replacement: Command Registry + Command Palette (2026-02-21)
+
+This section supersedes the old split command surfaces (`context menu` + separate command panel) and defines the authoritative model going forward.
+
+### Terminology (authoritative)
+
+1. **Command Registry**: the authoritative command system. It owns command/category definitions, context applicability, enablement checks, keybinds, and persistence.
+2. **Command Palette**: the only command UI surface. It sources commands from the command registry and executes via intent dispatch.
+3. **Context Menu**: deprecated and removed at end-state. Its visual style/controls are adopted by the command palette.
+
+### End-State Requirements
+
+1. There is no separate context menu.
+2. A single command palette is available in both graph view and workbench/panes.
+3. Palette entries are registry-driven (no hardcoded palette-only command list).
+4. Commands that do not apply in current focused context are visible but grayed out.
+5. Registry supports default categories + user-definable categories.
+6. Registry supports default commands + user-defined commands (for graph, workbench, or both contexts).
+7. Registry supports keybind customization for existing and user-added commands.
+8. Registry supports selective load/merge from command config files.
+9. Registry is searchable via nucleo-backed matching.
+10. The default command set is comprehensive and seeded from existing commands.
+
+### Context Model (registry-owned)
+
+Each command declares one of:
+
+- `GraphOnly`
+- `WorkbenchOnly`
+- `GraphAndWorkbench`
+
+Each command also provides:
+
+- `is_enabled(context) -> bool` (used to gray out entries)
+- `execute(context) -> Vec<GraphIntent>` (or app requests for non-intent side effects)
+
+Focus context resolution remains deterministic:
+
+1. explicit node context target,
+2. selected pair/primary,
+3. hovered node,
+4. focused pane node,
+5. global fallback only when command explicitly allows it.
+
+### Registry Schema (minimum)
+
+`CommandDefinition`
+
+- `id: String` (stable)
+- `label: String`
+- `category_id: String`
+- `contexts: CommandContexts` (`GraphOnly` | `WorkbenchOnly` | `GraphAndWorkbench`)
+- `default_keybind: Option<Keybind>`
+- `keybind: Option<Keybind>` (effective override)
+- `source: BuiltIn | ConfigFile(path) | UserDefined`
+- `enabled_policy: EnabledPolicy`
+- `execute_policy: ExecutePolicy`
+- `search_terms: Vec<String>`
+- `hidden: bool` (optional advanced/debug gating)
+
+`CommandCategory`
+
+- `id: String`
+- `label: String`
+- `order: i32`
+- `source: BuiltIn | ConfigFile(path) | UserDefined`
+- `enabled: bool`
+
+### Palette UX Requirements (style + behavior)
+
+1. Palette adopts current context-menu styling language (compact, grouped, keyboard-first).
+2. Categories are first-class and expandable/collapsible.
+3. The same palette component is invoked in graph and workbench contexts.
+4. Disabled commands remain visible with gray styling and optional reason text.
+5. Keyboard navigation parity: arrows/tab focus movement, enter execute, escape close.
+6. Nucleo search filters by label, aliases/search terms, category, and context.
+
+### Persistence + Config File Requirements
+
+1. Persist registry state (categories, command visibility, keybind overrides, user-defined commands).
+2. Support selective import from one or more command config files:
+  - import whole file,
+  - import selected categories,
+  - import selected commands.
+3. Merge policy is deterministic:
+  - built-ins load first,
+  - config-file contributions merge next,
+  - user overrides apply last.
+4. Keybind conflict resolution is explicit and user-visible.
+
+### Migration Plan (replacement of old system)
+
+#### Phase R1: Introduce registry without behavior change
+
+Work:
+
+1. Add registry types and in-memory store.
+2. Seed built-in commands/categories from existing command implementations (`GraphIntent` + radial/context command set + existing palette actions).
+3. Keep existing command palette/context menu invoking old execution path while registry shadow-runs for validation.
+
+Done criteria:
+
+1. Built-in command inventory is represented in registry with stable IDs.
+2. Registry can produce context-filtered, searchable command lists.
+
+#### Phase R2: Make command palette registry-driven
+
+Work:
+
+1. Replace hardcoded palette action list with registry query results.
+2. Drive enabled/disabled state from `is_enabled(context)` and gray unsupported commands.
+3. Keep command execution routed through existing intent/app request boundaries.
+
+Done criteria:
+
+1. Palette command list is 100% registry-sourced.
+2. Command results remain functionally equivalent to pre-registry behavior.
+
+#### Phase R3: Replace context menu with styled palette variant
+
+Work:
+
+1. Remove old context menu entrypoint and dedicated command list.
+2. Reuse context-menu styling and controls in palette presentation.
+3. Use a single palette component with view-dependent context input.
+
+Done criteria:
+
+1. No separate context menu code path remains.
+2. Right-click/keyboard invoke the same registry-backed palette component.
+
+#### Phase R4: Enable user-definable categories/commands + keybinds
+
+Work:
+
+1. Add user command/category CRUD in registry persistence model.
+2. Add keybind edit path for built-ins and user commands.
+3. Add command config file selective import.
+
+Done criteria:
+
+1. User-added command/category persists and appears in palette.
+2. Keybind overrides survive restart and conflict checks.
+3. Selective import can include only chosen categories/commands.
+
+#### Phase R5: Remove legacy command wiring and validate parity
+
+Work:
+
+1. Delete obsolete hardcoded menu/palette command definitions.
+2. Keep a compatibility map from old command names to registry IDs for migration.
+3. Complete graph + workbench parity validation.
+
+Done criteria:
+
+1. Registry is sole command source of truth.
+2. Palette is sole command surface.
+3. Validation suite passes for graph/workbench command availability and execution parity.
+
+### Alignment Statement
+
+This replacement aligns with this plan's command-palette direction and advances the deferred registry item from “out of scope this cycle” into the next authoritative phase. It also aligns with architectural guidance in `ARCHITECTURAL_OVERVIEW.md` (“command palette as a spine”).
+
+### Validation Additions (required)
+
+1. **Registry parity**: every previously exposed command path resolves to a registry command ID.
+2. **Context gating**: graph-only commands are disabled in workbench focus and vice versa.
+3. **Single-surface invariant**: all invocation paths open the same palette component.
+4. **Persistence**: user command/category/keybind changes survive restart.
+5. **Selective import**: importing subset commands/categories does not mutate unrelated registry entries.
+6. **Nucleo search**: command lookup quality remains stable across built-in + imported + user-defined commands.
 
 ## Relationship to Existing Plans
 

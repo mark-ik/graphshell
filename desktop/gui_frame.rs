@@ -28,7 +28,7 @@ use super::tile_kind::TileKind;
 use super::tile_render_pass::{self, TileRenderPassArgs};
 use super::tile_runtime;
 use super::tile_view_ops;
-use super::toolbar_ui::{self, OmnibarSearchSession, ToolbarUiArgs, ToolbarUiOutput};
+use super::toolbar_ui::{self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput};
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_controller;
 use crate::app::{
@@ -672,7 +672,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         graph_app.hovered_graph_node = None;
     }
 
-    let toolbar_output = toolbar_ui::render_toolbar_ui(ToolbarUiArgs {
+    let toolbar_output = toolbar_ui::render_toolbar_ui(ToolbarUiInput {
         ctx,
         winit_window,
         state,

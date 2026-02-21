@@ -203,13 +203,13 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 4. [ ] Add unit tests for at least one stateful flow (omnibar text input → search query → autocomplete results).
 
 **4b. gui.rs:**
-1. [ ] Extract `GuiRuntimeState` struct (texture caches, frame flags, backpressure state).
-2. [ ] Refactor `Gui::update()` as coordinator calling extracted stateless render functions.
-3. [ ] Define `gui::Input` and `gui::Output` boundary; no render function has side effects outside return value.
+1. [x] Extract `GuiRuntimeState` struct (texture caches, frame flags, backpressure state).
+2. [x] Refactor `Gui::update()` as coordinator calling extracted stateless render functions.
+3. [x] Define `gui::Input` and `gui::Output` boundary; no render function has side effects outside return value.
 
 **4c. tile_*.rs:**
-1. [ ] Extract `TileCoordinator` from `tile_runtime.rs`: owns tile→node mapping, pruning logic, mutations.
-2. [ ] Leave `tile_render_pass.rs` and `tile_compositor.rs` as stateless renderers.
+1. [x] Extract `TileCoordinator` from `tile_runtime.rs`: owns tile→node mapping, pruning logic, mutations.
+2. [x] Leave `tile_render_pass.rs` and `tile_compositor.rs` as stateless renderers.
 
 **Acceptance gates:**
 
