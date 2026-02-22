@@ -26,7 +26,7 @@ fn event(kind: GraphSemanticEventKind) -> GraphSemanticEvent {
 
 fn tree_with_graph_root() -> Tree<TileKind> {
         let mut tiles = Tiles::default();
-        let graph_tile_id = tiles.insert_pane(TileKind::Graph);
+        let graph_tile_id = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
         Tree::new("test_tree", graph_tile_id, tiles)
 }
 
@@ -167,7 +167,7 @@ fn test_close_last_webview_tile_leaves_graph_only() {
         let has_graph_pane = tree
             .tiles
             .iter()
-            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph)));
+            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))));
         assert!(has_graph_pane);
 }
 
@@ -473,6 +473,44 @@ fn test_tile_layout_serde_roundtrip() {
         assert!(nodes.contains(&a));
         assert!(nodes.contains(&b));
 }
+
+#[test]
+fn test_startup_session_restore_prefers_bundle_over_legacy_tile_layout_json() {
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
+        let bundle_node =
+            app.add_node_and_sync("https://bundle.example".into(), Point2D::new(0.0, 0.0));
+        let legacy_node =
+            app.add_node_and_sync("https://legacy.example".into(), Point2D::new(10.0, 0.0));
+
+        let mut bundle_tree = tree_with_graph_root();
+        open_or_focus_webview_tile(&mut bundle_tree, bundle_node);
+        crate::desktop::persistence_ops::save_named_workspace_bundle(
+            &mut app,
+            GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
+            &bundle_tree,
+        )
+        .expect("save session bundle");
+
+        let mut legacy_tree = tree_with_graph_root();
+        open_or_focus_webview_tile(&mut legacy_tree, legacy_node);
+        let legacy_json = serde_json::to_string(&legacy_tree).expect("serialize legacy tree");
+        app.save_tile_layout_json(&legacy_json);
+
+        let mut startup_tree = tree_with_graph_root();
+        let restored = restore_startup_session_workspace_if_available(&mut app, &mut startup_tree);
+        assert!(restored, "expected startup restore to succeed");
+
+        let restored_nodes = all_webview_tile_nodes(&startup_tree);
+        assert!(restored_nodes.contains(&bundle_node));
+        assert!(!restored_nodes.contains(&legacy_node));
+
+        let restored_runtime_json = serde_json::to_string(&startup_tree).expect("serialize restored tree");
+        assert_eq!(
+            app.last_session_workspace_layout_json(),
+            Some(restored_runtime_json.as_str())
+        );
+    }
 
 #[test]
 fn test_invariant_check_detects_desync() {

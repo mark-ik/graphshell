@@ -17,7 +17,7 @@ use crate::persistence::GraphStore;
 use crate::persistence::types::{LogEntry, PersistedEdgeType};
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
-use log::warn;
+use log::{debug, warn};
 // Platform-agnostic renderer handle.
 // On desktop this aliases servo::WebViewId so existing callers in the
 // desktop module work without any conversion.
@@ -32,9 +32,11 @@ pub type RendererId = WebViewId;
 #[cfg(target_os = "ios")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RendererId(u64);
+use petgraph::Direction;
 use uuid::Uuid;
 
 /// Camera state for zoom bounds enforcement
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Camera {
     pub zoom_min: f32,
     pub zoom_max: f32,
@@ -60,6 +62,95 @@ impl Default for Camera {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Unique identifier for a graph view pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct GraphViewId(Uuid);
+
+impl GraphViewId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for GraphViewId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum LayoutMode {
+    Free,
+    Grid { gap: f32 },
+    Tree { direction: Direction, layer_gap: f32 },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PhysicsProfile {
+    pub name: String,
+    pub repulsion_strength: f32,
+    pub attraction_strength: f32,
+    pub gravity_strength: f32,
+    pub damping: f32,
+    pub layout_mode: LayoutMode,
+    pub degree_repulsion: bool,
+    pub domain_clustering: bool,
+    pub auto_pause: bool,
+}
+
+impl Default for PhysicsProfile {
+    fn default() -> Self {
+        Self::liquid()
+    }
+}
+
+impl PhysicsProfile {
+    pub fn liquid() -> Self {
+        Self {
+            name: "Liquid".to_string(),
+            repulsion_strength: 1.0,
+            attraction_strength: 1.0,
+            gravity_strength: 0.1,
+            damping: 0.9,
+            layout_mode: LayoutMode::Free,
+            degree_repulsion: true,
+            domain_clustering: false,
+            auto_pause: true,
+        }
+    }
+
+    pub fn gas() -> Self {
+        Self {
+            name: "Gas".to_string(),
+            repulsion_strength: 2.0,
+            attraction_strength: 0.1,
+            gravity_strength: 0.0,
+            damping: 0.95,
+            layout_mode: LayoutMode::Free,
+            degree_repulsion: false,
+            domain_clustering: false,
+            auto_pause: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LocalSimulation {
+    pub positions: HashMap<NodeKey, Point2D<f32>>,
+    pub physics: FruchtermanReingoldWithCenterGravityState,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct GraphViewState {
+    pub id: GraphViewId,
+    pub name: String,
+    pub camera: Camera,
+    pub profile: PhysicsProfile,
+    pub local_simulation: Option<LocalSimulation>,
+    #[serde(skip)]
+    pub egui_state: Option<EguiGraphState>,
 }
 
 /// Canonical node-selection state.
@@ -320,6 +411,15 @@ pub enum WorkspaceOpenAction {
     OpenInCurrentWorkspace { node: NodeKey },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceOpenReason {
+    MissingNode,
+    PreferredWorkspace,
+    RecentMembership,
+    DeterministicMembershipFallback,
+    NoMembership,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnsavedWorkspacePromptRequest {
     WorkspaceSwitch {
@@ -576,6 +676,10 @@ pub enum GraphIntent {
     },
     SetZoom {
         zoom: f32,
+    },
+    SetViewProfile {
+        view_id: GraphViewId,
+        profile: PhysicsProfile,
     },
     SetNodeUrl {
         key: NodeKey,
@@ -847,6 +951,12 @@ pub struct GraphBrowserApp {
     /// One-shot flag: fit graph to screen on next frame (triggered by 'C' key)
     pub fit_to_screen_requested: bool,
 
+    /// Active graph views, keyed by ID.
+    pub views: HashMap<GraphViewId, GraphViewState>,
+
+    /// The currently focused graph view (target for keyboard zoom/pan).
+    pub focused_view: Option<GraphViewId>,
+
     /// Camera state (zoom bounds)
     pub camera: Camera,
 
@@ -862,6 +972,8 @@ pub struct GraphBrowserApp {
 
     /// Hash of last persisted session workspace layout json.
     last_session_workspace_layout_hash: Option<u64>,
+    /// Last known live session workbench layout JSON (runtime `Tree<TileKind>` shape) for undo checkpoints.
+    last_session_workspace_layout_json: Option<String>,
 
     /// Minimum interval between autosaved session workspace writes.
     workspace_autosave_interval: Duration,
@@ -875,8 +987,8 @@ pub struct GraphBrowserApp {
     /// Monotonic activation counter for named workspace recency tracking.
     workspace_activation_seq: u64,
 
-    /// Per-node most-recent named workspace activation metadata.
-    node_last_active_workspace: HashMap<NodeKey, (u64, String)>,
+    /// Per-node most-recent named workspace activation metadata keyed by stable node UUID.
+    node_last_active_workspace: HashMap<Uuid, (u64, String)>,
 
     /// UUID-keyed workspace membership index (runtime-derived from persisted layouts).
     node_workspace_membership: HashMap<Uuid, BTreeSet<String>>,
@@ -1047,11 +1159,14 @@ impl GraphBrowserApp {
             pending_zoom_to_selected_request: false,
             fit_to_screen_requested: false,
             camera: Camera::new(),
+            views: HashMap::new(),
+            focused_view: None,
             persistence,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             pending_history_workspace_layout_json: None,
             last_session_workspace_layout_hash: None,
+            last_session_workspace_layout_json: None,
             workspace_autosave_interval: Duration::from_secs(
                 Self::DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS,
             ),
@@ -1140,11 +1255,14 @@ impl GraphBrowserApp {
             pending_zoom_to_selected_request: false,
             fit_to_screen_requested: false,
             camera: Camera::new(),
+            views: HashMap::new(),
+            focused_view: None,
             persistence: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             pending_history_workspace_layout_json: None,
             last_session_workspace_layout_hash: None,
+            last_session_workspace_layout_json: None,
             workspace_autosave_interval: Duration::from_secs(
                 Self::DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS,
             ),
@@ -1394,6 +1512,11 @@ impl GraphBrowserApp {
             },
             GraphIntent::SetZoom { zoom } => {
                 self.camera.current_zoom = self.camera.clamp(zoom);
+            },
+            GraphIntent::SetViewProfile { view_id, profile } => {
+                if let Some(view) = self.views.get_mut(&view_id) {
+                    view.profile = profile;
+                }
             },
             GraphIntent::SetNodeUrl { key, new_url } => {
                 let _ = self.update_node_url_and_log(key, new_url);
@@ -1867,9 +1990,16 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(&first_key, latest_layout_before_overwrite);
     }
 
-    /// Persist reserved session workspace layout only when changed.
-    pub fn save_session_workspace_layout_json_if_changed(&mut self, layout_json: &str) {
-        let next_hash = Self::layout_json_hash(layout_json);
+    /// Persist reserved session workspace payload only when the live runtime layout changes.
+    ///
+    /// `persisted_blob` is the on-disk payload (bundle JSON for unified reserved workspaces).
+    /// `layout_json_for_hash` is the live runtime `Tree<TileKind>` JSON used for change detection.
+    pub fn save_session_workspace_layout_blob_if_changed(
+        &mut self,
+        persisted_blob: &str,
+        layout_json_for_hash: &str,
+    ) {
+        let next_hash = Self::layout_json_hash(layout_json_for_hash);
         if self.last_session_workspace_layout_hash == Some(next_hash) {
             return;
         }
@@ -1879,18 +2009,24 @@ impl GraphBrowserApp {
             return;
         }
         let previous_latest = self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME);
-        self.save_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME, layout_json);
+        self.save_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME, persisted_blob);
         if let Some(previous_latest) = previous_latest {
             self.rotate_session_workspace_history(&previous_latest);
         }
         self.last_session_workspace_layout_hash = Some(next_hash);
+        self.last_session_workspace_layout_json = Some(layout_json_for_hash.to_string());
         self.last_workspace_autosave_at = Some(Instant::now());
     }
 
     /// Mark currently loaded layout as session baseline to suppress redundant writes.
     pub fn mark_session_workspace_layout_json(&mut self, layout_json: &str) {
         self.last_session_workspace_layout_hash = Some(Self::layout_json_hash(layout_json));
+        self.last_session_workspace_layout_json = Some(layout_json.to_string());
         self.last_workspace_autosave_at = Some(Instant::now());
+    }
+
+    pub fn last_session_workspace_layout_json(&self) -> Option<&str> {
+        self.last_session_workspace_layout_json.as_deref()
     }
 
     /// Load serialized tile layout JSON by workspace name.
@@ -2194,6 +2330,7 @@ impl GraphBrowserApp {
             let _ = store.delete_workspace_layout(&name);
         }
         self.last_session_workspace_layout_hash = None;
+        self.last_session_workspace_layout_json = None;
         self.last_workspace_autosave_at = None;
         Ok(())
     }
@@ -2278,8 +2415,11 @@ impl GraphBrowserApp {
 
     /// Workspace-activation recency sequence for a node (higher = more recent).
     pub fn workspace_recency_seq_for_node(&self, key: NodeKey) -> u64 {
+        let Some(node) = self.graph.get_node(key) else {
+            return 0;
+        };
         self.node_last_active_workspace
-            .get(&key)
+            .get(&node.id)
             .map(|(seq, _)| *seq)
             .unwrap_or(0)
     }
@@ -2287,7 +2427,10 @@ impl GraphBrowserApp {
     /// Workspace memberships for a node sorted by recency (most recent first), then name.
     pub fn sorted_workspaces_for_node_key(&self, key: NodeKey) -> Vec<String> {
         let mut names: Vec<String> = self.workspaces_for_node_key(key).iter().cloned().collect();
-        if let Some((_, recent)) = self.node_last_active_workspace.get(&key)
+        let Some(node) = self.graph.get_node(key) else {
+            return names;
+        };
+        if let Some((_, recent)) = self.node_last_active_workspace.get(&node.id)
             && let Some(idx) = names.iter().position(|name| name == recent)
         {
             let recent = names.remove(idx);
@@ -2319,7 +2462,7 @@ impl GraphBrowserApp {
                 continue;
             };
             self.node_last_active_workspace
-                .insert(key, (seq, workspace_name.clone()));
+                .insert(node.id, (seq, workspace_name.clone()));
             self.node_workspace_membership
                 .entry(node.id)
                 .or_default()
@@ -2335,6 +2478,16 @@ impl GraphBrowserApp {
     pub fn init_membership_index(&mut self, index: HashMap<Uuid, BTreeSet<String>>) {
         self.node_workspace_membership = index;
         self.egui_state_dirty = true;
+    }
+
+    /// Initialize UUID-keyed workspace activation recency from desktop-layer manifest scan.
+    pub fn init_workspace_activation_recency(
+        &mut self,
+        recency: HashMap<Uuid, (u64, String)>,
+        activation_seq: u64,
+    ) {
+        self.node_last_active_workspace = recency;
+        self.workspace_activation_seq = activation_seq;
     }
 
     fn empty_workspace_membership() -> &'static BTreeSet<String> {
@@ -2358,43 +2511,118 @@ impl GraphBrowserApp {
     }
 
     /// Resolve workspace-aware node-open behavior with deterministic fallback.
+    fn resolve_workspace_open_with_reason(
+        &self,
+        node: NodeKey,
+        prefer_workspace: Option<&str>,
+    ) -> (WorkspaceOpenAction, WorkspaceOpenReason) {
+        if self.graph.get_node(node).is_none() {
+            return (
+                WorkspaceOpenAction::OpenInCurrentWorkspace { node },
+                WorkspaceOpenReason::MissingNode,
+            );
+        }
+        let memberships = self.workspaces_for_node_key(node);
+        let node_uuid = self.graph.get_node(node).map(|n| n.id);
+
+        if let Some(preferred_name) = prefer_workspace
+            && memberships.contains(preferred_name)
+        {
+            return (
+                WorkspaceOpenAction::RestoreWorkspace {
+                    name: preferred_name.to_string(),
+                    node,
+                },
+                WorkspaceOpenReason::PreferredWorkspace,
+            );
+        }
+
+        if !memberships.is_empty() {
+            if let Some((_, recent_workspace)) = node_uuid
+                .and_then(|uuid| self.node_last_active_workspace.get(&uuid))
+                && memberships.contains(recent_workspace)
+            {
+                return (
+                    WorkspaceOpenAction::RestoreWorkspace {
+                        name: recent_workspace.clone(),
+                        node,
+                    },
+                    WorkspaceOpenReason::RecentMembership,
+                );
+            }
+            if let Some(name) = memberships.iter().next() {
+                return (
+                    WorkspaceOpenAction::RestoreWorkspace {
+                        name: name.clone(),
+                        node,
+                    },
+                    WorkspaceOpenReason::DeterministicMembershipFallback,
+                );
+            }
+        }
+
+        (
+            WorkspaceOpenAction::OpenInCurrentWorkspace { node },
+            WorkspaceOpenReason::NoMembership,
+        )
+    }
+
+    /// Resolve workspace-aware node-open behavior with deterministic fallback.
     pub fn resolve_workspace_open(
         &self,
         node: NodeKey,
         prefer_workspace: Option<&str>,
     ) -> WorkspaceOpenAction {
-        if self.graph.get_node(node).is_none() {
-            return WorkspaceOpenAction::OpenInCurrentWorkspace { node };
-        }
-        let memberships = self.workspaces_for_node_key(node);
-
-        if let Some(preferred_name) = prefer_workspace
-            && memberships.contains(preferred_name)
-        {
-            return WorkspaceOpenAction::RestoreWorkspace {
-                name: preferred_name.to_string(),
-                node,
-            };
-        }
-
-        if !memberships.is_empty() {
-            if let Some((_, recent_workspace)) = self.node_last_active_workspace.get(&node)
-                && memberships.contains(recent_workspace)
-            {
-                return WorkspaceOpenAction::RestoreWorkspace {
-                    name: recent_workspace.clone(),
-                    node,
-                };
+        let node_uuid = self.graph.get_node(node).map(|n| n.id);
+        let (action, reason) = self.resolve_workspace_open_with_reason(node, prefer_workspace);
+        match (&action, reason) {
+            (WorkspaceOpenAction::OpenInCurrentWorkspace { .. }, WorkspaceOpenReason::MissingNode) => {
+                debug!(
+                    "workspace routing: node {:?} missing in graph; falling back to current workspace",
+                    node
+                );
             }
-            if let Some(name) = memberships.iter().next() {
-                return WorkspaceOpenAction::RestoreWorkspace {
-                    name: name.clone(),
-                    node,
-                };
+            (
+                WorkspaceOpenAction::RestoreWorkspace { name, .. },
+                WorkspaceOpenReason::PreferredWorkspace,
+            ) => {
+                debug!(
+                    "workspace routing: node {:?} ({:?}) using explicit preferred workspace '{}'",
+                    node, node_uuid, name
+                );
+            }
+            (
+                WorkspaceOpenAction::RestoreWorkspace { name, .. },
+                WorkspaceOpenReason::RecentMembership,
+            ) => {
+                debug!(
+                    "workspace routing: node {:?} ({:?}) selected recent workspace '{}'",
+                    node, node_uuid, name
+                );
+            }
+            (
+                WorkspaceOpenAction::RestoreWorkspace { name, .. },
+                WorkspaceOpenReason::DeterministicMembershipFallback,
+            ) => {
+                debug!(
+                    "workspace routing: node {:?} ({:?}) selected deterministic fallback workspace '{}'",
+                    node, node_uuid, name
+                );
+            }
+            (WorkspaceOpenAction::OpenInCurrentWorkspace { .. }, WorkspaceOpenReason::NoMembership) => {
+                debug!(
+                    "workspace routing: node {:?} ({:?}) has no memberships; opening in current workspace",
+                    node, node_uuid
+                );
+            }
+            _ => {
+                debug!(
+                    "workspace routing: node {:?} ({:?}) resolved {:?} via {:?}",
+                    node, node_uuid, action, reason
+                );
             }
         }
-
-        WorkspaceOpenAction::OpenInCurrentWorkspace { node }
+        action
     }
 
     /// Persist a named full-graph snapshot.
@@ -2476,6 +2704,8 @@ impl GraphBrowserApp {
         self.pending_keyboard_zoom_request = None;
         self.pending_zoom_to_selected_request = false;
         self.node_workspace_membership.clear();
+        self.views.clear();
+        self.focused_view = None;
         self.current_workspace_is_synthesized = false;
         self.workspace_has_unsaved_changes = false;
         self.unsaved_workspace_prompt_warned = false;
@@ -2531,10 +2761,13 @@ impl GraphBrowserApp {
         self.pending_keep_latest_named_workspaces = None;
         self.pending_keyboard_zoom_request = None;
         self.pending_zoom_to_selected_request = false;
+        self.views.clear();
+        self.focused_view = None;
         self.next_placeholder_id = next_placeholder_id;
         self.egui_state = None;
         self.egui_state_dirty = true;
         self.last_session_workspace_layout_hash = None;
+        self.last_session_workspace_layout_json = None;
         self.last_workspace_autosave_at = None;
         self.workspace_activation_seq = 0;
         self.node_last_active_workspace.clear();
@@ -3573,8 +3806,8 @@ impl GraphBrowserApp {
             self.remove_warm_cache_node(node_key);
             self.runtime_block_state.remove(&node_key);
             self.runtime_block_state.remove(&node_key);
-            self.node_last_active_workspace.remove(&node_key);
             if let Some(node_id) = node_id {
+                self.node_last_active_workspace.remove(&node_id);
                 self.node_workspace_membership.remove(&node_id);
             }
 
@@ -3662,6 +3895,8 @@ impl GraphBrowserApp {
         self.pending_keep_latest_named_workspaces = None;
         self.pending_keyboard_zoom_request = None;
         self.pending_zoom_to_selected_request = false;
+        self.views.clear();
+        self.focused_view = None;
         self.webview_to_node.clear();
         self.node_to_webview.clear();
         self.active_lru.clear();
@@ -3670,6 +3905,9 @@ impl GraphBrowserApp {
         self.runtime_block_state.clear();
         self.node_last_active_workspace.clear();
         self.node_workspace_membership.clear();
+        self.last_session_workspace_layout_hash = None;
+        self.last_session_workspace_layout_json = None;
+        self.last_workspace_autosave_at = None;
         self.current_workspace_is_synthesized = false;
         self.workspace_has_unsaved_changes = false;
         self.unsaved_workspace_prompt_warned = false;
@@ -3698,6 +3936,8 @@ impl GraphBrowserApp {
         self.pending_keep_latest_named_workspaces = None;
         self.pending_keyboard_zoom_request = None;
         self.pending_zoom_to_selected_request = false;
+        self.views.clear();
+        self.focused_view = None;
         self.webview_to_node.clear();
         self.node_to_webview.clear();
         self.active_lru.clear();
@@ -5660,7 +5900,7 @@ mod tests {
         );
         app.init_membership_index(index);
         app.node_last_active_workspace
-            .insert(key, (99, "workspace-missing".to_string()));
+            .insert(node_id, (99, "workspace-missing".to_string()));
 
         for _ in 0..5 {
             assert_eq!(
@@ -5671,6 +5911,56 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn test_resolve_workspace_open_reason_honors_preferred_workspace() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .graph
+            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let node_id = app.graph.get_node(key).unwrap().id;
+        app.init_membership_index(HashMap::from([(
+            node_id,
+            BTreeSet::from(["alpha".to_string(), "beta".to_string()]),
+        )]));
+
+        let (action, reason) = app.resolve_workspace_open_with_reason(key, Some("beta"));
+        assert_eq!(
+            action,
+            WorkspaceOpenAction::RestoreWorkspace {
+                name: "beta".to_string(),
+                node: key
+            }
+        );
+        assert_eq!(reason, WorkspaceOpenReason::PreferredWorkspace);
+    }
+
+    #[test]
+    fn test_resolve_workspace_open_reason_recent_membership() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .graph
+            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let node_id = app.graph.get_node(key).unwrap().id;
+        app.init_membership_index(HashMap::from([(
+            node_id,
+            BTreeSet::from(["alpha".to_string(), "beta".to_string()]),
+        )]));
+        app.note_workspace_activated("beta", [key]);
+
+        let (_, reason) = app.resolve_workspace_open_with_reason(key, None);
+        assert_eq!(reason, WorkspaceOpenReason::RecentMembership);
+    }
+
+    #[test]
+    fn test_resolve_workspace_open_reason_no_membership() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .graph
+            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let (_, reason) = app.resolve_workspace_open_with_reason(key, None);
+        assert_eq!(reason, WorkspaceOpenReason::NoMembership);
     }
 
     #[test]
@@ -5913,6 +6203,68 @@ mod tests {
         assert!(!app.workspace_has_unsaved_changes);
         assert!(!app.unsaved_workspace_prompt_warned);
         assert!(!app.should_prompt_unsaved_workspace_save());
+    }
+
+    #[test]
+    fn test_session_workspace_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layout() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+
+        app.save_session_workspace_layout_blob_if_changed("bundle-json-v1", "runtime-layout-v1");
+        assert_eq!(
+            app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
+                .as_deref(),
+            Some("bundle-json-v1")
+        );
+        assert_eq!(
+            app.last_session_workspace_layout_json(),
+            Some("runtime-layout-v1")
+        );
+
+        // Allow another autosave attempt while keeping the runtime layout identical.
+        app.last_workspace_autosave_at = None;
+        app.save_session_workspace_layout_blob_if_changed("bundle-json-v2", "runtime-layout-v1");
+
+        // Persisted blob should not change because the runtime layout hash is the gate.
+        assert_eq!(
+            app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
+                .as_deref(),
+            Some("bundle-json-v1")
+        );
+        assert_eq!(
+            app.last_session_workspace_layout_json(),
+            Some("runtime-layout-v1")
+        );
+        assert_eq!(
+            app.load_workspace_layout_json(&GraphBrowserApp::session_workspace_history_key(1)),
+            None
+        );
+    }
+
+    #[test]
+    fn test_session_workspace_blob_autosave_rotates_previous_latest_bundle_on_layout_change() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        app.set_workspace_autosave_retention(2).unwrap();
+
+        app.save_session_workspace_layout_blob_if_changed("bundle-json-a", "runtime-layout-a");
+        app.last_workspace_autosave_at = None;
+        app.save_session_workspace_layout_blob_if_changed("bundle-json-b", "runtime-layout-b");
+
+        assert_eq!(
+            app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
+                .as_deref(),
+            Some("bundle-json-b")
+        );
+        assert_eq!(
+            app.load_workspace_layout_json(&GraphBrowserApp::session_workspace_history_key(1))
+                .as_deref(),
+            Some("bundle-json-a")
+        );
+        assert_eq!(
+            app.last_session_workspace_layout_json(),
+            Some("runtime-layout-b")
+        );
     }
 
     #[test]

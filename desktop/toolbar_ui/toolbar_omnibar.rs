@@ -1,4 +1,5 @@
 use super::*;
+use crate::desktop::persistence_ops;
 
 pub(super) fn parse_omnibar_search_query(raw: &str) -> (OmnibarSearchMode, &str) {
     let trimmed = raw.trim();
@@ -346,26 +347,19 @@ fn tab_node_keys_in_tree(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
         .collect()
 }
 
-fn tab_node_keys_in_workspace_layout_json(layout_json: &str) -> HashSet<NodeKey> {
-    serde_json::from_str::<Tree<TileKind>>(layout_json)
-        .ok()
-        .map(|tree| {
-            tile_grouping::webview_tab_group_memberships(&tree)
-                .keys()
-                .copied()
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
     let mut saved_tab_nodes = HashSet::new();
     for workspace_name in graph_app.list_workspace_layout_names() {
         if GraphBrowserApp::is_reserved_workspace_layout_name(&workspace_name) {
             continue;
         }
-        if let Some(layout_json) = graph_app.load_workspace_layout_json(&workspace_name) {
-            saved_tab_nodes.extend(tab_node_keys_in_workspace_layout_json(&layout_json));
+        let Ok(bundle) = persistence_ops::load_named_workspace_bundle(graph_app, &workspace_name) else {
+            continue;
+        };
+        if let Ok((tree, _)) =
+            persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle)
+        {
+            saved_tab_nodes.extend(tab_node_keys_in_tree(&tree));
         }
     }
     saved_tab_nodes
@@ -880,7 +874,7 @@ pub(super) fn omnibar_matches_for_query(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::GraphBrowserApp;
+    use crate::app::{GraphBrowserApp, GraphViewId};
     use crate::desktop::tile_kind::TileKind;
     use crate::graph::EdgeType;
     use egui_tiles::Tree;
@@ -1129,7 +1123,7 @@ mod tests {
         }]);
 
         let mut tiles = egui_tiles::Tiles::default();
-        let root = tiles.insert_pane(TileKind::Graph);
+        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let tree = Tree::new("graph_hop_order_test", root, tiles);
 
         let matches = omnibar_matches_for_query(
@@ -1160,7 +1154,7 @@ mod tests {
         );
 
         let mut tiles = egui_tiles::Tiles::default();
-        let root = tiles.insert_pane(TileKind::Graph);
+        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let tree = Tree::new("nodes_all_test", root, tiles);
 
         let matches = omnibar_matches_for_query(
@@ -1186,11 +1180,11 @@ mod tests {
         let tab_leaf = workspace_tiles.insert_pane(TileKind::WebView(tab_key));
         let tabs_root = workspace_tiles.insert_tab_tile(vec![tab_leaf]);
         let workspace_tree = Tree::new("saved_workspace", tabs_root, workspace_tiles);
-        let layout_json = serde_json::to_string(&workspace_tree).expect("serialize workspace");
-        app.save_workspace_layout_json("workspace:saved-tabs", &layout_json);
+        persistence_ops::save_named_workspace_bundle(&mut app, "workspace:saved-tabs", &workspace_tree)
+            .expect("save workspace bundle");
 
         let mut current_tiles = egui_tiles::Tiles::default();
-        let current_root = current_tiles.insert_pane(TileKind::Graph);
+        let current_root = current_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let current_tree = Tree::new("current_tree", current_root, current_tiles);
 
         let matches = omnibar_matches_for_query(
@@ -1223,8 +1217,8 @@ mod tests {
         let saved_leaf = workspace_tiles.insert_pane(TileKind::WebView(saved_tab));
         let saved_root = workspace_tiles.insert_tab_tile(vec![saved_leaf]);
         let workspace_tree = Tree::new("saved_workspace", saved_root, workspace_tiles);
-        let layout_json = serde_json::to_string(&workspace_tree).expect("serialize workspace");
-        app.save_workspace_layout_json("workspace:saved-alpha", &layout_json);
+        persistence_ops::save_named_workspace_bundle(&mut app, "workspace:saved-alpha", &workspace_tree)
+            .expect("save workspace bundle");
 
         let matches =
             omnibar_matches_for_query(&app, &current_tree, OmnibarSearchMode::Mixed, "alpha", true);
@@ -1245,7 +1239,7 @@ mod tests {
         let _ = app.remove_edges_and_log(from, to, EdgeType::UserGrouped);
 
         let mut tiles = egui_tiles::Tiles::default();
-        let root = tiles.insert_pane(TileKind::Graph);
+        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let tree = Tree::new("edges_all_test", root, tiles);
 
         let matches =

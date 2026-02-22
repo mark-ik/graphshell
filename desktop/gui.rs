@@ -47,7 +47,7 @@ use super::toolbar_ui::OmnibarSearchSession;
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_status_sync;
 use crate::app::{
-    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, LifecycleCause,
+    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause,
     PendingTileOpenMode, SearchDisplayMode, ToastAnchorPreference,
 };
 use crate::desktop::event_loop::AppEvent;
@@ -168,6 +168,38 @@ impl Drop for Gui {
         self.context.destroy();
     }
 }
+
+fn restore_startup_session_workspace_if_available(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) -> bool {
+    if let Ok(bundle) = persistence_ops::load_named_workspace_bundle(
+        graph_app,
+        GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
+    ) && let Ok((restored_tree, _)) =
+        persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle)
+        && restored_tree.root().is_some()
+    {
+        if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
+            graph_app.mark_session_workspace_layout_json(&runtime_layout_json);
+        }
+        *tiles_tree = restored_tree;
+        return true;
+    }
+
+    if let Some(layout_json) = graph_app.load_tile_layout_json()
+        && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
+    {
+        tile_runtime::prune_stale_webview_tile_keys_only(&mut restored_tree, graph_app);
+        if restored_tree.root().is_some() {
+            graph_app.mark_session_workspace_layout_json(&layout_json);
+            *tiles_tree = restored_tree;
+            return true;
+        }
+    }
+    false
+}
+
 impl Gui {
     fn toast_anchor(anchor: ToastAnchorPreference) -> egui_notify::Anchor {
         match anchor {
@@ -241,21 +273,10 @@ impl Gui {
             warn!("Failed to apply snapshot interval from startup preferences: {e}");
         }
         let mut tiles = Tiles::default();
-        let graph_tile_id = tiles.insert_pane(TileKind::Graph);
+        let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let mut tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
 
-        let startup_layout_json =
-            graph_app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME);
-        let startup_layout_json = startup_layout_json.or_else(|| graph_app.load_tile_layout_json());
-        if let Some(layout_json) = startup_layout_json
-            && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
-        {
-            tile_runtime::prune_stale_webview_tile_keys_only(&mut restored_tree, &graph_app);
-            if restored_tree.root().is_some() {
-                graph_app.mark_session_workspace_layout_json(&layout_json);
-                tiles_tree = restored_tree;
-            }
-        }
+        let _ = restore_startup_session_workspace_if_available(&mut graph_app, &mut tiles_tree);
 
         // Only create initial node if graph wasn't recovered from persistence
         if !graph_app.has_recovered_graph() {
@@ -263,8 +284,12 @@ impl Gui {
             let _initial_node =
                 graph_app.add_node_and_sync(initial_url.to_string(), Point2D::new(400.0, 300.0));
         }
-        let membership_index = persistence_ops::build_membership_index_from_layouts(&graph_app);
+        let membership_index =
+            persistence_ops::build_membership_index_from_workspace_manifests(&graph_app);
         graph_app.init_membership_index(membership_index);
+        let (workspace_recency, workspace_activation_seq) =
+            persistence_ops::build_workspace_activation_recency_from_workspace_manifests(&graph_app);
+        graph_app.init_workspace_activation_recency(workspace_recency, workspace_activation_seq);
         let (thumbnail_capture_tx, thumbnail_capture_rx) = channel();
         let initial_search_filter_mode =
             matches!(graph_app.search_display_mode, SearchDisplayMode::Filter);
@@ -417,7 +442,7 @@ impl Gui {
         self.tiles_tree.active_tiles().into_iter().any(|tile_id| {
             matches!(
                 self.tiles_tree.tiles.get(tile_id),
-                Some(Tile::Pane(TileKind::Graph))
+                Some(Tile::Pane(TileKind::Graph(_)))
             ) && self
                 .tiles_tree
                 .tiles
@@ -960,7 +985,10 @@ impl Gui {
 
     fn ensure_tiles_tree_root(&mut self) {
         if self.tiles_tree.root().is_none() {
-            let graph_tile_id = self.tiles_tree.tiles.insert_pane(TileKind::Graph);
+            let graph_tile_id = self
+                .tiles_tree
+                .tiles
+                .insert_pane(TileKind::Graph(GraphViewId::default()));
             self.tiles_tree.root = Some(graph_tile_id);
         }
     }

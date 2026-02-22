@@ -13,6 +13,7 @@ use crate::app::{
     SearchDisplayMode, SelectionUpdateMode, UnsavedWorkspacePromptAction,
     UnsavedWorkspacePromptRequest,
 };
+use crate::desktop::persistence_ops;
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
 use egui::{Color32, Key, Stroke, Ui, Vec2, Window};
@@ -1862,7 +1863,10 @@ fn apply_ui_intents_with_checkpoint(app: &mut GraphBrowserApp, intents: Vec<Grap
         return;
     }
     if intents.iter().any(is_user_undoable_intent) {
-        let layout = app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME);
+        let layout = app
+            .last_session_workspace_layout_json()
+            .map(str::to_string)
+            .or_else(|| app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME));
         app.capture_undo_checkpoint(layout);
     }
     app.apply_intents(intents);
@@ -2318,6 +2322,12 @@ fn context_pin_workspace_name(scope: ContextPinScope) -> &'static str {
     }
 }
 
+fn saved_workspace_runtime_layout_json(app: &GraphBrowserApp, workspace_name: &str) -> Option<String> {
+    let bundle = persistence_ops::load_named_workspace_bundle(app, workspace_name).ok()?;
+    let (tree, _) = persistence_ops::restore_runtime_tree_from_workspace_bundle(app, &bundle).ok()?;
+    serde_json::to_string(&tree).ok()
+}
+
 fn context_pin_label(scope: ContextPinScope) -> &'static str {
     match scope {
         ContextPinScope::Workspace => "Pin Workspace",
@@ -2464,9 +2474,9 @@ pub fn render_persistence_panel(
             let pin_scope = context_pin_scope_for(focused_pane_node);
             let pin_workspace_name = context_pin_workspace_name(pin_scope);
             let pin_active = current_layout_json.is_some_and(|current| {
-                app.load_workspace_layout_json(pin_workspace_name)
+                saved_workspace_runtime_layout_json(app, pin_workspace_name)
                     .as_deref()
-                    .is_some_and(|saved| saved == current)
+                    .is_some_and(|saved_runtime| saved_runtime == current)
             });
             let has_any_saved_pin = app
                 .load_workspace_layout_json(GraphBrowserApp::WORKSPACE_PIN_WORKSPACE_NAME)
@@ -2707,12 +2717,15 @@ pub fn render_persistence_panel(
                 ];
                 let mut any = false;
                 for (workspace_name, label) in options {
-                    let Some(saved_layout) = app.load_workspace_layout_json(workspace_name) else {
+                    let Some(_saved_layout) = app.load_workspace_layout_json(workspace_name) else {
                         continue;
                     };
                     any = true;
-                    let active =
-                        current_layout_json.is_some_and(|current| current == saved_layout.as_str());
+                    let active = current_layout_json.is_some_and(|current| {
+                        saved_workspace_runtime_layout_json(app, workspace_name)
+                            .as_deref()
+                            .is_some_and(|saved_runtime| saved_runtime == current)
+                    });
                     ui.horizontal(|ui| {
                         let text = if active {
                             format!("{label} (active)")

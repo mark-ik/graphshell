@@ -5,405 +5,381 @@
 # Workspace Routing and Membership Plan
 
 **Date**: 2026-02-19
-**Status**: Draft — post-second-critique revision
+**Status**: Refactored (2026-02-22) into current-state maintenance + extension plan
+**Persistence direction**: Named-workspace persistence internals are superseded by
+`2026-02-22_workbench_workspace_manifest_persistence_plan.md` (workbench/workspace manifest model)
 
 ---
 
-## Plan
+## Purpose
 
-### Context
+This document is no longer a greenfield implementation plan.
 
-Node-open behavior is currently workspace-agnostic: double-click always opens the node as a tab in
-the current layout. The goal is a workspace-first routing model where opening a node predictably
-returns the user to the expected workspace context, and where membership relationships (node ↔
-workspaces) are first-class queryable state.
+Workspace routing and membership are now largely implemented. This doc now serves as:
 
-### Behavioral Rules (Invariants)
+- the behavioral contract (invariants),
+- the architecture boundary reference (what lives where),
+- the validation checklist,
+- and the prioritized upgrade path for follow-on improvements.
+
+Named-workspace persistence schema evolution (stable UUID panes, manifest-backed membership) is
+tracked in the separate workbench/workspace manifest persistence plan. This document remains the
+behavioral/routing contract and UI integration reference.
+
+---
+
+## Current State Summary (2026-02-22)
+
+Implemented and in active use:
+
+- UUID-keyed workspace membership index (`node_workspace_membership`)
+- Workspace-routed node open intent (`GraphIntent::OpenNodeWorkspaceRouted`)
+- Single resolver path (`resolve_workspace_open`)
+- Routed double-click / omnibar / radial menu open flows
+- Choose-workspace picker for explicit routing
+- Unsaved synthesized-workspace tracking and save prompt on workspace switch
+- Graph-view membership badge + tooltip + badge click to workspace picker
+- Workspace retention actions ("Prune empty", "Keep latest N named")
+- Membership-index rebuilds after retention batch operations
+
+Remaining value is now in refinement, resilience, and leverage of existing architecture.
+
+---
+
+## Behavioral Rules (Invariants)
 
 1. Opening a node never creates fanout edges or modifies the graph.
 2. Routing is context-preserving: restore an existing workspace when possible.
 3. Workspace generation is an explicit fallback only for zero-membership nodes.
 4. Generated fallback workspaces are **unsaved** (not auto-persisted); user must save explicitly.
-   - *Refinement*: If the user applies a graph-mutating action (AddNode, AddEdge, RemoveNode,
-     ClearGraph) while the workspace is unsaved, set `unsaved_workspace_modified = true`.
-     On the next workspace switch or session autosave, prompt to save if this flag is set.
-     "Modified" is intentionally narrow: tile re-ordering and zoom do not count.
-5. Deleting a workspace removes it from the membership index and recency candidates immediately.
-6. The routing resolver is a single authority function — double-click, omnibar open, and radial
-   commands all call the same path; no direct tile mutation bypasses.
-7. If workspace restore produces an empty tile tree after pruning stale keys, the router falls
-   back to opening the node as a tab in the current workspace (not an error).
+   - If the user applies a graph-mutating action (`AddNode`, `AddEdge`, `RemoveNode`, `ClearGraph`)
+     while the workspace is unsaved, set `unsaved_workspace_modified = true`.
+   - On the next explicit workspace switch, prompt to save if this flag is set.
+   - "Modified" is intentionally narrow: tile re-ordering and zoom do not count.
+5. Deleting a workspace removes it from membership and recency candidates immediately.
+6. The routing resolver is a single authority function. UI surfaces emit intents; they do not
+   perform direct tile mutations for routed-open behavior.
+7. If restoring a chosen workspace yields an empty or unusable workbench tree after restore-time
+   resolution/pruning, fall back to opening the node in the current workspace (warning log, no panic).
+8. Membership is keyed by stable node UUID (`Node.id`), not session-local `NodeKey`.
 
 ---
 
-### Phase 1: Membership Index
+## Architecture Boundaries (How This Uses Current Design)
 
-#### Data Model
+This feature set fits the project's post-decomposition boundaries well. Preserve these seams.
 
-The membership index maps **Stable Node UUID** (`Node.id`) to the set of workspace names containing
-that node. `NodeKey` (petgraph `NodeIndex`) is not stable across sessions; `Node.id` is stable
-and independent of URL changes (handling the "same URL, different tab" case correctly).
+### `app.rs` (policy/state/reducer authority)
 
-```text
-node_workspace_membership: HashMap<Uuid, BTreeSet<WorkspaceName>>
-```
+Owns:
 
-This is a runtime-only structure — the source of truth is the persisted workspace layout JSONs.
-The index is derived from those JSONs and maintained incrementally.
+- `node_workspace_membership: HashMap<Uuid, BTreeSet<String>>`
+- `current_workspace_is_unsaved`
+- `unsaved_workspace_modified`
+- `pending_node_context_target`
+- `resolve_workspace_open(...)`
+- `GraphIntent::OpenNodeWorkspaceRouted`
+- recency selection policy (`node_last_active_workspace`)
 
-#### Build Strategy
+Responsibilities:
 
-**On startup**: The startup scan lives in the **desktop layer**, not in `app.rs`. `TileKind` and
-`prune_stale_webview_tile_keys_only` are desktop-layer types; `app.rs` does not import them.
+- choose routing outcome deterministically
+- track unsaved-workspace policy
+- maintain membership incrementally for app-layer events (restore, delete, remove-node)
+- expose query helpers (`membership_for_node`, `workspaces_for_node_key`, sorted variants)
 
-New function in `desktop/persistence_ops.rs`:
+### `desktop/persistence_ops.rs` (desktop/persistence effects)
 
-```rust
-pub(crate) fn build_membership_index_from_layouts(
-    persistence: &GraphPersistence,
-    graph: &Graph,
-) -> HashMap<Uuid, BTreeSet<String>>
-```
+Owns (current implementation):
 
-Algorithm for each workspace:
+- `build_membership_index_from_layouts(&GraphBrowserApp) -> HashMap<Uuid, BTreeSet<String>>`
+- retention batch operations (`prune_empty_named_workspaces`, `keep_latest_named_workspaces`)
 
-1. Deserialize `Tree<TileKind>` from JSON.
-2. Call `tile_runtime::prune_stale_webview_tile_keys_only(&mut tree, graph_app)` to get valid NodeKeys.
-3. For each surviving NodeKey, look up `graph.inner.node_weight(key).unwrap().id` to get UUID.
-4. Insert `(uuid, workspace_name)` into the accumulator map.
+Responsibilities (current implementation):
 
-The caller (desktop startup path) then calls `graph_app.init_membership_index(map)`.
+- deserialize named-workspace persistence payloads / workbench layout trees (`Tree<TileKind>`)
+- prune stale `NodeKey`s before deriving membership
+- rebuild membership index after batch persistence mutations
 
-This is a one-time O(N workspaces × M nodes/workspace) scan. Acceptable at startup.
+Preferred future model (tracked separately):
 
-**Incremental maintenance** (these operate within `app.rs` since they have NodeKeys in hand):
+- `build_membership_index_from_workspace_manifests(...)` using named-workspace manifests
+- no named-workspace `NodeKey` prune pass required for membership derivation
 
-- **Workspace restore** (`note_workspace_activated`): after pruning, add each surviving node's UUID
-  to the index under the restored workspace name; clear `current_workspace_is_unsaved`.
-- **Workspace save**: scan saved tree for NodeKeys, map to UUIDs, update index.
-- **Workspace delete** (`delete_workspace_layout`): remove workspace name from all membership sets;
-  drop any UUID entry whose set becomes empty. Already prunes `node_last_active_workspace`;
-  same path updates the membership index.
-- **Node removed** (`RemoveNode`): remove UUID entry from index entirely.
-- **Note**: `SetNodeUrl` does *not* affect membership, as the UUID remains constant.
+Reason this stays here:
 
-#### New App Fields and Methods
+- `TileKind` and tile-tree deserialization are desktop-layer concerns
+- `app.rs` intentionally does not import desktop tile types
 
-```rust
-/// UUID-keyed workspace membership index (runtime-derived from persisted layouts).
-node_workspace_membership: HashMap<Uuid, BTreeSet<String>>,
-/// True while the current tile tree was synthesized without a named workspace save.
-current_workspace_is_unsaved: bool,
-/// True if a graph-mutating action occurred while the workspace was unsaved.
-unsaved_workspace_modified: bool,
-```
+### `desktop/gui_frame.rs` (effect orchestration / frame sequencing)
 
-New methods on `GraphBrowserApp`:
+Responsibilities:
 
-- `fn init_membership_index(&mut self, index: HashMap<Uuid, BTreeSet<String>>)` — called from
-  desktop startup and after batch prune; replaces the index wholesale.
-- `fn membership_for_node(&self, uuid: Uuid) -> &BTreeSet<String>`
-- `fn workspaces_for_node_key(&self, key: NodeKey) -> &BTreeSet<String>` (maps key → uuid → set)
+- execute pending restore/save actions
+- apply fallback behavior after restore failures/empty pruned trees
+- trigger membership rebuilds after persistence mutations
+- synthesize live workspaces (workbench trees) for "neighbors"/"connected" open modes
 
-#### Phase 1 Task List
+Policy note:
 
-- [x] Add `node_workspace_membership`, `current_workspace_is_unsaved`,
-  `unsaved_workspace_modified` fields to `GraphBrowserApp` (app.rs).
-- [x] Add `init_membership_index`, `membership_for_node`, `workspaces_for_node_key` methods to
-  `GraphBrowserApp`.
-- [x] Extend `note_workspace_activated` to insert surviving node UUIDs into membership index and
-  clear `current_workspace_is_unsaved`.
-- [x] Extend `delete_workspace_layout` to remove workspace name from all membership sets and drop
-  empty UUID entries.
-- [x] Handle `RemoveNode` in `apply_intent` to remove UUID entry from membership index.
-- [x] New fn `build_membership_index_from_layouts(persistence, graph)` in
-  `desktop/persistence_ops.rs`.
-- [x] Call `build_membership_index_from_layouts` at startup (after graph is loaded but before first
-  frame), call `init_membership_index` with result.
+- `MAX_CONNECTED_SPLIT_PANES` is the effective cap for synthesized opens.
+- Current value is `4` (as of 2026-02-22). Avoid hardcoding a numeric cap in plan text.
+
+### `render/mod.rs` (UI event capture and presentation)
+
+Responsibilities:
+
+- capture double-click / context / radial / command-palette input
+- emit workspace-routed intents
+- render choose-workspace picker and unsaved-workspace prompt
+- pass membership metadata into graph rendering adapter
+
+Constraint:
+
+- render code should not bypass the routing resolver for "Open in Workspace" behavior.
+
+### `graph/egui_adapter.rs` (graph rendering details)
+
+Responsibilities:
+
+- membership badge rendering on nodes
+- badge hit-test support
+- store display-only membership metadata (`count`, `names`)
+- adapter construction via membership-aware path (`from_graph_with_memberships(...)`)
 
 ---
 
-### Phase 2: Routing Resolver
+## Architectural Leverage (Use What Already Exists)
 
-Single authority function consumed by all open-node paths.
+When extending this system, build on the existing hooks instead of adding parallel flows:
 
-```rust
-pub enum WorkspaceOpenAction {
-    /// Restore an existing workspace and focus the node's tab.
-    RestoreWorkspace { name: String, node: NodeKey },
-    /// Node has no membership: open node as tab in current workspace (unsaved).
-    OpenInCurrentWorkspace { node: NodeKey },
-}
+- `GraphIntent::OpenNodeWorkspaceRouted` for all workspace-routed opens
+- `resolve_workspace_open(...)` as the single decision function
+- `build_membership_index_from_layouts(...)` for correctness after batch persistence operations
+- choose-workspace picker UI (`render_choose_workspace_picker(...)`) for explicit workspace selection
+- membership badge metadata injection (`from_graph_with_memberships(...)`) for graph-view affordances
+- retention ops in `desktop/persistence_ops.rs` instead of ad hoc workspace deletion loops
 
-pub fn resolve_workspace_open(
-    app: &GraphBrowserApp,
-    node: NodeKey,
-    prefer_workspace: Option<&str>,  // explicit choice (e.g. from "Choose Workspace...")
-) -> WorkspaceOpenAction
-```
+Anti-patterns to avoid:
 
-Resolution order:
-
-1. Obtain `uuid` for `node` via `app.graph.inner.node_weight(node).map(|n| n.id)`. If the node
-   doesn't exist, return `OpenInCurrentWorkspace { node }`.
-2. If `prefer_workspace` is `Some(name)` and name is in the membership set → `RestoreWorkspace(name)`.
-3. If membership set is non-empty → pick workspace by recency. Translate uuid → NodeKey via
-   `app.graph.id_to_node[&uuid]`, then look up `app.node_last_active_workspace.get(&key)` to
-   get `(seq, workspace_name)`. If no recency record (node loaded from a prior session but not
-   yet activated in this one), fall back to `BTreeSet::iter().next()` (stable alphabetical order).
-4. If membership set is empty → `OpenInCurrentWorkspace`.
-
-Fallback if `RestoreWorkspace` produces an empty tree after pruning:
-→ fall through to `OpenInCurrentWorkspace` (log a warning, do not panic).
-
-**Note**: `node_last_active_workspace` is currently `HashMap<NodeKey, (u64, String)>` and stores
-only the *most-recently-activated workspace for that node*. This is the correct data for choosing
-"which workspace does the user most associate with this node." A follow-on improvement: change the
-key to `Uuid` so recency data survives session restarts and the NodeKey translation is unnecessary.
-
-#### Wiring Double-Click
-
-Current path: `GraphAction::FocusNode(key)` → `GraphIntent::SelectNode` → tile_behavior opens tab.
-
-New path: `GraphAction::FocusNode(key)` → `GraphIntent::OpenNodeWorkspaceRouted { key }` →
-`apply_intent` calls `resolve_workspace_open` and enqueues either
-`pending_restore_workspace_snapshot_named` or `pending_open_selected_tile_mode`.
-
-When `OpenInCurrentWorkspace` is the result, set `current_workspace_is_unsaved = true`.
-
-`GraphAction::FocusNodeSplit` retains existing split-open behavior (not workspace-routed).
-
-#### Phase 2 Task List
-
-- [x] Add `GraphIntent::OpenNodeWorkspaceRouted { key: NodeKey }` variant to the `GraphIntent`
-  enum in `app.rs`.
-- [x] Wire the arm in `apply_intent()`: call `resolve_workspace_open`, enqueue the appropriate
-  pending action, set `current_workspace_is_unsaved` as needed.
-- [x] Add `WorkspaceOpenAction` enum and `resolve_workspace_open` fn (new file
-  `desktop/workspace_routing.rs` or inline in `app.rs` — prefer separate file for testability).
-- [x] Change `GraphAction::FocusNode` handler in `render/mod.rs` to emit
-  `GraphIntent::OpenNodeWorkspaceRouted` instead of `GraphIntent::SelectNode`.
+- duplicate resolver logic in UI code
+- direct tile mutation in render paths for routed opens
+- membership scans in `app.rs` that deserialize `TileKind`
+- maintaining parallel membership caches with different invalidation rules
 
 ---
 
-### Phase 3: Open Mode Commands
+## Known Constraints and Rationale
 
-Three open modes surfaced in both the radial menu and the command palette:
+### NodeKey Instability (Current Named-Workspace Format)
 
-| Mode | Behavior |
-| ---- | -------- |
-| Open in Workspace | Workspace-first routing (calls resolver) |
-| Open with Neighbors | Synthesize unsaved workspace: node + 1-hop undirected neighbors (max 12 nodes, matching `MAX_CONNECTED_SPLIT_PANES`) |
-| Open with Connected | Same as above but includes 2-hop undirected neighbors; still capped at 12 nodes |
+`NodeKey` (`petgraph::NodeIndex`) is stable only within a session. The current named-workspace
+format persists `NodeKey`s, so stale keys must be pruned before membership derivation.
+Membership therefore uses `Node.id` (UUID) as the stable key.
 
-"Open in Workspace" is the new default for double-click.
-"Open with Neighbors" replaces "Open Connected as Tabs" (same semantics, renamed for clarity).
+This constraint is the primary reason for the manifest-backed workbench/workspace persistence plan,
+which removes `NodeKey` from named-workspace persistence entirely.
 
-Both synthesized modes set `current_workspace_is_unsaved = true` on the resulting workspace.
+### Layer Constraint: `TileKind` Is Desktop-Only
 
-#### Right-Click Detection
+Workspace parsing and runtime tile conversion remain desktop-layer concerns. `GraphBrowserApp`
+receives rebuilt membership via `init_membership_index(...)` rather than parsing workbench
+persistence directly.
 
-egui_graphs 0.29 does not emit a right-click node event. Detection path:
+### Recency Is Session-Local Today
 
-- After `GraphView` renders, check `ui.input(|i| i.pointer.secondary_clicked())`.
-- Target node = `app.hovered_graph_node` (set from `egui_state.graph.hovered_node()` each frame).
-- If both are `Some`, set `app.pending_node_context_target = Some(key)` and open context menu.
+`node_last_active_workspace` is currently keyed by `NodeKey`, which means recency does not survive
+restart. This is acceptable for current behavior but is the highest-value follow-on improvement.
 
-Context menu: a small `egui::popup_below_widget` or `egui::Window` containing the three open modes
-plus "Choose Workspace..." (which opens a submenu/list of containing workspaces from membership index).
+### Right-Click Detection in `egui_graphs`
 
-These commands also route through `resolve_workspace_open` and the standard intent path.
-
-**Preferred approach**: integrate workspace open modes into the **existing radial menu** `Node`
-domain (add `NodeOpenWorkspace`, `NodeOpenNeighbors`, `NodeOpenConnected` as radial commands).
-This avoids a second modal surface.
-
-#### "Choose Workspace..." Picker
-
-Appears in both the right-click context (if implemented) and the command palette.
-Rendered as a list of workspace names from `workspaces_for_node_key(key)`, sorted by recency.
-Clicking a name calls `resolve_workspace_open(app, key, Some(name))`.
-
-#### Phase 3 Task List
-
-- [x] Add `pending_node_context_target: Option<NodeKey>` field to `GraphBrowserApp`.
-- [x] Add `NodeOpenWorkspace`, `NodeOpenNeighbors`, `NodeOpenConnected` variants to `RadialCommand`
-  (render/mod.rs).
-- [x] Implement synthesized workspace builder (node + N-hop undirected BFS, capped at
-  `MAX_CONNECTED_SPLIT_PANES`, excess truncated by `node_last_active_workspace` recency).
-- [x] Wire unsaved modification tracking: in `apply_intent`, if `current_workspace_is_unsaved`
-  and intent is `AddNode | AddEdge | RemoveNode | ClearGraph`, set
-  `unsaved_workspace_modified = true`.
-- [x] On workspace switch while `unsaved_workspace_modified`, show save-prompt modal before
-  proceeding.
+There is still no direct right-click node event in the graph widget path used here; right-click
+targeting depends on pointer secondary-click + hovered node state.
 
 ---
 
-### Phase 4: Membership Visibility in Graph View
+## Validation Checklist (Contract-Level)
 
-- Add node label suffix `[N]` where N = `workspaces_for_node_key(key).len()`, shown only when N > 0.
-- Alternatively: a small badge rendered alongside the node shape in `GraphNodeShape::ui()`.
-- Hover on badge: show tooltip listing workspace names.
-- Click on badge: open the "Choose Workspace..." picker.
+1. **Node in 1 workspace**: default open restores that workspace; no fallback workspace created.
+2. **Node in N workspaces**: default open picks highest-recency workspace; explicit picker opens a specific one.
+3. **Node in 0 workspaces**: default open falls back to current workspace unsaved open; no named workspace auto-persist.
+4. **Open with Neighbors/Connected**: synthesized workspace contains intended traversal set, capped by `MAX_CONNECTED_SPLIT_PANES`.
+5. **Workspace restore empty after resolve/prune**: falls back to current-workspace open and logs warning.
+6. **Workspace delete**: removed from membership and recency candidates immediately.
+7. **Node URL change**: membership index unchanged (UUID stable).
+8. **Node removed**: UUID entry removed from membership index.
+9. **Startup membership init**: membership index available before first graph render path relies on it.
+10. **Batch retention prune**: membership index rebuilt after completion; no stale entries remain.
+11. **Resolver determinism**: identical inputs produce identical `WorkspaceOpenAction`.
+12. **Unsaved modification semantics**: graph-mutating actions while unsaved set prompt flag; non-graph UI actions do not.
 
-Badge rendering is done in `graph/egui_adapter.rs` `GraphNodeShape` implementation.
-Requires access to the membership index at render time — pass as a parameter to `from_graph()`
-or read from an `Arc<HashMap>` stored on `GraphBrowserApp`.
+### Automated Coverage Present
 
----
+- `app::tests::test_set_node_url_preserves_workspace_membership`
+- `app::tests::test_resolve_workspace_open_deterministic_fallback_without_recency_match`
+- resolver preference tests in `app::tests::test_resolve_workspace_open_*`
+- `desktop::persistence_ops::tests::test_build_membership_index_from_layouts_skips_reserved_and_stale_nodes`
+- `desktop::persistence_ops::tests::test_prune_empty_named_workspaces_rebuilds_membership_index`
+- `desktop::persistence_ops::tests::test_keep_latest_named_workspaces_rebuilds_membership_index`
+- graph membership badge adapter tests in `graph::egui_adapter::tests::*membership_badge*`
 
-### Phase 5: Workspace Retention Settings
+### Headed Manual Tracking
 
-Extend the existing Persistence Hub with batch maintenance actions:
+Remaining manual validations are tracked in:
 
-- "Prune empty workspaces" — remove workspaces with no surviving nodes after stale-NodeKey pruning.
-- "Keep latest N named" — delete all named workspaces beyond N (sorted by activation recency).
-- Retention policy: autosaved session workspaces (reserved prefix) are always exempt from batch prune.
-
-After batch mutations complete, rebuild the membership index by calling
-`build_membership_index_from_layouts` (desktop layer) and `init_membership_index` with the result.
-Incremental update during batch delete would be complex; full rebuild is safe and correct here.
-
----
-
-### Validation Checklist
-
-1. **Node in 1 workspace**: double-click → that workspace restores; no fallback workspace created.
-2. **Node in N workspaces**: default open picks highest-recency workspace; `Choose Workspace...`
-   opens a specific one.
-3. **Node in 0 workspaces**: default open → `OpenInCurrentWorkspace`; no workspace auto-persisted.
-4. **Open with Neighbors**: synthesized workspace contains node + direct neighbors, max 12 tiles.
-5. **Workspace restore produces empty tree**: falls back to `OpenInCurrentWorkspace`, logs warning.
-6. **Workspace delete**: immediately removed from membership sets and recency candidates; resolver
-   never returns the deleted name.
-7. **Node URL change**: membership index unchanged (UUID is stable; `SetNodeUrl` does not affect
-   membership).
-8. **Node removed**: UUID entry removed from membership index entirely.
-9. **Startup scan**: membership index populated before first frame renders.
-10. **Batch prune**: membership index rebuilt after completion; no stale entries remain.
-11. **Resolver determinism**: identical inputs always produce the same `WorkspaceOpenAction`.
-12. **Unsaved modification**: graph-mutating action while unsaved sets
-    `unsaved_workspace_modified`; non-graph actions (zoom, tile reorder) do not.
-
-Automated coverage added (2026-02-19):
-- Item 7: `app::tests::test_set_node_url_preserves_workspace_membership`
-- Item 10: `desktop::persistence_ops::tests::test_prune_empty_named_workspaces_rebuilds_membership_index`
-  and `desktop::persistence_ops::tests::test_keep_latest_named_workspaces_rebuilds_membership_index`
-- Item 11: `app::tests::test_resolve_workspace_open_deterministic_fallback_without_recency_match`
-- Supporting index-scan behavior: `desktop::persistence_ops::tests::test_build_membership_index_from_layouts_skips_reserved_and_stale_nodes`
-
-Headed-manual execution tracking:
-- Remaining manual validations are tracked in
-  `ports/graphshell/design_docs/graphshell_docs/tests/VALIDATION_TESTING.md`
-  under `Workspace Routing and Membership (Headed Manual)`.
+- `ports/graphshell/design_docs/graphshell_docs/tests/VALIDATION_TESTING.md`
+  (`Workspace Routing and Membership (Headed Manual)`)
 
 ---
 
-### Out of Scope (This Doc)
+## Prioritized Extension Workstreams (Next Iteration)
+
+These are the recommended follow-ons that best exploit the current architecture.
+
+### Workstream A: Persist Recency by UUID (Highest Value)
+
+Problem:
+
+- resolver recency is session-local because `node_last_active_workspace` is keyed by `NodeKey`
+
+Upgrade:
+
+- move recency tracking key from `NodeKey` to `Uuid` (or maintain a compatibility migration path)
+
+Benefits:
+
+- routing preference survives restarts
+- removes `uuid -> NodeKey` translation in resolver recency lookup
+- improves determinism for repeated workflows across sessions
+
+Design notes:
+
+- keep resolver API unchanged initially; migrate internals first
+- preserve tie-breaker fallback to alphabetical order for deterministic behavior
+
+Status note:
+
+- This workstream should be implemented alongside the workbench/workspace manifest persistence
+  migration so recency persistence aligns with stable UUID-based named-workspace storage.
+
+### Workstream B: Resolver Strategy and Explainability
+
+Problem:
+
+- resolver policy is fixed and opaque during debugging
+
+Upgrade:
+
+- add a small strategy layer (e.g. `RecentThenAlpha`, `Alphabetical`, `ExplicitOnly`)
+- add debug logging/tracing payload for "why this workspace was chosen"
+
+Benefits:
+
+- easier behavior tuning without UI rewrites
+- simpler regression triage for routing surprises
+
+Design notes:
+
+- keep `resolve_workspace_open(...)` as single authority
+- do not expose multiple codepaths that bypass it
+
+### Workstream C: Centralize Membership Rebuild Triggers
+
+Problem:
+
+- rebuild calls are correct but spread across multiple effect sites
+
+Upgrade:
+
+- add a small helper in the desktop effect layer for "rebuild membership index now"
+- optionally standardize post-batch mutation flow in one function
+
+Benefits:
+
+- lowers risk of future retention/persistence features forgetting to rebuild
+- makes batch operations easier to audit
+
+Design notes:
+
+- this is a refactor for consistency, not behavior change
+
+Status note:
+
+- In the manifest model, this becomes "centralize membership cache rebuild/update triggers from
+  workspace manifests"; the routing requirements here remain the same.
+
+### Workstream D: Membership-Aware UI Enhancements (Low Risk)
+
+Examples:
+
+- richer badge tooltip ordering (recency-sorted names)
+- small badge visual distinction for "current routed target" or "recent workspace"
+- command-palette affordances that surface workspace membership count directly
+
+Benefits:
+
+- better discoverability with minimal architectural impact
+
+Design notes:
+
+- use existing `from_graph_with_memberships(...)` injection path
+- keep graph adapter display-only; no policy decisions in render layer
+
+### Workstream E: Batch Workspace Operations via Intents (Optional Discipline Tightening)
+
+Problem:
+
+- some persistence-hub actions may be invoked directly from UI/effect orchestration paths
+
+Upgrade:
+
+- represent batch retention actions as explicit intents/requests where useful
+
+Benefits:
+
+- tighter consistency with reducer-first architecture
+- easier testability of request state and prompt interactions
+
+Non-goal:
+
+- do not force every file I/O operation through the reducer if it harms simplicity
+
+---
+
+## Suggested Refactor Rules for Future Changes
+
+1. Add new open modes by extending the existing routed-open intent path, not by creating new direct tile mutations.
+2. Treat membership index correctness as desktop-layer persistence read/update + app-layer cache.
+   In the current implementation this is layout-derived; in the manifest model it is manifest-derived.
+3. Keep rendering modules display-oriented: UI may request actions, but resolver and unsaved-workspace policy stay in `app.rs`.
+4. Prefer constants and policy names over numeric values in docs (example: use `MAX_CONNECTED_SPLIT_PANES` instead of hardcoding `12`).
+5. When adding batch workspace features, include membership-index rebuild behavior in the same change and tests.
+
+---
+
+## Out of Scope (This Doc)
 
 1. Full multi-window architecture changes.
 2. Non-workspace graph semantics (edge taxonomy changes).
-3. Command palette redesign beyond wiring to open intents.
-4. Bookmarks, node versioning/history, and Persistence Hub expansion — tracked separately.
-5. Changing `node_last_active_workspace` key type to `Uuid` (noted as a follow-on in Phase 2).
+3. Command palette redesign beyond routing and workspace-selection integration.
+4. Bookmarks, node versioning/history.
+5. Large Persistence Hub redesign unrelated to routing/membership correctness.
 
 ---
 
-## Findings
+## Historical Notes (Original Plan Context)
 
-### Existing Workspace Infrastructure (as of 2026-02-19)
+This document began as a draft implementation plan on 2026-02-19 and was revised multiple times
+to address:
 
-| Mechanism | State |
-| --------- | ----- |
-| `workspace_activation_seq: u64` | Exists in `GraphBrowserApp`; monotonic counter |
-| `node_last_active_workspace: HashMap<NodeKey, (u64, String)>` | Exists; recency per-node (most-recent workspace only); NodeKey-keyed |
-| `workspace_nodes_from_tree(tree)` | Exists in `gui_frame.rs`; extracts NodeKeys from live tile tree |
-| `note_workspace_activated(name, nodes)` | Exists; fires on restore; updates recency map |
-| `delete_workspace_layout(name)` | Exists; prunes `node_last_active_workspace` entries |
-| `list_workspace_layout_names()` | Exists; returns all persisted workspace names |
-| `prune_stale_webview_tile_keys_only(tree, app)` | Exists in `desktop/tile_runtime.rs`; pub(crate) |
-| Membership index (`uuid → [workspace names]`) | **Does not exist** — gap to be filled by Phase 1 |
-| Routing resolver | **Does not exist** — gap to be filled by Phase 2 |
+- NodeKey instability and UUID-keyed membership indexing
+- desktop-layer `TileKind` constraints
+- unsaved synthesized-workspace semantics
+- resolver determinism and fallback behavior
+- right-click targeting limitations in `egui_graphs`
 
-### NodeKey Instability
+As of 2026-02-22, the core plan has been implemented and the doc has been restructured to serve as
+an operational reference and extension roadmap.
 
-`NodeKey = NodeIndex` from petgraph `StableGraph`. NodeIndex values are stable within a session but
-are **not persisted** and **not stable across sessions**. Workspace layout JSONs embed NodeKeys
-(`TileKind::WebView(NodeKey)`). On restore, `prune_stale_webview_tile_keys_only` removes tiles
-whose embedded NodeKey does not match any current-session node.
-
-This means: scanning raw workspace JSONs for NodeKeys and comparing them to current-session NodeKeys
-is invalid. The membership index must be built **after pruning** (using surviving NodeKeys) and keyed
-by **Stable Node UUID** (`Node.id`, which is session-independent and unique). On lookup, checking
-`node.id` is O(1) via `node.id` field on the `Node` struct.
-
-### Layer Constraint: `TileKind` is Desktop-Only
-
-`TileKind` (which wraps `NodeKey` in `TileKind::WebView(NodeKey)`) is defined in the desktop layer.
-`app.rs` does not and should not import it. Therefore:
-
-- `GraphBrowserApp` cannot deserialize workspace layout JSONs.
-- The startup membership index scan (`build_membership_index_from_layouts`) must live in
-  `desktop/persistence_ops.rs` alongside the existing workspace restore logic.
-- `GraphBrowserApp` exposes `init_membership_index(map)` as a pure setter; the desktop layer does
-  the scanning and passes the result in.
-- Incremental maintenance (restore, delete, remove-node) does not need `TileKind` — it operates on
-  NodeKeys and UUIDs already available in the app layer, so those paths remain on `GraphBrowserApp`.
-
-### Recency Map Key Type
-
-`node_last_active_workspace: HashMap<NodeKey, (u64, String)>` is NodeKey-keyed. The resolver
-needs `uuid → NodeKey` translation (via `graph.id_to_node`) before a recency lookup. This is O(1)
-and safe for now. A cleaner follow-on: change the key to `Uuid` so that per-node recency data
-survives across session restarts (currently lost each session since NodeKeys are session-local).
-
-### Right-Click in egui_graphs 0.29
-
-`Event` variants: `NodeDoubleClick`, `NodeDragStart`, `NodeDragEnd`, `NodeMove`, `NodeSelect`,
-`NodeDeselect`, `Zoom`. No right-click event. Right-click must be detected via:
-
-```rust
-ui.input(|i| i.pointer.secondary_clicked())
-```
-
-combined with `app.hovered_graph_node` (authoritative per-frame hovered node from egui_state).
-
-### Unsaved Workspace Semantics
-
-Synthesized workspaces (for zero-membership nodes) do not call
-`save_workspace_layout_json`. They switch the tile tree without persisting. The session autosave
-will capture the synthesized layout on the next autosave tick, but the layout is not given a named
-workspace entry. User must explicitly save to create a membership record.
-
-### "Open with Neighbors" Bound
-
-`MAX_CONNECTED_SPLIT_PANES` (existing constant) caps connected-open at N tiles. One-hop neighbor
-count for a well-connected node in a typical GraphShell session is O(3–8). Two-hop can exceed 50.
-Default bound for "Open with Connected": same cap, 2-hop BFS, truncated by activation recency if
-over limit (most recently activated neighbors kept).
-
----
-
-## Progress
-
-### 2026-02-19 — Session 1
-
-- Initial draft written.
-- Critique performed: identified NodeKey instability, missing membership index spec, right-click
-  implementation basis, double-click UX fallback, unsaved workspace semantics, Phase 4 scope,
-  and traversal bound gaps.
-- Plan revised to address all critique points.
-- Phase 4 (Persistence Hub expansion, bookmarks, node history) extracted to a separate future doc.
-- **Status**: Revised draft. Implementation not started.
-
-### 2026-02-19 — Session 2
-
-- Second critique performed: identified `TileKind` layer constraint blocking `rebuild_membership_index`
-  as an app method; recency map key type split; stale "URL-key" wording in Phase 5; wrong validation
-  items 7–8; unspecified unsaved modification semantics; missing task-list entries for
-  `OpenNodeWorkspaceRouted`, `pending_node_context_target`, and `current_workspace_is_unsaved`.
-- Plan revised: startup scan moved to desktop layer (`build_membership_index_from_layouts`);
-  `init_membership_index` setter added; UUID→NodeKey recency translation made explicit; Invariant 4
-  refined with specific fields and narrow "modified" definition; task lists added to all phases;
-  validation items 7–8 corrected; "URL-key pruning" corrected to "stale-NodeKey pruning".
-- **Status**: Revised draft. Implementation not started.
+As of 2026-02-22, named-workspace persistence redesign is split into the dedicated workbench/workspace
+manifest persistence plan to reduce coupling between routing behavior and persistence schema work.

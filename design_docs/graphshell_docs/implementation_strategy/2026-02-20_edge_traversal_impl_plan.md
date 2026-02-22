@@ -4,536 +4,458 @@
 
 # Edge Traversal Model — Implementation Plan (2026-02-20)
 
-**Status**: Draft — implementation not started.
+**Status**: Refactored (2026-02-22) into architecture-first staged delivery plan
 
 ---
 
-## Plan
+## Purpose
 
-### Context
+This document translates the traversal-model research into an implementation sequence that fits
+Graphshell's current architecture:
 
-The edge traversal model research report (`2026-02-20_edge_traversal_model_research.md`) concluded
-that all seven hypotheses are supported by the code survey. Repeat navigations and timing data are
-currently discarded; `EdgeType` conflates trigger with structure; the `Hyperlink` edge fires on
-webview spawn rather than URL commit. The traversal model fixes all of these.
+- reducer/policy in `app.rs`
+- rendering in `render/*` and `graph/*`
+- persistence/WAL in `persistence/*`
+- frame/effect orchestration in `desktop/*`
 
-This plan translates the research findings into three sequential phases:
-
-1. **Phase 1 — Core PoC** (steps 1–8 from research §5): swap `EdgeType` → `EdgePayload`,
-   wire `push_traversal`, add `AppendTraversal` log entry, display-layer deduplication, History
-   Manager stub.
-2. **Phase 2 — History Manager** (full UI and tiered storage): traversal archive, dissolution
-   transfer, node history archive, export.
-3. **Phase 3 — Temporal Navigation**: timeline scrubber using the WAL + traversal log.
-
-Each phase is independently shippable. Phase 1 validates the data model before Phase 2 adds the
-storage and UI complexity.
+The goal is to avoid a "data model first, UI later" rewrite that cuts across these seams.
 
 ---
 
-### Scope Absorption from Graph UX Polish Phase 5
+## Current Reality (2026-02-22)
 
-The following Graph UX polish items are now coupled to traversal/history semantics and should be
-implemented here (or in follow-on docs rooted here), not as standalone polish tasks:
+Traversal semantics are not yet implemented.
 
-1. Neighborhood focus/filter behavior that depends on true traversal topology and temporal context.
-2. Edge-type/history filter semantics once `EdgePayload` replaces `EdgeType`.
-3. Faceted search dimensions that include traversal-aware metadata (recency/count/trigger-aware
-   views) instead of only static node fields.
-4. DOI/relevance weighting that uses traversal frequency/recency as first-class inputs.
+Current behavior still reflects the pre-traversal model:
 
-Graph UX polish retains non-traversal remnants (`Shift+Click` range-select decision, `R` manual
-reheat, headed validation polish), while traversal-dependent filtering/searching is owned here.
+- history traversal edges are deduplicated (repeat navigations discarded)
+- edge semantics are not yet split into structure vs temporal traversal records
+- traversal events are not first-class WAL entries
+- no History Manager UI
+- no timeline scrubber / preview mode
 
----
-
-### Phase 1: Core PoC
-
-**Goal:** `EdgeType` eliminated, traversal accumulation working, History Manager stub visible in
-UI. All 137 existing tests pass after migration (updated for the new types).
-
-#### 1.1 Swap `EdgeType` → `EdgePayload`
-
-**New types** (add to `graph/mod.rs`):
-
-```rust
-#[derive(Debug, Clone, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[rkyv(derive(Debug, PartialEq))]
-pub struct Traversal {
-    pub from_url: String,
-    pub to_url:   String,
-    pub timestamp: u64,   // Unix ms
-    pub trigger:   NavigationTrigger,
-}
-
-#[derive(Debug, Clone, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[rkyv(derive(Debug, PartialEq))]
-pub enum NavigationTrigger {
-    ClickedLink,
-    TypedUrl,
-    GraphOpen,
-    HistoryBack,
-    HistoryForward,
-    DraggedLink,
-    Unknown,
-}
-
-#[derive(Debug, Clone, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[rkyv(derive(Debug, PartialEq))]
-pub struct EdgePayload {
-    pub user_asserted:          bool,
-    pub traversals:             Vec<Traversal>,
-    pub archived_traversal_count_ab: u64,  // A→B cold-tier count
-    pub archived_traversal_count_ba: u64,  // B→A cold-tier count
-}
-
-impl EdgePayload {
-    pub fn user_asserted() -> Self {
-        Self { user_asserted: true, traversals: vec![], archived_traversal_count_ab: 0,
-               archived_traversal_count_ba: 0 }
-    }
-    pub fn from_traversal(t: Traversal) -> Self {
-        Self { user_asserted: false, traversals: vec![t], archived_traversal_count_ab: 0,
-               archived_traversal_count_ba: 0 }
-    }
-    pub fn is_live(&self) -> bool {
-        self.user_asserted || !self.traversals.is_empty()
-            || self.archived_traversal_count_ab > 0 || self.archived_traversal_count_ba > 0
-    }
-}
-```
-
-Replace `StableGraph<Node, EdgeType, Directed>` with `StableGraph<Node, EdgePayload, Directed>`.
-
-**Tasks**
-
-- [ ] Add `Traversal`, `NavigationTrigger`, `EdgePayload` to `graph/mod.rs`.
-- [ ] Change `inner: StableGraph<Node, EdgeType>` → `StableGraph<Node, EdgePayload>`.
-- [ ] Update the 5–6 `add_edge` callsites in `graph/mod.rs` and `app.rs` to construct
-  `EdgePayload` from the appropriate initial state.
-- [ ] Remove the `EdgeType` enum (or alias it `#[deprecated]` for a single commit to make the
-  diff reviewable, then remove in the next commit).
-
-**Validation Tests**
-
-- `test_edge_payload_is_live_user_asserted` — `user_asserted = true`, empty traversals → `is_live()`.
-- `test_edge_payload_is_live_with_traversals` — traversals non-empty → `is_live()`.
-- `test_edge_payload_not_live_empty` — all fields zero/empty → `!is_live()`.
-- Update all 22 existing graph tests for `EdgePayload`.
+This refactor keeps the original scope, but reorganizes it to better exploit the existing
+architecture and reduce migration risk.
 
 ---
 
-#### 1.2 Replace `add_history_traversal_edge` with `push_traversal`
+## Scope and Non-Goals
 
-Remove the `!has_history_edge` guard. Every forward navigation between two known nodes appends a
-`Traversal` to the edge payload.
+### In Scope
 
-```rust
-/// Called from WebViewUrlChanged when navigation crosses to a different known node.
-/// Inter/intra decision rule:
-///   - prior_url must resolve to a NodeKey (otherwise: intra-node, skip)
-///   - new_url must resolve to a different NodeKey (otherwise: intra-node, skip)
-///   - prior_key == new_key (self-loop): skip
-fn push_traversal(
-    &mut self,
-    prior_url: &str,
-    new_url: &str,
-    trigger: NavigationTrigger,
-) {
-    let from_key = self.graph.get_node_by_url(prior_url).map(|(k, _)| k);
-    let to_key   = self.graph.get_node_by_url(new_url).map(|(k, _)| k);
-    let (from_key, to_key) = match (from_key, to_key) {
-        (Some(f), Some(t)) if f != t => (f, t),
-        _ => return,  // intra-node or unknown destination
-    };
-    let t = Traversal {
-        from_url:  prior_url.to_owned(),
-        to_url:    new_url.to_owned(),
-        timestamp: now_unix_ms(),
-        trigger,
-    };
-    if let Some(edge) = self.graph.get_edge_mut(from_key, to_key) {
-        edge.traversals.push(t);
-    } else {
-        self.graph.add_edge(from_key, to_key, EdgePayload::from_traversal(t));
-    }
-}
-```
+1. Replace edge semantic model (`EdgeType` -> traversal-capable payload)
+2. Record repeated traversals with trigger + timestamp
+3. Persist traversal events in WAL
+4. Render traversal-aware edge visuals
+5. Ship a minimal History panel (PoC)
+6. Follow-on History Manager and temporal navigation
 
-**URL capture ordering** (critical): `push_traversal` must be called with `prior_url` captured
-*before* `update_node_url_and_log` overwrites the node's URL. In `apply_intent(WebViewUrlChanged)`:
+### Out of Scope (This Doc)
 
-```rust
-let prior_url = self.graph.get_node(node_key).map(|n| n.url.clone());
-self.update_node_url_and_log(...);
-if let Some(prior) = prior_url {
-    self.push_traversal(&prior, &new_url, trigger);
-}
-```
-
-**Tasks**
-
-- [ ] Add `push_traversal()` to `GraphBrowserApp`.
-- [ ] Wire from `WebViewUrlChanged` intent with URL capture ordering guard.
-- [ ] Remove `add_history_traversal_edge` and the `maybe_add_history_traversal_edge` call site.
-- [ ] Keep `HistoryBack` / `HistoryForward` variants populated from the existing history-index
-  change path; they now call `push_traversal` with the appropriate trigger rather than
-  `add_history_traversal_edge`.
-- [ ] Add `get_edge_mut(from: NodeKey, to: NodeKey) -> Option<&mut EdgePayload>` to `Graph` API.
-
-**Validation Tests**
-
-- `test_push_traversal_appends_to_existing_edge` — push twice A→B → edge has 2 traversals.
-- `test_push_traversal_creates_edge_if_absent` — first push A→B → edge created with 1 traversal.
-- `test_push_traversal_skips_self_loop` — prior_key == new_key → no edge created.
-- `test_push_traversal_skips_unknown_destination` — new_url not in graph → no change.
-- `test_push_traversal_url_capture_ordering` — `update_node_url_and_log` is called after prior_url
-  is captured: prior_url correctly reflects the old URL.
+1. Full command-palette redesign
+2. Unrelated graph UX polish items that do not depend on traversal semantics
+3. Multi-window architecture changes
+4. Webview/embedder decomposition changes
 
 ---
 
-#### 1.3 Add `AppendTraversal` to `LogEntry`
+## Architectural Boundaries (How to Build This Without Fighting the Codebase)
 
-```rust
-// persistence/mod.rs
-pub enum LogEntry {
-    AddNode { ... },
-    AddEdge { ... },
-    UpdateNodeTitle { ... },
-    PinNode { ... },
-    RemoveNode { ... },
-    ClearGraph,
-    UpdateNodeUrl { ... },
-    // New:
-    AppendTraversal { from_url: String, to_url: String, timestamp: u64, trigger: NavigationTrigger },
-    AssertEdge { from_url: String, to_url: String },        // UserGrouped
-    RetractEdge { from_url: String, to_url: String },       // UserGrouped retraction
-}
-```
+### `app.rs` (authoritative traversal policy and mutation)
 
-In `push_traversal`, after appending to the in-memory edge, append an `AppendTraversal` entry to
-the WAL. In WAL replay, `AppendTraversal` calls `push_traversal` (bypassing the URL-capture issue
-since replay does not fire `WebViewUrlChanged`).
+Owns:
 
-**Tasks**
+- traversal append decision rules (inter-node vs intra-node, self-loop skip, unknown-node skip)
+- URL capture ordering correctness in `WebViewUrlChanged`
+- edge payload mutation (`push_traversal`)
+- reducer-side intent handling and trigger classification
 
-- [ ] Add `AppendTraversal`, `AssertEdge`, `RetractEdge` variants to `LogEntry`.
-- [ ] Implement `AppendTraversal` WAL write in `push_traversal`.
-- [ ] Implement `AppendTraversal` WAL replay in `apply_log_entry`.
-- [ ] Implement `AssertEdge` WAL write when `UserGrouped` edge is created via `G` key or context menu.
-- [ ] Implement `RetractEdge` WAL write when `UserGrouped` is explicitly removed.
-- [ ] Update 19 persistence tests for expanded `LogEntry` enum.
+Rules:
 
-**Validation Tests**
+- traversal append logic should live in one function (`push_traversal`)
+- UI/render code must not mutate traversal state directly
+- replay paths should reuse the same append semantics when possible
 
-- `test_append_traversal_log_entry_replays_correctly` — write `AppendTraversal` log entry, replay
-  from scratch → edge has the traversal.
-- `test_assert_edge_log_entry_creates_user_asserted_edge` — replay `AssertEdge` → `user_asserted = true`.
-- `test_retract_edge_clears_user_asserted` — replay `AssertEdge` then `RetractEdge` →
-  `user_asserted = false`.
+### `graph/mod.rs` (data model + graph primitives)
 
----
+Owns:
 
-#### 1.4 Display-Layer Deduplication
+- `Traversal`, `NavigationTrigger`, `EdgePayload`
+- `StableGraph<Node, EdgePayload, ...>`
+- edge mutation/query helpers (e.g. `get_edge_mut`)
 
-In `EguiGraphState::from_graph()`, when iterating petgraph edges, skip the reverse pair if already
-processed. Show traversal count as stroke width; dominant direction as arrow.
+Rules:
 
-**Dominant direction rule:**
-- Count traversals where `from_url` matches the petgraph edge direction vs. the reverse.
-- If one direction exceeds 60% of total → arrow points that way.
-- Equal or below threshold → bidirectional arrows (or no arrow).
-- `user_asserted` edges with zero traversals → no arrow (undirected).
+- `EdgePayload` encodes both structure and temporal data
+- display-only computations (dominant direction, stroke width) should not be stored here
 
-**Tasks**
+### `persistence/*` (WAL and storage semantics)
 
-- [ ] In `EguiGraphState::from_graph()`: build a `HashSet<(NodeKey, NodeKey)>` of processed pairs;
-  skip reversed pairs.
-- [ ] Compute `traversal_count_ab` and `traversal_count_ba` per logical edge.
-- [ ] Map traversal count to stroke width (suggest: `1.0 + log(1 + count) * 0.5`, capped at 4.0).
-- [ ] Apply dominant-direction arrow rendering using `NavigationTrigger`-agnostic directional counts.
-- [ ] `GraphEdgeShape` (from UX polish Phase 3.1): replace the current `EdgeType`-based branch with
-  an `EdgePayload`-based branch (`user_asserted` → amber thick; traversals.len() > 0 → solid thin
-  weighted; archived only → dashed thin).
+Owns:
 
-**Validation Tests**
+- `LogEntry::{AppendTraversal, AssertEdge, RetractEdge}` additions
+- replay semantics for traversal events
+- later: cold archive/dissolved archive keyspaces and export helpers
 
-- `test_display_dedup_skips_reverse_pair` — A→B and B→A edges → only one logical edge rendered.
-- `test_dominant_direction_above_threshold` — 7 A→B traversals, 3 B→A → arrow points A→B.
-- `test_dominant_direction_below_threshold` — 5 A→B, 5 B→A → bidirectional.
-- `test_traversal_count_drives_stroke_width` — 1 traversal vs. 10 traversals → different stroke
-  width values.
+Rules:
+
+- in-memory mutation and WAL append order must be explicit and tested
+- crash/recovery semantics for hot/cold archival must be treated as persistence work, not UI work
+
+### `render/*` + `graph/egui_adapter.rs` (presentation only)
+
+Owns:
+
+- traversal-aware edge display deduplication
+- edge tooltip/inspection stub
+- History panel UI presentation (PoC)
+- later: timeline controls and preview affordances
+
+Rules:
+
+- render layer derives visuals from `EdgePayload`; it does not define traversal truth
+- keep rendering calculations deterministic and local (e.g. width mapping, direction thresholds)
+
+### `desktop/gui_frame.rs` (orchestration / effect sequencing)
+
+Owns:
+
+- wiring UI requests to app intents
+- later: timeline preview mode switching and frame-level effect suppression
+
+Rules:
+
+- preview mode must not accidentally drive live persistence/webview effects
 
 ---
 
-#### 1.5 Edge Inspection Stub
+## Design Contracts (Must Hold Across Phases)
 
-Clicking an edge in graph view shows a tooltip with traversal count, dominant direction ratio, and
-most-recent timestamp. Full inspection UI is deferred.
-
-**Tasks**
-
-- [ ] In `render/mod.rs`: detect hovered edge (egui_graphs `hovered_edge()` or equivalent).
-- [ ] Show egui tooltip on hover: "N traversals (A→B: x, B→A: y) | Last: <relative time>".
-- [ ] For `user_asserted` edges with zero traversals: "User-asserted | No traversals recorded."
-
-**Validation Tests**
-
-- Headed: hover an edge → tooltip appears with correct counts and timestamp.
+1. Repeated navigations between the same two known nodes append traversal records; they do not get deduplicated away.
+2. Traversal records are temporal events, distinct from user-asserted structural edges.
+3. Traversal append correctness depends on URL capture ordering (`prior_url` before URL mutation).
+4. Self-loops and intra-node URL changes do not create traversal records.
+5. Traversal replay from WAL reproduces in-memory traversal state deterministically.
+6. Rendered edge directionality is derived from traversal aggregates, not stored as edge truth.
+7. UI history/timeline features consume traversal data; they do not become alternate sources of truth.
 
 ---
 
-#### 1.6 History Manager Stub
+## Delivery Strategy (Architecture-First Stages)
 
-A menu entry that opens a panel listing recent traversal records. No persistence, delete, or
-export in the PoC — proves the data flows from `push_traversal` to the UI.
+This is the same functional scope as the original plan, but sequenced around stable integration
+boundaries.
 
-**Tasks**
+### Stage A: Core Traversal Data Model + Reducer Integration (PoC Foundation)
 
-- [ ] Add "History" entry to the toolbar or hamburger menu.
-- [ ] Open a non-modal `egui::Window` ("Traversal History") listing the last 50 traversals from
-  all edges, sorted by timestamp descending: `from_url → to_url | trigger | time`.
-- [ ] Clicking a row pans the graph to the source node (emits `GraphIntent::FocusNode`).
+Goal:
 
-**Validation Tests**
+- establish traversal-capable edge payloads and append semantics without UI/storage complexity
 
-- Headed: navigate between two nodes; open History panel → the traversal appears in the list.
+Primary modules:
+
+- `graph/mod.rs`
+- `app.rs`
+
+Deliverables:
+
+1. `EdgeType` replaced by `EdgePayload`
+2. `Traversal` + `NavigationTrigger` introduced
+3. `push_traversal(...)` added in `app.rs`
+4. `WebViewUrlChanged` path uses correct URL capture ordering
+5. existing history-edge dedup path removed/replaced
+
+Notes:
+
+- Keep scope tight: no History Manager UI yet, no cold archive yet
+- Focus on type migration and reducer correctness first
+
+Core PoC tasks:
+
+- [ ] Add `Traversal`, `NavigationTrigger`, `EdgePayload` to `graph/mod.rs`
+- [ ] Migrate `StableGraph<Node, EdgeType, Directed>` to `StableGraph<Node, EdgePayload, Directed>`
+- [ ] Update all `add_edge` callsites to construct `EdgePayload`
+- [ ] Add `Graph::get_edge_mut(...) -> Option<&mut EdgePayload>`
+- [ ] Add `GraphBrowserApp::push_traversal(...)`
+- [ ] Replace `maybe_add_history_traversal_edge` call path with `push_traversal`
+- [ ] Enforce URL capture ordering in `WebViewUrlChanged`
+
+Stage A validation:
+
+- `test_push_traversal_appends_to_existing_edge`
+- `test_push_traversal_creates_edge_if_absent`
+- `test_push_traversal_skips_self_loop`
+- `test_push_traversal_skips_unknown_destination`
+- `test_push_traversal_url_capture_ordering`
+- updated graph tests for `EdgePayload`
+
+### Stage B: WAL Integration for Traversal Truth
+
+Goal:
+
+- make traversal events durable and replayable before building UI around them
+
+Primary modules:
+
+- `persistence/mod.rs` (and WAL replay path)
+- `app.rs`
+
+Deliverables:
+
+1. `LogEntry::AppendTraversal`
+2. `LogEntry::AssertEdge`
+3. `LogEntry::RetractEdge`
+4. replay support that reconstructs traversal payload state
+
+Why this stage comes before UI:
+
+- History/Timeline UI without durable traversal events would be a throwaway integration
+
+Tasks:
+
+- [ ] Add `AppendTraversal`, `AssertEdge`, `RetractEdge` variants to `LogEntry`
+- [ ] Write `AppendTraversal` from `push_traversal`
+- [ ] Replay `AppendTraversal` in WAL replay path
+- [ ] Write/replay `AssertEdge` and `RetractEdge` for user-asserted edge semantics
+- [ ] Update persistence tests for expanded `LogEntry` enum
+
+Stage B validation:
+
+- `test_append_traversal_log_entry_replays_correctly`
+- `test_assert_edge_log_entry_creates_user_asserted_edge`
+- `test_retract_edge_clears_user_asserted`
+
+### Stage C: Traversal-Aware Rendering + Inspection Stub (First User-Visible Value)
+
+Goal:
+
+- expose traversal semantics in graph view using existing render/adapter architecture
+
+Primary modules:
+
+- `graph/egui_adapter.rs`
+- `render/mod.rs`
+
+Deliverables:
+
+1. logical-edge display dedup (A<->B pair rendered once)
+2. traversal-count weighted strokes
+3. dominant-direction arrows from traversal ratios
+4. edge hover tooltip with counts/timestamp summary
+
+Tasks:
+
+- [ ] Add logical-edge pair dedup in graph adapter edge iteration
+- [ ] Compute directional traversal aggregates (`ab`, `ba`)
+- [ ] Map aggregate traversal count to stroke width (deterministic function)
+- [ ] Render dominant direction using threshold policy (default >60%)
+- [ ] Add edge hover tooltip/inspection stub in `render/mod.rs`
+
+Design note:
+
+- Keep threshold/width mapping local and documented; avoid embedding policy into `EdgePayload`
+
+Stage C validation:
+
+- `test_display_dedup_skips_reverse_pair`
+- `test_dominant_direction_above_threshold`
+- `test_dominant_direction_below_threshold`
+- `test_traversal_count_drives_stroke_width`
+- headed hover tooltip sanity check
+
+### Stage D: History Panel PoC (UI Consumer, No Cold Tier Yet)
+
+Goal:
+
+- prove end-to-end data flow (`push_traversal` -> WAL -> replayable state -> UI listing)
+
+Primary modules:
+
+- `render/mod.rs` and/or toolbar UI modules
+- `app.rs` (read-only query helpers if needed)
+
+Deliverables:
+
+1. "History" panel/window listing recent traversals from hot in-memory edge payloads
+2. row click focuses/pans to source node
+
+Tasks:
+
+- [ ] Add History entry to toolbar/menu
+- [ ] Add non-modal "Traversal History" panel (last N traversals, e.g. 50)
+- [ ] Sort by timestamp descending
+- [ ] Row click emits focus intent
+
+Stage D validation:
+
+- headed: navigate A -> B and verify traversal appears in panel
+
+### Stage E: History Manager (Tiered Storage + Dissolution + Full UI)
+
+Goal:
+
+- durable long-term traversal storage and lifecycle management
+
+Primary modules:
+
+- `persistence/*`
+- `app.rs` (remove-node ordering hooks)
+- UI surface for history manager
+
+Sub-areas:
+
+1. Hot/cold tiered storage (`EdgePayload.traversals` + `traversal_archive`)
+2. Dissolution transfer for removed edges/nodes (`dissolved_archive`)
+3. Full History Manager UI (timeline, dissolved, delete, export, curation)
+
+Key ordering contracts:
+
+- archive writes fsync before hot-tier removal/count mutation
+- dissolution transfer fsync before petgraph removal
+
+Representative tasks:
+
+- [ ] Add `traversal_archive` keyspace and archival pass
+- [ ] Add recovery scan for archived traversal counts (snapshot-absent path)
+- [ ] Implement dissolution transfer on edge/node removal
+- [ ] Add History Manager UI tabs (Timeline, Dissolved)
+- [ ] Add delete, auto-curation, export
+
+Representative validation:
+
+- archival transfer/count reconciliation tests
+- dissolution ordering tests
+- headed UI workflows for Timeline/Dissolved tabs
+
+### Stage F: Temporal Navigation (Preview Mode)
+
+Goal:
+
+- time-scrub graph state via WAL replay without mutating live runtime state
+
+Primary modules:
+
+- `persistence/*` (timeline index + replay helper)
+- `app.rs` / top-level state (preview state)
+- `render/*` (timeline UI + ghost visuals)
+- `desktop/gui_frame.rs` (effect suppression / preview orchestration)
+
+Deliverables:
+
+1. timeline index (`timestamp -> WAL position`)
+2. `replay_to_timestamp(...)`
+3. preview-only graph state
+4. timeline slider + "Return to present"
+5. ghost rendering in preview mode
+
+Critical architectural rule:
+
+- preview mode operates on a copy and must not trigger WAL writes, webview lifecycle actions, or
+  live app mutations
+
+Tasks:
+
+- [ ] Build timeline index from WAL
+- [ ] Implement replay-to-timestamp from nearest snapshot
+- [ ] Add preview state container
+- [ ] Gate persistence/webview side effects while preview is active
+- [ ] Add timeline UI controls and ghost rendering
+
+Stage F validation:
+
+- `test_replay_to_timestamp_produces_subset_of_full_graph`
+- `test_preview_mode_does_not_write_wal`
+- `test_close_timeline_preview_restores_live_state`
+- headed slider/return-to-present flow
 
 ---
 
-### Phase 2: History Manager
+## Feature Coupling (Absorb Traversal-Dependent UX Work Here)
 
-**Goal:** Full traversal archive UI with dissolution transfer, node history archive, tiered
-hot/cold storage, auto-curation, and export.
+These should remain coupled to this traversal plan instead of separate UX polish tasks:
 
-#### 2.1 Tiered Hot/Cold Storage
+1. neighborhood focus/filter behavior that depends on traversal topology or time
+2. edge filtering semantics once `EdgePayload` exists
+3. faceted search dimensions using traversal metadata (count, recency, trigger)
+4. relevance weighting that incorporates traversal frequency/recency
 
-**Hot tier**: `Vec<Traversal>` in `EdgePayload` — traversals within the last N days (default 90).
-Serialized in the rkyv snapshot. Fast random access.
+Reason:
 
-**Cold tier**: fjall keyspace `traversal_archive`, key format:
-`<from_uuid_bytes><to_uuid_bytes><timestamp_be_u64>`.
-
-At snapshot time, move traversals older than the hot-tier threshold to cold tier:
-1. Collect traversals to archive from each edge's `traversals` vec.
-2. Write all collected records to fjall `traversal_archive` in a single transaction.
-3. **fsync the fjall transaction** (WAL ordering constraint).
-4. Only after confirmed fsync: remove archived records from `traversals` vec and increment
-   `archived_traversal_count_ab` / `_ba`.
-5. Write updated snapshot.
-
-**Recovery without snapshot**: range-count cold records per `(from_uuid, to_uuid)` pair to
-restore `archived_traversal_count`.
-
-**Tasks**
-
-- [ ] Add `traversal_archive` keyspace to `PersistenceState`.
-- [ ] Implement `archive_cold_traversals(edge, threshold_days)` at snapshot time.
-- [ ] Implement `restore_archived_counts()` — startup recovery scan (only when snapshot absent).
-- [ ] Add `hot_tier_days: u32` (default 90) to persistence config; expose in
-  `graphshell://settings/persistence`.
-- [ ] Write fjall-ordering integration test: verify `archived_traversal_count` == fjall record
-  count after a simulated crash mid-archive (requires test harness that kills the process at an
-  injected fault point).
-
-**Validation Tests**
-
-- `test_archive_pass_moves_old_traversals_to_fjall` — traversal older than threshold → removed
-  from hot tier, present in fjall, `archived_traversal_count` incremented.
-- `test_archive_pass_preserves_recent_traversals` — traversal within threshold → untouched in hot
-  tier.
-- `test_recovery_scan_restores_counts` — snapshot absent; fjall has 5 records for edge A→B →
-  after scan, `archived_traversal_count_ab == 5`.
+- these features depend on traversal truth and should be designed against the same data model and
+  persistence semantics, not retrofitted later
 
 ---
 
-#### 2.2 Dissolution Transfer
+## Implementation Leverage (Use Existing Features/Patterns)
 
-When an edge is fully dissolved or a node is removed, transfer all records (hot and cold) to the
-History Manager's `dissolved_archive` keyspace — keyed by `dissolved_at_timestamp_be` —  before
-petgraph removal.
+Use the current architecture to reduce risk:
 
-**Node removal ordering** (strict):
+- reducer-first mutations in `app.rs` (mirrors lifecycle/routing work)
+- WAL replay infrastructure already exists; extend `LogEntry` instead of adding parallel logs
+- graph adapter layer (`graph/egui_adapter.rs`) is the correct place for traversal visual derivation
+- render modules can host PoC panels/tooltips without changing graph data ownership
+- `desktop/gui_frame.rs` is the right place to enforce preview-mode effect suppression
 
-```
-1. Enumerate all incident edges of the node.
-2. For each incident edge: transfer hot-tier traversals + cold-tier fjall records to dissolved_archive.
-3. fsync dissolved_archive writes.
-4. Remove edges from petgraph.
-5. Remove node from petgraph.
-6. Write RemoveNode to WAL.
-```
+Anti-patterns to avoid:
 
-**Tasks**
-
-- [ ] Implement `transfer_edge_to_dissolved_archive(from_key, to_key)`.
-- [ ] In `apply_intent(RemoveNode)`: run dissolution transfer for all incident edges before
-  calling petgraph `remove_node`.
-- [ ] In History Manager UI: show dissolved edges in a separate "Dissolved" tab with
-  `dissolved_at` timestamp.
-
-**Validation Tests**
-
-- `test_dissolve_edge_transfers_all_traversals` — edge with 3 hot traversals + 2 cold records →
-  dissolved_archive has 5 records; petgraph edge is gone.
-- `test_remove_node_transfers_incident_edges_first` — node with 2 incident edges removed →
-  dissolved_archive contains traversals from both edges.
+- storing display-derived metrics (dominant direction, width) in `EdgePayload`
+- building History UI on ad hoc scans that ignore WAL/persistence semantics
+- timeline preview mutating live `GraphBrowserApp` or emitting side-effecting intents
 
 ---
 
-#### 2.3 History Manager UI
+## Risks and Mitigations
 
-Full `graphshell://history` page (or egui panel — see settings architecture plan):
+### Risk: Broad `EdgeType` -> `EdgePayload` migration churn
 
-- **Timeline tab**: all traversals from all edges, sorted by timestamp. Paginated (50 per page).
-  Columns: From, To, Trigger, Time. Clicking a row pans graph to source node.
-- **Dissolved tab**: dissolved edges and nodes, with `dissolved_at` timestamp. Restore action
-  re-creates the edge/node structure (with traversals) via a batch of `AddNode`/`AddEdge`/
-  `AppendTraversal` log entries.
-- **Delete**: individual record delete (removes from fjall `traversal_archive`). Bulk delete by
-  date range.
-- **Auto-curation**: configurable "delete records older than N days" cronjob (runs at startup if
-  last run > 24h ago).
-- **Export**: serialize selected records to JSON or CSV.
+Mitigation:
 
-**Tasks**
+- isolate Stage A to type migration + reducer logic only
+- land rendering and WAL changes in separate stages
 
-- [ ] Implement History Manager panel with Timeline and Dissolved tabs.
-- [ ] Implement restore-from-dissolved action.
-- [ ] Implement per-record and bulk delete.
-- [ ] Implement auto-curation with configurable retention window.
-- [ ] Implement JSON/CSV export.
+### Risk: URL capture ordering bugs create incorrect traversals
 
----
+Mitigation:
 
-### Phase 3: Temporal Navigation
+- explicit unit test for prior-url capture ordering
+- code comments at `WebViewUrlChanged` call site
 
-**Goal:** A timeline slider that scrubs the graph state to any past moment using the WAL. Past
-states render with desaturated "ghost" colors; a "Return to present" button restores live state.
+### Risk: Timeline preview accidentally writes persistence or triggers webviews
 
-The WAL already has timestamped `LogEntry` records. With Phase 1 complete, `AppendTraversal`
-entries are also logged. Replaying the WAL up to any timestamp gives a valid graph state at that
-moment — including traversal counts, edge existence, and node presence. This is the mechanism.
+Mitigation:
 
-#### 3.1 Timeline Index
+- explicit preview-mode gating in orchestrator/effect paths
+- test asserting no WAL writes during preview
 
-At startup (or lazily on first timeline open), build a `Vec<(u64, LogEntryPosition)>` from the
-WAL — a sorted list of `(timestamp_ms, byte_offset_in_wal)`. This is the timeline index.
+### Risk: Hot/cold archival corruption under crash ordering
 
-For interactive scrubbing (drag slider), use the index to find the nearest WAL entry at the target
-timestamp, then replay from the nearest snapshot before that timestamp.
+Mitigation:
 
-**Tasks**
-
-- [ ] Build timeline index from WAL at startup (amortized O(N) scan, N = WAL entries).
-- [ ] Add `timeline_index: Vec<(u64, WalPosition)>` to `PersistenceState`.
-- [ ] Implement `replay_to_timestamp(target_ms: u64) -> GraphBrowserApp` — loads nearest
-  snapshot, replays forward through WAL entries up to `target_ms`, returns the resulting app state.
+- fsync ordering contract + fault-injection integration test before enabling by default
 
 ---
 
-#### 3.2 Preview Mode
+## Research Cross-References
 
-The timeline viewer operates on a *copy* of the graph state, not the live state. No persistence
-writes, no webview lifecycle events, no navigation from the preview state.
-
-```rust
-pub struct TimelinePreviewState {
-    pub graph: GraphBrowserApp,  // cloned from live at preview_at timestamp
-    pub preview_at: u64,         // timestamp being previewed
-}
-```
-
-**Tasks**
-
-- [ ] Add `timeline_preview: Option<TimelinePreviewState>` to top-level app state.
-- [ ] In `apply_intents()`: when `timeline_preview` is Some, skip all intent processing that
-  would trigger persistence writes or webview lifecycle events.
-- [ ] Render graph from `timeline_preview.graph` instead of live graph when preview is active.
-
----
-
-#### 3.3 Timeline UI
-
-A horizontal slider in the toolbar (visible only in graph view) spanning from the earliest WAL
-timestamp to `now()`. Dragging it triggers `replay_to_timestamp` on slider-release (not on every
-tick — replay is too expensive for per-frame updates).
-
-**Visual:**
-
-- Past state: all nodes and edges rendered at 40% opacity (ghost effect via `Color32` alpha).
-- Edge stroke widths reflect traversal counts at the preview timestamp.
-- Toolbar shows "Previewing: 2026-01-15 14:32" with a "Return to present" button.
-- Node positions: the snapshot's recorded positions are used; physics is paused in preview.
-
-**Tasks**
-
-- [ ] Add timeline slider widget to graph toolbar; visible when `timeline_preview.is_some()` or
-  on explicit toggle.
-- [ ] On slider release: call `replay_to_timestamp(target_ms)`, store result in
-  `timeline_preview`.
-- [ ] Ghost rendering: apply 40% alpha modifier to all node/edge colors in preview mode.
-- [ ] "Return to present" button: clear `timeline_preview`, resume live graph.
-- [ ] Add `GraphIntent::OpenTimelinePreview`, `ScrubTimeline(u64)`, `CloseTimelinePreview`.
-
-**Validation Tests**
-
-- `test_replay_to_timestamp_produces_subset_of_full_graph` — replay to halfway point → only log
-  entries before that timestamp are reflected in the result graph.
-- `test_preview_mode_does_not_write_wal` — in preview mode, applying intents does not produce WAL
-  entries.
-- `test_close_timeline_preview_restores_live_state` — close preview → live graph is unchanged.
-- Headed: drag timeline slider to a past date → graph shows nodes/edges that existed then;
-  return to present → live graph restored.
-
----
-
-## Findings
-
-### Phase Dependency Graph
-
-```
-Phase 1 (PoC) — self-contained
-    ↓
-Phase 2 (History Manager) — requires Phase 1 EdgePayload and push_traversal
-    ↓
-Phase 3 (Temporal Navigation) — requires Phase 1 AppendTraversal log entries
-                               — Phase 2 dissolved archive is useful but not required
-```
-
-Phase 3 can technically start from Phase 1 alone. Phase 2 (dissolution transfer) enriches the
-timeline — a dissolved node re-appears at its dissolution timestamp — but the basic scrubber works
-with Phase 1 only.
-
-### Performance Notes
-
-- `replay_to_timestamp()` is called on slider release, not on every frame. Typical WAL: 1,000–
-  10,000 entries. Replay is O(entries) with fast fjall reads + rkyv deserialization. Expected
-  latency: 50–200ms for a medium graph with 6 months of history. Acceptable for a slider-release
-  event.
-- The timeline index eliminates the need to scan the entire WAL to find the start point — only
-  entries after the nearest snapshot need replaying.
-- Ghost rendering is a simple `Color32` alpha multiply — no additional rendering passes.
-
-### Research Cross-References
-
-- Phase 1.1: §3.1 (EdgePayload types), §3.2 (NavigationTrigger)
-- Phase 1.2: §4.6 (inter/intra decision rule, URL capture ordering, self-loop skip)
-- Phase 1.3: §3.4 (persistence additions: AppendTraversal, AssertEdge, RetractEdge)
-- Phase 1.4: §3.3 (display-layer deduplication, dominant direction >60% threshold)
-- Phase 2.1: §4.3a (hot/cold tiered storage, WAL ordering, recovery reconciliation)
-- Phase 2.2: §3.5 (History Manager, dissolution transfer, node removal ordering)
-- Phase 2.3: §3.5 (timeline O(n) limitation, auto-curation, export)
+- `2026-02-20_edge_traversal_model_research.md`:
+  - edge payload and trigger model
+  - inter/intra traversal decision rule
+  - persistence additions (`AppendTraversal`, `AssertEdge`, `RetractEdge`)
+  - display dedup and dominant-direction thresholding
+  - hot/cold storage and dissolution transfer
 
 ---
 
 ## Progress
 
-### 2026-02-20 — Session 1
+### 2026-02-20 — Session 1 (Original Draft)
 
-- Plan created from research report §5 (PoC scope), §3 (proposed model), §4 (technical viability),
-  §7 (cons/risks), and §9 (resolved decisions).
-- Phase 3 (Temporal Navigation) added: derived from §15.1 of the UX research report; blocker is
-  Phase 1 `AppendTraversal` log entries (basic structural time travel works from existing WAL
-  even without Phase 1 complete, but edge weight history requires it).
+- Plan created from traversal model research.
+- Phase-based scope defined (PoC, History Manager, Temporal Navigation).
 - Implementation not started.
+
+### 2026-02-22 — Refactor
+
+- Reworked into architecture-first staged delivery plan aligned with current module boundaries.
+- Made reducer/render/persistence/desktop ownership explicit.
+- Preserved original feature scope while improving sequencing for lower migration risk.

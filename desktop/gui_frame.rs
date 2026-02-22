@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use egui_tiles::{Container, Tile, TileId, Tiles, Tree};
 use euclid::Length;
-use log::warn;
+use log::{debug, warn};
 use servo::{DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 use winit::window::Window;
 
@@ -32,8 +32,9 @@ use super::toolbar_ui::{self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOut
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_controller;
 use crate::app::{
-    GraphBrowserApp, GraphIntent, LifecycleCause, PendingConnectedOpenScope, PendingNodeOpenRequest,
-    PendingTileOpenMode, UnsavedWorkspacePromptAction, UnsavedWorkspacePromptRequest,
+    GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingConnectedOpenScope,
+    PendingNodeOpenRequest, PendingTileOpenMode, UnsavedWorkspacePromptAction,
+    UnsavedWorkspacePromptRequest,
 };
 use crate::graph::NodeKey;
 use crate::input;
@@ -78,30 +79,25 @@ fn ensure_webview_tile_id(tree: &mut Tree<TileKind>, node_key: NodeKey) -> TileI
     tree.tiles.insert_tab_tile(vec![pane_id])
 }
 
-fn workspace_nodes_from_tree(tree: &Tree<TileKind>) -> Vec<NodeKey> {
-    tree.tiles
-        .iter()
-        .filter_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::WebView(key)) => Some(*key),
-            _ => None,
-        })
-        .collect()
-}
-
 fn restore_named_workspace_snapshot(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     name: &str,
     mut routed_open_request: Option<PendingNodeOpenRequest>,
 ) {
-    if let Some(layout_json) = graph_app.load_workspace_layout_json(name) {
-        match serde_json::from_str::<Tree<TileKind>>(&layout_json) {
-            Ok(mut restored_tree) => {
+    match persistence_ops::load_named_workspace_bundle(graph_app, name)
+        .and_then(|bundle| persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle))
+    {
+        Ok((mut restored_tree, restored_nodes)) => {
                 if let Ok(current_layout_json) = serde_json::to_string(tiles_tree) {
                     graph_app.capture_undo_checkpoint(Some(current_layout_json));
                 }
-                tile_runtime::prune_stale_webview_tile_keys_only(&mut restored_tree, graph_app);
                 if restored_tree.root().is_some() {
+                    debug!(
+                        "workspace restore: restored '{}' with {} resolved nodes",
+                        name,
+                        restored_nodes.len()
+                    );
                     if let Some(request) = routed_open_request.take()
                         && graph_app.graph.get_node(request.key).is_some()
                     {
@@ -115,30 +111,30 @@ fn restore_named_workspace_snapshot(
                             LifecycleCause::Restore,
                         )]);
                     }
-                    graph_app
-                        .note_workspace_activated(name, workspace_nodes_from_tree(&restored_tree));
-                    graph_app.mark_session_workspace_layout_json(&layout_json);
+                    graph_app.note_workspace_activated(name, restored_nodes);
+                    if let Err(e) = persistence_ops::mark_named_workspace_bundle_activated(graph_app, name)
+                    {
+                        warn!("Failed to mark workspace bundle '{name}' activated: {e}");
+                    }
+                    if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
+                        graph_app.mark_session_workspace_layout_json(&runtime_layout_json);
+                    }
                     *tiles_tree = restored_tree;
                 } else if let Some(request) = routed_open_request.take() {
                     warn!(
-                        "Workspace snapshot '{name}' is empty after stale-key prune; falling back to current workspace open"
+                        "Workspace snapshot '{name}' is empty after restore resolution; falling back to current workspace open"
                     );
                     graph_app.select_node(request.key, false);
                     graph_app.request_open_node_tile_mode(request.key, request.mode);
                 }
-            },
-            Err(e) => {
-                warn!("Failed to deserialize workspace snapshot '{name}': {e}");
-                if let Some(request) = routed_open_request.take() {
-                    graph_app.select_node(request.key, false);
-                    graph_app.request_open_node_tile_mode(request.key, request.mode);
-                }
-            },
-        }
-    } else if let Some(request) = routed_open_request.take() {
-        warn!("Workspace snapshot '{name}' not found; falling back to current workspace open");
-        graph_app.select_node(request.key, false);
-        graph_app.request_open_node_tile_mode(request.key, request.mode);
+        },
+        Err(e) => {
+            warn!("Failed to restore workspace snapshot '{name}': {e}");
+            if let Some(request) = routed_open_request.take() {
+                graph_app.select_node(request.key, false);
+                graph_app.request_open_node_tile_mode(request.key, request.mode);
+            }
+        },
     }
 }
 
@@ -175,11 +171,16 @@ fn add_nodes_to_named_workspace_snapshot(
         return;
     }
 
-    let mut workspace_tree = graph_app
-        .load_workspace_layout_json(name)
-        .and_then(|layout| serde_json::from_str::<Tree<TileKind>>(&layout).ok())
-        .unwrap_or_else(|| workspace_tree_with_single_node(live_nodes[0]));
-    tile_runtime::prune_stale_webview_tile_keys_only(&mut workspace_tree, graph_app);
+    let mut workspace_tree = match persistence_ops::load_named_workspace_bundle(graph_app, name) {
+        Ok(bundle) => match persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle) {
+            Ok((tree, _)) => tree,
+            Err(e) => {
+                warn!("Failed to restore named workspace '{name}' for add-tab operation: {e}");
+                workspace_tree_with_single_node(live_nodes[0])
+            }
+        },
+        Err(_) => workspace_tree_with_single_node(live_nodes[0]),
+    };
     if workspace_tree.root().is_none() {
         workspace_tree = workspace_tree_with_single_node(live_nodes[0]);
     }
@@ -190,15 +191,11 @@ fn add_nodes_to_named_workspace_snapshot(
             tile_view_ops::TileOpenMode::Tab,
         );
     }
-    match serde_json::to_string(&workspace_tree) {
-        Ok(layout_json) => {
-            graph_app.save_workspace_layout_json(name, &layout_json);
-            let membership_index = persistence_ops::build_membership_index_from_layouts(graph_app);
-            graph_app.init_membership_index(membership_index);
-        },
-        Err(e) => {
-            warn!("Failed to serialize workspace snapshot '{name}' after add-tab operation: {e}")
-        },
+    match persistence_ops::save_named_workspace_bundle(graph_app, name, &workspace_tree) {
+        Ok(()) => {
+            let _ = persistence_ops::refresh_workspace_membership_cache_from_manifests(graph_app);
+        }
+        Err(e) => warn!("Failed to save workspace snapshot '{name}' after add-tab operation: {e}"),
     }
 }
 
@@ -976,13 +973,10 @@ pub(crate) fn run_post_render_phase<FActive>(
     }
 
     if let Some(name) = graph_app.take_pending_save_workspace_snapshot_named() {
-        match serde_json::to_string(tiles_tree) {
-            Ok(layout_json) => {
-                graph_app.save_workspace_layout_json(&name, &layout_json);
-                let membership_index =
-                    persistence_ops::build_membership_index_from_layouts(graph_app);
-                graph_app.init_membership_index(membership_index);
-            },
+        match persistence_ops::save_named_workspace_bundle(graph_app, &name, tiles_tree) {
+            Ok(()) => {
+                let _ = persistence_ops::refresh_workspace_membership_cache_from_manifests(graph_app);
+            }
             Err(e) => warn!("Failed to serialize tile layout for workspace snapshot '{name}': {e}"),
         }
     }
@@ -1055,7 +1049,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 webview_creation_backpressure.clear();
                 *focused_webview_hint = None;
                 let mut tiles = Tiles::default();
-                let graph_tile_id = tiles.insert_pane(TileKind::Graph);
+                let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
                 *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
             },
             Err(e) => warn!("Failed to load named graph snapshot '{name}': {e}"),
@@ -1077,7 +1071,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 webview_creation_backpressure.clear();
                 *focused_webview_hint = None;
                 let mut tiles = Tiles::default();
-                let graph_tile_id = tiles.insert_pane(TileKind::Graph);
+                let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
                 *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
             },
             Err(e) => warn!("Failed to load autosaved latest graph snapshot: {e}"),
@@ -1158,8 +1152,15 @@ pub(crate) fn run_post_render_phase<FActive>(
     // is reserved for explicit workspace-switch actions.
     if !prompt_pending {
         match serde_json::to_string(tiles_tree) {
-            Ok(layout_json) => {
-                graph_app.save_session_workspace_layout_json_if_changed(&layout_json)
+            Ok(layout_json) => match persistence_ops::serialize_named_workspace_bundle(
+                graph_app,
+                GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
+                tiles_tree,
+            ) {
+                Ok(bundle_json) => {
+                    graph_app.save_session_workspace_layout_blob_if_changed(&bundle_json, &layout_json)
+                }
+                Err(e) => warn!("Failed to serialize session workspace bundle: {e}"),
             },
             Err(e) => warn!("Failed to serialize session workspace layout: {e}"),
         }

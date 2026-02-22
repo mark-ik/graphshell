@@ -192,7 +192,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: TileId, pane: &mut TileKind) -> UiResponse {
         match pane {
-            TileKind::Graph => {
+            TileKind::Graph(_) => {
                 let actions = render::render_graph_in_ui_collect_actions(
                     ui,
                     self.graph_app,
@@ -314,7 +314,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn tab_title_for_pane(&mut self, pane: &TileKind) -> WidgetText {
         match pane {
-            TileKind::Graph => "Graph".into(),
+            TileKind::Graph(_) => "Graph".into(),
             TileKind::WebView(node_key) => self
                 .graph_app
                 .graph
@@ -339,7 +339,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         let x_margin = self.tab_title_spacing(ui.visuals());
 
         let (title_text, favicon_texture) = match tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Graph)) => ("Graph".to_string(), None),
+            Some(Tile::Pane(TileKind::Graph(_))) => ("Graph".to_string(), None),
             Some(Tile::Pane(TileKind::WebView(node_key))) => {
                 let title = self
                     .graph_app
@@ -501,7 +501,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn is_tab_closable(&self, tiles: &Tiles<TileKind>, tile_id: TileId) -> bool {
         match tiles.get(tile_id) {
             Some(Tile::Pane(TileKind::WebView(_))) => true,
-            Some(Tile::Pane(TileKind::Graph)) => false,
+            Some(Tile::Pane(TileKind::Graph(_))) => false,
             _ => false,
         }
     }

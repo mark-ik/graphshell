@@ -228,7 +228,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 
 **Goal:** Introduce concurrent event ingestion and supervision primitives for multi-producer lifecycle updates.
 
-**Prerequisites:** Stages 1–3 complete and proven stable over at least one release cycle.
+**Prerequisites:** Stages 1–3 complete and proven stable.
 
 **Trigger criteria** (at least two needed):
 - Concurrent prefetch/restore/background-retry workers require cancellation supervision to prevent orphans.
