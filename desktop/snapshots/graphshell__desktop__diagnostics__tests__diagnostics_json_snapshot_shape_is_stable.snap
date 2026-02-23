@@ -1,0 +1,26 @@
+---
+source: desktop/diagnostics.rs
+expression: shape
+---
+Object {
+    "channel_keys": Array [
+        String("message_bytes_sent"),
+        String("message_counts"),
+        String("message_latency_recent_us"),
+        String("message_latency_samples"),
+        String("message_latency_us"),
+    ],
+    "first_frame_sequence": String("[sequence]"),
+    "frame_count": Number(1),
+    "generated_at_unix_secs": String("[unix-secs]"),
+    "intent_count": Number(1),
+    "top_level_keys": Array [
+        String("channels"),
+        String("compositor_frames"),
+        String("event_ring_len"),
+        String("generated_at_unix_secs"),
+        String("recent_intents"),
+        String("spans"),
+        String("version"),
+    ],
+}
