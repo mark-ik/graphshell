@@ -8,6 +8,14 @@ Currently, Graphshell supports a single graph view pane (`TileKind::Graph`). The
 
 This plan supersedes the "Layout: Advanced Physics and Algorithms Plan" by integrating its algorithmic improvements into the multi-view architecture.
 
+## Semantic Model: Graph as File Tree
+The Multi-Graph Pane architecture enables the "Graph as File Tree" paradigm:
+
+- **Workbench**: The top-level container (IDE Window).
+- **Hub Pane**: A pinned graph view acting as the primary navigation interface (File Explorer). Often uses a "Tree" or "List" lens.
+- **Context Pane**: A secondary graph view focused on the local working set (e.g., the current cluster).
+- **Workspaces**: Higher-order folders/projects within the graph.
+
 ## Architecture Changes
 
 ### 1. View Identity & Configuration
@@ -19,7 +27,7 @@ struct GraphViewState {
     id: GraphViewId,
     name: String,           // User-editable label (e.g. "Main View", "Physics Debug")
     camera: Camera,         // Independent zoom/pan
-    profile: PhysicsProfile, // Data-driven physics/layout configuration
+    lens: LensConfig,       // Composed configuration (Physics + Layout + Theme + Filter)
     // ...
 }
 ```

@@ -6,6 +6,71 @@
 
 ---
 
+## Diagnostic Tools (New)
+
+Many validation items below should now be verified live using the **Diagnostic Inspector**.
+- **Toggle**: `Ctrl+Shift+D` or `F12`, or via Command Palette `Open Diagnostic Pane`.
+- **Intents Tab**: Verify intent emission, ordering, and `LifecycleCause`.
+- **Compositor Tab**: Verify tile hierarchy, active rects, and webview mapping status (crucial for layout/rendering bugs).
+- **Engine Tab**: Monitor channel latency and throughput during performance tests.
+
+**Automation Strategy**:
+The diagnostic system exposes structured state (`DiagnosticsState`) that can be queried in integration tests.
+- **State Snapshots**: Use `snapshot_json_value()` to assert on the full system state (tile hierarchy, active intents) without screen scraping.
+- **Event Stream**: Subscribe to the global diagnostic channel to assert on event ordering (e.g., `url_changed` before `history_changed`).
+
+**Automated validation run (2026-02-22):**
+- [x] `cargo test --features diagnostics desktop::diagnostics::tests::percentile_95_uses_upper_percentile_rank -- --nocapture`
+   - Result: pass (1/1); confirms percentile helper behavior used by Engine/SVG p95 labels.
+- [x] `cargo test --features diagnostics desktop::diagnostics::tests::tick_drain_respects_10hz_interval_gate -- --nocapture`
+   - Result: pass (1/1); confirms diagnostics drain gate respects 10Hz interval.
+- [x] `cargo check --release --message-format short`
+   - Result: pass; release/default path builds with diagnostics included in default desktop build.
+- [x] `cargo test --features diagnostics desktop::diagnostics::tests::snapshot_json -- --nocapture`
+   - Result: pass (2/2); validates diagnostics snapshot JSON core-section presence and
+     channel aggregate parity with in-memory diagnostics state.
+- [x] `cargo test desktop::persistence_ops::tests::test_workspace_bundle_serialization_excludes_diagnostics_payload -- --nocapture`
+    - Result: pass (1/1); verifies workspace/session bundle JSON payload excludes diagnostics
+       runtime sections (`diagnostic_graph`/channels/spans/event_ring/recent_intents).
+- [x] `cargo test semantic_event_pipeline::tests::test_graph_intents_and_responsive_emits_semantic_pipeline_trace_marker -- --nocapture`
+   - Result: pass (1/1); confirms `tracing-test` log capture and semantic pipeline marker
+     emission in diagnostics-enabled default desktop build.
+- [x] `cargo test diagnostics_json_snapshot_shape_is_stable -- --nocapture`
+   - Result: pass (1/1); validates snapshot JSON shape stability.
+- [x] `cargo test diagnostics_svg_snapshot_shape_is_stable -- --nocapture`
+   - Result: pass (1/1); validates snapshot SVG payload shape and key sections.
+- [x] `cargo test edge_metric_respects_selected_percentile -- --nocapture`
+   - Result: pass (1/1); verifies Engine edge metrics follow selected percentile policy.
+- [x] `cargo test edge_metric_bottleneck_threshold_is_configurable -- --nocapture`
+   - Result: pass (1/1); verifies bottleneck highlighting threshold behavior.
+- [x] `cargo test proptest_tick_drain_aggregation_matches_event_stream -- --nocapture`
+   - Result: pass (1/1); property test validates aggregate counters against event stream semantics.
+- [x] `cargo test test_workspace_bundle_payload_stays_clean_after_restart -- --nocapture`
+   - Result: pass (1/1); restart-style tempfile check confirms diagnostics payload remains ephemeral.
+- [x] `cargo test diagnostics_svg_snapshot_shape_is_stable -- --nocapture`
+   - Result: pass (1/1); confirms Engine SVG topology shape includes Servo bridge node/edge
+     wiring (`Servo Runtime` path) after Servo diagnostics integration.
+- [x] `cargo check --release --message-format short`
+   - Result: pass; release build path compiles with diagnostics defaults and Servo bridge wiring.
+- [ ] `cargo run --release`
+   - Result: preflight attempted from terminal session; build/start path is reachable but headed
+     runtime verification (Engine tab + `servo.*` activity visibility and shortcut interaction)
+     still requires an interactive/manual run on desktop UI.
+- [x] Diagnostics export evidence (headed run):
+    - User-captured file: `C:\Users\mark_\AppData\Roaming\graphshell\graphs\diagnostics_exports\diagnostics-1771804408.json`
+    - Result: exported snapshot includes non-zero Servo bridge channels
+       (`servo.delegate.*`, `servo.graph_event.*`, `servo.event_loop.spin`), confirming
+       Servo runtime path is persisted in JSON snapshot output.
+- [x] Headed perf validation: diagnostics tick rate vs egui responsiveness
+    - Result: user-confirmed on 2026-02-22 that diagnostics updates remained rate-limited
+       (≤10 Hz behavior) and main egui FPS/responsiveness did not show degradation.
+- [x] Headed Engine visibility validation: Servo-originated activity in Diagnostics > Engine
+    - Result: user-confirmed on 2026-02-22 that Engine tab displays live Servo-originated
+       channels/spans while loading and navigating real pages.
+- [x] Headed Engine-tab Servo visibility validation
+    - Result: user-confirmed on 2026-02-22 that Engine tab shows Servo-originated
+       activity while loading/navigating real pages.
+
 ## Workspace Routing and Membership (Headed Manual)
 
 **Source**: `implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md`
@@ -207,7 +272,9 @@ that indicate dormant feature producers/consumers and integration seams that may
 
 ## Navigation: Back/Forward Delegate Event Ordering
 
-**Source**: `delegate_trace_back_forward_burst_http.log` (captured 2026-02-17)
+**Method**: Use **Diagnostic Inspector > Intents Tab** to observe `WebView*` intents in real-time.
+**Automation Status**: Ready.
+**Strategy**: Capture `DiagnosticEvent` stream during navigation. Assert `url_changed` vs `history_changed` ordering and payload content programmatically.
 
 **Finding**: During back/forward navigation, Servo fires `url_changed` *before* `history_changed`
 reflects the new stack position — and the URL in `url_changed` is the **source URL**, not the
@@ -248,6 +315,10 @@ for back/forward transitions that emit `url_changed` for a URL that already exis
 
 **Context**: F1 automated tests pass; headed split/grouping trigger validation not yet recorded.
 
+**Validation Aid**: Use **Diagnostic Inspector > Compositor Tab** to verify tile hierarchy structure.
+**Automation Status**: Ready.
+**Strategy**: Inspect `DiagnosticsState.compositor_state.frames` after action. Assert `hierarchy` contains expected split/tab structure.
+
 1. [ ] **Split trigger creates edge**
    - Select node A, then `Shift+Double-click` node B.
    - Expected: exactly one `UserGrouped` edge A→B is created.
@@ -273,6 +344,8 @@ for back/forward transitions that emit `url_changed` for a URL that already exis
 **Source**: `2026-02-18_edge_operations_and_cmd_palette_plan.md` (active plan)
 
 **Context**: Scope implementation complete; headed validation not yet executed.
+**Automation Status**: Ready.
+**Strategy**: Inspect `DiagnosticsState.intents` to verify `OpenNodeWorkspaceRouted` vs `CreateNodeAtUrl` intent emission with correct scope.
 
 1. [ ] Graph mode, Enter cycling: type `@term`, press Enter repeatedly — active match cycles through all results and wraps at end.
 2. [ ] Detail mode, multi-pane: type `@term`, press Enter — each press focuses/opens the matched node in the correct pane/tab context.
@@ -321,6 +394,10 @@ for back/forward transitions that emit `url_changed` for a URL that already exis
 
 **Context**: Archived plan called for deterministic integration validation around targeted navigation.
 These checks remain relevant for current omnibar + tile-focused routing behavior.
+
+**Validation Aid**: Use **Diagnostic Inspector > Intents Tab** to confirm `OpenNodeWorkspaceRouted` vs `CreateNodeAtUrl` intent emission.
+**Automation Status**: Ready.
+**Strategy**: Assert `DiagnosticsState.intents` contains expected intent variants with correct target keys.
 
 1. [ ] **Omnibar URL submit in graph mode**: submit a URL from graph mode and verify deterministic target behavior (new/opened node, correct selection/focus outcome).
 2. [ ] **Omnibar URL submit in detail mode**: with two panes, focus pane A then pane B and submit distinct URLs; verify each submit targets the focused pane only.

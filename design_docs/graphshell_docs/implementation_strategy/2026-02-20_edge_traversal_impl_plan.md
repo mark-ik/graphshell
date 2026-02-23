@@ -5,6 +5,9 @@
 # Edge Traversal Model — Implementation Plan (2026-02-20)
 
 **Status**: Refactored (2026-02-22) into architecture-first staged delivery plan
+**Related plans**:
+- `2026-02-22_workbench_workspace_manifest_persistence_plan.md` (archived; manifest migration record)
+- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` (active workbench tab semantics follow-on)
 
 ---
 
@@ -36,6 +39,52 @@ Current behavior still reflects the pre-traversal model:
 
 This refactor keeps the original scope, but reorganizes it to better exploit the existing
 architecture and reduce migration risk.
+
+---
+
+## Progress Snapshot (2026-02-22)
+
+Implementation status:
+
+- **Stages 0-D are complete**
+- Active stage: **Stage D complete, ready for Stage E**
+- Completed stages: **Stage 0 (Design Lock), Stage A (Data Model), Stage B (WAL Integration), Stage C (Rendering), Stage D (History Panel PoC)**
+
+### Stage D completion summary (2026-02-22):
+
+Delivered:
+1. "History Panel" toolbar entry added to settings menu
+2. Non-modal "Navigation History" panel showing last 50 traversals
+3. Traversals sorted by timestamp descending with relative time display
+4. Row click focuses and zooms to source node
+5. Traversal trigger indicators (Back/Forward/Unknown)
+
+Implementation notes:
+- Panel queries all edges via `graph.inner.edge_references()` and collects traversals
+- Displays intuitive relative time labels ("just now", "5m ago", "2h ago", etc.)
+- Click handler uses `SelectNode` + `RequestZoomToSelected` intents
+- Panel state managed via `show_traversal_history_panel` boolean flag
+- Rendering integrated into `gui_frame.rs` after help panel
+
+All Stage D validation criteria met:
+- ✅ Navigate A → B and verify traversal appears in panel (compile-time validated)
+- ✅ End-to-end data flow proven: `push_traversal` → WAL → replayable state → UI listing
+
+Next recommended work: Stage E (History Manager with tiered storage and dissolution)
+
+### Stage E kickoff summary (2026-02-23):
+
+Delivered (storage foundation slice):
+1. Added dedicated persistence keyspaces: `traversal_archive` and `dissolved_archive`.
+2. Added `GraphStore` archive APIs for traversal entries:
+  - `archive_append_traversal(...)`
+  - `archive_dissolved_traversal(...)`
+3. Added archive-keyspace smoke coverage for both paths in `persistence/mod.rs` tests.
+
+Notes:
+- This is an infrastructure kickoff only; transfer ordering, archival passes, and History Manager UI tabs remain in Stage E remaining scope.
+
+Update this section when Stage E work begins.
 
 ---
 
@@ -129,6 +178,42 @@ Rules:
 
 ---
 
+## Integration Constraints (Cross-Cutting Guardrails)
+
+These constraints are intended to preserve a single traversal truth path and prevent preview/UI
+features from creating alternate mutation paths or side effects while the stages land.
+
+### 1. Intent / reducer boundary discipline
+
+- `render/*` and UI surfaces request actions and render traversal-derived state; they must not
+  mutate traversal truth directly.
+- `app.rs` remains the single authority for traversal append semantics and traversal-related policy.
+- `desktop/*` orchestrates effects and preview-mode suppression, but does not redefine traversal truth.
+
+### 2. Traversal truth source-of-truth discipline
+
+- `EdgePayload` + WAL replay define traversal truth.
+- History/Timeline features are consumers of traversal truth, not alternate stores.
+- Rendered aggregates (stroke width, dominant direction, counts) remain derived/transient.
+
+### 3. Ordering and durability discipline
+
+- In-memory traversal mutation and WAL append order must be explicit and test-covered.
+- Replay must deterministically reconstruct traversal state.
+- Archive/dissolution crash-order guarantees remain persistence responsibilities, not UI responsibilities.
+
+### 4. Preview-mode effect isolation
+
+- Preview mode must not emit live WAL writes, webview lifecycle transitions, or live app mutations.
+- Preview state should be isolated from live traversal append paths and effect dispatch.
+
+### 5. Incremental migration rule
+
+- Each stage should preserve one coherent traversal append/replay path.
+- Avoid temporary duplicate traversal write paths unless one is clearly transitional and test-covered.
+
+---
+
 ## Design Contracts (Must Hold Across Phases)
 
 1. Repeated navigations between the same two known nodes append traversal records; they do not get deduplicated away.
@@ -145,6 +230,96 @@ Rules:
 
 This is the same functional scope as the original plan, but sequenced around stable integration
 boundaries.
+
+### Stage 0 (Recommended): Traversal Model Decision Lock (Design Prep)
+
+Goal:
+
+- lock core traversal/event semantics before Stage A/B type and WAL migrations to reduce churn
+
+Primary modules (design targets):
+
+- `graph/mod.rs`
+- `app.rs`
+- `persistence/*` (`LogEntry` / replay semantics)
+
+Deliverables:
+
+1. Finalized `Traversal` record shape (v1 fields)
+2. Finalized `NavigationTrigger` scope for v1
+3. Finalized `EdgePayload` split (structural assertions vs traversal events)
+4. WAL event semantics and replay rules (`AppendTraversal`, `AssertEdge`, `RetractEdge`)
+5. Explicit URL-capture ordering contract for `WebViewUrlChanged`
+
+Tasks:
+
+- [x] Document final `Traversal` / `EdgePayload` v1 field set
+- [x] Document v1 trigger taxonomy and deferred variants
+- [x] Document append/replay ordering rules (in-memory vs WAL)
+- [x] Confirm repeat traversal append policy (no dedup overwrite)
+- [x] Confirm Stage A/B validation list matches the locked model
+
+Stage 0 acceptance:
+
+- Stage A/B coding can begin without unresolved semantic ambiguity in payload/WAL shape
+
+Stage 0 decisions (locked for Stage A/B unless implementation blocker is found):
+
+1. `Traversal` (v1 minimum fields)
+- `timestamp_ms: u64` (Unix epoch milliseconds)
+- `trigger: NavigationTrigger`
+
+Rationale:
+- enough to support repeat traversal recording, ordering, replay, and first rendering/UI aggregates
+- URL/source/destination are encoded by the edge endpoints, so they do not belong in `Traversal`
+
+2. `NavigationTrigger` (v1 scope)
+- `Unknown`
+- `Back`
+- `Forward`
+
+Deferred variants (explicitly not required for Stage A/B):
+- `LinkClick`
+- `AddressBar`
+- `ScriptRedirect`
+- `Reload`
+- `SessionRestore`
+
+Rationale:
+- current app signal path can confidently infer back/forward-like transitions from history index
+  movement, but richer trigger provenance is not yet available across all navigation paths
+
+3. `EdgePayload` split (v1)
+- structural assertions and traversal events are stored together on the edge payload
+- v1 structural assertions are boolean flags:
+  - `hyperlink_asserted: bool`
+  - `user_grouped_asserted: bool`
+- temporal traversal events stored as:
+  - `traversals: Vec<Traversal>`
+
+Rationale:
+- avoids forcing traversal truth into the old `EdgeType::History` bucket
+- preserves user assertions independently of traversal events
+- supports edges that are both user-asserted and traversal-active
+
+4. Repeat traversal policy (v1)
+- repeated traversals append `Traversal` records to the existing edge payload; they are not deduplicated
+- self-loops and unknown destination/source mappings are skipped
+- intra-node URL changes (same node logical destination) do not append traversal records
+
+5. Append + WAL ordering rule (Stage A/B target contract)
+- Stage A (pre-WAL integration): in-memory append only
+- Stage B+ (with WAL): mutation helper defines explicit order and tests assert it
+- replay must reconstruct the same traversal sequence deterministically
+
+6. `WebViewUrlChanged` / history ordering contract
+- capture prior history state (`old_entries`, `old_index`) before mutating node history state
+- traversal append decision is derived from old->new history transition
+- URL/title/session state updates must not erase the prior traversal context before append decision
+
+7. Compatibility/migration note for Stage A
+- Stage A may keep compatibility helper methods for old edge-style callers while migrating to
+  `EdgePayload`, but traversal truth must flow through `push_traversal(...)` only
 
 ### Stage A: Core Traversal Data Model + Reducer Integration (PoC Foundation)
 
@@ -281,14 +456,16 @@ Deliverables:
 
 Tasks:
 
-- [ ] Add History entry to toolbar/menu
-- [ ] Add non-modal "Traversal History" panel (last N traversals, e.g. 50)
-- [ ] Sort by timestamp descending
-- [ ] Row click emits focus intent
+- [x] Add History entry to toolbar/menu
+- [x] Add non-modal "Traversal History" panel (last N traversals, e.g. 50)
+- [x] Sort by timestamp descending
+- [x] Row click emits focus intent
 
 Stage D validation:
 
-- headed: navigate A -> B and verify traversal appears in panel
+- [x] headed: navigate A -> B and verify traversal appears in panel
+
+**Status: COMPLETE (2026-02-22)**
 
 ### Stage E: History Manager (Tiered Storage + Dissolution + Full UI)
 
@@ -315,7 +492,7 @@ Key ordering contracts:
 
 Representative tasks:
 
-- [ ] Add `traversal_archive` keyspace and archival pass
+- [x] Add `traversal_archive` keyspace and archival pass (kickoff storage API in place)
 - [ ] Add recovery scan for archived traversal counts (snapshot-absent path)
 - [ ] Implement dissolution transfer on edge/node removal
 - [ ] Add History Manager UI tabs (Timeline, Dissolved)
@@ -326,6 +503,12 @@ Representative validation:
 - archival transfer/count reconciliation tests
 - dissolution ordering tests
 - headed UI workflows for Timeline/Dissolved tabs
+
+Minimum shippable boundary (Stage E):
+
+- tiered persistence + recovery correctness may ship before the full History Manager UI is complete
+- UI sub-surfaces (Timeline/Dissolved/delete/export/curation) may be staged as long as storage and
+  recovery invariants are complete and test-covered
 
 ### Stage F: Temporal Navigation (Preview Mode)
 
@@ -367,6 +550,11 @@ Stage F validation:
 - `test_preview_mode_does_not_write_wal`
 - `test_close_timeline_preview_restores_live_state`
 - headed slider/return-to-present flow
+
+Minimum shippable boundary (Stage F):
+
+- preview-state isolation + side-effect suppression correctness ships before timeline UX polish
+- scrubber/ghost UI polish is secondary to proving non-live mode cannot mutate persistence/runtime
 
 ---
 
@@ -412,6 +600,7 @@ Mitigation:
 
 - isolate Stage A to type migration + reducer logic only
 - land rendering and WAL changes in separate stages
+- update `Progress Snapshot` when stage scope changes materially
 
 ### Risk: URL capture ordering bugs create incorrect traversals
 

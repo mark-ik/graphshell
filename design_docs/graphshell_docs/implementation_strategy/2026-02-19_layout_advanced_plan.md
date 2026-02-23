@@ -336,6 +336,7 @@ auto-assigned. This makes the zone self-maintaining as the graph grows.
   §5.3 (e.g., `ZoneRule::Domain("github.com")`).
 - [ ] In `apply_intent(AddNode)`: if `doi_enabled` or zone rules are active, check new node against
   each zone rule; assign matching zone.
+- [ ] **Integration**: Use `OntologyRegistry` to define semantic zones (e.g. "Science Zone" for `udc:5*`).
 - [ ] Expose rule input in the zone manager panel.
 
 **Validation Tests**

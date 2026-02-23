@@ -364,6 +364,45 @@ pub struct SettingsDisplayPreferences {
 
 ---
 
+## Backend Specs (Consolidated)
+
+### Session Architecture (Two-WAL Model)
+
+**Context**: Moved from `persistence_hub_plan`. Defines the backend for `settings/history` and `settings/workspaces`.
+
+**Directory Structure**:
+```text
+~/.local/share/graphshell/
+  sessions/
+    <uuid>/              # one directory per session
+      session.log        # session state mutations
+  browsing.log           # graph mutations (renamed from current fjall WAL)
+```
+
+**Log Entry Types (`SessionLogEntry`)**:
+- `SessionStart`, `SessionEnd`
+- `WorkspaceChanged`, `LayoutChanged`
+- `NodeActivated`, `NodeCooled` (Foundation for clipping/dissolution)
+- `SnapshotTaken` (Coordinated timestamp with browsing log)
+
+**NodeActivityRecord**:
+Aggregates `NodeActivated`/`NodeCooled` events to track "cold sessions" count. Used to identify nodes for dissolution (clipping).
+
+### Maintenance Operations
+
+**Context**: Moved from `persistence_hub_plan`. Backend for `settings/persistence`.
+
+1.  **Log Compaction**:
+    -   Rewrites `browsing.log` to minimal set.
+    -   Must use encryption pipeline (Phase 4).
+2.  **Export/Import**:
+    -   `export_graph_json()`: Plaintext JSON (with warning).
+    -   Future: Encrypted export.
+3.  **Batch Retention**:
+    -   `max_named_snapshots` cap enforcement.
+
+---
+
 ## Settings Surface Migration
 
 Existing settings surfaces and their destinations:

@@ -243,6 +243,12 @@ fn fuzzy_rank_tags(query: &str, candidates: &[String]) -> Vec<(f32, &String)> {
 The same matcher instance is reused across keystrokes (reset on panel open). Suggestions are
 re-ranked on every keystroke.
 
+#### 2.5 Ontology Registry Integration
+
+*   **Validation**: Before emitting `TagNode`, the UI checks `OntologyRegistry::validate(tag)`. Invalid tags (e.g. malformed UDC codes) show a warning or are rejected.
+*   **Inference**: The suggestion list includes semantic matches from the registry via fuzzy search. Typing "calc" suggests "Calculus (udc:517)". Selecting this applies the `udc:517` tag.
+*   **Visuals**: The registry can provide color hints for tags, which are reflected in the chip background.
+
 #### Tasks
 
 - [ ] Add `TagPanelState { node_key, text_input, suggestions, icon_picker_open }` to desktop

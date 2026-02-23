@@ -4,7 +4,8 @@
 
 # Undo/Redo Plan (2026-02-19)
 
-**Status**: Implementation complete; gaps: no unit tests, spec clarification pending for persistence-surface boundary.
+**Status**: Archived (2026-02-22).
+**Superseded by**: `2026-02-22_test_harness_consolidation_plan.md` (for remaining test tasks).
 
 ---
 

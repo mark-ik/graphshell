@@ -17,7 +17,10 @@ It serves three goals:
 1. [DOC_README.md](DOC_README.md)
 2. [DOC_POLICY.md](DOC_POLICY.md)
 3. [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md)
-4. [archive_docs/](archive_docs/)
+4. [TERMINOLOGY.md](TERMINOLOGY.md)
+5. [graphshell_docs/](graphshell_docs/)
+6. [verse_docs/](verse_docs/)
+7. [archive_docs/](archive_docs/)
 
 ## Working Principles
 
@@ -28,6 +31,11 @@ It serves three goals:
 - Keep this index aligned with folder structure and status in the same session as any doc changes.
 - If an AI note/memory adds a durable project principle, record it here under Working Principles.
 - If another index conflicts with this file, this file is authoritative and the others should be aligned.
+- Migration Strategy: Iterative Replacement
+- - Since there are no active users, we prioritize **code cleanliness** over backward compatibility. We will replace subsystems directly rather than maintaining parallel legacy paths.
+- When designing a new feature, ask:
+- - Is the way you want this system to work consistent with our architectural guarantees (modularity, parallelization, access through intents and not direct state mutation, componentization as opposed to consolidation into monolithic core files, centralization of testing + diagnostic threading to automate testing)?
+- - How can we refine the integration to meet our feature goals but respect our architecture?
 
 # Design Docs Index
 
@@ -39,6 +47,7 @@ Project status source: [../README.md](../README.md)
 - [DOC_POLICY.md](DOC_POLICY.md) - Documentation policy and lifecycle rules.
 - [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md) - Maintainer-owned product vision and long-term scope.
 - [DOC_README.md](DOC_README.md) - AI context and canonical documentation index.
+- [TERMINOLOGY.md](TERMINOLOGY.md) - Canonical project terminology and definitions.
 
 ## Graphshell Active Docs
 
@@ -84,6 +93,8 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md](graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md) - Settings architecture plan.
 - [graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md](graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md) - Async control-plane scaling plan.
 - [graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md](graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md) - Lifecycle intent model.
+- [graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md](graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md) - UDC semantic tagging and layout plan.
+
 
 ### Graphshell Design
 

@@ -4,9 +4,11 @@
 
 # Persistence Hub Plan (2026-02-19)
 
-**Status**: In progress. Baseline runtime lifecycle diagnostics and policy landed; Bookmarks,
-Node History, and Maintenance scopes remain planned. Extends the existing Persistence Hub panel
-(workspace/graph save-load-delete) with Bookmarks, Node History, and Maintenance scopes.
+**Status**: Archived (2026-02-22).
+**Superseded by**:
+- `2026-02-20_settings_architecture_plan.md` (UI, Session Backend, Maintenance)
+- `2026-02-20_node_badge_and_tagging_plan.md` (Tags/Bookmarks)
+- `2026-02-20_edge_traversal_impl_plan.md` (History)
 
 ---
 
