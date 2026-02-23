@@ -26,6 +26,8 @@ pub(crate) type PaneId = u64;
 pub(crate) enum PersistedPaneTile {
     Graph,
     Pane(PaneId),
+    #[cfg(feature = "diagnostics")]
+    Diagnostic,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -169,6 +171,8 @@ fn runtime_tree_to_bundle(
                 );
                 PersistedPaneTile::Pane(pane_id)
             }
+            #[cfg(feature = "diagnostics")]
+            TileKind::Diagnostic => PersistedPaneTile::Diagnostic,
         };
         *pane_value = serde_json::to_value(persisted_pane).map_err(|e| e.to_string())?;
     }
@@ -272,6 +276,8 @@ pub(crate) fn restore_runtime_tree_from_workspace_bundle(
             serde_json::from_value(pane_value.clone()).map_err(|e| e.to_string())?;
         let runtime_pane = match persisted_pane {
             PersistedPaneTile::Graph => Some(TileKind::Graph(GraphViewId::default())),
+            #[cfg(feature = "diagnostics")]
+            PersistedPaneTile::Diagnostic => Some(TileKind::Diagnostic),
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
                 Some(PaneContent::Graph) => Some(TileKind::Graph(GraphViewId::default())),
                 Some(PaneContent::WebViewNode { node_uuid }) => {
@@ -662,5 +668,66 @@ mod tests {
             app.membership_for_node(node_id),
             &BTreeSet::from(["workspace-new".to_string()])
         );
+    }
+
+    #[test]
+    fn test_workspace_bundle_serialization_excludes_diagnostics_payload() {
+        let dir = TempDir::new().unwrap();
+        let app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let tree: Tree<TileKind> = serde_json::from_str(&workspace_layout_json_with_nodes(&[]))
+            .expect("workspace tree should deserialize");
+
+        let json = serialize_named_workspace_bundle(&app, "workspace-clean", &tree)
+            .expect("workspace bundle should serialize");
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("bundle json should parse");
+        let root = value.as_object().expect("bundle should be json object");
+
+        assert!(root.contains_key("version"));
+        assert!(root.contains_key("name"));
+        assert!(root.contains_key("layout"));
+        assert!(root.contains_key("manifest"));
+        assert!(root.contains_key("metadata"));
+
+        assert!(!root.contains_key("diagnostic_graph"));
+        assert!(!root.contains_key("compositor_state"));
+        assert!(!root.contains_key("event_ring"));
+        assert!(!root.contains_key("channels"));
+        assert!(!root.contains_key("spans"));
+        assert!(!root.contains_key("recent_intents"));
+    }
+
+    #[test]
+    fn test_workspace_bundle_payload_stays_clean_after_restart() {
+        let dir = TempDir::new().unwrap();
+        let data_dir = dir.path().to_path_buf();
+        let workspace_name = "workspace-restart-clean";
+
+        {
+            let mut app = GraphBrowserApp::new_from_dir(data_dir.clone());
+            let node = app.add_node_and_sync("https://restart.example".into(), Point2D::new(0.0, 0.0));
+            let mut tiles = Tiles::default();
+            let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+            let webview = tiles.insert_pane(TileKind::WebView(node));
+            let root = tiles.insert_tab_tile(vec![graph, webview]);
+            let tree = Tree::new("restart_bundle", root, tiles);
+
+            save_named_workspace_bundle(&mut app, workspace_name, &tree)
+                .expect("save workspace bundle");
+        }
+
+        let app = GraphBrowserApp::new_from_dir(data_dir);
+        let json = app
+            .load_workspace_layout_json(workspace_name)
+            .expect("workspace bundle json should exist");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("bundle json parse");
+        let root = value.as_object().expect("bundle should be object");
+
+        assert!(root.contains_key("layout"));
+        assert!(root.contains_key("manifest"));
+        assert!(root.contains_key("metadata"));
+        assert!(!root.contains_key("diagnostic_graph"));
+        assert!(!root.contains_key("channels"));
+        assert!(!root.contains_key("spans"));
     }
 }

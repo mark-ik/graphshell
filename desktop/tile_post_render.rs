@@ -28,6 +28,8 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     active_search_match: Option<NodeKey>,
     graph_search_filter_mode: bool,
     search_query_active: bool,
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: &mut crate::desktop::diagnostics::DiagnosticsState,
 ) -> TileRenderOutputs {
     let tab_groups_before = tile_grouping::webview_tab_group_memberships(tiles_tree);
     let mut behavior = GraphshellTileBehavior::new(
@@ -37,6 +39,8 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         active_search_match,
         graph_search_filter_mode,
         search_query_active,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state,
     );
     tiles_tree.ui(&mut behavior, ui);
 

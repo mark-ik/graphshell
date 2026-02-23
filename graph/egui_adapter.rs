@@ -7,7 +7,7 @@
 //! Converts the Graph's StableGraph to an egui_graphs::Graph each frame,
 //! and reads back user interactions (drag, selection, double-click).
 
-use super::{EdgeType, Graph, Node, NodeKey, NodeLifecycle};
+use super::{EdgePayload, Graph, Node, NodeKey, NodeLifecycle};
 use egui::epaint::{CircleShape, CubicBezierShape, TextShape};
 use egui::{
     Color32, FontFamily, FontId, Pos2, Rect, Shape, Stroke, TextureHandle, TextureId, Vec2,
@@ -19,14 +19,15 @@ use egui_graphs::{
 use image::load_from_memory;
 use petgraph::Directed;
 use petgraph::graph::DefaultIx;
-use petgraph::stable_graph::NodeIndex;
+use petgraph::stable_graph::{EdgeIndex, NodeIndex};
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 
 /// Type alias for the egui_graphs graph with our node/edge types
 pub type EguiGraph =
-    egui_graphs::Graph<Node, EdgeType, Directed, DefaultIx, GraphNodeShape, GraphEdgeShape>;
+    egui_graphs::Graph<Node, EdgePayload, Directed, DefaultIx, GraphNodeShape, GraphEdgeShape>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 enum SelectionVisualRole {
@@ -110,7 +111,7 @@ impl From<NodeProps<Node>> for GraphNodeShape {
     }
 }
 
-impl DisplayNode<Node, EdgeType, Directed, DefaultIx> for GraphNodeShape {
+impl DisplayNode<Node, EdgePayload, Directed, DefaultIx> for GraphNodeShape {
     fn is_inside(&self, pos: Pos2) -> bool {
         (pos - self.pos).length() <= self.radius
     }
@@ -491,24 +492,41 @@ enum GraphEdgeVisualStyle {
     UserGrouped,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum DominantDirectionCue {
+    None,
+    AlongEdge,
+    AgainstEdge,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LogicalPairTraversalAggregate {
+    ab_count: usize,
+    ba_count: usize,
+    total_count: usize,
+    dominant_cue: DominantDirectionCue,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphEdgeShape {
     default_impl: DefaultEdgeShape,
     style: GraphEdgeVisualStyle,
     dimmed: bool,
+    hidden: bool,
+    traversal_total_count: usize,
+    dominant_direction_cue: DominantDirectionCue,
 }
 
-impl From<EdgeProps<EdgeType>> for GraphEdgeShape {
-    fn from(edge: EdgeProps<EdgeType>) -> Self {
-        let style = match edge.payload {
-            EdgeType::Hyperlink => GraphEdgeVisualStyle::Hyperlink,
-            EdgeType::History => GraphEdgeVisualStyle::History,
-            EdgeType::UserGrouped => GraphEdgeVisualStyle::UserGrouped,
-        };
+impl From<EdgeProps<EdgePayload>> for GraphEdgeShape {
+    fn from(edge: EdgeProps<EdgePayload>) -> Self {
+        let style = Self::style_from_payload(&edge.payload);
         Self {
             default_impl: DefaultEdgeShape::from(edge),
             style,
             dimmed: false,
+            hidden: false,
+            traversal_total_count: 0,
+            dominant_direction_cue: DominantDirectionCue::None,
         }
     }
 }
@@ -517,15 +535,18 @@ impl<
     N: Clone,
     Ty: petgraph::EdgeType,
     Ix: petgraph::stable_graph::IndexType,
-    D: DisplayNode<N, EdgeType, Ty, Ix>,
-> DisplayEdge<N, EdgeType, Ty, Ix, D> for GraphEdgeShape
+    D: DisplayNode<N, EdgePayload, Ty, Ix>,
+> DisplayEdge<N, EdgePayload, Ty, Ix, D> for GraphEdgeShape
 {
     fn shapes(
         &mut self,
-        start: &egui_graphs::Node<N, EdgeType, Ty, Ix, D>,
-        end: &egui_graphs::Node<N, EdgeType, Ty, Ix, D>,
+        start: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        end: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
         ctx: &DrawContext,
     ) -> Vec<Shape> {
+        if self.hidden {
+            return Vec::new();
+        }
         let (base_color, width) = self.style_stroke();
         let color = if self.dimmed {
             base_color.gamma_multiply(0.35)
@@ -536,31 +557,33 @@ impl<
             return self.dashed_shapes(start, end, ctx, color, width);
         }
 
-        self.default_impl
+        let mut shapes = self
+            .default_impl
             .shapes(start, end, ctx)
             .into_iter()
             .map(|shape| restyle_edge_shape(shape, color, width))
-            .collect()
+            .collect::<Vec<_>>();
+        self.append_direction_cue(&mut shapes, start, end, color, width);
+        shapes
     }
 
-    fn update(&mut self, state: &EdgeProps<EdgeType>) {
-        <DefaultEdgeShape as DisplayEdge<N, EdgeType, Ty, Ix, D>>::update(
+    fn update(&mut self, state: &EdgeProps<EdgePayload>) {
+        <DefaultEdgeShape as DisplayEdge<N, EdgePayload, Ty, Ix, D>>::update(
             &mut self.default_impl,
             state,
         );
-        self.style = match state.payload {
-            EdgeType::Hyperlink => GraphEdgeVisualStyle::Hyperlink,
-            EdgeType::History => GraphEdgeVisualStyle::History,
-            EdgeType::UserGrouped => GraphEdgeVisualStyle::UserGrouped,
-        };
+        self.style = Self::style_from_payload(&state.payload);
     }
 
     fn is_inside(
         &self,
-        start: &egui_graphs::Node<N, EdgeType, Ty, Ix, D>,
-        end: &egui_graphs::Node<N, EdgeType, Ty, Ix, D>,
+        start: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        end: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
         pos: Pos2,
     ) -> bool {
+        if self.hidden {
+            return false;
+        }
         self.default_impl.is_inside(start, end, pos)
     }
 }
@@ -570,23 +593,130 @@ impl GraphEdgeShape {
         self.dimmed = dimmed;
     }
 
+    fn set_hidden(&mut self, hidden: bool) {
+        self.hidden = hidden;
+    }
+
+    fn configure_logical_pair(
+        &mut self,
+        style: GraphEdgeVisualStyle,
+        aggregate: LogicalPairTraversalAggregate,
+    ) {
+        self.style = style;
+        self.traversal_total_count = aggregate.total_count;
+        self.dominant_direction_cue = aggregate.dominant_cue;
+    }
+
     fn style_stroke(&self) -> (Color32, f32) {
+        let traversal_bonus = if self.style == GraphEdgeVisualStyle::History {
+            Self::traversal_width_bonus(self.traversal_total_count)
+        } else {
+            0.0
+        };
         match self.style {
-            GraphEdgeVisualStyle::Hyperlink => (Color32::from_gray(160), 1.4),
-            GraphEdgeVisualStyle::History => (Color32::from_rgb(120, 180, 210), 1.8),
+            GraphEdgeVisualStyle::Hyperlink => (Color32::from_gray(160), 1.4 + traversal_bonus),
+            GraphEdgeVisualStyle::History => (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus),
             GraphEdgeVisualStyle::UserGrouped => (Color32::from_rgb(236, 171, 64), 3.0),
         }
+    }
+
+    fn style_from_payload(payload: &EdgePayload) -> GraphEdgeVisualStyle {
+        if payload.user_grouped_asserted {
+            GraphEdgeVisualStyle::UserGrouped
+        } else if !payload.traversals.is_empty() {
+            GraphEdgeVisualStyle::History
+        } else {
+            GraphEdgeVisualStyle::Hyperlink
+        }
+    }
+
+    fn traversal_width_bonus(total_count: usize) -> f32 {
+        if total_count == 0 {
+            0.0
+        } else {
+            ((total_count as f32).sqrt() * 0.35).min(2.5)
+        }
+    }
+
+    fn dominant_direction_from_counts(
+        ab_count: usize,
+        ba_count: usize,
+        canonical_is_ab: bool,
+        threshold_ratio: f32,
+    ) -> DominantDirectionCue {
+        let total = ab_count + ba_count;
+        if total == 0 {
+            return DominantDirectionCue::None;
+        }
+        let ab_ratio = ab_count as f32 / total as f32;
+        let ba_ratio = ba_count as f32 / total as f32;
+        if ab_ratio > threshold_ratio {
+            if canonical_is_ab {
+                DominantDirectionCue::AlongEdge
+            } else {
+                DominantDirectionCue::AgainstEdge
+            }
+        } else if ba_ratio > threshold_ratio {
+            if canonical_is_ab {
+                DominantDirectionCue::AgainstEdge
+            } else {
+                DominantDirectionCue::AlongEdge
+            }
+        } else {
+            DominantDirectionCue::None
+        }
+    }
+
+    fn append_direction_cue<
+        N: Clone,
+        Ty: petgraph::EdgeType,
+        Ix: petgraph::stable_graph::IndexType,
+        D: DisplayNode<N, EdgePayload, Ty, Ix>,
+    >(
+        &self,
+        shapes: &mut Vec<Shape>,
+        start: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        end: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        color: Color32,
+        width: f32,
+    ) {
+        if self.dominant_direction_cue == DominantDirectionCue::None {
+            return;
+        }
+        if start.id() == end.id() {
+            return;
+        }
+        let (arrow_from, arrow_to) = match self.dominant_direction_cue {
+            DominantDirectionCue::AlongEdge => (start.location(), end.location()),
+            DominantDirectionCue::AgainstEdge => (end.location(), start.location()),
+            DominantDirectionCue::None => return,
+        };
+        let vec = arrow_to - arrow_from;
+        let len = vec.length();
+        if len <= f32::EPSILON {
+            return;
+        }
+        let dir = vec / len;
+        let tip = arrow_to - dir * (8.0 + width * 1.5);
+        let perp = egui::vec2(-dir.y, dir.x);
+        let head_len = 7.0 + width;
+        let head_half = 4.0 + width * 0.4;
+        let left = tip - dir * head_len + perp * head_half;
+        let right = tip - dir * head_len - perp * head_half;
+        let stroke = Stroke::new(width.max(1.2), color);
+        shapes.push(Shape::line_segment([tip, left], stroke));
+        shapes.push(Shape::line_segment([tip, right], stroke));
     }
 
     fn dashed_shapes<
         N: Clone,
         Ty: petgraph::EdgeType,
         Ix: petgraph::stable_graph::IndexType,
-        D: DisplayNode<N, EdgeType, Ty, Ix>,
+        D: DisplayNode<N, EdgePayload, Ty, Ix>,
     >(
         &self,
-        start: &egui_graphs::Node<N, EdgeType, Ty, Ix, D>,
-        end: &egui_graphs::Node<N, EdgeType, Ty, Ix, D>,
+        start: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
+        end: &egui_graphs::Node<N, EdgePayload, Ty, Ix, D>,
         ctx: &DrawContext,
         color: Color32,
         width: f32,
@@ -624,6 +754,52 @@ impl GraphEdgeShape {
         }
         shapes
     }
+}
+
+#[cfg(test)]
+impl GraphEdgeShape {
+    fn hidden(&self) -> bool {
+        self.hidden
+    }
+}
+
+fn logical_pair_key(a: NodeKey, b: NodeKey) -> (NodeKey, NodeKey) {
+    if a.index() <= b.index() {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+fn aggregate_logical_pair_traversals(
+    graph: &Graph,
+    a: NodeKey,
+    b: NodeKey,
+) -> (GraphEdgeVisualStyle, LogicalPairTraversalAggregate) {
+    let ab_key = graph.find_edge_key(a, b);
+    let ba_key = graph.find_edge_key(b, a);
+    let ab_payload = ab_key.and_then(|k| graph.get_edge(k));
+    let ba_payload = ba_key.and_then(|k| graph.get_edge(k));
+
+    let ab_count = ab_payload.map(|p| p.traversals.len()).unwrap_or(0);
+    let ba_count = ba_payload.map(|p| p.traversals.len()).unwrap_or(0);
+    let total_count = ab_count + ba_count;
+    let style = if ab_payload.is_some_and(|p| p.user_grouped_asserted)
+        || ba_payload.is_some_and(|p| p.user_grouped_asserted)
+    {
+        GraphEdgeVisualStyle::UserGrouped
+    } else if total_count > 0 {
+        GraphEdgeVisualStyle::History
+    } else {
+        GraphEdgeVisualStyle::Hyperlink
+    };
+    let aggregate = LogicalPairTraversalAggregate {
+        ab_count,
+        ba_count,
+        total_count,
+        dominant_cue: GraphEdgeShape::dominant_direction_from_counts(ab_count, ba_count, true, 0.60),
+    };
+    (style, aggregate)
 }
 
 fn restyle_edge_shape(shape: Shape, color: Color32, width: f32) -> Shape {
@@ -667,7 +843,7 @@ impl EguiGraphState {
     ) -> Self {
         let mut egui_graph: EguiGraph = to_graph_custom(
             &graph.inner,
-            |node: &mut egui_graphs::Node<Node, EdgeType, Directed, DefaultIx, GraphNodeShape>| {
+            |node: &mut egui_graphs::Node<Node, EdgePayload, Directed, DefaultIx, GraphNodeShape>| {
                 // Extract all data from payload before any mutations
                 let position = node.payload().position;
                 let title = node.payload().title.clone();
@@ -727,6 +903,65 @@ impl EguiGraphState {
         for key in crashed_nodes {
             if let Some(node) = egui_graph.node_mut(*key) {
                 node.display_mut().set_crashed(true);
+            }
+        }
+
+        // Stage C: treat A<->B as one logical display edge. Keep a single canonical edge visible
+        // and project pair-level traversal aggregates onto it.
+        let edge_ids: Vec<EdgeIndex<DefaultIx>> = graph
+            .inner
+            .edge_references()
+            .map(|edge| edge.id())
+            .collect();
+        let mut processed_pairs = HashSet::new();
+        for edge_id in edge_ids {
+            let Some((from, to)) = graph.inner.edge_endpoints(edge_id) else {
+                continue;
+            };
+            if from == to {
+                // Self-loops remain as-is; no pair dedup.
+                continue;
+            }
+            let pair = logical_pair_key(from, to);
+            if !processed_pairs.insert(pair) {
+                if let Some(edge) = egui_graph.edge_mut(edge_id) {
+                    edge.display_mut().set_hidden(true);
+                }
+                continue;
+            }
+
+            let canonical_is_ab = from.index() <= to.index();
+            let (a, b) = pair;
+            let (style, mut aggregate) = aggregate_logical_pair_traversals(graph, a, b);
+            aggregate.dominant_cue = GraphEdgeShape::dominant_direction_from_counts(
+                aggregate.ab_count,
+                aggregate.ba_count,
+                canonical_is_ab,
+                0.60,
+            );
+
+            if (from, to) != pair
+                && let Some(edge) = egui_graph.edge_mut(edge_id)
+            {
+                edge.display_mut().set_hidden(true);
+            }
+            let canonical_edge_id = if (from, to) == pair {
+                edge_id
+            } else if let Some(id) = graph.find_edge_key(a, b) {
+                id
+            } else {
+                edge_id
+            };
+            if let Some(edge) = egui_graph.edge_mut(canonical_edge_id) {
+                edge.display_mut().set_hidden(false);
+                edge.display_mut().configure_logical_pair(style, aggregate);
+            }
+
+            if let Some(reverse_edge_id) = graph.find_edge_key(b, a)
+                && reverse_edge_id != canonical_edge_id
+                && let Some(edge) = egui_graph.edge_mut(reverse_edge_id)
+            {
+                edge.display_mut().set_hidden(true);
             }
         }
 
@@ -978,13 +1213,13 @@ mod tests {
     #[test]
     fn test_edge_shape_selection() {
         let history = GraphEdgeShape::from(EdgeProps {
-            payload: EdgeType::History,
+            payload: EdgePayload::from_edge_type(EdgeType::History),
             order: 0,
             selected: false,
             label: String::new(),
         });
         let grouped = GraphEdgeShape::from(EdgeProps {
-            payload: EdgeType::UserGrouped,
+            payload: EdgePayload::from_edge_type(EdgeType::UserGrouped),
             order: 0,
             selected: false,
             label: String::new(),
@@ -997,6 +1232,67 @@ mod tests {
         assert_eq!(history_color, Color32::from_rgb(120, 180, 210));
         assert_eq!(grouped_color, Color32::from_rgb(236, 171, 64));
         assert!(grouped_width > 2.0);
+    }
+
+    #[test]
+    fn test_traversal_count_drives_stroke_width() {
+        let mut edge = GraphEdgeShape::from(EdgeProps {
+            payload: EdgePayload::from_edge_type(EdgeType::History),
+            order: 0,
+            selected: false,
+            label: String::new(),
+        });
+        edge.configure_logical_pair(
+            GraphEdgeVisualStyle::History,
+            LogicalPairTraversalAggregate {
+                ab_count: 1,
+                ba_count: 0,
+                total_count: 1,
+                dominant_cue: DominantDirectionCue::None,
+            },
+        );
+        let (_, w1) = edge.style_stroke();
+        edge.configure_logical_pair(
+            GraphEdgeVisualStyle::History,
+            LogicalPairTraversalAggregate {
+                ab_count: 9,
+                ba_count: 0,
+                total_count: 9,
+                dominant_cue: DominantDirectionCue::None,
+            },
+        );
+        let (_, w9) = edge.style_stroke();
+        assert!(w9 > w1);
+    }
+
+    #[test]
+    fn test_dominant_direction_above_threshold() {
+        let cue = GraphEdgeShape::dominant_direction_from_counts(7, 3, true, 0.60);
+        assert_eq!(cue, DominantDirectionCue::AlongEdge);
+    }
+
+    #[test]
+    fn test_dominant_direction_below_threshold() {
+        let cue = GraphEdgeShape::dominant_direction_from_counts(6, 4, true, 0.60);
+        assert_eq!(cue, DominantDirectionCue::None);
+    }
+
+    #[test]
+    fn test_display_dedup_skips_reverse_pair() {
+        let mut graph = Graph::new();
+        let a = graph.add_node("https://a.example".into(), Point2D::new(0.0, 0.0));
+        let b = graph.add_node("https://b.example".into(), Point2D::new(10.0, 0.0));
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
+        let _ = graph.add_edge(b, a, EdgeType::History);
+        let selected = HashSet::new();
+        let state = EguiGraphState::from_graph(&graph, &selected);
+
+        let visible_edges = state
+            .graph
+            .edges_iter()
+            .filter(|(_, edge)| !edge.display().hidden())
+            .count();
+        assert_eq!(visible_edges, 1);
     }
 
     #[test]

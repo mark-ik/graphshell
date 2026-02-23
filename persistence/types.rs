@@ -46,6 +46,15 @@ pub enum PersistedEdgeType {
     UserGrouped,
 }
 
+/// Persisted traversal trigger classification (v1 scope).
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedNavigationTrigger {
+    Unknown,
+    Back,
+    Forward,
+}
+
 /// Persisted edge.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct PersistedEdge {
@@ -80,6 +89,12 @@ pub enum LogEntry {
         from_node_id: String,
         to_node_id: String,
         edge_type: PersistedEdgeType,
+    },
+    AppendTraversal {
+        from_node_id: String,
+        to_node_id: String,
+        timestamp_ms: u64,
+        trigger: PersistedNavigationTrigger,
     },
     UpdateNodeTitle {
         node_id: String,
@@ -282,6 +297,33 @@ mod tests {
                 assert_eq!(*edge_type, ArchivedPersistedEdgeType::UserGrouped);
             },
             _ => panic!("Expected RemoveEdge variant"),
+        }
+    }
+
+    #[test]
+    fn test_log_entry_append_traversal_roundtrip() {
+        let entry = LogEntry::AppendTraversal {
+            from_node_id: Uuid::new_v4().to_string(),
+            to_node_id: Uuid::new_v4().to_string(),
+            timestamp_ms: 1234,
+            trigger: PersistedNavigationTrigger::Back,
+        };
+
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
+        let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
+        match archived {
+            ArchivedLogEntry::AppendTraversal {
+                from_node_id,
+                to_node_id,
+                timestamp_ms,
+                trigger,
+            } => {
+                assert!(!from_node_id.as_str().is_empty());
+                assert!(!to_node_id.as_str().is_empty());
+                assert_eq!(*timestamp_ms, 1234);
+                assert_eq!(*trigger, ArchivedPersistedNavigationTrigger::Back);
+            },
+            _ => panic!("Expected AppendTraversal variant"),
         }
     }
 }

@@ -42,6 +42,8 @@ pub(crate) struct GraphshellTileBehavior<'a> {
     pending_closed_nodes: Vec<NodeKey>,
     pending_graph_intents: Vec<GraphIntent>,
     pending_tab_drag_stopped_nodes: HashSet<NodeKey>,
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: &'a mut super::diagnostics::DiagnosticsState,
 }
 
 impl<'a> GraphshellTileBehavior<'a> {
@@ -52,6 +54,8 @@ impl<'a> GraphshellTileBehavior<'a> {
         active_search_match: Option<NodeKey>,
         search_filter_mode: bool,
         search_query_active: bool,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state: &'a mut super::diagnostics::DiagnosticsState,
     ) -> Self {
         Self {
             graph_app,
@@ -64,6 +68,8 @@ impl<'a> GraphshellTileBehavior<'a> {
             pending_closed_nodes: Vec::new(),
             pending_graph_intents: Vec::new(),
             pending_tab_drag_stopped_nodes: HashSet::new(),
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state,
         }
     }
 
@@ -192,10 +198,11 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: TileId, pane: &mut TileKind) -> UiResponse {
         match pane {
-            TileKind::Graph(_) => {
+            TileKind::Graph(view_id) => {
                 let actions = render::render_graph_in_ui_collect_actions(
                     ui,
                     self.graph_app,
+                    Some(*view_id),
                     self.search_matches,
                     self.active_search_match,
                     if self.search_filter_mode {
@@ -211,6 +218,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 for action in actions {
                     match action {
                         GraphAction::FocusNode(key) => {
+                            log::debug!("tile_behavior: FocusNode action for {:?}", key);
                             self.pending_graph_intents
                                 .push(GraphIntent::OpenNodeWorkspaceRouted {
                                     key,
@@ -232,6 +240,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 key,
                                 multi_select: multi_select_modifier,
                             });
+                            log::debug!(
+                                "tile_behavior: enqueue pending open node {:?} split",
+                                key
+                            );
                             self.pending_open_nodes.push(PendingOpenNode {
                                 key,
                                 mode: PendingOpenMode::SplitHorizontal,
@@ -280,6 +292,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
                 if self.graph_app.get_webview_for_node(*node_key).is_none() {
+                    log::debug!("tile_behavior: node {:?} has no active webview", node_key);
                     let lifecycle_hint = match node.lifecycle {
                         NodeLifecycle::Cold => {
                             "Node is cold. Reactivate to resume browsing in this pane."
@@ -306,8 +319,24 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 ));
                         }
                     });
+                } else {
+                    // WebView is active - allocate full space for compositor to render into
+                    let (rect, _response) = ui.allocate_exact_size(
+                        ui.available_size(),
+                        egui::Sense::hover(),
+                    );
+                    // The WebView content will be painted by tile_compositor on the background layer
+                    log::debug!(
+                        "tile_behavior: allocated space for webview {:?} at {:?}",
+                        node_key,
+                        rect
+                    );
                 }
             },
+            #[cfg(feature = "diagnostics")]
+            TileKind::Diagnostic => {
+                self.diagnostics_state.render_in_pane(ui, self.graph_app);
+            }
         }
         UiResponse::None
     }
@@ -321,6 +350,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 .get_node(*node_key)
                 .map(|n| n.title.clone().into())
                 .unwrap_or_else(|| format!("Node {:?}", node_key).into()),
+            #[cfg(feature = "diagnostics")]
+            TileKind::Diagnostic => "Diagnostics".into(),
         }
     }
 
@@ -351,6 +382,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 let favicon = self.favicon_texture_id(ui, *node_key);
                 (title, favicon)
             },
+            #[cfg(feature = "diagnostics")]
+            Some(Tile::Pane(TileKind::Diagnostic)) => ("Diagnostics".to_string(), None),
             Some(Tile::Container(container)) => (format!("{:?}", container.kind()), None),
             None => ("MISSING TILE".to_string(), None),
         };
@@ -502,6 +535,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         match tiles.get(tile_id) {
             Some(Tile::Pane(TileKind::WebView(_))) => true,
             Some(Tile::Pane(TileKind::Graph(_))) => false,
+            #[cfg(feature = "diagnostics")]
+            Some(Tile::Pane(TileKind::Diagnostic)) => true,
             _ => false,
         }
     }
@@ -513,6 +548,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             if self.graph_app.tab_selection_anchor == Some(*node_key) {
                 self.graph_app.tab_selection_anchor = None;
             }
+        }
+        #[cfg(feature = "diagnostics")]
+        if let Some(Tile::Pane(TileKind::Diagnostic)) = tiles.get(tile_id) {
+            // No extra cleanup needed for diagnostic pane
         }
         true
     }

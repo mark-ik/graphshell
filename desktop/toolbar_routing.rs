@@ -4,6 +4,11 @@
 
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::desktop::nav_targeting;
+use crate::desktop::registries;
+use crate::desktop::registries::input::{
+    INPUT_BINDING_TOOLBAR_NAV_BACK, INPUT_BINDING_TOOLBAR_NAV_FORWARD,
+    INPUT_BINDING_TOOLBAR_NAV_RELOAD,
+};
 use crate::desktop::webview_controller;
 use crate::graph::NodeKey;
 use crate::window::EmbedderWindow;
@@ -31,6 +36,15 @@ pub(crate) fn run_nav_action(
     focused_toolbar_node: Option<NodeKey>,
     action: ToolbarNavAction,
 ) -> bool {
+    let binding_id = match action {
+        ToolbarNavAction::Back => INPUT_BINDING_TOOLBAR_NAV_BACK,
+        ToolbarNavAction::Forward => INPUT_BINDING_TOOLBAR_NAV_FORWARD,
+        ToolbarNavAction::Reload => INPUT_BINDING_TOOLBAR_NAV_RELOAD,
+    };
+    if !registries::phase2_resolve_input_binding(binding_id) {
+        return false;
+    }
+
     let Some(webview_id) = nav_targeting::nav_target_webview_id(graph_app, focused_toolbar_node)
     else {
         return false;
@@ -60,6 +74,14 @@ pub(crate) fn submit_address_bar_intents(
     window: &EmbedderWindow,
     searchpage: &str,
 ) -> ToolbarSubmitResult {
+    if !registries::phase2_resolve_toolbar_submit_binding() {
+        return ToolbarSubmitResult {
+            intents: Vec::new(),
+            mark_clean: false,
+            open_mode: None,
+        };
+    }
+
     let focused_webview_id =
         focused_toolbar_node.and_then(|key| graph_app.get_webview_for_node(key));
     let submit_result = webview_controller::handle_address_bar_submit_intents(

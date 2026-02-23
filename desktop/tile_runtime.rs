@@ -17,6 +17,10 @@ use crate::window::EmbedderWindow;
 pub(crate) struct TileCoordinator;
 
 impl TileCoordinator {
+    fn should_preserve_runtime_webview(node_exists: bool, mapped_webview: Option<WebViewId>) -> bool {
+        node_exists && mapped_webview.is_some()
+    }
+
     pub(crate) fn reset_runtime_webview_state(
         tiles_tree: &mut Tree<TileKind>,
         tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -122,9 +126,7 @@ impl TileCoordinator {
         let node_exists = graph_app.graph.get_node(node_key).is_some();
         let mapped_webview = graph_app.get_webview_for_node(node_key);
 
-        tile_rendering_contexts.remove(&node_key);
-
-        if node_exists && mapped_webview.is_some() {
+        if Self::should_preserve_runtime_webview(node_exists, mapped_webview) {
             let lifecycle = graph_app
                 .graph
                 .get_node(node_key)
@@ -138,6 +140,8 @@ impl TileCoordinator {
             }
             return;
         }
+
+        tile_rendering_contexts.remove(&node_key);
 
         if let Some(wv_id) = mapped_webview {
             window.close_webview(wv_id);
@@ -219,4 +223,32 @@ pub(crate) fn close_webview_for_node(
         node_key,
         lifecycle_intents,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TileCoordinator;
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+
+    fn test_webview_id() -> servo::WebViewId {
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+        servo::WebViewId::new(PainterId::next())
+    }
+
+    #[test]
+    fn preserve_runtime_webview_when_node_exists_and_mapped() {
+        let webview_id = test_webview_id();
+        assert!(TileCoordinator::should_preserve_runtime_webview(true, Some(webview_id)));
+    }
+
+    #[test]
+    fn do_not_preserve_runtime_webview_when_node_missing_or_unmapped() {
+        let webview_id = test_webview_id();
+        assert!(!TileCoordinator::should_preserve_runtime_webview(false, Some(webview_id)));
+        assert!(!TileCoordinator::should_preserve_runtime_webview(true, None));
+    }
 }

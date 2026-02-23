@@ -9,6 +9,8 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
+#[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+use std::time::Instant;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use euclid::Rect;
@@ -31,6 +33,8 @@ use servo::{
 use url::Url;
 
 use crate::desktop::embedder::EmbedderCore;
+#[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+use crate::desktop::diagnostics::{self, DiagnosticEvent, SpanPhase};
 #[cfg(all(
     feature = "gamepad",
     not(any(target_os = "android", target_env = "ohos"))
@@ -360,7 +364,15 @@ impl RunningAppState {
     }
 
     pub(crate) fn take_pending_graph_events(&self) -> Vec<GraphSemanticEvent> {
-        self.embedder_core.drain_window_graph_events()
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        let started = Instant::now();
+        let events = self.embedder_core.drain_window_graph_events();
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        crate::desktop::diagnostics::emit_span_duration(
+            "running_app_state::take_pending_graph_events",
+            started.elapsed().as_micros() as u64,
+        );
+        events
     }
 
     /// Spins the internal application event loop.
@@ -390,7 +402,30 @@ impl RunningAppState {
             self.handle_gamepad_events();
         }
 
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        let servo_spin_started = Instant::now();
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::Span {
+            name: "servo.spin_event_loop",
+            phase: SpanPhase::Enter,
+            duration_us: None,
+        });
+
         self.embedder_core.servo().spin_event_loop();
+
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        {
+            let elapsed = servo_spin_started.elapsed().as_micros() as u64;
+            diagnostics::emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: "servo.event_loop.spin",
+                latency_us: elapsed,
+            });
+            diagnostics::emit_event(DiagnosticEvent::Span {
+                name: "servo.spin_event_loop",
+                phase: SpanPhase::Exit,
+                duration_us: Some(elapsed),
+            });
+        }
 
         for window in self.embedder_core.windows().values() {
             window.update_and_request_repaint_if_necessary(self);

@@ -42,7 +42,8 @@ OriginalFilename = "graphshell.exe"
 ProductName = "GraphShell Browser"
 
 [features]
-default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr"]
+default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics"]
+diagnostics = []
 crown = ["servo/crown"]
 debugmozjs = ["servo/debugmozjs"]
 gamepad = ["servo/gamepad"]
@@ -131,6 +132,7 @@ egui_tiles = { version = "0.14.1", features = ["serde"] }
 egui-notify = "0.21"
 arboard = "3"
 nucleo = "0.5.0"
+parking_lot = "0.12"
 petgraph = { version = "0.8.3", features = ["serde-1"] }
 rstar = "0.12"
 fjall = "3"
@@ -174,3 +176,5 @@ insta = "1"
 proptest = "1"
 rstest = "0.26"
 tempfile = "3"
+tracing = "0.1.44"
+tracing-test = "0.2"

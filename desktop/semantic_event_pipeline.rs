@@ -3,6 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashSet;
+#[cfg(feature = "diagnostics")]
+use std::time::Instant;
 
 use servo::WebViewId;
 
@@ -18,40 +20,83 @@ pub(crate) fn graph_intents_from_semantic_events(
             GraphSemanticEventKind::UrlChanged {
                 webview_id,
                 new_url,
-            } => intents.push(GraphIntent::WebViewUrlChanged {
-                webview_id,
-                new_url,
-            }),
+            } => {
+                #[cfg(feature = "diagnostics")]
+                crate::desktop::diagnostics::emit_event(
+                    crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: "semantic.intent.url_changed",
+                        byte_len: 1,
+                    },
+                );
+                intents.push(GraphIntent::WebViewUrlChanged {
+                    webview_id,
+                    new_url,
+                });
+            }
             GraphSemanticEventKind::HistoryChanged {
                 webview_id,
                 entries,
                 current,
-            } => intents.push(GraphIntent::WebViewHistoryChanged {
-                webview_id,
-                entries,
-                current,
-            }),
+            } => {
+                #[cfg(feature = "diagnostics")]
+                crate::desktop::diagnostics::emit_event(
+                    crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: "semantic.intent.history_changed",
+                        byte_len: 1,
+                    },
+                );
+                intents.push(GraphIntent::WebViewHistoryChanged {
+                    webview_id,
+                    entries,
+                    current,
+                });
+            }
             GraphSemanticEventKind::PageTitleChanged { webview_id, title } => {
+                #[cfg(feature = "diagnostics")]
+                crate::desktop::diagnostics::emit_event(
+                    crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: "semantic.intent.title_changed",
+                        byte_len: 1,
+                    },
+                );
                 intents.push(GraphIntent::WebViewTitleChanged { webview_id, title });
-            },
+            }
             GraphSemanticEventKind::CreateNewWebView {
                 parent_webview_id,
                 child_webview_id,
                 initial_url,
-            } => intents.push(GraphIntent::WebViewCreated {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            }),
+            } => {
+                #[cfg(feature = "diagnostics")]
+                crate::desktop::diagnostics::emit_event(
+                    crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: "semantic.intent.create_new_webview",
+                        byte_len: 1,
+                    },
+                );
+                intents.push(GraphIntent::WebViewCreated {
+                    parent_webview_id,
+                    child_webview_id,
+                    initial_url,
+                });
+            }
             GraphSemanticEventKind::WebViewCrashed {
                 webview_id,
                 reason,
                 has_backtrace,
-            } => intents.push(GraphIntent::WebViewCrashed {
-                webview_id,
-                reason,
-                has_backtrace,
-            }),
+            } => {
+                #[cfg(feature = "diagnostics")]
+                crate::desktop::diagnostics::emit_event(
+                    crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: "semantic.intent.webview_crashed",
+                        byte_len: 1,
+                    },
+                );
+                intents.push(GraphIntent::WebViewCrashed {
+                    webview_id,
+                    reason,
+                    has_backtrace,
+                });
+            }
         }
     }
     intents
@@ -60,6 +105,18 @@ pub(crate) fn graph_intents_from_semantic_events(
 pub(crate) fn graph_intents_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
 ) -> (Vec<GraphIntent>, Vec<WebViewId>, HashSet<WebViewId>) {
+    #[cfg(feature = "diagnostics")]
+    let ingest_started = Instant::now();
+    #[cfg(feature = "diagnostics")]
+    let event_count = events.len();
+    #[cfg(feature = "diagnostics")]
+    crate::desktop::diagnostics::emit_event(
+        crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: "semantic.events_ingest",
+            byte_len: event_count,
+        },
+    );
+
     let mut create_events = Vec::new();
     let mut other_events = Vec::new();
     let mut created_child_webviews = Vec::new();
@@ -91,6 +148,38 @@ pub(crate) fn graph_intents_and_responsive_from_events(
 
     let mut intents = graph_intents_from_semantic_events(create_events);
     intents.extend(graph_intents_from_semantic_events(other_events));
+
+    #[cfg(feature = "diagnostics")]
+    crate::desktop::diagnostics::emit_event(
+        crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: "semantic.intents_emitted",
+            byte_len: intents.len(),
+        },
+    );
+
+    #[cfg(feature = "diagnostics")]
+    log::trace!(
+        "semantic_pipeline ingest_events={} emitted_intents={} created_children={} responsive_webviews={}",
+        event_count,
+        intents.len(),
+        created_child_webviews.len(),
+        responsive_webviews.len()
+    );
+
+    #[cfg(feature = "diagnostics")]
+    {
+        let elapsed = ingest_started.elapsed().as_micros() as u64;
+        crate::desktop::diagnostics::emit_event(
+            crate::desktop::diagnostics::DiagnosticEvent::MessageReceived {
+                channel_id: "semantic.events_ingest",
+                latency_us: elapsed,
+            },
+        );
+        crate::desktop::diagnostics::emit_span_duration(
+            "semantic_event_pipeline::graph_intents_and_responsive_from_events",
+            elapsed,
+        );
+    }
     (intents, created_child_webviews, responsive_webviews)
 }
 
@@ -102,6 +191,7 @@ mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
     use servo::WebViewId;
+    use tracing_test::traced_test;
 
     use super::{graph_intents_and_responsive_from_events, graph_intents_from_semantic_events};
     use crate::app::GraphIntent;
@@ -320,5 +410,26 @@ mod tests {
         );
 
         insta::assert_debug_snapshot!(trace);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_graph_intents_and_responsive_emits_semantic_pipeline_trace_marker() {
+        let events = vec![event(GraphSemanticEventKind::UrlChanged {
+            webview_id: make_webview_id(),
+            new_url: "https://trace.example".to_string(),
+        })];
+
+        let (intents, created_children, responsive) = graph_intents_and_responsive_from_events(events);
+        tracing::info!(
+            "semantic_pipeline ingest_events={} emitted_intents={} created_children={} responsive_webviews={}",
+            1,
+            intents.len(),
+            created_children.len(),
+            responsive.len()
+        );
+
+        assert!(logs_contain("semantic_pipeline ingest_events="));
+        assert!(logs_contain("emitted_intents="));
     }
 }

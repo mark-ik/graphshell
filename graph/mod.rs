@@ -7,13 +7,14 @@
 //! Core structures:
 //! - `Graph`: Main graph container backed by petgraph::StableGraph
 //! - `Node`: Webpage node with position, velocity, and metadata
-//! - `EdgeType`: Connection type between nodes (hyperlink, history, user-grouped)
+//! - `EdgePayload`: Edge semantics and traversal events between nodes
 
 use euclid::default::{Point2D, Vector2D};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{Directed, Direction};
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::persistence::types::{
@@ -112,6 +113,109 @@ pub enum EdgeType {
     UserGrouped,
 }
 
+/// Trigger classification for a traversal event (v1 scope).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavigationTrigger {
+    Unknown,
+    Back,
+    Forward,
+}
+
+/// A temporal traversal event recorded on an edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Traversal {
+    pub timestamp_ms: u64,
+    pub trigger: NavigationTrigger,
+}
+
+impl Traversal {
+    pub fn now(trigger: NavigationTrigger) -> Self {
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        Self {
+            timestamp_ms,
+            trigger,
+        }
+    }
+}
+
+/// Edge semantics payload: structural assertions + temporal traversal events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgePayload {
+    pub hyperlink_asserted: bool,
+    pub user_grouped_asserted: bool,
+    pub traversals: Vec<Traversal>,
+}
+
+impl EdgePayload {
+    pub fn new() -> Self {
+        Self {
+            hyperlink_asserted: false,
+            user_grouped_asserted: false,
+            traversals: Vec::new(),
+        }
+    }
+
+    pub fn from_edge_type(edge_type: EdgeType) -> Self {
+        let mut payload = Self::new();
+        payload.add_edge_type(edge_type);
+        payload
+    }
+
+    pub fn add_edge_type(&mut self, edge_type: EdgeType) {
+        match edge_type {
+            EdgeType::Hyperlink => self.hyperlink_asserted = true,
+            EdgeType::UserGrouped => self.user_grouped_asserted = true,
+            EdgeType::History => self.traversals.push(Traversal {
+                timestamp_ms: 0,
+                trigger: NavigationTrigger::Unknown,
+            }),
+        }
+    }
+
+    pub fn has_edge_type(&self, edge_type: EdgeType) -> bool {
+        match edge_type {
+            EdgeType::Hyperlink => self.hyperlink_asserted,
+            EdgeType::UserGrouped => self.user_grouped_asserted,
+            EdgeType::History => !self.traversals.is_empty(),
+        }
+    }
+
+    pub fn remove_edge_type(&mut self, edge_type: EdgeType) -> bool {
+        match edge_type {
+            EdgeType::Hyperlink if self.hyperlink_asserted => {
+                self.hyperlink_asserted = false;
+                true
+            }
+            EdgeType::UserGrouped if self.user_grouped_asserted => {
+                self.user_grouped_asserted = false;
+                true
+            }
+            EdgeType::History if !self.traversals.is_empty() => {
+                self.traversals.clear();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.hyperlink_asserted && !self.user_grouped_asserted && self.traversals.is_empty()
+    }
+
+    pub fn push_traversal(&mut self, traversal: Traversal) {
+        self.traversals.push(traversal);
+    }
+}
+
+impl Default for EdgePayload {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Read-only view of an edge (built from petgraph edge references)
 #[derive(Debug, Clone, Copy)]
 pub struct EdgeView {
@@ -124,7 +228,7 @@ pub struct EdgeView {
 #[derive(Clone)]
 pub struct Graph {
     /// The underlying petgraph stable graph
-    pub(crate) inner: StableGraph<Node, EdgeType, Directed>,
+    pub(crate) inner: StableGraph<Node, EdgePayload, Directed>,
 
     /// URL to node mapping for lookup (supports duplicate URLs).
     url_to_nodes: HashMap<String, Vec<NodeKey>>,
@@ -203,7 +307,7 @@ impl Graph {
         if !self.inner.contains_node(from) || !self.inner.contains_node(to) {
             return None;
         }
-        Some(self.inner.add_edge(from, to, edge_type))
+        Some(self.inner.add_edge(from, to, EdgePayload::from_edge_type(edge_type)))
     }
 
     /// Remove all directed edges from `from` to `to` with the given type.
@@ -213,18 +317,61 @@ impl Graph {
             .inner
             .edge_references()
             .filter(|edge| {
-                edge.source() == from && edge.target() == to && *edge.weight() == edge_type
+                edge.source() == from
+                    && edge.target() == to
+                    && edge.weight().has_edge_type(edge_type)
             })
             .map(|edge| edge.id())
             .collect();
 
-        let mut removed = 0;
+        let mut removed = 0usize;
+        let mut edges_to_delete = Vec::new();
         for edge_id in edge_ids {
-            if self.inner.remove_edge(edge_id).is_some() {
+            if let Some(payload) = self.inner.edge_weight_mut(edge_id)
+                && payload.remove_edge_type(edge_type)
+            {
                 removed += 1;
+                if payload.is_empty() {
+                    edges_to_delete.push(edge_id);
+                }
             }
         }
+        for edge_id in edges_to_delete {
+            let _ = self.inner.remove_edge(edge_id);
+        }
         removed
+    }
+
+    /// Get a mutable edge payload by key.
+    pub fn get_edge_mut(&mut self, key: EdgeKey) -> Option<&mut EdgePayload> {
+        self.inner.edge_weight_mut(key)
+    }
+
+    /// Get an edge payload by key.
+    pub fn get_edge(&self, key: EdgeKey) -> Option<&EdgePayload> {
+        self.inner.edge_weight(key)
+    }
+
+    /// Find the first directed edge key between two nodes.
+    pub fn find_edge_key(&self, from: NodeKey, to: NodeKey) -> Option<EdgeKey> {
+        self.inner.find_edge(from, to)
+    }
+
+    /// Append a traversal event to an existing edge, or create an edge carrying the traversal.
+    pub fn push_traversal(&mut self, from: NodeKey, to: NodeKey, traversal: Traversal) -> bool {
+        if from == to || !self.inner.contains_node(from) || !self.inner.contains_node(to) {
+            return false;
+        }
+        if let Some(edge_key) = self.find_edge_key(from, to)
+            && let Some(payload) = self.get_edge_mut(edge_key)
+        {
+            payload.push_traversal(traversal);
+            return true;
+        }
+        let mut payload = EdgePayload::new();
+        payload.push_traversal(traversal);
+        let _ = self.inner.add_edge(from, to, payload);
+        true
     }
 
     /// Get a node by key
@@ -268,10 +415,33 @@ impl Graph {
 
     /// Iterate over all edges as EdgeView
     pub fn edges(&self) -> impl Iterator<Item = EdgeView> + '_ {
-        self.inner.edge_references().map(|e| EdgeView {
-            from: e.source(),
-            to: e.target(),
-            edge_type: *e.weight(),
+        self.inner.edge_references().flat_map(|e| {
+            let from = e.source();
+            let to = e.target();
+            let payload = e.weight();
+            let mut out = Vec::with_capacity(3);
+            if payload.hyperlink_asserted {
+                out.push(EdgeView {
+                    from,
+                    to,
+                    edge_type: EdgeType::Hyperlink,
+                });
+            }
+            if !payload.traversals.is_empty() {
+                out.push(EdgeView {
+                    from,
+                    to,
+                    edge_type: EdgeType::History,
+                });
+            }
+            if payload.user_grouped_asserted {
+                out.push(EdgeView {
+                    from,
+                    to,
+                    edge_type: EdgeType::UserGrouped,
+                });
+            }
+            out.into_iter()
         })
     }
 
@@ -422,7 +592,7 @@ impl Graph {
                     PersistedEdgeType::History => EdgeType::History,
                     PersistedEdgeType::UserGrouped => EdgeType::UserGrouped,
                 };
-                graph.add_edge(from, to, edge_type);
+                let _ = graph.add_edge(from, to, edge_type);
             }
         }
 

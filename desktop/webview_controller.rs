@@ -14,10 +14,13 @@ use servo::WebViewId;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
 use crate::desktop::lifecycle_intents;
+use crate::desktop::registries;
 use crate::graph::NodeKey;
 use crate::parser::location_bar_input_to_url;
+#[cfg(any(test, not(feature = "diagnostics")))]
 use crate::search::fuzzy_match_node_keys;
 use crate::window::EmbedderWindow;
+#[cfg(any(test, not(feature = "diagnostics")))]
 use euclid::default::Point2D;
 
 fn reconcile_mappings_and_selection(
@@ -49,6 +52,7 @@ fn reconcile_mappings_and_selection(
     intents
 }
 
+#[cfg(any(test, not(feature = "diagnostics")))]
 fn intents_for_graph_view_address_submit(
     app: &GraphBrowserApp,
     input: &str,
@@ -78,6 +82,7 @@ fn intents_for_graph_view_address_submit(
     }
 }
 
+#[cfg(any(test, not(feature = "diagnostics")))]
 fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
     if app.graph.node_count() == 0 {
         return Point2D::new(400.0, 300.0);
@@ -93,6 +98,7 @@ fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
     Point2D::new(sum_x / count, sum_y / count)
 }
 
+#[cfg(any(test, not(feature = "diagnostics")))]
 fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>) -> Point2D<f32> {
     let base = anchor
         .and_then(|key| app.graph.get_node(key).map(|node| node.position))
@@ -103,6 +109,7 @@ fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>)
     Point2D::new(base.x + radius * angle.cos(), base.y + radius * angle.sin())
 }
 
+#[cfg(any(test, not(feature = "diagnostics")))]
 fn intents_for_omnibox_node_search(app: &GraphBrowserApp, query: &str) -> (bool, Vec<GraphIntent>) {
     let query = query.trim();
     if query.is_empty() {
@@ -159,7 +166,8 @@ pub(crate) fn handle_address_bar_submit_intents(
 ) -> AddressBarIntentOutcome {
     let input = url.trim();
     if let Some(query) = input.strip_prefix('@') {
-        let (_handled, intents) = intents_for_omnibox_node_search(app, query);
+        let intents = registries::phase2_execute_omnibox_node_search_action(app, query);
+
         return AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
                 mark_clean: true,
@@ -170,7 +178,29 @@ pub(crate) fn handle_address_bar_submit_intents(
     }
 
     if is_graph_view {
-        let (open_selected_tile, intents) = intents_for_graph_view_address_submit(app, input);
+        let normalized_input = match location_bar_input_to_url(input, searchpage) {
+            Some(parsed_url) => {
+                let decision = registries::phase0_decide_navigation_with_control(
+                    parsed_url,
+                    None,
+                    registries::protocol::ProtocolResolveControl::default(),
+                );
+                let Some(decision) = decision else {
+                    return AddressBarIntentOutcome {
+                        outcome: AddressBarSubmitOutcome {
+                            mark_clean: false,
+                            open_selected_tile: false,
+                        },
+                        intents: Vec::new(),
+                    };
+                };
+                decision.normalized_url.as_str().to_string()
+            },
+            None => input.to_string(),
+        };
+        let (open_selected_tile, intents) =
+            registries::phase2_execute_graph_view_submit_action(app, &normalized_input);
+
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
                 mark_clean: true,
@@ -191,6 +221,24 @@ pub(crate) fn handle_address_bar_submit_intents(
             };
         };
 
+        let parsed_url = {
+            let decision = registries::phase0_decide_navigation_with_control(
+                parsed_url,
+                None,
+                registries::protocol::ProtocolResolveControl::default(),
+            );
+            let Some(decision) = decision else {
+                return AddressBarIntentOutcome {
+                    outcome: AddressBarSubmitOutcome {
+                        mark_clean: false,
+                        open_selected_tile: false,
+                    },
+                    intents: Vec::new(),
+                };
+            };
+            decision.normalized_url
+        };
+
         if let Some(webview_id) = focused_webview
             && let Some(webview) = window.webview_by_id(webview_id)
         {
@@ -209,34 +257,18 @@ pub(crate) fn handle_address_bar_submit_intents(
         // No focused live webview in detail mode:
         // if we still have a focused node/pane target, update/reactivate it;
         // otherwise create a new node as a fallback.
-        if let Some(node_key) = focused_node {
-            return AddressBarIntentOutcome {
-                outcome: AddressBarSubmitOutcome {
-                    mark_clean: true,
-                    open_selected_tile: false,
-                },
-                intents: vec![
-                    GraphIntent::SetNodeUrl {
-                        key: node_key,
-                        new_url: parsed_url.as_str().to_string(),
-                    },
-                    lifecycle_intents::promote_node_to_active(
-                        node_key,
-                        LifecycleCause::Restore,
-                    ),
-                ],
-            };
-        }
-
+        let (open_selected_tile, intents) =
+            registries::phase2_execute_detail_view_submit_action(
+                app,
+                parsed_url.as_str(),
+                focused_node,
+            );
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
                 mark_clean: true,
-                open_selected_tile: true,
+                open_selected_tile,
             },
-            intents: vec![GraphIntent::CreateNodeAtUrl {
-                url: parsed_url.into_url().to_string(),
-                position: new_node_position_for_context(app, app.selected_nodes.primary()),
-            }],
+            intents,
         }
     }
 }
@@ -400,5 +432,52 @@ mod tests {
         assert_eq!(app.get_single_selected_node(), Some(key));
         assert_eq!(app.graph.get_node(key).unwrap().url, original_url);
         assert!(open_selected_tile);
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn protocol_policy_rewrites_unknown_scheme_to_registry_fallback() {
+        let parsed = servo::ServoUrl::parse("foo://example.com/path").expect("url should parse");
+        let rewritten = crate::desktop::registries::phase0_decide_navigation_with_control(
+            parsed,
+            None,
+            crate::desktop::registries::protocol::ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel")
+        .normalized_url;
+        assert_eq!(rewritten.scheme(), "https");
+        assert_eq!(rewritten.host_str(), Some("example.com"));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn protocol_policy_keeps_supported_scheme_unchanged() {
+        let parsed =
+            servo::ServoUrl::parse("https://example.com/path").expect("url should parse");
+        let rewritten = crate::desktop::registries::phase0_decide_navigation_with_control(
+            parsed.clone(),
+            None,
+            crate::desktop::registries::protocol::ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel")
+        .normalized_url;
+        assert_eq!(rewritten.as_str(), parsed.as_str());
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn phase0_decision_for_tests_rewrites_unknown_scheme() {
+        let diagnostics = crate::desktop::diagnostics::DiagnosticsState::new();
+        let parsed = servo::ServoUrl::parse("foo://example.com/path").expect("url should parse");
+
+        let rewritten = crate::desktop::registries::phase0_decide_navigation_for_tests_with_control(
+            &diagnostics,
+            parsed,
+            None,
+            crate::desktop::registries::protocol::ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel")
+        .normalized_url;
+        assert_eq!(rewritten.scheme(), "https");
     }
 }

@@ -147,6 +147,8 @@ pub(crate) struct ToolbarUiInput<'a> {
     pub show_clear_data_confirm: &'a mut bool,
     pub omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
     pub frame_intents: &'a mut Vec<GraphIntent>,
+    #[cfg(feature = "diagnostics")]
+    pub diagnostics_state: &'a mut crate::desktop::diagnostics::DiagnosticsState,
 }
 
 pub(crate) struct ToolbarUiOutput {
@@ -263,6 +265,8 @@ fn render_settings_menu(
     frame_intents: &mut Vec<GraphIntent>,
     location_dirty: &mut bool,
     window: &EmbedderWindow,
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: &mut crate::desktop::diagnostics::DiagnosticsState,
 ) {
     if ui.button("Open Persistence Hub").clicked() {
         graph_app.show_persistence_panel = true;
@@ -288,6 +292,17 @@ fn render_settings_menu(
         .clicked()
     {
         frame_intents.push(GraphIntent::ToggleHelpPanel);
+        ui.close();
+    }
+    if ui
+        .button(if graph_app.show_traversal_history_panel {
+            "Hide History Panel"
+        } else {
+            "Show History Panel"
+        })
+        .clicked()
+    {
+        frame_intents.push(GraphIntent::ToggleTraversalHistoryPanel);
         ui.close();
     }
     ui.separator();
@@ -481,6 +496,93 @@ fn render_settings_menu(
         *location_dirty = false;
         window.queue_user_interface_command(UserInterfaceCommand::ReloadAll);
     }
+
+    ui.separator();
+    ui.label("Registry Defaults");
+
+    let mut lens_id = graph_app
+        .default_registry_lens_id()
+        .unwrap_or_default()
+        .to_string();
+    if ui
+        .horizontal(|ui| {
+            ui.label("Lens ID");
+            ui.text_edit_singleline(&mut lens_id)
+        })
+        .inner
+        .changed()
+    {
+        let value = lens_id.trim();
+        graph_app.set_default_registry_lens_id((!value.is_empty()).then_some(value));
+    }
+
+    let mut physics_id = graph_app
+        .default_registry_physics_id()
+        .unwrap_or_default()
+        .to_string();
+    if ui
+        .horizontal(|ui| {
+            ui.label("Physics ID");
+            ui.text_edit_singleline(&mut physics_id)
+        })
+        .inner
+        .changed()
+    {
+        let value = physics_id.trim();
+        graph_app.set_default_registry_physics_id((!value.is_empty()).then_some(value));
+    }
+
+    let mut layout_id = graph_app
+        .default_registry_layout_id()
+        .unwrap_or_default()
+        .to_string();
+    if ui
+        .horizontal(|ui| {
+            ui.label("Layout ID");
+            ui.text_edit_singleline(&mut layout_id)
+        })
+        .inner
+        .changed()
+    {
+        let value = layout_id.trim();
+        graph_app.set_default_registry_layout_id((!value.is_empty()).then_some(value));
+    }
+
+    let mut theme_id = graph_app
+        .default_registry_theme_id()
+        .unwrap_or_default()
+        .to_string();
+    if ui
+        .horizontal(|ui| {
+            ui.label("Theme ID");
+            ui.text_edit_singleline(&mut theme_id)
+        })
+        .inner
+        .changed()
+    {
+        let value = theme_id.trim();
+        graph_app.set_default_registry_theme_id((!value.is_empty()).then_some(value));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    {
+        ui.separator();
+        ui.label("Diagnostics");
+        if ui.button("Export Diagnostic Snapshot (JSON)").clicked() {
+            match diagnostics_state.export_snapshot_json() {
+                Ok(path) => log::info!("Diagnostics JSON exported: {}", path.display()),
+                Err(err) => log::warn!("Diagnostics JSON export failed: {err}"),
+            }
+            ui.close();
+        }
+        if ui.button("Export Diagnostic Snapshot (SVG)").clicked() {
+            match diagnostics_state.export_snapshot_svg() {
+                Ok(path) => log::info!("Diagnostics SVG exported: {}", path.display()),
+                Err(err) => log::warn!("Diagnostics SVG export failed: {err}"),
+            }
+            ui.close();
+        }
+    }
 }
 
 fn render_workspace_pin_controls(
@@ -631,9 +733,20 @@ fn render_toolbar_right_controls(
     persisted_workspace_names: &HashSet<String>,
     toggle_tile_view_requested: &mut bool,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: &mut crate::desktop::diagnostics::DiagnosticsState,
 ) {
     ui.menu_button("Settings", |ui| {
-        render_settings_menu(ui, graph_app, state, frame_intents, location_dirty, window);
+        render_settings_menu(
+            ui,
+            graph_app,
+            state,
+            frame_intents,
+            location_dirty,
+            window,
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state,
+        );
     });
 
     let (view_icon, view_tooltip) = if has_webview_tiles {
@@ -743,6 +856,8 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
         show_clear_data_confirm,
         omnibar_search_session,
         frame_intents,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state,
     } = args;
 
     if winit_window.fullscreen().is_some() {
@@ -808,6 +923,8 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
                             &persisted_workspace_names,
                             &mut toggle_tile_view_requested,
                             &mut open_selected_mode_after_submit,
+                            #[cfg(feature = "diagnostics")]
+                            diagnostics_state,
                         );
                     },
                 );

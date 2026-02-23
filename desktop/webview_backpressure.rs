@@ -109,6 +109,8 @@ pub(crate) fn ensure_webview_for_node(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
+    #[cfg(feature = "diagnostics")]
+    let ensure_started = Instant::now();
     let (Some(node), Some(running_state)) =
         (graph_app.graph.get_node(node_key), app_state.as_ref())
     else {
@@ -168,6 +170,13 @@ pub(crate) fn ensure_webview_for_node(
     if state.retry_count >= WEBVIEW_CREATION_MAX_RETRIES {
         let now = Instant::now();
         let delay = arm_creation_cooldown(state, now);
+        #[cfg(feature = "diagnostics")]
+        crate::desktop::diagnostics::emit_event(
+            crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: "webview_backpressure.cooldown",
+                byte_len: state.retry_count as usize,
+            },
+        );
         warn!(
             "Pausing webview creation for node {:?} after retry exhaustion; cooldown {:?}",
             node_key, delay
@@ -190,6 +199,13 @@ pub(crate) fn ensure_webview_for_node(
     let url = Url::parse(&node_url).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
     let webview =
         window.create_toplevel_webview_with_context(running_state.clone(), url, render_context);
+    #[cfg(feature = "diagnostics")]
+    crate::desktop::diagnostics::emit_event(
+        crate::desktop::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: "webview_backpressure.create_attempt",
+            byte_len: 1,
+        },
+    );
     state.retry_count = state.retry_count.saturating_add(1);
     state.pending = Some(WebviewCreationProbe {
         webview_id: webview.id(),
@@ -202,6 +218,11 @@ pub(crate) fn ensure_webview_for_node(
         },
         lifecycle_intents::promote_node_to_active(node_key, LifecycleCause::Restore),
     ]);
+    #[cfg(feature = "diagnostics")]
+    crate::desktop::diagnostics::emit_span_duration(
+        "webview_backpressure::ensure_webview_for_node",
+        ensure_started.elapsed().as_micros() as u64,
+    );
 }
 
 pub(crate) fn reconcile_webview_creation_backpressure(
@@ -211,6 +232,8 @@ pub(crate) fn reconcile_webview_creation_backpressure(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
+    #[cfg(feature = "diagnostics")]
+    let reconcile_started = Instant::now();
     let tracked_nodes: Vec<NodeKey> = webview_creation_backpressure.keys().copied().collect();
     for node_key in tracked_nodes {
         let Some(node) = graph_app.graph.get_node(node_key) else {
@@ -233,6 +256,13 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                 has_responsive_signal,
             ) {
                 WebviewCreationProbeOutcome::Confirmed => {
+                    #[cfg(feature = "diagnostics")]
+                    crate::desktop::diagnostics::emit_event(
+                        crate::desktop::diagnostics::DiagnosticEvent::MessageReceived {
+                            channel_id: "webview_backpressure.confirmed",
+                            latency_us: probe.started_at.elapsed().as_micros() as u64,
+                        },
+                    );
                     state.pending = None;
                     state.retry_count = 0;
                     state.cooldown_until = None;
@@ -244,6 +274,13 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                 },
                 WebviewCreationProbeOutcome::Pending => {},
                 WebviewCreationProbeOutcome::TimedOut => {
+                    #[cfg(feature = "diagnostics")]
+                    crate::desktop::diagnostics::emit_event(
+                        crate::desktop::diagnostics::DiagnosticEvent::MessageReceived {
+                            channel_id: "webview_backpressure.timeout",
+                            latency_us: probe.started_at.elapsed().as_micros() as u64,
+                        },
+                    );
                     if contains_webview {
                         window.close_webview(probe.webview_id);
                     }
@@ -269,6 +306,11 @@ pub(crate) fn reconcile_webview_creation_backpressure(
             }
         }
     }
+    #[cfg(feature = "diagnostics")]
+    crate::desktop::diagnostics::emit_span_duration(
+        "webview_backpressure::reconcile_webview_creation_backpressure",
+        reconcile_started.elapsed().as_micros() as u64,
+    );
 }
 
 #[cfg(test)]

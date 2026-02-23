@@ -21,6 +21,8 @@ use url::Url;
 
 use crate::app::RendererId;
 use crate::running_app_state::{RunningAppState, UserInterfaceCommand, WebViewCollection};
+#[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+use crate::desktop::diagnostics::{self, DiagnosticEvent};
 
 pub(crate) trait WebViewCreationContext {
     fn servo(&self) -> &Servo;
@@ -338,6 +340,16 @@ impl EmbedderWindow {
             webview_id: webview.id(),
             new_url: new_url.to_string(),
         });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "window.graph_event.url_changed",
+            byte_len: 1,
+        });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "servo.delegate.url_changed",
+            byte_len: 1,
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
@@ -354,6 +366,16 @@ impl EmbedderWindow {
             entries: entries.into_iter().map(|u| u.to_string()).collect(),
             current,
         });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "window.graph_event.history_changed",
+            byte_len: 1,
+        });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "servo.delegate.history_changed",
+            byte_len: 1,
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
@@ -363,6 +385,16 @@ impl EmbedderWindow {
         let event = self.new_graph_semantic_event(GraphSemanticEventKind::PageTitleChanged {
             webview_id: webview.id(),
             title,
+        });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "window.graph_event.title_changed",
+            byte_len: 1,
+        });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "servo.delegate.title_changed",
+            byte_len: 1,
         });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
@@ -379,6 +411,16 @@ impl EmbedderWindow {
             child_webview_id: child_webview.id(),
             initial_url: child_webview.url().map(|u| u.to_string()),
         });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "window.graph_event.create_new_webview",
+            byte_len: 1,
+        });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "servo.delegate.create_new_webview",
+            byte_len: 1,
+        });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
         self.set_needs_update();
@@ -394,6 +436,16 @@ impl EmbedderWindow {
             webview_id: webview.id(),
             reason,
             has_backtrace: backtrace.as_deref().is_some_and(|b| !b.is_empty()),
+        });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "window.graph_event.webview_crashed",
+            byte_len: 1,
+        });
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        diagnostics::emit_event(DiagnosticEvent::MessageSent {
+            channel_id: "servo.delegate.webview_crashed",
+            byte_len: 1,
         });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
@@ -422,7 +474,28 @@ impl EmbedderWindow {
 
     /// Return all pending graph semantic events.
     pub(crate) fn take_pending_graph_events(&self) -> Vec<GraphSemanticEvent> {
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        let drain_started = Instant::now();
         let events = std::mem::take(&mut *self.pending_graph_events.borrow_mut());
+        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        {
+            diagnostics::emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: "window.graph_event.drain",
+                latency_us: drain_started.elapsed().as_micros() as u64,
+            });
+            diagnostics::emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: "servo.graph_event.drain",
+                latency_us: drain_started.elapsed().as_micros() as u64,
+            });
+            diagnostics::emit_event(DiagnosticEvent::MessageSent {
+                channel_id: "window.graph_event.drain_count",
+                byte_len: events.len(),
+            });
+            diagnostics::emit_event(DiagnosticEvent::MessageSent {
+                channel_id: "servo.graph_event.drain_count",
+                byte_len: events.len(),
+            });
+        }
         if self.trace_graph_events {
             let drain_id = self.trace_graph_event_drains.get() + 1;
             self.trace_graph_event_drains.set(drain_id);

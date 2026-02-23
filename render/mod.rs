@@ -25,6 +25,7 @@ use egui_graphs::{
 };
 use euclid::default::Point2D;
 use petgraph::stable_graph::NodeIndex;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -68,6 +69,7 @@ pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
 pub fn render_graph_in_ui_collect_actions(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
+    view_id: Option<crate::app::GraphViewId>,
     search_matches: &HashSet<NodeKey>,
     active_search_match: Option<NodeKey>,
     search_display_mode: SearchDisplayMode,
@@ -134,8 +136,26 @@ pub fn render_graph_in_ui_collect_actions(
     // Style: always show labels
     let style = SettingsStyle::new().with_labels_always(true);
 
+    // Resolve physics state and lens from the view (or default to global).
+    let (mut physics_state, lens_config) = if let Some(view_id) = view_id
+        && let Some(view) = app.views.get(&view_id)
+    {
+        let state = if let Some(local) = &view.local_simulation {
+            local.physics.clone()
+        } else {
+            app.physics.clone()
+        };
+        (state, Some(&view.lens))
+    } else {
+        (app.physics.clone(), None)
+    };
+
+    if let Some(lens) = lens_config {
+        lens.physics.apply_to_state(&mut physics_state);
+    }
+
     // Keep egui_graphs layout cache aligned with app-owned FR state.
-    set_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, app.physics.clone(), None);
+    set_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, physics_state, None);
 
     // Render the graph (nested scope for mutable borrow)
     {
@@ -163,7 +183,16 @@ pub fn render_graph_in_ui_collect_actions(
     } // Drop mutable borrow of app.egui_state here
 
     // Pull latest FR state from egui_graphs after this frame's layout step.
-    app.physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
+    let new_physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
+    if let Some(view_id) = view_id
+        && let Some(view) = app.views.get_mut(&view_id)
+        && let Some(local) = &mut view.local_simulation
+    {
+        local.physics = new_physics;
+    } else {
+        app.physics = new_physics;
+    }
+
     app.hovered_graph_node = app.egui_state.as_ref().and_then(|state| {
         state
             .graph
@@ -213,6 +242,7 @@ pub fn render_graph_in_ui_collect_actions(
     }
     draw_highlighted_edge_overlay(ui, app);
     draw_hovered_node_tooltip(ui, app);
+    draw_hovered_edge_tooltip(ui, app);
 
     // Reset fit_to_screen flag (one-shot behavior for 'C' key)
     app.fit_to_screen_requested = false;
@@ -238,6 +268,97 @@ pub fn render_graph_in_ui_collect_actions(
         actions.push(GraphAction::Zoom(zoom));
     }
     actions
+}
+
+fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp) {
+    if app.hovered_graph_node.is_some() {
+        return;
+    }
+    let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
+        return;
+    };
+    let Some(state) = app.egui_state.as_ref() else {
+        return;
+    };
+    let meta_id = egui::Id::new("egui_graphs_metadata_");
+    let Some(meta) = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
+    else {
+        return;
+    };
+    let Some(edge_id) = state.graph.edge_by_screen_pos(&meta, pointer) else {
+        return;
+    };
+    let Some((from, to)) = state.graph.edge_endpoints(edge_id) else {
+        return;
+    };
+
+    let ab_payload = app
+        .graph
+        .find_edge_key(from, to)
+        .and_then(|k| app.graph.get_edge(k));
+    let ba_payload = app
+        .graph
+        .find_edge_key(to, from)
+        .and_then(|k| app.graph.get_edge(k));
+
+    let ab_count = ab_payload.map(|p| p.traversals.len()).unwrap_or(0);
+    let ba_count = ba_payload.map(|p| p.traversals.len()).unwrap_or(0);
+    let total = ab_count + ba_count;
+    if total == 0 {
+        return;
+    }
+
+    let latest_ts = ab_payload
+        .into_iter()
+        .flat_map(|p| p.traversals.iter().map(|t| t.timestamp_ms))
+        .chain(
+            ba_payload
+                .into_iter()
+                .flat_map(|p| p.traversals.iter().map(|t| t.timestamp_ms)),
+        )
+        .max();
+
+    let from_label = app
+        .graph
+        .get_node(from)
+        .map(|n| n.title.as_str())
+        .filter(|t| !t.is_empty())
+        .or_else(|| app.graph.get_node(from).map(|n| n.url.as_str()))
+        .unwrap_or("unknown");
+    let to_label = app
+        .graph
+        .get_node(to)
+        .map(|n| n.title.as_str())
+        .filter(|t| !t.is_empty())
+        .or_else(|| app.graph.get_node(to).map(|n| n.url.as_str()))
+        .unwrap_or("unknown");
+
+    let latest_text = latest_ts
+        .and_then(|ms| {
+            UNIX_EPOCH
+                .checked_add(Duration::from_millis(ms))
+                .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
+                .map(|d| format!("{}s", d.as_secs()))
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    egui::Area::new(egui::Id::new("graph_edge_hover_tooltip"))
+        .order(egui::Order::Tooltip)
+        .fixed_pos(pointer + Vec2::new(14.0, 14.0))
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_max_width(320.0);
+                ui.label(egui::RichText::new("Traversal Edge").strong());
+                ui.label(format!("{from_label} <-> {to_label}"));
+                ui.separator();
+                ui.label(format!("{from_label} -> {to_label}: {ab_count}"));
+                ui.label(format!("{to_label} -> {from_label}: {ba_count}"));
+                ui.label(format!("Total traversals: {total}"));
+                ui.label(format!("Latest traversal: {latest_text}"));
+            });
+        });
 }
 
 fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp) {
@@ -1351,6 +1472,122 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                 });
         });
     app.show_help_panel = open;
+}
+
+/// Render traversal history panel (Stage D: History Panel PoC)
+pub fn render_traversal_history_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) -> Vec<GraphIntent> {
+    let mut intents = Vec::new();
+    
+    if !app.show_traversal_history_panel {
+        return intents;
+    }
+
+    let mut open = app.show_traversal_history_panel;
+    
+    Window::new("Navigation History")
+        .open(&mut open)
+        .default_width(450.0)
+        .default_height(500.0)
+        .show(ctx, |ui| {
+            ui.label("Recent browser navigations (most recent first)");
+            ui.add_space(8.0);
+
+            // Collect all traversals from all edges
+            let mut traversal_records: Vec<(NodeKey, NodeKey, u64, crate::graph::NavigationTrigger)> = Vec::new();
+            
+            for edge_ref in app.graph.inner.edge_references() {
+                let from = edge_ref.source();
+                let to = edge_ref.target();
+                let payload = edge_ref.weight();
+                
+                for traversal in &payload.traversals {
+                    traversal_records.push((from, to, traversal.timestamp_ms, traversal.trigger));
+                }
+            }
+            
+            // Sort by timestamp descending (most recent first)
+            traversal_records.sort_by(|a, b| b.2.cmp(&a.2));
+            
+            // Display last 50 traversals
+            let display_count = traversal_records.len().min(50);
+            
+            if display_count == 0 {
+                ui.label("No navigation history yet.");
+                ui.label("Browse between pages to build your history.");
+            } else {
+                ui.label(format!("Showing {} of {} total traversals", display_count, traversal_records.len()));
+                ui.add_space(4.0);
+                
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for (from_key, to_key, timestamp_ms, trigger) in traversal_records.iter().take(display_count) {
+                            let from_node = app.graph.get_node(*from_key);
+                            let to_node = app.graph.get_node(*to_key);
+                            
+                            let from_label = from_node
+                                .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                                .unwrap_or("<deleted>");
+                            let to_label = to_node
+                                .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                                .unwrap_or("<deleted>");
+                            
+                            let trigger_label = match trigger {
+                                crate::graph::NavigationTrigger::Back => "⬅ Back",
+                                crate::graph::NavigationTrigger::Forward => "➡ Forward",
+                                crate::graph::NavigationTrigger::Unknown => "↔",
+                            };
+                            
+                            // Format timestamp as relative time
+                            let now_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0);
+                            let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
+                            let time_label = if elapsed_ms < 1000 {
+                                "just now".to_string()
+                            } else if elapsed_ms < 60_000 {
+                                format!("{}s ago", elapsed_ms / 1000)
+                            } else if elapsed_ms < 3_600_000 {
+                                format!("{}m ago", elapsed_ms / 60_000)
+                            } else if elapsed_ms < 86_400_000 {
+                                format!("{}h ago", elapsed_ms / 3_600_000)
+                            } else {
+                                format!("{}d ago", elapsed_ms / 86_400_000)
+                            };
+                            
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(&time_label).weak().small());
+                                ui.label(trigger_label);
+                                
+                                // Make the traversal row clickable
+                                let response = ui.selectable_label(false, format!("{} → {}", from_label, to_label));
+                                
+                                if response.clicked() && from_node.is_some() {
+                                    // Focus and pan to the source node
+                                    intents.push(GraphIntent::SelectNode {
+                                        key: *from_key,
+                                        multi_select: false,
+                                    });
+                                    intents.push(GraphIntent::RequestZoomToSelected);
+                                }
+                                
+                                if response.hovered() {
+                                    response.on_hover_text(format!(
+                                        "Click to focus on source node\nFrom: {}\nTo: {}",
+                                        from_label, to_label
+                                    ));
+                                }
+                            });
+                            
+                            ui.add_space(2.0);
+                        }
+                    });
+            }
+        });
+    
+    app.show_traversal_history_panel = open;
+    intents
 }
 
 /// Render edge command palette panel (keyboard-first palette; radial UI can reuse this dispatch).

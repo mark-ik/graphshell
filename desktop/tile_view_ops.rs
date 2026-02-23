@@ -51,19 +51,35 @@ pub(crate) fn open_or_focus_webview_tile_with_mode(
     node_key: NodeKey,
     mode: TileOpenMode,
 ) {
+    log::debug!(
+        "tile_view_ops: open_or_focus_webview_tile_with_mode node {:?} mode {:?}",
+        node_key,
+        mode
+    );
     if tiles_tree.make_active(
         |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
     ) {
+        log::debug!("tile_view_ops: focused existing webview tile for node {:?}", node_key);
         return;
     }
 
     let webview_tile_id = tiles_tree.tiles.insert_pane(TileKind::WebView(node_key));
     let split_leaf_tile_id = tiles_tree.tiles.insert_tab_tile(vec![webview_tile_id]);
+    log::debug!(
+        "tile_view_ops: inserted webview tile {:?} (split leaf {:?}) for node {:?}",
+        webview_tile_id,
+        split_leaf_tile_id,
+        node_key
+    );
     let Some(root_id) = tiles_tree.root() else {
         tiles_tree.root = Some(match mode {
             TileOpenMode::Tab => webview_tile_id,
             TileOpenMode::SplitHorizontal => split_leaf_tile_id,
         });
+        log::debug!(
+            "tile_view_ops: no root, set root to {:?}",
+            tiles_tree.root
+        );
         return;
     };
 
@@ -80,6 +96,9 @@ pub(crate) fn open_or_focus_webview_tile_with_mode(
                 .tiles
                 .insert_tab_tile(vec![root_id, webview_tile_id]);
             tiles_tree.root = Some(tabs_root);
+            tiles_tree.make_active(
+                |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
+            );
         },
         TileOpenMode::SplitHorizontal => {
             // Never split directly against a raw leaf pane: wrap it in tabs first.
@@ -98,12 +117,18 @@ pub(crate) fn open_or_focus_webview_tile_with_mode(
                 tiles_tree.tiles.get_mut(split_lhs_id)
             {
                 linear.add_child(split_leaf_tile_id);
+                tiles_tree.make_active(
+                    |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
+                );
                 return;
             }
             let split_root = tiles_tree
                 .tiles
                 .insert_horizontal_tile(vec![split_lhs_id, split_leaf_tile_id]);
             tiles_tree.root = Some(split_root);
+            tiles_tree.make_active(
+                |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
+            );
         },
     }
 }

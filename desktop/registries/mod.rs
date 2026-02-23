@@ -1,0 +1,1373 @@
+pub(crate) mod action;
+pub(crate) mod diagnostics;
+pub(crate) mod identity;
+pub(crate) mod input;
+pub(crate) mod layout;
+pub(crate) mod lens;
+pub(crate) mod physics;
+pub(crate) mod protocol;
+pub(crate) mod ontology;
+pub(crate) mod theme;
+pub(crate) mod viewer;
+
+use super::diagnostics::{DiagnosticEvent, emit_event};
+use crate::app::{GraphBrowserApp, GraphIntent};
+use action::{
+    ACTION_DETAIL_VIEW_SUBMIT, ACTION_GRAPH_VIEW_SUBMIT, ACTION_OMNIBOX_NODE_SEARCH,
+    ActionPayload, ActionRegistry,
+};
+use diagnostics::DiagnosticsRegistry;
+use identity::IdentityRegistry;
+use input::{InputRegistry, INPUT_BINDING_TOOLBAR_SUBMIT};
+use layout::LayoutRegistry;
+use lens::LensRegistry;
+use physics::PhysicsRegistry;
+use servo::ServoUrl;
+use protocol::{
+    ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
+};
+use ontology::OntologyRegistry;
+use theme::ThemeRegistry;
+use viewer::{ViewerRegistry, ViewerSelection};
+
+pub(crate) const CHANNEL_PROTOCOL_RESOLVE_STARTED: &str = "registry.protocol.resolve_started";
+pub(crate) const CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED: &str = "registry.protocol.resolve_succeeded";
+pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FAILED: &str = "registry.protocol.resolve_failed";
+pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED: &str =
+    "registry.protocol.fallback_used";
+pub(crate) const CHANNEL_VIEWER_SELECT_STARTED: &str = "registry.viewer.select_started";
+pub(crate) const CHANNEL_VIEWER_SELECT_SUCCEEDED: &str = "registry.viewer.select_succeeded";
+pub(crate) const CHANNEL_VIEWER_FALLBACK_USED: &str = "registry.viewer.fallback_used";
+pub(crate) const CHANNEL_ACTION_EXECUTE_STARTED: &str = "registry.action.execute_started";
+pub(crate) const CHANNEL_ACTION_EXECUTE_SUCCEEDED: &str = "registry.action.execute_succeeded";
+pub(crate) const CHANNEL_ACTION_EXECUTE_FAILED: &str = "registry.action.execute_failed";
+pub(crate) const CHANNEL_INPUT_BINDING_RESOLVED: &str = "registry.input.binding_resolved";
+pub(crate) const CHANNEL_INPUT_BINDING_MISSING: &str = "registry.input.binding_missing";
+pub(crate) const CHANNEL_INPUT_BINDING_CONFLICT: &str = "registry.input.binding_conflict";
+pub(crate) const CHANNEL_LENS_RESOLVE_SUCCEEDED: &str = "registry.lens.resolve_succeeded";
+pub(crate) const CHANNEL_LENS_RESOLVE_FAILED: &str = "registry.lens.resolve_failed";
+pub(crate) const CHANNEL_LENS_FALLBACK_USED: &str = "registry.lens.fallback_used";
+pub(crate) const CHANNEL_LAYOUT_LOOKUP_SUCCEEDED: &str = "registry.layout.lookup_succeeded";
+pub(crate) const CHANNEL_LAYOUT_LOOKUP_FAILED: &str = "registry.layout.lookup_failed";
+pub(crate) const CHANNEL_LAYOUT_FALLBACK_USED: &str = "registry.layout.fallback_used";
+pub(crate) const CHANNEL_THEME_LOOKUP_SUCCEEDED: &str = "registry.theme.lookup_succeeded";
+pub(crate) const CHANNEL_THEME_LOOKUP_FAILED: &str = "registry.theme.lookup_failed";
+pub(crate) const CHANNEL_THEME_FALLBACK_USED: &str = "registry.theme.fallback_used";
+pub(crate) const CHANNEL_PHYSICS_LOOKUP_SUCCEEDED: &str = "registry.physics.lookup_succeeded";
+pub(crate) const CHANNEL_PHYSICS_LOOKUP_FAILED: &str = "registry.physics.lookup_failed";
+pub(crate) const CHANNEL_PHYSICS_FALLBACK_USED: &str = "registry.physics.fallback_used";
+pub(crate) const CHANNEL_IDENTITY_SIGN_STARTED: &str = "registry.identity.sign_started";
+pub(crate) const CHANNEL_IDENTITY_SIGN_SUCCEEDED: &str = "registry.identity.sign_succeeded";
+pub(crate) const CHANNEL_IDENTITY_SIGN_FAILED: &str = "registry.identity.sign_failed";
+pub(crate) const CHANNEL_IDENTITY_KEY_UNAVAILABLE: &str = "registry.identity.key_unavailable";
+pub(crate) const CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED: &str =
+    "registry.diagnostics.channel_registered";
+pub(crate) const CHANNEL_DIAGNOSTICS_CONFIG_CHANGED: &str =
+    "registry.diagnostics.config_changed";
+pub(crate) const CHANNEL_INVARIANT_TIMEOUT: &str = "registry.invariant.timeout";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Phase0NavigationDecision {
+    pub(crate) normalized_url: ServoUrl,
+    pub(crate) protocol: ProtocolResolution,
+    pub(crate) viewer: ViewerSelection,
+}
+
+#[derive(Default)]
+pub(crate) struct RegistryRuntime {
+    action: ActionRegistry,
+    pub(crate) diagnostics: DiagnosticsRegistry,
+    identity: IdentityRegistry,
+    input: InputRegistry,
+    layout: LayoutRegistry,
+    lens: LensRegistry,
+    physics: PhysicsRegistry,
+    protocol: ProtocolRegistry,
+    theme: ThemeRegistry,
+    viewer: ViewerRegistry,
+    pub(crate) ontology: OntologyRegistry,
+}
+
+pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) -> Option<String> {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
+        byte_len: identity_id.len().saturating_add(payload.len()),
+    });
+
+    let result = RegistryRuntime::default().identity.sign(identity_id, payload);
+    if result.succeeded {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_IDENTITY_SIGN_SUCCEEDED,
+            latency_us: 1,
+        });
+    } else {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_IDENTITY_SIGN_FAILED,
+            latency_us: 1,
+        });
+    }
+
+    if !result.resolution.key_available {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_IDENTITY_KEY_UNAVAILABLE,
+            byte_len: result.resolution.resolved_id.len(),
+        });
+    }
+
+    result.signature
+}
+
+impl RegistryRuntime {
+    pub(crate) fn observe_navigation_url_with_control(
+        &self,
+        uri: &str,
+        mime_hint: Option<&str>,
+        control: ProtocolResolveControl,
+    ) -> Option<(ProtocolResolution, ViewerSelection)> {
+        debug_assert!(!diagnostics::phase0_required_channels().is_empty());
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED,
+            byte_len: uri.len(),
+        });
+        let protocol = match self.protocol.resolve_with_control(uri, control) {
+            ProtocolResolveOutcome::Resolved(resolution) => resolution,
+            ProtocolResolveOutcome::Cancelled => {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_PROTOCOL_RESOLVE_FAILED,
+                    latency_us: 1,
+                });
+                return None;
+            }
+        };
+
+        if protocol.supported {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
+                latency_us: 1,
+            });
+        } else {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_PROTOCOL_RESOLVE_FAILED,
+                latency_us: 1,
+            });
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
+                byte_len: protocol.matched_scheme.len(),
+            });
+        }
+
+        let effective_mime_hint = mime_hint.or(protocol.inferred_mime_hint.as_deref());
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VIEWER_SELECT_STARTED,
+            byte_len: effective_mime_hint.unwrap_or(uri).len(),
+        });
+        let viewer = self.viewer.select_for_uri(uri, effective_mime_hint);
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
+            latency_us: 1,
+        });
+        if viewer.fallback_used {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_VIEWER_FALLBACK_USED,
+                byte_len: viewer.viewer_id.len(),
+            });
+        }
+
+        Some((protocol, viewer))
+    }
+
+}
+
+pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
+    phase2_resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT)
+}
+
+pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+
+    let resolution = RegistryRuntime::default().input.resolve(binding_id);
+
+    if resolution.matched {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_INPUT_BINDING_RESOLVED,
+            byte_len: resolution.action_id.as_deref().unwrap_or_default().len(),
+        });
+        return true;
+    }
+
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_INPUT_BINDING_MISSING,
+        byte_len: resolution.binding_id.len(),
+    });
+    false
+}
+
+pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+
+    let runtime = RegistryRuntime::default();
+    let resolution = runtime.lens.resolve(lens_id);
+    log::debug!(
+        "registry lens resolve requested='{}' resolved='{}' matched={} fallback={}",
+        resolution.requested_id,
+        resolution.resolved_id,
+        resolution.matched,
+        resolution.fallback_used
+    );
+
+    if resolution.matched {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_LENS_RESOLVE_SUCCEEDED,
+            latency_us: 1,
+        });
+    } else {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_LENS_RESOLVE_FAILED,
+            latency_us: 1,
+        });
+    }
+
+    if resolution.fallback_used {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_LENS_FALLBACK_USED,
+            byte_len: resolution.resolved_id.len(),
+        });
+    }
+
+    let physics_resolution = runtime.physics.resolve(&resolution.definition.physics_id);
+    emit_lookup_diagnostics(
+        physics_resolution.matched,
+        physics_resolution.fallback_used,
+        CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
+        CHANNEL_PHYSICS_LOOKUP_FAILED,
+        CHANNEL_PHYSICS_FALLBACK_USED,
+        &physics_resolution.resolved_id,
+    );
+
+    let layout_resolution = runtime.layout.resolve(&resolution.definition.layout_id);
+    emit_lookup_diagnostics(
+        layout_resolution.matched,
+        layout_resolution.fallback_used,
+        CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
+        CHANNEL_LAYOUT_LOOKUP_FAILED,
+        CHANNEL_LAYOUT_FALLBACK_USED,
+        &layout_resolution.resolved_id,
+    );
+
+    let theme_resolution = resolution
+        .definition
+        .theme_id
+        .as_deref()
+        .map(|theme_id| runtime.theme.resolve(theme_id));
+    if let Some(theme_resolution) = &theme_resolution {
+        emit_lookup_diagnostics(
+            theme_resolution.matched,
+            theme_resolution.fallback_used,
+            CHANNEL_THEME_LOOKUP_SUCCEEDED,
+            CHANNEL_THEME_LOOKUP_FAILED,
+            CHANNEL_THEME_FALLBACK_USED,
+            &theme_resolution.resolved_id,
+        );
+    }
+
+    crate::app::LensConfig {
+        name: resolution.definition.display_name,
+        lens_id: Some(resolution.resolved_id),
+        physics_id: Some(physics_resolution.resolved_id),
+        layout_id: Some(layout_resolution.resolved_id),
+        theme_id: theme_resolution.as_ref().map(|resolved| resolved.resolved_id.clone()),
+        physics: physics_resolution.profile,
+        layout: layout_resolution.layout,
+        theme: theme_resolution.map(|resolved| resolved.theme_id),
+        filters: resolution.definition.filters,
+    }
+}
+
+pub(crate) fn phase2_resolve_lens_components(lens: &crate::app::LensConfig) -> crate::app::LensConfig {
+    let has_component_ids = lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
+    if !has_component_ids {
+        return lens.clone();
+    }
+
+    let runtime = RegistryRuntime::default();
+    let mut normalized = lens.clone();
+
+    if let Some(physics_id) = lens.physics_id.as_deref() {
+        let physics_resolution = runtime.physics.resolve(physics_id);
+        emit_lookup_diagnostics(
+            physics_resolution.matched,
+            physics_resolution.fallback_used,
+            CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
+            CHANNEL_PHYSICS_LOOKUP_FAILED,
+            CHANNEL_PHYSICS_FALLBACK_USED,
+            &physics_resolution.resolved_id,
+        );
+        normalized.physics = physics_resolution.profile;
+        normalized.physics_id = Some(physics_resolution.resolved_id);
+    }
+
+    if let Some(layout_id) = lens.layout_id.as_deref() {
+        let layout_resolution = runtime.layout.resolve(layout_id);
+        emit_lookup_diagnostics(
+            layout_resolution.matched,
+            layout_resolution.fallback_used,
+            CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
+            CHANNEL_LAYOUT_LOOKUP_FAILED,
+            CHANNEL_LAYOUT_FALLBACK_USED,
+            &layout_resolution.resolved_id,
+        );
+        normalized.layout = layout_resolution.layout;
+        normalized.layout_id = Some(layout_resolution.resolved_id);
+    }
+
+    if let Some(theme_id) = lens.theme_id.as_deref() {
+        let theme_resolution = runtime.theme.resolve(theme_id);
+        emit_lookup_diagnostics(
+            theme_resolution.matched,
+            theme_resolution.fallback_used,
+            CHANNEL_THEME_LOOKUP_SUCCEEDED,
+            CHANNEL_THEME_LOOKUP_FAILED,
+            CHANNEL_THEME_FALLBACK_USED,
+            &theme_resolution.resolved_id,
+        );
+        normalized.theme = Some(theme_resolution.theme_id.clone());
+        normalized.theme_id = Some(theme_resolution.resolved_id);
+    }
+
+    normalized
+}
+
+fn emit_lookup_diagnostics(
+    matched: bool,
+    fallback_used: bool,
+    success_channel: &'static str,
+    failed_channel: &'static str,
+    fallback_channel: &'static str,
+    resolved_id: &str,
+) {
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: if matched {
+            success_channel
+        } else {
+            failed_channel
+        },
+        latency_us: 1,
+    });
+
+    if fallback_used {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: fallback_channel,
+            byte_len: resolved_id.len(),
+        });
+    }
+}
+
+pub(crate) fn phase2_execute_omnibox_node_search_action(
+    app: &GraphBrowserApp,
+    query: &str,
+) -> Vec<GraphIntent> {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_ACTION_EXECUTE_STARTED,
+        byte_len: query.len(),
+    });
+
+    let execution = RegistryRuntime::default()
+        .action
+        .execute(
+            ACTION_OMNIBOX_NODE_SEARCH,
+            app,
+            ActionPayload::OmniboxNodeSearch {
+                query: query.to_string(),
+            },
+        );
+
+    log::debug!(
+        "registry action '{}' executed for omnibox query '{}'; succeeded={} intents={}",
+        execution.action_id,
+        query,
+        execution.succeeded,
+        execution.intents.len()
+    );
+
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: if execution.succeeded {
+            CHANNEL_ACTION_EXECUTE_SUCCEEDED
+        } else {
+            CHANNEL_ACTION_EXECUTE_FAILED
+        },
+        latency_us: 1,
+    });
+
+    execution.intents
+}
+
+pub(crate) fn register_mod_diagnostics_channel(
+    mod_id: &str,
+    channel_id: &str,
+    schema_version: u16,
+    description: Option<String>,
+) -> Result<bool, diagnostics::ChannelRegistrationError> {
+    let created = diagnostics::register_mod_channel_global(
+        mod_id,
+        channel_id,
+        schema_version,
+        description,
+        &[diagnostics::DiagnosticsCapability::RegisterChannels],
+    )?;
+    if created {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED,
+            byte_len: channel_id.len(),
+        });
+    }
+    Ok(created)
+}
+
+pub(crate) fn register_verse_diagnostics_channel(
+    peer_id: &str,
+    channel_id: &str,
+    schema_version: u16,
+    description: Option<String>,
+) -> Result<bool, diagnostics::ChannelRegistrationError> {
+    let created = diagnostics::register_verse_channel_global(
+        peer_id,
+        channel_id,
+        schema_version,
+        description,
+        &[diagnostics::DiagnosticsCapability::RegisterChannels],
+    )?;
+    if created {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED,
+            byte_len: channel_id.len(),
+        });
+    }
+    Ok(created)
+}
+
+pub(crate) fn register_diagnostics_invariant(
+    invariant: diagnostics::DiagnosticsInvariant,
+) -> Result<bool, diagnostics::ChannelRegistrationError> {
+    diagnostics::register_invariant_global(
+        invariant,
+        &[diagnostics::DiagnosticsCapability::RegisterInvariants],
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn phase3_sign_identity_payload_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    identity_id: &str,
+    payload: &[u8],
+) -> Option<String> {
+    diagnostics_state.emit_message_sent_for_tests(
+        CHANNEL_IDENTITY_SIGN_STARTED,
+        identity_id.len().saturating_add(payload.len()),
+    );
+
+    let result = RegistryRuntime::default().identity.sign(identity_id, payload);
+    diagnostics_state.emit_message_received_for_tests(
+        if result.succeeded {
+            CHANNEL_IDENTITY_SIGN_SUCCEEDED
+        } else {
+            CHANNEL_IDENTITY_SIGN_FAILED
+        },
+        1,
+    );
+
+    if !result.resolution.key_available {
+        diagnostics_state.emit_message_sent_for_tests(
+            CHANNEL_IDENTITY_KEY_UNAVAILABLE,
+            result.resolution.resolved_id.len(),
+        );
+    }
+
+    result.signature
+}
+
+#[cfg(test)]
+pub(crate) fn phase2_resolve_toolbar_submit_binding_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+) -> bool {
+    phase2_resolve_input_binding_for_tests(diagnostics_state, INPUT_BINDING_TOOLBAR_SUBMIT)
+}
+
+#[cfg(test)]
+pub(crate) fn phase2_resolve_input_binding_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    binding_id: &str,
+) -> bool {
+    let resolution = RegistryRuntime::default().input.resolve(binding_id);
+
+    if resolution.matched {
+        diagnostics_state.emit_message_sent_for_tests(
+            CHANNEL_INPUT_BINDING_RESOLVED,
+            resolution.action_id.as_deref().unwrap_or_default().len(),
+        );
+        return true;
+    }
+
+    diagnostics_state
+        .emit_message_sent_for_tests(CHANNEL_INPUT_BINDING_MISSING, resolution.binding_id.len());
+    false
+}
+
+#[cfg(test)]
+pub(crate) fn phase2_resolve_lens_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    lens_id: &str,
+) -> crate::app::LensConfig {
+    let runtime = RegistryRuntime::default();
+    let resolution = runtime.lens.resolve(lens_id);
+
+    if resolution.matched {
+        diagnostics_state.emit_message_received_for_tests(CHANNEL_LENS_RESOLVE_SUCCEEDED, 1);
+    } else {
+        diagnostics_state.emit_message_received_for_tests(CHANNEL_LENS_RESOLVE_FAILED, 1);
+    }
+
+    if resolution.fallback_used {
+        diagnostics_state
+            .emit_message_sent_for_tests(CHANNEL_LENS_FALLBACK_USED, resolution.resolved_id.len());
+    }
+
+    let physics_resolution = runtime.physics.resolve(&resolution.definition.physics_id);
+    emit_lookup_diagnostics_for_tests(
+        diagnostics_state,
+        physics_resolution.matched,
+        physics_resolution.fallback_used,
+        CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
+        CHANNEL_PHYSICS_LOOKUP_FAILED,
+        CHANNEL_PHYSICS_FALLBACK_USED,
+        &physics_resolution.resolved_id,
+    );
+
+    let layout_resolution = runtime.layout.resolve(&resolution.definition.layout_id);
+    emit_lookup_diagnostics_for_tests(
+        diagnostics_state,
+        layout_resolution.matched,
+        layout_resolution.fallback_used,
+        CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
+        CHANNEL_LAYOUT_LOOKUP_FAILED,
+        CHANNEL_LAYOUT_FALLBACK_USED,
+        &layout_resolution.resolved_id,
+    );
+
+    let theme_resolution = resolution
+        .definition
+        .theme_id
+        .as_deref()
+        .map(|theme_id| runtime.theme.resolve(theme_id));
+    if let Some(theme_resolution) = &theme_resolution {
+        emit_lookup_diagnostics_for_tests(
+            diagnostics_state,
+            theme_resolution.matched,
+            theme_resolution.fallback_used,
+            CHANNEL_THEME_LOOKUP_SUCCEEDED,
+            CHANNEL_THEME_LOOKUP_FAILED,
+            CHANNEL_THEME_FALLBACK_USED,
+            &theme_resolution.resolved_id,
+        );
+    }
+
+    crate::app::LensConfig {
+        name: resolution.definition.display_name,
+        lens_id: Some(resolution.resolved_id),
+        physics_id: Some(physics_resolution.resolved_id),
+        layout_id: Some(layout_resolution.resolved_id),
+        theme_id: theme_resolution.as_ref().map(|resolved| resolved.resolved_id.clone()),
+        physics: physics_resolution.profile,
+        layout: layout_resolution.layout,
+        theme: theme_resolution.map(|resolved| resolved.theme_id),
+        filters: resolution.definition.filters,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn phase2_resolve_lens_components_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    lens: &crate::app::LensConfig,
+) -> crate::app::LensConfig {
+    let has_component_ids = lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
+    if !has_component_ids {
+        return lens.clone();
+    }
+
+    let runtime = RegistryRuntime::default();
+    let mut normalized = lens.clone();
+
+    if let Some(physics_id) = lens.physics_id.as_deref() {
+        let physics_resolution = runtime.physics.resolve(physics_id);
+        emit_lookup_diagnostics_for_tests(
+            diagnostics_state,
+            physics_resolution.matched,
+            physics_resolution.fallback_used,
+            CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
+            CHANNEL_PHYSICS_LOOKUP_FAILED,
+            CHANNEL_PHYSICS_FALLBACK_USED,
+            &physics_resolution.resolved_id,
+        );
+        normalized.physics = physics_resolution.profile;
+        normalized.physics_id = Some(physics_resolution.resolved_id);
+    }
+
+    if let Some(layout_id) = lens.layout_id.as_deref() {
+        let layout_resolution = runtime.layout.resolve(layout_id);
+        emit_lookup_diagnostics_for_tests(
+            diagnostics_state,
+            layout_resolution.matched,
+            layout_resolution.fallback_used,
+            CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
+            CHANNEL_LAYOUT_LOOKUP_FAILED,
+            CHANNEL_LAYOUT_FALLBACK_USED,
+            &layout_resolution.resolved_id,
+        );
+        normalized.layout = layout_resolution.layout;
+        normalized.layout_id = Some(layout_resolution.resolved_id);
+    }
+
+    if let Some(theme_id) = lens.theme_id.as_deref() {
+        let theme_resolution = runtime.theme.resolve(theme_id);
+        emit_lookup_diagnostics_for_tests(
+            diagnostics_state,
+            theme_resolution.matched,
+            theme_resolution.fallback_used,
+            CHANNEL_THEME_LOOKUP_SUCCEEDED,
+            CHANNEL_THEME_LOOKUP_FAILED,
+            CHANNEL_THEME_FALLBACK_USED,
+            &theme_resolution.resolved_id,
+        );
+        normalized.theme = Some(theme_resolution.theme_id.clone());
+        normalized.theme_id = Some(theme_resolution.resolved_id);
+    }
+
+    normalized
+}
+
+#[cfg(test)]
+fn emit_lookup_diagnostics_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    matched: bool,
+    fallback_used: bool,
+    success_channel: &'static str,
+    failed_channel: &'static str,
+    fallback_channel: &'static str,
+    resolved_id: &str,
+) {
+    diagnostics_state.emit_message_received_for_tests(
+        if matched {
+            success_channel
+        } else {
+            failed_channel
+        },
+        1,
+    );
+
+    if fallback_used {
+        diagnostics_state.emit_message_sent_for_tests(fallback_channel, resolved_id.len());
+    }
+}
+
+pub(crate) fn phase2_execute_graph_view_submit_action(
+    app: &GraphBrowserApp,
+    input: &str,
+) -> (bool, Vec<GraphIntent>) {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_ACTION_EXECUTE_STARTED,
+        byte_len: input.len(),
+    });
+
+    let execution = RegistryRuntime::default()
+        .action
+        .execute(
+            ACTION_GRAPH_VIEW_SUBMIT,
+            app,
+            ActionPayload::GraphViewSubmit {
+                input: input.to_string(),
+            },
+        );
+
+    log::debug!(
+        "registry action '{}' executed for graph-view submit '{}'; succeeded={} intents={}",
+        execution.action_id,
+        input,
+        execution.succeeded,
+        execution.intents.len()
+    );
+
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: if execution.succeeded {
+            CHANNEL_ACTION_EXECUTE_SUCCEEDED
+        } else {
+            CHANNEL_ACTION_EXECUTE_FAILED
+        },
+        latency_us: 1,
+    });
+
+    let open_selected_tile = execution.succeeded && !execution.intents.is_empty();
+    (open_selected_tile, execution.intents)
+}
+
+pub(crate) fn phase2_execute_detail_view_submit_action(
+    app: &GraphBrowserApp,
+    normalized_url: &str,
+    focused_node: Option<crate::graph::NodeKey>,
+) -> (bool, Vec<GraphIntent>) {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_ACTION_EXECUTE_STARTED,
+        byte_len: normalized_url.len(),
+    });
+
+    let execution = RegistryRuntime::default().action.execute(
+        ACTION_DETAIL_VIEW_SUBMIT,
+        app,
+        ActionPayload::DetailViewSubmit {
+            normalized_url: normalized_url.to_string(),
+            focused_node,
+        },
+    );
+
+    log::debug!(
+        "registry action '{}' executed for detail-view submit '{}'; succeeded={} intents={}",
+        execution.action_id,
+        normalized_url,
+        execution.succeeded,
+        execution.intents.len()
+    );
+
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: if execution.succeeded {
+            CHANNEL_ACTION_EXECUTE_SUCCEEDED
+        } else {
+            CHANNEL_ACTION_EXECUTE_FAILED
+        },
+        latency_us: 1,
+    });
+
+    let open_selected_tile = execution
+        .intents
+        .iter()
+        .any(|intent| matches!(intent, GraphIntent::CreateNodeAtUrl { .. }));
+    (open_selected_tile, execution.intents)
+}
+
+fn phase0_observe_navigation_url_with_control(
+    uri: &str,
+    mime_hint: Option<&str>,
+    control: ProtocolResolveControl,
+) -> Option<(ProtocolResolution, ViewerSelection)> {
+    RegistryRuntime::default().observe_navigation_url_with_control(uri, mime_hint, control)
+}
+
+fn apply_phase0_protocol_policy(
+    parsed_url: ServoUrl,
+    resolution: &ProtocolResolution,
+) -> ServoUrl {
+    if resolution.supported || !resolution.fallback_used || resolution.matched_scheme.is_empty() {
+        return parsed_url;
+    }
+
+    if let Some((_, remainder)) = parsed_url.as_str().split_once(':') {
+        let rewritten = format!("{}:{}", resolution.matched_scheme, remainder);
+        if let Ok(rewritten_url) = ServoUrl::parse(&rewritten) {
+            return rewritten_url;
+        }
+    }
+
+    parsed_url
+}
+
+pub(crate) fn phase0_decide_navigation_with_control(
+    parsed_url: ServoUrl,
+    mime_hint: Option<&str>,
+    control: ProtocolResolveControl,
+) -> Option<Phase0NavigationDecision> {
+    let (protocol_resolution, viewer_selection) =
+        phase0_observe_navigation_url_with_control(parsed_url.as_str(), mime_hint, control)?;
+    if viewer_selection.viewer_id != "viewer:webview" {
+        log::debug!(
+            "registry viewer '{}' selected for {}; keeping webview path in Phase 0",
+            viewer_selection.viewer_id,
+            parsed_url.as_str()
+        );
+    }
+
+    let normalized_url = apply_phase0_protocol_policy(parsed_url, &protocol_resolution);
+    Some(Phase0NavigationDecision {
+        normalized_url,
+        protocol: protocol_resolution,
+        viewer: viewer_selection,
+    })
+}
+
+#[cfg(test)]
+fn phase0_observe_navigation_url_for_tests_with_control(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    uri: &str,
+    mime_hint: Option<&str>,
+    control: ProtocolResolveControl,
+) -> Option<(ProtocolResolution, ViewerSelection)> {
+    let runtime = RegistryRuntime::default();
+
+    diagnostics_state.emit_message_sent_for_tests(CHANNEL_PROTOCOL_RESOLVE_STARTED, uri.len());
+    let protocol = match runtime.protocol.resolve_with_control(uri, control) {
+        ProtocolResolveOutcome::Resolved(resolution) => resolution,
+        ProtocolResolveOutcome::Cancelled => {
+            diagnostics_state.emit_message_received_for_tests(CHANNEL_PROTOCOL_RESOLVE_FAILED, 1);
+            return None;
+        }
+    };
+    if protocol.supported {
+        diagnostics_state.emit_message_received_for_tests(CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED, 1);
+    } else {
+        diagnostics_state.emit_message_received_for_tests(CHANNEL_PROTOCOL_RESOLVE_FAILED, 1);
+        diagnostics_state.emit_message_sent_for_tests(
+            CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
+            protocol.matched_scheme.len(),
+        );
+    }
+
+    let effective_mime_hint = mime_hint.or(protocol.inferred_mime_hint.as_deref());
+
+    diagnostics_state.emit_message_sent_for_tests(
+        CHANNEL_VIEWER_SELECT_STARTED,
+        effective_mime_hint.unwrap_or(uri).len(),
+    );
+    let viewer = runtime.viewer.select_for_uri(uri, effective_mime_hint);
+    diagnostics_state.emit_message_received_for_tests(CHANNEL_VIEWER_SELECT_SUCCEEDED, 1);
+    if viewer.fallback_used {
+        diagnostics_state.emit_message_sent_for_tests(CHANNEL_VIEWER_FALLBACK_USED, viewer.viewer_id.len());
+    }
+
+    Some((protocol, viewer))
+}
+
+#[cfg(test)]
+pub(crate) fn phase0_decide_navigation_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    parsed_url: ServoUrl,
+    mime_hint: Option<&str>,
+) -> Phase0NavigationDecision {
+    phase0_decide_navigation_for_tests_with_control(
+        diagnostics_state,
+        parsed_url,
+        mime_hint,
+        ProtocolResolveControl::default(),
+    )
+    .expect("default protocol resolve control must remain active")
+}
+
+#[cfg(test)]
+pub(crate) fn phase2_execute_omnibox_node_search_action_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    app: &GraphBrowserApp,
+    query: &str,
+) -> Vec<GraphIntent> {
+    diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, query.len());
+
+    let execution = RegistryRuntime::default()
+        .action
+        .execute(
+            ACTION_OMNIBOX_NODE_SEARCH,
+            app,
+            ActionPayload::OmniboxNodeSearch {
+                query: query.to_string(),
+            },
+        );
+
+    log::debug!(
+        "registry action '{}' executed in test flow; succeeded={} intents={}",
+        execution.action_id,
+        execution.succeeded,
+        execution.intents.len()
+    );
+
+    diagnostics_state.emit_message_received_for_tests(
+        if execution.succeeded {
+            CHANNEL_ACTION_EXECUTE_SUCCEEDED
+        } else {
+            CHANNEL_ACTION_EXECUTE_FAILED
+        },
+        1,
+    );
+
+    execution.intents
+}
+
+#[cfg(test)]
+pub(crate) fn phase2_execute_graph_view_submit_action_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    app: &GraphBrowserApp,
+    input: &str,
+) -> (bool, Vec<GraphIntent>) {
+    diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, input.len());
+
+    let execution = RegistryRuntime::default()
+        .action
+        .execute(
+            ACTION_GRAPH_VIEW_SUBMIT,
+            app,
+            ActionPayload::GraphViewSubmit {
+                input: input.to_string(),
+            },
+        );
+
+    diagnostics_state.emit_message_received_for_tests(
+        if execution.succeeded {
+            CHANNEL_ACTION_EXECUTE_SUCCEEDED
+        } else {
+            CHANNEL_ACTION_EXECUTE_FAILED
+        },
+        1,
+    );
+
+    let open_selected_tile = execution.succeeded && !execution.intents.is_empty();
+    (open_selected_tile, execution.intents)
+}
+
+#[cfg(test)]
+pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    app: &GraphBrowserApp,
+    normalized_url: &str,
+    focused_node: Option<crate::graph::NodeKey>,
+) -> (bool, Vec<GraphIntent>) {
+    diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, normalized_url.len());
+
+    let execution = RegistryRuntime::default().action.execute(
+        ACTION_DETAIL_VIEW_SUBMIT,
+        app,
+        ActionPayload::DetailViewSubmit {
+            normalized_url: normalized_url.to_string(),
+            focused_node,
+        },
+    );
+
+    diagnostics_state.emit_message_received_for_tests(
+        if execution.succeeded {
+            CHANNEL_ACTION_EXECUTE_SUCCEEDED
+        } else {
+            CHANNEL_ACTION_EXECUTE_FAILED
+        },
+        1,
+    );
+
+    let open_selected_tile = execution
+        .intents
+        .iter()
+        .any(|intent| matches!(intent, GraphIntent::CreateNodeAtUrl { .. }));
+    (open_selected_tile, execution.intents)
+}
+
+#[cfg(test)]
+pub(crate) fn phase0_decide_navigation_for_tests_with_control(
+    diagnostics_state: &crate::desktop::diagnostics::DiagnosticsState,
+    parsed_url: ServoUrl,
+    mime_hint: Option<&str>,
+    control: ProtocolResolveControl,
+) -> Option<Phase0NavigationDecision> {
+    let (protocol_resolution, viewer_selection) = phase0_observe_navigation_url_for_tests_with_control(
+        diagnostics_state,
+        parsed_url.as_str(),
+        mime_hint,
+        control,
+    )?;
+    if viewer_selection.viewer_id != "viewer:webview" {
+        log::debug!(
+            "registry viewer '{}' selected for {}; keeping webview path in Phase 0",
+            viewer_selection.viewer_id,
+            parsed_url.as_str()
+        );
+    }
+
+    let normalized_url = apply_phase0_protocol_policy(parsed_url, &protocol_resolution);
+    Some(Phase0NavigationDecision {
+        normalized_url,
+        protocol: protocol_resolution,
+        viewer: viewer_selection,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protocol_registry_resolves_known_scheme_and_falls_back_for_unknown() {
+        let registry = ProtocolRegistry::default();
+        let https = registry.resolve("https://example.com");
+        assert!(https.supported);
+        assert!(!https.fallback_used);
+
+        let custom = registry.resolve("foo://example.com");
+        assert!(!custom.supported);
+        assert!(custom.fallback_used);
+        assert_eq!(custom.matched_scheme, "https");
+    }
+
+    #[test]
+    fn viewer_registry_prefers_mime_then_extension_then_fallback() {
+        let registry = ViewerRegistry::default();
+        let by_mime = registry.select_for_uri("https://example.com/file.bin", Some("text/csv"));
+        assert_eq!(by_mime.viewer_id, "viewer:csv");
+        assert_eq!(by_mime.matched_by, "mime");
+
+        let by_ext = registry.select_for_uri("https://example.com/readme.md", None);
+        assert_eq!(by_ext.viewer_id, "viewer:markdown");
+        assert_eq!(by_ext.matched_by, "extension");
+
+        let fallback = registry.select_for_uri("https://example.com/archive.unknown", None);
+        assert!(fallback.fallback_used);
+        assert_eq!(fallback.viewer_id, "viewer:webview");
+    }
+
+    #[test]
+    fn diagnostics_registry_declares_phase0_channels_with_versions() {
+        let channels = diagnostics::phase0_required_channels();
+        assert!(channels.len() >= 7);
+        assert!(channels.iter().all(|entry| entry.schema_version > 0));
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_PROTOCOL_RESOLVE_STARTED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_VIEWER_SELECT_SUCCEEDED)
+        );
+    }
+
+    #[test]
+    fn diagnostics_registry_declares_phase2_action_channels_with_versions() {
+        let channels = diagnostics::phase2_required_channels();
+        assert!(channels.len() >= 3);
+        assert!(channels.iter().all(|entry| entry.schema_version > 0));
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_ACTION_EXECUTE_STARTED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_ACTION_EXECUTE_SUCCEEDED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_ACTION_EXECUTE_FAILED)
+        );
+    }
+
+    #[test]
+    fn diagnostics_registry_declares_phase2_input_channels_with_versions() {
+        let channels = diagnostics::phase2_required_channels();
+        assert!(channels.iter().all(|entry| entry.schema_version > 0));
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_INPUT_BINDING_RESOLVED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_INPUT_BINDING_MISSING)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_INPUT_BINDING_CONFLICT)
+        );
+    }
+
+    #[test]
+    fn diagnostics_registry_declares_phase3_identity_channels_with_versions() {
+        let channels = diagnostics::phase3_required_channels();
+        assert!(channels.iter().all(|entry| entry.schema_version > 0));
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_IDENTITY_SIGN_STARTED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_IDENTITY_SIGN_SUCCEEDED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_IDENTITY_SIGN_FAILED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_IDENTITY_KEY_UNAVAILABLE)
+        );
+    }
+
+    #[test]
+    fn phase3_identity_registry_signs_default_payload() {
+        let signature = phase3_sign_identity_payload("identity:default", b"payload");
+        assert!(signature.as_deref().is_some_and(|sig| sig.starts_with("sig:")));
+    }
+
+    #[test]
+    fn phase2_input_registry_resolves_toolbar_submit_binding() {
+        assert!(phase2_resolve_toolbar_submit_binding());
+    }
+
+    #[test]
+    fn phase2_input_registry_resolves_toolbar_nav_reload_binding() {
+        assert!(phase2_resolve_input_binding(
+            crate::desktop::registries::input::INPUT_BINDING_TOOLBAR_NAV_RELOAD,
+        ));
+    }
+
+    #[test]
+    fn phase2_lens_registry_resolves_default_lens_id() {
+        let lens = phase2_resolve_lens(crate::desktop::registries::lens::LENS_ID_DEFAULT);
+        assert_eq!(lens.name, "Default");
+        assert_eq!(lens.lens_id.as_deref(), Some(crate::desktop::registries::lens::LENS_ID_DEFAULT));
+        assert_eq!(
+            lens.physics_id.as_deref(),
+            Some(crate::desktop::registries::physics::PHYSICS_ID_DEFAULT)
+        );
+        assert_eq!(
+            lens.layout_id.as_deref(),
+            Some(crate::desktop::registries::layout::LAYOUT_ID_DEFAULT)
+        );
+        assert_eq!(
+            lens.theme_id.as_deref(),
+            Some(crate::desktop::registries::theme::THEME_ID_DEFAULT)
+        );
+    }
+
+    #[test]
+    fn phase2_lens_registry_falls_back_for_unknown_lens_id() {
+        let lens = phase2_resolve_lens("lens:unknown");
+        assert_eq!(lens.name, "Default");
+        assert_eq!(lens.lens_id.as_deref(), Some(crate::desktop::registries::lens::LENS_ID_DEFAULT));
+    }
+
+    #[test]
+    fn phase2_lens_component_resolution_normalizes_unknown_component_ids() {
+        let mut lens = crate::app::LensConfig::default();
+        lens.physics_id = Some("physics:unknown".to_string());
+        lens.layout_id = Some("layout:unknown".to_string());
+        lens.theme_id = Some("theme:unknown".to_string());
+
+        let normalized = phase2_resolve_lens_components(&lens);
+
+        assert_eq!(
+            normalized.physics_id.as_deref(),
+            Some(crate::desktop::registries::physics::PHYSICS_ID_DEFAULT)
+        );
+        assert_eq!(
+            normalized.layout_id.as_deref(),
+            Some(crate::desktop::registries::layout::LAYOUT_ID_DEFAULT)
+        );
+        assert_eq!(
+            normalized.theme_id.as_deref(),
+            Some(crate::desktop::registries::theme::THEME_ID_DEFAULT)
+        );
+    }
+
+    #[test]
+    fn phase2_action_registry_omnibox_search_selects_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .graph
+            .add_node("https://example.com".into(), euclid::default::Point2D::new(0.0, 0.0));
+        if let Some(node) = app.graph.get_node_mut(key) {
+            node.title = "Example Handle".into();
+        }
+
+        let intents = phase2_execute_omnibox_node_search_action(&app, "example handle");
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SelectNode { key: selected, .. }) if *selected == key
+        ));
+    }
+
+    #[test]
+    fn phase2_action_registry_graph_submit_updates_selected_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .graph
+            .add_node("https://start.com".into(), euclid::default::Point2D::new(0.0, 0.0));
+        app.selected_nodes.select(key, false);
+
+        let (open_selected_tile, intents) =
+            phase2_execute_graph_view_submit_action(&app, "https://next.com");
+        assert!(open_selected_tile);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SetNodeUrl { key: selected, new_url })
+                if *selected == key && new_url == "https://next.com"
+        ));
+    }
+
+    #[test]
+    fn phase2_action_registry_detail_submit_updates_focused_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .graph
+            .add_node("https://start.com".into(), euclid::default::Point2D::new(0.0, 0.0));
+
+        let (open_selected_tile, intents) =
+            phase2_execute_detail_view_submit_action(&app, "https://detail-next.com", Some(key));
+
+        assert!(!open_selected_tile);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SetNodeUrl { key: selected, new_url })
+                if *selected == key && new_url == "https://detail-next.com"
+        ));
+    }
+
+    #[test]
+    fn phase0_normalization_rewrites_unknown_scheme_to_protocol_fallback() {
+        let parsed = ServoUrl::parse("foo://example.com/path").expect("url should parse");
+        let rewritten = phase0_decide_navigation_with_control(
+            parsed,
+            None,
+            ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel")
+        .normalized_url;
+
+        assert_eq!(rewritten.scheme(), "https");
+        assert_eq!(rewritten.host_str(), Some("example.com"));
+    }
+
+    #[test]
+    fn phase0_decision_prefers_mime_hint_for_viewer_selection() {
+        let parsed = ServoUrl::parse("https://example.com/file.bin").expect("url should parse");
+        let decision = phase0_decide_navigation_with_control(
+            parsed,
+            Some("text/csv"),
+            ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel");
+
+        assert_eq!(decision.viewer.viewer_id, "viewer:csv");
+        assert_eq!(decision.viewer.matched_by, "mime");
+        assert_eq!(decision.normalized_url.scheme(), "https");
+    }
+
+    #[test]
+    fn phase0_decision_uses_protocol_inferred_mime_hint_when_explicit_hint_missing() {
+        let parsed =
+            ServoUrl::parse("https://example.com/download/no_extension").expect("url should parse");
+        let decision = phase0_decide_navigation_with_control(
+            parsed,
+            None,
+            ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel");
+
+        assert_eq!(decision.protocol.inferred_mime_hint.as_deref(), None);
+        assert_eq!(decision.viewer.viewer_id, "viewer:webview");
+
+        let data_uri =
+            ServoUrl::parse("data:text/csv,foo,bar").expect("data URI should parse");
+        let data_decision = phase0_decide_navigation_with_control(
+            data_uri,
+            None,
+            ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel");
+
+        assert_eq!(
+            data_decision.protocol.inferred_mime_hint.as_deref(),
+            Some("text/csv")
+        );
+        assert_eq!(data_decision.viewer.viewer_id, "viewer:csv");
+        assert_eq!(data_decision.viewer.matched_by, "mime");
+    }
+
+    #[test]
+    fn phase0_decision_prefers_explicit_mime_hint_over_protocol_inferred_hint() {
+        let parsed = ServoUrl::parse("data:text/csv,foo,bar").expect("data URI should parse");
+        let decision = phase0_decide_navigation_with_control(
+            parsed,
+            Some("application/pdf"),
+            ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should not cancel");
+
+        assert_eq!(decision.viewer.viewer_id, "viewer:pdf");
+        assert_eq!(decision.viewer.matched_by, "mime");
+    }
+
+    #[test]
+    fn phase0_decision_returns_none_when_protocol_resolution_is_cancelled() {
+        let parsed = ServoUrl::parse("https://example.com/readme.md").expect("url should parse");
+
+        let decision = phase0_decide_navigation_with_control(
+            parsed,
+            None,
+            ProtocolResolveControl::cancelled(),
+        );
+
+        assert!(decision.is_none());
+    }
+
+    #[test]
+    fn diagnostics_registry_accepts_namespaced_mod_channel_registration() {
+        let result = register_mod_diagnostics_channel(
+            "planner",
+            "mod.planner.agent.think",
+            1,
+            Some("planner thought loop".to_string()),
+        )
+        .expect("mod channel registration should succeed");
+
+        assert!(result);
+    }
+
+    #[test]
+    fn diagnostics_registry_rejects_non_namespaced_verse_channel_registration() {
+        let result = register_verse_diagnostics_channel(
+            "peer-a",
+            "agent.decide",
+            1,
+            Some("invalid namespace".to_string()),
+        );
+
+        assert!(matches!(
+            result,
+            Err(diagnostics::ChannelRegistrationError::InvalidOwnership { .. })
+        ));
+    }
+
+    #[test]
+    fn diagnostics_registry_registers_invariant_extension() {
+        let created = register_diagnostics_invariant(diagnostics::DiagnosticsInvariant {
+            invariant_id: "invariant.registry.test.layout_timeout".to_string(),
+            start_channel: "layout.compute_started".to_string(),
+            terminal_channels: vec![
+                "layout.compute_succeeded".to_string(),
+                "layout.compute_failed".to_string(),
+            ],
+            timeout_ms: 250,
+            owner: diagnostics::DiagnosticsChannelOwner::core(),
+            enabled: true,
+        })
+        .expect("invariant registration should succeed");
+
+        assert!(created);
+    }
+}

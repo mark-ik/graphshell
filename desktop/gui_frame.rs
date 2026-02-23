@@ -85,6 +85,7 @@ fn restore_named_workspace_snapshot(
     name: &str,
     mut routed_open_request: Option<PendingNodeOpenRequest>,
 ) {
+    debug!("gui_frame: attempting to restore workspace '{}'", name);
     match persistence_ops::load_named_workspace_bundle(graph_app, name)
         .and_then(|bundle| persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle))
     {
@@ -101,6 +102,7 @@ fn restore_named_workspace_snapshot(
                     if let Some(request) = routed_open_request.take()
                         && graph_app.graph.get_node(request.key).is_some()
                     {
+                        debug!("gui_frame: opening routed node {:?} in restored workspace", request.key);
                         tile_view_ops::open_or_focus_webview_tile_with_mode(
                             &mut restored_tree,
                             request.key,
@@ -431,10 +433,28 @@ pub(crate) fn apply_intents_if_any(
 
     let layout_json = serde_json::to_string(tiles_tree).ok();
     if !apply_list.is_empty() {
+        #[cfg(feature = "diagnostics")]
+        let apply_count = apply_list.len();
         if apply_list.iter().any(is_user_undoable_intent) {
             graph_app.capture_undo_checkpoint(layout_json.clone());
         }
+        #[cfg(feature = "diagnostics")]
+        let apply_started = Instant::now();
+        #[cfg(feature = "diagnostics")]
+        super::diagnostics::emit_event(super::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: "graph_intents.apply",
+            byte_len: apply_count,
+        });
         graph_app.apply_intents(apply_list);
+        #[cfg(feature = "diagnostics")]
+        {
+            let elapsed = apply_started.elapsed().as_micros() as u64;
+            super::diagnostics::emit_event(super::diagnostics::DiagnosticEvent::MessageReceived {
+                channel_id: "graph_intents.apply",
+                latency_us: elapsed,
+            });
+            super::diagnostics::emit_span_duration("gui_frame::apply_intents_if_any", elapsed);
+        }
     }
 
     for _ in 0..undo_count {
@@ -617,6 +637,8 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    #[cfg(feature = "diagnostics")]
+    pub(crate) diagnostics_state: &'a mut crate::desktop::diagnostics::DiagnosticsState,
 }
 
 pub(crate) struct ToolbarDialogPhaseOutput {
@@ -649,6 +671,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
         tile_rendering_contexts,
         tile_favicon_textures,
         favicon_textures,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state,
     } = args;
 
     let active_webview_node = active_webview_tile_node(tiles_tree);
@@ -687,6 +711,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
         show_clear_data_confirm,
         omnibar_search_session,
         frame_intents,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state,
     });
 
     dialog_panels::render_dialog_panels(DialogPanelsArgs {
@@ -726,6 +752,61 @@ pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
 }
 
+// After lifecycle intents are applied, ensure webviews exist for Active nodes without tiles.
+// This handles prewarm nodes (selected but not opened in tiles).
+// Visible tile nodes are handled separately in tile_render_pass.
+fn ensure_webviews_for_active_prewarm_nodes(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    window: &EmbedderWindow,
+    app_state: &Option<Rc<RunningAppState>>,
+    rendering_context: &Rc<OffscreenRenderingContext>,
+    window_rendering_context: &Rc<WindowRenderingContext>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    responsive_webviews: &HashSet<WebViewId>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+) {
+    use crate::graph::NodeLifecycle;
+    use super::tile_compositor;
+
+    // Find nodes that are Active but don't have visible tiles (prewarm candidates).
+    let tile_nodes: std::collections::HashSet<NodeKey> = 
+        tile_compositor::active_webview_tile_rects(tiles_tree)
+            .into_iter()
+            .map(|(node_key, _)| node_key)
+            .collect();
+
+    // Local buffer for webview creation intents.
+    let mut prewarm_intents = Vec::new();
+
+    // Check if primary selected node is Active and not in a tile.
+    if let Some(selected_key) = graph_app.get_single_selected_node() {
+        if !tile_nodes.contains(&selected_key) {
+            if let Some(node) = graph_app.graph.get_node(selected_key) {
+                if node.lifecycle == NodeLifecycle::Active {
+                    super::webview_backpressure::ensure_webview_for_node(
+                        graph_app,
+                        window,
+                        app_state,
+                        rendering_context,
+                        window_rendering_context,
+                        tile_rendering_contexts,
+                        selected_key,
+                        responsive_webviews,
+                        webview_creation_backpressure,
+                        &mut prewarm_intents,
+                    );
+                }
+            }
+        }
+    }
+
+    // Apply prewarm intents immediately (shouldn't include user-undoable intents).
+    if !prewarm_intents.is_empty() {
+        graph_app.apply_intents(prewarm_intents);
+    }
+}
+
 pub(crate) fn run_lifecycle_reconcile_and_apply(
     args: LifecycleReconcilePhaseArgs<'_>,
     frame_intents: &mut Vec<GraphIntent>,
@@ -750,9 +831,6 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         graph_app,
         tiles_tree,
         window,
-        app_state,
-        rendering_context,
-        window_rendering_context,
         tile_rendering_contexts,
         tile_favicon_textures,
         favicon_textures,
@@ -772,6 +850,20 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
     }
 
     apply_intents_if_any(graph_app, tiles_tree, frame_intents);
+
+    // After intents are applied, ensure webviews for Active nodes without tiles (prewarm).
+    // Visible tile nodes are handled later in tile_render_pass.
+    ensure_webviews_for_active_prewarm_nodes(
+        graph_app,
+        tiles_tree,
+        window,
+        app_state,
+        rendering_context,
+        window_rendering_context,
+        tile_rendering_contexts,
+        responsive_webviews,
+        webview_creation_backpressure,
+    );
 
     #[cfg(debug_assertions)]
     debug_assert!(
@@ -807,6 +899,8 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) focus_ring_started_at: &'a mut Option<Instant>,
     pub(crate) focus_ring_duration: Duration,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
+    #[cfg(feature = "diagnostics")]
+    pub(crate) diagnostics_state: &'a mut super::diagnostics::DiagnosticsState,
 }
 
 pub(crate) fn run_post_render_phase<FActive>(
@@ -840,6 +934,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         focus_ring_started_at,
         focus_ring_duration,
         toasts,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state,
     } = args;
 
     #[cfg(debug_assertions)]
@@ -897,12 +993,16 @@ pub(crate) fn run_post_render_phase<FActive>(
             focus_ring_webview_id,
             focus_ring_started_at,
             focus_ring_duration,
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state,
         }));
     }
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
     render::render_physics_panel(ctx, graph_app);
     render::render_help_panel(ctx, graph_app);
+    let traversal_history_intents = render::render_traversal_history_panel(ctx, graph_app);
+    post_render_intents.extend(traversal_history_intents);
     let focused_pane_node = focused_dialog_webview
         .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
         .or_else(|| active_webview_tile_node(tiles_tree));

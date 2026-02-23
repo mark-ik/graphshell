@@ -24,6 +24,8 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
+#[cfg(feature = "diagnostics")]
+use super::diagnostics;
 use super::graph_search_flow::{self, GraphSearchFlowArgs};
 use super::graph_search_ui::{self, GraphSearchUiArgs};
 use super::gui_frame::{self, PreFrameIngestArgs, ToolbarDialogPhaseArgs};
@@ -44,6 +46,7 @@ use super::tile_runtime;
 use super::tile_view_ops::{self, TileOpenMode, ToggleTileViewArgs};
 use super::toolbar_routing::ToolbarOpenMode;
 use super::toolbar_ui::OmnibarSearchSession;
+use super::registries::{RegistryRuntime, ontology};
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_status_sync;
 use crate::app::{
@@ -152,6 +155,12 @@ pub struct Gui {
 
     /// Runtime UI state used by the frame coordinator and toolbar/search flows.
     runtime_state: GuiRuntimeState,
+
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: diagnostics::DiagnosticsState,
+
+    /// Registry runtime for semantic services
+    registry_runtime: RegistryRuntime,
 }
 
 impl Drop for Gui {
@@ -183,6 +192,7 @@ fn restore_startup_session_workspace_if_available(
         if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
             graph_app.mark_session_workspace_layout_json(&runtime_layout_json);
         }
+        log::debug!("gui: restored startup session workspace from bundle");
         *tiles_tree = restored_tree;
         return true;
     }
@@ -193,6 +203,7 @@ fn restore_startup_session_workspace_if_available(
         tile_runtime::prune_stale_webview_tile_keys_only(&mut restored_tree, graph_app);
         if restored_tree.root().is_some() {
             graph_app.mark_session_workspace_layout_json(&layout_json);
+            log::debug!("gui: restored startup session workspace from legacy layout json");
             *tiles_tree = restored_tree;
             return true;
         }
@@ -339,6 +350,9 @@ impl Gui {
                 omnibar_search_session: None,
                 command_palette_toggle_requested: false,
             },
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state: diagnostics::DiagnosticsState::new(),
+            registry_runtime: RegistryRuntime::default(),
         }
     }
 
@@ -568,6 +582,9 @@ impl Gui {
             webview_creation_backpressure,
             state: app_state,
             runtime_state,
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state,
+            registry_runtime,
             ..
         } = self;
         let GuiRuntimeState {
@@ -591,6 +608,16 @@ impl Gui {
             .with_margin(egui::vec2(12.0, 12.0));
         context.run(winit_window, |ctx| {
             graph_app.tick_frame();
+            #[cfg(feature = "diagnostics")]
+            {
+                let toggle_diagnostics = ctx.input(|i| {
+                    i.key_pressed(egui::Key::F12)
+                        || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::D))
+                });
+                if toggle_diagnostics {
+                    Self::open_or_focus_diagnostic_pane(tiles_tree);
+                }
+            }
             let pre_frame = Self::run_pre_frame_phase(
                 ctx,
                 graph_app,
@@ -673,6 +700,8 @@ impl Gui {
                 winit_window,
                 state,
                 graph_app,
+                #[cfg(feature = "diagnostics")]
+                diagnostics_state,
                 window,
                 tiles_tree,
                 *focused_webview_hint,
@@ -746,6 +775,9 @@ impl Gui {
                 &mut frame_intents,
             );
 
+            // Phase 2: Reconcile semantic index (UDC codes)
+            ontology::reconcile_semantics(graph_app, &registry_runtime.ontology);
+
             gui_frame::run_post_render_phase(
                 gui_frame::PostRenderPhaseArgs {
                     ctx,
@@ -772,6 +804,8 @@ impl Gui {
                     focus_ring_started_at,
                     focus_ring_duration: *focus_ring_duration,
                     toasts,
+                    #[cfg(feature = "diagnostics")]
+                    diagnostics_state,
                 },
                 |matches, active_index| active_graph_search_match(matches, active_index),
             );
@@ -868,6 +902,8 @@ impl Gui {
         winit_window: &Window,
         state: &RunningAppState,
         graph_app: &mut GraphBrowserApp,
+        #[cfg(feature = "diagnostics")]
+        diagnostics_state: &mut diagnostics::DiagnosticsState,
         window: &EmbedderWindow,
         tiles_tree: &mut Tree<TileKind>,
         focused_webview_hint: Option<WebViewId>,
@@ -909,6 +945,8 @@ impl Gui {
                 tile_rendering_contexts,
                 tile_favicon_textures,
                 favicon_textures,
+                #[cfg(feature = "diagnostics")]
+                diagnostics_state,
             },
             frame_intents,
         );
@@ -1019,6 +1057,31 @@ impl Gui {
         });
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn open_or_focus_diagnostic_pane(tiles_tree: &mut Tree<TileKind>) {
+        if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Diagnostic))) {
+            return;
+        }
+
+        let diagnostic_tile_id = tiles_tree.tiles.insert_pane(TileKind::Diagnostic);
+        let Some(root_id) = tiles_tree.root() else {
+            tiles_tree.root = Some(diagnostic_tile_id);
+            return;
+        };
+
+        if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+            tiles_tree.tiles.get_mut(root_id)
+        {
+            tabs.add_child(diagnostic_tile_id);
+            tabs.set_active(diagnostic_tile_id);
+            return;
+        }
+
+        let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, diagnostic_tile_id]);
+        tiles_tree.root = Some(tabs_root);
+        let _ = tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Diagnostic)));
+    }
+
     fn handle_pending_open_node_after_intents(
         graph_app: &mut GraphBrowserApp,
         tiles_tree: &mut Tree<TileKind>,
@@ -1026,6 +1089,7 @@ impl Gui {
         frame_intents: &mut Vec<GraphIntent>,
     ) {
         if let Some(open_request) = graph_app.take_pending_open_node_request() {
+            log::debug!("gui: handle_pending_open_node_after_intents taking request for {:?}", open_request.key);
             *open_node_tile_after_intents = Some(Self::open_mode_from_pending(open_request.mode));
             graph_app.select_node(open_request.key, false);
         }
@@ -1047,6 +1111,7 @@ impl Gui {
                     Tile::Pane(TileKind::WebView(existing_key)) if *existing_key == node_key
                 )
             });
+            log::debug!("gui: calling open_or_focus_webview_tile_with_mode for {:?} mode {:?}", node_key, open_mode);
             tile_view_ops::open_or_focus_webview_tile_with_mode(tiles_tree, node_key, open_mode);
             if open_mode == TileOpenMode::Tab
                 && !node_already_in_workspace
@@ -1192,6 +1257,11 @@ impl Gui {
             1.0
         };
         self.context.egui_ctx.set_zoom_factor(clamped);
+    }
+
+    #[cfg(feature = "diagnostics")]
+    pub(crate) fn diagnostics_state(&self) -> &diagnostics::DiagnosticsState {
+        &self.diagnostics_state
     }
 
     pub(crate) fn notify_accessibility_tree_update(

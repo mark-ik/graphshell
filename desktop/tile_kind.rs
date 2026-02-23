@@ -14,4 +14,7 @@ pub(crate) enum TileKind {
     /// A webview pane bound to a graph node.
     #[allow(dead_code)] // Introduced in scaffold; activated in Phase 3+ tile flow.
     WebView(NodeKey),
+    /// A system diagnostic inspector pane (engine topology, compositor state).
+    #[cfg(feature = "diagnostics")]
+    Diagnostic,
 }

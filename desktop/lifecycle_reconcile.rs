@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use egui_tiles::Tree;
-use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
+use servo::{OffscreenRenderingContext, WebViewId};
 use sysinfo::System;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, MemoryPressureLevel};
@@ -18,16 +18,12 @@ use crate::desktop::lifecycle_intents;
 use crate::desktop::webview_backpressure::{self, WebviewCreationBackpressureState};
 use crate::desktop::webview_controller;
 use crate::graph::{NodeKey, NodeLifecycle};
-use crate::running_app_state::RunningAppState;
 use crate::window::EmbedderWindow;
 
 pub(crate) struct RuntimeReconcileArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
     pub(crate) window: &'a EmbedderWindow,
-    pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
-    pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
-    pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     pub(crate) favicon_textures:
@@ -123,6 +119,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|(node_key, _)| node_key)
             .collect();
     let has_webview_tiles = !tile_nodes.is_empty();
+    // Emit lifecycle promotion intents for active tiles (intents applied after reconcile).
+    // Webview creation happens in tile_render_pass after these intents are applied.
     for node_key in active_tile_nodes.iter().copied() {
         if args.graph_app.is_runtime_blocked(node_key, Instant::now()) {
             continue;
@@ -178,35 +176,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             args.frame_intents,
         );
 
-        // Keep WebView/context mappings complete for active tile nodes and prewarm target.
-        for node_key in active_tile_nodes.iter().copied() {
-            webview_backpressure::ensure_webview_for_node(
-                args.graph_app,
-                args.window,
-                args.app_state,
-                args.rendering_context,
-                args.window_rendering_context,
-                args.tile_rendering_contexts,
-                node_key,
-                args.responsive_webviews,
-                args.webview_creation_backpressure,
-                args.frame_intents,
-            );
-        }
-        if let Some(node_key) = prewarm_selected_node {
-            webview_backpressure::ensure_webview_for_node(
-                args.graph_app,
-                args.window,
-                args.app_state,
-                args.rendering_context,
-                args.window_rendering_context,
-                args.tile_rendering_contexts,
-                node_key,
-                args.responsive_webviews,
-                args.webview_creation_backpressure,
-                args.frame_intents,
-            );
-        }
+        // Webview creation moved to tile_render_pass (after intents are applied).
+        // Reconcile only emits intents, doesn't directly create webviews.
 
         let mut protected_active_nodes = active_tile_nodes.clone();
         if let Some(node_key) = prewarm_selected_node {

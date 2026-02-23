@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
+#[cfg(feature = "diagnostics")]
+use std::time::Instant;
 
 use dpi::PhysicalSize;
 use egui::{Id, LayerId, PaintCallback, Stroke, StrokeKind};
@@ -89,6 +91,9 @@ pub(crate) fn composite_active_webview_tiles(
     focused_webview_id: Option<WebViewId>,
     focus_ring_alpha: f32,
 ) {
+    #[cfg(feature = "diagnostics")]
+    let composite_started = Instant::now();
+    log::debug!("composite_active_webview_tiles: {} tiles", active_tile_rects.len());
     // Keep focus ring below popup/panel overlays (palette, dialogs) so it never occludes UI.
     let focus_ring_layer = LayerId::new(egui::Order::Background, Id::new("graphshell_focus_ring"));
     let hover_ring_layer = LayerId::new(egui::Order::Background, Id::new("graphshell_hover_ring"));
@@ -114,33 +119,64 @@ pub(crate) fn composite_active_webview_tiles(
         );
 
         let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
+            log::debug!("composite: no render_context for node {:?}", node_key);
             continue;
         };
 
         if render_context.size() != target_size {
+            log::debug!("composite: resizing render_context from {:?} to {:?}", render_context.size(), target_size);
             render_context.resize(target_size);
         }
 
         let Some(webview_id) = graph_app.get_webview_for_node(node_key) else {
+            log::debug!("composite: no webview_id mapped for node {:?}", node_key);
             continue;
         };
         let Some(webview) = window.webview_by_id(webview_id) else {
+            log::debug!("composite: webview_id {:?} not found in window for node {:?}", webview_id, node_key);
             continue;
         };
         if webview.size() != size {
+            log::debug!("composite: resizing webview from {:?} to {:?}", webview.size(), size);
             webview.resize(target_size);
         }
 
+        log::debug!("composite: painting webview {:?} for node {:?} at rect {:?}", webview_id, node_key, tile_rect);
+        #[cfg(feature = "diagnostics")]
+        let paint_started = Instant::now();
+        #[cfg(feature = "diagnostics")]
+        super::diagnostics::emit_event(super::diagnostics::DiagnosticEvent::MessageSent {
+            channel_id: "tile_compositor.paint",
+            byte_len: (target_size.width as usize)
+                .saturating_mul(target_size.height as usize)
+                .saturating_mul(4),
+        });
         if let Err(e) = render_context.make_current() {
             warn!("Failed to make tile rendering context current: {e:?}");
             continue;
         }
+        log::debug!("composite: made context current");
         render_context.prepare_for_rendering();
+        log::debug!("composite: prepared for rendering");
         webview.paint();
+        log::debug!("composite: webview.paint() returned");
         render_context.present();
+        log::debug!("composite: render_context.present() returned");
+        #[cfg(feature = "diagnostics")]
+        {
+            let elapsed = paint_started.elapsed().as_micros() as u64;
+            super::diagnostics::emit_event(super::diagnostics::DiagnosticEvent::MessageReceived {
+                channel_id: "tile_compositor.paint",
+                latency_us: elapsed,
+            });
+            super::diagnostics::emit_span_duration("tile_compositor::paint_present", elapsed);
+        }
 
         if let Some(render_to_parent) = render_context.render_to_parent_callback() {
-            ctx.layer_painter(LayerId::background()).add(PaintCallback {
+            log::debug!("composite: adding render_to_parent callback for webview {:?}", webview_id);
+            // Use Order::Middle so WebView content appears at UI level, not behind everything
+            let webview_layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new(("graphshell_webview", node_key)));
+            ctx.layer_painter(webview_layer).add(PaintCallback {
                 rect: tile_rect,
                 callback: Arc::new(CallbackFn::new(move |info, painter| {
                     let clip = info.viewport_in_pixels();
@@ -148,9 +184,12 @@ pub(crate) fn composite_active_webview_tiles(
                         Point2D::new(clip.left_px, clip.from_bottom_px),
                         Size2D::new(clip.width_px, clip.height_px),
                     );
+                    log::debug!("composite: render_to_parent callback executing");
                     render_to_parent(painter.gl(), rect_in_parent)
                 })),
             });
+        } else {
+            log::debug!("composite: no render_to_parent callback for webview {:?}", webview_id);
         }
 
         if focused_webview_id == Some(webview_id) && focus_ring_alpha > 0.0 {
@@ -177,6 +216,11 @@ pub(crate) fn composite_active_webview_tiles(
             );
         }
     }
+    #[cfg(feature = "diagnostics")]
+    super::diagnostics::emit_span_duration(
+        "tile_compositor::composite_active_webview_tiles",
+        composite_started.elapsed().as_micros() as u64,
+    );
 }
 
 fn active_webview_tile_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {

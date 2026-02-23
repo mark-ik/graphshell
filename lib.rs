@@ -31,6 +31,8 @@ mod prefs;
 #[cfg(not(target_os = "android"))]
 mod resources;
 mod running_app_state;
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
+mod registries;
 mod webdriver;
 mod window;
 

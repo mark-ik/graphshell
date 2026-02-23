@@ -100,8 +100,12 @@ pub struct GraphStore {
     /// Kept alive so the Keyspace borrow remains valid (fjall requires it).
     _db: fjall::Database,
     log_keyspace: fjall::Keyspace,
+    traversal_archive_keyspace: fjall::Keyspace,
+    dissolved_archive_keyspace: fjall::Keyspace,
     snapshot_db: redb::Database,
     log_sequence: u64,
+    traversal_archive_sequence: u64,
+    dissolved_archive_sequence: u64,
     last_snapshot: Instant,
     snapshot_interval: Duration,
     persistence_key: PersistenceKey,
@@ -140,18 +144,30 @@ impl GraphStore {
         let log_keyspace = db
             .keyspace("mutations", || fjall::KeyspaceCreateOptions::default())
             .map_err(|e| GraphStoreError::Fjall(format!("{e}")))?;
+        let traversal_archive_keyspace = db
+            .keyspace("traversal_archive", || fjall::KeyspaceCreateOptions::default())
+            .map_err(|e| GraphStoreError::Fjall(format!("{e}")))?;
+        let dissolved_archive_keyspace = db
+            .keyspace("dissolved_archive", || fjall::KeyspaceCreateOptions::default())
+            .map_err(|e| GraphStoreError::Fjall(format!("{e}")))?;
 
         let snapshot_db = redb::Database::create(&snapshot_path)
             .map_err(|e| GraphStoreError::Redb(format!("{e}")))?;
 
         // Find the next log sequence number
         let log_sequence = Self::find_max_sequence(&log_keyspace) + 1;
+        let traversal_archive_sequence = Self::find_max_sequence(&traversal_archive_keyspace) + 1;
+        let dissolved_archive_sequence = Self::find_max_sequence(&dissolved_archive_keyspace) + 1;
 
         let mut store = Self {
             _db: db,
             log_keyspace,
+            traversal_archive_keyspace,
+            dissolved_archive_keyspace,
             snapshot_db,
             log_sequence,
+            traversal_archive_sequence,
+            dissolved_archive_sequence,
             last_snapshot: Instant::now(),
             snapshot_interval: Duration::from_secs(DEFAULT_SNAPSHOT_INTERVAL_SECS),
             persistence_key,
@@ -337,6 +353,50 @@ impl GraphStore {
             warn!("Failed to write log entry: {e}");
         }
         self.log_sequence += 1;
+    }
+
+    /// Stage E kickoff: append traversal history into long-term archive keyspace.
+    pub fn archive_append_traversal(&mut self, entry: &LogEntry) -> Result<(), GraphStoreError> {
+        if !matches!(entry, LogEntry::AppendTraversal { .. }) {
+            return Err(GraphStoreError::Io(
+                "archive_append_traversal requires LogEntry::AppendTraversal".to_string(),
+            ));
+        }
+        let plaintext = rkyv::to_bytes::<rkyv::rancor::Error>(entry)
+            .map_err(|e| GraphStoreError::Fjall(format!("archive serialize failed: {e}")))?;
+        let bytes = self.encode_persisted_bytes(plaintext.as_ref())?;
+        let key = self.traversal_archive_sequence.to_be_bytes();
+        self.traversal_archive_keyspace
+            .insert(key, bytes.as_slice())
+            .map_err(|e| GraphStoreError::Fjall(format!("archive write failed: {e}")))?;
+        self.traversal_archive_sequence += 1;
+        Ok(())
+    }
+
+    /// Stage E kickoff: append dissolved traversal history entries.
+    pub fn archive_dissolved_traversal(&mut self, entry: &LogEntry) -> Result<(), GraphStoreError> {
+        if !matches!(entry, LogEntry::AppendTraversal { .. }) {
+            return Err(GraphStoreError::Io(
+                "archive_dissolved_traversal requires LogEntry::AppendTraversal".to_string(),
+            ));
+        }
+        let plaintext = rkyv::to_bytes::<rkyv::rancor::Error>(entry)
+            .map_err(|e| GraphStoreError::Fjall(format!("dissolved serialize failed: {e}")))?;
+        let bytes = self.encode_persisted_bytes(plaintext.as_ref())?;
+        let key = self.dissolved_archive_sequence.to_be_bytes();
+        self.dissolved_archive_keyspace
+            .insert(key, bytes.as_slice())
+            .map_err(|e| GraphStoreError::Fjall(format!("dissolved write failed: {e}")))?;
+        self.dissolved_archive_sequence += 1;
+        Ok(())
+    }
+
+    pub fn traversal_archive_len(&self) -> usize {
+        self.traversal_archive_keyspace.iter().count()
+    }
+
+    pub fn dissolved_archive_len(&self) -> usize {
+        self.dissolved_archive_keyspace.iter().count()
     }
 
     /// Take a full snapshot of the graph and compact the log
@@ -771,6 +831,57 @@ impl GraphStore {
                         let _ = graph.remove_edges(from_key, to_key, et);
                     }
                 },
+                ArchivedLogEntry::AppendTraversal {
+                    from_node_id,
+                    to_node_id,
+                    timestamp_ms,
+                    trigger,
+                } => {
+                    let Ok(from_node_id) = Uuid::parse_str(from_node_id.as_str()) else {
+                        continue;
+                    };
+                    let Ok(to_node_id) = Uuid::parse_str(to_node_id.as_str()) else {
+                        continue;
+                    };
+                    let Some(from_key) = graph.get_node_key_by_id(from_node_id) else {
+                        continue;
+                    };
+                    let Some(to_key) = graph.get_node_key_by_id(to_node_id) else {
+                        continue;
+                    };
+                    let trigger = match trigger {
+                        types::ArchivedPersistedNavigationTrigger::Unknown => {
+                            crate::graph::NavigationTrigger::Unknown
+                        },
+                        types::ArchivedPersistedNavigationTrigger::Back => {
+                            crate::graph::NavigationTrigger::Back
+                        },
+                        types::ArchivedPersistedNavigationTrigger::Forward => {
+                            crate::graph::NavigationTrigger::Forward
+                        },
+                    };
+                    let traversal = crate::graph::Traversal {
+                        timestamp_ms: (*timestamp_ms).into(),
+                        trigger,
+                    };
+
+                    if let Some(edge_key) = graph.find_edge_key(from_key, to_key)
+                        && let Some(payload) = graph.get_edge_mut(edge_key)
+                    {
+                        // Stage A compatibility: AddEdge(History) replays as a placeholder
+                        // traversal. Drop that sentinel once a real traversal arrives.
+                        if payload.traversals.len() == 1
+                            && payload.traversals[0].timestamp_ms == 0
+                            && payload.traversals[0].trigger
+                                == crate::graph::NavigationTrigger::Unknown
+                        {
+                            payload.traversals.clear();
+                        }
+                        payload.push_traversal(traversal);
+                    } else {
+                        let _ = graph.push_traversal(from_key, to_key, traversal);
+                    }
+                },
                 ArchivedLogEntry::UpdateNodeTitle { node_id, title } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
@@ -972,6 +1083,42 @@ mod tests {
     }
 
     #[test]
+    fn test_archive_append_traversal_writes_to_archive_keyspace() {
+        let (mut store, _dir) = create_test_store();
+        let entry = LogEntry::AppendTraversal {
+            from_node_id: Uuid::new_v4().to_string(),
+            to_node_id: Uuid::new_v4().to_string(),
+            timestamp_ms: 123,
+            trigger: types::PersistedNavigationTrigger::Unknown,
+        };
+
+        store
+            .archive_append_traversal(&entry)
+            .expect("archive traversal write should succeed");
+
+        assert_eq!(store.traversal_archive_len(), 1);
+        assert_eq!(store.dissolved_archive_len(), 0);
+    }
+
+    #[test]
+    fn test_archive_dissolved_traversal_writes_to_dissolved_keyspace() {
+        let (mut store, _dir) = create_test_store();
+        let entry = LogEntry::AppendTraversal {
+            from_node_id: Uuid::new_v4().to_string(),
+            to_node_id: Uuid::new_v4().to_string(),
+            timestamp_ms: 456,
+            trigger: types::PersistedNavigationTrigger::Back,
+        };
+
+        store
+            .archive_dissolved_traversal(&entry)
+            .expect("dissolved traversal write should succeed");
+
+        assert_eq!(store.traversal_archive_len(), 0);
+        assert_eq!(store.dissolved_archive_len(), 1);
+    }
+
+    #[test]
     fn test_log_remove_edge_recover() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().to_path_buf();
@@ -1010,6 +1157,54 @@ mod tests {
             let has_user_grouped = graph.edges().any(|e| e.edge_type == EdgeType::UserGrouped);
             assert!(!has_user_grouped);
         }
+    }
+
+    #[test]
+    fn test_log_append_traversal_replay_normalizes_history_placeholder() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+        let id_a = Uuid::new_v4();
+        let id_b = Uuid::new_v4();
+
+        {
+            let mut store = GraphStore::open(path.clone()).unwrap();
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: id_a.to_string(),
+                url: "https://a.com".to_string(),
+                position_x: 0.0,
+                position_y: 0.0,
+            });
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: id_b.to_string(),
+                url: "https://b.com".to_string(),
+                position_x: 1.0,
+                position_y: 1.0,
+            });
+            store.log_mutation(&LogEntry::AddEdge {
+                from_node_id: id_a.to_string(),
+                to_node_id: id_b.to_string(),
+                edge_type: types::PersistedEdgeType::History,
+            });
+            store.log_mutation(&LogEntry::AppendTraversal {
+                from_node_id: id_a.to_string(),
+                to_node_id: id_b.to_string(),
+                timestamp_ms: 42,
+                trigger: types::PersistedNavigationTrigger::Back,
+            });
+        }
+
+        let store = GraphStore::open(path).unwrap();
+        let graph = store.recover().unwrap();
+        let (from_key, _) = graph.get_node_by_url("https://a.com").unwrap();
+        let (to_key, _) = graph.get_node_by_url("https://b.com").unwrap();
+        let edge_key = graph.find_edge_key(from_key, to_key).unwrap();
+        let payload = graph.get_edge(edge_key).unwrap();
+        assert_eq!(payload.traversals.len(), 1);
+        assert_eq!(payload.traversals[0].timestamp_ms, 42);
+        assert_eq!(payload.traversals[0].trigger, crate::graph::NavigationTrigger::Back);
+        assert!(graph
+            .edges()
+            .any(|e| e.edge_type == EdgeType::History && e.from == from_key && e.to == to_key));
     }
 
     #[test]

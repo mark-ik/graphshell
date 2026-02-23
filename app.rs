@@ -12,12 +12,14 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::graph::egui_adapter::EguiGraphState;
-use crate::graph::{EdgeType, Graph, NodeKey};
+use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::persistence::GraphStore;
-use crate::persistence::types::{LogEntry, PersistedEdgeType};
+use crate::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigationTrigger};
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
 use log::{debug, warn};
+use crate::desktop::registries::diagnostics::ChannelConfig;
+use crate::desktop::registries::ontology::CompactCode;
 // Platform-agnostic renderer handle.
 // On desktop this aliases servo::WebViewId so existing callers in the
 // desktop module work without any conversion.
@@ -33,6 +35,7 @@ pub type RendererId = WebViewId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RendererId(u64);
 use petgraph::Direction;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use uuid::Uuid;
 
 /// Camera state for zoom bounds enforcement
@@ -80,6 +83,14 @@ impl Default for GraphViewId {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TraversalHistoryEntry {
+    pub from: NodeKey,
+    pub to: NodeKey,
+    pub timestamp_ms: u64,
+    pub trigger: NavigationTrigger,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum LayoutMode {
     Free,
@@ -110,10 +121,10 @@ impl PhysicsProfile {
     pub fn liquid() -> Self {
         Self {
             name: "Liquid".to_string(),
-            repulsion_strength: 1.0,
-            attraction_strength: 1.0,
-            gravity_strength: 0.1,
-            damping: 0.9,
+            repulsion_strength: 0.28,
+            attraction_strength: 0.22,
+            gravity_strength: 0.18,
+            damping: 0.55,
             layout_mode: LayoutMode::Free,
             degree_repulsion: true,
             domain_clustering: false,
@@ -124,15 +135,23 @@ impl PhysicsProfile {
     pub fn gas() -> Self {
         Self {
             name: "Gas".to_string(),
-            repulsion_strength: 2.0,
-            attraction_strength: 0.1,
+            repulsion_strength: 0.8,
+            attraction_strength: 0.05,
             gravity_strength: 0.0,
-            damping: 0.95,
+            damping: 0.8,
             layout_mode: LayoutMode::Free,
             degree_repulsion: false,
             domain_clustering: false,
             auto_pause: false,
         }
+    }
+
+    /// Apply these profile settings to a runtime physics state.
+    pub fn apply_to_state(&self, state: &mut FruchtermanReingoldWithCenterGravityState) {
+        state.base.c_repulse = self.repulsion_strength;
+        state.base.c_attract = self.attraction_strength;
+        state.base.damping = self.damping;
+        state.extras.0.params.c = self.gravity_strength;
     }
 }
 
@@ -142,15 +161,82 @@ pub struct LocalSimulation {
     pub physics: FruchtermanReingoldWithCenterGravityState,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LensConfig {
+    pub name: String,
+    pub lens_id: Option<String>,
+    pub physics_id: Option<String>,
+    pub layout_id: Option<String>,
+    pub theme_id: Option<String>,
+    pub physics: PhysicsProfile,
+    pub layout: LayoutMode,
+    pub theme: Option<String>,
+    pub filters: Vec<String>,
+}
+
+impl Default for LensConfig {
+    fn default() -> Self {
+        Self {
+            name: "Default".to_string(),
+            lens_id: None,
+            physics_id: None,
+            layout_id: None,
+            theme_id: None,
+            physics: PhysicsProfile::default(),
+            layout: LayoutMode::Free,
+            theme: None,
+            filters: Vec::new(),
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct GraphViewState {
     pub id: GraphViewId,
     pub name: String,
     pub camera: Camera,
-    pub profile: PhysicsProfile,
+    pub lens: LensConfig,
     pub local_simulation: Option<LocalSimulation>,
     #[serde(skip)]
     pub egui_state: Option<EguiGraphState>,
+}
+
+impl std::fmt::Debug for GraphViewState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GraphViewState")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("camera", &self.camera)
+            .field("lens", &self.lens)
+            .field("local_simulation", &self.local_simulation)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Clone for GraphViewState {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            camera: self.camera.clone(),
+            lens: self.lens.clone(),
+            local_simulation: self.local_simulation.clone(),
+            egui_state: None,
+        }
+    }
+}
+
+impl GraphViewState {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: GraphViewId::new(),
+            name: name.into(),
+            camera: Camera::new(),
+            lens: LensConfig::default(),
+            local_simulation: None,
+            egui_state: None,
+        }
+    }
 }
 
 /// Canonical node-selection state.
@@ -641,6 +727,7 @@ pub enum GraphIntent {
     ToggleCommandPalette,
     ToggleRadialMenu,
     TogglePersistencePanel,
+    ToggleTraversalHistoryPanel,
     Undo,
     Redo,
     CreateNodeNearCenter,
@@ -677,13 +764,21 @@ pub enum GraphIntent {
     SetZoom {
         zoom: f32,
     },
-    SetViewProfile {
+    SetViewLens {
         view_id: GraphViewId,
-        profile: PhysicsProfile,
+        lens: LensConfig,
     },
     SetNodeUrl {
         key: NodeKey,
         new_url: String,
+    },
+    TagNode {
+        key: NodeKey,
+        tag: String,
+    },
+    UntagNode {
+        key: NodeKey,
+        tag: String,
     },
     OpenNodeWorkspaceRouted {
         key: NodeKey,
@@ -845,6 +940,8 @@ pub struct GraphBrowserApp {
 
     /// Whether the persistence hub panel is open.
     pub show_persistence_panel: bool,
+    /// Whether the traversal history panel is open.
+    pub show_traversal_history_panel: bool,
     /// Preferred toast anchor location.
     pub toast_anchor_preference: ToastAnchorPreference,
     /// Preferred lasso activation gesture.
@@ -1018,6 +1115,23 @@ pub struct GraphBrowserApp {
 
     /// Whether form draft capture/replay metadata is enabled.
     form_draft_capture_enabled: bool,
+
+    /// Persisted default registry lens id override for view lens resolution.
+    default_registry_lens_id: Option<String>,
+    /// Persisted default registry physics id override for component-based lens resolution.
+    default_registry_physics_id: Option<String>,
+    /// Persisted default registry layout id override for component-based lens resolution.
+    default_registry_layout_id: Option<String>,
+    /// Persisted default registry theme id override for component-based lens resolution.
+    default_registry_theme_id: Option<String>,
+
+    /// Cached semantic codes for physics calculations.
+    /// Maps NodeKey -> Parsed UDC Code.
+    pub semantic_index: HashMap<NodeKey, CompactCode>,
+    pub semantic_index_dirty: bool,
+
+    /// Runtime semantic tags by node key (e.g. "udc:51").
+    pub semantic_tags: HashMap<NodeKey, HashSet<String>>,
 }
 
 impl GraphBrowserApp {
@@ -1043,6 +1157,16 @@ impl GraphBrowserApp {
         "workspace:settings-scroll-zoom-damping";
     pub const SETTINGS_SCROLL_ZOOM_MIN_ABS_NAME: &'static str =
         "workspace:settings-scroll-zoom-min-abs";
+    pub const SETTINGS_REGISTRY_LENS_ID_NAME: &'static str =
+        "workspace:settings-registry-lens-id";
+    pub const SETTINGS_REGISTRY_PHYSICS_ID_NAME: &'static str =
+        "workspace:settings-registry-physics-id";
+    pub const SETTINGS_REGISTRY_LAYOUT_ID_NAME: &'static str =
+        "workspace:settings-registry-layout-id";
+    pub const SETTINGS_REGISTRY_THEME_ID_NAME: &'static str =
+        "workspace:settings-registry-theme-id";
+    pub const SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX: &'static str =
+        "workspace:settings-diagnostics-channel-config:";
     pub const DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE: f32 = 0.01;
     pub const DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING: f32 = 0.86;
     pub const DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS: f32 = 0.00035;
@@ -1117,6 +1241,7 @@ impl GraphBrowserApp {
             show_command_palette: false,
             show_radial_menu: false,
             show_persistence_panel: false,
+            show_traversal_history_panel: false,
             toast_anchor_preference: ToastAnchorPreference::BottomRight,
             lasso_mouse_binding: LassoMouseBinding::RightDrag,
             command_palette_shortcut: CommandPaletteShortcut::F2,
@@ -1184,6 +1309,13 @@ impl GraphBrowserApp {
             memory_available_mib: 0,
             memory_total_mib: 0,
             form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT").is_some(),
+            default_registry_lens_id: None,
+            default_registry_physics_id: None,
+            default_registry_layout_id: None,
+            default_registry_theme_id: None,
+            semantic_index: HashMap::new(),
+            semantic_index_dirty: true,
+            semantic_tags: HashMap::new(),
         };
         app.load_persisted_ui_settings();
         app
@@ -1213,6 +1345,7 @@ impl GraphBrowserApp {
             show_command_palette: false,
             show_radial_menu: false,
             show_persistence_panel: false,
+            show_traversal_history_panel: false,
             toast_anchor_preference: ToastAnchorPreference::BottomRight,
             lasso_mouse_binding: LassoMouseBinding::RightDrag,
             command_palette_shortcut: CommandPaletteShortcut::F2,
@@ -1280,6 +1413,13 @@ impl GraphBrowserApp {
             memory_available_mib: 0,
             memory_total_mib: 0,
             form_draft_capture_enabled: false,
+            default_registry_lens_id: None,
+            default_registry_physics_id: None,
+            default_registry_layout_id: None,
+            default_registry_theme_id: None,
+            semantic_index: HashMap::new(),
+            semantic_index_dirty: true,
+            semantic_tags: HashMap::new(),
         }
     }
 
@@ -1408,6 +1548,8 @@ impl GraphBrowserApp {
                 | GraphIntent::SetNodePinned { .. }
                 | GraphIntent::SetNodeUrl { .. }
                 | GraphIntent::ExecuteEdgeCommand { .. }
+                | GraphIntent::TagNode { .. }
+                | GraphIntent::UntagNode { .. }
         ) {
             // Any graph mutation starts a fresh unsaved-change episode for
             // workspace-switch prompt gating.
@@ -1446,6 +1588,7 @@ impl GraphBrowserApp {
             GraphIntent::ToggleCommandPalette => self.toggle_command_palette(),
             GraphIntent::ToggleRadialMenu => self.toggle_radial_menu(),
             GraphIntent::TogglePersistencePanel => self.toggle_persistence_panel(),
+            GraphIntent::ToggleTraversalHistoryPanel => self.toggle_traversal_history_panel(),
             GraphIntent::Undo => {
                 let current_layout =
                     self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME);
@@ -1513,9 +1656,17 @@ impl GraphBrowserApp {
             GraphIntent::SetZoom { zoom } => {
                 self.camera.current_zoom = self.camera.clamp(zoom);
             },
-            GraphIntent::SetViewProfile { view_id, profile } => {
+            GraphIntent::SetViewLens { view_id, lens } => {
+                let lens = self.with_registry_lens_defaults(lens);
+                let lens = if let Some(lens_id) = lens.lens_id.as_deref() {
+                    crate::desktop::registries::phase2_resolve_lens(lens_id)
+                } else if lens.name.starts_with("lens:") {
+                    crate::desktop::registries::phase2_resolve_lens(&lens.name)
+                } else {
+                    crate::desktop::registries::phase2_resolve_lens_components(&lens)
+                };
                 if let Some(view) = self.views.get_mut(&view_id) {
-                    view.profile = profile;
+                    view.lens = lens;
                 }
             },
             GraphIntent::SetNodeUrl { key, new_url } => {
@@ -1525,6 +1676,7 @@ impl GraphBrowserApp {
                 key,
                 prefer_workspace,
             } => {
+                debug!("app: applying OpenNodeWorkspaceRouted for {:?}", key);
                 self.select_node(key, false);
                 match self.resolve_workspace_open(key, prefer_workspace.as_deref()) {
                     WorkspaceOpenAction::RestoreWorkspace { name, .. } => {
@@ -1776,6 +1928,24 @@ impl GraphBrowserApp {
                     node.favicon_width = width;
                     node.favicon_height = height;
                     self.egui_state_dirty = true;
+                }
+            },
+            GraphIntent::TagNode { key, tag } => {
+                if self.graph.get_node(key).is_some() {
+                    let tags = self.semantic_tags.entry(key).or_default();
+                    if tags.insert(tag) {
+                        self.semantic_index_dirty = true;
+                    }
+                }
+            },
+            GraphIntent::UntagNode { key, tag } => {
+                if let Some(tags) = self.semantic_tags.get_mut(&key)
+                    && tags.remove(&tag)
+                {
+                    if tags.is_empty() {
+                        self.semantic_tags.remove(&key);
+                    }
+                    self.semantic_index_dirty = true;
                 }
             },
         }
@@ -2059,6 +2229,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_SCROLL_ZOOM_IMPULSE_SCALE_NAME
             || name == Self::SETTINGS_SCROLL_ZOOM_DAMPING_NAME
             || name == Self::SETTINGS_SCROLL_ZOOM_MIN_ABS_NAME
+            || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
             || name.starts_with(Self::SESSION_WORKSPACE_PREV_PREFIX)
     }
 
@@ -2191,6 +2362,92 @@ impl GraphBrowserApp {
         );
     }
 
+    pub fn set_default_registry_lens_id(&mut self, lens_id: Option<&str>) {
+        let normalized = Self::normalize_optional_registry_id(lens_id.map(str::to_owned));
+        self.default_registry_lens_id = normalized.clone();
+        self.save_workspace_layout_json(
+            Self::SETTINGS_REGISTRY_LENS_ID_NAME,
+            normalized.as_deref().unwrap_or(""),
+        );
+    }
+
+    pub fn set_default_registry_physics_id(&mut self, physics_id: Option<&str>) {
+        let normalized = Self::normalize_optional_registry_id(physics_id.map(str::to_owned));
+        self.default_registry_physics_id = normalized.clone();
+        self.save_workspace_layout_json(
+            Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME,
+            normalized.as_deref().unwrap_or(""),
+        );
+    }
+
+    pub fn set_default_registry_layout_id(&mut self, layout_id: Option<&str>) {
+        let normalized = Self::normalize_optional_registry_id(layout_id.map(str::to_owned));
+        self.default_registry_layout_id = normalized.clone();
+        self.save_workspace_layout_json(
+            Self::SETTINGS_REGISTRY_LAYOUT_ID_NAME,
+            normalized.as_deref().unwrap_or(""),
+        );
+    }
+
+    pub fn set_default_registry_theme_id(&mut self, theme_id: Option<&str>) {
+        let normalized = Self::normalize_optional_registry_id(theme_id.map(str::to_owned));
+        self.default_registry_theme_id = normalized.clone();
+        self.save_workspace_layout_json(
+            Self::SETTINGS_REGISTRY_THEME_ID_NAME,
+            normalized.as_deref().unwrap_or(""),
+        );
+    }
+
+    pub fn default_registry_lens_id(&self) -> Option<&str> {
+        self.default_registry_lens_id.as_deref()
+    }
+
+    pub fn default_registry_physics_id(&self) -> Option<&str> {
+        self.default_registry_physics_id.as_deref()
+    }
+
+    pub fn default_registry_layout_id(&self) -> Option<&str> {
+        self.default_registry_layout_id.as_deref()
+    }
+
+    pub fn default_registry_theme_id(&self) -> Option<&str> {
+        self.default_registry_theme_id.as_deref()
+    }
+
+    pub fn set_diagnostics_channel_config(&mut self, channel_id: &str, config: &ChannelConfig) {
+        let normalized = channel_id.trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            return;
+        }
+        let key = format!(
+            "{}{}",
+            Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX,
+            normalized
+        );
+        self.save_workspace_layout_json(
+            &key,
+            &format!(
+                "{}|{}|{}",
+                if config.enabled { "1" } else { "0" },
+                config.sample_rate,
+                config.retention_count
+            ),
+        );
+    }
+
+    pub fn diagnostics_channel_configs(&self) -> Vec<(String, ChannelConfig)> {
+        self.list_workspace_layout_names()
+            .into_iter()
+            .filter_map(|key| {
+                let channel_id = key
+                    .strip_prefix(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)?
+                    .to_string();
+                let raw = self.load_workspace_layout_json(&key)?;
+                parse_diagnostics_channel_config(&raw).map(|config| (channel_id, config))
+            })
+            .collect()
+    }
+
     fn load_persisted_ui_settings(&mut self) {
         let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_TOAST_ANCHOR_NAME) else {
             return self.load_additional_persisted_ui_settings();
@@ -2293,6 +2550,50 @@ impl GraphBrowserApp {
                 },
             }
         }
+
+        self.default_registry_lens_id = self
+            .load_workspace_layout_json(Self::SETTINGS_REGISTRY_LENS_ID_NAME)
+            .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
+            .unwrap_or(None);
+        self.default_registry_physics_id = self
+            .load_workspace_layout_json(Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME)
+            .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
+            .unwrap_or(None);
+        self.default_registry_layout_id = self
+            .load_workspace_layout_json(Self::SETTINGS_REGISTRY_LAYOUT_ID_NAME)
+            .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
+            .unwrap_or(None);
+        self.default_registry_theme_id = self
+            .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
+            .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
+            .unwrap_or(None);
+
+        crate::desktop::registries::diagnostics::apply_persisted_channel_configs(
+            self.diagnostics_channel_configs(),
+        );
+    }
+
+    fn normalize_optional_registry_id(raw: Option<String>) -> Option<String> {
+        raw.and_then(|value| {
+            let normalized = value.trim().to_ascii_lowercase();
+            (!normalized.is_empty()).then_some(normalized)
+        })
+    }
+
+    fn with_registry_lens_defaults(&self, mut lens: LensConfig) -> LensConfig {
+        if lens.lens_id.is_none() {
+            lens.lens_id = self.default_registry_lens_id.clone();
+        }
+        if lens.physics_id.is_none() {
+            lens.physics_id = self.default_registry_physics_id.clone();
+        }
+        if lens.layout_id.is_none() {
+            lens.layout_id = self.default_registry_layout_id.clone();
+        }
+        if lens.theme_id.is_none() {
+            lens.theme_id = self.default_registry_theme_id.clone();
+        }
+        lens
     }
 
     /// Delete a persisted workspace layout by name.
@@ -2576,6 +2877,7 @@ impl GraphBrowserApp {
         let node_uuid = self.graph.get_node(node).map(|n| n.id);
         let (action, reason) = self.resolve_workspace_open_with_reason(node, prefer_workspace);
         match (&action, reason) {
+            // Note: These debug logs are crucial for diagnosing routing decisions.
             (WorkspaceOpenAction::OpenInCurrentWorkspace { .. }, WorkspaceOpenReason::MissingNode) => {
                 debug!(
                     "workspace routing: node {:?} missing in graph; falling back to current workspace",
@@ -2712,6 +3014,9 @@ impl GraphBrowserApp {
         self.next_placeholder_id = Self::scan_max_placeholder_id(&self.graph);
         self.egui_state = None;
         self.egui_state_dirty = true;
+        self.semantic_tags.clear();
+        self.semantic_index.clear();
+        self.semantic_index_dirty = true;
         self.fit_to_screen_requested = true;
     }
 
@@ -2766,6 +3071,9 @@ impl GraphBrowserApp {
         self.next_placeholder_id = next_placeholder_id;
         self.egui_state = None;
         self.egui_state_dirty = true;
+        self.semantic_tags.clear();
+        self.semantic_index.clear();
+        self.semantic_index_dirty = true;
         self.last_session_workspace_layout_hash = None;
         self.last_session_workspace_layout_json = None;
         self.last_workspace_autosave_at = None;
@@ -2963,6 +3271,39 @@ impl GraphBrowserApp {
     /// Toggle persistence hub visibility.
     pub fn toggle_persistence_panel(&mut self) {
         self.show_persistence_panel = !self.show_persistence_panel;
+    }
+
+    /// Toggle traversal history panel visibility.
+    pub fn toggle_traversal_history_panel(&mut self) {
+        self.show_traversal_history_panel = !self.show_traversal_history_panel;
+    }
+
+    /// Return most recent traversal events (descending by timestamp).
+    pub fn traversal_history_entries(&self, limit: usize) -> Vec<TraversalHistoryEntry> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let mut rows = Vec::new();
+        for edge in self.graph.inner.edge_references() {
+            let from = edge.source();
+            let to = edge.target();
+            for traversal in &edge.weight().traversals {
+                rows.push(TraversalHistoryEntry {
+                    from,
+                    to,
+                    timestamp_ms: traversal.timestamp_ms,
+                    trigger: traversal.trigger,
+                });
+            }
+        }
+        rows.sort_by(|a, b| {
+            b.timestamp_ms
+                .cmp(&a.timestamp_ms)
+                .then_with(|| a.from.index().cmp(&b.from.index()))
+                .then_with(|| a.to.index().cmp(&b.to.index()))
+        });
+        rows.truncate(limit);
+        rows
     }
 
     /// Capture current global state as an undo checkpoint.
@@ -3595,6 +3936,11 @@ impl GraphBrowserApp {
         if !is_back && !is_forward_same_list {
             return;
         }
+        let trigger = if is_back {
+            NavigationTrigger::Back
+        } else {
+            NavigationTrigger::Forward
+        };
 
         let from_key = self
             .graph
@@ -3612,11 +3958,58 @@ impl GraphBrowserApp {
             return;
         };
 
-        let has_history_edge = self.graph.edges().any(|edge| {
-            edge.edge_type == EdgeType::History && edge.from == from_key && edge.to == to_key
-        });
-        if !has_history_edge {
-            let _ = self.add_edge_and_sync(from_key, to_key, EdgeType::History);
+        let _ = self.push_history_traversal_and_sync(from_key, to_key, trigger);
+    }
+
+    fn push_history_traversal_and_sync(
+        &mut self,
+        from_key: NodeKey,
+        to_key: NodeKey,
+        trigger: NavigationTrigger,
+    ) -> bool {
+        if from_key == to_key {
+            return false;
+        }
+        let existing_edge_key = self.graph.find_edge_key(from_key, to_key);
+        let history_semantic_existed = existing_edge_key
+            .and_then(|edge_key| self.graph.get_edge(edge_key))
+            .map(|payload| payload.has_edge_type(EdgeType::History))
+            .unwrap_or(false);
+
+        let traversal = Traversal::now(trigger);
+        let appended = self.graph.push_traversal(from_key, to_key, traversal);
+        if !appended {
+            return false;
+        }
+
+        if !history_semantic_existed {
+            self.log_edge_mutation(from_key, to_key, EdgeType::History);
+        }
+        self.log_traversal_mutation(from_key, to_key, traversal);
+        self.egui_state_dirty = true;
+        self.physics.base.is_running = true;
+        self.drag_release_frames_remaining = 0;
+        true
+    }
+
+    fn log_traversal_mutation(&mut self, from_key: NodeKey, to_key: NodeKey, traversal: Traversal) {
+        if let Some(store) = &mut self.persistence {
+            let from_id = self.graph.get_node(from_key).map(|n| n.id.to_string());
+            let to_id = self.graph.get_node(to_key).map(|n| n.id.to_string());
+            let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
+                return;
+            };
+            let trigger = match traversal.trigger {
+                NavigationTrigger::Unknown => PersistedNavigationTrigger::Unknown,
+                NavigationTrigger::Back => PersistedNavigationTrigger::Back,
+                NavigationTrigger::Forward => PersistedNavigationTrigger::Forward,
+            };
+            store.log_mutation(&LogEntry::AppendTraversal {
+                from_node_id,
+                to_node_id,
+                timestamp_ms: traversal.timestamp_ms,
+                trigger,
+            });
         }
     }
 
@@ -3806,6 +4199,7 @@ impl GraphBrowserApp {
             self.remove_warm_cache_node(node_key);
             self.runtime_block_state.remove(&node_key);
             self.runtime_block_state.remove(&node_key);
+            self.semantic_tags.remove(&node_key);
             if let Some(node_id) = node_id {
                 self.node_last_active_workspace.remove(&node_id);
                 self.node_workspace_membership.remove(&node_id);
@@ -3903,6 +4297,9 @@ impl GraphBrowserApp {
         self.warm_cache_lru.clear();
         self.runtime_block_state.clear();
         self.runtime_block_state.clear();
+        self.semantic_tags.clear();
+        self.semantic_index.clear();
+        self.semantic_index_dirty = true;
         self.node_last_active_workspace.clear();
         self.node_workspace_membership.clear();
         self.last_session_workspace_layout_hash = None;
@@ -3944,6 +4341,7 @@ impl GraphBrowserApp {
         self.warm_cache_lru.clear();
         self.runtime_block_state.clear();
         self.runtime_block_state.clear();
+        self.semantic_tags.clear();
         self.node_last_active_workspace.clear();
         self.node_workspace_membership.clear();
         self.current_workspace_is_synthesized = false;
@@ -3952,6 +4350,8 @@ impl GraphBrowserApp {
         self.active_webview_nodes.clear();
         self.next_placeholder_id = 0;
         self.egui_state_dirty = true;
+        self.semantic_index.clear();
+        self.semantic_index_dirty = true;
     }
 
     /// Update a node's URL and log to persistence.
@@ -3969,6 +4369,23 @@ impl GraphBrowserApp {
         self.egui_state_dirty = true;
         Some(old_url)
     }
+}
+
+fn parse_diagnostics_channel_config(raw: &str) -> Option<ChannelConfig> {
+    let mut parts = raw.split('|');
+    let enabled_raw = parts.next()?.trim();
+    let sample_rate_raw = parts.next()?.trim();
+    let retention_raw = parts.next()?.trim();
+
+    let enabled = matches!(enabled_raw, "1" | "true" | "TRUE" | "True");
+    let sample_rate = sample_rate_raw.parse::<f32>().ok()?.clamp(0.0, 1.0);
+    let retention_count = retention_raw.parse::<usize>().ok()?.max(1);
+
+    Some(ChannelConfig {
+        enabled,
+        sample_rate,
+        retention_count,
+    })
 }
 
 impl Default for GraphBrowserApp {
@@ -4599,6 +5016,58 @@ mod tests {
     }
 
     #[test]
+    fn test_intent_webview_history_changed_appends_traversals_on_repeat_navigation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+        let b = app
+            .graph
+            .add_node("https://b.com".into(), Point2D::new(100.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, b);
+        if let Some(node) = app.graph.get_node_mut(b) {
+            node.history_entries = vec!["https://a.com".into(), "https://b.com".into()];
+            node.history_index = 1;
+        }
+
+        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+            webview_id: wv,
+            entries: vec!["https://a.com".into(), "https://b.com".into()],
+            current: 0,
+        }]);
+
+        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+            webview_id: wv,
+            entries: vec!["https://a.com".into(), "https://b.com".into()],
+            current: 1,
+        }]);
+
+        let back_edge_key = app.graph.find_edge_key(b, a).expect("back traversal edge");
+        let back_payload = app.graph.get_edge(back_edge_key).unwrap();
+        assert_eq!(back_payload.traversals.len(), 1);
+        assert_eq!(back_payload.traversals[0].trigger, NavigationTrigger::Back);
+
+        let forward_edge_key = app.graph.find_edge_key(a, b).expect("forward traversal edge");
+        let forward_payload = app.graph.get_edge(forward_edge_key).unwrap();
+        assert_eq!(forward_payload.traversals.len(), 1);
+        assert_eq!(
+            forward_payload.traversals[0].trigger,
+            NavigationTrigger::Forward
+        );
+
+        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+            webview_id: wv,
+            entries: vec!["https://a.com".into(), "https://b.com".into()],
+            current: 0,
+        }]);
+
+        let back_payload = app.graph.get_edge(back_edge_key).unwrap();
+        assert_eq!(back_payload.traversals.len(), 2);
+        assert_eq!(back_payload.traversals[1].trigger, NavigationTrigger::Back);
+    }
+
+    #[test]
     fn test_intent_create_user_grouped_edge_adds_single_edge() {
         let mut app = GraphBrowserApp::new_for_testing();
         let from = app
@@ -4637,29 +5106,6 @@ mod tests {
             .graph
             .edges()
             .filter(|e| e.edge_type == EdgeType::UserGrouped && e.from == from && e.to == to)
-            .count();
-        assert_eq!(count, 1);
-    }
-
-    #[test]
-    fn test_intent_create_user_grouped_edge_from_primary_selection() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let a = app
-            .graph
-            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
-        let b = app
-            .graph
-            .add_node("https://b.com".into(), Point2D::new(10.0, 0.0));
-
-        app.select_node(b, false);
-        app.select_node(a, true);
-
-        app.apply_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
-
-        let count = app
-            .graph
-            .edges()
-            .filter(|e| e.edge_type == EdgeType::UserGrouped && e.from == a && e.to == b)
             .count();
         assert_eq!(count, 1);
     }
@@ -5832,56 +6278,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_workspace_open_prefers_recent_membership() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        let node_id = app.graph.get_node(key).unwrap().id;
-
-        let mut index = HashMap::new();
-        index.insert(
-            node_id,
-            BTreeSet::from(["alpha".to_string(), "beta".to_string()]),
-        );
-        app.init_membership_index(index);
-        app.note_workspace_activated("beta", [key]);
-
-        assert_eq!(
-            app.resolve_workspace_open(key, None),
-            WorkspaceOpenAction::RestoreWorkspace {
-                name: "beta".to_string(),
-                node: key
-            }
-        );
-    }
-
-    #[test]
-    fn test_resolve_workspace_open_honors_preferred_workspace() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        let node_id = app.graph.get_node(key).unwrap().id;
-
-        let mut index = HashMap::new();
-        index.insert(
-            node_id,
-            BTreeSet::from(["alpha".to_string(), "beta".to_string()]),
-        );
-        app.init_membership_index(index);
-        app.note_workspace_activated("beta", [key]);
-
-        assert_eq!(
-            app.resolve_workspace_open(key, Some("alpha")),
-            WorkspaceOpenAction::RestoreWorkspace {
-                name: "alpha".to_string(),
-                node: key
-            }
-        );
-    }
-
-    #[test]
     fn test_resolve_workspace_open_deterministic_fallback_without_recency_match() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
@@ -5964,359 +6360,6 @@ mod tests {
     }
 
     #[test]
-    fn test_open_node_workspace_routed_with_preferred_workspace_requests_restore() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        let node_id = app.graph.get_node(key).unwrap().id;
-        let mut index = HashMap::new();
-        index.insert(
-            node_id,
-            BTreeSet::from(["alpha".to_string(), "beta".to_string()]),
-        );
-        app.init_membership_index(index);
-        app.note_workspace_activated("beta", [key]);
-
-        app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
-            key,
-            prefer_workspace: Some("alpha".to_string()),
-        }]);
-
-        assert_eq!(
-            app.take_pending_restore_workspace_snapshot_named(),
-            Some("alpha".to_string())
-        );
-        assert_eq!(
-            app.take_pending_workspace_restore_open_request(),
-            Some(PendingNodeOpenRequest {
-                key,
-                mode: PendingTileOpenMode::Tab,
-            })
-        );
-    }
-
-    #[test]
-    fn test_open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membership() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-
-        app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
-            key,
-            prefer_workspace: None,
-        }]);
-
-        assert_eq!(app.get_single_selected_node(), Some(key));
-        assert_eq!(
-            app.take_pending_open_node_request(),
-            Some(PendingNodeOpenRequest {
-                key,
-                mode: PendingTileOpenMode::Tab,
-            })
-        );
-        assert!(app.current_workspace_is_synthesized);
-        assert!(
-            app.take_pending_restore_workspace_snapshot_named()
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn test_open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        let node_id = app.graph.get_node(key).unwrap().id;
-
-        let mut index = HashMap::new();
-        index.insert(node_id, BTreeSet::from(["workspace-alpha".to_string()]));
-        app.init_membership_index(index);
-        app.current_workspace_is_synthesized = true;
-        app.workspace_has_unsaved_changes = true;
-        app.unsaved_workspace_prompt_warned = false;
-
-        app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
-            key,
-            prefer_workspace: None,
-        }]);
-
-        assert_eq!(
-            app.take_pending_restore_workspace_snapshot_named(),
-            Some("workspace-alpha".to_string())
-        );
-        assert!(app.should_prompt_unsaved_workspace_save());
-    }
-
-    #[test]
-    fn test_remove_selected_nodes_clears_workspace_membership_entry() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        let node_id = app.graph.get_node(key).unwrap().id;
-
-        let mut index = HashMap::new();
-        index.insert(node_id, BTreeSet::from(["saved-workspace".to_string()]));
-        app.init_membership_index(index);
-
-        app.select_node(key, false);
-        app.remove_selected_nodes();
-
-        assert!(app.membership_for_node(node_id).is_empty());
-    }
-
-    #[test]
-    fn test_set_node_url_preserves_workspace_membership() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://before.example".to_string(), Point2D::new(0.0, 0.0));
-        let node_id = app.graph.get_node(key).unwrap().id;
-        let mut index = HashMap::new();
-        index.insert(
-            node_id,
-            BTreeSet::from(["workspace-alpha".to_string(), "workspace-beta".to_string()]),
-        );
-        app.init_membership_index(index);
-
-        app.apply_intents([GraphIntent::SetNodeUrl {
-            key,
-            new_url: "https://after.example".to_string(),
-        }]);
-
-        assert_eq!(
-            app.graph.get_node(key).unwrap().url,
-            "https://after.example"
-        );
-        assert_eq!(
-            app.membership_for_node(node_id),
-            &BTreeSet::from(["workspace-alpha".to_string(), "workspace-beta".to_string(),])
-        );
-    }
-
-    #[test]
-    fn test_workspace_has_unsaved_changes_for_graph_mutations() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        app.current_workspace_is_synthesized = true;
-        app.workspace_has_unsaved_changes = false;
-
-        app.apply_intents([GraphIntent::CreateNodeNearCenter]);
-
-        assert!(app.workspace_has_unsaved_changes);
-        assert!(app.should_prompt_unsaved_workspace_save());
-    }
-
-    #[test]
-    fn test_workspace_modified_for_graph_mutations_even_when_not_synthesized() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        app.current_workspace_is_synthesized = false;
-        app.workspace_has_unsaved_changes = false;
-
-        app.apply_intents([GraphIntent::CreateNodeNearCenter]);
-
-        assert!(app.workspace_has_unsaved_changes);
-        assert!(app.should_prompt_unsaved_workspace_save());
-    }
-
-    #[test]
-    fn test_workspace_not_modified_for_non_graph_mutations() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        app.current_workspace_is_synthesized = true;
-        app.workspace_has_unsaved_changes = false;
-
-        app.apply_intents([GraphIntent::SelectNode {
-            key,
-            multi_select: false,
-        }]);
-
-        assert!(!app.workspace_has_unsaved_changes);
-        assert!(!app.should_prompt_unsaved_workspace_save());
-    }
-
-    #[test]
-    fn test_unsaved_prompt_warning_resets_on_additional_graph_mutation() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        app.current_workspace_is_synthesized = true;
-        app.workspace_has_unsaved_changes = true;
-        app.unsaved_workspace_prompt_warned = true;
-
-        app.apply_intents([GraphIntent::CreateNodeNearCenter]);
-
-        assert!(app.workspace_has_unsaved_changes);
-        assert!(!app.unsaved_workspace_prompt_warned);
-    }
-
-    #[test]
-    fn test_workspace_not_modified_for_set_node_position() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        app.current_workspace_is_synthesized = true;
-        app.workspace_has_unsaved_changes = false;
-
-        app.apply_intents([GraphIntent::SetNodePosition {
-            key,
-            position: Point2D::new(42.0, 24.0),
-        }]);
-
-        assert!(!app.workspace_has_unsaved_changes);
-        assert!(!app.should_prompt_unsaved_workspace_save());
-    }
-
-    #[test]
-    fn test_workspace_has_unsaved_changes_for_set_node_pinned() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .graph
-            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        app.current_workspace_is_synthesized = true;
-        app.workspace_has_unsaved_changes = false;
-
-        app.apply_intents([GraphIntent::SetNodePinned {
-            key,
-            is_pinned: true,
-        }]);
-
-        assert!(app.workspace_has_unsaved_changes);
-        assert!(app.should_prompt_unsaved_workspace_save());
-    }
-
-    #[test]
-    fn test_save_named_workspace_clears_unsaved_prompt_state() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().to_path_buf();
-        let mut app = GraphBrowserApp::new_from_dir(path);
-        app.current_workspace_is_synthesized = true;
-        app.workspace_has_unsaved_changes = true;
-        app.unsaved_workspace_prompt_warned = true;
-
-        app.save_workspace_layout_json("workspace:user-saved", "{\"root\":null}");
-
-        assert!(!app.current_workspace_is_synthesized);
-        assert!(!app.workspace_has_unsaved_changes);
-        assert!(!app.unsaved_workspace_prompt_warned);
-        assert!(!app.should_prompt_unsaved_workspace_save());
-    }
-
-    #[test]
-    fn test_session_workspace_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layout() {
-        let dir = TempDir::new().unwrap();
-        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
-
-        app.save_session_workspace_layout_blob_if_changed("bundle-json-v1", "runtime-layout-v1");
-        assert_eq!(
-            app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
-                .as_deref(),
-            Some("bundle-json-v1")
-        );
-        assert_eq!(
-            app.last_session_workspace_layout_json(),
-            Some("runtime-layout-v1")
-        );
-
-        // Allow another autosave attempt while keeping the runtime layout identical.
-        app.last_workspace_autosave_at = None;
-        app.save_session_workspace_layout_blob_if_changed("bundle-json-v2", "runtime-layout-v1");
-
-        // Persisted blob should not change because the runtime layout hash is the gate.
-        assert_eq!(
-            app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
-                .as_deref(),
-            Some("bundle-json-v1")
-        );
-        assert_eq!(
-            app.last_session_workspace_layout_json(),
-            Some("runtime-layout-v1")
-        );
-        assert_eq!(
-            app.load_workspace_layout_json(&GraphBrowserApp::session_workspace_history_key(1)),
-            None
-        );
-    }
-
-    #[test]
-    fn test_session_workspace_blob_autosave_rotates_previous_latest_bundle_on_layout_change() {
-        let dir = TempDir::new().unwrap();
-        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
-        app.set_workspace_autosave_retention(2).unwrap();
-
-        app.save_session_workspace_layout_blob_if_changed("bundle-json-a", "runtime-layout-a");
-        app.last_workspace_autosave_at = None;
-        app.save_session_workspace_layout_blob_if_changed("bundle-json-b", "runtime-layout-b");
-
-        assert_eq!(
-            app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
-                .as_deref(),
-            Some("bundle-json-b")
-        );
-        assert_eq!(
-            app.load_workspace_layout_json(&GraphBrowserApp::session_workspace_history_key(1))
-                .as_deref(),
-            Some("bundle-json-a")
-        );
-        assert_eq!(
-            app.last_session_workspace_layout_json(),
-            Some("runtime-layout-b")
-        );
-    }
-
-    #[test]
-    fn test_switch_persistence_dir_reloads_graph_state() {
-        let dir_a = TempDir::new().unwrap();
-        let path_a = dir_a.path().to_path_buf();
-        let dir_b = TempDir::new().unwrap();
-        let path_b = dir_b.path().to_path_buf();
-
-        {
-            let mut store_a = GraphStore::open(path_a.clone()).unwrap();
-            store_a.log_mutation(&LogEntry::AddNode {
-                node_id: Uuid::new_v4().to_string(),
-                url: "https://from-a.com".to_string(),
-                position_x: 1.0,
-                position_y: 2.0,
-            });
-        }
-        {
-            let mut store_b = GraphStore::open(path_b.clone()).unwrap();
-            store_b.log_mutation(&LogEntry::AddNode {
-                node_id: Uuid::new_v4().to_string(),
-                url: "https://from-b.com".to_string(),
-                position_x: 3.0,
-                position_y: 4.0,
-            });
-            store_b.log_mutation(&LogEntry::AddNode {
-                node_id: Uuid::new_v4().to_string(),
-                url: "about:blank#7".to_string(),
-                position_x: 5.0,
-                position_y: 6.0,
-            });
-        }
-
-        let mut app = GraphBrowserApp::new_from_dir(path_a);
-        assert!(app.graph.get_node_by_url("https://from-a.com").is_some());
-        assert!(app.graph.get_node_by_url("https://from-b.com").is_none());
-
-        app.switch_persistence_dir(path_b).unwrap();
-
-        assert!(app.graph.get_node_by_url("https://from-a.com").is_none());
-        assert!(app.graph.get_node_by_url("https://from-b.com").is_some());
-        assert!(app.selected_nodes.is_empty());
-
-        let new_placeholder = app.create_new_node_near_center();
-        assert_eq!(
-            app.graph.get_node(new_placeholder).unwrap().url,
-            "about:blank#8"
-        );
-    }
-
-    #[test]
     fn test_new_from_dir_loads_persisted_toast_anchor_preference() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().to_path_buf();
@@ -6329,22 +6372,6 @@ mod tests {
 
         let app = GraphBrowserApp::new_from_dir(path);
         assert_eq!(app.toast_anchor_preference, ToastAnchorPreference::TopLeft);
-    }
-
-    #[test]
-    fn test_set_toast_anchor_preference_persists_across_restart() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().to_path_buf();
-
-        let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        app.set_toast_anchor_preference(ToastAnchorPreference::TopRight);
-        drop(app);
-
-        let reopened = GraphBrowserApp::new_from_dir(path);
-        assert_eq!(
-            reopened.toast_anchor_preference,
-            ToastAnchorPreference::TopRight
-        );
     }
 
     #[test]
@@ -6436,5 +6463,102 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         assert!(app.set_snapshot_interval_secs(45).is_err());
         assert_eq!(app.snapshot_interval_secs(), None);
+    }
+
+    #[test]
+    fn test_registry_component_defaults_persist_across_restart() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        app.set_default_registry_lens_id(Some("lens:default"));
+        app.set_default_registry_physics_id(Some("physics:gas"));
+        app.set_default_registry_layout_id(Some("layout:grid"));
+        app.set_default_registry_theme_id(Some("theme:dark"));
+        drop(app);
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        assert_eq!(reopened.default_registry_lens_id(), Some("lens:default"));
+        assert_eq!(
+            reopened.default_registry_physics_id(),
+            Some("physics:gas")
+        );
+        assert_eq!(
+            reopened.default_registry_layout_id(),
+            Some("layout:grid")
+        );
+        assert_eq!(
+            reopened.default_registry_theme_id(),
+            Some("theme:dark")
+        );
+    }
+
+    #[test]
+    fn test_set_view_lens_applies_persisted_component_defaults_when_ids_missing() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.default_registry_physics_id = Some("physics:gas".to_string());
+        app.default_registry_layout_id = Some("layout:grid".to_string());
+        app.default_registry_theme_id = Some("theme:dark".to_string());
+
+        let view_id = GraphViewId::new();
+        app.views.insert(view_id, GraphViewState::new("Test"));
+
+        let lens = LensConfig {
+            name: "Custom Lens".to_string(),
+            lens_id: None,
+            physics_id: None,
+            layout_id: None,
+            theme_id: None,
+            physics: PhysicsProfile::default(),
+            layout: LayoutMode::Free,
+            theme: None,
+            filters: Vec::new(),
+        };
+
+        app.apply_intents([GraphIntent::SetViewLens { view_id, lens }]);
+
+        let resolved = &app.views.get(&view_id).unwrap().lens;
+        assert_eq!(resolved.physics_id.as_deref(), Some("physics:gas"));
+        assert_eq!(resolved.layout_id.as_deref(), Some("layout:grid"));
+        assert_eq!(resolved.theme_id.as_deref(), Some("theme:dark"));
+        assert_eq!(resolved.physics.name, "Gas");
+        assert!(matches!(resolved.layout, LayoutMode::Grid { .. }));
+        assert_eq!(resolved.theme.as_deref(), Some("theme:dark"));
+    }
+
+    #[test]
+    fn test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.default_registry_lens_id = Some("lens:default".to_string());
+        app.default_registry_physics_id = Some("physics:gas".to_string());
+        app.default_registry_layout_id = Some("layout:grid".to_string());
+        app.default_registry_theme_id = Some("theme:dark".to_string());
+
+        let view_id = GraphViewId::new();
+        app.views.insert(view_id, GraphViewState::new("Test"));
+
+        let lens = LensConfig {
+            name: "Custom Lens".to_string(),
+            lens_id: None,
+            physics_id: None,
+            layout_id: None,
+            theme_id: None,
+            physics: PhysicsProfile::default(),
+            layout: LayoutMode::Free,
+            theme: None,
+            filters: Vec::new(),
+        };
+
+        app.apply_intents([GraphIntent::SetViewLens { view_id, lens }]);
+
+        let resolved = &app.views.get(&view_id).unwrap().lens;
+        assert_eq!(resolved.lens_id.as_deref(), Some("lens:default"));
+        assert_eq!(resolved.name, "Default");
+        assert_eq!(resolved.physics_id.as_deref(), Some("physics:default"));
+        assert_eq!(resolved.layout_id.as_deref(), Some("layout:default"));
+        assert_eq!(resolved.theme_id.as_deref(), Some("theme:default"));
+        assert_eq!(resolved.physics.name, "Liquid");
+        assert!(matches!(resolved.layout, LayoutMode::Free));
+        assert_eq!(resolved.theme.as_deref(), Some("theme:default"));
     }
 }
