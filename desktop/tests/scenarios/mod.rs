@@ -4,3 +4,4 @@ mod layout;
 mod persistence;
 mod registries;
 mod routing;
+mod tags;

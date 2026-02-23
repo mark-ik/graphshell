@@ -18,8 +18,8 @@ use crate::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigation
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
 use log::{debug, warn};
-use crate::desktop::registries::diagnostics::ChannelConfig;
 use crate::desktop::registries::ontology::CompactCode;
+use crate::registries::atomic::diagnostics::ChannelConfig;
 // Platform-agnostic renderer handle.
 // On desktop this aliases servo::WebViewId so existing callers in the
 // desktop module work without any conversion.
@@ -35,7 +35,6 @@ pub type RendererId = WebViewId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RendererId(u64);
 use petgraph::Direction;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use uuid::Uuid;
 
 /// Camera state for zoom bounds enforcement
@@ -83,12 +82,11 @@ impl Default for GraphViewId {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TraversalHistoryEntry {
-    pub from: NodeKey,
-    pub to: NodeKey,
-    pub timestamp_ms: u64,
-    pub trigger: NavigationTrigger,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistoryManagerTab {
+    #[default]
+    Timeline,
+    Dissolved,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -108,6 +106,8 @@ pub struct PhysicsProfile {
     pub layout_mode: LayoutMode,
     pub degree_repulsion: bool,
     pub domain_clustering: bool,
+    pub semantic_clustering: bool,
+    pub semantic_strength: f32,
     pub auto_pause: bool,
 }
 
@@ -128,6 +128,8 @@ impl PhysicsProfile {
             layout_mode: LayoutMode::Free,
             degree_repulsion: true,
             domain_clustering: false,
+            semantic_clustering: false,
+            semantic_strength: 0.05,
             auto_pause: true,
         }
     }
@@ -142,6 +144,8 @@ impl PhysicsProfile {
             layout_mode: LayoutMode::Free,
             degree_repulsion: false,
             domain_clustering: false,
+            semantic_clustering: false,
+            semantic_strength: 0.05,
             auto_pause: false,
         }
     }
@@ -723,11 +727,14 @@ pub enum GraphIntent {
     RequestZoomToSelected,
     ReheatPhysics,
     TogglePhysicsPanel,
+    ToggleHistoryManager,
     ToggleHelpPanel,
     ToggleCommandPalette,
     ToggleRadialMenu,
     TogglePersistencePanel,
-    ToggleTraversalHistoryPanel,
+    OpenSettingsUrl {
+        url: String,
+    },
     Undo,
     Redo,
     CreateNodeNearCenter,
@@ -794,6 +801,7 @@ pub enum GraphIntent {
         edge_type: EdgeType,
     },
     CreateUserGroupedEdgeFromPrimarySelection,
+    GroupNodesBySemanticTags,
     ExecuteEdgeCommand {
         command: EdgeCommand,
     },
@@ -930,6 +938,11 @@ pub struct GraphBrowserApp {
     /// Whether the physics config panel is open
     pub show_physics_panel: bool,
 
+    /// Whether the History Manager panel is open.
+    pub show_history_manager: bool,
+    /// Active tab in the History Manager panel.
+    pub history_manager_tab: HistoryManagerTab,
+
     /// Whether the keyboard shortcut help panel is open
     pub show_help_panel: bool,
 
@@ -940,8 +953,6 @@ pub struct GraphBrowserApp {
 
     /// Whether the persistence hub panel is open.
     pub show_persistence_panel: bool,
-    /// Whether the traversal history panel is open.
-    pub show_traversal_history_panel: bool,
     /// Preferred toast anchor location.
     pub toast_anchor_preference: ToastAnchorPreference,
     /// Preferred lasso activation gesture.
@@ -1180,6 +1191,8 @@ impl GraphBrowserApp {
     pub const DEFAULT_WORKSPACE_AUTOSAVE_RETENTION: u8 = 1;
     pub const DEFAULT_ACTIVE_WEBVIEW_LIMIT: usize = 4;
     pub const DEFAULT_WARM_CACHE_LIMIT: usize = 12;
+    pub const TAG_PIN: &'static str = "#pin";
+    pub const TAG_STARRED: &'static str = "#starred";
 
     pub fn default_physics_state() -> FruchtermanReingoldWithCenterGravityState {
         let mut state = FruchtermanReingoldWithCenterGravityState::default();
@@ -1237,11 +1250,12 @@ impl GraphBrowserApp {
             is_interacting: false,
             drag_release_frames_remaining: 0,
             show_physics_panel: false,
+            show_history_manager: false,
+            history_manager_tab: HistoryManagerTab::Timeline,
             show_help_panel: false,
             show_command_palette: false,
             show_radial_menu: false,
             show_persistence_panel: false,
-            show_traversal_history_panel: false,
             toast_anchor_preference: ToastAnchorPreference::BottomRight,
             lasso_mouse_binding: LassoMouseBinding::RightDrag,
             command_palette_shortcut: CommandPaletteShortcut::F2,
@@ -1341,11 +1355,12 @@ impl GraphBrowserApp {
             is_interacting: false,
             drag_release_frames_remaining: 0,
             show_physics_panel: false,
+            show_history_manager: false,
+            history_manager_tab: HistoryManagerTab::Timeline,
             show_help_panel: false,
             show_command_palette: false,
             show_radial_menu: false,
             show_persistence_panel: false,
-            show_traversal_history_panel: false,
             toast_anchor_preference: ToastAnchorPreference::BottomRight,
             lasso_mouse_binding: LassoMouseBinding::RightDrag,
             command_palette_shortcut: CommandPaletteShortcut::F2,
@@ -1584,11 +1599,11 @@ impl GraphBrowserApp {
                 self.drag_release_frames_remaining = 0;
             },
             GraphIntent::TogglePhysicsPanel => self.toggle_physics_panel(),
+            GraphIntent::ToggleHistoryManager => self.toggle_history_manager(),
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
             GraphIntent::ToggleCommandPalette => self.toggle_command_palette(),
             GraphIntent::ToggleRadialMenu => self.toggle_radial_menu(),
             GraphIntent::TogglePersistencePanel => self.toggle_persistence_panel(),
-            GraphIntent::ToggleTraversalHistoryPanel => self.toggle_traversal_history_panel(),
             GraphIntent::Undo => {
                 let current_layout =
                     self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME);
@@ -1618,6 +1633,9 @@ impl GraphBrowserApp {
                 let key = self.add_node_and_sync(url, position);
                 self.select_node(key, false);
                 self.request_open_node_tile_mode(key, mode);
+            },
+            GraphIntent::OpenSettingsUrl { url } => {
+                self.open_settings_url(&url);
             },
             GraphIntent::RemoveSelectedNodes => self.remove_selected_nodes(),
             GraphIntent::ClearGraph => self.clear_graph(),
@@ -1707,6 +1725,9 @@ impl GraphBrowserApp {
             },
             GraphIntent::CreateUserGroupedEdgeFromPrimarySelection => {
                 self.create_user_grouped_edge_from_primary_selection();
+            },
+            GraphIntent::GroupNodesBySemanticTags => {
+                self.group_nodes_by_semantic_tags();
             },
             GraphIntent::ExecuteEdgeCommand { command } => {
                 let intents = self.intents_for_edge_command(command);
@@ -1932,6 +1953,10 @@ impl GraphBrowserApp {
             },
             GraphIntent::TagNode { key, tag } => {
                 if self.graph.get_node(key).is_some() {
+                    if tag == Self::TAG_PIN {
+                        self.set_node_pinned_and_log(key, true);
+                    }
+
                     let tags = self.semantic_tags.entry(key).or_default();
                     if tags.insert(tag) {
                         self.semantic_index_dirty = true;
@@ -1939,6 +1964,10 @@ impl GraphBrowserApp {
                 }
             },
             GraphIntent::UntagNode { key, tag } => {
+                if tag == Self::TAG_PIN {
+                    self.set_node_pinned_and_log(key, false);
+                }
+
                 if let Some(tags) = self.semantic_tags.get_mut(&key)
                     && tags.remove(&tag)
                 {
@@ -1997,7 +2026,18 @@ impl GraphBrowserApp {
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
     ) -> usize {
-        let removed = self.graph.remove_edges(from_key, to_key, edge_type);
+        // Use dissolution transfer if persistence is available
+        let removed = if let Some(store) = &mut self.persistence {
+            store
+                .dissolve_and_remove_edges(&mut self.graph, from_key, to_key, edge_type)
+                .unwrap_or_else(|e| {
+                    log::warn!("Dissolution transfer failed, falling back to direct removal: {e}");
+                    self.graph.remove_edges(from_key, to_key, edge_type)
+                })
+        } else {
+            self.graph.remove_edges(from_key, to_key, edge_type)
+        };
+        
         if removed > 0 {
             self.log_edge_removal_mutation(from_key, to_key, edge_type);
             self.egui_state_dirty = true;
@@ -2568,7 +2608,7 @@ impl GraphBrowserApp {
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
 
-        crate::desktop::registries::diagnostics::apply_persisted_channel_configs(
+        crate::registries::atomic::diagnostics::apply_persisted_channel_configs(
             self.diagnostics_channel_configs(),
         );
     }
@@ -3250,6 +3290,11 @@ impl GraphBrowserApp {
         self.show_physics_panel = !self.show_physics_panel;
     }
 
+    /// Toggle history manager panel visibility
+    pub fn toggle_history_manager(&mut self) {
+        self.show_history_manager = !self.show_history_manager;
+    }
+
     /// Toggle keyboard shortcut help panel visibility
     pub fn toggle_help_panel(&mut self) {
         self.show_help_panel = !self.show_help_panel;
@@ -3273,37 +3318,59 @@ impl GraphBrowserApp {
         self.show_persistence_panel = !self.show_persistence_panel;
     }
 
-    /// Toggle traversal history panel visibility.
-    pub fn toggle_traversal_history_panel(&mut self) {
-        self.show_traversal_history_panel = !self.show_traversal_history_panel;
+    /// Open a `graphshell://settings/*` URL using current panel-based bridge surfaces.
+    pub fn open_settings_url(&mut self, url: &str) {
+        let normalized = url.trim().to_ascii_lowercase();
+        if !normalized.starts_with("graphshell://settings") {
+            return;
+        }
+
+        self.show_physics_panel = false;
+        self.show_history_manager = false;
+        self.show_persistence_panel = false;
+
+        if normalized == "graphshell://settings/history" {
+            self.show_history_manager = true;
+            return;
+        }
+
+        if normalized == "graphshell://settings/physics" {
+            self.show_physics_panel = true;
+            return;
+        }
+
+        if normalized == "graphshell://settings/persistence" {
+            self.show_persistence_panel = true;
+            return;
+        }
+
+        if normalized == "graphshell://settings" {
+            self.show_history_manager = true;
+        }
     }
 
-    /// Return most recent traversal events (descending by timestamp).
-    pub fn traversal_history_entries(&self, limit: usize) -> Vec<TraversalHistoryEntry> {
-        if limit == 0 {
-            return Vec::new();
-        }
-        let mut rows = Vec::new();
-        for edge in self.graph.inner.edge_references() {
-            let from = edge.source();
-            let to = edge.target();
-            for traversal in &edge.weight().traversals {
-                rows.push(TraversalHistoryEntry {
-                    from,
-                    to,
-                    timestamp_ms: traversal.timestamp_ms,
-                    trigger: traversal.trigger,
-                });
-            }
-        }
-        rows.sort_by(|a, b| {
-            b.timestamp_ms
-                .cmp(&a.timestamp_ms)
-                .then_with(|| a.from.index().cmp(&b.from.index()))
-                .then_with(|| a.to.index().cmp(&b.to.index()))
-        });
-        rows.truncate(limit);
-        rows
+    /// Return recent traversal archive entries (descending, newest first).
+    pub fn history_manager_timeline_entries(&self, limit: usize) -> Vec<LogEntry> {
+        self.persistence
+            .as_ref()
+            .map(|store| store.recent_traversal_archive_entries(limit))
+            .unwrap_or_default()
+    }
+
+    /// Return recent dissolved archive entries (descending, newest first).
+    pub fn history_manager_dissolved_entries(&self, limit: usize) -> Vec<LogEntry> {
+        self.persistence
+            .as_ref()
+            .map(|store| store.recent_dissolved_archive_entries(limit))
+            .unwrap_or_default()
+    }
+
+    /// Return (traversal_archive_count, dissolved_archive_count).
+    pub fn history_manager_archive_counts(&self) -> (usize, usize) {
+        self.persistence
+            .as_ref()
+            .map(|store| (store.traversal_archive_len(), store.dissolved_archive_len()))
+            .unwrap_or((0, 0))
     }
 
     /// Capture current global state as an undo checkpoint.
@@ -4038,6 +4105,47 @@ impl GraphBrowserApp {
         }
     }
 
+    /// Group nodes by their UDC semantic tags (Phase 3: Auto-grouping).
+    /// Creates UserGrouped edges between nodes that share the same top-level subject.
+    fn group_nodes_by_semantic_tags(&mut self) {
+        use std::collections::HashMap;
+
+        // Group nodes by their top-level UDC code (first digit)
+        let mut clusters: HashMap<u8, Vec<NodeKey>> = HashMap::new();
+
+        for (&node_key, code) in &self.semantic_index {
+            if let Some(&first_digit) = code.0.first() {
+                clusters.entry(first_digit).or_default().push(node_key);
+            }
+        }
+
+        // Create edges within each cluster (fully connected within subject)
+        // For MVP, we connect all pairs within a cluster. For large clusters,
+        // this could be optimized to star topology or hierarchical clustering.
+        let mut created_pairs = std::collections::HashSet::new();
+
+        for (_subject_code, nodes) in clusters {
+            if nodes.len() < 2 {
+                continue; // Need at least 2 nodes to group
+            }
+
+            // Connect all pairs bidirectionally within the cluster
+            for i in 0..nodes.len() {
+                for j in (i + 1)..nodes.len() {
+                    let (a, b) = (nodes[i], nodes[j]);
+                    
+                    // Create canonical pair to avoid duplicates
+                    let pair = if a < b { (a, b) } else { (b, a) };
+                    if !created_pairs.contains(&pair) {
+                        created_pairs.insert(pair);
+                        self.add_user_grouped_edge_if_missing(a, b);
+                        self.add_user_grouped_edge_if_missing(b, a);
+                    }
+                }
+            }
+        }
+    }
+
     fn selected_pair_in_order(&self) -> Option<(NodeKey, NodeKey)> {
         self.selected_nodes.ordered_pair()
     }
@@ -4119,17 +4227,44 @@ impl GraphBrowserApp {
     }
 
     fn set_node_pinned_and_log(&mut self, key: NodeKey, is_pinned: bool) {
-        let Some(node) = self.graph.get_node_mut(key) else {
+        let Some(current_state) = self.graph.get_node(key).map(|node| node.is_pinned) else {
             return;
         };
-        if node.is_pinned == is_pinned {
+        let had_pin_tag = self
+            .semantic_tags
+            .get(&key)
+            .is_some_and(|tags| tags.contains(Self::TAG_PIN));
+        if current_state == is_pinned && had_pin_tag == is_pinned {
             return;
         }
-        node.is_pinned = is_pinned;
+
+        if let Some(node) = self.graph.get_node_mut(key) {
+            node.is_pinned = is_pinned;
+        }
+
+        let mut tags_changed = false;
+        if is_pinned {
+            let tags = self.semantic_tags.entry(key).or_default();
+            tags_changed = tags.insert(Self::TAG_PIN.to_string());
+        } else if let Some(tags) = self.semantic_tags.get_mut(&key) {
+            tags_changed = tags.remove(Self::TAG_PIN);
+            if tags.is_empty() {
+                self.semantic_tags.remove(&key);
+            }
+        }
+
+        if tags_changed {
+            self.semantic_index_dirty = true;
+        }
+
         self.egui_state_dirty = true;
         if let Some(store) = &mut self.persistence {
             store.log_mutation(&LogEntry::PinNode {
-                node_id: node.id.to_string(),
+                node_id: self
+                    .graph
+                    .get_node(key)
+                    .map(|node| node.id.to_string())
+                    .unwrap_or_default(),
                 is_pinned,
             });
         }
@@ -4205,8 +4340,12 @@ impl GraphBrowserApp {
                 self.node_workspace_membership.remove(&node_id);
             }
 
-            // Remove from graph
-            self.graph.remove_node(node_key);
+            // Remove from graph with dissolution transfer if persistence is active
+            if let Some(store) = &mut self.persistence {
+                let _ = store.dissolve_and_remove_node(&mut self.graph, node_key);
+            } else {
+                self.graph.remove_node(node_key);
+            }
             self.egui_state_dirty = true;
         }
 
