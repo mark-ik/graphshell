@@ -98,7 +98,6 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md](graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md) - **Canonical registry architecture**: Two-Pillar design (Graph/Workbench), atomic/domain registry catalog, phase plan (Phases 0–1 complete), mod system, core seed floor, topology target. Supersedes `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md`.
 - [graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md](graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md) - UDC semantic tagging and layout plan.
 
-
 ### Graphshell Design
 
 - [graphshell_docs/design/KEYBINDINGS.md](graphshell_docs/design/KEYBINDINGS.md) - Keyboard interaction reference.
@@ -121,10 +120,13 @@ Project status source: [../README.md](../README.md)
 
 ## Verse Active Docs
 
-- [verse_docs/research/VERSE.md](verse_docs/research/VERSE.md) - Verse architecture and tokenization overview.
+- [verse_docs/2026-02-22_verse_implementation_strategy.md](verse_docs/2026-02-22_verse_implementation_strategy.md) - **Canonical Verse design**: Tier 1 (Direct Sync) full technical design — identity, transport (iroh), sync protocol, UX, SyncWorker, conflict resolution, registry mod wiring, and Phase 5 execution plan. Tier 2 (brokered economy) preserved as §11 for long-term reference.
+- [verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md](verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md) - Earlier P2P collaboration architecture reference (predates intent model; superseded by verse strategy for new work, retained for protocol design context).
+- [verse_docs/research/VERSE.md](verse_docs/research/VERSE.md) - Original tokenization and peer-role vision (speculative research).
 - [verse_docs/research/SEARCH_FINDINGS_SUMMARY.md](verse_docs/research/SEARCH_FINDINGS_SUMMARY.md) - Research and source synthesis.
-- [verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md](verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md) - P2P collaboration architecture and integration model.
-- [verse_docs/research/2026-02-23_storage_economy_and_indices.md](verse_docs/research/2026-02-23_storage_economy_and_indices.md) - Speculative research on storage economy (Proof of Access) and composable indices.
+- [verse_docs/research/2026-02-22_aspirational_protocols_and_tools.md](verse_docs/research/2026-02-22_aspirational_protocols_and_tools.md) - Protocol ecosystem survey (IPFS, ActivityPub, Nostr, Gemini, Matrix) and crate index. Reference for Tier 2 and future protocol mod work.
+- [verse_docs/research/2026-02-23_storage_economy_and_indices.md](verse_docs/research/2026-02-23_storage_economy_and_indices.md) - Speculative research on Proof of Access economy and composable Index Artifacts (Tier 2 research input).
+- [verse_docs/research/2026-02-23_modern_yacy_gap_analysis.md](verse_docs/research/2026-02-23_modern_yacy_gap_analysis.md) - Gap analysis for decentralized search: Index Artifact format (tantivy segments), local vs. remote query, crawler bounty economy (Tier 2 research input).
 
 ## Archive Checkpoints
 

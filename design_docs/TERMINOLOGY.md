@@ -119,23 +119,56 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Domain sequencing principle**: Resolve layout first (structure + interaction), then presentation (style + motion parameters).
 *   **Semantic gap principle**: On each architecture change, ask: "Is there a semantic gap that maps cleanly to technical, architectural, or design concerns and should become an explicit registry/domain boundary?"
 *   **Mod-first principle**: Registries define contracts. Mods populate them. The application must be fully functional as an offline graph organizer with only core seeds (no mods loaded).
+*   **SignalBus**: The inter-registry event bus owned by The Register. Carries typed signals between registries without direct coupling. Registries subscribe to signal types; emitters do not know their consumers.
 *   **Action**: An executable command defined in the `ActionRegistry`.
+*   **AgentRegistry**: An atomic registry for autonomous cognitive agents — background processes that observe app state, connect to external AI/inference providers, and emit `GraphIntent` streams. Distinct from `ActionRegistry` (discrete, deterministic, user-triggered commands): agents are continuous, probabilistic, and self-directed.
 *   **Mod**: A capability unit that registers entries into one or more registries. Two tiers:
     *   **Native Mod**: Compiled into the binary, registered at startup via `inventory::submit!`. Not sandboxed. Used for first-party capabilities (Verso, Verse, default themes).
     *   **WASM Mod**: Dynamically loaded at runtime via `extism`. Sandboxed, capability-restricted. Used for third-party extensions.
     Both tiers use the same `ModManifest` format declaring `provides` and `requires`.
 *   **Core Seed**: The minimal registry population that ships without any mods, making the app functional as an offline document organizer (graph manipulation, local files, plaintext/metadata viewers, search, persistence).
 *   **Verso**: A native mod packaging Servo/Wry web rendering. Provides `viewer:webview`, `protocol:http`, `protocol:https`. Without Verso, nodes display as metadata cards.
-*   **Verse**: A native mod packaging P2P networking. Provides IPFS/ActivityPub protocols, federated search, DID identity. Without Verse, the app is fully offline.
+*   **Verse**: A native mod packaging P2P networking. Provides `protocol:verse-blobs` (iroh QUIC sync), `protocol:nostr` (signaling/invite relay), and `index:community` (federated tantivy search). Tier 1 (private device sync via iroh) and Tier 2 (public community swarms via libp2p) are distinct phases. Without Verse, the app is fully offline.
 *   **WorkbenchProfile**: The Workbench + Input configuration component of a Workflow. Captures active tile-tree layout policy, interaction bindings, and container behavior. Combined with a Lens to produce a full Workflow.
 *   **Workflow**: The full active session mode. `Workflow = Lens × WorkbenchProfile`. A Lens defines how the graph looks and moves; a WorkbenchProfile defines how the Workbench and input are configured. Managed by `WorkflowRegistry` (future).
 
 ## Network & Sync (Verse)
 
-*   **Report**: A recorded jump from one webpage to another (Source -> Destination + Metadata). The fundamental unit of sharing.
-*   **Tokenization**: The process of anonymizing a Report and minting it as a unique digital asset.
-*   **Peer**: A device participating in the Verse network.
-*   **Lamport Clock**: A logical clock used to order events in the distributed system.
+### Identity & Trust
+
+*   **NodeId**: A 32-byte Ed25519 public key. The canonical peer identity across both Verse tiers. Derives `iroh::NodeId` (raw bytes, Tier 1) and `libp2p::PeerId` (identity multihash, Tier 2) from the same secret key — one keypair, two peer handles.
+*   **TrustedPeer**: A persisted record of a known, explicitly paired device. Stores `NodeId`, display name, `PeerRole`, and `WorkspaceGrant` entries. Held in the `IdentityRegistry`.
+*   **PeerRole**: Classification of a trusted peer. `Self_` (the user's own other devices) or `Friend` (another user's device).
+*   **WorkspaceGrant**: Per-peer, per-workspace access permission. `ReadOnly` or `ReadWrite`.
+
+### Sync Protocol (Tier 1)
+
+*   **SyncUnit**: The wire format for a delta sync exchange. Contains a `VersionVector`, a batch of `SyncedIntent`s, and an optional `WorkspaceSnapshot` for fast-forward. Serialized via rkyv, compressed via zstd, transported over iroh QUIC.
+*   **VersionVector**: A map of `NodeId → sequence_number`. Records how far ahead each peer's intent log this node has observed. The causal ordering mechanism for conflict detection. Not a Lamport Clock (single scalar) — a vector clock (per-peer scalars).
+*   **SyncWorker**: A ControlPanel-supervised tokio task owning the iroh `Endpoint`. Manages the accept loop, peer connections, and `SyncUnit` exchange. Emits `GraphIntent`s into the normal intent pipeline on receipt.
+*   **SyncLog**: The append-only local journal of all intents applied by this node. The source of truth for constructing outbound `SyncUnit`s. AES-256-GCM encrypted at rest.
+
+### Verse Content (Tier 1 + Tier 2)
+
+*   **VerseBlob**: The universal content atom. Content-addressed (CID = BLAKE3 of header ++ payload), typed (`BlobType`), signed by author `NodeId`, optionally encrypted. Transport-agnostic — the same CID over iroh or libp2p Bitswap.
+*   **Report**: A `VerseBlob` containing a signed user observation: a node's URL, readability-extracted text, UDC tags, graph traversal context, and a timestamp. The passive indexing unit — the user's browsing record as a publishable, verifiable knowledge asset.
+*   **MediaClip**: A `VerseBlob` containing a WARC-format archive of an HTTP response (headers + body). Forensic fidelity — preserves the exact response, not just the rendered DOM. Enables distributed web archiving as a side effect of community membership.
+*   **IndexArtifact**: A `VerseBlob` containing a serialized tantivy index segment. Compact, mergeable, and memory-mappable. The unit of federated search — communities share knowledge by sharing IndexArtifacts.
+
+### Community Model (Tier 2)
+
+*   **CommunityManifest**: The signed definition of a Verse community. Contains: `VerseVisibility` policy, `VerseGovernance` (organizers, admin threshold, stake openness), GossipSub `index_topic`, `index_root` CID (current `IndexArtifact`), and a Filecoin `StakeRecord`.
+*   **VerseVisibility**: The disclosure and join policy for a community. `PublicOpen` (anyone, anonymous OK), `PublicWithFloor` (discoverable, min rebroadcast required), `SemiPrivate` (permissioned join), or `Dark` (existence itself not broadcastable — enforced at protocol layer).
+*   **RebroadcastLevel**: The consent spectrum for joining a Verse. `SilentAck` (local index only, nothing propagated) → `ExistenceBroadcast` (tell peers the Verse exists) → `ContentRelay` (serve blobs via Bitswap) → `Endorsement` (public vouching, implies ContentRelay). The community's `VerseVisibility` sets the minimum floor; joining requires committing to at or above it.
+*   **MembershipRecord**: A signed record of a node's commitment to a community. Contains `community_id`, `member_node_id`, `RebroadcastLevel`, `storage_allocation`, and the member's signature — their consent to the community's policy.
+*   **VerseGovernance**: The governance model of a community. Organizers (founding stakers, absolute authority) set the `admin_stake_threshold`. Participants who stake above the threshold become admins. `open_to_late_stakers` controls whether new admin paths are available post-founding.
+
+### Search (Tier 2)
+
+*   **SearchProvider**: A Verse node that hosts a large tantivy index and serves `QueryRequest` RPCs over iroh QUIC. Earns Verse Tokens per query via a query-receipt in the Proof of Access economic model. Advertised via Nostr profile or DHT record.
+*   **CrawlBounty**: A signed request posted by a community curator offering Verse Tokens for a completed `IndexArtifact` covering a defined `CrawlScope`. The mechanism that turns web indexing into a decentralized gig-economy job.
+*   **Crawler**: A Verse node that claims and fulfills `CrawlBounty` requests. Uses the personal crawler pipeline (`reqwest-middleware` + `scraper` + `readability` + `json-ld`) to produce `IndexArtifact` blobs.
+*   **Validator**: A Verse node that spot-checks submitted `IndexArtifact` blobs against the `CrawlScope`. Randomly selected from the staked pool; earns a per-check fee from the community validator pool.
 
 ## Legacy / Deprecated Terms
 
@@ -149,3 +182,6 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   *GraphLayoutRegistry / WorkbenchLayoutRegistry / ViewerLayoutRegistry*: Renamed to `CanvasRegistry` / `WorkbenchSurfaceRegistry` / `ViewerSurfaceRegistry` to signal that scope includes structure + interaction + rendering policy, not just positioning.
 *   *GraphSurfaceRegistry*: Renamed to **CanvasRegistry**. The graph view is an infinite, spatial, physics-driven canvas — semantically distinct from the bounded Workbench and Viewer surfaces.
 *   *Session* (in Workflow/registry context): Replaced by **WorkbenchProfile**. Session remains valid only as the WAL-backed temporal activity period.
+*   *Tokenization* (Verse): Replaced by **VerseBlob** + **Proof of Access**. The original concept of "anonymizing a Report and minting it as a digital asset" is now the `Report` BlobType + the receipt economy.
+*   *Lamport Clock* (Verse): Replaced by **VersionVector**. Verse uses per-peer monotonic sequence numbers (a vector clock), not a single Lamport scalar. A VersionVector records causal dependencies across all peers; a Lamport clock only orders events globally.
+*   *DID / Decentralized Identifier* (Verse): Not used. Verse identity is an Ed25519 `NodeId` stored in the OS keychain. The `NodeId` is the DID equivalent — it is self-sovereign, portable, and derives both iroh and libp2p peer handles from a single keypair. Formal DID method integration is deferred.

@@ -1,165 +1,88 @@
-# Verse Implementation Strategy & Economic Model
+# Verse Implementation Strategy: Quick Reference
 
-**Date**: 2026-02-23
-**Status**: Research / Draft
-**Context**: Synthesizes the "Proof of Access" economy (`2026-02-23_storage_economy_and_indices.md`) with the "Direct User Exception" to define a hybrid P2P architecture.
-
----
-
-## 1. Executive Summary: The Hybrid Economy
-
-Verse is not a monolithic "pay-to-play" network. It is a **hybrid topology** that distinguishes between **Trusted Relationships** (zero-cost) and **Market Relationships** (tokenized).
-
-*   **Tier 1: The Direct Economy (Trusted)**. Users syncing their own devices or sharing with known friends.
-    *   *Cost*: **Zero**. No tokens, no gas, no brokers.
-    *   *Mechanism*: Direct mutual authentication (TLS/Noise), manual peering, "allow-list" storage.
-    *   *Use Case*: "Sync my phone to my desktop," "Share this workspace with Alice."
-*   **Tier 2: The Brokered Economy (Market)**. Users needing storage/bandwidth from the public network.
-    *   *Cost*: **Verse Tokens**. Paid for storage capacity and retrieval bandwidth.
-    *   *Mechanism*: Algorithmic brokering, "Receipt" micropayments, Proof of Access.
-    *   *Use Case*: "Host my blog for the world," "Backup my graph to the cloud (encrypted)," "Buy this curated index."
-
-This distinction ensures Graphshell remains a functional local-first tool (Tier 1) while enabling a robust decentralized service economy (Tier 2) without forcing financialization on personal use.
+**Date**: 2026-02-22 (original), 2026-02-23 (split)
+**Status**: Index / Orientation Document
+**Context**: This document has been split into two focused files to separate implementation-ready engineering plans from long-horizon research architecture.
 
 ---
 
-## 2. Tier 1: The Direct Economy (Zero-Cost)
+## Document Split Rationale
 
-### 2.1 Concept
-If I own the hardware (my desktop, my NAS) or have a social contract with a peer (my friend), the network protocol should not extract rent. The protocol facilitates the connection but steps out of the transaction.
+The original Verse strategy combined **Tier 1** (concrete Phase 5 deliverables: iroh-based bilateral sync, identity, pairing, conflict resolution) with **Tier 2** (speculative architecture: libp2p swarms, VerseBlob content addressing, Proof of Access economics, federated search). This created cognitive overload for engineers executing Phase 5 and prevented Tier 2 from evolving independently.
 
-### 2.2 Implementation: Trusted Peer Sets
-*   **Identity**: `PeerId` (Ed25519 public key).
-*   **Handshake**: Direct connection via `iroh` (QUIC).
-*   **Authorization**:
-    *   **Self-Owned**: Devices sharing the same private seed or explicitly paired via QR code. Full read/write access.
-    *   **Friends**: Explicitly added `PeerId`s with assigned roles (e.g., "Can Read Workspace X", "Can Store Encrypted Blobs up to 5GB").
+**New structure**:
 
-### 2.3 The "No-Receipt" Flag
-When transferring data between trusted peers, the protocol sets a `skip_receipt` flag.
-*   **Bandwidth**: Accounted for locally (for user info) but generates no network "debt."
-*   **Storage**: Quotas managed by social agreement ("I'll let you use 10GB on my NAS"), not smart contracts.
+1. **[Tier 1 Implementation Plan](implementation_strategy/2026-02-23_verse_tier1_sync_plan.md)** (~800 lines)  
+   Complete specification for Registry Phase 5: iroh transport, Ed25519 identity, pairing ceremonies, delta sync protocol, SyncWorker control plane integration, workspace access grants, UX designs, security model, and step-by-step execution plan. **This is the concrete Phase 5 deliverable.**
+
+2. **[Tier 2 Architecture](2026-02-23_verse_tier2_architecture.md)** (~600 lines)  
+   Long-horizon research: dual-transport model (iroh + libp2p), VerseBlob content format, community swarms with GossipSub, federated search, Proof of Access economic layer, Nostr signaling, content pipeline, crawler economy. **This is exploratory — not a Phase 5 dependency.**
+
+Engineers implementing Phase 5 should focus on **Tier 1 only**. Tier 2 provides architectural context for future evolution but makes no immediate claims on the implementation roadmap.
 
 ---
 
-## 3. Tier 2: The Brokered Economy (Tokenized)
+## Quick Start
 
-### 3.1 Concept
-When a user needs resources beyond their trusted circle (e.g., high-availability hosting, CDN-like speed, long-term cold storage), they engage the **Verse Network** as a broker.
+- **I'm implementing Verse sync for Phase 5**: Read [Tier 1 Implementation Plan](implementation_strategy/2026-02-23_verse_tier1_sync_plan.md). Follow the execution plan in §9 (Steps 5.1–5.5). All dependencies, UX mockups, and done gates are defined.
 
-### 3.2 The Brokerage Mechanism
-1.  **The Ask**: User broadcasts a `StorageRequest` (Size: 1GB, Redundancy: 3x, Duration: 1yr, Max Price: X Tokens).
-2.  **The Bid**: Storage Nodes (Providers) respond automatically based on their configuration.
-3.  **The Contract**: The network (or a matchmaker node) pairs User with Providers. A "Channel" is opened.
+- **I'm researching federated knowledge protocols**: Read [Tier 2 Architecture](2026-02-23_verse_tier2_architecture.md). This explores community-scale swarms, economic incentives, and search infrastructure. Treat it as a design space, not a requirement.
 
-### 3.3 Proof of Access (The "Mining" Model)
-Unlike Filecoin (Proof of Spacetime), Verse emphasizes **Utility**.
-*   **Minting Event**: Tokens are minted when data is *served* (Proof of Access), not just held.
-*   **The Receipt**:
-    1.  User requests shard `S` from Provider `P`.
-    2.  `P` sends `S`.
-    3.  User verifies `Hash(S)`.
-    4.  User signs a micro-receipt `R = Sign(User, P, Hash(S), Timestamp)`.
-    5.  `P` collects `R`s.
-*   **Settlement**: `P` submits a batch of `R`s to the ledger. The ledger verifies signatures and mints tokens to `P`, deducting from User's balance (or verifying User's subscription/burn).
+- **I'm reviewing Verse holistically**: Skim Tier 1 §1–5 (identity, transport, sync protocol, conflict resolution) for the core model, then read Tier 2 §1–2 (dual-transport rationale, identity bridge) to understand how Tier 1 extends to public swarms.
 
 ---
 
-## 4. Technical Implementation
+## What Changed
 
-### 4.1 The Stack
-*   **Transport**: `iroh` (Rust-native, QUIC, NAT traversal). Perfect for both direct and brokered connections.
-*   **Serialization**: `rkyv` (Zero-copy). Essential for high-performance shard verification.
-*   **Encryption**: `AES-256-GCM` + `zstd`.
-    *   *Policy*: **All** data in Tier 2 is encrypted client-side. Providers never see plaintext.
-    *   *Key Management*: Keys managed by `IdentityRegistry` (local OS keychain).
+### Tier 1 (Implementation Plan)
+- **§1**: Overview — Tier 1 characteristics (iroh, bilateral, pairing, LWW conflicts)
+- **§2**: Identity & Pairing — Ed25519 keypair in OS keychain, trust store, pairing flows (code/QR, mDNS, invite links)
+- **§3**: Transport (iroh) — QUIC, Magic Sockets, NAT traversal, connection model
+- **§4**: Sync Protocol — SyncUnit wire format, version vectors, delta computation, conflict resolution strategies
+- **§5**: SyncWorker — Control plane integration, accept loop, intent pipeline, backpressure
+- **§6**: UX Design — Sync status indicator, Sync Panel, pairing flows, workspace sharing, conflict resolution UI
+- **§7**: Security & Encryption — Noise transport auth, at-rest AES-256-GCM, trust boundaries
+- **§8**: Registry Integration — ModManifest, initialization sequence, ActionRegistry extensions, diagnostics channels, offline graceful degradation
+- **§9**: Phase 5 Execution Plan — 5 thin vertical slices with done gates (iroh scaffold, trust store, pairing UI, delta sync, access control)
+- **§10**: Crate Dependencies — iroh, keyring, mdns-sd, qrcode, rkyv, zstd, aes-gcm
+- **§11**: Open Questions (Tier 1 only) — Identity scope, relay infrastructure, sync triggers, conflict accumulation, VV pruning, workspace granularity
 
-### 4.2 Data Structure: The Verse Blob
-Everything in Verse is a Blob.
-```rust
-struct VerseBlob {
-    header: BlobHeader {
-        version: u8,
-        compression: CompressionType, // Zstd
-        encryption: EncryptionType,   // Aes256Gcm
-        content_type: BlobType,       // GraphSnapshot, Index, Media, etc.
-    },
-    payload: Vec<u8>, // Encrypted bytes
-    signature: Signature, // Signed by Author
-}
-```
-
-### 4.3 Indices as Graphs
-An "Index" is just a specialized Graphshell Workspace.
-*   **Nodes**: Content Addresses (CIDs) of other blobs.
-*   **Edges**: Semantic relationships.
-*   **Usage**: A Search Provider hosts an Index Blob. Users download the Index (Tier 2 transaction) and browse it locally in Graphshell.
-
----
-
-## 5. Component Architecture
-
-### 5.1 The Client (Graphshell)
-*   **Role**: User Agent.
-*   **Capabilities**:
-    *   Manage Keys (`IdentityRegistry`).
-    *   Encrypt/Decrypt.
-    *   P2P Sync (Tier 1).
-    *   Wallet (Tier 2 Token Management).
-
-### 5.2 The Node (Verse Provider)
-*   **Role**: Headless Storage/Relay.
-*   **Capabilities**:
-    *   High-capacity storage.
-    *   High-bandwidth Iroh endpoint.
-    *   Receipt aggregation and settlement.
-    *   *Note*: A Graphshell Desktop instance can act as a Node (e.g., "Allow friends to backup to this PC").
-
-### 5.3 The Ledger (Consensus)
-*   **Role**: Truth for Token Balances and Reputation.
-*   **Implementation**: Likely a lightweight sidechain or L2 (low fees essential for receipt settlement).
-*   **Function**:
-    *   Verify batch receipts.
-    *   Update balances.
-    *   Track Provider reputation (uptime/service quality).
+### Tier 2 (Architecture)
+- **§1**: Dual-Transport Model — iroh (bilateral) + libp2p (community swarms)
+- **§2**: Identity Bridge — Same Ed25519 keypair derives both iroh NodeId and libp2p PeerId
+- **§3**: VerseBlob — Content-addressed universal format (replaces delta-based SyncUnit for public swarms)
+- **§4**: Community Model — Governance, rebroadcast levels, GossipSub pubsub, Bitswap content retrieval
+- **§5**: Search Architecture — Sharded indexes, IndexSegment as VerseBlob, federated query model
+- **§6**: Proof of Access — Receipt model, aggregation, reputation vs token settlement, "no-receipt" flag for Tier 1
+- **§7**: Research Agenda — DHT scalability, moderation at scale, index freshness, economic model validation
+- **§8**: Nostr Signaling — Optional bootstrap layer for peer discovery and announcements
+- **§9**: Content Pipeline — Ingest → Enrich → Curate → Publish; WARC archives, CRDT integration (speculative)
+- **§10**: Protocol Ecosystem Mapping — iroh, libp2p, IPFS, Nostr, ActivityPub, Filecoin, Lightning
+- **§11**: Crawler Economy — Bounty model for external web content ingestion, anti-spam, platform bridges
+- **§12**: Open Questions (Tier 2 only) — VerseBlob vs IPFS CID, libp2p vs iroh consolidation, token vs reputation, community bootstrapping
+- **§13**: Relationship to Tier 1 — Additive design, opt-in communities, no impact on bilateral sync
+- **§14**: Research Roadmap — Q3 2026 validation, Q4 2026 pilot, 2027 economic layer + spec stabilization
+- **§15**: Alignment with Graphshell's Mission — Personal tool vs protocol layer pivot; long-horizon bet
 
 ---
 
-## 6. Gap Analysis & Risks
+## Rationale for Split
 
-### 6.1 Discovery
-*   *Gap*: How does a User find a Provider in Tier 2?
-*   *Solution*: **Tracker/Rendezvous Servers**. Lightweight, stateless servers where Providers advertise capabilities (Price, Region, Capacity).
+From `2026-02-22_registry_interaction_design_notes.md` §On Document Length:
 
-### 6.2 The "Freeloader" Problem
-*   *Risk*: Users downloading data without signing receipts.
-*   *Mitigation*: **Tit-for-Tat throttling**. Providers throttle peers who stop sending receipts (BitTorrent style).
+> Tier 1 (~770 lines) is **implementation-ready**: engineers can execute Phase 5.1–5.5 without ambiguity. Tier 2 (~555 lines) is **long-horizon research**: it explores architectural space but makes no immediate engineering claims. Combining them into one 1320-line document forces engineers to wade through speculative design (libp2p, VerseBlob, Proof of Access) when they only need the iroh sync contract.
 
-### 6.3 Price Volatility
-*   *Risk*: Token price fluctuations make storage costs unpredictable.
-*   *Mitigation*: **Stable-pricing or Oracle**. Contracts denominated in stable value (USD/Gold), settled in tokens.
+**Split benefits**:
+- Phase 5 engineers can focus on Tier 1 without cognitive load from Tier 2's economic/community models
+- Tier 2 can evolve independently via separate research doc (new alternatives, abandoned ideas) without destabilizing the Phase 5 plan
+- Clear "done gate" boundary: Phase 5 is complete when Tier 1 works; Tier 2 validation happens later (Q3 2026+)
 
 ---
 
-## 7. Roadmap Integration
+## Legacy Note
 
-1.  **Phase 1 (Current M2)**: Implement **Tier 1 (Direct Sync)**.
-    *   `2026-02-20_cross_platform_sync_and_extension_plan.md` covers this.
-    *   No tokens, just keys and iroh.
+This file previously contained the full Verse strategy (§1–12, 1353 lines). It has been refactored into:
+- `implementation_strategy/2026-02-23_verse_tier1_sync_plan.md` (§1–10 + Tier 1 open questions)
+- `2026-02-23_verse_tier2_architecture.md` (§11 + Tier 2 open questions + research roadmap)
 
-2.  **Phase 2 (Research)**: Prototype **Receipt Generation**.
-    *   Build a standalone module that generates/verifies cryptographic receipts for data chunks.
-
-3.  **Phase 3 (Verse)**: Implement **Tier 2 (Brokered)**.
-    *   Introduce the Ledger and Provider roles.
-    *   Enable "Public Publish" in Graphshell.
-```
-
-c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\DOC_README.md
-```diff
-- verse_docs/research/SEARCH_FINDINGS_SUMMARY.md - Research and source synthesis.
-- verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md - P2P collaboration architecture and integration model.
-- verse_docs/research/2026-02-23_storage_economy_and_indices.md - Speculative research on storage economy (Proof of Access) and composable indices.
-- verse_docs/implementation_strategy/verse_implementation_strategy.md - Hybrid economic model (Direct vs. Brokered) and technical implementation strategy.
-
-## Archive Checkpoints
+Original content preserved in git history (`git show HEAD~1:design_docs/verse_docs/2026-02-22_verse_implementation_strategy.md`).

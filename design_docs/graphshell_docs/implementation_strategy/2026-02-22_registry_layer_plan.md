@@ -478,27 +478,69 @@ This phase encompasses what was originally planned as separate phases but was ex
 
 ### Phase 5: Verse Native Mod (P2P Capabilities)
 
-**Goal**: Package P2P networking, federated identity, and distributed indexing as the Verse native mod. See `2026-02-22_verse_implementation_strategy.md` for Verse architecture details.
+**Goal**: Package P2P networking as the Verse native mod (Tier 1: Direct Sync). See `verse_docs/2026-02-22_verse_implementation_strategy.md` for the full technical design covering identity, transport, sync protocol, UX, and security.
 
-#### Step 5.1: Verse Mod Manifest
-- Define Verse mod manifest:
-  - `provides`: `protocol:ipfs`, `protocol:activitypub`, `index:federated`, `identity:did`, `action:verse.share`, `action:verse.sync`
-  - `requires`: `ProtocolRegistry`, `IndexRegistry`, `IdentityRegistry`, `ActionRegistry`
+**Scope Note**: Phase 5 implements **Tier 1 (Direct Sync)** only — zero-cost, server-less P2P sync between trusted devices. Tier 2 (tokenized brokered economy, `ipfs://`, `activitypub://`) is deferred to a future milestone after Tier 1 is validated.
+
+#### Step 5.1: iroh Scaffold & Identity Bootstrap
+
+- Add `iroh`, `keyring`, `qrcode` dependencies.
+- Define `VerseMod` with `ModManifest` via `inventory::submit!`:
+  - `provides`: `identity:p2p`, `protocol:verse`, `action:verse.pair_device`, `action:verse.sync_now`, `action:verse.share_workspace`, `action:verse.forget_device`
+  - `requires`: `IdentityRegistry`, `ActionRegistry`, `ProtocolRegistry`, `ControlPanel`, `DiagnosticsRegistry`
   - `capabilities`: `network`, `identity`
-- Implement as a native mod that registers into atomic registries on load.
+- Generate Ed25519 keypair on first launch, persist in OS keychain via `keyring`.
+- Create iroh `Endpoint` with `SYNC_ALPN = b"graphshell-sync/1"`.
+- Register `identity:p2p` persona in `IdentityRegistry` (NodeId accessible to rest of app).
+- **Done gate**: `cargo run` starts iroh endpoint. `DiagnosticsRegistry` shows `registry.mod.load_succeeded` for "verse". `IdentityRegistry::p2p_node_id()` returns the device NodeId. App starts normally without Verse mod.
 
-#### Step 5.2: Identity Providers
-- Verse mod extends `IdentityRegistry` with P2P persona types (DID, Nostr keypairs).
-- `IdentityRegistry` itself remains a core atomic registry (local keypair works without Verse).
+#### Step 5.2: TrustedPeer Store & IdentityRegistry Extension
 
-#### Step 5.3: Offline Graceful Degradation
-- When Verse mod is not loaded: `verse.*` actions absent from ActionRegistry; Command Palette shows no share/sync commands.
-- When Verse mod is loaded but offline: `ipfs://`/`activitypub://` failures produce diagnostics + user-visible fallback messaging.
+- Extend `IdentityRegistry` with `P2PIdentityExt` trait: `p2p_node_id`, `sign_sync_payload`, `verify_peer_signature`, `get_trusted_peers`, `trust_peer`, `revoke_peer`.
+- Implement `TrustedPeer` model (`PeerRole::Self_` | `PeerRole::Friend`, `WorkspaceGrant`).
+- Persist trust store in `user_registries.json` under `verse.trusted_peers`.
+- Implement `SyncLog` (per-workspace intent log + `VersionVector`) with rkyv + AES-256-GCM at rest.
+- Diagnostics: `registry.identity.p2p_key_loaded`, `verse.sync.pairing_succeeded`, `verse.sync.pairing_failed`.
+- **Done gate**: Contract tests cover P2P persona create/load, sign/verify round-trip, trust store persist/load round-trip, grant model serialization.
 
-**Phase 5 Done Gate**:
+#### Step 5.3: Pairing Ceremony & Settings UI
+
+- Implement `verse.pair_device` action (initiator path): encode `NodeAddr` as 6-word phrase + QR data; show in dialog with 5-minute expiry.
+- Implement `verse.pair_device` receiver path: decode code → connect via iroh → show fingerprint confirm → name device → workspace grant dialog.
+- Implement mDNS advertisement (`_graphshell-sync._udp.local`) and discovery for local network pairing.
+- Add Sync settings page (`graphshell://settings/sync`): device list, "Add Device" button, sync status per device.
+- After confirmation: add peer to trust store, persist.
+- **Done gate**: Two desktop instances on the same machine pair via printed 6-word code. Both show each other in Sync Panel device list. mDNS discovery shows peer on same LAN.
+
+#### Step 5.4: Delta Sync (Core)
+
+- Implement `SyncWorker` as ControlPanel-supervised tokio task (accept loop + `mpsc::Receiver<SyncCommand>`).
+- Implement `VersionVector` (per-peer sequence clocks, merge, dominates, increment).
+- Implement `SyncUnit` wire format (rkyv → zstd → iroh QUIC stream).
+- Implement bidirectional delta exchange: `SyncHello` VV exchange → compute diff → send `SyncUnit`s → `SyncAck`.
+- Implement full snapshot trigger (VV is zero or delta > 10,000 intents).
+- Remote intents apply via `GraphIntent::ApplyRemoteDelta` (bypass undo stack, update local VV).
+- Implement conflict resolution per-intent-type (see Verse strategy §4.4): LWW for title/name, CRDT for tags, ghost-node for delete conflicts.
+- Add sync status indicator to toolbar (`●`/`○`/`!`).
+- Add non-blocking conflict notification bar.
+- Diagnostics: `verse.sync.unit_sent`, `verse.sync.unit_received`, `verse.sync.intent_applied`, `verse.sync.conflict_detected`, `verse.sync.conflict_resolved`.
+- **Done gate**: Create a node on instance A → appears on instance B within 5 seconds. Concurrent title rename → LWW resolves without crash. Harness scenario `verse_delta_sync_basic` passes.
+
+#### Step 5.5: Workspace Access Control
+
+- Enforce `WorkspaceGrant` on inbound sync: reject `SyncUnit` for non-granted workspaces → `verse.sync.access_denied` diagnostic.
+- Enforce read-only grants: incoming mutating intents from `ReadOnly` peers are rejected.
+- Add "Manage Access" UI in Sync Panel (grant/revoke per device per workspace).
+- Add workspace sharing context menu (right-click workspace → "Share with...").
+- Implement `verse.forget_device` action: revoke all grants + remove from trust store.
+- **Done gate**: Peer A grants Peer B `ReadOnly` on workspace W. Peer B receives mutations from W but its own mutations on W do not propagate to A. Harness scenario `verse_access_control` passes.
+
+**Phase 5 Done Gate** (all steps):
 - Verse native mod loads and registers all declared entries into atomic registries.
-- App functions fully without Verse mod loaded.
-- Offline degradation: `ipfs://`/`activitypub://` failures produce diagnostics + user-visible fallback.
+- App starts and functions fully without Verse mod loaded.
+- Two instances pair, sync bidirectionally, and enforce per-workspace access control.
+- Offline degradation: mod loaded but no peers → diagnostics emitted, app works normally, intents journal for later sync.
+- All diagnostics channels registered and passing contract checklist.
 
 ---
 
