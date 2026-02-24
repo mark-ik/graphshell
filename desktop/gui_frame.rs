@@ -108,7 +108,7 @@ fn restore_named_workspace_snapshot(
                             request.key,
                             pending_tile_mode_to_tile_mode(request.mode),
                         );
-                        graph_app.apply_intents([lifecycle_intents::promote_node_to_active(
+                        graph_app.apply_intents_with_services(crate::app::default_app_services(), [lifecycle_intents::promote_node_to_active(
                             request.key,
                             LifecycleCause::Restore,
                         )]);
@@ -445,7 +445,7 @@ pub(crate) fn apply_intents_if_any(
             channel_id: "graph_intents.apply",
             byte_len: apply_count,
         });
-        graph_app.apply_intents(apply_list);
+        graph_app.apply_intents_with_services(crate::app::default_app_services(), apply_list);
         #[cfg(feature = "diagnostics")]
         {
             let elapsed = apply_started.elapsed().as_micros() as u64;
@@ -803,7 +803,7 @@ fn ensure_webviews_for_active_prewarm_nodes(
 
     // Apply prewarm intents immediately (shouldn't include user-undoable intents).
     if !prewarm_intents.is_empty() {
-        graph_app.apply_intents(prewarm_intents);
+        graph_app.apply_intents_with_services(crate::app::default_app_services(), prewarm_intents);
     }
 }
 
@@ -1142,7 +1142,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         }
         let close_intents = webview_controller::close_all_webviews(graph_app, window);
         if !close_intents.is_empty() {
-            graph_app.apply_intents(close_intents);
+            graph_app.apply_intents_with_services(crate::app::default_app_services(), close_intents);
         }
         match graph_app.load_named_graph_snapshot(&name) {
             Ok(()) => {
@@ -1164,7 +1164,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         }
         let close_intents = webview_controller::close_all_webviews(graph_app, window);
         if !close_intents.is_empty() {
-            graph_app.apply_intents(close_intents);
+            graph_app.apply_intents_with_services(crate::app::default_app_services(), close_intents);
         }
         match graph_app.load_latest_graph_snapshot() {
             Ok(()) => {
@@ -1210,7 +1210,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 LifecycleCause::ActiveTileVisible,
             ));
         }
-        graph_app.apply_intents(intents);
+        graph_app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         let mut ordered = Vec::with_capacity(connected.len() + 1);
         ordered.push(source);

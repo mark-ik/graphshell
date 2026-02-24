@@ -338,7 +338,7 @@ mod tests {
             toggle_view: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.selected_nodes, selected_before);
         assert_eq!(app.graph.node_count(), count_before);
@@ -353,7 +353,7 @@ mod tests {
             toggle_physics: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_ne!(app.physics.base.is_running, was_running);
     }
@@ -368,7 +368,7 @@ mod tests {
             fit_to_screen: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(matches!(
             app.pending_camera_command(),
@@ -450,7 +450,7 @@ mod tests {
             toggle_physics_panel: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_ne!(app.show_physics_panel, was_shown);
     }
@@ -464,7 +464,7 @@ mod tests {
             toggle_help_panel: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(app.show_help_panel);
 
@@ -472,7 +472,7 @@ mod tests {
             toggle_help_panel: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(!app.show_help_panel);
     }
@@ -486,7 +486,7 @@ mod tests {
             toggle_command_palette: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(app.show_command_palette);
 
@@ -494,7 +494,7 @@ mod tests {
             toggle_command_palette: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(!app.show_command_palette);
     }
@@ -508,7 +508,7 @@ mod tests {
             create_node: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.graph.node_count(), 1);
     }
@@ -608,7 +608,7 @@ mod tests {
             delete_selected: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.graph.node_count(), 0);
     }
@@ -625,7 +625,7 @@ mod tests {
             clear_graph: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.graph.node_count(), 0);
     }
@@ -640,7 +640,7 @@ mod tests {
         let before_physics = app.physics.base.is_running;
 
         let intents = intents_from_actions(&KeyboardActions::default());
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.graph.node_count(), before_count);
         assert_eq!(app.physics.base.is_running, before_physics);
@@ -658,7 +658,7 @@ mod tests {
             select_all: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(app.selected_nodes.contains(&a));
         assert!(app.selected_nodes.contains(&b));

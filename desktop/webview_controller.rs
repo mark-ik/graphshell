@@ -438,7 +438,7 @@ mod tests {
         let mut seen = HashSet::new();
         seen.insert(w1);
         let intents = reconcile_mappings_and_selection(&mut app, &seen, Some(w1));
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.get_node_for_webview(w1), Some(n1));
         assert_eq!(app.get_node_for_webview(w2), None);
@@ -455,7 +455,7 @@ mod tests {
 
         let (open_selected_tile, intents) =
             intents_for_graph_view_address_submit(&app, "https://new.com");
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         let node = app.graph.get_node(key).unwrap();
         assert_eq!(node.url, "https://new.com");
@@ -469,7 +469,7 @@ mod tests {
 
         let (open_selected_tile, intents) =
             intents_for_graph_view_address_submit(&app, "https://created.com");
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.graph.node_count(), before + 1);
         let selected = app.get_single_selected_node().unwrap();
@@ -492,7 +492,7 @@ mod tests {
         let original_url = app.graph.get_node(key).unwrap().url.clone();
 
         let (open_selected_tile, intents) = intents_for_omnibox_node_search(&app, "example handle");
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.get_single_selected_node(), Some(key));
         assert_eq!(app.graph.get_node(key).unwrap().url, original_url);

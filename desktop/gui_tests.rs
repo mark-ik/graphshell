@@ -791,7 +791,7 @@ fn test_semantic_events_to_intents_apply_to_graph_state() {
         ];
 
         let intents = graph_intents_from_semantic_events(events);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         let parent_node = app.graph.get_node(parent).unwrap();
         assert_eq!(parent_node.url, "https://parent-updated.com");

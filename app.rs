@@ -942,6 +942,15 @@ pub enum GraphIntent {
     },
 }
 
+#[derive(Debug, Default)]
+pub struct AppServices;
+
+static APP_SERVICES: AppServices = AppServices;
+
+pub fn default_app_services() -> &'static AppServices {
+    &APP_SERVICES
+}
+
 /// Main application state
 pub struct GraphBrowserApp {
     /// The graph data structure
@@ -1626,7 +1635,7 @@ impl GraphBrowserApp {
     }
 
     /// Apply a batch of intents deterministically in insertion order.
-    pub fn apply_intents<I>(&mut self, intents: I)
+    pub fn apply_intents_with_services<I>(&mut self, _services: &AppServices, intents: I)
     where
         I: IntoIterator<Item = GraphIntent>,
     {
@@ -1818,7 +1827,7 @@ impl GraphBrowserApp {
             },
             GraphIntent::ExecuteEdgeCommand { command } => {
                 let intents = self.intents_for_edge_command(command);
-                self.apply_intents(intents);
+                self.apply_intents_with_services(crate::app::default_app_services(), intents);
             },
             GraphIntent::SetHighlightedEdge { from, to } => {
                 self.highlighted_graph_edge = Some((from, to));
@@ -4789,20 +4798,20 @@ mod tests {
     fn test_zoom_intents_queue_keyboard_zoom_requests() {
         let mut app = GraphBrowserApp::new_for_testing();
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::RequestZoomIn]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(),
             Some(KeyboardZoomRequest::In)
         );
         assert_eq!(app.take_pending_keyboard_zoom_request(), None);
 
-        app.apply_intents([GraphIntent::RequestZoomOut]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::RequestZoomOut]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(),
             Some(KeyboardZoomRequest::Out)
         );
 
-        app.apply_intents([GraphIntent::RequestZoomReset]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::RequestZoomReset]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(),
             Some(KeyboardZoomRequest::Reset)
@@ -4816,7 +4825,7 @@ mod tests {
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
-        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
     }
@@ -4831,7 +4840,7 @@ mod tests {
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
-        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
     }
@@ -4849,7 +4858,7 @@ mod tests {
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
-        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::FitSelection));
     }
@@ -4944,7 +4953,7 @@ mod tests {
             NodeLifecycle::Cold
         );
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -4962,7 +4971,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app.graph.add_node("a".to_string(), Point2D::new(0.0, 0.0));
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -4973,7 +4982,7 @@ mod tests {
         );
 
         // Clicking the already-selected node toggles it off and should not re-promote.
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -4993,7 +5002,7 @@ mod tests {
         let key1 = app.graph.add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key2 = app.graph.add_node("b".to_string(), Point2D::new(10.0, 0.0));
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key: key1,
             multi_select: false,
         }]);
@@ -5007,7 +5016,7 @@ mod tests {
             NodeLifecycle::Cold
         );
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key: key2,
             multi_select: true,
         }]);
@@ -5026,7 +5035,7 @@ mod tests {
         let key = app.graph.add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let webview_id = test_webview_id();
         app.map_webview_to_node(webview_id, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCrashed {
             webview_id,
             reason: "boom".to_string(),
             has_backtrace: false,
@@ -5037,7 +5046,7 @@ mod tests {
         );
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -5081,7 +5090,7 @@ mod tests {
         let c = app.add_node_and_sync("c".to_string(), Point2D::new(20.0, 0.0));
         app.select_node(a, false);
 
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::UpdateSelection {
             keys: vec![b, c],
             mode: SelectionUpdateMode::Replace,
         }]);
@@ -5098,11 +5107,11 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("a".to_string(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("b".to_string(), Point2D::new(10.0, 0.0));
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::UpdateSelection {
             keys: vec![a],
             mode: SelectionUpdateMode::Replace,
         }]);
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::UpdateSelection {
             keys: vec![b],
             mode: SelectionUpdateMode::Add,
         }]);
@@ -5110,7 +5119,7 @@ mod tests {
         assert!(app.selected_nodes.contains(&b));
         assert_eq!(app.selected_nodes.primary(), Some(b));
 
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::UpdateSelection {
             keys: vec![a],
             mode: SelectionUpdateMode::Toggle,
         }]);
@@ -5129,7 +5138,7 @@ mod tests {
         app.map_webview_to_node(parent_wv, parent);
 
         let edges_before = app.graph.edge_count();
-        app.apply_intents([GraphIntent::WebViewCreated {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCreated {
             parent_webview_id: parent_wv,
             child_webview_id: child_wv,
             initial_url: Some("https://child.com".into()),
@@ -5146,7 +5155,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let child_wv = test_webview_id();
 
-        app.apply_intents([GraphIntent::WebViewCreated {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCreated {
             parent_webview_id: test_webview_id(),
             child_webview_id: child_wv,
             initial_url: Some("about:blank".into()),
@@ -5171,7 +5180,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
 
-        app.apply_intents([GraphIntent::WebViewUrlChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewUrlChanged {
             webview_id: wv,
             new_url: "https://after.com".into(),
         }]);
@@ -5186,7 +5195,7 @@ mod tests {
         let wv = test_webview_id();
         let before = app.graph.node_count();
 
-        app.apply_intents([GraphIntent::WebViewUrlChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewUrlChanged {
             webview_id: wv,
             new_url: "https://ignored.com".into(),
         }]);
@@ -5204,7 +5213,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 99,
@@ -5224,7 +5233,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
 
-        app.apply_intents([GraphIntent::WebViewScrollChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewScrollChanged {
             webview_id: wv,
             scroll_x: 15.0,
             scroll_y: 320.0,
@@ -5242,14 +5251,14 @@ mod tests {
             .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
 
         app.set_form_draft_capture_enabled_for_testing(false);
-        app.apply_intents([GraphIntent::SetNodeFormDraft {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SetNodeFormDraft {
             key,
             form_draft: Some("draft text".to_string()),
         }]);
         assert_eq!(app.graph.get_node(key).unwrap().session_form_draft, None);
 
         app.set_form_draft_capture_enabled_for_testing(true);
-        app.apply_intents([GraphIntent::SetNodeFormDraft {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SetNodeFormDraft {
             key,
             form_draft: Some("draft text".to_string()),
         }]);
@@ -5275,7 +5284,7 @@ mod tests {
             node.history_index = 1;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 0,
@@ -5301,7 +5310,7 @@ mod tests {
             node.history_index = 1;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec![
                 "https://a.com".into(),
@@ -5335,7 +5344,7 @@ mod tests {
             node.history_index = 0;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 1,
@@ -5364,13 +5373,13 @@ mod tests {
             node.history_index = 1;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 0,
         }]);
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 1,
@@ -5389,7 +5398,7 @@ mod tests {
             NavigationTrigger::Forward
         );
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 0,
@@ -5410,7 +5419,7 @@ mod tests {
             .graph
             .add_node("https://to.com".into(), Point2D::new(10.0, 0.0));
 
-        app.apply_intents([GraphIntent::CreateUserGroupedEdge { from, to }]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateUserGroupedEdge { from, to }]);
 
         let count = app
             .graph
@@ -5430,7 +5439,7 @@ mod tests {
             .graph
             .add_node("https://to.com".into(), Point2D::new(10.0, 0.0));
 
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::CreateUserGroupedEdge { from, to },
             GraphIntent::CreateUserGroupedEdge { from, to },
         ]);
@@ -5451,7 +5460,7 @@ mod tests {
             .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(a, false);
 
-        app.apply_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
 
         let count = app
             .graph
@@ -5475,7 +5484,7 @@ mod tests {
         app.select_node(to, true);
         app.physics.base.is_running = false;
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::ConnectSelectedPair,
         }]);
 
@@ -5519,7 +5528,7 @@ mod tests {
         app.select_node(to, true);
         app.physics.base.is_running = false;
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::RemoveUserEdge,
         }]);
 
@@ -5539,12 +5548,12 @@ mod tests {
             .add_node("https://pin.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::PinSelected,
         }]);
         assert!(app.graph.get_node(key).is_some_and(|node| node.is_pinned));
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::UnpinSelected,
         }]);
         assert!(app.graph.get_node(key).is_some_and(|node| !node.is_pinned));
@@ -5556,7 +5565,7 @@ mod tests {
         app.physics.base.is_running = false;
         app.drag_release_frames_remaining = 5;
 
-        app.apply_intents([GraphIntent::ReheatPhysics]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::ReheatPhysics]);
 
         assert!(app.physics.base.is_running);
         assert_eq!(app.drag_release_frames_remaining, 0);
@@ -5570,10 +5579,10 @@ mod tests {
             .add_node("https://pin.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        app.apply_intents([GraphIntent::TogglePrimaryNodePin]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::TogglePrimaryNodePin]);
         assert!(app.graph.get_node(key).is_some_and(|node| node.is_pinned));
 
-        app.apply_intents([GraphIntent::TogglePrimaryNodePin]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::TogglePrimaryNodePin]);
         assert!(app.graph.get_node(key).is_some_and(|node| !node.is_pinned));
     }
 
@@ -5586,7 +5595,7 @@ mod tests {
         let _ = app.add_edge_and_sync(from, to, EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped);
 
-        app.apply_intents([GraphIntent::RemoveEdge {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::RemoveEdge {
             from,
             to,
             edge_type: EdgeType::UserGrouped,
@@ -5648,7 +5657,7 @@ mod tests {
 
         // Mirrors observed delegate behavior: URL callback can stay at the latest route
         // while history callback index moves backward.
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::WebViewUrlChanged {
                 webview_id: wv,
                 new_url: "https://site.example/?step=2".into(),
@@ -5684,13 +5693,13 @@ mod tests {
         app.map_webview_to_node(wv, key);
         let original_title = app.graph.get_node(key).unwrap().title.clone();
 
-        app.apply_intents([GraphIntent::WebViewTitleChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewTitleChanged {
             webview_id: wv,
             title: Some("".into()),
         }]);
         assert_eq!(app.graph.get_node(key).unwrap().title, original_title);
 
-        app.apply_intents([GraphIntent::WebViewTitleChanged {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewTitleChanged {
             webview_id: wv,
             title: Some("Hello".into()),
         }]);
@@ -5704,7 +5713,7 @@ mod tests {
             .graph
             .add_node("https://assets.com".into(), Point2D::new(0.0, 0.0));
 
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::SetNodeThumbnail {
                 key,
                 png_bytes: vec![1, 2, 3],
@@ -5737,7 +5746,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
         app.select_node(key, false);
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::RemoveSelectedNodes,
             GraphIntent::WebViewTitleChanged {
                 webview_id: wv,
@@ -5753,7 +5762,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
         app.select_node(key, false);
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::WebViewTitleChanged {
                 webview_id: wv,
                 title: Some("updated".into()),
@@ -5773,7 +5782,7 @@ mod tests {
         app.map_webview_to_node(wv, key);
         app.select_node(key, false);
 
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::RemoveSelectedNodes,
             GraphIntent::WebViewHistoryChanged {
                 webview_id: wv,
@@ -5807,7 +5816,7 @@ mod tests {
         let key = app
             .graph
             .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::SetNodeUrl {
                 key,
                 new_url: "https://first.com".into(),
@@ -5832,7 +5841,7 @@ mod tests {
             });
         }
         let start = std::time::Instant::now();
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
         let elapsed = start.elapsed();
         assert_eq!(app.graph.node_count(), 10_000);
         assert!(
@@ -6123,7 +6132,7 @@ mod tests {
         let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
@@ -6131,7 +6140,7 @@ mod tests {
         assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Cold);
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::ActiveTileVisible,
         }]);
@@ -6148,13 +6157,13 @@ mod tests {
         let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
         }]);
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::UserSelect,
         }]);
@@ -6171,20 +6180,20 @@ mod tests {
         let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
         }]);
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::ActiveTileVisible,
         }]);
         assert_eq!(app.graph.get_node(key).unwrap().lifecycle, NodeLifecycle::Cold);
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::UserSelect,
         }]);
@@ -6198,14 +6207,14 @@ mod tests {
         let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
         }]);
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::DemoteNodeToCold {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::DemoteNodeToCold {
             key,
             cause: LifecycleCause::ExplicitClose,
         }]);
@@ -6218,7 +6227,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let retry_at = Instant::now() + Duration::from_millis(5);
-        app.apply_intents([GraphIntent::MarkRuntimeBlocked {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::MarkRuntimeBlocked {
             key,
             reason: RuntimeBlockReason::CreateRetryExhausted,
             retry_at: Some(retry_at),
@@ -6234,7 +6243,7 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app.graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
-        app.apply_intents([
+        app.apply_intents_with_services(crate::app::default_app_services(), [
             GraphIntent::MarkRuntimeBlocked {
                 key,
                 reason: RuntimeBlockReason::CreateRetryExhausted,
@@ -6364,7 +6373,7 @@ mod tests {
             NodeLifecycle::Active
         ));
 
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCrashed {
             webview_id: wv_id,
             reason: "gpu reset".to_string(),
             has_backtrace: false,
@@ -6382,7 +6391,7 @@ mod tests {
         assert!(app.get_node_for_webview(wv_id).is_none());
         assert!(app.get_webview_for_node(key).is_none());
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::Restore,
         }]);
@@ -6401,7 +6410,7 @@ mod tests {
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
         app.map_webview_to_node(wv_id, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::WebViewCrashed {
             webview_id: wv_id,
             reason: "boom".to_string(),
             has_backtrace: true,
@@ -6848,7 +6857,7 @@ mod tests {
             filters: Vec::new(),
         };
 
-        app.apply_intents([GraphIntent::SetViewLens { view_id, lens }]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SetViewLens { view_id, lens }]);
 
         let resolved = &app.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.physics_id.as_deref(), Some("physics:gas"));
@@ -6882,7 +6891,7 @@ mod tests {
             filters: Vec::new(),
         };
 
-        app.apply_intents([GraphIntent::SetViewLens { view_id, lens }]);
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SetViewLens { view_id, lens }]);
 
         let resolved = &app.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.lens_id.as_deref(), Some("lens:default"));

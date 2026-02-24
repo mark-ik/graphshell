@@ -9,7 +9,7 @@ fn open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membershi
     let mut harness = TestHarness::new();
     let key = harness.add_node("https://example.com");
 
-    harness.app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::OpenNodeWorkspaceRouted {
         key,
         prefer_workspace: None,
     }]);
@@ -49,7 +49,7 @@ fn open_node_workspace_routed_with_preferred_workspace_requests_restore() {
     harness.app.init_membership_index(index);
     harness.app.note_workspace_activated("beta", [key]);
 
-    harness.app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::OpenNodeWorkspaceRouted {
         key,
         prefer_workspace: Some("alpha".to_string()),
     }]);
@@ -162,7 +162,7 @@ fn set_node_url_preserves_workspace_membership() {
     );
     harness.app.init_membership_index(index);
 
-    harness.app.apply_intents([GraphIntent::SetNodeUrl {
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SetNodeUrl {
         key,
         new_url: "https://after.example".to_string(),
     }]);
@@ -191,7 +191,7 @@ fn open_settings_url_history_activates_history_manager_surface() {
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
 
-    harness.app.apply_intents([
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [
         GraphIntent::SetNodeUrl {
             key: node,
             new_url: "graphshell://settings/history".to_string(),
@@ -212,7 +212,7 @@ fn open_settings_url_physics_activates_physics_surface() {
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
 
-    harness.app.apply_intents([
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [
         GraphIntent::SetNodeUrl {
             key: node,
             new_url: "graphshell://settings/physics".to_string(),

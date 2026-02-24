@@ -2420,7 +2420,7 @@ fn apply_ui_intents_with_checkpoint(app: &mut GraphBrowserApp, intents: Vec<Grap
             .or_else(|| app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME));
         app.capture_undo_checkpoint(layout);
     }
-    app.apply_intents(intents);
+    app.apply_intents_with_services(crate::app::default_app_services(), intents);
 }
 
 fn is_user_undoable_intent(intent: &GraphIntent) -> bool {
@@ -3167,7 +3167,7 @@ pub fn render_persistence_panel(
                             .clicked()
                             && let Some(key) = app.get_single_selected_node()
                         {
-                            app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+                            app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::OpenNodeWorkspaceRouted {
                                 key,
                                 prefer_workspace: Some(name.clone()),
                             }]);
@@ -3347,7 +3347,7 @@ pub fn render_sync_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 let intent = crate::app::GraphIntent::ForgetDevice {
                                     peer_id: peer.node_id.to_string(),
                                 };
-                                app.apply_intents(vec![intent]);
+                                app.apply_intents_with_services(crate::app::default_app_services(), vec![intent]);
                             }
                         });
                     });
@@ -3405,7 +3405,7 @@ pub fn render_manage_access_dialog(ctx: &egui::Context, app: &mut GraphBrowserAp
                                         let intent = crate::app::GraphIntent::RevokeWorkspaceAccess {
                                             workspace_id: grant.workspace_id.clone(),
                                         };
-                                        app.apply_intents(vec![intent]);
+                                        app.apply_intents_with_services(crate::app::default_app_services(), vec![intent]);
                                     }
                                 });
                             }
@@ -3521,7 +3521,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
     if let Some(name) = selected_workspace {
         match request.mode {
             ChooseWorkspacePickerMode::OpenNodeInWorkspace => {
-                app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+                app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::OpenNodeWorkspaceRouted {
                     key: target,
                     prefer_workspace: Some(name),
                 }]);
@@ -3649,7 +3649,7 @@ mod tests {
         let key = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
 
         let intents = intents_from_graph_actions(vec![GraphAction::FocusNode(key)]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(app.selected_nodes.contains(&key));
     }
@@ -3660,7 +3660,7 @@ mod tests {
         assert!(!app.is_interacting);
 
         let intents = intents_from_graph_actions(vec![GraphAction::DragStart]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(app.is_interacting);
     }
@@ -3673,7 +3673,7 @@ mod tests {
 
         let intents =
             intents_from_graph_actions(vec![GraphAction::DragEnd(key, Point2D::new(150.0, 250.0))]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(!app.is_interacting);
         let node = app.graph.get_node(key).unwrap();
@@ -3687,7 +3687,7 @@ mod tests {
 
         let intents =
             intents_from_graph_actions(vec![GraphAction::MoveNode(key, Point2D::new(42.0, 84.0))]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         let node = app.graph.get_node(key).unwrap();
         assert_eq!(node.position, Point2D::new(42.0, 84.0));
@@ -3702,7 +3702,7 @@ mod tests {
             key,
             multi_select: false,
         }]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(app.selected_nodes.contains(&key));
     }
@@ -3717,7 +3717,7 @@ mod tests {
             keys: vec![a, b],
             mode: SelectionUpdateMode::Replace,
         }]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.selected_nodes.len(), 2);
         assert!(app.selected_nodes.contains(&a));
@@ -3730,7 +3730,7 @@ mod tests {
         let mut app = test_app();
 
         let intents = intents_from_graph_actions(vec![GraphAction::Zoom(0.01)]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         // Should be clamped to min zoom
         assert!(app.camera.current_zoom >= app.camera.zoom_min);
@@ -3750,7 +3750,7 @@ mod tests {
             GraphAction::MoveNode(k2, Point2D::new(200.0, 300.0)),
             GraphAction::Zoom(1.5),
         ]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert!(app.selected_nodes.contains(&k1));
         assert_eq!(
@@ -3767,7 +3767,7 @@ mod tests {
         let pos_before = app.graph.get_node(key).unwrap().position;
 
         let intents = intents_from_graph_actions(vec![]);
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.graph.get_node(key).unwrap().position, pos_before);
     }

@@ -24,11 +24,11 @@ fn open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
     index.insert(node_id, BTreeSet::from(["workspace-alpha".to_string()]));
     harness.app.init_membership_index(index);
     harness.app.mark_current_workspace_synthesized();
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 
-    harness.app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::OpenNodeWorkspaceRouted {
         key,
         prefer_workspace: None,
     }]);
@@ -45,7 +45,7 @@ fn workspace_has_unsaved_changes_for_graph_mutations() {
     let mut harness = TestHarness::new();
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 }
@@ -55,7 +55,7 @@ fn workspace_modified_for_graph_mutations_even_when_not_synthesized() {
     let mut harness = TestHarness::new();
 
     assert!(!harness.app.should_prompt_unsaved_workspace_save());
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 }
@@ -64,12 +64,12 @@ fn workspace_modified_for_graph_mutations_even_when_not_synthesized() {
 fn unsaved_prompt_warning_resets_on_additional_graph_mutation() {
     let mut harness = TestHarness::new();
     harness.app.mark_current_workspace_synthesized();
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.consume_unsaved_workspace_prompt_warning());
     assert!(!harness.app.consume_unsaved_workspace_prompt_warning());
 
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.consume_unsaved_workspace_prompt_warning());
 }
@@ -79,7 +79,7 @@ fn save_named_workspace_clears_unsaved_prompt_state() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
     app.mark_current_workspace_synthesized();
-    app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateNodeNearCenter]);
 
     assert!(app.should_prompt_unsaved_workspace_save());
     assert!(app.consume_unsaved_workspace_prompt_warning());
@@ -96,7 +96,7 @@ fn workspace_not_modified_for_non_graph_mutations() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::SelectNode {
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
         key,
         multi_select: false,
     }]);
@@ -110,7 +110,7 @@ fn workspace_not_modified_for_set_node_position() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::SetNodePosition {
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SetNodePosition {
         key,
         position: euclid::Point2D::new(42.0, 24.0),
     }]);
@@ -124,7 +124,7 @@ fn workspace_has_unsaved_changes_for_set_node_pinned() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::SetNodePinned {
+    harness.app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SetNodePinned {
         key,
         is_pinned: true,
     }]);

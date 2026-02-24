@@ -308,7 +308,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     if !webview_creation_intents.is_empty() {
         #[cfg(feature = "diagnostics")]
         let apply_started = Instant::now();
-        graph_app.apply_intents(webview_creation_intents);
+        graph_app.apply_intents_with_services(crate::app::default_app_services(), webview_creation_intents);
         #[cfg(feature = "diagnostics")]
         diagnostics_state.record_span_duration(
             "app::apply_intents",

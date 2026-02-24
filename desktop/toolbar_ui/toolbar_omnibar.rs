@@ -943,7 +943,7 @@ mod tests {
             let _ = app.graph.add_edge(context, key, EdgeType::Hyperlink);
             connected_nodes.push(key);
         }
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key: context,
             multi_select: false,
         }]);
@@ -1050,7 +1050,7 @@ mod tests {
         app.graph
             .add_edge(context_key, related_tab, EdgeType::Hyperlink)
             .expect("edge should be valid");
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
         }]);
@@ -1082,7 +1082,7 @@ mod tests {
         let _ = app.graph.add_edge(context_key, hop1, EdgeType::Hyperlink);
         let _ = app.graph.add_edge(hop1, hop2, EdgeType::Hyperlink);
         let _ = app.graph.add_edge(hop2, hop3, EdgeType::Hyperlink);
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
         }]);
@@ -1117,7 +1117,7 @@ mod tests {
         );
         let _ = app.graph.add_edge(context_key, hop1, EdgeType::Hyperlink);
         let _ = app.graph.add_edge(hop1, hop2, EdgeType::Hyperlink);
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
         }]);
@@ -1263,7 +1263,7 @@ mod tests {
             &mut intents,
             &mut open_mode,
         );
-        app.apply_intents(intents);
+        app.apply_intents_with_services(crate::app::default_app_services(), intents);
 
         assert_eq!(app.highlighted_graph_edge, Some((from, to)));
         assert!(app.selected_nodes.contains(&from));
