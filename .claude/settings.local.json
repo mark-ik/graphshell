@@ -26,7 +26,8 @@
       "WebFetch(domain:cs.brown.edu)",
       "WebFetch(domain:en.wikipedia.org)",
       "WebFetch(domain:crates.io)",
-      "WebFetch(domain:lib.rs)"
+      "WebFetch(domain:lib.rs)",
+      "Bash(ls:*)"
     ]
   }
 }

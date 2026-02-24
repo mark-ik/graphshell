@@ -14,6 +14,12 @@ pub fn main() {
     crate::init_crypto();
     crate::resources::init();
 
+    // Initialize Verse mod (P2P sync capabilities)
+    // If initialization fails (e.g., keychain unavailable), log error and continue without sync
+    if let Err(e) = crate::mods::verse::init() {
+        log::warn!("Failed to initialize Verse mod: {}. P2P sync disabled.", e);
+    }
+
     // TODO: once log-panics is released, can this be replaced by
     // log_panics::init()?
     panic::set_hook(Box::new(panic_hook::panic_hook));
