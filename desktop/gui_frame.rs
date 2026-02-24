@@ -1025,6 +1025,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         focused_pane_node,
         persistence_panel_layout_json.as_deref(),
     );
+    render::render_sync_panel(ctx, graph_app);
+    render::render_manage_access_dialog(ctx, graph_app);
     if let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
         match persistence_ops::switch_persistence_store(
             graph_app,

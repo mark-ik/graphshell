@@ -4,7 +4,7 @@
 
 # Settings Architecture Plan (2026-02-20)
 
-**Status**: Draft — implementation not started.
+**Status**: Draft (Not Started)
 
 **Bridge note (2026-02-20, updated 2026-02-23):**
 Current in-app `Settings` menu work is implemented in `desktop/toolbar_ui/toolbar_settings_menu.rs` (decomposed from main toolbar module as of 2026-02-23):
@@ -40,8 +40,8 @@ settings/keybinding surfaces:
   (tabs, settings lists, omnibar/list rows, and other ordered collections).
 - Graph-view spatial selection remains box/lasso first (`Right+Drag` default), with optional
   additive spatial behavior on `Shift+Right+Drag`.
-- Source of record for this decision: UX polish plan Phase 5.5 in
-  `2026-02-19_graph_ux_polish_plan.md`.
+- Source of record for this decision: interaction consistency + absorbed input-surface guidance in
+  `2026-02-23_graph_interaction_consistency_plan.md`.
 
 When implementing `graphshell://settings/keybindings`, treat this as required behavior for command
 tables and any ordered settings lists that support multi-select/range operations.

@@ -12,10 +12,10 @@ The original Verse strategy combined **Tier 1** (concrete Phase 5 deliverables: 
 
 **New structure**:
 
-1. **[Tier 1 Implementation Plan](implementation_strategy/2026-02-23_verse_tier1_sync_plan.md)** (~800 lines)  
+1. **[Tier 1 Implementation Plan](2026-02-23_verse_tier1_sync_plan.md)** (~800 lines)  
    Complete specification for Registry Phase 5: iroh transport, Ed25519 identity, pairing ceremonies, delta sync protocol, SyncWorker control plane integration, workspace access grants, UX designs, security model, and step-by-step execution plan. **This is the concrete Phase 5 deliverable.**
 
-2. **[Tier 2 Architecture](2026-02-23_verse_tier2_architecture.md)** (~600 lines)  
+2. **[Tier 2 Architecture](../technical_architecture/2026-02-23_verse_tier2_architecture.md)** (~600 lines)  
    Long-horizon research: dual-transport model (iroh + libp2p), VerseBlob content format, community swarms with GossipSub, federated search, Proof of Access economic layer, Nostr signaling, content pipeline, crawler economy. **This is exploratory — not a Phase 5 dependency.**
 
 Engineers implementing Phase 5 should focus on **Tier 1 only**. Tier 2 provides architectural context for future evolution but makes no immediate claims on the implementation roadmap.
@@ -24,9 +24,9 @@ Engineers implementing Phase 5 should focus on **Tier 1 only**. Tier 2 provides 
 
 ## Quick Start
 
-- **I'm implementing Verse sync for Phase 5**: Read [Tier 1 Implementation Plan](implementation_strategy/2026-02-23_verse_tier1_sync_plan.md). Follow the execution plan in §9 (Steps 5.1–5.5). All dependencies, UX mockups, and done gates are defined.
+- **I'm implementing Verse sync for Phase 5**: Read [Tier 1 Implementation Plan](2026-02-23_verse_tier1_sync_plan.md). Follow the execution plan in §9 (Steps 5.1–5.5). All dependencies, UX mockups, and done gates are defined.
 
-- **I'm researching federated knowledge protocols**: Read [Tier 2 Architecture](2026-02-23_verse_tier2_architecture.md). This explores community-scale swarms, economic incentives, and search infrastructure. Treat it as a design space, not a requirement.
+- **I'm researching federated knowledge protocols**: Read [Tier 2 Architecture](../technical_architecture/2026-02-23_verse_tier2_architecture.md). This explores community-scale swarms, economic incentives, and search infrastructure. Treat it as a design space, not a requirement.
 
 - **I'm reviewing Verse holistically**: Skim Tier 1 §1–5 (identity, transport, sync protocol, conflict resolution) for the core model, then read Tier 2 §1–2 (dual-transport rationale, identity bridge) to understand how Tier 1 extends to public swarms.
 
@@ -82,7 +82,7 @@ From `2026-02-22_registry_interaction_design_notes.md` §On Document Length:
 ## Legacy Note
 
 This file previously contained the full Verse strategy (§1–12, 1353 lines). It has been refactored into:
-- `implementation_strategy/2026-02-23_verse_tier1_sync_plan.md` (§1–10 + Tier 1 open questions)
-- `2026-02-23_verse_tier2_architecture.md` (§11 + Tier 2 open questions + research roadmap)
+- `2026-02-23_verse_tier1_sync_plan.md` (§1–10 + Tier 1 open questions)
+- `../technical_architecture/2026-02-23_verse_tier2_architecture.md` (§11 + Tier 2 open questions + research roadmap)
 
-Original content preserved in git history (`git show HEAD~1:design_docs/verse_docs/2026-02-22_verse_implementation_strategy.md`).
+Original content preserved in git history (`git show HEAD~1:design_docs/verse_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md`).

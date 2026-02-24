@@ -117,4 +117,4 @@ enum GraphIntent {
 ## References
 
 - [2026-02-20_embedder_decomposition_plan.md](2026-02-20_embedder_decomposition_plan.md) — Main decomposition plan that uses this model
-- [2026-02-16_architecture_and_navigation_plan.md](2026-02-16_architecture_and_navigation_plan.md) — Two-phase apply model foundation
+- [ARCHITECTURAL_OVERVIEW.md](../technical_architecture/ARCHITECTURAL_OVERVIEW.md) — Current architecture summary for lifecycle integration context

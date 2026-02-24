@@ -124,7 +124,7 @@ These manage specific, isolated resources or algorithms. Mods can extend these d
     *   **Role**: Definitions of executable actions (`ActionId` → `Handler`).
     *   **Interface**: `execute(context) -> Vec<GraphIntent>`
 *   **Identity Registry**:
-    *   **Role**: Manages keys/DIDs for signing and auth. **(The Security Root)**.
+    *   **Role**: Manages keys/peer identities for signing and auth. **(The Security Root)**.
     *   **Interface**: `sign(payload, persona)`
 *   **Mod Registry**:
     *   **Role**: Manages lifecycle, dependency resolution, and capabilities of all mods. Two tiers: **Native Mods** (compiled in, registered at startup via `inventory::submit!`, not sandboxed) and **WASM Mods** (dynamically loaded via `extism`, sandboxed, capability-restricted).
@@ -192,7 +192,7 @@ The application must be fully functional as an offline graph organizer **without
 | ThemeRegistry | `theme:default`, `theme:dark` | — | — |
 | PhysicsProfileRegistry | `physics:liquid`, `physics:gas` | — | — |
 | LayoutRegistry | `layout:default`, `layout:grid` | — | — |
-| IdentityRegistry | `identity:local` (generated keypair) | — | P2P personas, DID providers |
+| IdentityRegistry | `identity:local` (generated keypair) | — | P2P personas, peer trust providers |
 | IndexRegistry | Local tantivy search | — | Federated search providers |
 | KnowledgeRegistry | UDC defaults | — | Schema.org providers |
 
@@ -394,17 +394,59 @@ This phase encompasses what was originally planned as separate phases but was ex
   - `provides`: `protocol:http`, `protocol:https`, `protocol:data`, `viewer:webview`
   - `requires`: `ProtocolRegistry`, `ViewerRegistry`
   - `capabilities`: `network`
+- Implement handler provider pattern:
+  - `ProtocolHandlerProviders` — registry of protocol registration closures
+  - `ViewerHandlerProviders` — registry of viewer registration closures
+  - Verso exports `register_protocol_handlers()` and `register_viewer_handlers()` functions
+  - During app init, registered handlers are applied to protocol/viewer registries (Phase 2.4)
 - Gate webview creation on `viewer:webview` being registered; absent → nodes display as metadata-only.
 - Ensure startup without Verso mod succeeds (offline graph organizer mode).
+
+**Phase 2.3 Implementation Details**:
+- `registries/atomic/protocol_provider.rs` — `ProtocolHandlerProviders` struct and trait
+- `registries/atomic/viewer_provider.rs` — `ViewerHandlerProviders` struct and trait
+- `mods/native/verso/mod.rs` — exports `register_protocol_handlers()` and `register_viewer_handlers()`
+- Both functions receive mutable provider registries and register Verso's capabilities
+- Verso tests verify HTTP/HTTPS/data registration and HTML/PDF/SVG viewer selection
+
+#### Step 2.4: App Initialization Integration
+
+**Goal**: Wire handler providers into app initialization to create final protocol/viewer registries with mods registered.
+
+- Locate app initialization code (likely `RunningAppState::new()` or similar) where protocol/viewer registries are instantiated.
+- At registry creation time:
+  1. Create `ProtocolHandlerProviders` and `ViewerHandlerProviders` registries
+  2. Query `ModRegistry` for active mods
+  3. Call handler registration functions for each active mod:
+     - if verso is active: `verso::register_protocol_handlers(&mut protocol_providers)` and `verso::register_viewer_handlers(&mut viewer_providers)`
+     - if verse is active: `verse::register_protocol_handlers(&mut protocol_providers)` (and any other handler registration functions verso/verse export)
+  4. Create core seed registries: `let mut protocol_registry = ProtocolRegistry::core_seed()`; `let mut viewer_registry = ViewerRegistry::core_seed()`
+  5. Apply all registered handlers: `protocol_providers.apply_all(&mut protocol_registry)`; `viewer_providers.apply_all(&mut viewer_registry)`
+  6. Pass final registries to runtime services
+
+- Ensure offline mode works: when Verso mod is disabled (via `GRAPHSHELL_DISABLE_VERSO=1`), app starts with core seed only (file://, about://, plaintext, metadata viewers).
+- Ensure all webview creation gates on `viewer_registry.has_viewer("webview")` — if not present, render nodes as metadata-only.
+
+**Phase 2.4 Implementation Details**:
+- Update app initialization to instantiate handler providers
+- Link mod discovery/loading to handler registration calls
+- Update [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) with actual app init location and pseudo-code
 
 **Phase 2 Done Gate**:
 - `ModManifest` defined. Native mod loader works via `inventory::submit!`.
 - Mod dependency resolver (topological sort) rejects mods with unmet `requires`.
 - Core seed floor verified: app starts and functions without Verso mod.
-- Verso native mod loads and registers `protocol:http`, `protocol:https`, `viewer:webview`.
+- Verso native mod loads and registers protocol/viewer handlers via provider functions.
 - Mod lifecycle diagnostics pass checklist and tests.
+- Native mod activation hooks wired via `NativeModActivations` registry.
+- Both Verso and Verse mods registered at compile time and discoverable.
+- Handler provider pattern established and tested; app initialization wired to apply provider registrations.
+- Final protocol/viewer registries composed from core seed + active mod registrations.
+- Webview creation properly gates on `viewer:webview` availability.
 
-**Status**: Complete (2026-02-23).
+**Status**: In Progress — Phase 2.4 (App Init Integration) in progress. Phases 2.1–2.3 complete.
+
+See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Verso ↔ Servo integration design and Servo update strategy.
 
 ---
 
@@ -462,7 +504,7 @@ This phase encompasses what was originally planned as separate phases but was ex
 - Update `render/mod.rs` so theme/physics resolution occurs after layout profile selection.
 
 #### Step 4.4: Knowledge Registry (Atomic)
-- Formalize the existing `OntologyRegistry` (UDC tagging, `CompactCode`, fuzzy search, `get_color_hint`) as `KnowledgeRegistry` — an atomic capability, not a domain coordinator. Use `sophia` for RDF/JSON-LD parsing.
+- Formalize the existing legacy ontology surface naming (`OntologyRegistry`) as `KnowledgeRegistry` (UDC tagging, `CompactCode`, fuzzy search, `get_color_hint`) — an atomic capability, not a domain coordinator. Use `sophia` for RDF/JSON-LD parsing.
 - Register as core seed with UDC defaults. Mods can add Schema.org, Wikidata, or custom taxonomy providers.
 - Lens filters reference knowledge tags; knowledge resolution is independent of both Layout and Presentation domains.
 
@@ -488,7 +530,7 @@ This phase encompasses what was originally planned as separate phases but was ex
 - UX designs (Sync Panel, pairing flows, conflict UI)
 - Security (Noise auth, AES-256-GCM at-rest encryption)
 
-**Tier 1 vs Tier 2**: This phase implements **Tier 1 only** (implementation-ready, bilateral sync). Tier 2 (libp2p community swarms, VerseBlob content addressing, Proof of Access economics, federated search) is documented separately in [`verse_docs/2026-02-23_verse_tier2_architecture.md`](../../verse_docs/2026-02-23_verse_tier2_architecture.md) as long-horizon research — not a Phase 5 dependency. Tier 2 validation begins Q3 2026 after Tier 1 is proven in production.
+**Tier 1 vs Tier 2**: This phase implements **Tier 1 only** (implementation-ready, bilateral sync). Tier 2 (libp2p community swarms, VerseBlob content addressing, Proof of Access economics, federated search) is documented separately in [`verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`](../../verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md) as long-horizon research — not a Phase 5 dependency. Tier 2 validation begins Q3 2026 after Tier 1 is proven in production.
 
 #### Step 5.1: iroh Scaffold & Identity Bootstrap
 
@@ -564,27 +606,112 @@ This phase encompasses what was originally planned as separate phases but was ex
 
 ### Phase 6: Topology Consolidation (Model / Services / Shell)
 
-**Goal**: Align filesystem structure with architecture boundaries after capability paths are stable.
+**Goal**: Enforce the three-authority-domain boundary in both type structure and filesystem layout. Phase 6 is not a path-move exercise — the moves matter only insofar as they make the authority boundaries visible and hard to violate. The moves follow from the type splits; not the other way around.
 
-#### Step 6.1: Model Extraction
-- Move data-centric types from root-heavy modules into `src/model/*`.
-- Split shell/runtime fields from `GraphBrowserApp` into shell-facing adapters where practical.
+The three authority domains, restated as an implementation invariant:
 
-#### Step 6.2: Service Extraction
-- Normalize `persistence`, `search`, and physics-support logic under `src/services/*`.
+| Domain | Owner | Invariant |
+| ------ | ----- | --------- |
+| Semantic graph | `GraphWorkspace` | All graph mutations flow through `apply_intents()`. No module outside the reducer calls `graph.add_node()` or equivalent directly. |
+| Spatial layout | `Tree<TileKind>` (inside `GraphWorkspace`) | Tile tree mutations are driven by intents, not by shell code reaching into `GraphWorkspace`. |
+| Runtime instances | `AppServices` + `EmbedderWindow` | Webview creation/destruction happens only in `lifecycle_reconcile.rs`. Servo delegate callbacks never mutate `GraphWorkspace` directly — they enqueue `GraphSemanticEvent`. |
 
-#### Step 6.3: Desktop Shell Decomposition
-- Re-home `desktop/*` into `src/shell/desktop/{host,workbench,lifecycle,ui}`.
-- Group tile files under `workbench/tiles/`; keep diagnostics harness paths updated.
+#### Step 6.1: `GraphWorkspace` / `AppServices` Split
 
-#### Step 6.4: Remove Transition Shims
-- Delete temporary re-exports and old module aliases.
-- Ensure docs and plan references use canonical paths only.
+The single most important structural change. `GraphBrowserApp` currently holds both pure data and runtime handles. Split it into two types with a hard ownership boundary:
 
-**Phase 6 Done Gate**:
-- Filesystem structure matches `src/{model,registries,services,mods,shell}` layout.
-- All transition shims and re-exports removed.
-- Tests and diagnostics harness updated to canonical paths.
+**`GraphWorkspace`** (pure data, serializable):
+
+- `Graph` (petgraph StableGraph)
+- `desired_lifecycle: HashMap<NodeKey, NodeLifecycle>`
+- `tile_tree: Tree<TileKind>`
+- `selection: SelectionState`
+- `camera: Camera`
+- `physics_state: FruchtermanReingoldWithCenterGravityState`
+- `workspace_membership: HashMap<Uuid, BTreeSet<String>>`
+- `undo_redo: UndoRedoStack`
+- `search_state: SearchState`
+
+**`AppServices`** (runtime handles, ephemeral):
+
+- `RegistryRuntime` (all registries)
+- `GraphStore` (persistence handle)
+- `EmbedderCore` (Servo instance + window management)
+- `SyncWorker` handle (Verse mod)
+- Tokio runtime handle
+
+**Reducer signature change**: `apply_intents(&mut GraphWorkspace, Vec<GraphIntent>, &AppServices) -> Vec<SideEffect>`
+
+Registries receive `(&GraphWorkspace, &AppServices)` via `RegistryContext` — never `&mut GraphBrowserApp`.
+
+**Done gate**: `GraphWorkspace` is `Send + Sync` (no `Rc`, no `Cell`). `cargo test` passes. No `AppServices` fields remain on `GraphWorkspace`.
+
+#### Step 6.2: `GraphSemanticEvent` Seam Formalization
+
+The seam between Servo callbacks and graph state is the highest-risk layer boundary. Formalize it with a contract test.
+
+- Audit `running_app_state.rs` and `window.rs`: verify no method directly mutates `GraphWorkspace`. Every Servo callback must terminate in one of: (a) `pending_graph_events.push(GraphSemanticEvent {...})`, or (b) `pending_commands.push(UserInterfaceCommand {...})`. Nothing else.
+- Add a `#[test] fn servo_callbacks_only_enqueue_events()` contract test (static audit or compile-time assertion) that fails if any new path from `RunningAppState` reaches `GraphWorkspace` directly.
+- If any direct mutations are found during audit, route them through a new `GraphSemanticEventKind` variant instead.
+
+**Done gate**: Contract test exists and passes. All Servo-to-graph data flows through `GraphSemanticEvent`.
+
+#### Step 6.3: Single-Write-Path Validation for `GraphIntent`
+
+The reducer (`apply_intents`) must be the only site that calls `graph.add_node()`, `graph.remove_node()`, `graph.add_edge()`, etc. Verify this is the case and lock it in.
+
+- Run `grep -r "graph\.add_node\|graph\.remove_node\|graph\.add_edge\|graph\.remove_edge" --include="*.rs"` excluding `graph/mod.rs` and `app.rs`. Any hit outside those two files is a violation.
+- If violations exist, wrap the call in a new `GraphIntent` variant and route through the reducer.
+- Add a comment in `graph/mod.rs` header: `// Direct mutation methods are pub(super) — call sites outside app.rs are invariant violations.` Change the visibility of mutating methods to `pub(super)` so the compiler enforces it.
+
+**Done gate**: `graph.add_node()` and peer methods are `pub(super)` in `graph/mod.rs`. `cargo check` confirms no callers outside `app.rs`.
+
+#### Step 6.4: Filesystem Restructure
+
+With types correctly bounded (6.1–6.3), the path moves are mechanical. Execute as separate commits — one per subtree — with no logic changes in the same commit.
+
+**`src/model/`**:
+
+- `graph/` — graph data structure (from root)
+- `intent.rs` — `GraphIntent` enum + reducer (`apply_intents`)
+- `workspace.rs` — `GraphWorkspace` struct (extracted from `app.rs` in 6.1)
+- `selection.rs` — `SelectionState`
+
+**`src/services/`**:
+
+- `persistence/` — from root `persistence/`
+- `search/` — from root `search.rs`
+- `physics/` — physics support utilities (if any grow beyond in-struct state)
+
+**`src/shell/desktop/`**:
+
+- `host/` — `event_loop.rs`, `embedder.rs`, `headed_window.rs`, `headless_window.rs`
+- `lifecycle/` — `lifecycle_intents.rs`, `lifecycle_reconcile.rs`, `webview_controller.rs`, `webview_backpressure.rs`, `semantic_event_pipeline.rs`
+- `workbench/` — `tile_runtime.rs`, `tile_render_pass.rs`, `tile_compositor.rs`
+- `ui/toolbar/` — `toolbar_ui.rs` and all `toolbar_ui/*` submodules
+- `ui/gui.rs`, `ui/gui_frame.rs`
+- `protocols/` — stays as-is
+
+Use `pub(crate)` re-exports at old paths during migration; remove them in Step 6.5.
+
+**Done gate**: `cargo check` clean after each subtree move. Diagnostics harness path imports updated in the same commit as each move.
+
+#### Step 6.5: Remove Transition Shims
+
+- Delete all `pub(crate)` re-exports added in 6.4.
+- Delete any remaining module aliases or path compatibility shims from earlier phases.
+- Update all doc cross-references (`CODEBASE_MAP.md`, `ARCHITECTURAL_OVERVIEW.md`) to canonical paths.
+- Run full test suite; update any harness scenario imports that still reference old paths.
+
+**Done gate**: `grep -r "use crate::desktop::" --include="*.rs"` returns only shell-internal references. Filesystem matches `src/{model,registries,services,mods,shell}` layout. `cargo test` passes.
+
+**Phase 6 Done Gate** (all steps):
+
+- `GraphWorkspace` is a self-contained, serializable data type. `AppServices` holds all runtime handles. The split is reflected in both types and filesystem.
+- `GraphSemanticEvent` is the exclusive channel from Servo callbacks to graph state. Contract test proves it.
+- `graph/mod.rs` mutating methods are `pub(super)`; compiler enforces the single-write-path invariant.
+- Filesystem matches `src/{model,registries,services,mods,shell}` layout with no transition shims.
+- All tests and diagnostics harness scenarios pass at canonical paths.
 
 ---
 

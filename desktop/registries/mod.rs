@@ -9,6 +9,9 @@ pub(crate) mod knowledge;
 use super::diagnostics::{DiagnosticEvent, emit_event};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::registries::atomic::diagnostics;
+use crate::registries::atomic::ProtocolHandlerProviders;
+use crate::registries::atomic::ViewerHandlerProviders;
+use crate::registries::infrastructure::ModRegistry;
 use action::{
     ACTION_DETAIL_VIEW_SUBMIT, ACTION_GRAPH_VIEW_SUBMIT, ACTION_OMNIBOX_NODE_SEARCH,
     ActionPayload, ActionRegistry,
@@ -126,6 +129,57 @@ pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) ->
 }
 
 impl RegistryRuntime {
+    /// Create a new RegistryRuntime with mods discovered and their handlers registered.
+    /// This is the standard way to initialize registries during app startup (Phase 2.4).
+    /// 
+    /// Phase 2.4 Implementation Note:
+    /// Handler providers are populated during mod activation. Full integration with
+    /// atomic contract registries will complete when desktop registries are refactored
+    /// to use the atomic contract layer. For now, mod registration functions are called
+    /// but the actual WebView/HTTP/HTTPS dispatch still uses the legacy path.
+    pub(crate) fn new_with_mods() -> Self {
+        // Discover and resolve mod dependencies
+        let mut mod_registry = ModRegistry::new();
+        if let Err(e) = mod_registry.resolve_dependencies() {
+            log::error!("Failed to resolve mod dependencies: {:?}. Using core seed only.", e);
+        }
+        let _loaded_mods = mod_registry.load_all();
+
+        // Wire up handler providers from active mods
+        // This establishes the capability surface even though the desktop registries
+        // still use the legacy dispatch mechanism (to be unified in Phase 2.4 completion)
+        let mut protocol_providers = ProtocolHandlerProviders::new();
+        let mut viewer_providers = ViewerHandlerProviders::new();
+
+        // Register handlers from active mods
+        if mod_registry.get_status("mod:verso").is_some() {
+            crate::mods::verso::register_protocol_handlers(&mut protocol_providers);
+            crate::mods::verso::register_viewer_handlers(&mut viewer_providers);
+            log::debug!("registries: verso mod handlers registered into provider registries");
+        }
+
+        if mod_registry.get_status("mod:verse").is_some() {
+            crate::mods::verse::register_protocol_handlers(&mut protocol_providers);
+            log::debug!("registries: verse mod handlers registered into provider registries");
+        }
+
+        // Create the RegistryRuntime with default registries
+        // (Phase 2.4.1 will complete the wiring to atomic contract registries)
+        Self {
+            action: ActionRegistry::default(),
+            diagnostics: DiagnosticsRegistry::default(),
+            identity: IdentityRegistry::default(),
+            input: InputRegistry::default(),
+            layout: LayoutRegistry::default(),
+            lens: LensRegistry::default(),
+            physics: PhysicsRegistry::default(),
+            protocol: ProtocolRegistry::default(),
+            theme: ThemeRegistry::default(),
+            viewer: ViewerRegistry::default(),
+            knowledge: KnowledgeRegistry::default(),
+        }
+    }
+
     pub(crate) fn observe_navigation_url_with_control(
         &self,
         uri: &str,

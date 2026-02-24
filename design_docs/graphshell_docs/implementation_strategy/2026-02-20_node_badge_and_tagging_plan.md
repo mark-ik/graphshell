@@ -4,7 +4,7 @@
 
 # Node Badge and Tagging Plan (2026-02-20)
 
-**Status**: Draft — implementation not started.
+**Status**: Draft (Not Started)
 
 **Prerequisites**: Persistence hub Phase 1 (tags data model: `tags: HashSet<String>` on `Node`,
 `TagNode`/`UntagNode` log entries, `tag_index`). This plan covers the visual and interactive
@@ -246,7 +246,7 @@ re-ranked on every keystroke.
 
 #### 2.5 Ontology Registry Integration
 
-*   **Validation**: Before emitting `TagNode`, the UI checks `OntologyRegistry::validate(tag)`. Invalid tags (e.g. malformed UDC codes) show a warning or are rejected.
+*   **Validation**: Before emitting `TagNode`, the UI checks `KnowledgeRegistry::validate(tag)`. Invalid tags (e.g. malformed UDC codes) show a warning or are rejected.
 *   **Inference**: The suggestion list includes semantic matches from the registry via fuzzy search. Typing "calc" suggests "Calculus (udc:517)". Selecting this applies the `udc:517` tag.
 *   **Visuals**: The registry can provide color hints for tags, which are reflected in the chip background.
 

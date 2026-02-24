@@ -4,7 +4,7 @@
 
 # Edge Traversal Model — Implementation Plan (2026-02-20)
 
-**Status**: Refactored (2026-02-22) into architecture-first staged delivery plan
+**Status**: In Progress (refactored 2026-02-22 to architecture-first staged delivery)
 **Related plans**:
 - `2026-02-22_workbench_workspace_manifest_persistence_plan.md` (archived; manifest migration record)
 - `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` (active workbench tab semantics follow-on)

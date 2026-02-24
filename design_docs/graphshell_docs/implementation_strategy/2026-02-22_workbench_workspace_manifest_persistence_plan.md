@@ -4,9 +4,9 @@
 
 # Workbench Workspace Manifest Persistence Plan
 
-**Status**: Archived (Completed 2026-02-22).
+**Status**: Completed (2026-02-22), retained as canonical foundation.
 **Follow-on**: `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
-**Relates to**: `2026-02-19_workspace_routing_and_membership_plan.md`
+**Relates to**: `../../archive_docs/checkpoint_2026-02-22/2026-02-19_workspace_routing_and_membership_plan.md`
 
 ---
 
@@ -1039,7 +1039,7 @@ Mitigation:
 
 After implementation begins, update:
 
-- `2026-02-19_workspace_routing_and_membership_plan.md`
+- `../../archive_docs/checkpoint_2026-02-22/2026-02-19_workspace_routing_and_membership_plan.md`
   - replace "derived from layout JSON + stale-key prune" language for named workspaces
   - adopt workbench/workspace terminology
   - point persistence internals and membership rebuild details to this manifest plan

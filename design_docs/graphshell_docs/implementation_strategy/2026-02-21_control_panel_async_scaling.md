@@ -4,8 +4,8 @@
 
 # Control Panel: Async Scaling & Multi-Producer Intent Queuing
 
-**Date:** 2026-02-21 (revised 2026-02-23)
-**Status:** In Progress — Phase CP1 implemented; Phase CP2 pending
+**Date:** 2026-02-21 (revised 2026-02-23, integrated 2026-02-24)
+**Status:** ✅ Complete — All phases integrated into main app
 **Related Plans:**
 - [2026-02-20_embedder_decomposition_plan.md](2026-02-20_embedder_decomposition_plan.md) (Stage 5 trigger)
 - [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md)
@@ -148,7 +148,13 @@ Done gates:
 
 ### Phase CP2: Mod Loader Supervision
 
-**Status:** Pending
+**Status:** ✅ Complete (2026-02-24). Integrated into Gui frame loop.
+
+**Update (2026-02-24)** — ControlPanel fully wired into main app:
+- Added `tokio_runtime: tokio::runtime::Runtime` and `control_panel: ControlPanel` fields to `Gui` struct
+- Workers spawned in `Gui::new()` within runtime context: memory monitor, mod loader, sync worker
+- Intent channel drained each frame via `control_panel.drain_pending()` before `apply_intents`
+- Graceful shutdown in `Drop` via `tokio_runtime.block_on(control_panel.shutdown())`
 
 Goals:
 - Mod loader worker supervises mod load/unload lifecycle events
@@ -157,9 +163,19 @@ Goals:
 - Mod worker respects cancellation token for graceful shutdown
 
 Done gates:
-- [ ] `ControlPanel::spawn_mod_loader()` added
-- [ ] mod lifecycle intents defined in `GraphIntent`
-- [ ] mod worker cancels cleanly on token signal
+- [x] `ControlPanel::spawn_mod_loader()` implemented
+- [x] mod lifecycle intents defined in `GraphIntent` (ModActivated, ModLoadFailed)
+- [x] mod worker cancels cleanly on token signal
+- [x] Coordinated with Registry Phase 2: `NativeModActivations` wired to `ModRegistry::activate_native_mod()`
+- [x] Verso native mod defined and registered at compile time
+- [x] Both Verse and Verso mods discoverable via `discover_native_mods()`
+
+**Implementation Notes**:
+- `discover_native_mods()` uses `inventory::collect!()` to gather `NativeModRegistration` entries
+- `resolve_mod_load_order()` performs topological sort on mod dependencies
+- `ModRegistry::load_all()` calls `activate_native_mod()` for each mod in order
+- `NativeModActivations` dispatch table maps mod_id → activation function
+- Mod activation is synchronous; long-running operations (I/O) would be spawned as sub-workers in future phases
 
 ### Phase CP3: Prefetch Scheduler
 

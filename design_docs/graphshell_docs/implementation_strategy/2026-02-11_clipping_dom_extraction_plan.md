@@ -1,113 +1,69 @@
-# Clipping DOM Extraction Plan (2026-02-11)
+# Clipping & DOM Extraction Plan (Refactored 2026-02-24)
 
-**Data model update (2026-02-20):**
-This plan predates the unified tag system, edge traversal model, and universal node content
-model. The following table maps old concepts to current architecture:
+**Status**: Implementation-Ready
+**Phase**: Registry Phase X (Feature Target 9)
+**Architecture**: Extension of `Verso` Native Mod + `GraphSemanticEvent`.
 
-| Old concept | Current equivalent |
-| --- | --- |
-| "Create node with clip metadata" | `AddNode` intent + `TagNode { tag: TAG_CLIP }` + `TagNode { tag: TAG_STARRED }` |
-| HTML snippet / screenshot storage | Universal Node Content Model §7 (content snapshot on cold node) |
-| "Edge from source node to clip node" | `AddEdge` with `EdgePayload { user_asserted: true }` (edge traversal plan) |
-| Phase 4 refresh logic | `#monitor` tag — reserved; dedicated implementation plan pending |
-| Auto-tag `#unread` | Applied automatically by `apply_intent()` on `AddNode` (existing behavior) |
-
-**Disambiguation:** "Clipping" here means *DOM element capture* (web clipping): the user
-right-clicks a page element and saves it as its own graph node. This is unrelated to the
-node *culling/dissolution* logic in persistence hub Phase 5 (which uses "clipping" for cold
-node removal). These are different features that share a word.
-
-**Proposed new system tag:** `TAG_CLIP = "#clip"` (see §Tag Proposal below). Needs to be
-added to the reserved tags table in the persistence hub plan and badge plan once confirmed.
+## Context
+Clipping allows a user to right-click a DOM element in a webview and extract it into a new, independent graph node. This node preserves the content (HTML/Image) even if the original source changes or goes offline.
 
 ---
 
-## Clipping DOM Extraction Plan
+## Architecture
 
-- Goal: Clip a DOM element into its own node with snapshot and metadata.
-- Scope: Servo right-click context menu, `AddNode`/`TagNode`/`AddEdge` intent emission,
-  cold node with content snapshot.
-- Dependencies: Servo inspector APIs (element bounding box), screenshot capture,
-  Universal Node Content Model §7 (snapshot storage), `#monitor` plan (refresh).
-- Phase 1: DOM selection
-  - Enable right-click element selection in Servo webview.
-  - Capture CSS selector or DOM path for the target element (used as content locator
-    in the node's content snapshot — cross-ref Universal Node Content Model §7).
-  - Context menu option "Clip this element" visible on right-click anywhere in webview.
-- Phase 2: Snapshot
-  - Capture element bounding box and render to image (screenshot crop via Servo's
-    compositor pipeline).
-  - Store HTML snippet (outerHTML of target element, sanitized) and/or text summary.
-  - The clip node starts in Cold state with a content snapshot attached (HTML + image);
-    no active renderer needed. Cross-ref Universal Node Content Model §7 for snapshot
-    storage format.
-- Phase 3: Node and edge creation via intents
-  - Emit `AddNode` for clip node (URL = content-addressed identifier or source URL
-    fragment; title = first text content or page title + "clip").
-  - Emit `TagNode { tag: TAG_CLIP }` — marks node as a clipped element (display badge,
-    filter predicate `is:clip`).
-  - Emit `TagNode { tag: TAG_STARRED }` — clip = intentional save; treat as bookmarked.
-  - `#unread` is auto-applied by `apply_intent()` on `AddNode`; cleared on first
-    activation (existing behavior, no extra work needed).
-  - Emit `AddEdge` for source node → clip node with `EdgePayload { user_asserted: true }`.
-    No traversal entry is created — this is a structural edge, not navigation.
-- Phase 4: Refresh logic (deferred — `#monitor`)
-  - Refresh when source page changes is the `#monitor` tag use case (background DOM
-    hash comparison, change notification path, throttle policy).
-  - This phase is a placeholder until the `#monitor` dedicated plan is implemented.
-  - Clip nodes tagged `#monitor` would re-fetch and re-snapshot the source element on
-    a schedule; change detected → node title gets `[updated]` prefix or `#unread` is
-    re-applied.
+### 1. The Trigger: Context Menu
+The `Verso` mod (Servo embedder) must intercept context menu events.
+- **Event**: `GraphSemanticEvent::ContextMenu { webview_id, coords, ... }`.
+- **Payload**: Needs to carry or allow retrieval of element metadata (tag name, ID, text content).
 
-## Tag Proposal: `#clip`
+### 2. The Extraction: Script Injection
+Since Servo doesn't expose a direct "get DOM element at point" API to the embedder, we use script injection via the `EmbedderApi`.
+- **Script**: `document.elementFromPoint(x, y).outerHTML` (simplified).
+- **Execution**: Triggered when user selects "Clip" from the context menu.
 
-| Constant | Value | Behavior |
-| --- | --- | --- |
-| `TAG_CLIP` | `"#clip"` | Node is a clipped DOM element (not a navigated page) |
+### 3. The Data Model: Clip Node
+A clip node is a regular node with specific metadata:
+- **URL**: `data:text/html;base64,...` (Self-contained) OR `graphshell://clip/<uuid>` (Pointer to storage).
+- **Tags**: `#clip`, `#starred`.
+- **Edge**: `UserGrouped` edge from Source Node -> Clip Node.
 
-Badge: `Tag { label: "#clip", icon: BadgeIcon::Emoji("✂️") }` (same slot as other system tags).
+---
 
-Omnibar predicate: `is:clip` (like `is:starred`, `is:pinned`).
+## Implementation Phases
 
-Graph behavior: clip nodes render with a distinct node shape or border to distinguish them
-from full-page nodes. No graph-view exclusion (unlike `#archive`).
+### Phase 1: Context Menu Plumbing
+1.  **Extend `GraphSemanticEvent`**: Add `ContextMenu` variant.
+2.  **Update `EmbedderWindow`**: Implement `handle_context_menu` delegate callback.
+    -   Convert Servo coordinates to window coordinates.
+    -   Emit `GraphSemanticEvent::ContextMenu`.
+3.  **UI**: In `gui.rs` (or `context_menu.rs`), handle the event by showing an egui popup at the coordinates.
+    -   Menu Item: "Clip Element".
 
-Export behavior: HTML snippet and screenshot included in export; source edge preserved.
+### Phase 2: Content Extraction
+1.  **Implement `extract_element_at(webview_id, x, y)`**:
+    -   Use `webview.evaluate_script(...)`.
+    -   JS Logic: Identify target element (heuristic: smallest container with text/image), get `outerHTML`, get computed styles (optional), get bounding rect.
+    -   Return JSON payload to embedder.
+2.  **Screenshot (Optional/Future)**: Use `webview.capture_rect(...)` if available, or full page capture + crop.
 
-This tag needs to be added to:
+### Phase 3: Clip Node Creation
+1.  **Action Handler**: When "Clip Element" is clicked:
+    -   Run extraction.
+    -   Generate `data:` URL from extracted HTML.
+    -   Emit `GraphIntent::AddNode`.
+    -   Emit `GraphIntent::TagNode { tag: "#clip" }`.
+    -   Emit `GraphIntent::CreateUserGroupedEdge { from: source_node, to: new_clip_node }`.
 
-- Persistence hub plan Phase 1 special tags table
-- Badge plan Phase 3.3 default tag icons table
+### Phase 4: Clip Rendering
+1.  **ViewerRegistry**: Ensure `viewer:webview` handles `data:` URLs correctly (Verso mod already does).
+2.  **Graph View**: Update `GraphNodeShape` to render `#clip` nodes with a distinct visual (e.g., dashed border or scissor icon badge).
 
-## Validation Tests
+---
 
-- Right-click on text element → clip node created; `tag_index[TAG_CLIP]` contains it.
-- Clip node has `#starred` tag; `tag_index[TAG_STARRED]` contains it.
-- Clip node has `#unread` tag on creation; cleared when node first transitions to Active.
-- Edge from source node to clip node exists; `EdgePayload.user_asserted == true`.
-- Clip node persists across restart (Cold node with snapshot; no renderer needed).
-- HTML snippet stored with node; rendered in detail view without reloading source page.
-- `is:clip` omnibar predicate returns only clipped nodes.
+## Validation
 
-## Outputs
-
-- Context menu integration in Servo webview.
-- `TAG_CLIP` constant and tag table additions (persistence hub + badge plans).
-- Content snapshot storage path (coordinated with Universal Node Content Model §7).
-
-## Findings
-
-- (See data model update note at top of file.)
-- Clip nodes are permanently Cold unless the user opens them; the content snapshot is
-  the primary view, not a loaded renderer. This aligns with the content model vision
-  (node = content container, renderer = optional view layer).
-- Phase 4 refresh and the `#monitor` tag are the same feature. Deferral is correct —
-  the monitor background scheduler is non-trivial and out of scope for this cycle.
-
-## Progress
-
-- 2026-02-11: Plan created.
-- 2026-02-20: Aligned with unified tag system (`#clip`, `#starred`, `#unread` intents),
-  edge traversal model (`EdgePayload { user_asserted: true }`), Universal Node Content
-  Model §7 (snapshot storage), and `#monitor` plan (Phase 4 deferral). Added `#clip`
-  tag proposal and disambiguation note (DOM capture ≠ persistence hub Phase 5 culling).
+1.  **Right-Click**: Context menu appears at correct coordinates over webview.
+2.  **Extraction**: "Clip" creates a new node.
+3.  **Content Fidelity**: Opening the clip node shows the extracted HTML element (isolated from original page).
+4.  **Persistence**: Clip node survives restart (data URL is persisted).
+5.  **Linkage**: Edge exists between Source and Clip.

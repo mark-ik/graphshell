@@ -1,6 +1,8 @@
 # Diagnostic Inspector Plan (2026-02-11)
 
-**Architecture update (2026-02-22):**
+**Status**: **Archived (Completed 2026-02-23)**
+**Note**: Implementation is complete and shipped in default builds. Remaining validation steps should be tracked in `VALIDATION_TESTING.md`.
+
 This plan predates the frame execution order architecture, `EdgePayload` traversal model,
 and settings plan. The following table maps old concepts to current architecture:
 

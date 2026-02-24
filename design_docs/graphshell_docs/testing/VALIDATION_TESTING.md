@@ -73,7 +73,7 @@ The diagnostic system exposes structured state (`DiagnosticsState`) that can be 
 
 ## Workspace Routing and Membership (Headed Manual)
 
-**Source**: `implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md`
+**Source**: `implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md` + `implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
 
 **Context**: Items 7, 10, and 11 now have automated coverage. The remaining routing/membership
 checks require headed-manual validation.
@@ -154,7 +154,7 @@ $env:RUST_LOG="graphshell=debug"; cargo run -p graphshell --bin graphshell -- -M
 
 ## Graph UX Polish: Phase 1.1 / 1.2 (Headed Manual)
 
-**Source**: `implementation_strategy/2026-02-19_graph_ux_polish_plan.md`
+**Source**: `implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md` + `implementation_strategy/2026-02-20_edge_traversal_impl_plan.md`
 
 **Context**: Automated coverage exists for input/intent/app semantics. Headed-manual validation is
 required for end-to-end viewport behavior and interaction feel.

@@ -46,6 +46,7 @@ use super::tile_runtime;
 use super::tile_view_ops::{self, TileOpenMode, ToggleTileViewArgs};
 use super::toolbar_routing::ToolbarOpenMode;
 use super::toolbar_ui::OmnibarSearchSession;
+use super::control_panel::ControlPanel;
 use super::registries::{RegistryRuntime, knowledge};
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_status_sync;
@@ -161,6 +162,12 @@ pub struct Gui {
 
     /// Registry runtime for semantic services
     registry_runtime: RegistryRuntime,
+
+    /// Tokio runtime for async background workers
+    tokio_runtime: tokio::runtime::Runtime,
+
+    /// Async worker supervision and intent queue
+    control_panel: ControlPanel,
 }
 
 impl Drop for Gui {
@@ -171,6 +178,12 @@ impl Drop for Gui {
             warn!("Failed to serialize tile layout for persistence");
         }
         self.graph_app.take_snapshot();
+
+        // Gracefully shutdown async workers
+        self.tokio_runtime.block_on(async {
+            self.control_panel.shutdown().await;
+        });
+
         self.rendering_context
             .make_current()
             .expect("Could not make window RenderingContext current");
@@ -305,6 +318,21 @@ impl Gui {
         let initial_search_filter_mode =
             matches!(graph_app.search_display_mode, SearchDisplayMode::Filter);
 
+        // Create tokio runtime for background workers
+        let tokio_runtime = tokio::runtime::Runtime::new()
+            .expect("Failed to create tokio runtime for async workers");
+
+        // Initialize ControlPanel and spawn workers inside runtime context
+        let control_panel = {
+            let _guard = tokio_runtime.enter();
+            let mut panel = ControlPanel::new();
+            panel.spawn_memory_monitor();
+            panel.spawn_mod_loader();
+            // Spawn sync worker if Verse mod is available
+            panel.spawn_sync_worker();
+            panel
+        };
+
         Self {
             rendering_context,
             window_rendering_context,
@@ -353,6 +381,8 @@ impl Gui {
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
             registry_runtime: RegistryRuntime::default(),
+            tokio_runtime,
+            control_panel,
         }
     }
 
@@ -585,6 +615,7 @@ impl Gui {
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             registry_runtime,
+            control_panel,
             ..
         } = self;
         let GuiRuntimeState {
@@ -631,6 +662,10 @@ impl Gui {
                 command_palette_toggle_requested,
             );
             let mut frame_intents = pre_frame.frame_intents;
+
+            // Drain async worker intents from Control Panel
+            frame_intents.extend(control_panel.drain_pending());
+
             let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
 
             let mut graph_search_output = Self::run_graph_search_phase(

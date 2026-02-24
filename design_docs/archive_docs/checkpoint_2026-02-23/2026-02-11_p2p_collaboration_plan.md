@@ -1,10 +1,11 @@
 # P2P Collaboration Plan (Refactored 2026-02-20)
 
-**Status**: Planning phase. Supersedes 2026-02-11 stub. Aligns with current architecture (fjall/redb/rkyv, encryption at rest, edge traversal model) and cross-references detailed P2P spec in `verse_docs/GRAPHSHELL_P2P_COLLABORATION.md`.
+**Status**: **Archived / Superseded (2026-02-23)**
+**Superseded by**: `verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md`
 
-**Primary Source**: `../verse_docs/GRAPHSHELL_P2P_COLLABORATION.md` — full P2P sync architecture, command-based mutation model, version vectors, merge strategies, conflict resolution UI patterns.
+**Note**: The active implementation plan for P2P sync (Verse Tier 1) is now located in the `verse_docs` directory. This document is retained for historical context regarding the initial version vector and backend abstraction research.
 
-**Cross-References**:
+**Historical Cross-References**:
 - `2026-02-20_edge_traversal_model_research.md` — Edge payload model impacts sync: edges accumulate `Vec<Traversal>` records, not typed singletons. Merge strategy must handle traversal append (commutative), not edge type conflicts.
 - `2026-02-19_persistence_hub_plan.md` §Phase 4 — Encryption at rest (AES-256-GCM) is implemented; P2P content sharing should use this pipeline.
 - `2026-02-20_settings_architecture_plan.md` — Sync settings and peer management UI should live at `graphshell://settings/sync` (not a floating panel).

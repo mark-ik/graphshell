@@ -70,7 +70,7 @@ The architectural documents do not specify how the application should behave whe
 
 - **Gap**: A robust browser architecture must be resilient to crashes in content processes. It is unclear from the documents whether such a crash would be gracefully handled (e.g., by displaying a "crashed tab" message) or if it would risk taking down the entire Graphshell application.
 - **Impact**: Without a clear strategy, the application's stability is at risk from misbehaving web content.
-- **Status (Feb 17)**: Implemented for desktop graphshell paths (semantic event -> reducer demote/unmap -> tile crash banner/actions), as documented in [implementation_strategy/2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) under "Crash Handling Policy (Specified 2026-02-17)". Remaining limitations are upstream API surface concerns (for example web-content accessibility), not missing crash policy wiring in graphshell desktop.
+- **Status (Feb 17)**: Implemented for desktop graphshell paths (semantic event -> reducer demote/unmap -> tile crash banner/actions), as reflected in [implementation_strategy/2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) and [implementation_strategy/2026-02-20_embedder_decomposition_plan.md](../implementation_strategy/2026-02-20_embedder_decomposition_plan.md). Remaining limitations are upstream API surface concerns (for example web-content accessibility), not missing crash policy wiring in graphshell desktop.
 
 ---
 

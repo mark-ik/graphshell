@@ -27,7 +27,8 @@
       "WebFetch(domain:en.wikipedia.org)",
       "WebFetch(domain:crates.io)",
       "WebFetch(domain:lib.rs)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(powershell -File:*)"
     ]
   }
 }

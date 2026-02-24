@@ -1,6 +1,6 @@
 # Graph Interaction Consistency Plan (2026-02-23)
 
-**Status**: Draft
+**Status**: Implementation-Ready
 **Supersedes**: Prior ad-hoc zoom/scroll patches in `render/mod.rs`; absorbs remaining items from `2026-02-19_graph_ux_polish_plan.md` §1.4 (scroll zoom speed) and the "smart fit" + "no-ctrl scroll" feature targets.
 
 ---
@@ -9,7 +9,7 @@
 
 Three categories of UX inconsistency:
 
-1. **Graph navigation is unreliable.** Scroll-to-zoom without Ctrl doesn't work. Fit-to-screen (Z/C keys) doesn't fire. Startup zoom has no visible effect. Multiple iterations have failed because the root cause — input ownership and event routing — was never addressed; patches targeted render-time helpers that execute too late or against stale state.
+1. **Graph navigation is unreliable.** Scroll-to-zoom without Ctrl doesn't work. Camera Fit / Focus Selection (Z/C keys) doesn't fire. Startup zoom has no visible effect. Multiple iterations have failed because the root cause — input ownership and event routing — was never addressed; patches targeted render-time helpers that execute too late or against stale state.
 
 2. **Tile tree operations are semantically under-explained.** "Horizontal" and "Vertical" appear in tab strips because they are real `Container::Linear` nodes in the tile tree. They can be useful (they expose split structure), but today they lack context and naming guidance, so users interpret them as bugs. The relationship between Graph/WebView panes, container nodes, and Workbench structure is still opaque.
 
@@ -41,7 +41,7 @@ egui_graphs `SettingsNavigation::with_zoom_and_pan_enabled(true)` registers an `
 
 **Fix**: Intercept scroll events *before* `GraphView` renders by injecting a `ui.input_mut()` call that converts scroll deltas into zoom state, or by using `ui.interact()` with a `Sense::hover()` on the graph rect to claim the input.
 
-### Why fit-to-screen doesn't fire
+### Why Camera Fit doesn't fire
 
 The custom `apply_pending_fit_to_screen_request` reads `app.fit_to_screen_requested`, but the flag is consumed by `take_pending_fit_to_screen_request()` which was called in an earlier code path. Additionally, the flag must survive until the `MetadataFrame` is available in egui's persisted data — on the first frame after graph init, it may not exist yet.
 
@@ -263,6 +263,33 @@ These points are now treated as design constraints for future UX changes:
 
 5. **Terminology must track actual code architecture.**
    `TERMINOLOGY.md` remains authoritative and must be updated whenever tile model/UI language changes.
+
+---
+
+## Phase 5: Secondary Input Surfaces (Absorbed 2026-02-24)
+
+This phase absorbs and replaces `2026-02-24_input_surface_polish_plan.md`.
+
+### Scope and constraints
+
+1. Radial menu, context menu, and command palette are discovery/execution surfaces over `ActionRegistry`.
+2. `InputRegistry` remains the single binding authority for triggers.
+3. No parallel command enums; execution flows through `ActionRegistry::execute(...)`.
+
+### Implementation tasks
+
+- Replace hardcoded radial command/domain enums with action-metadata-driven sectors from `ActionRegistry` category data.
+- Support directional navigation while radial is active (arrow keys + gamepad stick) via `InputRegistry` bindings.
+- Group context menu actions by `ActionCategory` from `ActionRegistry::list_actions_for_context(context)`.
+- Ensure context menu and command palette route shared actions to identical handlers.
+- Keep implementation modular (`desktop/radial_menu.rs`, `desktop/context_menu.rs`) and leave `render/mod.rs` as orchestration callsite.
+
+### Validation
+
+- [ ] Radial open/selection works through `InputRegistry` bindings.
+- [ ] Radial actions execute through `ActionRegistry` only (no hardcoded parallel enum).
+- [ ] Context menu grouping and command palette entries resolve to the same handlers.
+- [ ] Dialogs are used for destructive/branching decisions; toasts are used for non-blocking acknowledgements/progress.
 
 ---
 

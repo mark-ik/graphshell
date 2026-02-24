@@ -1,65 +1,94 @@
-# Bookmarks And History Import Plan (2026-02-11)
+# Bookmarks And History Import Plan (Refactored 2026-02-24)
 
-**Data model update (2026-02-20):**
-This plan predates the unified tag system (persistence hub plan Phase 1,
-`2026-02-19_persistence_hub_plan.md`). The following table maps old concepts to current
-architecture. All references to "bookmarks" and "folder labels as metadata" below should be
-read through this mapping:
+**Status**: Implementation-Ready
+**Phase**: Registry Phase X (Feature Target 7)
+**Architecture**: Native Mod (`ImportWizardMod`) registering actions to `ActionRegistry`.
 
-| Old concept | Current equivalent |
-| --- | --- |
-| Imported bookmark → "bookmarked node" (`is_bookmarked`) | `TagNode { tag: TAG_STARRED }` — node tagged `#starred` |
-| Folder label as metadata | User-defined tag per folder path component (e.g. `Bookmarks/Work/Tools` → tags `Work`, `Tools`) |
-| History visit → node creation | `AddNode` intent (URL dedup via `get_node_by_url` — existing behavior) |
-| Referrer edge | `AddEdge` with `EdgeKind::Traversal` or `UserCreated` (cross-reference: edge traversal plan) |
+## Context
 
-The import wizard emits standard `GraphIntent` sequences (`AddNode`, `AddEdge`, `TagNode`) — no
-new persistence primitives are needed. The tag and node data models are already defined.
+This plan implements the "Import" capability as a self-contained **Native Mod**. It leverages the `ActionRegistry` to expose commands and the `GraphIntent` system to mutate the graph. It aligns with the unified tag system (`#starred`, user tags) and the edge traversal model.
 
 ---
 
-## Bookmarks And History Import Plan
+## Architecture: The Import Wizard Mod
 
-- Goal: Seed graph from browser bookmarks and history data.
-- Scope: Import UI and parsers; graph merge logic.
-- Dependencies: file picker, JSON/HTML parsing, SQLite access.
-- Phase 1: Bookmarks import
-  - Parse Firefox/Chrome bookmarks export formats (Netscape HTML, Chrome JSON).
-  - Create nodes via `AddNode`; tag each with `#starred` via `TagNode { tag: TAG_STARRED }`.
-  - Emit `TagNode { tag: folder_name }` for each folder path component (user-defined tags).
-- Phase 2: History import
-  - Read browser history SQLite databases (read-only mode; row-by-row iteration — no
-    file-derived data in SQL queries).
-  - Create nodes from recent visits via `AddNode`.
-  - Create referrer edges via `AddEdge` (cross-reference: edge traversal plan for edge kind).
-- Phase 3: Dedup and merge
-  - Merge nodes by URL — `get_node_by_url()` returns the existing node if already present;
-    import only adds missing data (tags, edges) to it rather than creating duplicates.
-  - Preserve folder labels as user-defined tags (see data model table above).
-- Phase 4: UX flow
-  - Provide import wizard and progress feedback.
-  - Show preview of nodes/edges to be created before committing.
-  - Report skipped duplicates and merge decisions.
+The `ImportWizardMod` is a native mod (compiled-in) that provides:
+- **Actions**: `import.bookmarks_from_file`, `import.history_from_file`.
+- **UI**: Uses `rfd` (Rust File Dialog) for file selection; no complex in-app wizard UI required for MVP.
+- **Logic**: Parsers for standard browser formats.
 
-## Validation Tests
+### Dependencies
+- `rfd`: Native file dialogs.
+- `scraper` or `html5ever`: Parsing Netscape Bookmark HTML (Firefox/Safari/standard export).
+- `serde_json`: Parsing Chrome/Edge JSON exports.
+- `rusqlite`: Reading browser history databases (SQLite).
+- `url`: URL validation and normalization.
 
-- Import 100+ bookmarks with structure preserved; folder hierarchy reflected as user tags.
-- Dedup avoids duplicate nodes for same URL (existing node receives tags; no second node created).
-- Imported bookmarks carry `#starred` tag; verified via `tag_index[TAG_STARRED]`.
-- History SQLite opened read-only; no SQL injection surface (row iteration, no dynamic queries).
+---
 
-## Outputs
+## Implementation Phases
 
-- Import commands and parsers.
-- Migration guide for users.
+### Phase 1: Mod Scaffold & Action Registration
 
-## Findings
+1.  Create `mods/native/import_wizard/mod.rs`.
+2.  Implement `ModManifest` via `inventory::submit!`.
+    -   `provides`: `["action:import.bookmarks", "action:import.history"]`.
+3.  Register actions in `ActionRegistry`.
+    -   `import.bookmarks`: Triggers file picker -> parses -> emits intents.
+    -   `import.history`: Triggers file picker -> parses -> emits intents.
 
-- (See data model update note at top of file.)
+### Phase 2: Bookmarks Import (HTML & JSON)
 
-## Progress
+**Netscape HTML (Standard)**:
+-   Parse `<DT><A HREF="...">Title</A>` structure.
+-   Map folder hierarchy (`<DL><p><DT><H3>Folder</H3>...`) to **User Tags**.
+    -   Example: `Bookmarks Bar / Tech / Rust` -> Node tags: `Tech`, `Rust`.
+-   **Intents**:
+    -   `AddNode { url, title }`
+    -   `TagNode { tag: "#starred" }` (All imports are treated as starred/bookmarked).
+    -   `TagNode { tag: "Folder" }` (For each folder in path).
 
-- 2026-02-11: Plan created.
-- 2026-02-20: Updated data model references — `is_bookmarked` → `TagNode { tag: TAG_STARRED }`;
-  folder labels → user-defined tags; referrer edges → `AddEdge` via edge traversal plan.
-  Import wizard emits standard `GraphIntent` sequences; no new persistence primitives needed.
+**Chrome JSON**:
+-   Parse recursive JSON structure (`roots` -> `bookmark_bar` -> `children`).
+-   Same tag mapping logic.
+
+**Dedup Strategy**:
+-   Rely on `GraphBrowserApp`'s `AddNode` idempotency (or check existence via `url_to_nodes` before emitting).
+-   If node exists, only emit `TagNode` intents.
+
+### Phase 3: History Import (SQLite)
+
+**Security Constraint**:
+-   Open SQLite DB in **Read-Only Mode** (`OpenFlags::SQLITE_OPEN_READ_ONLY`).
+-   Do not copy the DB to app data; read in-place or copy to temp if locked.
+
+**Query Logic**:
+-   Select `url`, `title`, `last_visit_time` from `urls` table.
+-   Limit to last N entries (e.g., 1000) or time range to prevent graph explosion.
+-   **Intents**:
+    -   `AddNode { url, title }`
+    -   **No** `#starred` tag for history items.
+    -   Optional: `AddTraversal` if referrer data is reliably available (often complex to reconstruct from raw history DBs; MVP can skip edges).
+
+---
+
+## Validation & Testing
+
+### Manual Validation
+1.  **Firefox Export**: Export bookmarks to HTML. Run `import.bookmarks`. Verify nodes appear with `#starred` and folder tags.
+2.  **Chrome Export**: Export to JSON. Run `import.bookmarks`. Verify structure.
+3.  **Dedup**: Import the same file twice. Verify no duplicate nodes created (node count stable), tags preserved.
+4.  **History**: Point `import.history` to a copy of a browser profile `History` file. Verify recent nodes appear.
+
+### Automated Tests (Unit)
+-   `test_parse_netscape_html`: Feed sample HTML string, assert `Vec<ImportedItem>` output.
+    -   Check folder stack -> tag conversion.
+-   `test_parse_chrome_json`: Feed sample JSON, assert output.
+-   `test_import_emits_correct_intents`: Mock `ActionContext`, run import logic, verify `GraphIntent` vector.
+
+---
+
+## Integration Points
+
+-   **Settings**: Add "Import" buttons to `graphshell://settings/persistence` or a new `graphshell://settings/import` page that trigger these actions.
+-   **Command Palette**: Actions are automatically available via `ActionRegistry`.

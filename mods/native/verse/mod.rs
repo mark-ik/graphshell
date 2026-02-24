@@ -9,11 +9,18 @@ use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
 };
 use crate::desktop::diagnostics::{DiagnosticEvent, emit_event};
+use crate::persistence::types::LogEntry;
 use keyring::Entry;
 use std::sync::OnceLock;
 
 #[cfg(test)]
 mod tests;
+
+// Submodules
+pub(crate) mod sync_worker;
+
+// Re-exports for ControlPanel integration
+pub use sync_worker::{SyncWorker, SyncCommand};
 
 /// The ALPN protocol identifier for Graphshell sync
 const SYNC_ALPN: &[u8] = b"graphshell-sync/1";
@@ -48,6 +55,24 @@ inventory::submit! {
     NativeModRegistration {
         manifest: verse_manifest,
     }
+}
+
+/// Verse mod activation handler — called when this mod is loaded.
+pub(crate) fn activate() -> Result<(), String> {
+    // Phase 2.2/2.3: When verse is activated, it can register protocol handlers,
+    // identity providers, or other protocol-level capabilities.
+    // For now, this is a hook point.
+    log::debug!("verse: activation hook called");
+    Ok(())
+}
+
+/// Register Verse protocol handlers into the provider registry.
+/// Phase 5 will implement `protocol:verse` handler for P2P sync.
+/// For now this is a stub (Phase 2.4 integration point).
+pub(crate) fn register_protocol_handlers(providers: &mut crate::registries::atomic::ProtocolHandlerProviders) {
+    // TODO: Phase 5.1 — Register protocol:verse handler
+    let _ = providers; // Suppress unused warning
+    log::debug!("verse: protocol handler registration stub (Phase 5 implementation pending)");
 }
 
 /// P2P Identity stored in OS keychain
@@ -241,7 +266,11 @@ struct VerseState {
     /// Our node identity
     identity: P2PIdentitySecret,
     /// Trust store (peers we sync with)
-    trusted_peers: std::sync::RwLock<Vec<TrustedPeer>>,
+    trusted_peers: std::sync::Arc<std::sync::RwLock<Vec<TrustedPeer>>>,
+    /// mDNS service daemon (for local network discovery)
+    mdns_daemon: Option<mdns_sd::ServiceDaemon>,
+    /// Per-workspace sync logs
+    sync_logs: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SyncLog>>>,
 }
 
 static VERSE_STATE: OnceLock<VerseState> = OnceLock::new();
@@ -259,12 +288,17 @@ pub(crate) fn init() -> Result<(), VerseInitError> {
     // Load trust store (returns empty vec if none exists)
     let trusted_peers = load_trust_store().unwrap_or_default();
 
+    // Start mDNS advertisement (non-blocking)
+    let mdns_daemon = start_mdns_advertisement(&endpoint, &identity.device_name);
+
     // Store in global state
     VERSE_STATE
         .set(VerseState {
             endpoint,
             identity,
-            trusted_peers: std::sync::RwLock::new(trusted_peers),
+            trusted_peers: std::sync::Arc::new(std::sync::RwLock::new(trusted_peers)),
+            mdns_daemon,
+            sync_logs: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         })
         .map_err(|_| VerseInitError::AlreadyInitialized)?;
 
@@ -280,6 +314,11 @@ fn get_verse_state() -> &'static VerseState {
     VERSE_STATE
         .get()
         .expect("Verse state not initialized - call init() first")
+}
+
+/// Check if Verse is initialized (safe, non-panicking)
+pub(crate) fn is_initialized() -> bool {
+    VERSE_STATE.get().is_some()
 }
 
 /// Load identity from OS keychain, or generate a new one if none exists
@@ -507,13 +546,20 @@ pub struct SyncLog {
     pub version_vector: VersionVector,
     /// Intent history (kept in memory, persisted encrypted on disk)
     pub intents: Vec<SyncedIntent>,
+    /// LWW tracking for node titles
+    pub last_write_title: std::collections::HashMap<String, u64>,
+    /// LWW tracking for node URLs
+    pub last_write_url: std::collections::HashMap<String, u64>,
+    /// Tombstones for deleted nodes (ghost-node conflict guard)
+    pub tombstones: std::collections::HashMap<String, u64>,
+    /// LWW tracking for tag mutations (keyed by node_id|tag)
+    pub tag_last_write: std::collections::HashMap<String, u64>,
 }
 
 /// A synced intent with causal metadata
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SyncedIntent {
-    // TODO: Replace with actual GraphIntent once we wire this up
-    pub intent_json: String, // Placeholder: serialized GraphIntent
+    pub log_entry: LogEntry,
     /// Which peer originated this intent
     #[serde(with = "node_id_serde")]
     pub authored_by: iroh::NodeId,
@@ -529,7 +575,78 @@ impl SyncLog {
             workspace_id,
             version_vector: VersionVector::new(),
             intents: Vec::new(),
+            last_write_title: std::collections::HashMap::new(),
+            last_write_url: std::collections::HashMap::new(),
+            tombstones: std::collections::HashMap::new(),
+            tag_last_write: std::collections::HashMap::new(),
         }
+    }
+
+    /// True if this intent should be applied under LWW/ghost-node rules.
+    pub fn should_apply(&mut self, intent: &SyncedIntent) -> bool {
+        match &intent.log_entry {
+            LogEntry::UpdateNodeTitle { node_id, .. } => {
+                let last = self.last_write_title.get(node_id).copied().unwrap_or(0);
+                let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
+                if intent.authored_at_secs >= last && intent.authored_at_secs >= tombstone {
+                    self.last_write_title.insert(node_id.clone(), intent.authored_at_secs);
+                    true
+                } else {
+                    false
+                }
+            }
+            LogEntry::UpdateNodeUrl { node_id, .. } => {
+                let last = self.last_write_url.get(node_id).copied().unwrap_or(0);
+                let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
+                if intent.authored_at_secs >= last && intent.authored_at_secs >= tombstone {
+                    self.last_write_url.insert(node_id.clone(), intent.authored_at_secs);
+                    true
+                } else {
+                    false
+                }
+            }
+            LogEntry::RemoveNode { node_id } => {
+                let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
+                if intent.authored_at_secs >= tombstone {
+                    self.tombstones.insert(node_id.clone(), intent.authored_at_secs);
+                    true
+                } else {
+                    false
+                }
+            }
+            LogEntry::AddNode { node_id, .. } => {
+                let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
+                intent.authored_at_secs >= tombstone
+            }
+            LogEntry::TagNode { node_id, tag } | LogEntry::UntagNode { node_id, tag } => {
+                let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
+                if intent.authored_at_secs < tombstone {
+                    return false;
+                }
+                let key = format!("{}|{}", node_id, tag);
+                let last = self.tag_last_write.get(&key).copied().unwrap_or(0);
+                if intent.authored_at_secs >= last {
+                    self.tag_last_write.insert(key, intent.authored_at_secs);
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => true,
+        }
+    }
+
+    /// Record an intent if it advances the version vector.
+    pub fn record_intent(&mut self, intent: SyncedIntent) -> bool {
+        let current = self.version_vector.get(intent.authored_by);
+        if intent.sequence <= current {
+            return false;
+        }
+        self.version_vector
+            .clocks
+            .insert(intent.authored_by, intent.sequence);
+        self.intents.push(intent);
+        true
     }
 
     /// Serialize to bytes with rkyv (zero-copy binary format)
@@ -652,9 +769,69 @@ pub(crate) fn device_name() -> String {
 pub(crate) fn get_trusted_peers() -> Vec<TrustedPeer> {
     get_verse_state()
         .trusted_peers
-        .read()
-        .expect("trust store lock poisoned")
+    .read()
+    .expect("trust store lock poisoned")
         .clone()
+}
+
+/// Record a local mutation into the sync log (if Verse is initialized).
+pub(crate) fn record_log_entry(workspace_id: &str, entry: LogEntry) -> Result<(), String> {
+    let Some(state) = VERSE_STATE.get() else {
+        return Ok(());
+    };
+    let node_id = state.identity.secret_key.public();
+    let authored_at_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("clock error: {}", e))?
+        .as_secs();
+
+    let mut logs = state
+        .sync_logs
+        .write()
+        .map_err(|_| "sync log lock poisoned".to_string())?;
+    let sync_log = logs
+        .entry(workspace_id.to_string())
+        .or_insert_with(|| SyncLog::new(workspace_id.to_string()));
+
+    let sequence = sync_log.version_vector.get(node_id) + 1;
+    let intent = SyncedIntent {
+        log_entry: entry,
+        authored_by: node_id,
+        authored_at_secs,
+        sequence,
+    };
+
+    if sync_log.record_intent(intent) {
+        let _ = sync_log.save_encrypted(&state.identity.secret_key);
+    }
+
+    Ok(())
+}
+
+/// Shared resources needed to spawn a SyncWorker.
+pub(crate) struct SyncWorkerResources {
+    pub endpoint: iroh::Endpoint,
+    pub secret_key: iroh::SecretKey,
+    pub trusted_peers: std::sync::Arc<std::sync::RwLock<Vec<TrustedPeer>>>,
+    pub sync_logs: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SyncLog>>>,
+}
+
+pub(crate) fn sync_worker_resources() -> Result<SyncWorkerResources, String> {
+    let Some(state) = VERSE_STATE.get() else {
+        return Err("verse not initialized".to_string());
+    };
+    Ok(SyncWorkerResources {
+        endpoint: state.endpoint.clone(),
+        secret_key: state.identity.secret_key.clone(),
+        trusted_peers: state.trusted_peers.clone(),
+        sync_logs: state.sync_logs.clone(),
+    })
+}
+
+/// Shared handle to the sync log map.
+pub(crate) fn sync_logs_handle() -> std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SyncLog>>> {
+    let state = get_verse_state();
+    state.sync_logs.clone()
 }
 
 /// Add or update a trusted peer
@@ -691,6 +868,54 @@ pub(crate) fn revoke_peer(node_id: iroh::NodeId) {
     }
 }
 
+/// Grant workspace access for a peer
+pub(crate) fn grant_workspace_access(node_id: iroh::NodeId, workspace_id: String, access: AccessLevel) {
+    let state = get_verse_state();
+    let mut peers = state
+        .trusted_peers
+        .write()
+        .expect("trust store lock poisoned");
+    
+    if let Some(peer) = peers.iter_mut().find(|p| p.node_id == node_id) {
+        // Update or insert grant
+        if let Some(grant) = peer.workspace_grants.iter_mut().find(|g| g.workspace_id == workspace_id) {
+            grant.access = access;
+        } else {
+            peer.workspace_grants.push(WorkspaceGrant {
+                workspace_id,
+                access,
+            });
+        }
+        
+        // Persist to disk
+        if let Err(e) = save_trust_store(&peers) {
+            log::error!("Failed to save trust store: {}", e);
+        }
+    } else {
+        log::warn!("grant_workspace_access: peer not found: {}", node_id);
+    }
+}
+
+/// Revoke workspace access for a peer
+pub(crate) fn revoke_workspace_access(node_id: iroh::NodeId, workspace_id: String) {
+    let state = get_verse_state();
+    let mut peers = state
+        .trusted_peers
+        .write()
+        .expect("trust store lock poisoned");
+    
+    if let Some(peer) = peers.iter_mut().find(|p| p.node_id == node_id) {
+        peer.workspace_grants.retain(|g| g.workspace_id != workspace_id);
+        
+        // Persist to disk
+        if let Err(e) = save_trust_store(&peers) {
+            log::error!("Failed to save trust store: {}", e);
+        }
+    } else {
+        log::warn!("revoke_workspace_access: peer not found: {}", node_id);
+    }
+}
+
 /// Errors that can occur during Verse initialization
 #[derive(Debug)]
 pub(crate) enum VerseInitError {
@@ -714,6 +939,260 @@ impl std::fmt::Display for VerseInitError {
 }
 
 impl std::error::Error for VerseInitError {}
+
+// ===== Pairing Code Generation (Step 5.3) =====
+
+/// BIP-39 word list (subset for 6-word pairing codes)
+/// Full list has 2048 words (11 bits per word). We use first 256 words (8 bits per word).
+pub(crate) const PAIRING_WORDLIST: &[&str] = &[
+    "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",
+    "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid",
+    "acoustic", "acquire", "across", "act", "action", "actor", "actress", "actual",
+    "adapt", "add", "addict", "address", "adjust", "admit", "adult", "advance",
+    "advice", "aerobic", "affair", "afford", "afraid", "again", "age", "agent",
+    "agree", "ahead", "aim", "air", "airport", "aisle", "alarm", "album",
+    "alcohol", "alert", "alien", "all", "alley", "allow", "almost", "alone",
+    "alpha", "already", "also", "alter", "always", "amateur", "amazing", "among",
+    "amount", "amused", "analyst", "anchor", "ancient", "anger", "angle", "angry",
+    "animal", "ankle", "announce", "annual", "another", "answer", "antenna", "antique",
+    "anxiety", "any", "apart", "apology", "appear", "apple", "approve", "april",
+    "arch", "arctic", "area", "arena", "argue", "arm", "armed", "armor",
+    "army", "around", "arrange", "arrest", "arrive", "arrow", "art", "artefact",
+    "artist", "artwork", "ask", "aspect", "assault", "asset", "assist", "assume",
+    "asthma", "athlete", "atom", "attack", "attend", "attitude", "attract", "auction",
+    "audit", "august", "aunt", "author", "auto", "autumn", "average", "avocado",
+    "avoid", "awake", "aware", "away", "awesome", "awful", "awkward", "axis",
+    "baby", "bachelor", "bacon", "badge", "bag", "balance", "balcony", "ball",
+    "bamboo", "banana", "banner", "bar", "barely", "bargain", "barrel", "base",
+    "basic", "basket", "battle", "beach", "bean", "beauty", "because", "become",
+    "beef", "before", "begin", "behave", "behind", "believe", "below", "belt",
+    "bench", "benefit", "best", "betray", "better", "between", "beyond", "bicycle",
+    "bid", "bike", "bind", "biology", "bird", "birth", "bitter", "black",
+    "blade", "blame", "blanket", "blast", "bleak", "bless", "blind", "blood",
+    "blossom", "blouse", "blue", "blur", "blush", "board", "boat", "body",
+    "boil", "bomb", "bone", "bonus", "book", "boost", "border", "boring",
+    "borrow", "boss", "bottom", "bounce", "box", "boy", "bracket", "brain",
+    "brand", "brass", "brave", "bread", "breeze", "brick", "bridge", "brief",
+    "bright", "bring", "brisk", "broccoli", "broken", "bronze", "broom", "brother",
+    "brown", "brush", "bubble", "buddy", "budget", "buffalo", "build", "bulb",
+    "bulk", "bullet", "bundle", "bunker", "burden", "burger", "burst", "bus",
+    "business", "busy", "butter", "buyer", "buzz", "cabbage", "cabin", "cable",
+];
+
+/// Pairing code that expires after 5 minutes
+#[derive(Debug, Clone)]
+pub struct PairingCode {
+    /// The 6-word mnemonic phrase
+    pub phrase: String,
+    /// iroh::NodeAddr encoded in the code
+    pub node_addr: iroh::NodeAddr,
+    /// When the code expires
+    pub expires_at: std::time::SystemTime,
+}
+
+/// Encode our NodeAddr into a 6-word pairing code
+pub fn generate_pairing_code() -> Result<PairingCode, String> {
+    let state = get_verse_state();
+    
+    // Get NodeId directly (NodeAddr requires async, but NodeId is synchronous)
+    let node_id = state.endpoint.node_id();
+    
+    // For Step 5.3: encode just the NodeId into 6 words (32 bytes → 6 words using first 6 bytes)
+    // Step 5.4 will add relay addresses and full NodeAddr serialization with proper encoding
+    let node_id_bytes = node_id.as_bytes();
+    
+    // Take first 6 bytes and encode as 6 words (8 bits per word)
+    let mut words = Vec::with_capacity(6);
+    for i in 0..6 {
+        let byte_val = node_id_bytes[i];
+        let word_idx = byte_val as usize % 256;
+        words.push(PAIRING_WORDLIST[word_idx]);
+    }
+    
+    let phrase = words.join("-");
+    let expires_at = std::time::SystemTime::now() + std::time::Duration::from_secs(5 * 60);
+    
+    // Note: For Step 5.3, we create a minimal NodeAddr with just the NodeId
+    // Step 5.4 will include full relay and direct addresses
+    let node_addr = iroh::NodeAddr::new(node_id);
+    
+    Ok(PairingCode {
+        phrase,
+        node_addr,
+        expires_at,
+    })
+}
+
+/// Decode a 6-word pairing code back into a NodeId (simplified for Step 5.3)
+/// Full NodeAddr reconstruction requires relay + direct addresses, which we'll add in Step 5.4.
+pub fn decode_pairing_code(phrase: &str) -> Result<iroh::NodeId, String> {
+    let words: Vec<&str> = phrase.split('-').collect();
+    if words.len() != 6 {
+        return Err(format!("expected 6 words, got {}", words.len()));
+    }
+    
+    // Decode words back to bytes
+    let mut bytes = Vec::with_capacity(6);
+    for word in words {
+        let word_idx = PAIRING_WORDLIST
+            .iter()
+            .position(|&w| w == word)
+            .ok_or_else(|| format!("unknown word: {}", word))?;
+        bytes.push(word_idx as u8);
+    }
+    
+    // For Step 5.3: just reconstruct the NodeId from the first 32 bytes
+    // (This is a simplified version; Step 5.4 will use full NodeAddr serialization)
+    if bytes.len() < 6 {
+        return Err("code too short".to_string());
+    }
+    
+    // Reconstruct node_id from the encoded bytes
+    // For now, we'll use a placeholder that extracts partial info
+    // In Step 5.4, we'll properly serialize/deserialize the full NodeAddr
+    Err("decode_pairing_code not yet fully implemented - requires relay address info from Step 5.4".to_string())
+}
+
+/// Generate a QR code for the pairing phrase (returns ASCII art for terminal display)
+pub(crate) fn generate_qr_code_ascii(phrase: &str) -> Result<String, String> {
+    use qrcode::{QrCode, render::unicode};
+    
+    let code = QrCode::new(phrase.as_bytes())
+        .map_err(|e| format!("QR generation failed: {}", e))?;
+    
+    let string = code
+        .render::<unicode::Dense1x2>()
+        .dark_color(unicode::Dense1x2::Light)
+        .light_color(unicode::Dense1x2::Dark)
+        .build();
+    
+    Ok(string)
+}
+
+/// Generate QR code image data (PNG bytes) for UI display
+pub(crate) fn generate_qr_code_png(phrase: &str) -> Result<Vec<u8>, String> {
+    use qrcode::{QrCode, render::svg};
+    
+    // Generate SVG (we'll convert to PNG in the UI layer if needed)
+    let code = QrCode::new(phrase.as_bytes())
+        .map_err(|e| format!("QR generation failed: {}", e))?;
+    
+    let svg_string = code
+        .render()
+        .min_dimensions(200, 200)
+        .dark_color(svg::Color("#000000"))
+        .light_color(svg::Color("#ffffff"))
+        .build();
+    
+    // For now, return SVG as bytes (UI can render directly)
+    Ok(svg_string.into_bytes())
+}
+
+// ===== mDNS Advertisement & Discovery (Step 5.3) =====
+
+/// Start advertising our device via mDNS on the local network
+fn start_mdns_advertisement(endpoint: &iroh::Endpoint, device_name: &str) -> Option<mdns_sd::ServiceDaemon> {
+    match mdns_sd::ServiceDaemon::new() {
+        Ok(daemon) => {
+            let node_id = endpoint.node_id();
+            
+            // Service type: _graphshell-sync._udp.local
+            let service_type = "_graphshell-sync._udp.local.";
+            
+            // Instance name: device name
+            let instance_name = sanitize_service_name(device_name);
+            
+            // TXT records: node_id (as hex string)
+            let mut properties = std::collections::HashMap::new();
+            properties.insert("node_id".to_string(), node_id.to_string());
+            
+            // Note: We'll add relay URL in Step 5.4 when we handle full NodeAddr encoding
+            // For Step 5.3, just advertise NodeId for local network discovery
+            
+            // Note: Port 0 because iroh uses QUIC with Magic Sockets (not a fixed TCP/UDP port)
+            let service_info = mdns_sd::ServiceInfo::new(
+                service_type,
+                &instance_name,
+                &format!("{}.local.", instance_name),
+                (), // Empty address (we use relay URLs, not direct IP)
+                0,  // Port 0 (iroh handles connectivity)
+                Some(properties),
+            );
+            
+            if let Ok(service_info) = service_info {
+                if let Err(e) = daemon.register(service_info) {
+                    log::warn!("mDNS registration failed: {}", e);
+                    return None;
+                }
+                log::info!("mDNS advertisement started for '{}'", device_name);
+                Some(daemon)
+            } else {
+                log::warn!("mDNS service info creation failed");
+                None
+            }
+        }
+        Err(e) => {
+            log::warn!("mDNS daemon creation failed: {} - local discovery disabled", e);
+            None
+        }
+    }
+}
+
+/// Sanitize device name for mDNS service name (alphanumeric + hyphens only)
+pub(crate) fn sanitize_service_name(name: &str) -> String {
+    name.chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
+}
+
+/// Discovered peer from mDNS
+#[derive(Debug, Clone)]
+pub struct DiscoveredPeer {
+    pub device_name: String,
+    pub node_id: iroh::NodeId,
+    pub relay_url: Option<url::Url>,
+}
+
+/// Browse for nearby devices on the local network (blocking for up to timeout_secs)
+pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, String> {
+    let daemon = mdns_sd::ServiceDaemon::new()
+        .map_err(|e| format!("mDNS daemon creation failed: {}", e))?;
+    
+    let service_type = "_graphshell-sync._udp.local.";
+    let receiver = daemon.browse(service_type)
+        .map_err(|e| format!("mDNS browse failed: {}", e))?;
+    
+    let mut discovered = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    
+    while std::time::Instant::now() < deadline {
+        match receiver.recv_timeout(std::time::Duration::from_secs(1)) {
+            Ok(event) => {
+                if let mdns_sd::ServiceEvent::ServiceResolved(info) = event {
+                    // Extract node_id from TXT records
+                    if let Some(node_id_str) = info.get_property_val_str("node_id") {
+                        if let Ok(node_id) = node_id_str.parse::<iroh::NodeId>() {
+                            let relay_url = info.get_property_val_str("relay")
+                                .and_then(|s| s.parse::<url::Url>().ok());
+                            
+                            discovered.push(DiscoveredPeer {
+                                device_name: info.get_fullname().to_string(),
+                                node_id,
+                                relay_url,
+                            });
+                        }
+                    }
+                }
+            }
+            Err(e) if e.to_string().contains("timeout") || e.to_string().contains("Timeout") => continue,
+            Err(_) => break, // Disconnected or other error
+        }
+    }
+    
+    Ok(discovered)
+}
 
 // ===== Diagnostics =====
 

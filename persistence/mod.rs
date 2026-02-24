@@ -1267,6 +1267,8 @@ impl GraphStore {
                         graph.update_node_url(key, new_url.to_string());
                     }
                 },
+                ArchivedLogEntry::TagNode { .. } => {},
+                ArchivedLogEntry::UntagNode { .. } => {},
             }
         }
     }

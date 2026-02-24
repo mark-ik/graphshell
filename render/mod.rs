@@ -3313,6 +3313,111 @@ pub fn render_persistence_panel(
     app.show_persistence_panel = open;
 }
 
+pub fn render_sync_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    if !app.show_sync_panel {
+        return;
+    }
+
+    let mut open = app.show_sync_panel;
+    Window::new("Sync Settings")
+        .open(&mut open)
+        .default_width(500.0)
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new("Trusted Devices").strong());
+            ui.separator();
+            
+            // Get list of trusted peers
+            let peers = crate::mods::native::verse::get_trusted_peers();
+            
+            if peers.is_empty() {
+                ui.label("No paired devices yet.");
+                if ui.button("Add Device").clicked() {
+                    log::info!("Open pairing dialog");
+                }
+            } else {
+                for peer in &peers {
+                    ui.horizontal(|ui| {
+                        let peer_display = format!("{} ({})", peer.display_name, peer.node_id.to_string()[..8].to_uppercase());
+                        ui.label(peer_display);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Manage Access").clicked() {
+                                app.show_manage_access_dialog = true;
+                            }
+                            if ui.button("Forget").clicked() {
+                                let intent = crate::app::GraphIntent::ForgetDevice {
+                                    peer_id: peer.node_id.to_string(),
+                                };
+                                app.apply_intents(vec![intent]);
+                            }
+                        });
+                    });
+                }
+            }
+            
+            ui.separator();
+            ui.label(egui::RichText::new("Sync Status").strong());
+            
+            // Show sync indicator details
+            if !crate::mods::native::verse::is_initialized() {
+                ui.label("Verse not initialized");
+            } else {
+                let peers = crate::mods::native::verse::get_trusted_peers();
+                ui.label(format!("Connected peers: {}", peers.len()));
+            }
+        });
+    
+    app.show_sync_panel = open;
+}
+
+pub fn render_manage_access_dialog(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    if !app.show_manage_access_dialog {
+        return;
+    }
+    
+    let mut open = app.show_manage_access_dialog;
+    Window::new("Manage Access")
+        .open(&mut open)
+        .default_width(500.0)
+        .show(ctx, |ui| {
+            ui.label("Grant or revoke workspace access for paired devices");
+            ui.separator();
+            
+            let peers = crate::mods::native::verse::get_trusted_peers();
+            
+            if peers.is_empty() {
+                ui.label("No paired devices");
+            } else {
+                for peer in &peers {
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new(&peer.display_name).strong());
+                        
+                        if peer.workspace_grants.is_empty() {
+                            ui.label("No workspace grants");
+                        } else {
+                            for grant in &peer.workspace_grants {
+                                ui.horizontal(|ui| {
+                                    let access_str = match grant.access {
+                                        crate::mods::native::verse::AccessLevel::ReadOnly => "🔒 Read-Only",
+                                        crate::mods::native::verse::AccessLevel::ReadWrite => "✏️ Read-Write",
+                                    };
+                                    ui.label(format!("{}: {}", grant.workspace_id, access_str));
+                                    if ui.button("Revoke").clicked() {
+                                        let intent = crate::app::GraphIntent::RevokeWorkspaceAccess {
+                                            workspace_id: grant.workspace_id.clone(),
+                                        };
+                                        app.apply_intents(vec![intent]);
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    
+    app.show_manage_access_dialog = open;
+}
+
 pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) {
     let Some(request) = app.choose_workspace_picker_request() else {
         return;

@@ -3,6 +3,10 @@
         "ForEach-Object": true,
         "Test-Path": true,
         "cargo check": true,
-        "cargo test": true
+        "cargo test": true,
+        "/^powershell -Command @\"\n`\\$filePath = 'c:\\\\Users\\\\mark_\\\\OneDrive\\\\code\\\\rust\\\\graphshell\\\\app\\.rs'\n`\\$content = Get-Content `\\$filePath -Raw\n\n# Handle field assignments/mutations\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.graph = ', 'self\\.workspace\\.graph = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.physics = ', 'self\\.workspace\\.physics = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.selected_nodes = ', 'self\\.workspace\\.selected_nodes = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.camera = ', 'self\\.workspace\\.camera = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.undo_stack = ', 'self\\.workspace\\.undo_stack = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.redo_stack = ', 'self\\.workspace\\.redo_stack = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.views = ', 'self\\.workspace\\.views = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.webview_to_node = ', 'self\\.workspace\\.webview_to_node = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.node_to_webview = ', 'self\\.workspace\\.node_to_webview = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.semantic_index = ', 'self\\.workspace\\.semantic_index = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.semantic_tags = ', 'self\\.workspace\\.semantic_tags = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.active_lru = ', 'self\\.workspace\\.active_lru = '\n`\\$content = `\\$content -replace '\\\\bself\\\\\\.warm_cache_lru = ', 'self\\.workspace\\.warm_cache_lru = '\n\nSet-Content `\\$filePath `\\$content\nWrite-Host 'Assignment replacements complete'\n\"@$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }

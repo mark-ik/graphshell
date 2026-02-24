@@ -6,4 +6,4 @@
 
 pub(crate) mod native;
 
-pub(crate) use native::verse;
+pub(crate) use native::{verse, verso};

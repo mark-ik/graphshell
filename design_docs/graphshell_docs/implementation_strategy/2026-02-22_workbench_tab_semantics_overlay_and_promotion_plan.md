@@ -5,58 +5,22 @@
 # Workbench Tab Semantics Overlay and Promotion Plan
 
 **Date**: 2026-02-22
-**Status**: Draft (design/prep before implementation)
+**Status**: Implementation-Ready (updated 2026-02-23)
 **Relates to**:
-- `2026-02-22_workbench_workspace_manifest_persistence_plan.md` (completed manifest migration foundation)
-- `2026-02-19_workspace_routing_and_membership_plan.md`
+
+- `2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation; `PaneId` and `WorkspaceManifest` types defined there, plus workspace membership/routing context lineage
+- `2026-02-22_registry_layer_plan.md` — `WorkbenchSurfaceRegistry` (Phase 3, complete) owns layout and interaction policy for tile containers; `GraphWorkspace`/`AppServices` split (Phase 6) is the future home of `WorkspaceTabSemantics`
 
 ---
 
 ## Purpose
 
 Add a thin tab-semantics overlay subsystem on top of the workbench (`egui_tiles`) so Graphshell
-can preserve tab-specific behavior through structural normalization (including `simplify()`),
-while supporting pane rest states and on-demand promotion/demotion back into tab containers.
+can preserve tab-specific behavior through structural normalization (including `simplify()`), while
+supporting pane rest states and on-demand promotion/demotion back into tab containers.
 
-This plan intentionally treats tab semantics as a follow-on architecture layer built on the
-manifest-based workspace persistence model.
-
-## Semantic Model
-
-- **Workbench**: The container (IDE Window).
-- **Graph**: The navigation engine (File Tree).
-- **Tabs**: Open documents/nodes.
-
----
-
-## Design Principles
-
-- Graphshell semantics must survive dependency-initiated structural normalization.
-- The `egui_tiles` workbench tree is structural state, not semantic truth.
-- Semantic metadata is optional and additive for tabs and panes.
-- Restore prioritizes content availability first, semantic exactness second, exact structural shape third.
-- Promotion/demotion between pane and tab-container forms is first-class behavior, not an exception path.
-- Graphshell should remain compatible with dependency-native transforms (including `simplify()`) by
-  persisting app semantics explicitly instead of relying on incidental tree shape.
-
----
-
-## Scope
-
-In scope:
-
-- tab semantics overlay metadata (tab groups / ordering / active pane)
-- promotion/demotion semantics (tab/group <-> pane rest state)
-- simplify-safe restore and reapplication of tab semantics
-- overlay-first semantic query APIs for tab-aware features
-- repair/validation policy and user-facing warning aggregation
-- single-pane on-demand rewrap affordance ("inverted tab" control)
-
-Out of scope:
-
-- workbench/workspace manifest core migration (already completed)
-- changing `egui_tiles` internals/forking the dependency
-- graph edge traversal/history semantics (integration only, no redesign)
+Stage 8A (design lock) is complete — this document is the design. The remaining stages are
+implementation work.
 
 ---
 
@@ -64,434 +28,361 @@ Out of scope:
 
 - **Visual tabs**: current `egui_tiles::Container::Tabs` shape in the live workbench tree
 - **Semantic tabs**: Graphshell tab/group meaning persisted in overlay metadata
-- **Pane rest state**: a valid pane-only representation of a semantic tab/group after demotion/unhoist/simplify
-- **Hoist / Unhoist**: structural workbench tree transforms only
-- **Promote / Demote**: semantic + structural lifecycle actions (may trigger hoist/unhoist)
+- **Pane rest state**: a valid pane-only representation of a semantic tab/group after demotion or `simplify()`
+- **Hoist / Unhoist**: structural workbench tree transforms only (egui_tiles operations)
+- **Promote / Demote**: semantic + structural lifecycle actions that may trigger hoist/unhoist
+- **PaneId**: stable pane identity from the manifest-backed workspace bundle model (defined in `2026-02-22_workbench_workspace_manifest_persistence_plan.md`)
 
-Resolved meaning:
+Resolved semantics:
 
-- A **semantic tab** is any tab/tab-group with saved tab metadata.
-- A single pane with semantic metadata counts for all tab-aware features even when currently unhoisted.
+- A semantic tab is any tab/tab-group with saved overlay metadata.
+- A single pane with overlay metadata counts for all tab-aware features even when currently unhoisted.
 - Graph panes and webview panes are both eligible for semantic tab/group membership.
-- A pane belongs to at most one semantic tab group at a time (historical reassignment is allowed).
+- A pane belongs to at most one semantic tab group at a time.
 
 ---
 
-## Problem Statement
+## Design Principles
 
-Current tab-aware behavior in Graphshell often infers semantics from workbench tree shape. This is
-fragile because dependency-native structural transforms (such as `egui_tiles::simplify()`) can
-collapse single-tab containers into panes and erase tab-specific shape.
-
-Consequences without an overlay:
-
-- saved-tab discovery and tab-aware queries can regress when shape changes
-- tab-specific UI affordances become tightly coupled to `egui_tiles` containers
-- Graphshell must choose between preserving behavior and allowing dependency normalization
-- repair/restore logic remains implicit and hard to validate
+- The `egui_tiles` workbench tree is structural state, not semantic truth.
+- Semantic metadata is optional and additive.
+- Restore prioritizes content availability first, semantic exactness second, exact structural shape third.
+- Promotion/demotion between pane and tab-container forms is first-class behavior, not an exception path.
+- Graphshell remains compatible with dependency-native transforms (`simplify()`) by persisting semantics explicitly instead of relying on incidental tree shape.
 
 ---
 
-## Target Model (Overlay with a Little Guts)
+## Architecture Integration Points
 
-### Core idea
+### WorkbenchSurfaceRegistry (Phase 3 — complete)
 
-Keep `egui_tiles` as the structural workbench engine and add a thin semantic overlay that:
+The `WorkbenchSurfaceRegistry` layout policy section owns simplification options and tab container
+rules. When `egui_tiles::simplify()` runs, it should consult the registry's `SimplificationOptions`
+rather than using hardcoded defaults. The overlay's promote/demote operations must remain consistent
+with whatever simplification policy is active.
 
-- stores tab/group semantics using stable IDs
-- survives simplify/unhoist operations
-- supports promote/demote lifecycle actions
-- re-applies semantics when needed
+### GraphWorkspace / AppServices (Phase 6 — planned)
 
-This is not a fork of `egui_tiles`; it is a compatible semantic subsystem layered on top.
+`WorkspaceTabSemantics` is pure data and belongs in `GraphWorkspace` after Phase 6. Until then it
+lives alongside the workspace manifest. The overlay must not depend on runtime handles (`AppServices`
+fields) — it is serializable state only.
 
-### Overlay metadata (minimum planned shape, not final schema)
+### Intent Boundary
+
+- `render/*` captures UI events only; it must not directly mutate overlay semantics.
+- `app.rs` is the authority for semantic decisions (promotion/demotion intents, repair policy, warning creation).
+- `desktop/*` applies workbench tree mutations and runtime effects in response to app-level intents.
+- Promotion/demotion are explicit `GraphIntent` variants, not ad hoc tree rewrites at UI callsites.
+
+---
+
+## Overlay Schema
+
+Minimum planned shape; use `Uuid` for all IDs to be consistent with the codebase identity model.
 
 ```rust
-pub type TabGroupId = u64; // or Uuid
+pub type TabGroupId = Uuid;
 
 pub struct WorkspaceTabSemantics {
-    pub version: u32,
+    pub version: u32,                      // schema version for rkyv migration
     pub tab_groups: Vec<TabGroupMetadata>,
 }
 
 pub struct TabGroupMetadata {
     pub group_id: TabGroupId,
-    pub pane_ids: Vec<PaneId>,          // ordered tab membership
-    pub active_pane_id: Option<PaneId>, // must be member or repaired
+    pub pane_ids: Vec<PaneId>,             // ordered tab membership
+    pub active_pane_id: Option<PaneId>,    // must be a member or repaired to None
 }
 ```
 
-Notes:
+Persistence: serialized with rkyv and stored in the workspace bundle (redb). This is workspace
+state, not graph WAL data — it must not appear in fjall `LogEntry` variants.
 
-- `PaneId` comes from the manifest-backed workspace bundle model.
-- Container IDs are not required for v1; add them later only if split/container-local semantics become first-class.
-- Metadata remains optional: absence falls back to shape inference and pane-only behavior.
+Optional future additions (schema-additive, not breaking):
 
-### Optional future additions (schema-friendly)
-
-- group-level UI metadata (labels, color, collapsed/rest preference)
-- pane-level tab metadata (title overrides, pin state)
-- timestamps (`last_promoted_at`, `last_demoted_at`)
-- diagnostics (`last_repair_at`, `last_repair_reason`)
+- Group-level UI metadata: label, color, collapsed/rest preference
+- Pane-level metadata: title override, pin state
+- Timestamps: `last_promoted_at`, `last_demoted_at`
+- Diagnostics: `last_repair_at`, `last_repair_reason`
 
 ---
 
-## Semantics vs Shape Contract
+## Source-of-Truth Split
 
-### Source-of-truth split
+| Layer | Type | Contents |
+| ----- | ---- | -------- |
+| Manifest layout | `WorkspaceLayout` | Structural egui_tiles tree |
+| Manifest identity | `WorkspaceManifest` | Pane identity and node membership |
+| Semantic overlay | `WorkspaceTabSemantics` | Tab group order, active pane |
 
-- `WorkspaceLayout` (manifest plan): structural workbench tree
-- `WorkspaceManifest` (manifest plan): pane identity + membership
-- `WorkspaceTabSemantics` (this plan): tab semantics only
+These three must not overlap. The overlay queries shape only as a fallback when overlay metadata is
+absent.
 
-### Overlay query precedence (required)
+---
 
-For tab-aware behavior (omnibar saved tabs, pin UI, tab affordances, future tab queries):
+## Overlay Query Precedence
 
-1. semantic tab overlay metadata
-2. live workbench tree shape inference
-3. pane-only fallback behavior
+For all tab-aware behavior (omnibar saved tabs, pin UI, tab affordances):
 
-This precedence must be implemented through shared helper APIs, not per-feature ad hoc logic.
+1. Semantic overlay metadata
+2. Live workbench tree shape inference
+3. Pane-only fallback behavior
+
+Implement through shared helper APIs — not per-feature ad hoc logic.
+
+Proposed helper surface (exact module TBD, likely `desktop/workbench_semantics.rs`):
+
+```rust
+fn semantic_tab_groups_for_workspace(semantics: &WorkspaceTabSemantics) -> &[TabGroupMetadata];
+fn saved_tab_nodes_for_workspace(semantics: Option<&WorkspaceTabSemantics>, tree: &Tree<TileKind>) -> Vec<NodeKey>;
+fn pane_semantic_tab_state(pane_id: PaneId, semantics: Option<&WorkspaceTabSemantics>) -> PaneSemanticState;
+```
 
 ---
 
 ## Promotion / Demotion Semantics
 
-### Demote (semantic tab/group -> pane rest state)
+### Demote: semantic tab/group → pane rest state
 
-Demotion is a semantic lifecycle transition that may include structural simplification/unhoisting.
+- Persist/refresh overlay metadata before structural change.
+- Allow tabs container to be simplified/unhoisted into pane rest state.
+- Preserve content visibility (last paint / thumbnail fallback when runtime content suspends).
+- Keep pane fully usable while tab chrome is hidden.
 
-Behavior:
+### Promote: pane rest state → semantic tab/group
 
-- persist/refresh tab semantics metadata
-- allow tabs container to be simplified/unhoisted into pane rest state
-- preserve content visibility (including last paint / thumbnail-like fallback when runtime content suspends)
-- keep pane fully usable even when tab chrome is hidden
+- Re-wrap pane into tabs container (egui_tiles structural operation).
+- Reload/reapply overlay metadata: group membership, order, active pane.
+- Restore normal tab interactions and affordances.
 
-### Promote (pane rest state -> semantic tab/group)
+Ordering invariant (must not be violated):
 
-Promotion restores tab/group semantics and tab chrome on demand.
+1. Semantic decision — `GraphIntent` applied by reducer
+2. Workbench tree mutation — desktop layer applies structural rewrap
+3. Lifecycle/runtime dispatch — resume/suspend webviews as needed
+4. UI readiness update — on runtime confirmation
 
-Behavior:
+Both promote and demote must be idempotent. Pane rest state is a valid intermediate state while
+runtime content is suspended or resuming.
 
-- re-wrap pane into tabs container
-- reload/reapply tab semantics metadata (group membership, order, active pane)
-- restore normal tab interactions and affordances
-
-### Single-pane on-demand affordance (planned UX)
-
-It is acceptable for a tab/group to rest as a pane until tab-specific handling is needed.
-
-Planned affordance:
-
-- a small inverted-tab control anchored near the pane viewport margin (e.g., upper-left)
-- hidden by default and revealed when cursor approaches the tab region
-- click promotes/rewraps the pane and restores tab metadata/chrome
-- keyboard-accessible equivalent command must exist (not mouse-only)
-
----
-
-## Validation / Repair / Warning Policy
-
-### Validation invariants (minimum)
-
-- every `pane_id` referenced by tab metadata exists in the workspace manifest
-- no pane belongs to more than one semantic tab group at once
-- `active_pane_id` is either `None` or a member of the same group
-- group order is deterministic and free of duplicates
-
-### Repair behavior (release)
-
-Repair should preserve user-visible content and usability first.
-
-Rules:
-
-- auto-repair invalid metadata when safe
-- preserve visible panes even if some semantic metadata must be dropped/corrected
-- reapply remaining valid semantics
-- do not require synchronous runtime/webview availability to repair metadata
-
-### User-facing warning policy
-
-Repair warnings must be exact and not noisy.
-
-Rules:
-
-- aggregate repairs per workspace restore/load operation
-- emit detailed repair events to debug logs
-- emit at most one user-facing warning per restore/load by default
-- warning text must include:
-  - workspace name
-  - affected group/pane IDs
-  - exact repair action
-  - what was preserved
-  - what changed behaviorally/visually
-
-Example (illustrative):
-
-- `Workspace 'research-1': repaired tab group g42 (missing active pane p9). Preserved panes [p3,p7]; active tab reset to p3.`
-
----
-
-## Integration Constraints (Carry-Forward Guardrails)
-
-### 1. Intent boundary discipline
-
-- `render/*` captures UI events and renders state only; it must not directly mutate tab overlay semantics.
-- `app.rs` remains the authority for semantic decisions (promotion/demotion intents, repair policy, warning intent creation).
-- `desktop/*` applies workbench tree mutations and runtime effects (rewrap, restore, lifecycle coordination) in response to app-level intents.
-- Promotion/demotion must be explicit operations/intents, not ad hoc tree rewrites scattered across UI callsites.
-
-### 2. Avoid duplicate sources of truth
-
-- Use shared overlay-first semantic query helpers.
-- Do not mix direct tree inspection and overlay reads outside the defined fallback sequence.
-- Keep layout, manifest, and overlay semantics responsibilities separate.
-
-### 3. Warning aggregation (avoid UX noise)
-
-- Aggregate repair events per workspace restore/load.
-- Detailed logs are fine; user-facing warnings should be summarized and exact.
-
-### 4. Async / lifecycle ordering (avoid races)
-
-Required ordering model:
-
-1. semantic decision (app intent)
-2. workbench tree mutation (desktop apply)
-3. lifecycle/runtime request dispatch (resume/suspend as needed)
-4. readiness/UI state update on runtime confirmation
-
-Rules:
-
-- promotion/demotion must be idempotent
-- pane rest states are valid while runtime content is suspended/resuming
-- semantic repair must not depend on runtime availability
-
-### 5. Dependency compatibility
-
-- Preserve compatibility with dependency-native structural transforms (`egui_tiles::simplify()`).
-- Restore/reapply Graphshell semantics through overlay metadata + promotion logic, not by globally disabling dependency behavior.
-
----
-
-## API / Intent Design Prep (Pre-Implementation)
-
-### Semantic query helpers (overlay-first)
-
-Proposed helper surface (exact module TBD):
+### Intent Variants
 
 ```rust
-fn workspace_tab_semantics_for_name(...) -> Option<WorkspaceTabSemantics>;
-fn semantic_tab_groups_for_workspace(...) -> Vec<TabGroupMetadata>;
-fn saved_tab_nodes_for_workspace(...) -> Vec<NodeKey>; // overlay first, shape fallback
-fn pane_semantic_tab_state(...) -> PaneSemanticState;
+GraphIntent::PromotePaneToSemanticTabGroup {
+    pane_id: PaneId,
+    group_id: TabGroupId,   // existing group to rejoin, or new
+}
+GraphIntent::DemoteSemanticTabGroupToPaneRest {
+    group_id: TabGroupId,
+}
+GraphIntent::RepairWorkspaceTabSemantics {
+    workspace_name: String,
+}
 ```
 
-Goals:
-
-- centralize precedence logic
-- prevent feature-specific shape inference duplication
-- make Stage 8 migrations incremental and testable
-
-### Promotion / demotion operations (semantic lifecycle)
-
-Proposed operation/intents (names illustrative):
-
-```rust
-GraphIntent::PromotePaneToSemanticTabGroup { ... }
-GraphIntent::DemoteSemanticTabGroupToPaneRest { ... }
-GraphIntent::RepairWorkspaceTabSemantics { workspace_name: String }
-```
-
-Desktop-layer apply operations should handle:
-
-- workbench tree rewrites (rewrap/hoist/unhoist)
-- runtime lifecycle dispatch (resume/suspend)
-- UI readiness updates
+The desktop apply layer handles tree rewrites, lifecycle dispatch, and UI state updates in response
+to these intents.
 
 ---
 
-## Save / Restore Transform Walkthroughs (Design Validation)
+## Single-Pane On-Demand Affordance
 
-These should be documented and tested before full implementation:
+When a semantic tab group has been demoted to pane rest state, expose a small inverted-tab control:
 
-1. Single semantic tab -> simplified pane -> promote back
-- preserve pane content and semantic tab identity
-- active pane restored on promote
+- Anchored near the pane viewport margin (upper-left, configurable via `WorkbenchSurfaceRegistry`
+  interaction policy).
+- Hidden by default; revealed when cursor approaches the tab region.
+- Click dispatches `PromotePaneToSemanticTabGroup` intent.
+- Keyboard-accessible equivalent command must exist (not mouse-only); registered in `InputRegistry`.
 
-2. Multi-tab group with active tab
-- preserve tab order and active tab across roundtrip
+---
 
-3. Graph pane in semantic tab group
-- confirm pane-type-agnostic overlay behavior
+## Validation / Repair Policy
 
-4. Missing pane in metadata
-- repair deterministically
-- preserve remaining panes
-- emit exact aggregated warning
+### Invariants
 
-5. Overlay absent / partial
-- fallback to shape inference, then pane-only behavior
+- Every `pane_id` in overlay metadata exists in the workspace manifest.
+- No pane belongs to more than one semantic tab group at once.
+- `active_pane_id` is either `None` or a member of the same group.
+- Group `pane_ids` ordering is deterministic and free of duplicates.
+
+### Repair behavior
+
+- Auto-repair invalid metadata when safe.
+- Preserve visible panes even if some semantic metadata must be dropped or corrected.
+- Reapply remaining valid semantics.
+- Repair must not depend on runtime webview availability.
+- Dispatch `RepairWorkspaceTabSemantics` intent; reducer applies repair; desktop layer updates UI.
+
+### Warning policy
+
+- Aggregate all repairs per workspace restore/load operation.
+- Emit detailed repair events to debug logs.
+- Emit at most one user-facing warning per restore/load by default.
+- Warning text must include: workspace name, affected group/pane IDs, exact repair action, what was
+  preserved, what changed.
+
+Example: `Workspace 'research-1': repaired tab group g42 (missing active pane p9). Preserved panes [p3,p7]; active tab reset to p3.`
 
 ---
 
 ## Stage 8 Execution Plan
 
-### Stage 8A: Design Lock + Schema Draft
-
-Goal:
-
-- finalize overlay schema, terminology, invariants, and warning policy before coding
-
-Tasks:
-
-- finalize `WorkspaceTabSemantics` + `TabGroupMetadata` schema
-- finalize validation/repair invariants
-- finalize warning aggregation/message format
-- finalize helper/API/intent names
-
-Acceptance:
-
-- schema and behaviors are specific enough to implement without semantic ambiguity
+Stage 8A (design lock) is complete. The following stages are implementation work.
 
 ### Stage 8B: Overlay Persistence + Validation
 
-Goal:
+Goal: persist optional tab semantics metadata in the workspace bundle and validate/repair it on load.
 
-- persist optional tab semantics metadata in the workspace bundle and validate/repair it
+- Extend bundle schema with optional `WorkspaceTabSemantics` field (rkyv, additive — bundle load
+  works with or without overlay present).
+- Implement validation helpers: check each invariant in order, collect all violations before repairing.
+- Implement repair helpers: drop/correct invalid entries; preserve valid entries; return repair log.
+- Implement `RepairWorkspaceTabSemantics` intent handling in reducer.
+- Add roundtrip tests: bundle with overlay, bundle without overlay, bundle with invalid overlay.
+- Add repair invariant tests: duplicate pane, invalid active pane, missing pane.
 
-Tasks:
-
-- extend bundle schema with optional tab semantics overlay
-- implement validation/repair helpers
-- add roundtrip and invalid-metadata repair tests
-
-Acceptance:
-
-- bundle load/save works with and without overlay metadata
-- invalid overlay repairs are deterministic and test-covered
+Done gate: bundle load/save roundtrip passes with and without overlay. Invalid overlay repairs are
+deterministic and test-covered. Repair emits structured log entries.
 
 ### Stage 8C: Overlay-First Query APIs + Consumer Migration
 
-Goal:
+Goal: route all tab-aware features through shared semantic queries; eliminate direct tree-shape
+inference from consumers.
 
-- route tab-aware features to shared semantic queries
+- Add overlay-first helper APIs in `desktop/workbench_semantics.rs`.
+- Update omnibar saved-tab discovery to use `saved_tab_nodes_for_workspace()`.
+- Update pin UI tab-aware queries to use `pane_semantic_tab_state()`.
+- Preserve tree-shape fallback in the helpers during rollout; do not require overlay presence.
+- No new direct tree-shape inference paths in migrated consumers.
 
-Tasks:
+Done gate: tab-aware feature behavior is stable under tree-shape normalization. `cargo grep` for
+direct `Tree<TileKind>` access outside `desktop/workbench_semantics.rs` returns no new callsites
+for tab-semantic queries.
 
-- add overlay-first helper APIs
-- update omnibar saved-tab discovery
-- update pin UI tab-aware comparisons/queries (if applicable)
-- preserve tree-shape fallback during rollout
+### Stage 8D: Promotion / Demotion + Pane Rest State
 
-Acceptance:
+Goal: implement semantic lifecycle transitions and on-demand rewrap affordance.
 
-- tab-aware feature behavior is stable under tree-shape normalization
-- no new direct tree-shape inference paths introduced in migrated consumers
+- Add `PromotePaneToSemanticTabGroup`, `DemoteSemanticTabGroupToPaneRest` intent variants and
+  reducer handling.
+- Desktop apply layer: implement tree rewrap (hoist/unhoist), runtime lifecycle dispatch
+  (resume/suspend), UI readiness update on confirmation.
+- Implement idempotency: applying promote/demote twice has same effect as once.
+- Implement single-pane inverted-tab affordance in `desktop/ui/toolbar/` or pane chrome render
+  (exact location TBD by render pass structure). Register keyboard equivalent in `InputRegistry`.
+- Connect lifecycle ordering: promote waits for runtime confirmation before updating UI readiness.
 
-### Stage 8D: Promotion / Demotion Semantics + Pane Rest State
-
-Goal:
-
-- implement semantic lifecycle transitions and on-demand rewrap
-
-Tasks:
-
-- add promotion/demotion intents/operations
-- implement pane rest state handling
-- implement single-pane inverted-tab affordance + keyboard equivalent
-- connect lifecycle ordering (resume/suspend) with idempotent operations
-
-Acceptance:
-
-- demoted semantic tabs/groups can be promoted back with metadata restored
-- pane rest state remains usable while runtime content is suspended/resuming
+Done gate: demoted semantic tabs can be promoted back with metadata fully restored. Pane rest state
+is usable while runtime content is suspended or resuming. Promote/demote are idempotent under
+repeated application.
 
 ### Stage 8E: Simplify-Safe Restore Integration
 
-Goal:
+Goal: allow `egui_tiles::simplify()` to run without losing Graphshell tab semantics.
 
-- allow dependency normalization while preserving Graphshell tab semantics
+- Define the structural simplify + semantic reapply pipeline:
+  1. Run `simplify()`.
+  2. Detect which pane IDs changed container membership.
+  3. For each affected group in overlay, check if members still exist.
+  4. If a group collapsed to a single pane, keep overlay metadata (pane rest state).
+  5. If pane IDs were remapped by simplify (currently not the case with stable PaneId, but guard
+     against it), update overlay membership accordingly.
+- Add cross-transform roundtrip tests: `save → restore → simplify → reapply → save` preserves
+  overlay semantics.
+- Document compatibility guarantees in this plan's Findings section once confirmed.
 
-Tasks:
-
-- define/implement structural simplify + semantic reapply pipeline
-- add cross-transform roundtrip tests (`save -> restore -> simplify -> reapply -> save`)
-- document compatibility guarantees
-
-Acceptance:
-
-- `egui_tiles::simplify()` no longer conflicts with Graphshell tab semantics
-- no pane loss / tab metadata loss under supported transforms
+Done gate: `egui_tiles::simplify()` no longer conflicts with Graphshell tab semantics. No pane loss
+or tab metadata loss under supported transforms.
 
 ---
 
-## Test and Validation Plan (Pre-commit Checklist)
+## Test and Validation Plan
 
-- roundtrip tests with/without overlay metadata
-- repair invariants tests (duplicate pane, invalid active pane, missing pane)
-- query precedence tests (overlay first, shape fallback)
-- promotion/demotion idempotency tests
-- simplify/reapply equivalence tests (semantic invariants preserved)
-- warning aggregation tests (single user-facing warning per restore op)
-- lifecycle ordering tests (promotion while runtime suspended/resuming)
+- Roundtrip tests with/without overlay metadata
+- Repair invariant tests: duplicate pane, invalid active pane, missing pane
+- Query precedence tests: overlay first, shape fallback, pane-only fallback
+- Promote/demote idempotency tests
+- Simplify/reapply equivalence tests: semantic invariants preserved across simplify
+- Warning aggregation tests: at most one user-facing warning per restore operation
+- Lifecycle ordering tests: promote while runtime is suspended or resuming
 
 ---
 
 ## Risks and Mitigations
 
-### Risk: Overlay becomes a second ad hoc layout engine
+Overlay becoming a second layout engine: keep overlay semantic-only (groups/order/active), not a
+structural replacement. Clear ownership split with `WorkspaceLayout`.
 
-Mitigation:
+Feature code bypassing helpers: shared overlay-first query APIs are the only permitted path for
+tab-aware queries. Migrate high-risk consumers first (omnibar, pin UI).
 
-- keep overlay semantic-only (groups/order/active), not structural layout replacement
-- maintain clear ownership split with `WorkspaceLayout`
+Repair warnings creating user confusion: exact aggregated messages with content-preservation-first
+repair policy. Debug logs for detail.
 
-### Risk: Feature code bypasses helpers and reintroduces shape-coupling
+Async races during promote/demote: explicit intent ordering, idempotent operations, pane rest state
+as valid intermediate state.
 
-Mitigation:
-
-- shared overlay-first query APIs
-- integration constraints enforced in code review
-- migrate high-risk consumers first (omnibar, pin UI)
-
-### Risk: Repair warnings create user confusion/noise
-
-Mitigation:
-
-- exact aggregated messages
-- debug logs for detail
-- content-preservation-first repair policy
-
-### Risk: Async races during promote/demote
-
-Mitigation:
-
-- explicit intent ordering
-- idempotent operations
-- pane rest state as valid intermediate state
+`WorkbenchSurfaceRegistry` diverging from overlay assumptions: simplification options live in the
+registry; overlay promote/demote reads those options. If simplify policy changes, the
+simplify-reapply pipeline (Stage 8E) must be re-validated.
 
 ---
 
-## Future: Verse Integration & Registry Layer
+## Workspace Routing Polish Addendum (Absorbed 2026-02-24)
 
-As Graphshell evolves toward the "Verse" vision (P2P sharing), the workspace persistence layer will integrate with the **Registry Ecosystem** (`2026-02-22_registry_layer_plan.md`) and **Verse Strategy** (`2026-02-22_verse_implementation_strategy.md`).
+This section absorbs and replaces `2026-02-24_workspace_routing_polish_plan.md`.
 
-### Identity Registry (Signing)
-Named workspace bundles will eventually include a cryptographic signature from the `IdentityRegistry`. This allows workspaces to be shared as "Tokenized Reports" with provenance.
+### Resolver explainability
 
-### Protocol Registry (Storage Abstraction)
-While currently coupled to `redb`/`fjall` on the local filesystem, the save/load operations will eventually route through the `ProtocolRegistry`. This enables saving a workspace directly to IPFS (`ipfs://...`) or a P2P peer, treating the storage backend as a pluggable transport.
+- Emit structured resolver traces from `resolve_workspace_open`: candidates, recency scores, selected workspace, and decision reason (`MostRecent`, `ExplicitTarget`, `Fallback`).
+- Surface traces through diagnostics/logging for headed validation and bug triage.
+- Optional preference strategy remains constrained to resolver policy selection, not alternate UI-side routing logic.
+
+### Membership-aware UI affordances
+
+- Badge tooltips should list memberships in recency order and highlight current workspace.
+- Workspace-target actions in command palette should include membership hints.
+- Hide badge noise for nodes that belong only to the current workspace; keep stronger visual treatment for external membership.
+
+### Batch operation intent boundary
+
+- Route prune/retention operations through intent/request paths (`GraphIntent::PruneEmptyWorkspaces`, `GraphIntent::RetentionSweep { max_snapshots }`) rather than direct maintenance shortcuts.
+- Keep persistence effects in desktop helper layers, but preserve intent-layer observability.
+
+### Validation additions
+
+- [ ] Multi-home open emits resolver trace with ranking and decision reason.
+- [ ] Membership badges follow local-only vs external-membership visibility rules.
+- [ ] Command palette workspace-target entries expose membership hints.
+- [ ] Batch prune/retention operations are visible in intent/request diagnostics.
 
 ---
 
-## Suggested Follow-On Doc Updates
+## Findings
 
-After implementation begins:
+To be populated during and after Stage 8B–8E implementation. Document compatibility guarantees from
+Stage 8E here once confirmed.
 
-- update `2026-02-22_workbench_workspace_manifest_persistence_plan.md` to mark Stage 8 follow-on plan active/completed
-- update `2026-02-22_multi_graph_pane_plan.md` to reference pane rest state / promotion semantics where relevant
-- update tab-aware feature docs (omnibar/pin/workbench UX) to use overlay-first query terminology
+---
+
+## Progress
+
+### 2026-02-22
+
+- Plan created. Scope, design principles, and target model established.
+- Stage 8A (design lock) declared complete.
+
+### 2026-02-23 (implementation-ready revision)
+
+- Aligned to registry layer: `WorkbenchSurfaceRegistry` (Phase 3, complete) noted as owner of
+  simplification options; overlay must be consistent with active simplification policy.
+- `TabGroupId` changed from `u64` to `Uuid` for consistency with the codebase identity model.
+- `GraphWorkspace`/`AppServices` split (Phase 6) noted as future home of `WorkspaceTabSemantics`.
+- Persistence path made explicit: rkyv/redb workspace bundle, not fjall WAL.
+- `GraphIntent` variants made concrete with field signatures.
+- Stage 8A declared complete (design document is the output); stages 8B–8E are now the
+  implementation work items with explicit done gates.
+- Source-of-truth split table added.
+- `WorkbenchSurfaceRegistry` risk added to Risks section.
+- Helper API surface and module location (`desktop/workbench_semantics.rs`) made concrete.

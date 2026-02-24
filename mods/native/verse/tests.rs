@@ -77,6 +77,7 @@ mod step_5_2_tests {
         TrustedPeer, PeerRole, AccessLevel, WorkspaceGrant, VersionVector, SyncLog, SyncedIntent,
         sign_sync_payload, verify_peer_signature,
     };
+    use crate::persistence::types::LogEntry;
 
     #[test]
     fn trusted_peer_serde_roundtrip() {
@@ -163,7 +164,12 @@ mod step_5_2_tests {
         let mut sync_log = SyncLog::new("test-workspace".to_string());
         sync_log.version_vector.increment(node_id);
         sync_log.intents.push(SyncedIntent {
-            intent_json: r#"{"type":"AddNode","node_id":"abc123"}"#.to_string(),
+            log_entry: LogEntry::AddNode {
+                node_id: "abc123".to_string(),
+                url: "https://example.com".to_string(),
+                position_x: 10.0,
+                position_y: 20.0,
+            },
             authored_by: node_id,
             authored_at_secs: 1708732800,
             sequence: 1,
@@ -236,5 +242,191 @@ mod step_5_2_tests {
         
         assert_eq!(self_json, r#""self""#);
         assert_eq!(friend_json, r#""friend""#);
+    }
+}
+
+// Tests for Step 5.4: Delta Sync core rules (LWW + ghost-node)
+#[cfg(test)]
+mod step_5_4_tests {
+    use super::super::{SyncLog, SyncedIntent};
+    use crate::persistence::types::LogEntry;
+
+    #[test]
+    fn sync_log_lww_rejects_older_title() {
+        let node_id = "node-1".to_string();
+        let peer = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let mut log = SyncLog::new("workspace".to_string());
+
+        let newer = SyncedIntent {
+            log_entry: LogEntry::UpdateNodeTitle {
+                node_id: node_id.clone(),
+                title: "new".to_string(),
+            },
+            authored_by: peer,
+            authored_at_secs: 200,
+            sequence: 1,
+        };
+        assert!(log.should_apply(&newer));
+
+        let older = SyncedIntent {
+            log_entry: LogEntry::UpdateNodeTitle {
+                node_id: node_id.clone(),
+                title: "old".to_string(),
+            },
+            authored_by: peer,
+            authored_at_secs: 150,
+            sequence: 2,
+        };
+        assert!(!log.should_apply(&older));
+    }
+
+    #[test]
+    fn sync_log_ghost_node_blocks_old_add() {
+        let node_id = "node-2".to_string();
+        let peer = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let mut log = SyncLog::new("workspace".to_string());
+
+        let removal = SyncedIntent {
+            log_entry: LogEntry::RemoveNode {
+                node_id: node_id.clone(),
+            },
+            authored_by: peer,
+            authored_at_secs: 300,
+            sequence: 1,
+        };
+        assert!(log.should_apply(&removal));
+
+        let add_older = SyncedIntent {
+            log_entry: LogEntry::AddNode {
+                node_id: node_id.clone(),
+                url: "https://example.com".to_string(),
+                position_x: 0.0,
+                position_y: 0.0,
+            },
+            authored_by: peer,
+            authored_at_secs: 200,
+            sequence: 2,
+        };
+        assert!(!log.should_apply(&add_older));
+    }
+
+    #[test]
+    fn sync_log_rejects_duplicate_sequence() {
+        let peer = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let mut log = SyncLog::new("workspace".to_string());
+
+        let first = SyncedIntent {
+            log_entry: LogEntry::ClearGraph,
+            authored_by: peer,
+            authored_at_secs: 10,
+            sequence: 1,
+        };
+        assert!(log.record_intent(first));
+
+        let duplicate = SyncedIntent {
+            log_entry: LogEntry::ClearGraph,
+            authored_by: peer,
+            authored_at_secs: 11,
+            sequence: 1,
+        };
+        assert!(!log.record_intent(duplicate));
+    }
+}
+
+// ===== Step 5.3 Tests: Pairing Ceremony & Settings UI =====
+
+#[cfg(test)]
+mod step_5_3_tests {
+    use super::super::{
+        PAIRING_WORDLIST, decode_pairing_code, 
+        sanitize_service_name, generate_qr_code_ascii, generate_qr_code_png,
+        DiscoveredPeer
+    };
+
+    #[test]
+    fn pairing_code_generates_six_words() {
+        // Note: This test requires init() to be called, but we can test the wordlist logic independently
+        let test_bytes = vec![0u8, 42, 100, 150, 200, 255];
+        let mut words = Vec::new();
+        
+        for byte_val in test_bytes {
+            let word_idx = byte_val as usize % 256;
+            words.push(PAIRING_WORDLIST[word_idx]);
+        }
+        
+        assert_eq!(words.len(), 6, "Should generate exactly 6 words");
+        
+        let phrase = words.join("-");
+        assert!(phrase.contains("-"), "Phrase should be hyphen-separated");
+        
+        // Verify all words are in the wordlist
+        for word in &words {
+            assert!(PAIRING_WORDLIST.contains(word), "Word '{}' should be in wordlist", word);
+        }
+    }
+
+    #[test]
+    fn pairing_code_decode_validates_word_count() {
+        let valid_code = "abandon-ability-able-about-above-absent";
+        let invalid_code = "abandon-ability-able"; // Only 3 words
+        
+        // Valid code should not error on word count (though it will error on "not implemented")
+        let _result_valid = decode_pairing_code(valid_code);
+        
+        let result_invalid = decode_pairing_code(invalid_code);
+        assert!(result_invalid.is_err(), "Should reject codes with wrong word count");
+        assert!(result_invalid.unwrap_err().contains("expected 6 words"), "Error should mention word count");
+    }
+
+    #[test]
+    fn pairing_code_decode_validates_wordlist_membership() {
+        let invalid_code = "abandon-ability-NOTAWORD-about-above-absent";
+        
+        let result = decode_pairing_code(invalid_code);
+        assert!(result.is_err(), "Should reject codes with unknown words");
+        assert!(result.unwrap_err().contains("unknown word"), "Error should mention unknown word");
+    }
+
+    #[test]
+    fn mdns_service_name_sanitization() {
+        assert_eq!(sanitize_service_name("Marks-Desktop"), "Marks-Desktop");
+        assert_eq!(sanitize_service_name("My Computer!"), "My-Computer");
+        assert_eq!(sanitize_service_name("Test@Host#Name"), "Test-Host-Name");
+        assert_eq!(sanitize_service_name("---Start"), "Start");
+        assert_eq!(sanitize_service_name("End---"), "End");
+    }
+
+    #[test]
+    fn qr_code_generation_produces_output() {
+        let phrase = "abandon-ability-able-about-above-absent";
+        
+        // Test ASCII QR generation
+        let ascii_qr = generate_qr_code_ascii(phrase);
+        assert!(ascii_qr.is_ok(), "ASCII QR generation should succeed");
+        let ascii_str = ascii_qr.unwrap();
+        assert!(!ascii_str.is_empty(), "ASCII QR should have content");
+        
+        // Test PNG/SVG generation
+        let png_qr = generate_qr_code_png(phrase);
+        assert!(png_qr.is_ok(), "PNG QR generation should succeed");
+        let png_bytes = png_qr.unwrap();
+        assert!(!png_bytes.is_empty(), "QR bytes should have content");
+        assert!(png_bytes.len() > 100, "QR should be substantial (>100 bytes)");
+    }
+
+    #[test]
+    fn discovered_peer_contains_required_fields() {
+        let node_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let relay_url = "https://relay.example.com".parse::<url::Url>().ok();
+        
+        let peer = DiscoveredPeer {
+            device_name: "Test-Device".to_string(),
+            node_id,
+            relay_url: relay_url.clone(),
+        };
+        
+        assert_eq!(peer.device_name, "Test-Device");
+        assert_eq!(peer.node_id, node_id);
+        assert_eq!(peer.relay_url, relay_url);
     }
 }

@@ -928,6 +928,18 @@ pub enum GraphIntent {
         mod_id: String,
         reason: String,
     },
+    /// Apply remote log entries from peers (Verse sync).
+    ApplyRemoteLogEntries {
+        entries: Vec<u8>,
+    },
+    /// Forget a trusted peer device.
+    ForgetDevice {
+        peer_id: String,
+    },
+    /// Revoke workspace access for a peer.
+    RevokeWorkspaceAccess {
+        workspace_id: String,
+    },
 }
 
 /// Main application state
@@ -994,6 +1006,10 @@ pub struct GraphBrowserApp {
 
     /// Whether the persistence hub panel is open.
     pub show_persistence_panel: bool,
+    /// Whether the Sync/Verse panel is open.
+    pub show_sync_panel: bool,
+    /// Whether the Manage Access dialog is open.
+    pub show_manage_access_dialog: bool,
     /// Preferred toast anchor location.
     pub toast_anchor_preference: ToastAnchorPreference,
     /// Preferred lasso activation gesture.
@@ -1301,6 +1317,8 @@ impl GraphBrowserApp {
             show_command_palette: false,
             show_radial_menu: false,
             show_persistence_panel: false,
+            show_sync_panel: false,
+            show_manage_access_dialog: false,
             toast_anchor_preference: ToastAnchorPreference::BottomRight,
             lasso_mouse_binding: LassoMouseBinding::RightDrag,
             command_palette_shortcut: CommandPaletteShortcut::F2,
@@ -1407,6 +1425,8 @@ impl GraphBrowserApp {
             show_command_palette: false,
             show_radial_menu: false,
             show_persistence_panel: false,
+            show_sync_panel: false,
+            show_manage_access_dialog: false,
             toast_anchor_preference: ToastAnchorPreference::BottomRight,
             lasso_mouse_binding: LassoMouseBinding::RightDrag,
             command_palette_shortcut: CommandPaletteShortcut::F2,
@@ -2113,6 +2133,16 @@ impl GraphBrowserApp {
             }
             GraphIntent::ModLoadFailed { mod_id, reason } => {
                 log::warn!("mod load failed: {mod_id} ({reason})");
+            }
+            GraphIntent::ApplyRemoteLogEntries { entries } => {
+                // TODO: Phase 6.2 - sync integrated logic for applying peer log entries
+                log::debug!("peer log entries received: {} bytes", entries.len());
+            }
+            GraphIntent::ForgetDevice { peer_id } => {
+                log::info!("forgetting device: {peer_id}");
+            }
+            GraphIntent::RevokeWorkspaceAccess { workspace_id } => {
+                log::info!("revoking workspace access: {workspace_id}");
             }
         }
     }

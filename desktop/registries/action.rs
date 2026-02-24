@@ -10,6 +10,12 @@ pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "action.omnibox_node_search"
 pub(crate) const ACTION_GRAPH_VIEW_SUBMIT: &str = "action.graph_view_submit";
 pub(crate) const ACTION_DETAIL_VIEW_SUBMIT: &str = "action.detail_view_submit";
 
+// Verse sync actions (Step 5.3)
+pub(crate) const ACTION_VERSE_PAIR_DEVICE: &str = "action.verse.pair_device";
+pub(crate) const ACTION_VERSE_SYNC_NOW: &str = "action.verse.sync_now";
+pub(crate) const ACTION_VERSE_SHARE_WORKSPACE: &str = "action.verse.share_workspace";
+pub(crate) const ACTION_VERSE_FORGET_DEVICE: &str = "action.verse.forget_device";
+
 #[derive(Debug, Clone)]
 pub(crate) enum ActionPayload {
     OmniboxNodeSearch { query: String },
@@ -18,6 +24,27 @@ pub(crate) enum ActionPayload {
         normalized_url: String,
         focused_node: Option<NodeKey>,
     },
+    // Verse sync actions (Step 5.3)
+    VersePairDevice {
+        mode: PairingMode,
+    },
+    VerseSyncNow,
+    VerseShareWorkspace {
+        workspace_id: String,
+    },
+    VerseForgetDevice {
+        node_id: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum PairingMode {
+    /// Show our pairing code for others to enter
+    ShowCode,
+    /// Enter someone else's code to pair with them
+    EnterCode { code: String },
+    /// Pair with a discovered mDNS peer
+    LocalPeer { node_id: String },
 }
 
 type ActionHandler = fn(&GraphBrowserApp, &ActionPayload) -> Vec<GraphIntent>;
@@ -69,6 +96,13 @@ impl Default for ActionRegistry {
         registry.register(ACTION_DETAIL_VIEW_SUBMIT, execute_detail_view_submit_action);
         registry.register(ACTION_GRAPH_VIEW_SUBMIT, execute_graph_view_submit_action);
         registry.register(ACTION_OMNIBOX_NODE_SEARCH, execute_omnibox_node_search_action);
+        
+        // Verse sync actions (Step 5.3)
+        registry.register(ACTION_VERSE_PAIR_DEVICE, execute_verse_pair_device_action);
+        registry.register(ACTION_VERSE_SYNC_NOW, execute_verse_sync_now_action);
+        registry.register(ACTION_VERSE_SHARE_WORKSPACE, execute_verse_share_workspace_action);
+        registry.register(ACTION_VERSE_FORGET_DEVICE, execute_verse_forget_device_action);
+        
         registry
     }
 }
@@ -152,22 +186,77 @@ fn execute_omnibox_node_search_action(app: &GraphBrowserApp, payload: &ActionPay
         return Vec::new();
     };
 
-    let query = query.trim();
-    if query.is_empty() {
-        return Vec::new();
+    let matched_keys = fuzzy_match_node_keys(&app.graph, query);
+    if let Some(key) = matched_keys.first() {
+        return vec![GraphIntent::SelectNode {
+            key: *key,
+            multi_select: false,
+        }];
     }
-
-    fuzzy_match_node_keys(&app.graph, query)
-        .first()
-        .copied()
-        .map(|key| {
-            vec![GraphIntent::SelectNode {
-                key,
-                multi_select: false,
-            }]
-        })
-        .unwrap_or_default()
+    Vec::new()
 }
+
+// ===== Verse Sync Action Handlers (Step 5.3) =====
+
+fn execute_verse_pair_device_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+    let ActionPayload::VersePairDevice { mode } = payload else {
+        return Vec::new();
+    };
+    
+    // For Step 5.3: Generate pairing code or initiate connection
+    // The actual UI dialog is handled by the GUI layer (Step 5.3 UI implementation)
+    // This action just triggers the pairing state machine
+    match mode {
+        PairingMode::ShowCode => {
+            // Generate pairing code - the GUI will read this via verse::generate_pairing_code()
+            log::info!("Pairing code requested - UI will call verse::generate_pairing_code()");
+            Vec::new() // No intents emitted - this is a UI state change
+        }
+        PairingMode::EnterCode { code } => {
+            // Decode and attempt connection
+            log::info!("Pairing initiated with code: {}", code);
+            // Step 5.4 will implement the actual connection logic
+            Vec::new()
+        }
+        PairingMode::LocalPeer { node_id } => {
+            // Connect to discovered mDNS peer
+            log::info!("Pairing initiated with local peer: {}", node_id);
+            // Step 5.4 will implement the actual connection logic
+            Vec::new()
+        }
+    }
+}
+
+fn execute_verse_sync_now_action(_app: &GraphBrowserApp, _payload: &ActionPayload) -> Vec<GraphIntent> {
+    // Step 5.4 will implement the sync worker trigger
+    log::info!("Manual sync requested");
+    Vec::new()
+}
+
+fn execute_verse_share_workspace_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+    let ActionPayload::VerseShareWorkspace { workspace_id } = payload else {
+        return Vec::new();
+    };
+    
+    // Step 5.5 will implement workspace grant management
+    log::info!("Share workspace requested for: {}", workspace_id);
+    Vec::new()
+}
+
+fn execute_verse_forget_device_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+    let ActionPayload::VerseForgetDevice { node_id } = payload else {
+        return Vec::new();
+    };
+    
+    // Revoke trust for this peer
+    if let Ok(node_id_parsed) = node_id.parse::<iroh::NodeId>() {
+        crate::mods::native::verse::revoke_peer(node_id_parsed);
+        log::info!("Device forgotten: {}", node_id);
+    }
+    Vec::new()
+}
+
+// ===== Core Action Implementations (original) =====
 
 #[cfg(test)]
 mod tests {

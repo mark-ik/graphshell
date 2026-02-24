@@ -1338,3 +1338,4 @@ mod tests {
         assert_ne!(cold_color, crashed_color);
     }
 }
+

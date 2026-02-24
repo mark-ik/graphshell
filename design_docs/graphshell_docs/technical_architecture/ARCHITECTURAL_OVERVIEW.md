@@ -89,7 +89,7 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 
 **In active development:**
 
-1. **Navigation control-plane follow-up** — desktop delegate-driven routing is implemented; remaining parity work is EGL/WebDriver explicit targeting ([plan](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md))
+1. **Navigation control-plane follow-up** — desktop delegate-driven routing is implemented; remaining parity work is EGL/WebDriver explicit targeting ([lifecycle model](../implementation_strategy/2026-02-21_lifecycle_intent_model.md), [decomposition plan](../implementation_strategy/2026-02-20_embedder_decomposition_plan.md))
 2. **Selection consolidation** — Remove duplicated selection state ([plan](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md))
 3. **Physics follow-up** — Keep FR tuning/profile work visible after migration ([plan](../../archive_docs/checkpoint_2026-02-19/2026-02-14_physics_migration_plan.md))
 
@@ -177,7 +177,7 @@ For full details (causes, desired vs observed runtime states, invariants), see [
 
 **Delegate-driven routing**: Servo callbacks → GraphIntent emission → reducer application → reconciliation effects. No polling, no fragmented mutation paths.
 
-See [2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) for full specification and phase-by-phase implementation timeline.
+See [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) and [2026-02-20_embedder_decomposition_plan.md](../implementation_strategy/2026-02-20_embedder_decomposition_plan.md) for current specification and implementation timeline.
 
 **Why nodes ARE tabs (not representations of tabs)?**
 - Node identity is the tab itself (stable UUID), not its URL
@@ -320,7 +320,8 @@ Scope: Readme/docs and selected files from GraphRAG, Midori Desktop, egui_node_g
 - [IMPLEMENTATION_ROADMAP.md](../implementation_strategy/IMPLEMENTATION_ROADMAP.md) — Feature targets and execution order
 
 **Implementation Plans**:
-- [2026-02-16_architecture_and_navigation_plan.md](../implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) — Architecture and navigation consolidation
+- [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) — Lifecycle/reconciliation intent model
+- [2026-02-20_embedder_decomposition_plan.md](../implementation_strategy/2026-02-20_embedder_decomposition_plan.md) — Navigation/embedder decomposition strategy
 - [2026-02-14_physics_migration_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_physics_migration_plan.md) — Physics migration
 - [2026-02-14_selection_semantics_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md) — Selection consolidation
 

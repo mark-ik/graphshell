@@ -39,7 +39,7 @@ It serves three goals:
 
 # Design Docs Index
 
-Last updated: February 23, 2026  
+Last updated: February 24, 2026 (session 2)
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -55,13 +55,15 @@ Project status source: [../README.md](../README.md)
 
 - [graphshell_docs/research/2026-02-18_graph_ux_research_report.md](graphshell_docs/research/2026-02-18_graph_ux_research_report.md) - Graph UI/UX research and synthesis.
 - [graphshell_docs/research/2026-02-20_edge_traversal_model_research.md](graphshell_docs/research/2026-02-20_edge_traversal_model_research.md) - Edge traversal model research.
+- [graphshell_docs/research/2026-02-24_visual_tombstones_research.md](graphshell_docs/research/2026-02-24_visual_tombstones_research.md) - Research backlog for visual tombstones/ghost placeholders.
 - [graphshell_docs/research/STANDALONE_EXTRACTION.md](graphshell_docs/research/STANDALONE_EXTRACTION.md) - Standalone extraction notes.
 
 ### Graphshell Technical Architecture
 
 - [graphshell_docs/technical_architecture/ARCHITECTURAL_OVERVIEW.md](graphshell_docs/technical_architecture/ARCHITECTURAL_OVERVIEW.md) - Current architecture and component boundaries.
 - [graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md](graphshell_docs/technical_architecture/ARCHITECTURAL_CONCERNS.md) - Known contradictions and architecture risks.
-- [graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md](graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md) - Browser semantics and behavioral model.
+- [graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md](graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md) - Browser semantics and behavioral model; universal content viewer (MIME detection, ViewerRegistry selection, non-web renderers, tags/badges, UDC semantic physics).
+- [graphshell_docs/technical_architecture/VERSO_AS_PEER.md](graphshell_docs/technical_architecture/VERSO_AS_PEER.md) - Verso mod: web capability (Servo + wry viewers, protocol handlers) and Verse peer agent (Ed25519 identity, SyncWorker, pairing, workspace sharing).
 - [graphshell_docs/technical_architecture/CODEBASE_MAP.md](graphshell_docs/technical_architecture/CODEBASE_MAP.md) - Module map and data flow overview.
 - [graphshell_docs/technical_architecture/DEVELOPER_GUIDE.md](graphshell_docs/technical_architecture/DEVELOPER_GUIDE.md) - Contributor orientation and workflows.
 - [graphshell_docs/technical_architecture/BUILD.md](graphshell_docs/technical_architecture/BUILD.md) - Build instructions and dependency notes.
@@ -73,30 +75,23 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/IMPLEMENTATION_ROADMAP.md](graphshell_docs/implementation_strategy/IMPLEMENTATION_ROADMAP.md) - Feature targets, dependencies, validation order.
 - [graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md](graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md) - Bookmark/history import plan.
 - [graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md](graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md) - DOM clipping plan.
-- [graphshell_docs/implementation_strategy/2026-02-11_diagnostic_inspector_plan.md](graphshell_docs/implementation_strategy/2026-02-11_diagnostic_inspector_plan.md) - Diagnostic inspector plan.
-- [graphshell_docs/implementation_strategy/2026-02-11_p2p_collaboration_plan.md](graphshell_docs/implementation_strategy/2026-02-11_p2p_collaboration_plan.md) - P2P collaboration implementation plan.
-- [graphshell_docs/implementation_strategy/2026-02-11_performance_optimization_plan.md](graphshell_docs/implementation_strategy/2026-02-11_performance_optimization_plan.md) - Performance optimization plan.
-- [graphshell_docs/implementation_strategy/2026-02-16_architecture_and_navigation_plan.md](graphshell_docs/implementation_strategy/2026-02-16_architecture_and_navigation_plan.md) - Architecture/navigation consolidation.
-- [graphshell_docs/implementation_strategy/2026-02-17_egl_embedder_extension_plan.md](graphshell_docs/implementation_strategy/2026-02-17_egl_embedder_extension_plan.md) - EGL embedder extension plan (deferred/archival note retained).
-- [graphshell_docs/implementation_strategy/2026-02-18_edge_operations_and_cmd_palette_plan.md](graphshell_docs/implementation_strategy/2026-02-18_edge_operations_and_cmd_palette_plan.md) - Edge operations and command palette plan.
-- [graphshell_docs/implementation_strategy/2026-02-18_single_window_active_obviation_plan.md](graphshell_docs/implementation_strategy/2026-02-18_single_window_active_obviation_plan.md) - Single-window obviation plan (deferred).
-- [graphshell_docs/implementation_strategy/2026-02-19_graph_ux_polish_plan.md](graphshell_docs/implementation_strategy/2026-02-19_graph_ux_polish_plan.md) - UX polish plan.
-- [graphshell_docs/implementation_strategy/2026-02-19_ios_port_plan.md](graphshell_docs/implementation_strategy/2026-02-19_ios_port_plan.md) - iOS port plan (deferred).
-- [graphshell_docs/implementation_strategy/2026-02-19_layout_advanced_plan.md](graphshell_docs/implementation_strategy/2026-02-19_layout_advanced_plan.md) - Advanced layout/physics plan.
-- [graphshell_docs/implementation_strategy/2026-02-19_persistence_hub_plan.md](graphshell_docs/implementation_strategy/2026-02-19_persistence_hub_plan.md) - Persistence hub plan.
-- [graphshell_docs/implementation_strategy/2026-02-19_undo_redo_plan.md](graphshell_docs/implementation_strategy/2026-02-19_undo_redo_plan.md) - Undo/redo plan.
-- [graphshell_docs/implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md](graphshell_docs/implementation_strategy/2026-02-19_workspace_routing_and_membership_plan.md) - Workspace routing/membership plan.
-- [graphshell_docs/implementation_strategy/2026-02-20_cross_platform_sync_and_extension_plan.md](graphshell_docs/implementation_strategy/2026-02-20_cross_platform_sync_and_extension_plan.md) - Sync clients and extension plan.
 - [graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md](graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) - Edge traversal migration plan.
 - [graphshell_docs/implementation_strategy/2026-02-20_embedder_decomposition_plan.md](graphshell_docs/implementation_strategy/2026-02-20_embedder_decomposition_plan.md) - Embedder decomposition plan.
 - [graphshell_docs/implementation_strategy/2026-02-20_node_badge_and_tagging_plan.md](graphshell_docs/implementation_strategy/2026-02-20_node_badge_and_tagging_plan.md) - Badge/tagging plan.
 - [graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md](graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md) - Settings architecture plan.
 - [graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md](graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md) - Async control-plane scaling plan.
 - [graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md](graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md) - Lifecycle intent model.
+- [graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md](graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md) - Multi-graph pane architecture and workflow plan.
 - [graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md) - Workbench workspace manifest persistence plan.
-- [graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) - Workbench tab semantics overlay and promotion plan.
+- [graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) - Workbench tab semantics overlay/promotion plan (includes absorbed workspace-routing polish addendum).
+- [graphshell_docs/implementation_strategy/2026-02-22_test_harness_consolidation_plan.md](graphshell_docs/implementation_strategy/2026-02-22_test_harness_consolidation_plan.md) - Unified testing harness and validation consolidation plan.
 - [graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md](graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md) - **Canonical registry architecture**: Two-Pillar design (Graph/Workbench), atomic/domain registry catalog, phase plan (Phases 0–1 complete), mod system, core seed floor, topology target. Supersedes `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md`.
+- [graphshell_docs/implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md](graphshell_docs/implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md) - Graph interaction consistency and behavior harmonization plan (includes absorbed secondary input-surface polish scope).
 - [graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md](graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md) - UDC semantic tagging and layout plan.
+- [graphshell_docs/implementation_strategy/2026-02-23_wry_integration_strategy.md](graphshell_docs/implementation_strategy/2026-02-23_wry_integration_strategy.md) - WRY integration strategy and platform boundary plan.
+- [graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md](graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md) - Behavioral layout/creative physics plan.
+- [graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md](graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md) - Performance scaling and frame-budget plan.
+- [graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md](graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md) - Universal node content model implementation plan: non-web renderers (PDF, image, text, audio, SVG, directory), MIME detection pipeline, ViewerRegistry selection policy, security/sandboxing model, crate selection with license analysis.
 
 ### Graphshell Design
 
@@ -120,8 +115,17 @@ Project status source: [../README.md](../README.md)
 
 ## Verse Active Docs
 
-- [verse_docs/2026-02-22_verse_implementation_strategy.md](verse_docs/2026-02-22_verse_implementation_strategy.md) - **Canonical Verse design**: Tier 1 (Direct Sync) full technical design — identity, transport (iroh), sync protocol, UX, SyncWorker, conflict resolution, registry mod wiring, and Phase 5 execution plan. Tier 2 (brokered economy) preserved as §11 for long-term reference.
-- [verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md](verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md) - Earlier P2P collaboration architecture reference (predates intent model; superseded by verse strategy for new work, retained for protocol design context).
+### Verse Technical Architecture
+
+- [verse_docs/technical_architecture/VERSE_AS_NETWORK.md](verse_docs/technical_architecture/VERSE_AS_NETWORK.md) - The Verse network: Tier 1 bilateral iroh sync, Tier 2 community swarms (research), knowledge asset pipeline, participation levels, wire format, conflict resolution, network architecture diagrams.
+
+### Verse Implementation Strategy
+
+- [verse_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md](verse_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md) - Verse implementation strategy and phase framing.
+- [verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) - **Canonical Verse Tier 1 sync plan** (iroh transport, sync units, pairing/sync phases, deterministic sync-logic simulator matrix).
+- [verse_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md) - Phase 5 Step 5.1 completion record.
+- [verse_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md) - Phase 5 Step 5.2 completion record.
+- [verse_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md) - Phase 5 Step 5.3 completion record.
 - [verse_docs/research/VERSE.md](verse_docs/research/VERSE.md) - Original tokenization and peer-role vision (speculative research).
 - [verse_docs/research/SEARCH_FINDINGS_SUMMARY.md](verse_docs/research/SEARCH_FINDINGS_SUMMARY.md) - Research and source synthesis.
 - [verse_docs/research/2026-02-22_aspirational_protocols_and_tools.md](verse_docs/research/2026-02-22_aspirational_protocols_and_tools.md) - Protocol ecosystem survey (IPFS, ActivityPub, Nostr, Gemini, Matrix) and crate index. Reference for Tier 2 and future protocol mod work.
@@ -143,3 +147,4 @@ Project status source: [../README.md](../README.md)
 - [archive_docs/checkpoint_2026-02-19/](archive_docs/checkpoint_2026-02-19/)
 - [archive_docs/checkpoint_2026-02-20/](archive_docs/checkpoint_2026-02-20/)
 - [archive_docs/checkpoint_2026-02-23/](archive_docs/checkpoint_2026-02-23/) — `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (consolidated into `2026-02-22_registry_layer_plan.md`)
+- [archive_docs/checkpoint_2026-02-24/](archive_docs/checkpoint_2026-02-24/) — consolidated-plan redirects: `2026-02-24_input_surface_polish_plan.md`, `2026-02-24_workspace_routing_polish_plan.md`, `2026-02-24_sync_logic_validation_plan.md`; `GRAPHSHELL_P2P_COLLABORATION.md` (pre-intent-model P2P design, superseded by `VERSE_AS_NETWORK.md` and the Tier 1 sync plan)

@@ -38,7 +38,7 @@ pub struct PersistedNode {
 }
 
 /// Edge type for persistence.
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedEdgeType {
     Hyperlink,
@@ -47,7 +47,7 @@ pub enum PersistedEdgeType {
 }
 
 /// Persisted traversal trigger classification (v1 scope).
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedNavigationTrigger {
     Unknown,
@@ -72,7 +72,7 @@ pub struct GraphSnapshot {
 }
 
 /// Log entry for mutation journaling.
-#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum LogEntry {
     AddNode {
         node_id: String,
@@ -111,6 +111,14 @@ pub enum LogEntry {
     UpdateNodeUrl {
         node_id: String,
         new_url: String,
+    },
+    TagNode {
+        node_id: String,
+        tag: String,
+    },
+    UntagNode {
+        node_id: String,
+        tag: String,
     },
 }
 

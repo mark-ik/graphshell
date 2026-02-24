@@ -273,6 +273,17 @@ This inventory maps all functional areas to migration stages.
     - `test_perform_redo_reapplies_after_undo`
     - `test_undo_returns_false_when_stack_empty`
 
+### Phase C.2: Workspace Routing Explainability (Consolidated)
+- [ ] **Resolver Trace Coverage**
+    - `test_resolve_workspace_open_emits_trace_candidates_ranking_and_reason`
+    - `test_resolve_workspace_open_explicit_target_trace_reason`
+- [ ] **Membership Affordance Coverage**
+    - `test_membership_badge_hides_for_local_only_membership`
+    - `test_workspace_target_palette_actions_include_membership_hint`
+- [ ] **Batch Operation Observability**
+    - `test_prune_empty_workspaces_emits_intent_and_diagnostics`
+    - `test_retention_sweep_emits_intent_and_diagnostics`
+
 ### Phase D: Performance & Engine (Stage 5)
 - [ ] **Engine Topology**
     - Verify channel message counts increment during activity.

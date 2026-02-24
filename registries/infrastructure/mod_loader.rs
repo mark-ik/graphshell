@@ -336,11 +336,11 @@ impl ModRegistry {
         loaded
     }
 
-    /// Activate a native mod (currently a no-op; will register capabilities in Phase 2.2/2.3)
-    fn activate_native_mod(&self, _mod_id: &str) -> Result<(), String> {
-        // Phase 2.1: Native mods are discovered but not yet registered into protocol/viewer registries
-        // Phase 2.2/2.3 will add actual registration logic here
-        Ok(())
+    /// Activate a native mod by dispatching to its activation function.
+    /// Phase 2.2/2.3: Calls the mod's activation hook to register capabilities.
+    fn activate_native_mod(&self, mod_id: &str) -> Result<(), String> {
+        let activations = super::NativeModActivations::new();
+        activations.activate(mod_id)
     }
 
     /// Get the status of a mod
@@ -430,6 +430,50 @@ fn core_viewer_manifest() -> ModManifest {
     )
 }
 
+fn core_identity_manifest() -> ModManifest {
+    ModManifest::new(
+        "mod:core-identity",
+        "Core Identity Registry",
+        ModType::Native,
+        vec!["IdentityRegistry".to_string()],
+        vec![],
+        vec![],
+    )
+}
+
+fn core_action_manifest() -> ModManifest {
+    ModManifest::new(
+        "mod:core-action",
+        "Core Action Registry",
+        ModType::Native,
+        vec!["ActionRegistry".to_string()],
+        vec![],
+        vec![],
+    )
+}
+
+fn core_control_panel_manifest() -> ModManifest {
+    ModManifest::new(
+        "mod:core-control-panel",
+        "Core Control Panel",
+        ModType::Native,
+        vec!["ControlPanel".to_string()],
+        vec![],
+        vec![],
+    )
+}
+
+fn core_diagnostics_manifest() -> ModManifest {
+    ModManifest::new(
+        "mod:core-diagnostics",
+        "Core Diagnostics Registry",
+        ModType::Native,
+        vec!["DiagnosticsRegistry".to_string()],
+        vec![],
+        vec![],
+    )
+}
+
 inventory::submit! {
     NativeModRegistration {
         manifest: core_protocol_manifest,
@@ -439,6 +483,30 @@ inventory::submit! {
 inventory::submit! {
     NativeModRegistration {
         manifest: core_viewer_manifest,
+    }
+}
+
+inventory::submit! {
+    NativeModRegistration {
+        manifest: core_identity_manifest,
+    }
+}
+
+inventory::submit! {
+    NativeModRegistration {
+        manifest: core_action_manifest,
+    }
+}
+
+inventory::submit! {
+    NativeModRegistration {
+        manifest: core_control_panel_manifest,
+    }
+}
+
+inventory::submit! {
+    NativeModRegistration {
+        manifest: core_diagnostics_manifest,
     }
 }
 

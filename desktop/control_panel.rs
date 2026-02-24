@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::app::{GraphIntent, MemoryPressureLevel};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
+use crate::mods::native::verse::{self, SyncWorker, SyncCommand};
 
 /// Capacity of the intent channel — limits flooding from async producers.
 const INTENT_CHANNEL_CAPACITY: usize = 256;
@@ -72,6 +73,8 @@ pub(crate) struct ControlPanel {
     pub(crate) intent_tx: mpsc::Sender<QueuedIntent>,
     /// Drained by the sync frame loop each tick via [`Self::drain_pending`].
     pub(crate) intent_rx: mpsc::Receiver<QueuedIntent>,
+    /// Optional sync worker command channel.
+    pub(crate) sync_command_tx: Option<mpsc::Sender<SyncCommand>>,
     /// Shared cancellation token — `cancel()` stops all supervised workers.
     cancel: CancellationToken,
     /// Supervised background worker tasks.
@@ -88,6 +91,7 @@ impl ControlPanel {
             intent_rx,
             cancel: CancellationToken::new(),
             workers: JoinSet::new(),
+            sync_command_tx: None,
         }
     }
 
@@ -142,6 +146,38 @@ impl ControlPanel {
             }
         });
         log::debug!("control_panel: mod loader spawned");
+    }
+
+    /// Spawn the Verse sync worker (P2P delta sync).
+    pub(crate) fn spawn_sync_worker(&mut self) {
+        let cancel = self.cancel.clone();
+        let tx = self.intent_tx.clone();
+        let (cmd_tx, cmd_rx) = mpsc::channel(64);
+        self.sync_command_tx = Some(cmd_tx);
+
+        self.workers.spawn(async move {
+            let resources = match verse::sync_worker_resources() {
+                Ok(r) => r,
+                Err(e) => {
+                    log::warn!("control_panel: verse sync not available ({e})");
+                    return;
+                }
+            };
+
+            let worker = SyncWorker::new(
+                resources.endpoint,
+                resources.secret_key,
+                resources.trusted_peers,
+                resources.sync_logs,
+                tx,
+                cmd_rx,
+                cancel.clone(),
+            );
+
+            worker.run().await;
+        });
+
+        log::debug!("control_panel: sync worker spawned");
     }
 
     /// Cancel all supervised workers and await their completion.

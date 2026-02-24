@@ -21,7 +21,7 @@
 - [x] Tile-derived view state (legacy `View` enum retired)
 - [x] Servo webview integration (create/destroy, navigation tracking, edge creation)
 - [x] Graph persistence (fjall log + redb snapshots + rkyv serialization)
-- [x] Camera fit-to-screen (C key, egui_graphs `fit_to_screen`)
+- [x] Camera Fit (C key, egui_graphs `fit_to_screen`)
 - [x] Workspace routing and membership (manifest-based persistence, UUID identity)
 - [x] History Manager UI (Timeline + Dissolved tabs)
 
@@ -57,7 +57,7 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 **Execution order now:**
 
-1. Navigation control-plane stabilization (see [2026-02-16_architecture_and_navigation_plan.md](2026-02-16_architecture_and_navigation_plan.md))
+1. Navigation control-plane stabilization (see [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md) and [2026-02-20_embedder_decomposition_plan.md](2026-02-20_embedder_decomposition_plan.md))
 2. Selection consolidation (see [2026-02-14_selection_semantics_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md))
 3. FT2 thumbnail completion ✅
 4. FT6 search/filtering (`nucleo`) ✅
@@ -353,18 +353,18 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 ---
 
-### Feature Target 10: Diagnostic/Engine Inspector Mode
+### Feature Target 10: Diagnostic/Engine Inspector Mode ✅ COMPLETE
 
 **Goal**: Toggle mode to visualize Servo's internal architecture (Constellation, threads, IPC channels).
 
 **Tasks**:
 
-1. Instrument Servo with `tracing::span!()` at thread/channel boundaries
-2. Collect trace events in GraphShell layer
-3. Build dynamic graph: ThreadId → Node, Channel → Edge
-4. Visualize message counts, latencies, backpressure as edge weights/colors
-5. Implement mode toggle (Ctrl+Shift+D)
-6. Support export as SVG for performance reports
+1. [x] Instrument Servo with `tracing::span!()` at thread/channel boundaries
+2. [x] Collect trace events in GraphShell layer
+3. [x] Build dynamic graph: ThreadId → Node, Channel → Edge
+4. [x] Visualize message counts, latencies, backpressure as edge weights/colors
+5. [x] Implement mode toggle (Ctrl+Shift+D)
+6. [x] Support export as SVG for performance reports
 
 **Success Criteria**:
 

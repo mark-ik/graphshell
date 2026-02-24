@@ -359,7 +359,7 @@ These are aligned with project goals and can be incorporated where useful:
 ## References
 
 - [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md) — Authoritative lifecycle state machine contract
-- [2026-02-16_architecture_and_navigation_plan.md](2026-02-16_architecture_and_navigation_plan.md) — Two-phase apply model foundation
+- [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md) — Two-phase apply model foundation
 - [ARCHITECTURAL_CONCERNS.md](../technical_architecture/ARCHITECTURAL_CONCERNS.md) — §8 Monolithic UI Component
 - [2026-02-12_servoshell_inheritance_analysis.md](../../archive_docs/checkpoint_2026-02-16/2026-02-12_servoshell_inheritance_analysis.md) — Original fork analysis
 

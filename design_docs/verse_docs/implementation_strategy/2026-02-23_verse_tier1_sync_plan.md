@@ -708,6 +708,29 @@ This is the concrete implementation plan for Registry Phase 5. Each step is a th
 - Diagnostics: `verse.sync.unit_sent`, `verse.sync.unit_received`, `verse.sync.intent_applied`, `verse.sync.conflict_detected`
 - **Done gate**: Create a node on instance A → it appears on instance B within 5 seconds. Rename node simultaneously on both → LWW resolves without crash. Harness scenario `verse_delta_sync_basic` passes.
 
+#### Step 5.4A: Deterministic Sync Logic Simulator (Validation Gate)
+
+This subsection absorbs and replaces `2026-02-24_sync_logic_validation_plan.md`.
+
+**Purpose**: Validate merge/conflict semantics in isolation from transport nondeterminism before relying on live network behavior.
+
+**Simulator components**:
+- `MemoryPeer`: in-memory `SyncLog` + `VersionVector` + workspace view.
+- `NetworkSimulator`: queue controls for reorder/drop/duplicate/partition/heal.
+- `ScenarioDriver`: declarative setup/actions/assertions with reproducible traces.
+
+**Required deterministic scenario matrix**:
+1. Eventual convergence after divergent non-overlapping changes.
+2. Last-write-wins field conflict convergence.
+3. Delete-vs-update conflict path (ghost/conflict representation + diagnostics).
+4. Traversal commutativity under concurrent append.
+5. Causal-gap buffering and eventual recovery for out-of-order prerequisites.
+
+**Validation gate additions**:
+- [ ] All five simulator scenarios pass deterministically across repeated runs.
+- [ ] Failure output includes reproducible scenario trace metadata.
+- [ ] Simulator suite is a non-optional CI gate for Verse sync logic changes.
+
 ### Step 5.5: Workspace Access Control
 
 **Goal**: Per-workspace, per-peer access grants are enforced.
@@ -761,4 +784,4 @@ After Tier 1 validation (Q2 2026), the architecture extends naturally to Tier 2:
 - Index artifacts (tantivy segments) as publishable blobs
 - Proof of Access economic layer (optional; Tier 1 continues to work offline)
 
-See `2026-02-23_verse_tier2_architecture.md` for the long-horizon design.
+See [2026-02-23_verse_tier2_architecture.md](../technical_architecture/2026-02-23_verse_tier2_architecture.md) for the long-horizon design.

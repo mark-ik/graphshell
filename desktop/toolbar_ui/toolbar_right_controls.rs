@@ -33,6 +33,9 @@ pub(super) fn render_toolbar_right_controls(
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::desktop::diagnostics::DiagnosticsState,
 ) {
+    // Sync status indicator
+    render_sync_status_indicator(ui);
+
     ui.menu_button("Settings", |ui| {
         super::render_settings_menu(
             ui,
@@ -108,4 +111,30 @@ pub(super) fn render_toolbar_right_controls(
         frame_intents,
         open_selected_mode_after_submit,
     );
+}
+
+/// Render a simple sync status indicator showing Verse P2P status
+fn render_sync_status_indicator(ui: &mut egui::Ui) {
+    use crate::mods::verse;
+    
+    // Check if Verse is available
+    let (status_char, status_color, tooltip) = if !verse::is_initialized() {
+        // Verse not available - show gray dot
+        ("○", egui::Color32::from_rgb(128, 128, 128), 
+         "Sync: Not available".to_string())
+    } else {
+        let peers = verse::get_trusted_peers();
+        if !peers.is_empty() {
+            // Has peers - show green dot
+            ("●", egui::Color32::from_rgb(0, 200, 0), 
+             format!("Sync: Connected ({} peer{})", peers.len(), if peers.len() == 1 { "" } else { "s" }))
+        } else {
+            // No peers - show yellow dot
+            ("○", egui::Color32::from_rgb(200, 200, 0), 
+             "Sync: Ready (no peers)".to_string())
+        }
+    };
+
+    ui.label(egui::RichText::new(status_char).color(status_color))
+        .on_hover_text(tooltip);
 }

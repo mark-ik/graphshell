@@ -1,0 +1,83 @@
+# Spatial Accessibility Implementation Plan (2026-02-24)
+
+**Status**: Implementation-Ready
+**Research**: `../research/2026-02-24_spatial_accessibility_research.md`
+**Goal**: Make Graphshell fully navigable and understandable for non-visual users.
+
+## 1. Architecture
+
+### 1.1 The Accessibility Bridge (`GraphAccessKitAdapter`)
+A translation layer that converts the `petgraph` structure into an `accesskit::TreeUpdate`.
+- **Input**: `Graph`, `SelectionState`, `MetadataFrame` (layout).
+- **Output**: A virtual tree of `accesskit::Node`s (Clusters -> Nodes -> Edges).
+- **Integration**: Injected into `egui`'s accessibility context via `ctx.accesskit_placeholder()`.
+
+### 1.2 The WebView Bridge
+A mechanism to graft Servo's internal accessibility tree into the host window's tree.
+- **Mechanism**: `egui` provides a hook to append native child windows or external trees. We map the `WebView` widget's ID to Servo's root ID.
+
+### 1.3 The Announcer
+A service for "Live Regions" (polite/assertive notifications).
+- **API**: `Announcer::speak(text, priority)`.
+- **Backend**: `accesskit` live region updates.
+
+### 1.4 The Audio Engine (`Sonifier`)
+- **Crates**: `rodio` (output), `fundsp` (synthesis).
+- **Role**: Generates spatial cues (panning, pitch) based on graph state.
+
+---
+
+## 2. Implementation Phases
+
+### Phase 1: The WebView Bridge (Critical Fix)
+**Goal**: Screen readers can read web content inside Graphshell.
+1.  **Update `EmbedderWindow`**: Ensure `notify_accessibility_tree_update` forwards events to `Gui`.
+2.  **Update `Gui`**: In `notify_accessibility_tree_update`, locate the `egui` widget ID for the webview tile.
+3.  **Bridge**: Use `egui::Context::push_accesskit_tree_update` (or equivalent lower-level hook) to merge the update.
+
+### Phase 2: Graph Linearization (The Virtual Tree)
+**Goal**: The graph canvas is no longer a "black box" but a navigable list of nodes.
+1.  **Implement `GraphAccessKitAdapter`**:
+    -   Define `SemanticHierarchy` algorithm (Cluster -> Hub -> Leaf).
+    -   Generate stable `accesskit::NodeId`s from `NodeKey`s (using `Node.id` UUIDs).
+2.  **Wire to `GraphView`**:
+    -   In `render/mod.rs`, populate the adapter during the render pass.
+    -   Submit the tree update to `egui`.
+
+### Phase 3: Navigation & Focus
+**Goal**: Keyboard users can move efficiently between UI regions.
+1.  **Skip Links**: Implement `F6` handler in `input/mod.rs` to cycle focus: Toolbar -> Graph -> Active Pane.
+2.  **Programmatic Focus**: When `GraphAction::FocusNode` occurs, explicitly move `accesskit` focus to the node's virtual element.
+3.  **Spatial D-Pad**: Map Arrow Keys in `GraphView` to find nearest node in direction (geometric search).
+
+### Phase 4: Sonification (Audio Display)
+**Goal**: Audio cues provide spatial context.
+1.  **Add Dependencies**: `rodio`, `fundsp`.
+2.  **Implement `Sonifier`**:
+    -   `play_tone(frequency, pan, volume)`
+    -   `update_density_hum(velocity)`
+3.  **Wire to Physics**: In `app.rs`, update hum based on `physics.last_avg_displacement`.
+
+### Phase 5: Diagnostics & Validation
+**Goal**: Verify accessibility without needing a screen reader constantly.
+1.  **Inspector**: Add "Accessibility" tab to Diagnostic Inspector.
+    -   Render the current `accesskit` tree structure as a text tree.
+    -   Log `Announcer` events.
+2.  **Automation**: Add `test_linearization_order` to `desktop/tests/scenarios/accessibility.rs`.
+
+---
+
+## 3. Strategy: Ongoing Maintenance
+
+### 3.1 Diagnostics Integration
+Accessibility state is hidden state. We must make it visible.
+- **Channel**: `registry.accessibility.tree_update` (logs size/latency of updates).
+- **Visualizer**: The Diagnostic Inspector should show the "Virtual Cursor" position overlaid on the graph.
+
+### 3.2 Testing Policy
+- **Unit Tests**: Verify `SemanticHierarchy` produces deterministic ordering.
+- **Integration**: Verify `F6` cycles focus through expected regions.
+
+### 3.3 Performance Guard
+- **Throttling**: Accessibility tree updates can be heavy. Throttle graph updates to 5Hz or 10Hz (decoupled from visual 60Hz).
+- **Culling**: Only linearize nodes within the viewport + buffer? (Debatable: SR users might want to explore off-screen). *Decision*: Linearize full graph for now (N < 1000), optimize later.
