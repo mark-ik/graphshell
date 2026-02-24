@@ -80,14 +80,14 @@ cargo check          # Check compilation
 - **`graph/egui_adapter.rs`** — Graph -> egui_graphs projection
 
 ### UI + Runtime
--- **`desktop/gui.rs`** (~1.7k) — top-level GUI integration/orchestration
--- **`desktop/gui_frame.rs`** (~1.1k) — frame phases and apply/reconcile sequencing
--- **`desktop/toolbar_ui.rs`** (~2.7k) — omnibar, settings, workspace/persistence UI
+-- **`desktop/gui.rs`** (~1.2k) — top-level GUI integration/orchestration
+-- **`desktop/gui_frame.rs`** (~1.2k) — frame phases and apply/reconcile sequencing
+-- **`desktop/toolbar_ui.rs`** (~0.4k) — toolbar orchestration + submodules (controls, settings, location panel/submit/dropdown, right controls, omnibar)
 -- **`desktop/webview_controller.rs`** (~0.4k) — webview submit/close/reconcile helpers
--- **`render/mod.rs`** (~3.1k) — graph/tile rendering and interaction
+-- **`render/mod.rs`** (~3.4k) — graph/tile rendering and interaction
 
 ### State & Persistence
--- **`app.rs`** (~5.4k) — reducer, lifecycle helpers, workspace routing, undo/redo
+-- **`app.rs`** (~6.0k) — reducer, lifecycle helpers, workspace routing, undo/redo
 - **`persistence/mod.rs`** — fjall log + redb snapshots
 - **`persistence/types.rs`** — LogEntry variants and snapshot schema
 
@@ -225,7 +225,7 @@ app.egui_state_dirty = true;  // Force rebuild
 
 ### Known Issues
 
-1. **Large modules** remain (`app.rs`, `render/mod.rs`, `toolbar_ui.rs`, `gui.rs`) — staged decomposition still planned.
+1. **Large modules** remain (`app.rs`, `render/mod.rs`, `gui.rs`) — staged decomposition still planned (toolbar_ui.rs decomposed as of 2026-02-23).
 2. **Lifecycle contract migration** is active (`2026-02-20_embedder_decomposition_plan.md`): reconcile/runtime model and backpressure policy are still evolving.
 3. **Selection-state hardening** follow-up remains active as graph/tile behavior expands.
 

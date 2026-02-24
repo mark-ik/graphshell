@@ -1,12 +1,14 @@
 # Registry Layer Architecture Plan (2026-02-22)
 
 **Status**: In Progress
+**Supersedes**: `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (archived to `archive_docs/checkpoint_2026-02-23/`)
 **Goal**: Decompose Graphshell's monolithic logic into a modular ecosystem of registries, enabling extensibility and the "Knowledge User Agent" vision.
 
-## Plan
+## Context
 
-### Context
 Graphshell currently hardcodes behavior for URL handling, rendering, and action dispatch. To support the "Verse" vision (P2P, alternative protocols, custom viewers) and advanced UX (Lenses, Agents), we need a mod-extensible architecture where capabilities are registered rather than hardcoded.
+
+The architecture follows a **mod-first principle**: registries define capability contracts (empty surfaces with fallback defaults); mods populate them with implementations. The application must be fully functional as an offline graph organizer with only core seeds (no mods loaded). Both Verso (web rendering) and Verse (P2P networking) are native mods, not hardcoded subsystems.
 
 ### Migration Policy Note
 
@@ -23,90 +25,183 @@ We execute replacement in thin, test-gated slices:
 
 No long-lived dual-path mode, no feature-flag forks for migrated behavior.
 
-### Canonical Terminology
+---
 
-To keep architecture and implementation language consistent:
+## Design Rationale: Two-Pillar Architecture
 
-- **Action** is the canonical term for executable user/system behaviors (`ActionId`, `ActionRegistry`).
-- **Mod** is the canonical term for extension units (plugin/extension are aliases in explanatory text only).
-- **DiagnosticsRegistry** is the canonical component for diagnostic channel and schema contracts.
-- **Atomic Registry** means primitive capability registry; **Domain Registry** means composite context registry.
-- **Lens / Input / Verse / Workflow** are domain names; concrete implementations are `*Registry` types.
+Graphshell has two sovereign data territories with fundamentally different structure and interaction models:
 
+1. **Graph Domain** (Pillar A — "The File System"): The semantic web of nodes and edges.
+   - Concerns: Topology policy (directed? cycles allowed? valid edge types?), spatial layout (force-directed, tree, radial), interaction policy (selection, creation, linking), rendering (node shapes, edge routing, badges)
+   - Registry: `CanvasRegistry` — three distinct sections: **topology policy**, **layout algorithms**, **interaction/rendering policy**
+   - Physics: Engine *execution* happens here (driven by layout algorithms); parameter *presets* live in the Presentation Domain
+   - Extensibility: Mods can register new layout algorithms, topology rule sets, interaction policies
 
-### The Registry Ecosystem
+2. **Workbench Domain** (Pillar B — "The Window Manager"): The tile tree of panes and tabs.
+   - Concerns: Tile-tree structure (splits, tabs, grids), drag/drop rules, resizing constraints, layout simplification
+   - Registry: `WorkbenchSurfaceRegistry` — two sections: **layout policy**, **interaction policy**
+   - Extensibility: Mods can register new split policies, tab bar styles, container layouts
+
+**Why This Matters**: These aren't "two layout algorithms"—they're fundamentally different data structures with parallel contract surfaces. Both implement the same three-section contract (topology/structure, layout/arrangement, interaction/rendering), but they govern entirely different domains. Grouping them as "Layout" obscures this reality.
+
+### CanvasRegistry: Three Distinct Sections
+
+`CanvasRegistry` covers three concerns that must not be conflated:
+
+- **Topology Policy** ("Physics of Logic"): Graph-theoretic invariants enforced at the data level. Is the graph directed? Are cycles allowed? What edge types can connect which node types? These are data constraints, distinct from UX affordances. Named policy sets: `topology:dag`, `topology:free`, `topology:tree`.
+- **Layout Algorithms**: Spatial arrangement of nodes (Force-Directed, Tree, Radial, Grid). These are positioning strategies, not topology constraints.
+- **Interaction & Rendering Policy**: UX affordances (selection modes, zoom/pan, node creation positions, edge routing, badge display, physics engine execution). These are presentation concerns, not data constraints.
+
+A future `GraphPolicyRegistry` is the natural extraction slice if the surface registry grows too large. For now, three explicit sections within `CanvasRegistry` are sufficient.
+
+### The "File Explorer" Lens: Proof of the Model
+
+A File Explorer is not a separate mode — it is a specific Lens configuration of `CanvasRegistry`:
+
+- **Topology Policy**: Strict DAG (hierarchy enforced), unique names per parent
+- **Layout Algorithm**: Indented Tree List
+- **Physics**: None (static, auto-pause immediately)
+- **Knowledge Filter**: Files and Folders ontology
+
+This generalizes: "Mind Map" = cycles allowed + force-directed + liquid physics. "Citation Graph" = directed + radial + UDC knowledge filters. The same registry surfaces, different configurations.
+
+### Cross-Domain Orchestration
+
+**`LensCompositor`** composes a reusable, named **Lens** = Canvas profile + Presentation profile + Knowledge filters. A Lens is a *graph view configuration* — it does not include Workbench layout. Lenses are reusable across different Workbench configurations.
+
+**`WorkflowRegistry`** (Future) = active Lens + active InputProfile + active WorkbenchSurface profile. This is the full session mode. The semantic hierarchy is: **Workflow = Lens × WorkbenchProfile** (where WorkbenchProfile = Workbench + Input configuration).
+
+---
+
+## Canonical Terminology
+
+- **Action**: canonical term for executable user/system behaviors (`ActionId`, `ActionRegistry`).
+- **Mod**: canonical term for extension units. Two tiers: **Native Mod** (compiled in via `inventory::submit!`, not sandboxed) and **WASM Mod** (dynamically loaded via `extism`, sandboxed). Both use `ModManifest` with `provides`/`requires`.
+- **Core Seed**: minimal registry population that makes the app functional without mods (offline graph organizer).
+- **DiagnosticsRegistry**: canonical component for diagnostic channel and schema contracts.
+- **Atomic Registry**: primitive capability registry. **Domain Registry**: composite context registry.
+- **Lens / Input / Workflow**: domain names; concrete implementations are `*Registry` types.
+- **Layout Domain**: controls structure + interaction + rendering policy via `CanvasRegistry`, `WorkbenchSurfaceRegistry`, and `ViewerSurfaceRegistry`.
+- **Presentation Domain**: controls appearance + motion semantics via `ThemeRegistry` + `PhysicsProfileRegistry`.
+- **KnowledgeRegistry**: the atomic UDC/taxonomy registry (not a domain coordinator).
+- **LensCompositor** (not LensRegistry): composes Graph-domain Canvas + Presentation + Knowledge + Filters into a named, reusable Lens.
+- **WorkflowRegistry** (Future): activates a Lens + InputProfile + WorkbenchSurface = a full session mode. `Workflow = Lens × WorkbenchProfile`.
+
+---
+
+## The Registry Ecosystem
 
 We organize the registries into **Atomic Primitives** (The Vocabulary) and **Domain Configurations** (The Sentences).
 
-#### 1. Atomic Registries (Primitives)
+### 1. Atomic Registries (Primitives)
+
 These manage specific, isolated resources or algorithms. Mods can extend these directly.
 
-**Persistence & I/O Domain**
+**Persistence & I/O**
 *   **Protocol Registry**:
-    *   **Role**: Maps URL schemes (`ipfs://`, `file://`) to handlers. **(The Persistence Layer)**.
+    *   **Role**: Maps URL schemes (`ipfs://`, `file://`) to handlers. **(The Persistence Layer)**. Core seeds: `file://`, `about:`. Verso mod adds `http://`, `https://`, `data:`. Verse mod adds `ipfs://`, `activitypub://`.
     *   **Interface**: `resolve(uri) -> Result<ContentStream>`
 *   **Index Registry**:
     *   **Role**: Search backends (Local, Federated) and **History/Timeline** retrieval.
     *   **Interface**: `query(text) -> Iterator<Result>`
-
-**Presentation & Physics Domain**
 *   **Viewer Registry**:
-    *   **Role**: Maps MIME types/extensions to renderers (PDF, Markdown, CSV).
+    *   **Role**: Maps MIME types/extensions to renderers (PDF, Markdown, CSV). Core seeds: `viewer:plaintext`, `viewer:metadata`. Verso mod adds `viewer:webview`.
     *   **Interface**: `render(ui, content)`
+
+**Layout & Presentation Primitives**
 *   **Layout Registry** (Atomic):
-    *   **Role**: Positioning algorithms (`LayoutId` -> `Algorithm`).
+    *   **Role**: Positioning algorithms (`LayoutId` → `Algorithm`). Used by `CanvasRegistry` to resolve the active algorithm.
     *   **Interface**: `compute_layout(graph) -> Positions`
 *   **Theme Registry** (Atomic):
     *   **Role**: Manages UI themes, node color palettes, and syntax highlighting styles.
     *   **Interface**: `get_theme(id)`
-*   **Physics Registry** (Atomic):
-    *   **Role**: Manages force simulation parameters (`PhysicsId` -> `PhysicsProfile`).
+*   **Physics Profile Registry** (Atomic):
+    *   **Role**: Manages named force simulation parameter presets (`PhysicsId` → `PhysicsProfile`). Semantic labels (Liquid/Gas/Solid) over numeric force params. Engine *execution* is in `CanvasRegistry` (Layout Domain); these are *parameters only*.
     *   **Interface**: `get_profile(id)`
 
-**Logic & Security Domain**
+**Logic & Security**
 *   **Action Registry** (Atomic):
-    *   **Role**: Definitions of executable actions (`ActionId` -> `Handler`).
+    *   **Role**: Definitions of executable actions (`ActionId` → `Handler`).
     *   **Interface**: `execute(context) -> Vec<GraphIntent>`
 *   **Identity Registry**:
     *   **Role**: Manages keys/DIDs for signing and auth. **(The Security Root)**.
     *   **Interface**: `sign(payload, persona)`
 *   **Mod Registry**:
-    *   **Role**: Manages lifecycle and **Capabilities/Sandboxing** of WASM mods.
-    *   **Interface**: `load_mod(path)`, `unload_mod(id)`
+    *   **Role**: Manages lifecycle, dependency resolution, and capabilities of all mods. Two tiers: **Native Mods** (compiled in, registered at startup via `inventory::submit!`, not sandboxed) and **WASM Mods** (dynamically loaded via `extism`, sandboxed, capability-restricted).
+    *   **Interface**: `load_mod(path)`, `unload_mod(id)`, `resolve_dependencies()`, `list_mods()`
 *   **Agent Registry** (Atomic):
-    *   **Role**: Definitions of autonomous background tasks (`AgentId` -> `Task`).
+    *   **Role**: Definitions of autonomous background tasks (`AgentId` → `Task`).
     *   **Interface**: `spawn(context)`, `schedule(cron)`
 *   **Diagnostics Registry** (Atomic):
     *   **Role**: Central definition of diagnostic channels, schemas, and configuration (sampling/retention).
-    *   **Interface**: `register_channel(def)`, `get_config(channel_id)`, `set_config(channel_id, config)`.
+    *   **Interface**: `register_channel(def)`, `get_config(channel_id)`, `set_config(channel_id, config)`
 
-**Knowledge Domain**
-*   **Ontology Registry**:
-    *   **Role**: Semantic definitions, validation, and runtime indexing (`NodeKey` -> `CompactCode`).
-    *   **Interface**: `validate(tag)`, `distance(a, b)`, `get_label(code)`.
-    *   **Pattern**: Router for schema providers (UDC, Schema.org).
+**Knowledge**
+*   **Knowledge Registry** (formerly Ontology Registry):
+    *   **Role**: UDC tagging, semantic definitions, validation, and runtime indexing (`NodeKey` → `CompactCode`).
+    *   **Interface**: `validate(tag)`, `distance(a, b)`, `get_label(code)`, `get_color_hint(code)`
+    *   **Pattern**: Router for schema providers (UDC core seed; mods can add Schema.org, Wikidata, etc.).
 
-#### 2. Domain Registries (Composites)
-These combine primitives to define a user experience context.
+### 2. Domain Registries (Composites)
 
-*   **Lens Domain**:
-    *   **Role**: Defines how the graph *looks* and *moves*.
-    *   **Composition**: `LayoutId` + `ThemeId` + `PhysicsId` + `FilterSet`.
-    *   **Registry**: `LensRegistry`.
+These combine primitives to define a user experience context. **Domain sequencing principle**: resolve Layout (structure + interaction) first, then Presentation (style + motion) second.
+
+*   **Layout Domain**:
+    *   **Role**: Controls how information is *arranged* and *interacted with* before styling. Coordinates both sovereign data territories.
+    *   **Coordinator**: `LayoutDomainRegistry`
+    *   **Surface Registries**:
+        *   `CanvasRegistry` — three sections: (1) topology policy (DAG/free/tree rule sets, edge type constraints), (2) layout algorithms (force-directed, tree, radial — delegates to atomic `LayoutRegistry`), (3) interaction/rendering policy (selection, zoom/pan, node creation, edge routing, badge display, physics engine execution).
+        *   `WorkbenchSurfaceRegistry` — two sections: (1) layout policy (split types, tab rules, `SimplificationOptions`), (2) interaction policy (drag/drop rules, resize constraints, drop zone behavior, container labels).
+        *   `ViewerSurfaceRegistry` — document viewport behavior: zoom/scaling, reader mode, scroll policy. (Viewer *selection* — MIME routing — stays in atomic `ViewerRegistry`; this governs how the selected viewer presents its viewport.)
+
+*   **Presentation Domain**:
+    *   **Role**: Controls *appearance* and *motion semantics* after layout.
+    *   **Coordinator**: `PresentationDomainRegistry`
+    *   **Subregistries**:
+        *   `ThemeRegistry` — visual token/style resolution (colors, strokes, fonts).
+        *   `PhysicsProfileRegistry` — named parameter presets (Liquid/Gas/Solid). Engine execution is in `CanvasRegistry`; this domain provides *which parameter set to use*.
+
 *   **Input Domain**:
     *   **Role**: Defines how the user *controls* the app.
-    *   **Composition**: `InputEvent` -> `ActionId` mapping (Keybinds/Mousebinds).
-    *   **Registry**: `InputRegistry`.
-*   **Verse Domain**:
-    *   **Role**: Defines the **Access Policy**, network context, and identity.
-    *   **Composition**: `IdentityId` + `Protocol` policies + `Index` sources.
-    *   **Registry**: `VerseRegistry`.
-*   **Workflow Domain** (Future):
-    *   **Role**: Defines the high-level *session mode*.
-    *   **Composition**: Active `Lens` + Active `InputProfile` + Window Layout.
-    *   **Registry**: `WorkflowRegistry`.
+    *   **Composition**: `InputEvent` → `ActionId` mapping (Keybinds/Mousebinds).
+    *   **Registry**: `InputRegistry`
 
-### Registry Testing Rule (Required)
+*   **Cross-Domain Compositor**:
+    *   **Role**: Composes a reusable, named **Lens** = GraphSurface profile + Presentation profile + Knowledge filters. Enforces domain sequencing (Layout first, then Presentation) during resolution. A Lens is a *graph view configuration*; it does not include Workbench layout.
+    *   **Registry**: `LensCompositor`
+
+*   **Workflow Domain** (Future):
+    *   **Role**: Defines the high-level *session mode*: active Lens + active InputProfile + active WorkbenchSurface profile.
+    *   **Semantic**: `Workflow = Lens × WorkbenchProfile` where WorkbenchProfile = Workbench + Input configuration.
+    *   **Registry**: `WorkflowRegistry`
+
+**Note**: Verse is **not** a domain registry. P2P networking, federated identity, and distributed indexing are packaged as the **Verse native mod** which registers into atomic registries (Protocol, Index, Identity, Action) on load. See Phase 5.
+
+---
+
+## Core Seed Floor
+
+The application must be fully functional as an offline graph organizer **without any mods loaded**:
+
+| Registry | Core Seed (no mods) | Verso Mod Adds | Verse Mod Adds |
+|---|---|---|---|
+| ProtocolRegistry | `file://`, `about:` | `http://`, `https://`, `data:` | `ipfs://`, `activitypub://` |
+| ViewerRegistry | `viewer:plaintext`, `viewer:metadata` | `viewer:webview` (Servo) | — |
+| ActionRegistry | `graph.*`, `view.*`, `workspace.*` | `navigation.*`, `webview.*` | `verse.share`, `verse.sync` |
+| InputRegistry | Graph/workspace keybindings | Browser-style keybindings | — |
+| ThemeRegistry | `theme:default`, `theme:dark` | — | — |
+| PhysicsProfileRegistry | `physics:liquid`, `physics:gas` | — | — |
+| LayoutRegistry | `layout:default`, `layout:grid` | — | — |
+| IdentityRegistry | `identity:local` (generated keypair) | — | P2P personas, DID providers |
+| IndexRegistry | Local tantivy search | — | Federated search providers |
+| KnowledgeRegistry | UDC defaults | — | Schema.org providers |
+
+**Without Verso**: No webviews, no HTTP. Nodes display as metadata cards. Graph is a visual outliner/Zettelkasten.
+**Without Verse**: No P2P, no federated search. Fully offline. Local identity only.
+
+---
+
+## Registry Testing Rule (Required)
 
 Each registry ships with two test layers:
 
@@ -117,7 +212,7 @@ Each registry ships with two test layers:
     - Validate end-to-end behavior through `desktop/tests/scenarios/*` using diagnostics snapshots.
     - Required for any new registry capability before it is considered complete.
 
-### Diagnostics Contract Checklist (Required for Every Registry)
+## Diagnostics Contract Checklist (Required for Every Registry)
 
 Before a registry is marked complete, all items below must be defined and validated:
 
@@ -129,31 +224,34 @@ Before a registry is marked complete, all items below must be defined and valida
 - [ ] **Failure Path Signals**: Error and fallback paths emit distinct diagnostics.
 - [ ] **Test Fixtures**: Registry contract tests include at least one schema-golden fixture.
 
-### Registry Contract Matrix (Execution Checklist)
+## Registry Contract Matrix (Execution Checklist)
 
 | Registry | Owner | Primary Interface | Required Diagnostics Channels | Minimum Tests |
 |---|---|---|---|---|
-| ProtocolRegistry | Platform/Networking | `resolve(uri)` | `registry.protocol.resolve_started`, `registry.protocol.resolve_succeeded`, `registry.protocol.resolve_failed`, `registry.protocol.fallback_used` | 2 contract tests (lookup/fallback, error path), 1 harness scenario |
-| ViewerRegistry | Desktop/Rendering | `render(ui, content)` | `registry.viewer.render_started`, `registry.viewer.render_succeeded`, `registry.viewer.render_failed`, `registry.viewer.fallback_used` | 2 contract tests (mime resolution, fallback), 1 harness scenario |
-| ActionRegistry | App/Core | `execute(action, context)` | `registry.action.execute_started`, `registry.action.execute_succeeded`, `registry.action.execute_failed` | 2 contract tests (registration/conflict, intent emission), 1 harness scenario |
-| InputRegistry | App/Input | `map_input(event)` | `registry.input.binding_resolved`, `registry.input.binding_missing`, `registry.input.binding_conflict` | 2 contract tests (mapping/override, missing binding), 1 harness scenario |
-| LayoutRegistry | App/Layout | `compute_layout(graph)` | `registry.layout.compute_started`, `registry.layout.compute_succeeded`, `registry.layout.compute_failed`, `registry.layout.fallback_used` | 2 contract tests (algorithm lookup, fallback), 1 harness scenario |
-| ThemeRegistry | Desktop/UI | `get_theme(id)` | `registry.theme.lookup_succeeded`, `registry.theme.lookup_failed`, `registry.theme.fallback_used` | 2 contract tests (lookup/fallback, missing theme), 1 harness scenario |
-| PhysicsRegistry | App/Simulation | `get_profile(id)` | `registry.physics.lookup_succeeded`, `registry.physics.lookup_failed`, `registry.physics.fallback_used` | 2 contract tests (lookup/fallback, profile validation), 1 harness scenario |
-| IdentityRegistry | Verse/Security | `sign(payload, persona)` | `registry.identity.sign_started`, `registry.identity.sign_succeeded`, `registry.identity.sign_failed`, `registry.identity.key_unavailable` | 2 contract tests (persona resolution, signing failure), 1 harness scenario |
-| IndexRegistry | Search/Recall | `query(text)` | `registry.index.query_started`, `registry.index.query_succeeded`, `registry.index.query_failed`, `registry.index.fallback_used` | 2 contract tests (provider selection, failure fallback), 1 harness scenario |
-| OntologyRegistry | Knowledge/Semantics | `get_schema(type_id)` | `registry.ontology.lookup_succeeded`, `registry.ontology.lookup_failed`, `registry.ontology.fallback_used` | 2 contract tests (schema lookup/versioning, fallback), 1 harness scenario |
-| DiagnosticsRegistry | System/Observability | `register_channel(def)` | `registry.diagnostics.channel_registered`, `registry.diagnostics.config_changed` | 2 contract tests (registration, config override), 1 harness scenario |
-| ModRegistry | Platform/Extensibility | `load_mod(path)`, `unload_mod(id)` | `registry.mod.load_started`, `registry.mod.load_succeeded`, `registry.mod.load_failed`, `registry.mod.security_violation`, `registry.mod.quarantine` | 3 contract tests (load/unload, denied capability, quarantine path), 1 harness scenario |
-| LensRegistry | App/Presentation | `resolve_lens(id)` | `registry.lens.resolve_succeeded`, `registry.lens.resolve_failed`, `registry.lens.fallback_used` | 2 contract tests (composition resolution, fallback), 1 harness scenario |
-| VerseRegistry | Verse/Runtime | `resolve_context(id)` | `registry.verse.resolve_started`, `registry.verse.resolve_succeeded`, `registry.verse.resolve_failed` | 2 contract tests (composition determinism, fallback), 1 harness scenario |
-| WorkflowRegistry (future) | App/Session | `activate_workflow(id)` | `registry.workflow.activate_started`, `registry.workflow.activate_succeeded`, `registry.workflow.activate_failed` | 2 contract tests (activation/switching, fallback), 1 harness scenario |
+| ProtocolRegistry | Platform/Networking | `resolve(uri)` | `registry.protocol.resolve_started`, `.resolve_succeeded`, `.resolve_failed`, `.fallback_used` | 2 contract tests (lookup/fallback, error path), 1 harness scenario |
+| ViewerRegistry | Desktop/Rendering | `render(ui, content)` | `registry.viewer.render_started`, `.render_succeeded`, `.render_failed`, `.fallback_used` | 2 contract tests (mime resolution, fallback), 1 harness scenario |
+| ActionRegistry | App/Core | `execute(action, context)` | `registry.action.execute_started`, `.execute_succeeded`, `.execute_failed` | 2 contract tests (registration/conflict, intent emission), 1 harness scenario |
+| InputRegistry | App/Input | `map_input(event)` | `registry.input.binding_resolved`, `.binding_missing`, `.binding_conflict` | 2 contract tests (mapping/override, missing binding), 1 harness scenario |
+| LayoutRegistry | App/Layout | `compute_layout(graph)` | `registry.layout.compute_started`, `.compute_succeeded`, `.compute_failed`, `.fallback_used` | 2 contract tests (algorithm lookup, fallback), 1 harness scenario |
+| ThemeRegistry | Desktop/UI | `get_theme(id)` | `registry.theme.lookup_succeeded`, `.lookup_failed`, `.fallback_used` | 2 contract tests (lookup/fallback, missing theme), 1 harness scenario |
+| PhysicsProfileRegistry | App/Presentation | `get_profile(id)` | `registry.physics.lookup_succeeded`, `.lookup_failed`, `.fallback_used` | 2 contract tests (lookup/fallback, profile validation), 1 harness scenario |
+| IdentityRegistry | Core/Security | `sign(payload, persona)` | `registry.identity.sign_started`, `.sign_succeeded`, `.sign_failed`, `.key_unavailable` | 2 contract tests (persona resolution, signing failure), 1 harness scenario |
+| IndexRegistry | Search/Recall | `query(text)` | `registry.index.query_started`, `.query_succeeded`, `.query_failed`, `.fallback_used` | 2 contract tests (provider selection, failure fallback), 1 harness scenario |
+| KnowledgeRegistry | Knowledge/Semantics | `validate(tag)`, `get_label(code)` | `registry.knowledge.lookup_succeeded`, `.lookup_failed`, `.fallback_used` | 2 contract tests (schema lookup/versioning, fallback), 1 harness scenario |
+| DiagnosticsRegistry | System/Observability | `register_channel(def)` | `registry.diagnostics.channel_registered`, `.config_changed` | 2 contract tests (registration, config override), 1 harness scenario |
+| ModRegistry | Platform/Extensibility | `load_mod(path)`, `unload_mod(id)`, `resolve_dependencies()` | `registry.mod.load_started`, `.load_succeeded`, `.load_failed`, `.dependency_missing`, `.security_violation`, `.quarantine` | 3 contract tests (load/unload, denied capability, dependency resolution), 1 harness scenario |
+| LensCompositor | App/Cross-Domain | `resolve_lens(id)` | `registry.lens.resolve_succeeded`, `.resolve_failed`, `.fallback_used` | 2 contract tests (composition resolution, fallback), 1 harness scenario |
+| WorkflowRegistry (future) | App/WorkbenchProfile | `activate_workflow(id)` | `registry.workflow.activate_started`, `.activate_succeeded`, `.activate_failed` | 2 contract tests (activation/switching, fallback), 1 harness scenario |
+
+**Note**: VerseRegistry has been removed from this matrix. Verse is a native mod that registers entries into atomic registries. Its diagnostics channels are scoped under the atomic registries it populates.
 
 **Matrix policy**:
 - Each row must map to at least one concrete test file path before phase closure.
 - Channels listed here are the canonical minimum set; rows may add channels but should not remove these without deprecation.
 
-### Registry Interface Standard
+---
+
+## Registry Interface Standard
 
 All registries must adhere to a common lifecycle and integration pattern:
 
@@ -167,7 +265,7 @@ All registries must adhere to a common lifecycle and integration pattern:
 5.  **Fallback Policy**: Every Atomic Registry must implement `get_or_default(id)` to handle missing/unloaded items gracefully.
 6.  **Execution Ownership**: Long-running or async work is owned by `AppServices` task runners; registries return intents/events and cancellation handles, not unmanaged background tasks.
 
-### Refactoring Strategy: Data vs. Systems
+## Refactoring Strategy: Data vs. Systems
 
 To avoid borrow-checker conflicts and monolithic state, `GraphBrowserApp` must be split:
 
@@ -179,287 +277,422 @@ To avoid borrow-checker conflicts and monolithic state, `GraphBrowserApp` must b
 
 This keeps the runtime modular while ensuring tests live in the existing harness topology (rather than hidden in ad-hoc module tests).
 
-### Phase 0: Walking Skeleton (Concrete MVP Slice)
+---
+
+## Target Repository Topology
+
+The current structure is flat and root-heavy. Registry migration is coupled with a filesystem restructure so architecture boundaries are visible in the filesystem rather than implicit in module names:
+
+### 1) Core (Data & Logic): `src/model/`
+- `graph/` — the persistent graph data structure
+- `intent.rs` — GraphIntent + reducer ownership
+- `session.rs` — application state after shell concerns are separated
+- `selection.rs` — selection model
+
+### 2) Capabilities (Registries): `src/registries/`
+- `mod.rs` — RegistryRuntime (central container + Signal Bus)
+- `infrastructure/` — `diagnostics`, `mod_loader`
+- `atomic/` — `protocol`, `index`, `action`, `identity`, `agent`, `knowledge`
+- `domain/layout/` — `layout`, `canvas`, `workbench_surface`, `viewer_surface`
+- `domain/presentation/` — `presentation`, `theme`, `physics_profile`
+- `domain/` — `lens`, `input`
+
+### 3) Mods: `src/mods/`
+- `mod.rs` — ModManifest, dependency resolution, loading
+- `native/` — compile-time registered mods (`verso`, `verse`, `default_themes`, etc.)
+- `wasm/` — dynamically loaded sandboxed mods
+
+### 4) Services (Infrastructure): `src/services/`
+- `persistence/` — workspace save/load
+- `search/` — indexing and query
+- `physics/` — engine integration and simulation utilities
+
+### 5) Shell (Presentation): `src/shell/desktop/`
+- `host/` — window, event loop, embedder glue
+- `workbench/tiles/` — tile rendering and behavior
+- `workbench/frame.rs` — frame composition
+- `lifecycle/` — webview_controller, reconciliation, backpressure
+- `ui/toolbar/`, `ui/panels/`, `ui/gui.rs` — UI components
+
+---
+
+## Migration Rules
+
+1. Move one semantic area at a time; preserve behavior before cleanup.
+2. Prefer `pub(crate)` re-exports during transition to avoid broad callsite churn.
+3. Do not combine large path moves with logic rewrites in the same change-set.
+4. Every move slice must pass: `cargo test`, `cargo check`, and diagnostics harness scenarios.
+5. Delete compatibility re-exports quickly (no long-lived dual paths).
+
+---
+
+## Phase Plan
+
+### Phase 0: Walking Skeleton [Complete]
+
 **Goal**: Deliver one thin vertical slice end-to-end before broad registry rollout.
 
-1.  Create `desktop/registries/` root with `protocol`, `viewer`, and `diagnostics_contract` modules.
-2.  Route a single path (`https://` + `text/html`) through `ProtocolRegistry` -> `ViewerRegistry`.
-3.  Register and emit diagnostics channels for success + fallback + failure (`registry.protocol.*`, `registry.viewer.*`).
-4.  Add one contract test module (`desktop/registries/tests/protocol_viewer_contract.rs`) covering register/resolve/fallback behavior.
-5.  Add one harness scenario validating emitted diagnostics for the same flow.
-6.  Remove the replaced legacy branch for that flow in the same change-set once matrix is green.
+1. Created `desktop/registries/` root with `protocol`, `viewer`, and `diagnostics_contract` modules.
+2. Routed a single path (`https://` + `text/html`) through `ProtocolRegistry` → `ViewerRegistry`.
+3. Registered and emitted diagnostics channels for success + fallback + failure (`registry.protocol.*`, `registry.viewer.*`).
+4. Added contract test module covering register/resolve/fallback behavior.
+5. Added harness scenario validating emitted diagnostics for the same flow.
+6. Removed replaced legacy branch for that flow.
 
-**Phase 0 done gate:**
-- Single-path registry flow is active and deterministic.
-- Contract tests and harness scenario are green in CI/local matrix.
-- Fallback path is verified and emits diagnostics.
-- No regression in current `desktop/tests/scenarios/*` matrix.
+**Status**: Complete.
 
-### Phase 1: Core Decoupling (Protocols & Viewers)
-**Goal**: Move `webview_controller` logic into registries.
-1.  Create `desktop/registries/` module.
-2.  Move/Integrate `ProtocolRegistry` from `desktop/protocols/` to `desktop/registries/protocol.rs`.
-3.  Refine `ProtocolHandler` trait to support async/streaming without blocking the frame loop.
-4.  Implement `ViewerRegistry`.
-5.  Refactor `webview_controller.rs` to use `app.registries.protocol.resolve(url)`.
-6.  Introduce `DiagnosticsRegistry` contract for protocol/viewer channel schemas.
+---
 
-### Phase 2: UX Flexibility (Actions & Lenses)
-**Goal**: Data-driven UI and view configuration.
-1.  Implement `ActionRegistry` (superseding hardcoded match dispatch).
-2.  Implement `InputRegistry` (superseding `input/mod.rs`).
-3.  Implement `PhysicsRegistry`, `ThemeRegistry`, `LayoutRegistry`.
-4.  Implement `LensRegistry` (composing the above).
-5.  Update `GraphViewState` to use `LensConfig` (referencing IDs instead of raw profiles).
+### Phase 1: Core Decoupling [Complete]
 
-### Phase 3: Verse Foundation (Identity & Index)
-**Goal**: Prepare for P2P (see `2026-02-22_verse_implementation_strategy.md`).
-1.  Implement `IdentityRegistry` (keyring integration).
-2.  Implement `IndexRegistry` (tantivy abstraction).
-3.  Implement `VerseRegistry` to compose identity, protocol policies, and index sources.
+**Goal**: Registry-owned paths for protocols, viewers, actions, input, and lenses; capability topology migration to canonical paths.
 
-### Phase 4: Advanced Knowledge (Ontology & Agents)
-**Goal**: Semantic understanding and automation.
-1.  Implement `OntologyRegistry` for Schema.org types.
-2.  Implement `AgentRegistry` (as a specialized view of `ActionRegistry`) for background tasks.
-3.  Implement `ModRegistry` to manage WASM host integration.
-4.  **WASM Host Integration**: Allow agents and custom viewers to be loaded as WASM modules (using `wasmer` or `wasmtime`).
+This phase encompasses what was originally planned as separate phases but was executed together. Completed work:
 
-### Per-Phase Done Gates
+- Protocol/viewer routing fully registry-owned with cancellation-aware resolution (`ProtocolResolveControl`, `resolve_with_control`). MIME hint inference from URI/data-URI metadata. Legacy URL fallback policy removed.
+- Action dispatch registry-owned for all migrated actions (`action.omnibox_node_search`, `action.graph_view_submit`, `action.detail_view_submit`).
+- Input mappings data-driven through `InputRegistry` (toolbar submit, nav back/forward/reload bindings).
+- Lens configuration uses IDs (layout/theme/physics) composed via `LensCompositor` with fallback behavior and per-component diagnostics.
+- Persisted user defaults for lens/physics/layout/theme IDs via `workspace:settings-registry-*-id` keys; settings UI controls wired.
+- Identity scaffolding via `IdentityRegistry`: persona resolution, sign/fallback, diagnostics contracts.
+- `DiagnosticsRegistry` folded as sole contract source; `diagnostics_contract.rs` removed.
 
-Each phase is complete only when all gates pass.
+**Phase 1.4 — Capability Topology Slice**: Moved `desktop/registries/*` → `src/registries/{atomic,domain}`. Compatibility re-exports removed. All registry tests/scenarios pass with canonical paths.
 
-#### Phase 1 Done Gate
-- Protocol + viewer routing for target paths is registry-owned (no hidden bypass).
+**Phase 1 Done Gate** (met):
+- Protocol + viewer routing is registry-owned; no hidden bypass.
 - Protocol resolution is non-blocking and cancellation-aware.
-- Diagnostics contracts for protocol/viewer channels pass checklist and tests.
-- Replaced legacy protocol/viewer dispatch branches are deleted.
-
-**Phase 1 status (2026-02-22): Complete**
-- Target submit paths in `desktop/webview_controller.rs` are registry-owned and now call control-aware phase-0 decision APIs.
-- Protocol resolution exposes cancellation-aware control (`resolve_with_control`) and submit flow short-circuits cleanly on cancellation before viewer selection.
-- Protocol/viewer diagnostics channels remain contract-backed and validated by unit + scenario suites.
-- Legacy duplicated URL fallback policy in submit paths has been removed; registry policy is canonical.
-
-#### Phase 2 Done Gate
 - Action dispatch is registry-owned for migrated actions.
 - Input mappings are data-driven through `InputRegistry`.
-- Lens configuration uses IDs (layout/theme/physics) with fallback behavior.
+- Lens configuration uses IDs with fallback behavior via `LensCompositor`.
 - Config save/load roundtrip for user registries passes.
+- Diagnostics contracts for all migrated channels pass checklist and tests.
+- Legacy dispatch branches deleted; no parallel paths.
 
-#### Phase 3 Done Gate
-- Identity + index providers are pluggable and observable.
-- Verse composition resolves identity/policy/index deterministically.
-- Failure and offline modes have explicit fallback behavior and diagnostics.
+**Status**: Complete (2026-02-23).
 
-#### Phase 4 Done Gate
-- Ontology and agent paths emit stable diagnostics and respect runtime quotas.
-- Mod loading/unloading is sandboxed, observable, and recoverable on failure.
-- At least one mod-provided action and one mod-provided viewer pass contract + harness tests.
+---
 
-### Technical Stack & Patterns (Refinements)
+### Phase 2: Mod Infrastructure & Protocol/Viewer Contracts
 
-To avoid reinventing wheels, we will adopt these established ecosystem patterns:
+**Goal**: Stand up the mod system. Define protocol and viewer contracts as registry surfaces. Package Servo integration as the Verso native mod. Establish the core seed floor (app works without mods).
+
+#### Step 2.1: Mod Manifest & Loader
+- Define `ModManifest` struct: `mod_id`, `display_name`, `mod_type` (Native | WASM), `provides`, `requires`, `capabilities`.
+- Implement mod dependency resolver (topological sort on `requires` → `provides` edges).
+- Implement native mod loader via `inventory::submit!` for compile-time registration.
+- Register mod lifecycle diagnostics (`registry.mod.load_started`, `.load_succeeded`, `.load_failed`, `.dependency_missing`).
+
+#### Step 2.2: Protocol & Viewer Contracts (Registry Surfaces)
+- Define `ProtocolHandler` trait as the contract surface. Implement as `tower::Service<Uri, Response = ContentStream>` for free middleware composition (timeouts, retries, tracing).
+- Define `ViewerHandler` trait as the contract surface (MIME/content → renderer).
+- Seed core defaults: `protocol:file`, `protocol:about`, `viewer:plaintext`, `viewer:metadata`.
+- Ensure the app is fully functional with only core seeds (graph + metadata display, no web rendering).
+
+#### Step 2.3: Verso Native Mod
+- Package current Servo/Wry integration as a native mod with manifest:
+  - `provides`: `protocol:http`, `protocol:https`, `protocol:data`, `viewer:webview`
+  - `requires`: `ProtocolRegistry`, `ViewerRegistry`
+  - `capabilities`: `network`
+- Gate webview creation on `viewer:webview` being registered; absent → nodes display as metadata-only.
+- Ensure startup without Verso mod succeeds (offline graph organizer mode).
+
+**Phase 2 Done Gate**:
+- `ModManifest` defined. Native mod loader works via `inventory::submit!`.
+- Mod dependency resolver (topological sort) rejects mods with unmet `requires`.
+- Core seed floor verified: app starts and functions without Verso mod.
+- Verso native mod loads and registers `protocol:http`, `protocol:https`, `viewer:webview`.
+- Mod lifecycle diagnostics pass checklist and tests.
+
+**Status**: Complete (2026-02-23).
+
+---
+
+### Phase 3: Layout Domain (Surface Registries)
+
+**Goal**: Registry-owned structure, interaction, and rendering policy for all three surfaces. Implement the Two-Pillar architecture in code.
+
+#### Step 3.1: Layout Domain Coordinator
+- Introduce `LayoutDomainRegistry` as the coordinator for surface subregistries.
+- Lens resolution obtains a composed layout profile from the domain, not a single mode.
+
+#### Step 3.2: Graph Surface Subregistry
+- Define `CanvasRegistry` with three explicit sections:
+  - **Topology Policy**: Named rule sets (`topology:dag`, `topology:free`, `topology:tree`). Directed/undirected flag, cycle allowance, edge type constraint rules. Extract from hardcoded interaction logic in `SettingsNavigation`.
+  - **Layout Algorithms**: Wrap `egui_graphs::LayoutForceDirected` in a `LayoutAlgorithm` trait impl. Register IDs (`graph_layout:force_directed`, `graph_layout:grid`, `graph_layout:tree`).
+  - **Interaction & Rendering Policy**: Selection modes, zoom/pan ranges, node creation positions, node shapes/sizes, edge routing/style, label format, badge display rules. Extract from `SettingsInteraction` and `SettingsStyle`. Physics engine integration: available force profiles, energy thresholds, auto-pause triggers.
+- Refactor `render/mod.rs` to instantiate graph layout/interaction/style via surface-registry dispatch.
+
+#### Step 3.3: Workbench Surface Subregistry
+- Define `WorkbenchSurfaceRegistry` with two sections:
+  - **Layout Policy**: `SimplificationOptions`, split direction defaults, tab wrapping rules.
+  - **Interaction Policy**: Drag-to-rearrange rules, resize constraints, drop zone behavior, tab bar style, container labels (semantic: `Split ↔`, `Tab Group`, etc.), title truncation.
+- Refactor `tile_behavior.rs` to resolve policy profiles via workbench surface registry.
+
+#### Step 3.4: Viewer Surface Subregistry
+- Define `ViewerSurfaceRegistry` covering viewer viewport behavior: zoom/scaling defaults, reader mode, scroll policy.
+- Update viewer entrypoints to resolve surface policies via layout domain.
+
+**Phase 3 Done Gate**:
+- Layout domain coordinator resolves surface profiles for graph, workbench, and viewer.
+- `CanvasRegistry` has explicit topology policy, layout algorithm, and interaction/rendering sections.
+- `SettingsNavigation`/`SettingsInteraction`/`SettingsStyle` are registry-owned (not hardcoded in `render/mod.rs`).
+- Surface registries emit stable diagnostics.
+
+**Status**: Complete (2026-02-23).
+
+---
+
+### Phase 4: Presentation Domain & Knowledge Registry
+
+**Goal**: Resolve appearance and motion semantics after layout. Formalize knowledge classification as a distinct atomic registry.
+
+#### Step 4.1: Theme Subregistry
+- Define `ThemeData` struct (colors, strokes, font sizes).
+- Create `DefaultTheme` matching current hardcoded values.
+- Register `theme:default` in `ThemeRegistry` as core seed.
+
+#### Step 4.2: Physics Profile Subregistry
+- Extract `PhysicsProfile` presets (Liquid, Gas, Solid) from `app.rs` as named parameter sets.
+- Register them in `PhysicsProfileRegistry` as presentation-domain semantic labels.
+- Remove `layout_mode` from `PhysicsProfile`. Layout mode is independently resolved by the Layout Domain. A Lens composes both, but physics must not override layout.
+
+#### Step 4.3: Presentation Domain Coordinator
+- Make `PresentationDomainRegistry` the coordinator for `ThemeRegistry` + `PhysicsProfileRegistry`.
+- Update `render/mod.rs` so theme/physics resolution occurs after layout profile selection.
+
+#### Step 4.4: Knowledge Registry (Atomic)
+- Formalize the existing `OntologyRegistry` (UDC tagging, `CompactCode`, fuzzy search, `get_color_hint`) as `KnowledgeRegistry` — an atomic capability, not a domain coordinator. Use `sophia` for RDF/JSON-LD parsing.
+- Register as core seed with UDC defaults. Mods can add Schema.org, Wikidata, or custom taxonomy providers.
+- Lens filters reference knowledge tags; knowledge resolution is independent of both Layout and Presentation domains.
+
+**Phase 4 Done Gate**:
+- Presentation domain coordinator resolves theme + physics profile after layout.
+- `layout_mode` removed from `PhysicsProfile`.
+- `KnowledgeRegistry` formalized with UDC core seed.
+- Agent paths emit stable diagnostics and respect runtime quotas.
+
+**Status**: Complete through Step 4.4 (2026-02-23).
+
+---
+
+### Phase 5: Verse Native Mod (P2P Capabilities)
+
+**Goal**: Package P2P networking, federated identity, and distributed indexing as the Verse native mod. See `2026-02-22_verse_implementation_strategy.md` for Verse architecture details.
+
+#### Step 5.1: Verse Mod Manifest
+- Define Verse mod manifest:
+  - `provides`: `protocol:ipfs`, `protocol:activitypub`, `index:federated`, `identity:did`, `action:verse.share`, `action:verse.sync`
+  - `requires`: `ProtocolRegistry`, `IndexRegistry`, `IdentityRegistry`, `ActionRegistry`
+  - `capabilities`: `network`, `identity`
+- Implement as a native mod that registers into atomic registries on load.
+
+#### Step 5.2: Identity Providers
+- Verse mod extends `IdentityRegistry` with P2P persona types (DID, Nostr keypairs).
+- `IdentityRegistry` itself remains a core atomic registry (local keypair works without Verse).
+
+#### Step 5.3: Offline Graceful Degradation
+- When Verse mod is not loaded: `verse.*` actions absent from ActionRegistry; Command Palette shows no share/sync commands.
+- When Verse mod is loaded but offline: `ipfs://`/`activitypub://` failures produce diagnostics + user-visible fallback messaging.
+
+**Phase 5 Done Gate**:
+- Verse native mod loads and registers all declared entries into atomic registries.
+- App functions fully without Verse mod loaded.
+- Offline degradation: `ipfs://`/`activitypub://` failures produce diagnostics + user-visible fallback.
+
+---
+
+### Phase 6: Topology Consolidation (Model / Services / Shell)
+
+**Goal**: Align filesystem structure with architecture boundaries after capability paths are stable.
+
+#### Step 6.1: Model Extraction
+- Move data-centric types from root-heavy modules into `src/model/*`.
+- Split shell/runtime fields from `GraphBrowserApp` into shell-facing adapters where practical.
+
+#### Step 6.2: Service Extraction
+- Normalize `persistence`, `search`, and physics-support logic under `src/services/*`.
+
+#### Step 6.3: Desktop Shell Decomposition
+- Re-home `desktop/*` into `src/shell/desktop/{host,workbench,lifecycle,ui}`.
+- Group tile files under `workbench/tiles/`; keep diagnostics harness paths updated.
+
+#### Step 6.4: Remove Transition Shims
+- Delete temporary re-exports and old module aliases.
+- Ensure docs and plan references use canonical paths only.
+
+**Phase 6 Done Gate**:
+- Filesystem structure matches `src/{model,registries,services,mods,shell}` layout.
+- All transition shims and re-exports removed.
+- Tests and diagnostics harness updated to canonical paths.
+
+---
+
+## Technical Stack & Patterns
+
+To avoid reinventing wheels, we adopt these established ecosystem patterns:
 
 1.  **Protocol Registry as `tower::Service`**:
     -   **Crate**: `tower`
     -   **Pattern**: Middleware.
-    -   **Refinement**: Define `ProtocolHandler` as `tower::Service<Uri, Response = ContentStream>`. This enables free use of standard middleware for timeouts, retries, concurrency limits, and tracing on any protocol (IPFS, Gemini, etc.).
+    -   **Refinement**: Define `ProtocolHandler` as `tower::Service<Uri, Response = ContentStream>`. Enables free use of standard middleware for timeouts, retries, concurrency limits, and tracing on any protocol (IPFS, Gemini, etc.).
 
-2.  **Mod Registry via `extism`**:
-    -   **Crate**: `extism` (wraps Wasmtime)
-    -   **Pattern**: Universal Plug-in System.
-    -   **Refinement**: Use Extism to handle the complex memory/host-function binding for WASM agents. It simplifies the "Host" implementation significantly compared to raw Wasmtime.
+2.  **Mod Registry (Dual-Tier)**:
+    -   **Native Mods**: `inventory` crate for compile-time registration via `submit!`. First-party capabilities (Verso, Verse, default themes) register at startup. Not sandboxed.
+    -   **WASM Mods**: `extism` crate (wraps Wasmtime) for dynamic plugin loading. Sandboxed, capability-restricted. Used for third-party extensions.
+    -   **Both tiers** use `ModManifest` with `provides`/`requires` for dependency resolution.
 
-3.  **Ontology Registry via `sophia`**:
+3.  **Knowledge Registry via `sophia`**:
     -   **Crate**: `sophia`
     -   **Pattern**: Linked Data / RDF.
-    -   **Refinement**: Use `sophia`'s traits for efficient, zero-copy parsing of JSON-LD (Schema.org) data, rather than generic JSON parsing.
+    -   **Refinement**: Use `sophia`'s traits for efficient, zero-copy parsing of JSON-LD (Schema.org) data. Core seed provides UDC taxonomy; mods can add Schema.org or Wikidata providers.
 
 4.  **Action Extraction (The Handler Pattern)**:
     -   **Inspiration**: `axum` / `bevy`.
     -   **Pattern**: Type-safe dependency injection.
-    -   **Refinement**: Instead of passing a monolithic context to actions, implement an `FromContext` trait. Actions declare arguments (`fn cmd(selection: Selection)`) and the registry extracts them. This decouples actions from the full app state structure.
+    -   **Refinement**: Implement a `FromContext` trait. Actions declare typed arguments (`fn cmd(selection: Selection)`) and the registry extracts them from context. Decouples actions from full app state.
 
 5.  **`schemars` (Auto-Configuration UI)**:
     -   **Crate**: `schemars`
     -   **Pattern**: Reflection / Schema Generation.
-    -   **Refinement**: Registry items derive `JsonSchema`. The Settings UI uses this schema to auto-generate sliders, dropdowns, and inputs. This solves the "how do I configure a mod?" problem without writing UI code.
+    -   **Refinement**: Registry items derive `JsonSchema`. The Settings UI uses this schema to auto-generate sliders, dropdowns, and inputs. Solves "how do I configure a mod?" without writing UI code.
 
-6.  **`inventory` (Static Registration)**:
+6.  **`inventory` (Native Mod Registration)**:
     -   **Crate**: `inventory`
     -   **Pattern**: Distributed Slices.
-    -   **Refinement**: Built-in actions/themes register themselves at compile time via `submit!`. Eliminates the need for a central "register all" function that touches every module.
+    -   **Refinement**: Native mods register `ModManifest` + registry entries at compile time via `submit!`. Eliminates a central "register all" function. Same manifest contract as WASM mods, but discovered at startup without dynamic loading.
 
-### Robustness & Integration
+---
 
-To ensure the system scales safely:
+## Robustness & Integration
 
 #### 1. The "Missing Mod" Strategy (Graceful Degradation)
 *   **Problem**: A workspace references a Layout/Theme provided by a mod that is no longer installed.
-*   **Solution**:
-    *   Registries store a hardcoded `fallback_id` (e.g., `layout:default`, `theme:dark`).
-    *   Lookups use `get_or_default(id)`.
-    *   The UI shows a warning: "Layout 'SuperGrid' missing, using Default."
+*   **Solution**: Registries store a hardcoded `fallback_id` (e.g., `layout:default`, `theme:dark`). Lookups use `get_or_default(id)`. The UI shows a warning: "Layout 'SuperGrid' missing, using Default."
 
 #### 2. Registry Signal Bus (Decoupling)
 *   **Problem**: `IdentityRegistry` changes persona; `ProtocolRegistry` needs to update keys.
-*   **Solution**: A synchronous broadcast channel in `AppServices`.
-    *   Events: `IdentityChanged`, `ThemeChanged`, `ModLoaded`, `ModUnloaded`.
-    *   Registries implement `on_signal(&mut self, signal: RegistrySignal)`.
+*   **Solution**: A synchronous broadcast channel in `AppServices`. Events: `IdentityChanged`, `ThemeChanged`, `ModLoaded`, `ModUnloaded`. Registries implement `on_signal(&mut self, signal: RegistrySignal)`.
 
 #### 3. Configuration UI (Auto-Generation)
 *   **Problem**: Users need to tweak settings for specific registry items (e.g., Physics parameters).
-*   **Solution**: Use `schemars` to derive schema.
-    *   Registry items implement `Configurable` which defaults to returning `schemars::schema_for!(Self)`.
-    *   A generic `SchemaWidget` in `desktop/ui` renders the controls based on the JSON schema.
+*   **Solution**: Use `schemars`. Registry items implement `Configurable` returning `schemars::schema_for!(Self)`. A generic `SchemaWidget` in `desktop/ui` renders controls based on JSON schema.
 
 #### 4. Macros (Intents as Scripts)
 *   **Idea**: Since `GraphIntent` is serializable, a "Macro" is just a persisted `Vec<GraphIntent>`.
-*   **Implementation**:
-    *   `ActionRegistry` supports a `MacroHandler` variant.
-    *   Users can "Record" a sequence of actions, save it as a new Action, and bind it to a key.
+*   **Implementation**: `ActionRegistry` supports a `MacroHandler` variant. Users can "Record" a sequence, save it as a new Action, and bind it to a key.
 
 #### 5. Mod Security & Capability Policy
-*   **Problem**: Mods can become an unbounded execution and data-exfiltration surface.
-*   **Solution**:
-    *   Capability manifest per mod (`network`, `filesystem`, `identity`, `clipboard`, `exec`) with deny-by-default policy.
-    *   Runtime quotas for CPU time, memory, message rate, and outbound requests.
-    *   Kill switch and quarantine mode for crashing or policy-violating mods.
-    *   Security diagnostics channels (`registry.mod.security_violation`, `registry.mod.quarantine`).
+*   **WASM Mods**: Capability manifest per mod (`network`, `filesystem`, `identity`, `clipboard`, `exec`) with deny-by-default policy. Runtime quotas for CPU time, memory, message rate, outbound requests. Kill switch and quarantine mode for crashing or policy-violating mods.
+*   **Native Mods**: Not sandboxed (compiled into binary). Security comes from code review at compile time. First-party (Verso, Verse) or explicitly opt-in.
+*   Security diagnostics channels (`registry.mod.security_violation`, `registry.mod.quarantine`) apply to WASM mods only.
 
 #### 6. Configuration Precedence (No Ambiguity)
-*   **Problem**: Built-in, user, and workspace settings can conflict.
-*   **Solution**:
-    *   Precedence order: `workspace override` > `user override` > `built-in default`.
-    *   Every resolved value can report provenance (`resolved_from = workspace|user|default`).
-    *   Conflicts emit diagnostics (`registry.config.conflict_detected`) and show deterministic UI resolution.
+*   **Precedence order**: `workspace override` > `user override` > `built-in default`.
+*   Every resolved value can report provenance (`resolved_from = workspace|user|default`).
+*   Conflicts emit diagnostics (`registry.config.conflict_detected`) and show deterministic UI resolution.
+
+---
+
+## Risks & Mitigations
+
+*   **Risk**: Performance regression in Input/Action lookup (per-frame).
+    *   *Mitigation*: `InputRegistry` uses a fast lookup (hash map of `KeyChord`). Only queried on input events, not every frame.
+
+*   **Risk**: Circular dependencies between `RegistryRuntime` and `GraphBrowserApp`.
+    *   *Mitigation*: Strict `RegistryContext` pattern. Registries never hold `&mut App`; they receive it during method calls only.
+
+*   **Risk**: Semantic overlap between layout and presentation domains creates duplicate knobs.
+    *   *Mitigation*: Enforce sequencing (layout → presentation) and keep cross-domain coupling out of registry APIs. Physics engine execution is Layout; physics parameter presets are Presentation. Lens orchestrates both without conflating them.
+
+*   **Risk**: Large path moves hide logic regressions.
+    *   *Mitigation*: Separate path-only commits from behavior commits; run scenario matrix after each slice.
+
+*   **Risk**: Test harness path churn breaks migration velocity.
+    *   *Mitigation*: Update harness imports in the same slice as each move; diagnostics contracts serve as continuity checks.
+
+*   **Risk**: Mod loading order creates startup failures or silent capability gaps.
+    *   *Mitigation*: Topological sort on mod `requires`/`provides` at startup. Missing dependency = mod load failure with diagnostics, not silent skip. Core seeds guarantee a functional floor.
+
+*   **Risk**: Verso-as-mod creates a hard coupling to Servo that the mod contract can't cleanly express.
+    *   *Mitigation*: Verso is a **native mod** — compiled in, not sandboxed. The mod contract (manifest + registry population) is the architectural boundary, not an execution sandbox. If the mod API can't express Verso's needs, fix the API, don't special-case Verso.
+
+*   **Risk**: "Core seed floor" is too minimal to be useful, pushing all value into mods.
+    *   *Mitigation*: Core seeds include graph manipulation, local file protocol, plaintext/metadata viewers, full keyboard/action pipeline, persistence, and search. This is a complete offline document organizer. Mods add web rendering and networking, not basic functionality.
+
+*   **Risk**: `CanvasRegistry` becomes a god object (topology + layout + interaction + rendering + physics).
+    *   *Mitigation*: Three explicit sections with clear boundaries prevent conflation in code and documentation. If growth exceeds manageable scope, `GraphPolicyRegistry` (topology invariants only) is the natural extraction slice.
 
 ---
 
 ## Findings
 
-### Lenses vs. Presets
-A "Physics Preset" (Gas/Liquid/Solid) is just one component of a "Lens". A Lens might be "Research Mode" which composes:
-- **Physics**: Liquid (Organic clustering)
-- **Theme**: Dark Mode
-- **Filter**: Show only `#research` nodes
-- **Layout**: Free
-- **Hub Lens**: Tree layout, high density, filename labels. Acts as the "File Explorer".
+### Lenses as Named Graph View Configurations
 
-### Agents as Actions
-Background agents (like the "Personal Crawler") are effectively actions that trigger automatically based on events or timers. They should likely be managed within the `ActionRegistry` infrastructure but exposed via an `AgentRegistry` interface for scheduling.
+A Lens is the composition of: **Topology Policy** + **Layout Algorithm** + **Physics Parameters** + **Theme** + **Knowledge Filter**. Two concrete examples:
+
+**"Research Mode" Lens**:
+- Topology Policy: `topology:free` (cycles allowed, undirected)
+- Layout: `graph_layout:force_directed`
+- Physics: `physics:liquid` (organic clustering)
+- Theme: `theme:dark`
+- Knowledge Filter: Show only `#research` nodes
+
+**"File Explorer" Lens**:
+- Topology Policy: `topology:dag` (strict hierarchy, unique names per parent)
+- Layout: Indented Tree List
+- Physics: None (static)
+- Knowledge Filter: Files and Folders ontology
+
+Both use the same `CanvasRegistry` contract — different configurations produce entirely different modes.
+
+### Agents as Cognitive Processes
+
+Agents are autonomous cognitive processes distinct from Actions. While Actions are discrete deterministic command handlers that return `Vec<GraphIntent>`, Agents are persistent observers that may connect to external AI intelligence providers (LLMs, classifiers, embedding models) and emit intent streams over time based on app state changes or timers. Managed through `AgentRegistry`: definitions include an observe trigger, an optional intelligence provider binding, and an intent emitter. Scheduling (timer-based agents like a prefetch scheduler) is a subset of this — the `AgentRegistry` is the registration surface for all such autonomous cognitive processes, from simple background tasks to full AI-driven graph analysis (Personal Crawler, automated UDC classification, semantic clustering suggestions).
 
 ### Storage Abstraction
-The `ProtocolRegistry` effectively abstracts storage. Saving a workspace to `ipfs://...` should be handled by the IPFS protocol handler, just as reading `https://...` is handled by the HTTP handler.
+The `ProtocolRegistry` effectively abstracts storage. Saving a workspace to `ipfs://...` is handled by the IPFS protocol handler (Verse mod), just as reading `https://...` is handled by the HTTP handler (Verso mod). Core seeds provide `file://` and `about:` for offline operation.
 
 ---
 
 ## Progress
 
 ### 2026-02-22
-- Plan created.
-- `ProtocolRegistry` scaffolded in codebase.
-- `Multi-Graph Pane Plan` updated to reference Lenses.
-- `Workbench Workspace Manifest Persistence Plan` updated to reference Identity/Protocol registries.
-- Added `DiagnosticsRegistry` as a first-class registry requirement with explicit test-contract policy.
-- Phase 0 implementation started in code:
-    - Added `desktop/registries/` modules: `protocol`, `viewer`, `diagnostics_contract`, runtime entrypoint.
-    - Added Phase 0 diagnostics channels and contract tests under `desktop::registries::tests`.
-    - Added diagnostics-driven harness scenarios in `desktop/tests/scenarios/registries.rs`.
-    - Replaced observe-only integration with centralized URL policy entrypoint in `desktop/registries/mod.rs` (`phase0_normalize_navigation_url` / `phase0_normalize_navigation_url_for_tests`).
-    - Introduced canonical phase-0 registry navigation decision entrypoint in `desktop/registries/mod.rs` (`phase0_decide_navigation` / `phase0_decide_navigation_for_tests`) returning normalized URL + protocol/viewer selections.
-    - Updated `desktop/webview_controller.rs` graph-view + detail-view submit flows to call the centralized registry normalization entrypoint.
-    - Removed duplicated URL fallback policy logic from `desktop/webview_controller.rs`.
-    - Added MIME-hint decision coverage in unit + scenario tests (`viewer:csv` via `text/csv` hint), while keeping runtime path webview-backed in Phase 0.
-    - Extended `ProtocolRegistry` phase-0 resolution to include best-effort inferred MIME hints (`inferred_mime_hint`) from URI/data-URI metadata.
-    - Updated phase-0 runtime decision flow to use protocol-inferred MIME hint when explicit hint is absent, while preserving explicit hint precedence.
-    - Added coverage for inferred MIME behavior in unit + scenario tests (`data:text/csv,...` selecting `viewer:csv` without explicit hint).
-    - Added a cancellation-aware protocol resolution surface (`ProtocolResolveControl` + `resolve_with_control`) for Phase 1 non-blocking/cancellation contract progression.
-    - Added control-aware phase-0 decision entrypoints (`phase0_decide_navigation_with_control`, `phase0_decide_navigation_for_tests_with_control`) that short-circuit before viewer selection when cancelled.
-    - Added unit + scenario coverage for cancellation short-circuit behavior and diagnostics (`registry.protocol.resolve_failed` emitted; viewer selection channels not emitted on cancellation).
-    - Switched graph-view + detail-view submit normalization in `desktop/webview_controller.rs` to `phase0_decide_navigation_with_control` with explicit control plumbing (default active control in runtime path).
-    - Added explicit runtime no-op submit handling for cancelled protocol resolution decisions.
-    - Started Phase 2 action decoupling by introducing `desktop/registries/action.rs` (`ActionRegistry`) with `action.omnibox_node_search` execution path.
-    - Added Phase 2 diagnostics contracts for action execution channels (`registry.action.execute_started`, `registry.action.execute_succeeded`, `registry.action.execute_failed`).
-    - Routed diagnostics-mode `@query` submit handling in `desktop/webview_controller.rs` through registry action execution (`phase2_execute_omnibox_node_search_action`) instead of local hardcoded dispatch.
-    - Added `action.graph_view_submit` to `ActionRegistry` and routed diagnostics-mode graph-view address submit intent generation through registry execution (`phase2_execute_graph_view_submit_action`).
-    - Added test-only execution helper for graph-submit actions (`phase2_execute_graph_view_submit_action_for_tests`) and scenario coverage asserting action channel emissions.
-    - Added `action.detail_view_submit` to `ActionRegistry` and routed diagnostics-mode detail-view (non-live-webview) submit intent generation through registry execution (`phase2_execute_detail_view_submit_action`).
-    - Added test-only detail-submit action execution helper and scenario coverage asserting action diagnostics channel emissions for focused-node detail updates.
-    - Started Phase 2 input decoupling by introducing `desktop/registries/input.rs` (`InputRegistry`) with a concrete toolbar submit binding (`input.toolbar.submit` -> `action.toolbar.submit`).
-    - Added Phase 2 input diagnostics contracts (`registry.input.binding_resolved`, `registry.input.binding_missing`, `registry.input.binding_conflict`) and contract tests.
-    - Routed diagnostics-mode toolbar submit through registry input binding resolution in `desktop/toolbar_routing.rs` (`phase2_resolve_toolbar_submit_binding`) before submit dispatch.
-    - Added toolbar nav input bindings (`input.toolbar.nav.back|forward|reload`) and routed diagnostics-mode `run_nav_action` through input binding resolution before executing webview nav operations.
-    - Added generic input-binding resolution API (`phase2_resolve_input_binding`) and test helper coverage to reuse binding diagnostics across submit/nav paths.
-    - Added diagnostics scenario coverage for input binding resolution channel emission (`phase2_input_registry_toolbar_submit_binding_emits_resolved_channel`).
-    - Added diagnostics scenario coverage for toolbar nav binding resolution (`phase2_input_registry_toolbar_nav_binding_emits_resolved_channel`).
-    - Added unit + scenario coverage for action registry behavior and action diagnostics channel emission.
-    - Added `desktop/registries/lens.rs` (`LensRegistry`) with deterministic ID lookup + fallback (`lens:default`).
-    - Added Phase 2 lens diagnostics contracts (`registry.lens.resolve_succeeded`, `registry.lens.resolve_failed`, `registry.lens.fallback_used`).
-    - Added runtime/test lens resolution entrypoints in `desktop/registries/mod.rs` (`phase2_resolve_lens`, `phase2_resolve_lens_for_tests`).
-    - Added harness scenario coverage for lens diagnostics channels (`phase2_lens_registry_default_id_emits_resolve_succeeded_channel`, `phase2_lens_registry_unknown_id_emits_failed_and_fallback_channels`).
-    - Routed ID-based `GraphIntent::SetViewLens` handling through registry lens resolution with fallback (`lens:*` names resolve via registry; non-ID lens payloads remain unchanged in this slice).
-    - Added atomic `LayoutRegistry`, `ThemeRegistry`, and `PhysicsRegistry` modules with deterministic `get_or_default`-style resolution semantics.
-    - Refactored `LensRegistry` to hold compositional lens definitions (`layout_id`, `theme_id`, `physics_id`) instead of embedding raw profile structs.
-    - Updated `phase2_resolve_lens` / `phase2_resolve_lens_for_tests` to compose final `LensConfig` via atomic registries and emit per-component lookup diagnostics.
-    - Added Phase 2 diagnostics contracts for atomic lookup channels:
-        - `registry.layout.lookup_succeeded|failed`, `registry.layout.fallback_used`
-        - `registry.theme.lookup_succeeded|failed`, `registry.theme.fallback_used`
-        - `registry.physics.lookup_succeeded|failed`, `registry.physics.fallback_used`
-    - Extended harness scenarios to assert composed lens path emits layout/theme/physics lookup channels for both default and unknown lens IDs.
-    - Extended `LensConfig` with optional registry ID fields (`lens_id`, `physics_id`, `layout_id`, `theme_id`) to support persisted/user-config registry references while keeping backward compatibility.
-    - Updated `GraphIntent::SetViewLens` handling to prefer `lens_id` when present, then `lens:*` name routing, then explicit component-ID normalization for non-lens-ID payloads.
-    - Added `phase2_resolve_lens_components` (+ test helper) to normalize explicit component IDs through atomic registries with diagnostics + fallback semantics.
-    - Added unit + scenario coverage for explicit component-ID fallback normalization (`physics/layout/theme`) and resolved-ID propagation.
-    - Added persisted user override source for registry IDs via existing workspace settings persistence keys (`workspace:settings-registry-{lens|physics|layout|theme}-id`).
-    - Added app-level setters for persisted defaults (`set_default_registry_lens_id`, `set_default_registry_physics_id`, `set_default_registry_layout_id`, `set_default_registry_theme_id`).
-    - Added app-level getters for persisted defaults (`default_registry_lens_id`, `default_registry_physics_id`, `default_registry_layout_id`, `default_registry_theme_id`) for settings UI binding.
-    - Updated `SetViewLens` path to apply persisted default registry IDs when incoming payload omits IDs before routing through registry resolution.
-    - Added app-level tests for persisted default roundtrip and `SetViewLens` default-ID application behavior.
-    - Clarified and covered precedence behavior in app tests:
-        - when persisted `lens_id` default is present, lens composition is resolved first (and can supersede persisted component defaults)
-        - when persisted `lens_id` is absent, persisted component defaults (`physics/layout/theme`) are applied for missing incoming IDs
-    - Added settings UI controls under `desktop/toolbar_ui.rs` (`Registry Defaults`) for Lens/Physics/Layout/Theme IDs and wired edits to persisted default setters (blank value clears persisted override).
-    - Started Phase 3 verse foundation with `desktop/registries/identity.rs` (`IdentityRegistry`) providing deterministic persona resolution + sign/fallback behavior for initial keyring-contract scaffolding.
-    - Added Phase 3 identity diagnostics channels and contracts:
-        - `registry.identity.sign_started`
-        - `registry.identity.sign_succeeded`
-        - `registry.identity.sign_failed`
-        - `registry.identity.key_unavailable`
-    - Added runtime/test identity sign entrypoints in `desktop/registries/mod.rs` (`phase3_sign_identity_payload`, `phase3_sign_identity_payload_for_tests`) and scenario coverage for both success and key-unavailable failure paths.
-    - Adapted `desktop/registries/protocol.rs` to use the existing `desktop/protocols/registry.rs` scaffold as backend.
-- Validation evidence:
-    - `cargo test desktop::registries:: -- --nocapture` (pass)
-    - `cargo test webview_controller::tests:: -- --nocapture` (pass)
-    - `cargo test desktop::tests::scenarios::registries:: -- --nocapture` (pass)
-    - `cargo check` (pass)
-    - `cargo check` is green again after reconciling semantic-tagging drift in `app.rs` and `desktop/registries/ontology.rs`.
-    - Ontology runtime alignment is currently app-owned (`GraphBrowserApp.semantic_tags`) with registry-driven reconcile/indexing; persistence-level tag transport is tracked as follow-up work.
-    - `cargo test desktop::registries:: -- --nocapture` (pass, includes lens contract tests)
-    - `cargo test desktop::tests::scenarios::registries:: -- --nocapture` (pass, includes lens diagnostics scenarios)
-    - `cargo test desktop::registries:: -- --nocapture` (pass, includes layout/theme/physics contract tests)
-    - `cargo test desktop::tests::scenarios::registries:: -- --nocapture` (pass, includes composed lens diagnostics assertions for layout/theme/physics channels)
-    - `cargo check` (pass)
-    - `cargo test desktop::registries:: -- --nocapture` (pass, includes explicit component-ID normalization test)
-    - `cargo test desktop::tests::scenarios::registries:: -- --nocapture` (pass, includes explicit component-ID fallback channel scenario)
-    - `cargo check` (pass)
-    - `cargo test test_registry_component_defaults_persist_across_restart -- --nocapture` (pass)
-    - `cargo test test_set_view_lens_applies_persisted_component_defaults_when_ids_missing -- --nocapture` (pass)
-    - `cargo test desktop::registries:: -- --nocapture` (pass)
-    - `cargo test desktop::tests::scenarios::registries:: -- --nocapture` (pass)
-    - `cargo check` (pass)
-    - `cargo check` (pass, after settings UI wiring for registry defaults)
-    - `cargo test desktop::tests::scenarios::registries` (pass)
-    - `cargo test test_registry_component_defaults_persist_across_restart -- --nocapture` (pass)
-    - `cargo test test_set_view_lens_applies_persisted_component_defaults_when_ids_missing -- --nocapture` (pass)
-    - `cargo test test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing -- --nocapture` (pass)
-    - `cargo test desktop::registries:: -- --nocapture` (pass, includes new identity registry + phase3 diagnostics contract tests)
-    - `cargo test desktop::tests::scenarios::registries -- --nocapture` (pass, includes phase3 identity diagnostics scenarios)
-    - `cargo check` (pass)
-    - Folded diagnostics channel contract ownership under `desktop/registries/diagnostics.rs` (`DiagnosticsRegistry`) and switched registry runtime/test callsites to diagnostics-owned phase helper APIs.
-    - Removed `desktop/registries/diagnostics_contract.rs` after callsites stabilized on diagnostics-owned descriptors; `DiagnosticsRegistry` is now the sole contract source.
-    - Acknowledged ontology expansion in drift cleanup: `desktop/registries/ontology.rs` now includes `validate`, `distance`, and `get_color_hint` helpers; no behavioral rollback applied in this slice.
-    - `cargo test desktop::registries:: -- --nocapture` (pass, includes diagnostics ownership fold)
-    - `cargo test desktop::tests::scenarios::registries -- --nocapture` (pass)
-    - `cargo check` (pass)
+- Plan created. `ProtocolRegistry` scaffolded in codebase.
+- Phase 0 complete: `desktop/registries/` modules created, single-path routing active, diagnostics channels and contract tests added, harness scenarios added, legacy URL fallback removed.
+- Phase 1 core decoupling (originally labeled Phase 1+3):
+    - Protocol/viewer routing: cancellation-aware resolution, MIME hint inference, `phase0_decide_navigation_with_control` as canonical entrypoint.
+    - Action decoupling: `ActionRegistry` with `action.omnibox_node_search`, `action.graph_view_submit`, `action.detail_view_submit`. Diagnostics contracts.
+    - Input decoupling: `InputRegistry` with toolbar submit + nav bindings. `phase2_resolve_toolbar_submit_binding`, `phase2_resolve_input_binding`.
+    - Lens scaffolding: `LensCompositor` with compositional lens definitions (layout_id, theme_id, physics_id). Atomic `LayoutRegistry`, `ThemeRegistry`, `PhysicsRegistry`. Composed diagnostics (per-component lookup channels).
+    - Persisted user override source (`workspace:settings-registry-*-id`). Settings UI controls.
+    - Identity scaffolding: `IdentityRegistry`, sign/fallback, diagnostics contracts.
+    - `DiagnosticsRegistry` consolidated as sole contract source; `diagnostics_contract.rs` removed.
+- Validation: `cargo check` (pass), all `desktop::registries::`, `webview_controller::tests::`, `desktop::tests::scenarios::registries::` pass.
+
+### 2026-02-23 — Consolidated Checkpoint
+- Phase 1 callsite migration complete (runtime path promotion):
+    - Toolbar input resolution routes through registry input bindings by default (no diagnostics-gated fallback path).
+    - Address-bar submit / omnibox / detail flows route through registry protocol/action helpers by default.
+    - Files: `desktop/toolbar_routing.rs`, `desktop/webview_controller.rs`.
+- Phase 1.4 capability topology slice complete:
+    - Diagnostics registry implementation moved to `registries/atomic/diagnostics.rs`.
+    - Temporary compatibility re-export at `desktop/registries/diagnostics.rs` removed.
+    - Module wiring: `registries/mod.rs`, `registries/atomic/mod.rs`, crate root registration.
+    - Diagnostics contract continuity: `registry.diagnostics.config_changed` emission path validated.
+- Validation: `cargo test webview_controller::`, `desktop::registries::`, `desktop::tests::scenarios::registries::` all pass. `cargo check` pass.
+- Documentation: `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md` consolidated into this document and archived to `archive_docs/checkpoint_2026-02-23/`.
+- Phase 2 complete:
+    - `ModRegistry` lifecycle and status model implemented with dependency resolution and diagnostics channels.
+    - Protocol and viewer contract surfaces formalized as atomic registries with core seeds.
+    - Verso capability gating integrated (`viewer:webview`) including mod-disable paths.
+- Phase 3 complete:
+    - `LayoutDomainRegistry` introduced and used for composed profile resolution.
+    - `CanvasRegistry` expanded with explicit topology/layout-algorithm/interaction policy sections.
+    - `WorkbenchSurfaceRegistry` and `ViewerSurfaceRegistry` resolution integrated into runtime/layout callsites.
+- Phase 4 complete through Step 4.4:
+    - `ThemeData` formalized and default/dark theme seeds retained.
+    - Physics profile atomic registry introduced (`physics:liquid`, `physics:gas`, `physics:solid`), with layout coupling removed.
+    - `PresentationDomainRegistry` integrated into lens/profile normalization and resolution paths.
+    - `KnowledgeRegistry` promoted to atomic layer with desktop compatibility shim for semantic reconciliation.
+- Validation: focused registry/domain tests + full `cargo test --lib` regression pass (`540 passed; 0 failed; 3 ignored`).

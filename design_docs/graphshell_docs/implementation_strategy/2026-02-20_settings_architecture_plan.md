@@ -6,8 +6,8 @@
 
 **Status**: Draft — implementation not started.
 
-**Bridge note (2026-02-20):**
-Current in-app `Settings` menu work in `desktop/toolbar_ui.rs` is the bridge implementation:
+**Bridge note (2026-02-20, updated 2026-02-23):**
+Current in-app `Settings` menu work is implemented in `desktop/toolbar_ui/toolbar_settings_menu.rs` (decomposed from main toolbar module as of 2026-02-23):
 persisted preferences, input bindings, and omnibar controls are already user-configurable there.
 This plan is the structural next step to unify those controls behind a page-based settings model,
 not a replacement claim that settings do not exist today.

@@ -16,12 +16,12 @@ Graphshell's embedder layer was forked from servoshell and has grown substantial
 | `running_app_state.rs` | ~768 | `WebViewDelegate` + `ServoDelegate` impls; central Servo hub |
 | `desktop/app.rs` | ~213 | Servo init, `ApplicationHandler<AppEvent>` for Winit |
 | `desktop/event_loop.rs` | ~150 | Headed/headless event loop abstraction |
-| `desktop/gui.rs` | ~1741 | egui UI layer |
-| `desktop/gui_frame.rs` | ~1084 | Per-frame rendering |
-| `desktop/toolbar_ui.rs` | ~2672 | Omnibar, toolbar, search, radial menu |
+| `desktop/gui.rs` | ~1216 | egui UI layer |
+| `desktop/gui_frame.rs` | ~1198 | Per-frame rendering |
+| `desktop/toolbar_ui.rs` | ~357 | Toolbar coordinator (decomposed into 7 submodules) |
 | `desktop/tile_*.rs` (×9) | ~1300 | Tile layout and rendering |
 
-The `toolbar_ui.rs` and `gui.rs` god-object problem is the most acute: they own both state and rendering, making them hard to test, hard to reason about, and impossible to split without a clear interface design.
+**Note (2026-02-23):** The `toolbar_ui.rs` decomposition is complete—the main module now coordinates 7 focused submodules (toolbar_controls, toolbar_settings_menu, toolbar_right_controls, toolbar_location_panel, toolbar_location_submit, toolbar_location_dropdown, toolbar_omnibar). The `gui.rs` god-object problem remains the primary target for Stage 4b decomposition work.
 
 ---
 
@@ -198,9 +198,9 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 
 **4a. toolbar_ui.rs:**
 1. [x] Extract `ToolbarState` struct (persistent toolbar location/status/navigation state moved out of top-level `Gui` fields).
-2. [ ] Move rendering into free functions: `render_toolbar()`, `render_search_panel()`, `render_radial_menu()`, `render_command_palette()`, etc.
+2. [x] Move rendering into free functions: decomposed into submodules (toolbar_controls, toolbar_settings_menu, toolbar_right_controls, toolbar_location_panel/submit/dropdown, toolbar_omnibar) as of 2026-02-23. Main module is now ~357 lines.
 3. [ ] Define `toolbar_ui::Input` (state mutations) and `toolbar_ui::Output` (render results) boundary.
-4. [ ] Add unit tests for at least one stateful flow (omnibar text input → search query → autocomplete results).
+4. [~] Add unit tests for at least one stateful flow: scenario tests exist for pin/tag sync, settings routing, omnibar workflows; focused unit tests still pending.
 
 **4b. gui.rs:**
 1. [x] Extract `GuiRuntimeState` struct (texture caches, frame flags, backpressure state).

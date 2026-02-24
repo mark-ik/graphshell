@@ -123,11 +123,11 @@ Responsibilities:
 
 ## Large Files (Read in Sections)
 
-- `render/mod.rs` (~3.1k)
-- `app.rs` (~5.4k)
-- `desktop/toolbar_ui.rs` (~2.7k)
-- `desktop/gui.rs` (~1.7k)
-- `desktop/gui_frame.rs` (~1.1k)
+- `app.rs` (~6.0k)
+- `render/mod.rs` (~3.4k)
+- `desktop/gui.rs` (~1.2k)
+- `desktop/gui_frame.rs` (~1.2k)
+- `desktop/toolbar_ui.rs` (~0.4k coordinator + submodules)
 
 ---
 

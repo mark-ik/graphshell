@@ -12,13 +12,18 @@ Completed in this checkpoint:
     - `set_toast_anchor_preference_persists_across_restart` -> `desktop/tests/scenarios/persistence.rs`
 - Added first grouping-intent scenario coverage:
     - `create_user_grouped_edge_from_primary_selection_creates_grouped_edge` -> `desktop/tests/scenarios/grouping.rs`
+- **Added semantic tagging scenario coverage:**
+    - `set_node_pinned_intent_syncs_pin_tag` -> `desktop/tests/scenarios/tags.rs`
+    - `tag_node_pin_updates_pinned_state` -> `desktop/tests/scenarios/tags.rs`
 - Removed migrated duplicate tests from `app.rs` in same slice.
 
 Validation evidence for this checkpoint:
 - `cargo test desktop::tests::scenarios::persistence:: -- --nocapture` (pass, 12 tests)
 - `cargo test desktop::tests::scenarios::grouping:: -- --nocapture` (pass, 1 test)
+- `cargo test desktop::tests::scenarios::tags:: -- --nocapture` (pass, 2 tests)
 - `cargo test desktop::tests::scenarios::registries -- --nocapture` (pass)
 - `cargo check` (pass)
+- Full scenario matrix: 49 tests passing
 
 ## Context
 Currently, tests are scattered across modules (`gui_tests.rs`, `persistence_ops.rs`, `app.rs`). Many rely on internal visibility or fragile state checks.
@@ -248,9 +253,11 @@ This inventory maps all functional areas to migration stages.
     - Verify `Back`/`Forward` intents update history index correctly.
     - Verify `WebViewUrlChanged` triggers correct node updates.
     - **Validation**: Replaces manual "Navigation: Back/Forward Delegate Event Ordering" checks.
-- [ ] **Graph Interactions**
+- [~] **Graph Interactions & Semantic Tagging**
     - Verify `SelectNode` (single/multi) updates selection state.
     - Verify `CreateUserGroupedEdge` intents are emitted on grouping actions.
+    - [x] Verify `SetNodePinned` intent synchronizes with `#pin` semantic tag (tags scenario).
+    - [x] Verify `TagNode`/`UntagNode` for `#pin` updates `node.is_pinned` state (tags scenario).
     - Verify `Undo`/`Redo` restores previous snapshot state.
 - [ ] **Search & Filtering**
     - Verify Omnibar `@` scopes filter results correctly (using harness snapshot of matches).
@@ -289,6 +296,8 @@ Run after each migration increment:
 - `cargo test desktop::tests::scenarios::layout:: -- --nocapture`
 - `cargo test desktop::tests::scenarios::persistence:: -- --nocapture`
 - `cargo test desktop::tests::scenarios::routing:: -- --nocapture`
+- `cargo test desktop::tests::scenarios::registries:: -- --nocapture`
+- `cargo test desktop::tests::scenarios::tags:: -- --nocapture`
 - `cargo test desktop::tests::scenarios::black_tile:: -- --nocapture`
 - `cargo check`
 

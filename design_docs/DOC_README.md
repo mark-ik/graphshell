@@ -39,7 +39,7 @@ It serves three goals:
 
 # Design Docs Index
 
-Last updated: February 21, 2026  
+Last updated: February 23, 2026  
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -93,6 +93,9 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md](graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md) - Settings architecture plan.
 - [graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md](graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md) - Async control-plane scaling plan.
 - [graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md](graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md) - Lifecycle intent model.
+- [graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md) - Workbench workspace manifest persistence plan.
+- [graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) - Workbench tab semantics overlay and promotion plan.
+- [graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md](graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md) - **Canonical registry architecture**: Two-Pillar design (Graph/Workbench), atomic/domain registry catalog, phase plan (Phases 0–1 complete), mod system, core seed floor, topology target. Supersedes `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md`.
 - [graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md](graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md) - UDC semantic tagging and layout plan.
 
 
@@ -121,6 +124,7 @@ Project status source: [../README.md](../README.md)
 - [verse_docs/research/VERSE.md](verse_docs/research/VERSE.md) - Verse architecture and tokenization overview.
 - [verse_docs/research/SEARCH_FINDINGS_SUMMARY.md](verse_docs/research/SEARCH_FINDINGS_SUMMARY.md) - Research and source synthesis.
 - [verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md](verse_docs/technical_architecture/GRAPHSHELL_P2P_COLLABORATION.md) - P2P collaboration architecture and integration model.
+- [verse_docs/research/2026-02-23_storage_economy_and_indices.md](verse_docs/research/2026-02-23_storage_economy_and_indices.md) - Speculative research on storage economy (Proof of Access) and composable indices.
 
 ## Archive Checkpoints
 
@@ -136,3 +140,4 @@ Project status source: [../README.md](../README.md)
 - [archive_docs/checkpoint_2026-02-17/](archive_docs/checkpoint_2026-02-17/)
 - [archive_docs/checkpoint_2026-02-19/](archive_docs/checkpoint_2026-02-19/)
 - [archive_docs/checkpoint_2026-02-20/](archive_docs/checkpoint_2026-02-20/)
+- [archive_docs/checkpoint_2026-02-23/](archive_docs/checkpoint_2026-02-23/) — `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (consolidated into `2026-02-22_registry_layer_plan.md`)

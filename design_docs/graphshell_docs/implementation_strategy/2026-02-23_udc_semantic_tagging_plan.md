@@ -13,13 +13,13 @@ By adopting UDC, we enable **Semantic Physics**: nodes shouldn't just cluster be
 ### 1. Data Model: Tags as Transport
 To avoid breaking the existing `Node` schema or persistence layer during the current registry migration phase, we keep semantic tags in app-owned runtime state.
 
-*   **Runtime Transport (Current)**: `GraphBrowserApp` stores semantic tags in `semantic_tags: HashMap<NodeKey, HashSet<String>>`. This keeps the reducer path simple while `OntologyRegistry` is still stabilizing.
+*   **Runtime Transport (Current)**: `GraphBrowserApp` stores semantic tags in `semantic_tags: HashMap<NodeKey, HashSet<String>>`. This keeps the reducer path simple while `KnowledgeRegistry` is still stabilizing.
 *   **Persistence (Planned)**: Persist semantic tags once the registry phase is complete and schema strategy is finalized.
-*   **Runtime (Semantic Index)**: The `OntologyRegistry` maintains a high-performance index mapping `NodeKey` $\to$ `CompactCode`.
+*   **Runtime (Semantic Index)**: The `KnowledgeRegistry` maintains a high-performance index mapping `NodeKey` $\to$ `CompactCode`.
     *   **CompactCode**: A `u64` or byte-vector representation of the UDC path (e.g., `[5, 1, 9, 6]`) optimized for O(1) distance calculations.
     *   **Sync (Reconciliation)**: `app.rs` does not call the registry directly. Instead, `gui.rs` runs a reconciliation step after `apply_intents` to update the index if tags changed.
 
-### 2. The Ontology Registry
+### 2. The Knowledge Registry
 A new Atomic Registry (see `2026-02-22_registry_layer_plan.md`) responsible for semantic definitions.
 
 *   **Architecture**: Implements the **Strategy Pattern** via Providers.
@@ -33,10 +33,10 @@ A new Atomic Registry (see `2026-02-22_registry_layer_plan.md`) responsible for 
 ### 3. Architectural Refinement: Data vs. System
 To respect the "Access through Intents" rule and avoid coupling the reducer to the registry:
 *   **Data**: `GraphBrowserApp` holds `semantic_tags`, `semantic_index` (HashMap), and a `semantic_index_dirty` flag.
-*   **System**: `OntologyRegistry` (in `AppServices`) holds the logic (parsing, matching).
+*   **System**: `KnowledgeRegistry` (in `AppServices`) holds the logic (parsing, matching).
 *   **Flow**:
     1. `TagNode` / `UntagNode` intents update `app.semantic_tags` and set `dirty = true`.
-    2. Frame loop calls `ontology::reconcile(app, registry)`.
+    2. Frame loop calls `knowledge::reconcile_semantics(app, registry)`.
     3. Reconcile checks dirty flag, parses tags using registry, updates `app.semantic_index`, and prunes stale node keys.
 
 ### 4. First-Class Categorization
@@ -44,6 +44,9 @@ To respect the "Access through Intents" rule and avoid coupling the reducer to t
 *   **Autocomplete**: Tag Input UI (`T` key) queries registry for suggestions.
     *   Input: "calc" $\to$ Suggestion: "Calculus (udc:517)".
  *   **Visuals**: `GraphNodeShape` queries registry for color hints.
+ *   **Unknown Codes**: Users can apply UDC codes deeper than the registry's known subset (e.g. `udc:519.68`).
+     *   **Physics**: These cluster correctly with known parents (attracted to `udc:519` and `udc:51`) due to prefix matching.
+     *   **Display**: Rendered as raw codes if no label is found.
 
 ### 5. Semantic Physics (The "Library Force")
 A custom force added to the physics engine that runs alongside Fruchterman-Reingold.
@@ -61,25 +64,25 @@ A custom force added to the physics engine that runs alongside Fruchterman-Reing
 **Goal**: System can recognize and parse UDC tags.
 
 **Phase 1 progress (2026-02-23):**
-- `OntologyRegistry` runtime parser/search is wired and seeded with MVP UDC definitions.
-- `gui.rs` reconciliation path runs via `ontology::reconcile_semantics(...)` after intent application.
+- `KnowledgeRegistry` runtime parser/search is wired and seeded with MVP UDC definitions.
+- `gui.rs` reconciliation path runs via `knowledge::reconcile_semantics(...)` after intent application.
 - Added focused ontology unit coverage:
     - UDC parse path (`udc:519.6`)
     - label-first search query hit (`math` -> includes `51`)
     - reconcile dirty-flag/index update + stale key pruning behavior.
 - Remaining Phase 1 work is dataset breadth + richer provider routing beyond MVP defaults.
 
-1.  **Implement `OntologyRegistry`**:
+1.  **Implement `KnowledgeRegistry`**:
     *   Add `udc` crate (or lightweight parser module).
     *   Implement `parse(code: &str) -> Result<UdcPath>`.
     *   Implement `distance(a: &UdcPath, b: &UdcPath) -> f32`.
-    *   Implement `SemanticIndex` in `OntologyRegistry` (NodeKey map).
+    *   Implement `SemanticIndex` in `KnowledgeRegistry` (NodeKey map).
     *   **Load UDC Dataset**: Embed a lightweight JSON/CSV of UDC codes and labels.
 2.  **Tag Input Inference**:
-    *   Integrate `nucleo` fuzzy search in `OntologyRegistry::search(query)`.
+    *   Integrate `nucleo` fuzzy search in `KnowledgeRegistry::search(query)`.
     *   Update Tag Assignment UI (`T` key) to call `search` and display UDC matches alongside existing tags.
     *   Selecting a UDC match applies the `udc:<code>` tag.
-    *   Implement reconciliation logic in `desktop/registries/ontology.rs` and wire into `gui.rs`.
+    *   Implement reconciliation logic in `desktop/registries/knowledge.rs` and wire into `gui.rs`.
 
 ### Phase 2: Semantic Physics
 **Goal**: Graph layout reflects semantic similarity.

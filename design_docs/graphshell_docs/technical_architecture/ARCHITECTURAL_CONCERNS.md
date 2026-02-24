@@ -74,12 +74,12 @@ The architectural documents do not specify how the application should behave whe
 
 ---
 
-## 8. Monolithic UI Component
+## 8. Monolithic UI Component (Improving)
 
-The primary UI component remains large and may have too many responsibilities, despite recent refactoring.
+The primary UI components have been reduced through recent decomposition but some remain moderately large.
 
-- **Concern**: `desktop/gui.rs` is ~1,741 lines (as of Feb 21), still above the ~800-1000 guideline noted in `DEVELOPER_GUIDE.md` and `CODEBASE_MAP.md`.
-- **Impact**: Large, monolithic components are difficult to understand, maintain, and test. This file's size suggests it may be a "god object" for the UI layer, and further decomposition might be necessary to improve the health of the UI architecture.
-
-
+- **Original Concern**: `desktop/gui.rs` was ~1,741 lines (as of Feb 21), well above the ~800-1000 guideline.
+- **Current State**: `desktop/gui.rs` now ~1.2k lines; `desktop/toolbar_ui.rs` decomposed from ~2.7k to ~0.4k coordinator + 7 focused submodules (as of Feb 23, 2026).
+- **Remaining**: `app.rs` (~6.0k), `render/mod.rs` (~3.4k) are still candidates for Stage 4+ decomposition.
+- **Impact**: Recent refactoring has significantly improved UI layer modularity. Continued incremental decomposition is planned but no longer blocking.
 

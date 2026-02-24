@@ -94,7 +94,8 @@ badges are hidden first:
 5. `Unread` — `#unread` tag present; rendered as a colored dot (distinct from icon chips).
 6. Other system tags (`#focus`, `#monitor`, `#private`, `#archive`, `#resident`, `#nohistory`) —
    rendered as `Tag` chips using their default emoji; ordered by tag insertion order.
-7. User-defined tags — ordered by insertion order.
+7. UDC Semantic tags (`udc:51`) — rendered as label chips (e.g. "51 Mathematics") or codes.
+8. User-defined tags — ordered by insertion order.
 
 `#archive` is a special case: the badge renders but the node itself is visually dimmed (reduced
 opacity in graph view). `#unread` is auto-managed by the system and is the only badge the user

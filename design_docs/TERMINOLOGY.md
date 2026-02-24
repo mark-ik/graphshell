@@ -1,27 +1,75 @@
 # Graphshell Terminology
 
 **Status**: Living Document
-**Goal**: Define canonical terms for the project to ensure consistency across code, documentation, and UI.
+**Goal**: Define canonical terms for the project to ensure consistency across code, documentation, and UI. Terms must reflect actual architectural structures, not just semantic convenience.
 
 ## Core Identity
 
-*   **Graphshell**: The product name. A local-first, spatial web browser.
+*   **Graphshell**: The product name. A local-first, spatial browser combining a tile-tree and a file-tree.
 *   **Spatial Graph Browser**: The user-facing description of the interface. It emphasizes the force-directed graph and tiling window manager.
 *   **Knowledge User Agent**: The architectural philosophy. Unlike a passive "User Agent" that just renders what servers send, Graphshell actively crawls, indexes, cleans, and stores data on the user's behalf.
 *   **Verse**: The optional decentralized, peer-to-peer network component for sharing graph data.
-*   **Verso**: The internal user agent component (the engine wrapper around Servo/Wry). An homage.
+*   **Verso**: A native mod and user agent component packaging Servo/Wry web rendering. An homage.
+
+## Tile Tree Architecture
+
+The layout system is built on `egui_tiles`. Every visible surface is a node in a recursive **Tile Tree**.
+
+### Primitives
+
+*   **Tile**: The fundamental node in the layout tree. Either a **Pane** (leaf) or a **Container** (branch). Identified by a `TileId` (opaque `u64`, unique within one tree). Code: `egui_tiles::Tile<TileKind>`.
+*   **Pane**: A leaf Tile that renders content. The payload is a `TileKind` enum:
+    *   `TileKind::Graph(GraphViewId)` — a force-directed graph canvas.
+    *   `TileKind::WebView(NodeKey)` — a webview bound to a graph node.
+    *   `TileKind::Diagnostic` — a system diagnostic inspector (feature-gated).
+*   **Container**: A branch Tile that holds and arranges child Tiles. Three structural types exist:
+
+    | Container type | egui_tiles type | Children visible | Resizable | Layout direction |
+    |---|---|---|---|---|
+    | **Tab Group** | `Container::Tabs` | One at a time (active tab) | No | Tab bar selects active child |
+    | **Split** | `Container::Linear` | All simultaneously | Yes, via drag handles | `Horizontal` (left↔right) or `Vertical` (top↔bottom) |
+    | **Grid** | `Container::Grid` | All simultaneously | Yes, rows & columns | 2D, auto or fixed column count |
+
+*   **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Every Pane is always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs.
+*   **Split**: A container that arranges children side-by-side (`Horizontal`) or stacked (`Vertical`) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal) or `Split ↕` (vertical) in tab strips.
+*   **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
+*   **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.
+
+### Composition Rules
+
+*   **Arbitrary nesting**: Containers can hold other Containers to any depth. A Tab Group can contain Splits, which contain Tab Groups, which contain more Splits, etc.
+*   **Cross-direction nesting preserved**: A `Horizontal` Split inside a `Vertical` Split (or vice versa) is never collapsed — this is how complex layouts form.
+*   **Same-direction merging**: A `Horizontal` Split nested directly inside another `Horizontal` Split is automatically absorbed (children promoted, shares recalculated). Controlled by `join_nested_linear_containers: true`.
+*   **Simplification**: The tree is simplified every frame. Empty containers are pruned, single-child containers are collapsed (except Tab Groups wrapping a lone Pane, which are kept for the tab strip). Controlled by `SimplificationOptions`.
+
+### Composite Structures
+
+*   **Tile Tree**: The complete recursive structure of Tiles forming the layout. Backed by a flat `Tiles<TileKind>` hashmap keyed by `TileId`, plus a root `TileId`. Code: `egui_tiles::Tree<TileKind>`, stored as `Gui::tiles_tree`.
+*   **Workbench**: The top-level application surface: the Tile Tree (`Tree<TileKind>`) plus window chrome (toolbar, status bar, toasts). The Workbench owns the tree and drives the render loop. In code, this corresponds to `Gui` and its `tiles_tree` field.
+*   **Workspace**: A persistable snapshot of a Workbench layout plus its content manifest. Serialized as `PersistedWorkspace`, which contains:
+    *   `WorkspaceLayout` — the `Tree<PersistedPaneTile>` shape
+    *   `WorkspaceManifest` — the pane-to-content mapping and member node UUIDs
+    *   `WorkspaceMetadata` — timestamps for creation, update, last activation
+    A Workspace is the unit of save/restore ("Project Context").
+
+### Pane Types
+
+*   **Graph View**: A Pane (`TileKind::Graph`) containing a force-directed canvas visualization powered by `egui_graphs`. Renders the `Graph` data model with physics simulation, node selection, and camera controls.
+*   **Diagnostic Inspector**: A Pane (`TileKind::Diagnostic`, feature-gated) for visualizing system internals (Engine, Compositor, Intents).
 
 ## Interface Components
 
-*   **Workbench**: The top-level container (IDE Window) that manages the tile-tree, layout of panes and workspaces.
-*   **Workspace**: A persistable arrangement of panes where web content is rendered, within the tile-tree managed by the Workbench (a "Project Context").
-*   **Pane**: A single tile in the Workbench (e.g., a Graph View, a Webview, a Diagnostic panel).
-*   **Graph View**: A pane containing a force-directed canvas visualization.
-*   **Diagnostic Inspector**: A specialized pane for visualizing system internals (Engine, Compositor, Intents).
+*   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
 *   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*.
 *   **Command Palette**: A modifiable context menu that serves as an accessible interface for executing Actions.
-*   **The Register**: The central system component that contains all Atomic and Domain registries, manages the inter-registry Signal Bus, and exposes configuration logic (Control Panel).
+*   **The Register**: The central runtime infrastructure host. Contains all Atomic and Domain registries, owns the mod loader, manages the inter-registry Signal Bus, and supervises the **Control Panel** (async intent producers, background workers, cancellation tokens). Code-level: `RegistryRuntime` + `ControlPanel` + `SignalBus`.
+*   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View. Stored separately from the Tile Tree as it is per-view runtime state, not a layout concern.
 
+## Camera Commands
+
+*   **Camera Fit**: Fits the viewport to the bounding box of all nodes with a relaxed zoom factor. Triggered by `C` key or on startup with an existing graph.
+*   **Focus Selection**: Fits the viewport to the bounding box of the selected nodes with tighter padding. Triggered by `Z` key when 2+ nodes are selected.
+*   **Wheel Zoom**: Zoom in/out via mouse wheel, trackpad two-finger scroll, or smooth-scroll delta. Pointer-relative (zooms toward cursor position). Configurable via `scroll_zoom_requires_ctrl` setting.
 
 ## Data Model
 
@@ -33,8 +81,8 @@
 *   **Traversal**: A temporal record of a navigation event (timestamp, trigger) stored on an Edge.
 *   **Edge Traversal History**: The aggregate of all Traversal records, forming the complete navigation history of the graph. Replaces linear global history.
 *   **Intent**: A data payload (`GraphIntent`) describing a desired state change. The fundamental unit of mutation in the system.
-*   **Session**: A period of application activity, persisted via a specific write-ahead log (WAL).
-*   **Tag**: A user-applied string attribute on a Node (e.g., `#starred`, `#pin`) used for organization and system behavior.
+*   **Session**: A period of application activity, persisted via a specific write-ahead log (WAL). A temporal/persistence concept only — not to be confused with WorkbenchProfile.
+*   **Tag**: A user-applied string attribute on a Node (e.g., `#starred`, `#pin`, `udc:51`) used for organization and system behavior.
 
 ## Visual System
 
@@ -48,12 +96,39 @@
 
 ## Registry Architecture
 
-*   **Atomic Registry (Primitive)**: A registry that manages specific, isolated resources or algorithms. The "Vocabulary".
-    *   *List*: `ProtocolRegistry`, `IndexRegistry`, `ViewerRegistry`, `LayoutRegistry`, `ThemeRegistry`, `PhysicsRegistry`, `ActionRegistry`, `IdentityRegistry`, `ModRegistry`, `OntologyRegistry`, `AgentRegistry`.
-*   **Domain Registry (Composite)**: A registry that combines primitives to define a user experience context. The "Sentences".
-    *   *Examples*: `LensRegistry`, `InputRegistry`, `VerseRegistry`.
+*   **The Register**: The root runtime infrastructure host. Owns both Atomic and Domain registries, the mod loader, the inter-registry Signal Bus, and the **Control Panel** (async worker supervision, intent queue, cancellation tokens). Code-level: `RegistryRuntime` + `ControlPanel` + `SignalBus`.
+*   **Atomic Registry (Primitive)**: A registry that manages a specific capability contract. The "Vocabulary". Registries define contracts (empty surfaces with fallback defaults); mods populate them with implementations.
+    *   *I/O & Routing*: `ProtocolRegistry`, `ViewerRegistry`, `IndexRegistry`.
+    *   *Logic*: `ActionRegistry` (discrete deterministic commands), `AgentRegistry` (autonomous cognitive agents that observe app state, connect to AI intelligence providers, and emit intent streams).
+    *   *Security*: `IdentityRegistry`.
+    *   *Knowledge*: `KnowledgeRegistry` (UDC tagging, semantic distance, validation — the genuine ontology).
+    *   *Infrastructure*: `DiagnosticsRegistry`, `ModRegistry`, `LayoutRegistry` (atomic algorithm store: maps `LayoutId → Algorithm`; used by `CanvasRegistry` to resolve the active layout algorithm).
+*   **Domain Registry (Composite / Subregister)**: A subregister that groups related primitives by semantic concern and evaluation order.
+    *   *Primary domains*: `LayoutDomainRegistry`, `PresentationDomainRegistry`, `InputRegistry`.
+*   **Layout Domain**: The domain responsible for how information is arranged and interacted with before styling. Each registry controls structure, interaction policy, and rendering policy for its territory.
+    *   `LayoutDomainRegistry` (domain coordinator)
+    *   `CanvasRegistry` (graph canvas: topology policy, layout algorithms, interaction/rendering policy, physics engine execution, badge display — the infinite, spatial, physics-driven graph surface)
+    *   `WorkbenchSurfaceRegistry` (tile-tree structure, drag/drop, container labels, resize constraints)
+    *   `ViewerSurfaceRegistry` (document viewport: zoom/scaling, reader mode, scroll policy)
+*   **Presentation Domain**: The domain responsible for appearance and motion semantics after layout.
+    *   `PresentationDomainRegistry` (domain coordinator)
+    *   `ThemeRegistry` (visual token/style resolution: colors, strokes, fonts)
+    *   `PhysicsProfileRegistry` (named parameter presets: Liquid/Gas/Solid as semantic labels over force params)
+*   **Cross-Domain Compositor**:
+    *   `LensCompositor` (composes Layout + Presentation + Knowledge + Filters; enforces domain sequencing during resolution)
+*   **Domain sequencing principle**: Resolve layout first (structure + interaction), then presentation (style + motion parameters).
+*   **Semantic gap principle**: On each architecture change, ask: "Is there a semantic gap that maps cleanly to technical, architectural, or design concerns and should become an explicit registry/domain boundary?"
+*   **Mod-first principle**: Registries define contracts. Mods populate them. The application must be fully functional as an offline graph organizer with only core seeds (no mods loaded).
 *   **Action**: An executable command defined in the `ActionRegistry`.
-*   **Mod**: A WASM-based extension unit that registers new capabilities.
+*   **Mod**: A capability unit that registers entries into one or more registries. Two tiers:
+    *   **Native Mod**: Compiled into the binary, registered at startup via `inventory::submit!`. Not sandboxed. Used for first-party capabilities (Verso, Verse, default themes).
+    *   **WASM Mod**: Dynamically loaded at runtime via `extism`. Sandboxed, capability-restricted. Used for third-party extensions.
+    Both tiers use the same `ModManifest` format declaring `provides` and `requires`.
+*   **Core Seed**: The minimal registry population that ships without any mods, making the app functional as an offline document organizer (graph manipulation, local files, plaintext/metadata viewers, search, persistence).
+*   **Verso**: A native mod packaging Servo/Wry web rendering. Provides `viewer:webview`, `protocol:http`, `protocol:https`. Without Verso, nodes display as metadata cards.
+*   **Verse**: A native mod packaging P2P networking. Provides IPFS/ActivityPub protocols, federated search, DID identity. Without Verse, the app is fully offline.
+*   **WorkbenchProfile**: The Workbench + Input configuration component of a Workflow. Captures active tile-tree layout policy, interaction bindings, and container behavior. Combined with a Lens to produce a full Workflow.
+*   **Workflow**: The full active session mode. `Workflow = Lens × WorkbenchProfile`. A Lens defines how the graph looks and moves; a WorkbenchProfile defines how the Workbench and input are configured. Managed by `WorkflowRegistry` (future).
 
 ## Network & Sync (Verse)
 
@@ -66,6 +141,11 @@
 
 *   *Context Menu*: Replaced by **Command Palette** (context-aware).
 *   *EdgeType*: Replaced by **EdgePayload** (containing Traversals).
+*   *Navigation History Panel / Traversal History Panel*: Replaced by **History Manager** as the single history UI surface.
 *   *View Enum*: Replaced by **Workbench** tile state.
 *   *Servoshell*: The upstream project Graphshell forked from.
-```
+*   *OntologyDomainRegistry / OntologyRegistry*: Renamed to **KnowledgeRegistry** (atomic). The UDC system is `KnowledgeRegistry`; `PresentationDomainRegistry` is the separate domain coordinator for appearance/motion.
+*   *VerseRegistry*: Removed as a domain registry. Verse is a native mod that registers into atomic registries.
+*   *GraphLayoutRegistry / WorkbenchLayoutRegistry / ViewerLayoutRegistry*: Renamed to `CanvasRegistry` / `WorkbenchSurfaceRegistry` / `ViewerSurfaceRegistry` to signal that scope includes structure + interaction + rendering policy, not just positioning.
+*   *GraphSurfaceRegistry*: Renamed to **CanvasRegistry**. The graph view is an infinite, spatial, physics-driven canvas — semantically distinct from the bounded Workbench and Viewer surfaces.
+*   *Session* (in Workflow/registry context): Replaced by **WorkbenchProfile**. Session remains valid only as the WAL-backed temporal activity period.

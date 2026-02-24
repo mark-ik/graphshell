@@ -47,7 +47,7 @@ architecture and reduce migration risk.
 Implementation status:
 
 - **Stages 0-D are complete**
-- Active stage: **Stage D complete, ready for Stage E**
+- Active stage: **Stage E in progress**
 - Completed stages: **Stage 0 (Design Lock), Stage A (Data Model), Stage B (WAL Integration), Stage C (Rendering), Stage D (History Panel PoC)**
 
 ### Stage D completion summary (2026-02-22):
@@ -83,6 +83,19 @@ Delivered (storage foundation slice):
 
 Notes:
 - This is an infrastructure kickoff only; transfer ordering, archival passes, and History Manager UI tabs remain in Stage E remaining scope.
+
+### Stage E update (2026-02-23):
+
+Delivered (UI consolidation slice):
+1. Added `History Manager` panel with `Timeline` and `Dissolved` tabs.
+2. Added archive-backed query helpers for recent timeline and dissolved entries.
+3. Added panel open/toggle affordances (shortcut + settings menu entry).
+4. Retired the legacy standalone `Navigation History` panel render path.
+5. Consolidated history UX to one canonical surface (`History Manager`).
+
+Notes:
+- Legacy `Traversal History` panel state/render path has been removed from runtime UI flow.
+- Stage D PoC remains documented as historical context, but is no longer an active runtime surface.
 
 Update this section when Stage E work begins.
 
@@ -493,9 +506,9 @@ Key ordering contracts:
 Representative tasks:
 
 - [x] Add `traversal_archive` keyspace and archival pass (kickoff storage API in place)
-- [ ] Add recovery scan for archived traversal counts (snapshot-absent path)
-- [ ] Implement dissolution transfer on edge/node removal
-- [ ] Add History Manager UI tabs (Timeline, Dissolved)
+- [x] Add recovery scan for archived traversal counts (snapshot-absent path)
+- [x] Implement dissolution transfer on edge/node removal
+- [x] Add History Manager UI tabs (Timeline, Dissolved)
 - [ ] Add delete, auto-curation, export
 
 Representative validation:

@@ -2,8 +2,8 @@
 
 **Document Type**: Feature-driven implementation plan
 **Organization**: By feature targets with validation tests (not calendar time)
-**Last Updated**: February 19, 2026
-**Priority Focus**: M1 complete (FT1-6); F1-F7 architectural features complete; M2 active: workspace routing/membership, graph UX polish, edge/radial follow-on
+**Last Updated**: February 23, 2026
+**Priority Focus**: M1 complete (FT1-6); M2 active: Registry Migration, History Manager, Embedder Decomposition, UDC Tagging, Control Panel
 
 **Policy Note (2026-02-14)**: Graphshell has no production users and no legacy dataset obligations. Do not add backward-compat contingency branches unless explicitly requested.
 
@@ -22,10 +22,20 @@
 - [x] Servo webview integration (create/destroy, navigation tracking, edge creation)
 - [x] Graph persistence (fjall log + redb snapshots + rkyv serialization)
 - [x] Camera fit-to-screen (C key, egui_graphs `fit_to_screen`)
+- [x] Workspace routing and membership (manifest-based persistence, UUID identity)
+- [x] History Manager UI (Timeline + Dissolved tabs)
+
+**Registry Naming (2026-02-23)**:
+
+- `OntologyRegistry` → `KnowledgeRegistry` (renamed in code and docs)
+- `GraphSurfaceRegistry` → `CanvasRegistry` (renamed in docs)
+- `Session` (workflow context) → `WorkbenchProfile` (renamed in docs)
+- Control Panel implemented: `desktop/control_panel.rs` — `ControlPanel` struct, `QueuedIntent`, `IntentSource`, memory monitor worker, CP1 done gates satisfied
 
 **Current Gaps**:
 
-- [ ] Selection-state hardening follow-up: keep reducer-driven behavior and explicit selection metadata stable
+- [ ] Registry Migration Phase 2 (Protocols & Viewers) to unblock Settings Architecture
+- [ ] Control Panel Phase CP2: mod loader worker + mod lifecycle intents
 
 **Status**: Core browsing, tiled webviews, persistence, thumbnail rendering, and graph search/filter are production-functional.
 
@@ -58,7 +68,7 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 **Goal**: Users can browse real websites, and each page becomes a node in the graph.
 
-**Implementation** (in `desktop/gui.rs`, ~1741 lines):
+**Implementation** (in `desktop/gui.rs`, ~1239 lines):
 
 - Full webview lifecycle: create/destroy webviews based on view state
 - Graph view: destroy all webviews (prevent framebuffer bleed-through), save node list for restoration
@@ -389,6 +399,7 @@ These five features enable the core MVP: **users can browse real websites in a s
 | Serialization | **rkyv** 0.8 | ✅ Zero-copy, used by both fjall and redb |
 
 | Search (fuzzy) | **nucleo** | ✅ Integrated for graph search/filter (FT6) |
+| Async worker supervision | **tokio-util** | ✅ `ControlPanel` CP1 — `CancellationToken` + `JoinSet` |
 
 **Planned (Not Yet Integrated)**:
 
@@ -458,5 +469,3 @@ These five features enable the core MVP: **users can browse real websites in a s
 - **Project Vision**: `PROJECT_DESCRIPTION.md`
 - **Architecture**: `ARCHITECTURAL_OVERVIEW.md`
 - **Code**: `ports/graphshell/` (~4,500 LOC in core modules)
-
-
