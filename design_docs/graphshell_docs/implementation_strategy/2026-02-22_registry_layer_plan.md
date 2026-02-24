@@ -99,7 +99,7 @@ These manage specific, isolated resources or algorithms. Mods can extend these d
 
 **Persistence & I/O**
 *   **Protocol Registry**:
-    *   **Role**: Maps URL schemes (`ipfs://`, `file://`) to handlers. **(The Persistence Layer)**. Core seeds: `file://`, `about:`. Verso mod adds `http://`, `https://`, `data:`. Verse mod adds `ipfs://`, `activitypub://`.
+    *   **Role**: Maps URL schemes (`ipfs://`, `file://`) to handlers. **(The Persistence Layer)**. Core seeds: `file://`, `about:`. Verso mod adds `http://`, `https://`, `data:`. Verse Tier 2 (future) adds `ipfs://`, `activitypub://` for community swarms.
     *   **Interface**: `resolve(uri) -> Result<ContentStream>`
 *   **Index Registry**:
     *   **Role**: Search backends (Local, Federated) and **History/Timeline** retrieval.
@@ -175,7 +175,7 @@ These combine primitives to define a user experience context. **Domain sequencin
     *   **Semantic**: `Workflow = Lens × WorkbenchProfile` where WorkbenchProfile = Workbench + Input configuration.
     *   **Registry**: `WorkflowRegistry`
 
-**Note**: Verse is **not** a domain registry. P2P networking, federated identity, and distributed indexing are packaged as the **Verse native mod** which registers into atomic registries (Protocol, Index, Identity, Action) on load. See Phase 5.
+**Note**: Verse is **not** a domain registry. P2P networking, federated identity, and distributed indexing are packaged as the **Verse native mod** which registers into atomic registries (Protocol, Index, Identity, Action) on load. Phase 5 implements Tier 1 (bilateral sync via iroh); Tier 2 (community swarms, libp2p, public protocols) is future research — see Phase 5 header for details.
 
 ---
 
@@ -185,7 +185,7 @@ The application must be fully functional as an offline graph organizer **without
 
 | Registry | Core Seed (no mods) | Verso Mod Adds | Verse Mod Adds |
 |---|---|---|---|
-| ProtocolRegistry | `file://`, `about:` | `http://`, `https://`, `data:` | `ipfs://`, `activitypub://` |
+| ProtocolRegistry | `file://`, `about:` | `http://`, `https://`, `data:` | (Tier 2 future: `ipfs://`, `activitypub://`) |
 | ViewerRegistry | `viewer:plaintext`, `viewer:metadata` | `viewer:webview` (Servo) | — |
 | ActionRegistry | `graph.*`, `view.*`, `workspace.*` | `navigation.*`, `webview.*` | `verse.share`, `verse.sync` |
 | InputRegistry | Graph/workspace keybindings | Browser-style keybindings | — |
@@ -476,13 +476,23 @@ This phase encompasses what was originally planned as separate phases but was ex
 
 ---
 
-### Phase 5: Verse Native Mod (P2P Capabilities)
+### Phase 5: Verse Native Mod (Tier 1: Direct P2P Sync)
 
-**Goal**: Package P2P networking as the Verse native mod (Tier 1: Direct Sync). See `verse_docs/2026-02-22_verse_implementation_strategy.md` for the full technical design covering identity, transport, sync protocol, UX, and security.
+**Goal**: Package direct P2P networking as the Verse native mod. Implements bilateral, zero-cost sync between trusted devices via iroh (QUIC + Noise). No tokens, no servers, no Tier 2 complexity.
 
-**Scope Note**: Phase 5 implements **Tier 1 (Direct Sync)** only — zero-cost, server-less P2P sync between trusted devices. Tier 2 (tokenized brokered economy, `ipfs://`, `activitypub://`) is deferred to a future milestone after Tier 1 is validated.
+**Technical Reference**: See [`verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md`](../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) for complete specifications covering:
+- Identity model (Ed25519, OS keychain, trust store)
+- Transport (iroh, NAT traversal, connection model)
+- Sync protocol (SyncUnit wire format, version vectors, conflict resolution)
+- SyncWorker control plane integration
+- UX designs (Sync Panel, pairing flows, conflict UI)
+- Security (Noise auth, AES-256-GCM at-rest encryption)
+
+**Tier 1 vs Tier 2**: This phase implements **Tier 1 only** (implementation-ready, bilateral sync). Tier 2 (libp2p community swarms, VerseBlob content addressing, Proof of Access economics, federated search) is documented separately in [`verse_docs/2026-02-23_verse_tier2_architecture.md`](../../verse_docs/2026-02-23_verse_tier2_architecture.md) as long-horizon research — not a Phase 5 dependency. Tier 2 validation begins Q3 2026 after Tier 1 is proven in production.
 
 #### Step 5.1: iroh Scaffold & Identity Bootstrap
+
+**Spec Reference**: Tier 1 plan §9.1 (iroh Scaffold & Identity Bootstrap), §2 (Identity & Pairing), §3 (Transport: iroh)
 
 - Add `iroh`, `keyring`, `qrcode` dependencies.
 - Define `VerseMod` with `ModManifest` via `inventory::submit!`:
@@ -496,6 +506,8 @@ This phase encompasses what was originally planned as separate phases but was ex
 
 #### Step 5.2: TrustedPeer Store & IdentityRegistry Extension
 
+**Spec Reference**: Tier 1 plan §9.2 (TrustedPeer Store & IdentityRegistry Extension), §2.2–2.3 (IdentityRegistry Extension, Trust Store), §7.2 (At-Rest Sync Cache)
+
 - Extend `IdentityRegistry` with `P2PIdentityExt` trait: `p2p_node_id`, `sign_sync_payload`, `verify_peer_signature`, `get_trusted_peers`, `trust_peer`, `revoke_peer`.
 - Implement `TrustedPeer` model (`PeerRole::Self_` | `PeerRole::Friend`, `WorkspaceGrant`).
 - Persist trust store in `user_registries.json` under `verse.trusted_peers`.
@@ -505,6 +517,8 @@ This phase encompasses what was originally planned as separate phases but was ex
 
 #### Step 5.3: Pairing Ceremony & Settings UI
 
+**Spec Reference**: Tier 1 plan §9.3 (Pairing Ceremony & Settings UI), §2.4 (Pairing Flows), §6.2–6.3 (Sync Panel, Pairing Flow UX)
+
 - Implement `verse.pair_device` action (initiator path): encode `NodeAddr` as 6-word phrase + QR data; show in dialog with 5-minute expiry.
 - Implement `verse.pair_device` receiver path: decode code → connect via iroh → show fingerprint confirm → name device → workspace grant dialog.
 - Implement mDNS advertisement (`_graphshell-sync._udp.local`) and discovery for local network pairing.
@@ -513,6 +527,8 @@ This phase encompasses what was originally planned as separate phases but was ex
 - **Done gate**: Two desktop instances on the same machine pair via printed 6-word code. Both show each other in Sync Panel device list. mDNS discovery shows peer on same LAN.
 
 #### Step 5.4: Delta Sync (Core)
+
+**Spec Reference**: Tier 1 plan §9.4 (Delta Sync), §4 (Sync Protocol), §5 (SyncWorker), §6.5 (Conflict Resolution UI)
 
 - Implement `SyncWorker` as ControlPanel-supervised tokio task (accept loop + `mpsc::Receiver<SyncCommand>`).
 - Implement `VersionVector` (per-peer sequence clocks, merge, dominates, increment).
@@ -527,6 +543,8 @@ This phase encompasses what was originally planned as separate phases but was ex
 - **Done gate**: Create a node on instance A → appears on instance B within 5 seconds. Concurrent title rename → LWW resolves without crash. Harness scenario `verse_delta_sync_basic` passes.
 
 #### Step 5.5: Workspace Access Control
+
+**Spec Reference**: Tier 1 plan §9.5 (Workspace Access Control), §2.3 (Trust Store with WorkspaceGrant), §6.4 (Workspace Sharing Context Menu), §7.3 (Trust Boundary)
 
 - Enforce `WorkspaceGrant` on inbound sync: reject `SyncUnit` for non-granted workspaces → `verse.sync.access_denied` diagnostic.
 - Enforce read-only grants: incoming mutating intents from `ReadOnly` peers are rejected.
@@ -693,7 +711,7 @@ Both use the same `CanvasRegistry` contract — different configurations produce
 Agents are autonomous cognitive processes distinct from Actions. While Actions are discrete deterministic command handlers that return `Vec<GraphIntent>`, Agents are persistent observers that may connect to external AI intelligence providers (LLMs, classifiers, embedding models) and emit intent streams over time based on app state changes or timers. Managed through `AgentRegistry`: definitions include an observe trigger, an optional intelligence provider binding, and an intent emitter. Scheduling (timer-based agents like a prefetch scheduler) is a subset of this — the `AgentRegistry` is the registration surface for all such autonomous cognitive processes, from simple background tasks to full AI-driven graph analysis (Personal Crawler, automated UDC classification, semantic clustering suggestions).
 
 ### Storage Abstraction
-The `ProtocolRegistry` effectively abstracts storage. Saving a workspace to `ipfs://...` is handled by the IPFS protocol handler (Verse mod), just as reading `https://...` is handled by the HTTP handler (Verso mod). Core seeds provide `file://` and `about:` for offline operation.
+The `ProtocolRegistry` effectively abstracts storage. In the future, Verse Tier 2 could enable saving a workspace to `ipfs://...` via an IPFS protocol handler, just as reading `https://...` is handled by the HTTP handler (Verso mod). Core seeds provide `file://` and `about:` for offline operation. Phase 5 (Verse Tier 1) focuses on bilateral sync between trusted devices, not content-addressed storage protocols.
 
 ---
 
