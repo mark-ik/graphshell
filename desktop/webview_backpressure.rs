@@ -13,7 +13,10 @@ use url::Url;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeBlockReason};
 use crate::desktop::lifecycle_intents;
+use crate::desktop::diagnostics::{DiagnosticEvent, emit_event};
+use crate::desktop::registries::CHANNEL_MOD_LOAD_FAILED;
 use crate::graph::{NodeKey, NodeLifecycle};
+use crate::registries::infrastructure::mod_loader;
 use crate::running_app_state::RunningAppState;
 use crate::window::EmbedderWindow;
 
@@ -122,6 +125,14 @@ pub(crate) fn ensure_webview_for_node(
         return;
     }
     let node_url = cold_restore_url_for_node(node);
+
+    if !mod_loader::runtime_has_capability("viewer:webview") {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_MOD_LOAD_FAILED,
+            byte_len: node_url.len(),
+        });
+        return;
+    }
 
     if let Some(existing_webview_id) = graph_app.get_webview_for_node(node_key) {
         if window.contains_webview(existing_webview_id) {

@@ -5,3 +5,4 @@ mod persistence;
 mod registries;
 mod routing;
 mod tags;
+mod undo_redo;

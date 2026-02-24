@@ -7,6 +7,7 @@
 mod accelerated_gl_media;
 pub(crate) mod app;
 pub(crate) mod cli;
+pub(crate) mod control_panel;
 pub(crate) mod dialog;
 mod dialog_panels;
 #[cfg(feature = "diagnostics")]

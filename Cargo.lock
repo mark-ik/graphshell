@@ -3700,8 +3700,10 @@ dependencies = [
  "headers 0.4.1",
  "hilog",
  "hitrace",
+ "http 1.4.0",
  "image",
  "insta",
+ "inventory",
  "ipc-channel",
  "jni",
  "keyboard-types",
@@ -3741,7 +3743,9 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
+ "tower",
  "tracing",
  "tracing-perfetto",
  "tracing-subscriber",
@@ -5248,6 +5252,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11274e5e8e89b8607cfedc2910b6626e998779b48a019151c7604d0adcb86ac6"
 dependencies = [
  "compare",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009ae045c87e7082cb72dab0ccd01ae075dd00141ddc108f43a0ea150a9e7227"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]

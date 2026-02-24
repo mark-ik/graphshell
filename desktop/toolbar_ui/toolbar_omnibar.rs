@@ -909,7 +909,7 @@ mod tests {
 
     #[test]
     fn test_parse_provider_suggestion_body_ddg_shape() {
-        let body = r#"[{\"phrase\":\"rust book\"},{\"phrase\":\"rust language\"}]"#;
+        let body = r#"[{"phrase":"rust book"},{"phrase":"rust language"}]"#;
         let suggestions = parse_provider_suggestion_body(body, "rust").expect("parse suggestions");
         assert_eq!(suggestions.first().map(String::as_str), Some("rust"));
         assert!(suggestions.iter().any(|s| s == "rust book"));
@@ -918,7 +918,7 @@ mod tests {
 
     #[test]
     fn test_parse_provider_suggestion_body_osjson_shape() {
-        let body = r#"[\"rust\",[\"rust book\",\"rust language\"],[],[]]"#;
+        let body = r#"["rust",["rust book","rust language"],[],[]]"#;
         let suggestions = parse_provider_suggestion_body(body, "rust").expect("parse suggestions");
         assert_eq!(suggestions.first().map(String::as_str), Some("rust"));
         assert!(suggestions.iter().any(|s| s == "rust book"));

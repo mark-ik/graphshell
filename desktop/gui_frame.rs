@@ -1001,8 +1001,8 @@ pub(crate) fn run_post_render_phase<FActive>(
 
     render::render_physics_panel(ctx, graph_app);
     render::render_help_panel(ctx, graph_app);
-    let traversal_history_intents = render::render_traversal_history_panel(ctx, graph_app);
-    post_render_intents.extend(traversal_history_intents);
+    let history_manager_intents = render::render_history_manager_panel(ctx, graph_app);
+    post_render_intents.extend(history_manager_intents);
     let focused_pane_node = focused_dialog_webview
         .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
         .or_else(|| active_webview_tile_node(tiles_tree));

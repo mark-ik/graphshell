@@ -184,3 +184,45 @@ fn set_node_url_preserves_workspace_membership() {
         ])
     );
 }
+
+#[test]
+fn open_settings_url_history_activates_history_manager_surface() {
+    let mut harness = TestHarness::new();
+    let node = harness.add_node("https://example.com");
+    harness.app.select_node(node, false);
+
+    harness.app.apply_intents([
+        GraphIntent::SetNodeUrl {
+            key: node,
+            new_url: "graphshell://settings/history".to_string(),
+        },
+        GraphIntent::OpenSettingsUrl {
+            url: "graphshell://settings/history".to_string(),
+        },
+    ]);
+
+    assert!(harness.app.show_history_manager);
+    assert!(!harness.app.show_physics_panel);
+    assert!(!harness.app.show_persistence_panel);
+}
+
+#[test]
+fn open_settings_url_physics_activates_physics_surface() {
+    let mut harness = TestHarness::new();
+    let node = harness.add_node("https://example.com");
+    harness.app.select_node(node, false);
+
+    harness.app.apply_intents([
+        GraphIntent::SetNodeUrl {
+            key: node,
+            new_url: "graphshell://settings/physics".to_string(),
+        },
+        GraphIntent::OpenSettingsUrl {
+            url: "graphshell://settings/physics".to_string(),
+        },
+    ]);
+
+    assert!(harness.app.show_physics_panel);
+    assert!(!harness.app.show_history_manager);
+    assert!(!harness.app.show_persistence_panel);
+}

@@ -1,17 +1,14 @@
 pub(crate) mod action;
-pub(crate) mod diagnostics;
 pub(crate) mod identity;
 pub(crate) mod input;
-pub(crate) mod layout;
 pub(crate) mod lens;
 pub(crate) mod physics;
 pub(crate) mod protocol;
-pub(crate) mod ontology;
-pub(crate) mod theme;
-pub(crate) mod viewer;
+pub(crate) mod knowledge;
 
 use super::diagnostics::{DiagnosticEvent, emit_event};
 use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::registries::atomic::diagnostics;
 use action::{
     ACTION_DETAIL_VIEW_SUBMIT, ACTION_GRAPH_VIEW_SUBMIT, ACTION_OMNIBOX_NODE_SEARCH,
     ActionPayload, ActionRegistry,
@@ -19,16 +16,21 @@ use action::{
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
 use input::{InputRegistry, INPUT_BINDING_TOOLBAR_SUBMIT};
-use layout::LayoutRegistry;
+use crate::registries::atomic::layout::LayoutRegistry;
 use lens::LensRegistry;
 use physics::PhysicsRegistry;
 use servo::ServoUrl;
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
 };
-use ontology::OntologyRegistry;
-use theme::ThemeRegistry;
-use viewer::{ViewerRegistry, ViewerSelection};
+use knowledge::KnowledgeRegistry;
+use crate::registries::atomic::theme::ThemeRegistry;
+use crate::registries::atomic::viewer::{ViewerRegistry, ViewerSelection};
+use crate::registries::domain::presentation::PresentationDomainRegistry;
+use crate::registries::domain::layout::viewer_surface::{
+    VIEWER_SURFACE_DEFAULT, ViewerSurfaceResolution,
+};
+use crate::registries::domain::layout::LayoutDomainRegistry;
 
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_STARTED: &str = "registry.protocol.resolve_started";
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED: &str = "registry.protocol.resolve_succeeded";
@@ -65,6 +67,10 @@ pub(crate) const CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED: &str =
 pub(crate) const CHANNEL_DIAGNOSTICS_CONFIG_CHANGED: &str =
     "registry.diagnostics.config_changed";
 pub(crate) const CHANNEL_INVARIANT_TIMEOUT: &str = "registry.invariant.timeout";
+pub(crate) const CHANNEL_MOD_LOAD_STARTED: &str = "registry.mod.load_started";
+pub(crate) const CHANNEL_MOD_LOAD_SUCCEEDED: &str = "registry.mod.load_succeeded";
+pub(crate) const CHANNEL_MOD_LOAD_FAILED: &str = "registry.mod.load_failed";
+pub(crate) const CHANNEL_MOD_DEPENDENCY_MISSING: &str = "registry.mod.dependency_missing";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Phase0NavigationDecision {
@@ -85,7 +91,7 @@ pub(crate) struct RegistryRuntime {
     protocol: ProtocolRegistry,
     theme: ThemeRegistry,
     viewer: ViewerRegistry,
-    pub(crate) ontology: OntologyRegistry,
+    pub(crate) knowledge: KnowledgeRegistry,
 }
 
 pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) -> Option<String> {
@@ -237,7 +243,16 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         });
     }
 
-    let physics_resolution = runtime.physics.resolve(&resolution.definition.physics_id);
+    let presentation_domain = PresentationDomainRegistry::default();
+    let presentation_resolution = presentation_domain.resolve_profile(
+        &resolution.definition.physics_id,
+        resolution
+            .definition
+            .theme_id
+            .as_deref()
+            .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
+    );
+    let physics_resolution = presentation_resolution.physics;
     emit_lookup_diagnostics(
         physics_resolution.matched,
         physics_resolution.fallback_used,
@@ -257,11 +272,7 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         &layout_resolution.resolved_id,
     );
 
-    let theme_resolution = resolution
-        .definition
-        .theme_id
-        .as_deref()
-        .map(|theme_id| runtime.theme.resolve(theme_id));
+    let theme_resolution = Some(presentation_resolution.theme);
     if let Some(theme_resolution) = &theme_resolution {
         emit_lookup_diagnostics(
             theme_resolution.matched,
@@ -293,10 +304,18 @@ pub(crate) fn phase2_resolve_lens_components(lens: &crate::app::LensConfig) -> c
     }
 
     let runtime = RegistryRuntime::default();
+    let presentation_domain = PresentationDomainRegistry::default();
     let mut normalized = lens.clone();
 
     if let Some(physics_id) = lens.physics_id.as_deref() {
-        let physics_resolution = runtime.physics.resolve(physics_id);
+        let physics_resolution = presentation_domain
+            .resolve_profile(
+                physics_id,
+                lens.theme_id
+                    .as_deref()
+                    .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
+            )
+            .physics;
         emit_lookup_diagnostics(
             physics_resolution.matched,
             physics_resolution.fallback_used,
@@ -324,7 +343,14 @@ pub(crate) fn phase2_resolve_lens_components(lens: &crate::app::LensConfig) -> c
     }
 
     if let Some(theme_id) = lens.theme_id.as_deref() {
-        let theme_resolution = runtime.theme.resolve(theme_id);
+        let theme_resolution = presentation_domain
+            .resolve_profile(
+                lens.physics_id
+                    .as_deref()
+                    .unwrap_or(crate::desktop::registries::physics::PHYSICS_ID_DEFAULT),
+                theme_id,
+            )
+            .theme;
         emit_lookup_diagnostics(
             theme_resolution.matched,
             theme_resolution.fallback_used,
@@ -536,7 +562,16 @@ pub(crate) fn phase2_resolve_lens_for_tests(
             .emit_message_sent_for_tests(CHANNEL_LENS_FALLBACK_USED, resolution.resolved_id.len());
     }
 
-    let physics_resolution = runtime.physics.resolve(&resolution.definition.physics_id);
+    let presentation_domain = PresentationDomainRegistry::default();
+    let presentation_resolution = presentation_domain.resolve_profile(
+        &resolution.definition.physics_id,
+        resolution
+            .definition
+            .theme_id
+            .as_deref()
+            .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
+    );
+    let physics_resolution = presentation_resolution.physics;
     emit_lookup_diagnostics_for_tests(
         diagnostics_state,
         physics_resolution.matched,
@@ -558,11 +593,7 @@ pub(crate) fn phase2_resolve_lens_for_tests(
         &layout_resolution.resolved_id,
     );
 
-    let theme_resolution = resolution
-        .definition
-        .theme_id
-        .as_deref()
-        .map(|theme_id| runtime.theme.resolve(theme_id));
+    let theme_resolution = Some(presentation_resolution.theme);
     if let Some(theme_resolution) = &theme_resolution {
         emit_lookup_diagnostics_for_tests(
             diagnostics_state,
@@ -599,10 +630,18 @@ pub(crate) fn phase2_resolve_lens_components_for_tests(
     }
 
     let runtime = RegistryRuntime::default();
+    let presentation_domain = PresentationDomainRegistry::default();
     let mut normalized = lens.clone();
 
     if let Some(physics_id) = lens.physics_id.as_deref() {
-        let physics_resolution = runtime.physics.resolve(physics_id);
+        let physics_resolution = presentation_domain
+            .resolve_profile(
+                physics_id,
+                lens.theme_id
+                    .as_deref()
+                    .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
+            )
+            .physics;
         emit_lookup_diagnostics_for_tests(
             diagnostics_state,
             physics_resolution.matched,
@@ -632,7 +671,14 @@ pub(crate) fn phase2_resolve_lens_components_for_tests(
     }
 
     if let Some(theme_id) = lens.theme_id.as_deref() {
-        let theme_resolution = runtime.theme.resolve(theme_id);
+        let theme_resolution = presentation_domain
+            .resolve_profile(
+                lens.physics_id
+                    .as_deref()
+                    .unwrap_or(crate::desktop::registries::physics::PHYSICS_ID_DEFAULT),
+                theme_id,
+            )
+            .theme;
         emit_lookup_diagnostics_for_tests(
             diagnostics_state,
             theme_resolution.matched,
@@ -807,6 +853,13 @@ pub(crate) fn phase0_decide_navigation_with_control(
         protocol: protocol_resolution,
         viewer: viewer_selection,
     })
+}
+
+pub(crate) fn phase3_resolve_viewer_surface_profile(
+    _viewer_id: &str,
+) -> ViewerSurfaceResolution {
+    let layout_domain = LayoutDomainRegistry::default();
+    layout_domain.viewer_surface().resolve(VIEWER_SURFACE_DEFAULT)
 }
 
 #[cfg(test)]
@@ -1012,6 +1065,14 @@ mod tests {
         assert!(!custom.supported);
         assert!(custom.fallback_used);
         assert_eq!(custom.matched_scheme, "https");
+
+        let graphshell = registry.resolve("graphshell://settings");
+        assert!(graphshell.supported);
+        assert_eq!(graphshell.matched_scheme, "graphshell");
+        assert_eq!(
+            graphshell.inferred_mime_hint.as_deref(),
+            Some("application/x-graphshell-settings")
+        );
     }
 
     #[test]
@@ -1028,6 +1089,10 @@ mod tests {
         let fallback = registry.select_for_uri("https://example.com/archive.unknown", None);
         assert!(fallback.fallback_used);
         assert_eq!(fallback.viewer_id, "viewer:webview");
+
+        let internal = registry.select_for_uri("graphshell://settings/history", None);
+        assert_eq!(internal.viewer_id, "viewer:settings");
+        assert_eq!(internal.matched_by, "internal");
     }
 
     #[test]
@@ -1145,11 +1210,11 @@ mod tests {
         );
         assert_eq!(
             lens.layout_id.as_deref(),
-            Some(crate::desktop::registries::layout::LAYOUT_ID_DEFAULT)
+            Some(crate::registries::atomic::layout::LAYOUT_ID_DEFAULT)
         );
         assert_eq!(
             lens.theme_id.as_deref(),
-            Some(crate::desktop::registries::theme::THEME_ID_DEFAULT)
+            Some(crate::registries::atomic::theme::THEME_ID_DEFAULT)
         );
     }
 
@@ -1175,11 +1240,11 @@ mod tests {
         );
         assert_eq!(
             normalized.layout_id.as_deref(),
-            Some(crate::desktop::registries::layout::LAYOUT_ID_DEFAULT)
+            Some(crate::registries::atomic::layout::LAYOUT_ID_DEFAULT)
         );
         assert_eq!(
             normalized.theme_id.as_deref(),
-            Some(crate::desktop::registries::theme::THEME_ID_DEFAULT)
+            Some(crate::registries::atomic::theme::THEME_ID_DEFAULT)
         );
     }
 
@@ -1323,6 +1388,14 @@ mod tests {
         );
 
         assert!(decision.is_none());
+    }
+
+    #[test]
+    fn phase3_viewer_surface_resolution_returns_default_profile() {
+        let resolution = phase3_resolve_viewer_surface_profile("viewer:webview");
+        assert!(resolution.matched);
+        assert!(!resolution.fallback_used);
+        assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DEFAULT);
     }
 
     #[test]

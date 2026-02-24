@@ -399,6 +399,254 @@ impl GraphStore {
         self.dissolved_archive_keyspace.iter().count()
     }
 
+    /// Clear all traversal archive entries (Timeline tab).
+    pub fn clear_traversal_archive(&mut self) {
+        let keys: Vec<Vec<u8>> = self
+            .traversal_archive_keyspace
+            .iter()
+            .filter_map(|guard| guard.key().ok().map(|k| k.to_vec()))
+            .collect();
+        for key in keys {
+            let _ = self.traversal_archive_keyspace.remove(key);
+        }
+        self.traversal_archive_sequence = 0;
+    }
+
+    /// Clear all dissolved archive entries (Dissolved tab).
+    pub fn clear_dissolved_archive(&mut self) {
+        let keys: Vec<Vec<u8>> = self
+            .dissolved_archive_keyspace
+            .iter()
+            .filter_map(|guard| guard.key().ok().map(|k| k.to_vec()))
+            .collect();
+        for key in keys {
+            let _ = self.dissolved_archive_keyspace.remove(key);
+        }
+        self.dissolved_archive_sequence = 0;
+    }
+
+    /// Export traversal archive entries as human-readable text.
+    pub fn export_traversal_archive(&self) -> Result<String, GraphStoreError> {
+        let entries = self.recent_traversal_archive_entries(usize::MAX);
+        let mut output = String::new();
+        output.push_str(&format!("Traversal Archive ({} entries)\n\n", entries.len()));
+        for (idx, entry) in entries.iter().enumerate() {
+            output.push_str(&format!("{}. {:?}\n", idx + 1, entry));
+        }
+        Ok(output)
+    }
+
+    /// Export dissolved archive entries as human-readable text.
+    pub fn export_dissolved_archive(&self) -> Result<String, GraphStoreError> {
+        let entries = self.recent_dissolved_archive_entries(usize::MAX);
+        let mut output = String::new();
+        output.push_str(&format!("Dissolved Archive ({} entries)\n\n", entries.len()));
+        for (idx, entry) in entries.iter().enumerate() {
+            output.push_str(&format!("{}. {:?}\n", idx + 1, entry));
+        }
+        Ok(output)
+    }
+
+    pub fn recent_traversal_archive_entries(&self, limit: usize) -> Vec<LogEntry> {
+        self.recent_append_traversal_entries(&self.traversal_archive_keyspace, limit)
+    }
+
+    pub fn recent_dissolved_archive_entries(&self, limit: usize) -> Vec<LogEntry> {
+        self.recent_append_traversal_entries(&self.dissolved_archive_keyspace, limit)
+    }
+
+    fn recent_append_traversal_entries(&self, keyspace: &fjall::Keyspace, limit: usize) -> Vec<LogEntry> {
+        use types::ArchivedLogEntry;
+
+        if limit == 0 {
+            return Vec::new();
+        }
+
+        let mut rows: Vec<(u64, LogEntry)> = Vec::new();
+        for guard in keyspace.iter() {
+            let (key, value) = match guard.into_inner() {
+                Ok(kv) => kv,
+                Err(_) => continue,
+            };
+
+            let decoded = match self.decode_persisted_bytes(value.as_ref()) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+
+            let archived = match rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&decoded) {
+                Ok(entry) => entry,
+                Err(_) => continue,
+            };
+
+            let ArchivedLogEntry::AppendTraversal {
+                from_node_id,
+                to_node_id,
+                timestamp_ms,
+                trigger,
+            } = archived
+            else {
+                continue;
+            };
+
+            let mut seq_bytes = [0u8; 8];
+            let seq = if key.as_ref().len() == 8 {
+                seq_bytes.copy_from_slice(key.as_ref());
+                u64::from_be_bytes(seq_bytes)
+            } else {
+                0
+            };
+
+            let persisted_trigger = match trigger {
+                types::ArchivedPersistedNavigationTrigger::Unknown => {
+                    types::PersistedNavigationTrigger::Unknown
+                }
+                types::ArchivedPersistedNavigationTrigger::Back => {
+                    types::PersistedNavigationTrigger::Back
+                }
+                types::ArchivedPersistedNavigationTrigger::Forward => {
+                    types::PersistedNavigationTrigger::Forward
+                }
+            };
+
+            rows.push((
+                seq,
+                LogEntry::AppendTraversal {
+                    from_node_id: from_node_id.as_str().to_string(),
+                    to_node_id: to_node_id.as_str().to_string(),
+                    timestamp_ms: (*timestamp_ms).into(),
+                    trigger: persisted_trigger,
+                },
+            ));
+        }
+
+        rows.sort_by(|a, b| b.0.cmp(&a.0));
+        rows.truncate(limit);
+        rows.into_iter().map(|(_, entry)| entry).collect()
+    }
+
+    /// Stage E: Remove edges with dissolution transfer.
+    /// Archives traversals to dissolved_archive before removing edges from graph.
+    pub fn dissolve_and_remove_edges(
+        &mut self,
+        graph: &mut crate::graph::Graph,
+        from: crate::graph::NodeKey,
+        to: crate::graph::NodeKey,
+        edge_type: crate::graph::EdgeType,
+    ) -> Result<usize, GraphStoreError> {
+        use crate::graph::{EdgeType, NavigationTrigger};
+        use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+
+        // Dissolution transfer only applies to History edges with traversal data
+        if edge_type != EdgeType::History {
+            return Ok(graph.remove_edges(from, to, edge_type));
+        }
+
+        // Get node IDs for archive entries
+        let from_node = graph
+            .get_node(from)
+            .ok_or_else(|| GraphStoreError::Io("from node not found".to_string()))?;
+        let to_node = graph
+            .get_node(to)
+            .ok_or_else(|| GraphStoreError::Io("to node not found".to_string()))?;
+        let from_node_id = from_node.id.to_string();
+        let to_node_id = to_node.id.to_string();
+
+        // Find matching edges and archive their traversals
+        let edge_ids: Vec<crate::graph::EdgeKey> = graph
+            .inner
+            .edge_references()
+            .filter(|edge| {
+                edge.source() == from
+                    && edge.target() == to
+                    && edge.weight().has_edge_type(edge_type)
+            })
+            .map(|edge| edge.id())
+            .collect();
+
+        for edge_id in &edge_ids {
+            if let Some(payload) = graph.inner.edge_weight(*edge_id) {
+                for traversal in &payload.traversals {
+                    let trigger = match traversal.trigger {
+                        NavigationTrigger::Unknown => types::PersistedNavigationTrigger::Unknown,
+                        NavigationTrigger::Back => types::PersistedNavigationTrigger::Back,
+                        NavigationTrigger::Forward => types::PersistedNavigationTrigger::Forward,
+                    };
+                    let entry = types::LogEntry::AppendTraversal {
+                        from_node_id: from_node_id.clone(),
+                        to_node_id: to_node_id.clone(),
+                        timestamp_ms: traversal.timestamp_ms,
+                        trigger,
+                    };
+                    self.archive_dissolved_traversal(&entry)?;
+                }
+            }
+        }
+
+        // Note: fjall uses WAL by default, so writes are durable without explicit flush
+        // Now safe to remove from graph
+        Ok(graph.remove_edges(from, to, edge_type))
+    }
+
+    /// Stage E: Remove node with dissolution transfer.
+    /// Archives all edge traversals to dissolved_archive before removing node from graph.
+    pub fn dissolve_and_remove_node(
+        &mut self,
+        graph: &mut crate::graph::Graph,
+        key: crate::graph::NodeKey,
+    ) -> Result<bool, GraphStoreError> {
+        use crate::graph::NavigationTrigger;
+        use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+        use petgraph::Direction;
+
+        // Get node ID before removal
+        let node = graph
+            .get_node(key)
+            .ok_or_else(|| GraphStoreError::Io("node not found".to_string()))?;
+        let node_id = node.id.to_string();
+
+        // Collect all edge traversals (both incoming and outgoing)
+        let mut edge_traversals: Vec<(String, String, Vec<crate::graph::Traversal>)> = Vec::new();
+
+        for edge in graph
+            .inner
+            .edges_directed(key, Direction::Outgoing)
+            .chain(graph.inner.edges_directed(key, Direction::Incoming))
+        {
+            if !edge.weight().traversals.is_empty() {
+                let from_node = graph.get_node(edge.source()).unwrap();
+                let to_node = graph.get_node(edge.target()).unwrap();
+                edge_traversals.push((
+                    from_node.id.to_string(),
+                    to_node.id.to_string(),
+                    edge.weight().traversals.clone(),
+                ));
+            }
+        }
+
+        // Archive all traversals
+        for (from_node_id, to_node_id, traversals) in edge_traversals {
+            for traversal in traversals {
+                let trigger = match traversal.trigger {
+                    NavigationTrigger::Unknown => types::PersistedNavigationTrigger::Unknown,
+                    NavigationTrigger::Back => types::PersistedNavigationTrigger::Back,
+                    NavigationTrigger::Forward => types::PersistedNavigationTrigger::Forward,
+                };
+                let entry = types::LogEntry::AppendTraversal {
+                    from_node_id: from_node_id.clone(),
+                    to_node_id: to_node_id.clone(),
+                    timestamp_ms: traversal.timestamp_ms,
+                    trigger,
+                };
+                self.archive_dissolved_traversal(&entry)?;
+            }
+        }
+
+        // Note: fjall uses WAL by default, so writes are durable without explicit flush
+        // Now safe to remove from graph
+        Ok(graph.remove_node(key))
+    }
+
     /// Take a full snapshot of the graph and compact the log
     pub fn take_snapshot(&mut self, graph: &Graph) {
         let snapshot = graph.to_snapshot();
@@ -459,10 +707,108 @@ impl GraphStore {
 
         self.replay_log(&mut graph);
 
+        // Stage E: recovery scan for archived traversal counts when snapshot is absent
+        if snapshot.is_none() && graph.node_count() > 0 {
+            self.recover_archived_traversals(&mut graph);
+        }
+
         if graph.node_count() > 0 {
             Some(graph)
         } else {
             None
+        }
+    }
+
+    /// Stage E: Scan traversal_archive keyspace and populate edge traversal counts.
+    ///
+    /// This recovery scan rebuilds traversal histories from archived entries when:
+    /// - No snapshot exists (cold start)
+    /// - Snapshot is stale and missing recent archived traversals
+    ///
+    /// Traversal counts from snapshots are preferred when available; this scan
+    /// only fills gaps when snapshot data is absent.
+    fn recover_archived_traversals(&self, graph: &mut Graph) {
+        use types::ArchivedLogEntry;
+
+        for guard in self.traversal_archive_keyspace.iter() {
+            let (_, value) = match guard.into_inner() {
+                Ok(kv) => kv,
+                Err(e) => {
+                    log::warn!("Skipping corrupted traversal archive entry: {e}");
+                    continue;
+                }
+            };
+
+            let decoded = match self.decode_persisted_bytes(value.as_ref()) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("Failed to decrypt traversal archive entry: {e}");
+                    continue;
+                }
+            };
+
+            let archived = match rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&decoded) {
+                Ok(a) => a,
+                Err(e) => {
+                    log::warn!("Failed to deserialize traversal archive entry: {e}");
+                    continue;
+                }
+            };
+
+            if let ArchivedLogEntry::AppendTraversal {
+                from_node_id,
+                to_node_id,
+                timestamp_ms,
+                trigger,
+            } = archived
+            {
+                let Ok(from_uuid) = Uuid::parse_str(from_node_id.as_str()) else {
+                    log::warn!("Invalid from_node_id UUID in traversal archive: {}", from_node_id);
+                    continue;
+                };
+                let Ok(to_uuid) = Uuid::parse_str(to_node_id.as_str()) else {
+                    log::warn!("Invalid to_node_id UUID in traversal archive: {}", to_node_id);
+                    continue;
+                };
+
+                let Some(from_key) = graph.get_node_key_by_id(from_uuid) else {
+                    log::debug!("Skipping archived traversal: from_node not found ({})", from_uuid);
+                    continue;
+                };
+                let Some(to_key) = graph.get_node_key_by_id(to_uuid) else {
+                    log::debug!("Skipping archived traversal: to_node not found ({})", to_uuid);
+                    continue;
+                };
+
+                let Some(edge_idx) = graph.inner.find_edge(from_key, to_key) else {
+                    log::debug!(
+                        "Skipping archived traversal: edge not found ({} -> {})",
+                        from_uuid,
+                        to_uuid
+                    );
+                    continue;
+                };
+
+                let edge_weight = graph.inner.edge_weight_mut(edge_idx).unwrap();
+                let nav_trigger = match trigger {
+                    types::ArchivedPersistedNavigationTrigger::Unknown => {
+                        crate::graph::NavigationTrigger::Unknown
+                    }
+                    types::ArchivedPersistedNavigationTrigger::Back => {
+                        crate::graph::NavigationTrigger::Back
+                    }
+                    types::ArchivedPersistedNavigationTrigger::Forward => {
+                        crate::graph::NavigationTrigger::Forward
+                    }
+                };
+
+                edge_weight.push_traversal(crate::graph::Traversal {
+                    timestamp_ms: (*timestamp_ms).into(),
+                    trigger: nav_trigger,
+                });
+            } else {
+                log::warn!("Unexpected non-AppendTraversal entry in traversal_archive keyspace");
+            }
         }
     }
 
@@ -1764,5 +2110,245 @@ mod tests {
             elapsed < std::time::Duration::from_secs(5),
             "snapshot+recover exceeded budget: {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn test_traversal_archive_recovery_scan() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+        let id_a = Uuid::new_v4();
+        let id_b = Uuid::new_v4();
+
+        {
+            let mut store = GraphStore::open(path.clone()).unwrap();
+
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: id_a.to_string(),
+                url: "https://start.com".to_string(),
+                position_x: 0.0,
+                position_y: 0.0,
+            });
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: id_b.to_string(),
+                url: "https://dest.com".to_string(),
+                position_x: 100.0,
+                position_y: 0.0,
+            });
+            store.log_mutation(&LogEntry::AddEdge {
+                from_node_id: id_a.to_string(),
+                to_node_id: id_b.to_string(),
+                edge_type: types::PersistedEdgeType::History,
+            });
+
+            // Archive traversal events
+            store
+                .archive_append_traversal(&LogEntry::AppendTraversal {
+                    from_node_id: id_a.to_string(),
+                    to_node_id: id_b.to_string(),
+                    timestamp_ms: 1000,
+                    trigger: types::PersistedNavigationTrigger::Forward,
+                })
+                .unwrap();
+            store
+                .archive_append_traversal(&LogEntry::AppendTraversal {
+                    from_node_id: id_a.to_string(),
+                    to_node_id: id_b.to_string(),
+                    timestamp_ms: 2000,
+                    trigger: types::PersistedNavigationTrigger::Back,
+                })
+                .unwrap();
+
+            assert_eq!(store.traversal_archive_len(), 2);
+        }
+
+        {
+            // Recover without snapshot - should trigger traversal archive recovery scan
+            let store = GraphStore::open(path).unwrap();
+            assert_eq!(store.traversal_archive_len(), 2);
+
+            let graph = store.recover().unwrap();
+            assert_eq!(graph.node_count(), 2);
+
+            let from_key = graph.get_node_key_by_id(id_a).unwrap();
+            let to_key = graph.get_node_key_by_id(id_b).unwrap();
+
+            let edge_idx = graph.inner.find_edge(from_key, to_key).unwrap();
+            let edge_payload = graph.inner.edge_weight(edge_idx).unwrap();
+
+            // Verify traversal events were recovered from archive
+            // Note: History edges start with 1 dummy traversal (timestamp 0), then 2 archived = 3 total
+            assert_eq!(
+                edge_payload.traversals.len(),
+                3,
+                "Recovery scan should populate: 1 dummy + 2 archived traversals"
+            );
+            // First is the dummy traversal from edge creation
+            assert_eq!(edge_payload.traversals[0].timestamp_ms, 0);
+            // Next two are from archive
+            assert_eq!(edge_payload.traversals[1].timestamp_ms, 1000);
+            assert_eq!(
+                edge_payload.traversals[1].trigger,
+                crate::graph::NavigationTrigger::Forward
+            );
+            assert_eq!(edge_payload.traversals[2].timestamp_ms, 2000);
+            assert_eq!(
+                edge_payload.traversals[2].trigger,
+                crate::graph::NavigationTrigger::Back
+            );
+        }
+    }
+
+    #[test]
+    fn test_dissolution_transfer_on_edge_removal() {
+        let (mut store, _dir) = create_test_store();
+        let mut graph = Graph::new();
+
+        // Create two nodes
+        let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+
+        // Add History edge with traversals
+        let edge_key = graph
+            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .unwrap();
+
+        // Add some traversals
+        if let Some(payload) = graph.get_edge_mut(edge_key) {
+            payload.push_traversal(crate::graph::Traversal {
+                timestamp_ms: 1000,
+                trigger: crate::graph::NavigationTrigger::Forward,
+            });
+            payload.push_traversal(crate::graph::Traversal {
+                timestamp_ms: 2000,
+                trigger: crate::graph::NavigationTrigger::Back,
+            });
+        }
+
+        // Verify edge exists with 3 traversals (1 dummy + 2 pushed)
+        assert_eq!(graph.get_edge(edge_key).unwrap().traversals.len(), 3);
+        assert_eq!(store.dissolved_archive_len(), 0);
+
+        // Remove edges with dissolution transfer
+        let removed = store
+            .dissolve_and_remove_edges(&mut graph, n1, n2, crate::graph::EdgeType::History)
+            .unwrap();
+
+        // Verify edge was removed
+        assert_eq!(removed, 1);
+        assert!(graph.get_edge(edge_key).is_none());
+
+        // Verify traversals were archived (3 entries in dissolved_archive)
+        assert_eq!(store.dissolved_archive_len(), 3);
+    }
+
+    #[test]
+    fn test_dissolution_transfer_on_node_removal() {
+        let (mut store, _dir) = create_test_store();
+        let mut graph = Graph::new();
+
+        // Create three nodes
+        let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+        let n3 = graph.add_node("https://c.com".to_string(), Point2D::new(200.0, 0.0));
+
+        // Add History edges with traversals
+        let e1 = graph
+            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .unwrap();
+        let e2 = graph
+            .add_edge(n2, n3, crate::graph::EdgeType::History)
+            .unwrap();
+
+        // Add traversals to both edges
+        if let Some(payload) = graph.get_edge_mut(e1) {
+            payload.push_traversal(crate::graph::Traversal {
+                timestamp_ms: 1000,
+                trigger: crate::graph::NavigationTrigger::Forward,
+            });
+        }
+        if let Some(payload) = graph.get_edge_mut(e2) {
+            payload.push_traversal(crate::graph::Traversal {
+                timestamp_ms: 2000,
+                trigger: crate::graph::NavigationTrigger::Back,
+            });
+        }
+
+        // Each edge has 2 traversals (1 dummy + 1 pushed)
+        assert_eq!(graph.get_edge(e1).unwrap().traversals.len(), 2);
+        assert_eq!(graph.get_edge(e2).unwrap().traversals.len(), 2);
+        assert_eq!(store.dissolved_archive_len(), 0);
+
+        // Remove middle node with dissolution transfer
+        let removed = store.dissolve_and_remove_node(&mut graph, n2).unwrap();
+
+        // Verify node was removed
+        assert!(removed);
+        assert!(graph.get_node(n2).is_none());
+
+        // Verify both edges were removed
+        assert!(graph.get_edge(e1).is_none());
+        assert!(graph.get_edge(e2).is_none());
+
+        // Verify traversals were archived (2 + 2 = 4 entries in dissolved_archive)
+        assert_eq!(store.dissolved_archive_len(), 4);
+    }
+
+    #[test]
+    fn test_dissolution_fsync_ordering() {
+        let (mut store, _dir) = create_test_store();
+        let mut graph = Graph::new();
+
+        let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+
+        let edge_key = graph
+            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .unwrap();
+
+        if let Some(payload) = graph.get_edge_mut(edge_key) {
+            payload.push_traversal(crate::graph::Traversal {
+                timestamp_ms: 1000,
+                trigger: crate::graph::NavigationTrigger::Forward,
+            });
+        }
+
+        // Remove edge with dissolution transfer
+        let _ = store
+            .dissolve_and_remove_edges(&mut graph, n1, n2, crate::graph::EdgeType::History)
+            .unwrap();
+
+        // Edge should be gone from graph
+        assert!(graph.get_edge(edge_key).is_none());
+
+        // Dissolved archive should have 2 entries (1 dummy + 1 pushed)
+        assert_eq!(store.dissolved_archive_len(), 2);
+
+        // Verify we can read the archived entries
+        let entries: Vec<_> = store.dissolved_archive_keyspace.iter().collect();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn test_dissolution_no_traversals_no_archive() {
+        let (mut store, _dir) = create_test_store();
+        let mut graph = Graph::new();
+
+        let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+
+        // Add Hyperlink edge (no traversals)
+        let _ = graph
+            .add_edge(n1, n2, crate::graph::EdgeType::Hyperlink)
+            .unwrap();
+
+        assert_eq!(store.dissolved_archive_len(), 0);
+
+        // Remove Hyperlink edge (should not archive anything)
+        let removed = store
+            .dissolve_and_remove_edges(&mut graph, n1, n2, crate::graph::EdgeType::Hyperlink)
+            .unwrap();
+
+        assert_eq!(removed, 1);
+        assert_eq!(store.dissolved_archive_len(), 0); // No traversals = no archive
     }
 }

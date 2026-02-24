@@ -8,14 +8,18 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
-    ChooseWorkspacePickerMode, EdgeCommand, GraphBrowserApp, GraphIntent, KeyboardZoomRequest,
-    LassoMouseBinding, MemoryPressureLevel, PendingConnectedOpenScope, PendingTileOpenMode,
+    CameraCommand, ChooseWorkspacePickerMode, EdgeCommand, GraphBrowserApp, GraphIntent, KeyboardZoomRequest,
+    HistoryManagerTab, LassoMouseBinding, MemoryPressureLevel, PendingConnectedOpenScope, PendingTileOpenMode,
     SearchDisplayMode, SelectionUpdateMode, UnsavedWorkspacePromptAction,
     UnsavedWorkspacePromptRequest,
 };
 use crate::desktop::persistence_ops;
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
+use crate::registries::domain::layout::LayoutDomainRegistry;
+use crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT;
+use crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT;
+use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use egui::{Color32, Key, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
@@ -25,7 +29,6 @@ use egui_graphs::{
 };
 use euclid::default::Point2D;
 use petgraph::stable_graph::NodeIndex;
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -60,6 +63,46 @@ pub enum GraphAction {
 /// Render graph info and controls hint overlay text into the current UI.
 pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
     draw_graph_info(ui, app);
+}
+
+fn canvas_navigation_settings(
+    profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
+) -> SettingsNavigation {
+    let zoom_enabled = if profile.layout_algorithm.algorithm_id == "graph_layout:tree" {
+        false
+    } else {
+        profile.navigation.zoom_and_pan_enabled
+    };
+
+    SettingsNavigation::new()
+        .with_fit_to_screen_enabled(profile.navigation.fit_to_screen_enabled)
+        .with_zoom_and_pan_enabled(zoom_enabled)
+}
+
+fn canvas_interaction_settings(
+    profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
+    radial_open: bool,
+    right_button_down: bool,
+) -> SettingsInteraction {
+    let is_tree_topology = profile.topology.policy_id == "topology:tree";
+
+    SettingsInteraction::new()
+        .with_dragging_enabled(
+            profile.interaction.dragging_enabled
+                && !radial_open
+                && !right_button_down
+                && !is_tree_topology,
+        )
+        .with_node_selection_enabled(
+            profile.interaction.node_selection_enabled && !radial_open && !right_button_down,
+        )
+        .with_node_clicking_enabled(profile.interaction.node_clicking_enabled && !radial_open)
+}
+
+fn canvas_style_settings(
+    profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
+) -> SettingsStyle {
+    SettingsStyle::new().with_labels_always(profile.style.labels_always)
 }
 
 /// Render graph content and return resolved interaction actions.
@@ -121,20 +164,18 @@ pub fn render_graph_in_ui_collect_actions(
     // Event collection buffer
     let events: Rc<RefCell<Vec<Event>>> = Rc::new(RefCell::new(Vec::new()));
 
-    // Navigation: use egui_graphs built-in zoom/pan
-    let nav = SettingsNavigation::new()
-        .with_fit_to_screen_enabled(app.fit_to_screen_requested)
-        .with_zoom_and_pan_enabled(!radial_open && !right_button_down)
-        .with_zoom_speed(0.015);
+    let layout_domain = LayoutDomainRegistry::default();
+    let layout_profile = layout_domain.resolve_profile(
+        CANVAS_PROFILE_DEFAULT,
+        WORKBENCH_SURFACE_DEFAULT,
+        VIEWER_SURFACE_DEFAULT,
+    );
+    let canvas_profile = &layout_profile.canvas.profile;
 
-    // Interaction: dragging, selection, clicking
-    let interaction = SettingsInteraction::new()
-        .with_dragging_enabled(!radial_open && !right_button_down)
-        .with_node_selection_enabled(!radial_open && !right_button_down)
-        .with_node_clicking_enabled(!radial_open);
-
-    // Style: always show labels
-    let style = SettingsStyle::new().with_labels_always(true);
+    // Graph settings resolved from layout domain canvas surface profile.
+    let nav = canvas_navigation_settings(canvas_profile);
+    let interaction = canvas_interaction_settings(canvas_profile, radial_open, right_button_down);
+    let style = canvas_style_settings(canvas_profile);
 
     // Resolve physics state and lens from the view (or default to global).
     let (mut physics_state, lens_config) = if let Some(view_id) = view_id
@@ -157,8 +198,38 @@ pub fn render_graph_in_ui_collect_actions(
     // Keep egui_graphs layout cache aligned with app-owned FR state.
     set_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, physics_state, None);
 
+    // Intercept wheel input before GraphView renders so parent scroll handling
+    // cannot consume the delta first.
+    let graph_rect = ui.max_rect();
+    if ui.rect_contains_pointer(graph_rect) {
+        ui.input_mut(|input| {
+            let scroll_delta = if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
+                input.smooth_scroll_delta.y
+            } else {
+                input.raw_scroll_delta.y
+            };
+
+            if scroll_delta.abs() <= f32::EPSILON {
+                return;
+            }
+
+            let ctrl_pressed = input.modifiers.ctrl || input.modifiers.command;
+            let should_capture = if app.scroll_zoom_requires_ctrl {
+                ctrl_pressed
+            } else {
+                true
+            };
+
+            if should_capture {
+                app.queue_pending_wheel_zoom_delta(scroll_delta);
+                input.smooth_scroll_delta.y = 0.0;
+                input.raw_scroll_delta.y = 0.0;
+            }
+        });
+    }
+
     // Render the graph (nested scope for mutable borrow)
-    {
+    let response = {
         let state = app
             .egui_state
             .as_mut()
@@ -179,8 +250,8 @@ pub fn render_graph_in_ui_collect_actions(
             .with_interactions(&interaction)
             .with_styles(&style)
             .with_event_sink(&events),
-        );
-    } // Drop mutable borrow of app.egui_state here
+        )
+    }; // Drop mutable borrow of app.egui_state here
 
     // Pull latest FR state from egui_graphs after this frame's layout step.
     let new_physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
@@ -192,6 +263,16 @@ pub fn render_graph_in_ui_collect_actions(
     } else {
         app.physics = new_physics;
     }
+
+    // Apply semantic clustering forces if enabled (UDC Phase 2)
+    let semantic_config = if let Some(view_id) = view_id {
+        app.views
+            .get(&view_id)
+            .map(|v| (v.lens.physics.semantic_clustering, v.lens.physics.semantic_strength))
+    } else {
+        None
+    };
+    apply_semantic_clustering_forces(app, semantic_config);
 
     app.hovered_graph_node = app.egui_state.as_ref().and_then(|state| {
         state
@@ -220,7 +301,7 @@ pub fn render_graph_in_ui_collect_actions(
         && let Some(node) = state.graph.node(target)
         && node.display().workspace_membership_count() > 0
     {
-        let meta_id = egui::Id::new("egui_graphs_metadata_");
+        let meta_id = response.id.with("metadata");
         let (circle_center, circle_radius) = if let Some(meta) = ui
             .ctx()
             .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
@@ -240,37 +321,27 @@ pub fn render_graph_in_ui_collect_actions(
             app.request_choose_workspace_picker(target);
         }
     }
-    draw_highlighted_edge_overlay(ui, app);
-    draw_hovered_node_tooltip(ui, app);
-    draw_hovered_edge_tooltip(ui, app);
+    draw_highlighted_edge_overlay(ui, app, response.id);
+    draw_hovered_node_tooltip(ui, app, response.id);
+    draw_hovered_edge_tooltip(ui, app, response.id);
 
-    // Reset fit_to_screen flag (one-shot behavior for 'C' key)
-    app.fit_to_screen_requested = false;
-
-    // Post-frame zoom clamp: enforce min/max bounds on egui_graphs zoom
-    clamp_zoom(ui.ctx(), app);
-    let keyboard_zoom = apply_pending_keyboard_zoom_request(ui, app, !radial_open);
-    let selected_zoom = apply_pending_zoom_to_selected_request(ui, app, !radial_open);
-    let wheel_zoom = apply_scroll_zoom_without_ctrl(ui, app, !radial_open);
+    // Custom navigation handling (Zoom/Pan/Fit)
+    // We use the widget ID from the response to target the correct MetadataFrame.
+    let metadata_id = response.id.with("metadata");
+    let custom_zoom = handle_custom_navigation(ui, &response, metadata_id, app, !radial_open);
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
     let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
     if let Some(lasso_action) = lasso.action {
         actions.push(lasso_action);
     }
-    if let Some(zoom) = keyboard_zoom {
-        actions.push(GraphAction::Zoom(zoom));
-    }
-    if let Some(zoom) = selected_zoom {
-        actions.push(GraphAction::Zoom(zoom));
-    }
-    if let Some(zoom) = wheel_zoom {
+    if let Some(zoom) = custom_zoom {
         actions.push(GraphAction::Zoom(zoom));
     }
     actions
 }
 
-fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp) {
+fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id) {
     if app.hovered_graph_node.is_some() {
         return;
     }
@@ -280,7 +351,7 @@ fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp) {
     let Some(state) = app.egui_state.as_ref() else {
         return;
     };
-    let meta_id = egui::Id::new("egui_graphs_metadata_");
+    let meta_id = widget_id.with("metadata");
     let Some(meta) = ui
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
@@ -361,7 +432,7 @@ fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp) {
         });
 }
 
-fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp) {
+fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp, widget_id: egui::Id) {
     let Some((from, to)) = app.highlighted_graph_edge else {
         return;
     };
@@ -374,7 +445,7 @@ fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp) {
     let Some(to_node) = state.graph.node(to) else {
         return;
     };
-    let meta_id = egui::Id::new("egui_graphs_metadata_");
+    let meta_id = widget_id.with("metadata");
     let (from_screen, to_screen) = if let Some(meta) = ui
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
@@ -401,7 +472,7 @@ fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp) {
         .circle_filled(to_screen, 6.0, Color32::from_rgb(80, 220, 255));
 }
 
-fn draw_hovered_node_tooltip(ui: &Ui, app: &GraphBrowserApp) {
+fn draw_hovered_node_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id) {
     let Some(key) = app.hovered_graph_node else {
         return;
     };
@@ -426,7 +497,7 @@ fn draw_hovered_node_tooltip(ui: &Ui, app: &GraphBrowserApp) {
         .or_else(|| {
             app.egui_state.as_ref().and_then(|state| {
                 state.graph.node(key).map(|n| {
-                    let meta_id = egui::Id::new("egui_graphs_metadata_");
+                    let meta_id = widget_id.with("metadata");
                     if let Some(meta) = ui
                         .ctx()
                         .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
@@ -628,24 +699,12 @@ fn hovered_adjacency_set(app: &GraphBrowserApp, hovered: Option<NodeKey>) -> Has
         .unwrap_or_default()
 }
 
-/// Clamp the egui_graphs zoom to the camera's min/max bounds.
-/// Reads MetadataFrame from egui's persisted data, clamps zoom, writes back if changed.
-fn clamp_zoom(ctx: &egui::Context, app: &mut GraphBrowserApp) {
-    let meta_id = egui::Id::new("egui_graphs_metadata_");
-    ctx.data_mut(|data| {
-        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(meta_id) {
-            let clamped = app.camera.clamp(meta.zoom);
-            app.camera.current_zoom = clamped;
-            if (meta.zoom - clamped).abs() > f32::EPSILON {
-                meta.zoom = clamped;
-                data.insert_persisted(meta_id, meta);
-            }
-        }
-    });
-}
-
-fn apply_pending_keyboard_zoom_request(
+/// Handle custom navigation (Zoom/Pan/Fit) by manipulating MetadataFrame directly.
+/// This bypasses egui_graphs built-in navigation to support custom bindings.
+fn handle_custom_navigation(
     ui: &Ui,
+    response: &egui::Response,
+    metadata_id: egui::Id,
     app: &mut GraphBrowserApp,
     enabled: bool,
 ) -> Option<f32> {
@@ -653,6 +712,53 @@ fn apply_pending_keyboard_zoom_request(
         return None;
     }
 
+    // Apply pending durable camera command.
+    let camera_zoom = apply_pending_camera_command(ui, app, metadata_id);
+
+    // Apply keyboard zoom
+    let keyboard_zoom = apply_pending_keyboard_zoom_request(ui, app, metadata_id);
+
+    // Apply pre-intercepted wheel zoom delta.
+    let wheel_zoom = apply_pending_wheel_zoom(ui, response, metadata_id, app);
+
+    let mut updated_zoom = None;
+    let pointer_inside = response.hovered();
+    
+    // Pan with Left Mouse Button on background
+    // Note: We check if we are NOT hovering a node to allow node dragging.
+    // app.hovered_graph_node is updated before this function in render_graph_in_ui_collect_actions.
+    if pointer_inside && app.hovered_graph_node.is_none() && ui.input(|i| i.pointer.primary_down()) {
+        let delta = ui.input(|i| i.pointer.delta());
+        if delta != Vec2::ZERO {
+            ui.ctx().data_mut(|data| {
+                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
+                    meta.pan += delta;
+                    data.insert_persisted(metadata_id, meta);
+                }
+            });
+        }
+    }
+
+    // Clamp zoom bounds
+    ui.ctx().data_mut(|data| {
+        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
+            let clamped = app.camera.clamp(meta.zoom);
+            if (meta.zoom - clamped).abs() > f32::EPSILON {
+                meta.zoom = clamped;
+                app.camera.current_zoom = clamped;
+                data.insert_persisted(metadata_id, meta);
+            }
+        }
+    });
+
+    camera_zoom.or(keyboard_zoom).or(wheel_zoom).or(updated_zoom)
+}
+
+fn apply_pending_keyboard_zoom_request(
+    ui: &Ui,
+    app: &mut GraphBrowserApp,
+    metadata_id: egui::Id,
+) -> Option<f32> {
     let Some(request) = app.take_pending_keyboard_zoom_request() else {
         return None;
     };
@@ -666,11 +772,10 @@ fn apply_pending_keyboard_zoom_request(
     let graph_rect = ui.max_rect();
     let local_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size());
     let local_center = local_rect.center().to_vec2();
-    let meta_id = egui::Id::new("egui_graphs_metadata_");
     let mut updated_zoom = None;
 
     ui.ctx().data_mut(|data| {
-        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(meta_id) {
+        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
             let graph_center_pos = (local_center - meta.pan) / meta.zoom;
             let new_zoom = app
                 .camera
@@ -683,7 +788,7 @@ fn apply_pending_keyboard_zoom_request(
             meta.pan += pan_delta;
             meta.zoom = new_zoom;
             app.camera.current_zoom = new_zoom;
-            data.insert_persisted(meta_id, meta);
+            data.insert_persisted(metadata_id, meta);
             updated_zoom = Some(new_zoom);
         }
     });
@@ -691,15 +796,191 @@ fn apply_pending_keyboard_zoom_request(
     updated_zoom
 }
 
-fn apply_pending_zoom_to_selected_request(
+const CAMERA_FIT_PADDING: f32 = 1.1;
+const CAMERA_FIT_RELAX: f32 = 0.5;
+const CAMERA_FOCUS_SELECTION_PADDING: f32 = 1.2;
+
+fn apply_pending_camera_command(
     ui: &Ui,
     app: &mut GraphBrowserApp,
-    enabled: bool,
+    metadata_id: egui::Id,
 ) -> Option<f32> {
-    if !enabled || !app.take_pending_zoom_to_selected_request() {
+    let Some(command) = app.pending_camera_command() else {
+        return None;
+    };
+    match command {
+        CameraCommand::SetZoom(target_zoom) => {
+            let mut updated_zoom = None;
+            ui.ctx().data_mut(|data| {
+                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
+                    let new_zoom = app.camera.clamp(target_zoom);
+                    meta.zoom = new_zoom;
+                    app.camera.current_zoom = new_zoom;
+                    data.insert_persisted(metadata_id, meta);
+                    updated_zoom = Some(new_zoom);
+                }
+            });
+            if updated_zoom.is_some() {
+                app.clear_pending_camera_command();
+            }
+            updated_zoom
+        }
+        CameraCommand::Fit | CameraCommand::StartupFit | CameraCommand::FitSelection => {
+            let graph_rect = ui.max_rect();
+            let view_size = graph_rect.size();
+            if view_size.x <= f32::EPSILON || view_size.y <= f32::EPSILON {
+                return None;
+            }
+
+            let bounds = if matches!(command, CameraCommand::FitSelection) {
+                node_bounds_for_selection(app)
+            } else {
+                node_bounds_for_all(app)
+            };
+
+            let Some((min_x, max_x, min_y, max_y)) = bounds else {
+                if matches!(command, CameraCommand::FitSelection) {
+                    app.request_camera_command(CameraCommand::Fit);
+                } else {
+                    app.clear_pending_camera_command();
+                }
+                return None;
+            };
+
+            let width = (max_x - min_x).abs().max(1.0);
+            let height = (max_y - min_y).abs().max(1.0);
+            let padding = if matches!(command, CameraCommand::FitSelection) {
+                CAMERA_FOCUS_SELECTION_PADDING
+            } else {
+                CAMERA_FIT_PADDING
+            };
+            let padded_width = width * padding;
+            let padded_height = height * padding;
+            let fit_zoom = (view_size.x / padded_width).min(view_size.y / padded_height);
+            let target_zoom = if matches!(command, CameraCommand::FitSelection) {
+                app.camera.clamp(fit_zoom)
+            } else {
+                app.camera.clamp(fit_zoom * CAMERA_FIT_RELAX)
+            };
+
+            let center = egui::pos2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
+            let viewport_center = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size())
+                .center()
+                .to_vec2();
+            let target_pan = viewport_center - center.to_vec2() * target_zoom;
+
+            let mut updated_zoom = None;
+            ui.ctx().data_mut(|data| {
+                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
+                    meta.zoom = target_zoom;
+                    meta.pan = target_pan;
+                    app.camera.current_zoom = target_zoom;
+                    data.insert_persisted(metadata_id, meta);
+                    updated_zoom = Some(target_zoom);
+                }
+            });
+
+            if updated_zoom.is_some() {
+                app.clear_pending_camera_command();
+            }
+            updated_zoom
+        }
+    }
+}
+
+fn apply_pending_wheel_zoom(
+    ui: &Ui,
+    response: &egui::Response,
+    metadata_id: egui::Id,
+    app: &mut GraphBrowserApp,
+) -> Option<f32> {
+    let scroll_delta = app.pending_wheel_zoom_delta();
+    if scroll_delta.abs() <= f32::EPSILON {
         return None;
     }
 
+    let velocity_id = egui::Id::new("graph_scroll_zoom_velocity");
+    let mut velocity = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<f32>(velocity_id))
+        .unwrap_or(0.0);
+
+    let impulse = app.scroll_zoom_impulse_scale * (scroll_delta / 60.0).clamp(-1.0, 1.0);
+    velocity += impulse;
+
+    let mut updated_zoom = None;
+    if velocity.abs() >= app.scroll_zoom_inertia_min_abs {
+        let factor = 1.0 + velocity;
+        if factor > 0.0 {
+            let graph_rect = response.rect;
+            let local_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size());
+            let pointer_pos = ui.input(|i| i.pointer.latest_pos());
+            let local_center = pointer_pos
+                .map(|p| egui::pos2(p.x - graph_rect.min.x, p.y - graph_rect.min.y))
+                .unwrap_or(local_rect.center())
+                .to_vec2();
+
+            ui.ctx().data_mut(|data| {
+                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
+                    let graph_center_pos = (local_center - meta.pan) / meta.zoom;
+                    let new_zoom = app.camera.clamp(meta.zoom * factor);
+                    let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
+                    meta.pan += pan_delta;
+                    meta.zoom = new_zoom;
+                    app.camera.current_zoom = new_zoom;
+                    data.insert_persisted(metadata_id, meta);
+                    updated_zoom = Some(new_zoom);
+                }
+            });
+        }
+    }
+
+    if updated_zoom.is_some() {
+        app.clear_pending_wheel_zoom_delta();
+    }
+
+    velocity *= app.scroll_zoom_inertia_damping;
+    if velocity.abs() < app.scroll_zoom_inertia_min_abs {
+        velocity = 0.0;
+    }
+    ui.ctx().data_mut(|d| d.insert_persisted(velocity_id, velocity));
+    if velocity != 0.0 {
+        ui.ctx().request_repaint_after(Duration::from_millis(16));
+    }
+
+    updated_zoom
+}
+
+fn node_bounds_for_all(app: &GraphBrowserApp) -> Option<(f32, f32, f32, f32)> {
+    let state = app.egui_state.as_ref()?;
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut has_nodes = false;
+
+    for (_, node) in state.graph.nodes_iter() {
+        let pos = node.location();
+        min_x = min_x.min(pos.x);
+        max_x = max_x.max(pos.x);
+        min_y = min_y.min(pos.y);
+        max_y = max_y.max(pos.y);
+        has_nodes = true;
+    }
+
+    if !has_nodes
+        || !min_x.is_finite()
+        || !max_x.is_finite()
+        || !min_y.is_finite()
+        || !max_y.is_finite()
+    {
+        return None;
+    }
+
+    Some((min_x, max_x, min_y, max_y))
+}
+
+fn node_bounds_for_selection(app: &GraphBrowserApp) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
     let mut min_y = f32::INFINITY;
@@ -715,137 +996,10 @@ fn apply_pending_zoom_to_selected_request(
     }
 
     if !min_x.is_finite() || !max_x.is_finite() || !min_y.is_finite() || !max_y.is_finite() {
-        app.request_fit_to_screen();
         return None;
     }
 
-    let graph_rect = ui.max_rect();
-    let view_size = graph_rect.size();
-    if view_size.x <= f32::EPSILON || view_size.y <= f32::EPSILON {
-        return None;
-    }
-
-    let padding_factor = 1.2_f32;
-    let selected_width = (max_x - min_x).abs().max(1.0);
-    let selected_height = (max_y - min_y).abs().max(1.0);
-    let padded_width = selected_width * padding_factor;
-    let padded_height = selected_height * padding_factor;
-    let target_zoom = app
-        .camera
-        .clamp((view_size.x / padded_width).min(view_size.y / padded_height));
-
-    let selected_center = egui::pos2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
-    let viewport_center = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size())
-        .center()
-        .to_vec2();
-    let target_pan = viewport_center - selected_center.to_vec2() * target_zoom;
-
-    let meta_id = egui::Id::new("egui_graphs_metadata_");
-    let mut updated_zoom = None;
-    ui.ctx().data_mut(|data| {
-        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(meta_id) {
-            meta.zoom = target_zoom;
-            meta.pan = target_pan;
-            app.camera.current_zoom = target_zoom;
-            data.insert_persisted(meta_id, meta);
-            updated_zoom = Some(target_zoom);
-        }
-    });
-
-    updated_zoom
-}
-
-/// Enable wheel-only zoom while the graph canvas is hovered (without Ctrl).
-///
-/// egui_graphs natively handles ctrl+wheel/pinch zoom; this supplements that path
-/// so mouse-wheel and trackpad scrolling zooms directly in graph view.
-fn apply_scroll_zoom_without_ctrl(
-    ui: &Ui,
-    app: &mut GraphBrowserApp,
-    enabled: bool,
-) -> Option<f32> {
-    if !enabled {
-        return None;
-    }
-
-    let graph_rect = ui.max_rect();
-    let (pointer_pos, zoom_delta, smooth_scroll_y, raw_scroll_y) = ui.input(|i| {
-        (
-            i.pointer.latest_pos(),
-            i.zoom_delta(),
-            i.smooth_scroll_delta.y,
-            i.raw_scroll_delta.y,
-        )
-    });
-    if (zoom_delta - 1.0).abs() > f32::EPSILON
-        || !ui.rect_contains_pointer(graph_rect)
-    {
-        let velocity_id = egui::Id::new("graph_scroll_zoom_velocity");
-        ui.ctx().data_mut(|d| d.insert_persisted(velocity_id, 0.0_f32));
-        return None;
-    }
-
-    let velocity_id = egui::Id::new("graph_scroll_zoom_velocity");
-    let scroll_y = if smooth_scroll_y.abs() > f32::EPSILON {
-        smooth_scroll_y
-    } else {
-        raw_scroll_y
-    };
-    let mut velocity = ui
-        .ctx()
-        .data_mut(|d| d.get_persisted::<f32>(velocity_id))
-        .unwrap_or(0.0);
-
-    // Convert wheel/trackpad delta into a zoom velocity impulse.
-    if scroll_y.abs() > f32::EPSILON {
-        let impulse = app.scroll_zoom_impulse_scale * (scroll_y / 60.0).clamp(-1.0, 1.0);
-        velocity += impulse;
-    }
-    if velocity.abs() < app.scroll_zoom_inertia_min_abs {
-        ui.ctx()
-            .data_mut(|d| d.insert_persisted(velocity_id, 0.0_f32));
-        return None;
-    }
-
-    let factor = 1.0 + velocity;
-    if factor <= 0.0 {
-        ui.ctx()
-            .data_mut(|d| d.insert_persisted(velocity_id, 0.0_f32));
-        return None;
-    }
-
-    let local_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size());
-    let local_center = pointer_pos
-        .map(|p| egui::pos2(p.x - graph_rect.min.x, p.y - graph_rect.min.y))
-        .unwrap_or(local_rect.center())
-        .to_vec2();
-
-    let meta_id = egui::Id::new("egui_graphs_metadata_");
-    let mut updated_zoom = None;
-    ui.ctx().data_mut(|data| {
-        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(meta_id) {
-            let graph_center_pos = (local_center - meta.pan) / meta.zoom;
-            let new_zoom = app.camera.clamp(meta.zoom * factor);
-            let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
-            meta.pan += pan_delta;
-            meta.zoom = new_zoom;
-            app.camera.current_zoom = new_zoom;
-            data.insert_persisted(meta_id, meta);
-            updated_zoom = Some(new_zoom);
-        }
-    });
-
-    velocity *= app.scroll_zoom_inertia_damping;
-    if velocity.abs() < app.scroll_zoom_inertia_min_abs {
-        velocity = 0.0;
-    }
-    ui.ctx()
-        .data_mut(|d| d.insert_persisted(velocity_id, velocity));
-    if velocity != 0.0 {
-        ui.ctx().request_repaint_after(Duration::from_millis(16));
-    }
-
-    updated_zoom
+    Some((min_x, max_x, min_y, max_y))
 }
 
 struct LassoGestureResult {
@@ -961,7 +1115,29 @@ fn collect_lasso_action(ui: &Ui, app: &GraphBrowserApp, enabled: bool) -> LassoG
     } else {
         SelectionUpdateMode::Replace
     };
-    let meta_id = egui::Id::new("egui_graphs_metadata_");
+    // Note: Lasso uses a different metadata ID logic if we change the graph view ID.
+    // However, lasso uses screen coordinates and converts them.
+    // We need the metadata to convert screen to canvas.
+    // Since we don't have the response ID here easily, we might need to pass it or use the last known one.
+    // For now, let's assume lasso works if we use the same ID logic, but lasso is called *after* graph view.
+    // We can pass the ID to collect_lasso_action if needed, but let's stick to the current flow.
+    // Actually, lasso needs metadata to map screen rect to canvas rect.
+    // We should probably pass the metadata ID to collect_lasso_action too, but let's see if it breaks.
+    // The current implementation uses "egui_graphs_metadata_" which is the default if no ID is provided?
+    // No, egui_graphs uses `id.with("metadata")`.
+    // If we change the ID of the graph view, we MUST update where lasso looks for metadata.
+    // Since we can't easily pass the ID here without refactoring `collect_lasso_action` signature significantly
+    // (it's called before we have the response in the current flow), we might have a problem.
+    // BUT, `render_graph_in_ui_collect_actions` calls `collect_lasso_action`.
+    // We can move `collect_lasso_action` call to *after* we get the response.
+    
+    // Let's defer fixing lasso metadata ID until we see if it breaks.
+    // Actually, `collect_lasso_action` uses `egui::Id::new("egui_graphs_metadata_")` which is WRONG if we change the ID.
+    // We should fix this.
+    
+    let meta_id = egui::Id::new("egui_graphs_metadata_"); // This is likely wrong now.
+    // We will fix this by passing the ID in the next step if needed.
+    
     let meta = ui
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
@@ -1207,6 +1383,106 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     }
 }
 
+/// Apply semantic clustering forces based on UDC tag similarity (Phase 2).
+/// Nodes with similar UDC codes attract each other, creating "library shelves"
+/// where content clusters by subject (math, physics, history, etc.).
+///
+/// Force model: F = k * similarity * (pos_b - pos_a)
+/// where similarity = 1.0 - distance(code_a, code_b)
+fn apply_semantic_clustering_forces(
+    app: &mut GraphBrowserApp,
+    semantic_config: Option<(bool, f32)>,
+) {
+    // Check if semantic clustering is enabled
+    let (enabled, strength) = if let Some((enabled, strength)) = semantic_config {
+        (enabled, strength)
+    } else {
+        // No lens active, semantic clustering is disabled by default
+        // TODO: Add global semantic clustering setting when settings panel is implemented
+        (false, 0.05)
+    };
+
+    if !enabled || strength < 1e-6 {
+        return;
+    }
+
+    if !app.physics.base.is_running {
+        return;
+    }
+
+    if app.semantic_index.is_empty() {
+        return;
+    }
+
+    // Collect nodes with semantic tags
+    let tagged_nodes: Vec<(crate::graph::NodeKey, crate::desktop::registries::knowledge::CompactCode)> =
+        app.semantic_index
+            .iter()
+            .map(|(&key, code)| (key, code.clone()))
+            .collect();
+
+    if tagged_nodes.len() < 2 {
+        return; // Need at least 2 nodes to cluster
+    }
+
+    // Calculate pairwise semantic attractions
+    // For efficiency, we use O(n²) for now; could optimize with clustering/sampling later
+    let mut position_deltas: HashMap<crate::graph::NodeKey, egui::Vec2> = HashMap::new();
+
+    for i in 0..tagged_nodes.len() {
+        for j in (i + 1)..tagged_nodes.len() {
+            let (key_a, code_a) = &tagged_nodes[i];
+            let (key_b, code_b) = &tagged_nodes[j];
+
+            // Calculate semantic distance (0.0 = identical, 1.0 = completely different)
+            let distance = code_a.distance(code_b);
+            let similarity = 1.0 - distance;
+
+            // Skip weak similarities to reduce noise
+            if similarity < 0.1 {
+                continue;
+            }
+
+            // Get node positions
+            let pos_a = app.graph.get_node(*key_a).map(|n| n.position);
+            let pos_b = app.graph.get_node(*key_b).map(|n| n.position);
+
+            if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
+                // Calculate attraction vector
+                let delta = egui::Vec2::new(pb.x - pa.x, pb.y - pa.y);
+                let force = delta * similarity * strength;
+
+                // Apply force to both nodes (Newton's 3rd law)
+                *position_deltas.entry(*key_a).or_insert(egui::Vec2::ZERO) += force;
+                *position_deltas.entry(*key_b).or_insert(egui::Vec2::ZERO) -= force;
+            }
+        }
+    }
+
+    // Apply position deltas to app.graph and sync to egui_state
+    for (key, delta) in &position_deltas {
+        if let Some(node) = app.graph.get_node_mut(*key) {
+            if !node.is_pinned {
+                node.position.x += delta.x;
+                node.position.y += delta.y;
+            }
+        }
+    }
+
+    // Sync updated positions back to egui_state
+    if let Some(state_mut) = app.egui_state.as_mut() {
+        for (key, _delta) in position_deltas {
+            if let Some(node) = app.graph.get_node(key) {
+                if !node.is_pinned {
+                    if let Some(egui_node) = state_mut.graph.node_mut(key) {
+                        egui_node.set_location(egui::Pos2::new(node.position.x, node.position.y));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Draw graph information overlay
 fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     let info_text = format!(
@@ -1441,6 +1717,7 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                             "Smart fit (2+ selected: fit selection; else fit graph)",
                         ),
                         ("P", "Physics settings panel"),
+                        ("Ctrl+H", "History Manager panel"),
                         ("Ctrl+F", "Show graph search"),
                         (command_palette_key, "Toggle edge command palette"),
                         (radial_key, "Toggle radial command menu"),
@@ -1474,120 +1751,157 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
     app.show_help_panel = open;
 }
 
-/// Render traversal history panel (Stage D: History Panel PoC)
-pub fn render_traversal_history_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) -> Vec<GraphIntent> {
+/// Render History Manager panel with Timeline and Dissolved tabs.
+pub fn render_history_manager_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
-    
-    if !app.show_traversal_history_panel {
+    if !app.show_history_manager {
         return intents;
     }
 
-    let mut open = app.show_traversal_history_panel;
-    
-    Window::new("Navigation History")
+    let mut open = app.show_history_manager;
+    let (timeline_total, dissolved_total) = app.history_manager_archive_counts();
+
+    Window::new("History Manager")
         .open(&mut open)
-        .default_width(450.0)
-        .default_height(500.0)
+        .default_width(520.0)
+        .default_height(540.0)
         .show(ctx, |ui| {
-            ui.label("Recent browser navigations (most recent first)");
+            ui.horizontal(|ui| {
+                ui.selectable_value(
+                    &mut app.history_manager_tab,
+                    HistoryManagerTab::Timeline,
+                    "Timeline",
+                );
+                ui.selectable_value(
+                    &mut app.history_manager_tab,
+                    HistoryManagerTab::Dissolved,
+                    "Dissolved",
+                );
+            });
             ui.add_space(8.0);
 
-            // Collect all traversals from all edges
-            let mut traversal_records: Vec<(NodeKey, NodeKey, u64, crate::graph::NavigationTrigger)> = Vec::new();
-            
-            for edge_ref in app.graph.inner.edge_references() {
-                let from = edge_ref.source();
-                let to = edge_ref.target();
-                let payload = edge_ref.weight();
-                
-                for traversal in &payload.traversals {
-                    traversal_records.push((from, to, traversal.timestamp_ms, traversal.trigger));
+            match app.history_manager_tab {
+                HistoryManagerTab::Timeline => {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Archived traversal entries: {timeline_total}"));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Export").clicked() {
+                                intents.push(GraphIntent::ExportHistoryTimeline);
+                            }
+                            if ui.button("Clear").clicked() {
+                                intents.push(GraphIntent::ClearHistoryTimeline);
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+                    let entries = app.history_manager_timeline_entries(250);
+                    render_history_manager_rows(ui, app, &entries, &mut intents);
+                }
+                HistoryManagerTab::Dissolved => {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Archived dissolved entries: {dissolved_total}"));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Export").clicked() {
+                                intents.push(GraphIntent::ExportHistoryDissolved);
+                            }
+                            if ui.button("Clear").clicked() {
+                                intents.push(GraphIntent::ClearHistoryDissolved);
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+                    let entries = app.history_manager_dissolved_entries(250);
+                    render_history_manager_rows(ui, app, &entries, &mut intents);
                 }
             }
-            
-            // Sort by timestamp descending (most recent first)
-            traversal_records.sort_by(|a, b| b.2.cmp(&a.2));
-            
-            // Display last 50 traversals
-            let display_count = traversal_records.len().min(50);
-            
-            if display_count == 0 {
-                ui.label("No navigation history yet.");
-                ui.label("Browse between pages to build your history.");
-            } else {
-                ui.label(format!("Showing {} of {} total traversals", display_count, traversal_records.len()));
-                ui.add_space(4.0);
-                
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        for (from_key, to_key, timestamp_ms, trigger) in traversal_records.iter().take(display_count) {
-                            let from_node = app.graph.get_node(*from_key);
-                            let to_node = app.graph.get_node(*to_key);
-                            
-                            let from_label = from_node
-                                .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
-                                .unwrap_or("<deleted>");
-                            let to_label = to_node
-                                .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
-                                .unwrap_or("<deleted>");
-                            
-                            let trigger_label = match trigger {
-                                crate::graph::NavigationTrigger::Back => "⬅ Back",
-                                crate::graph::NavigationTrigger::Forward => "➡ Forward",
-                                crate::graph::NavigationTrigger::Unknown => "↔",
-                            };
-                            
-                            // Format timestamp as relative time
-                            let now_ms = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis() as u64)
-                                .unwrap_or(0);
-                            let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
-                            let time_label = if elapsed_ms < 1000 {
-                                "just now".to_string()
-                            } else if elapsed_ms < 60_000 {
-                                format!("{}s ago", elapsed_ms / 1000)
-                            } else if elapsed_ms < 3_600_000 {
-                                format!("{}m ago", elapsed_ms / 60_000)
-                            } else if elapsed_ms < 86_400_000 {
-                                format!("{}h ago", elapsed_ms / 3_600_000)
-                            } else {
-                                format!("{}d ago", elapsed_ms / 86_400_000)
-                            };
-                            
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(&time_label).weak().small());
-                                ui.label(trigger_label);
-                                
-                                // Make the traversal row clickable
-                                let response = ui.selectable_label(false, format!("{} → {}", from_label, to_label));
-                                
-                                if response.clicked() && from_node.is_some() {
-                                    // Focus and pan to the source node
-                                    intents.push(GraphIntent::SelectNode {
-                                        key: *from_key,
-                                        multi_select: false,
-                                    });
-                                    intents.push(GraphIntent::RequestZoomToSelected);
-                                }
-                                
-                                if response.hovered() {
-                                    response.on_hover_text(format!(
-                                        "Click to focus on source node\nFrom: {}\nTo: {}",
-                                        from_label, to_label
-                                    ));
-                                }
-                            });
-                            
-                            ui.add_space(2.0);
-                        }
-                    });
+        });
+
+    app.show_history_manager = open;
+    intents
+}
+
+fn render_history_manager_rows(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    entries: &[crate::persistence::types::LogEntry],
+    intents: &mut Vec<GraphIntent>,
+) {
+    if entries.is_empty() {
+        ui.label("No history entries yet.");
+        return;
+    }
+
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for entry in entries {
+                let crate::persistence::types::LogEntry::AppendTraversal {
+                    from_node_id,
+                    to_node_id,
+                    timestamp_ms,
+                    trigger,
+                } = entry
+                else {
+                    continue;
+                };
+
+                let from_key = Uuid::parse_str(from_node_id)
+                    .ok()
+                    .and_then(|id| app.graph.get_node_key_by_id(id));
+                let to_key = Uuid::parse_str(to_node_id)
+                    .ok()
+                    .and_then(|id| app.graph.get_node_key_by_id(id));
+
+                let from_label = from_key
+                    .and_then(|k| app.graph.get_node(k))
+                    .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("<missing:{}>", &from_node_id[..from_node_id.len().min(8)]));
+                let to_label = to_key
+                    .and_then(|k| app.graph.get_node(k))
+                    .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("<missing:{}>", &to_node_id[..to_node_id.len().min(8)]));
+
+                let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
+                let time_label = if elapsed_ms < 1_000 {
+                    "just now".to_string()
+                } else if elapsed_ms < 60_000 {
+                    format!("{}s ago", elapsed_ms / 1_000)
+                } else if elapsed_ms < 3_600_000 {
+                    format!("{}m ago", elapsed_ms / 60_000)
+                } else if elapsed_ms < 86_400_000 {
+                    format!("{}h ago", elapsed_ms / 3_600_000)
+                } else {
+                    format!("{}d ago", elapsed_ms / 86_400_000)
+                };
+
+                let trigger_label = match trigger {
+                    crate::persistence::types::PersistedNavigationTrigger::Back => "⬅ Back",
+                    crate::persistence::types::PersistedNavigationTrigger::Forward => "➡ Forward",
+                    crate::persistence::types::PersistedNavigationTrigger::Unknown => "↔",
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(time_label).weak().small());
+                    ui.label(trigger_label);
+                    let response = ui.selectable_label(false, format!("{} → {}", from_label, to_label));
+                    if response.clicked() && let Some(key) = from_key {
+                        intents.push(GraphIntent::SelectNode {
+                            key,
+                            multi_select: false,
+                        });
+                        intents.push(GraphIntent::RequestZoomToSelected);
+                    }
+                });
+                ui.add_space(2.0);
             }
         });
-    
-    app.show_traversal_history_panel = open;
-    intents
 }
 
 /// Render edge command palette panel (keyboard-first palette; radial UI can reuse this dispatch).

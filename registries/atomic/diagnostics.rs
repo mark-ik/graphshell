@@ -11,6 +11,8 @@ use crate::desktop::registries::{
     CHANNEL_INVARIANT_TIMEOUT,
     CHANNEL_LAYOUT_FALLBACK_USED, CHANNEL_LAYOUT_LOOKUP_FAILED, CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
     CHANNEL_LENS_FALLBACK_USED, CHANNEL_LENS_RESOLVE_FAILED, CHANNEL_LENS_RESOLVE_SUCCEEDED,
+    CHANNEL_MOD_DEPENDENCY_MISSING, CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED,
+    CHANNEL_MOD_LOAD_SUCCEEDED,
     CHANNEL_PHYSICS_FALLBACK_USED, CHANNEL_PHYSICS_LOOKUP_FAILED, CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
     CHANNEL_PROTOCOL_RESOLVE_FAILED, CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
@@ -246,7 +248,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 7] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 11] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -273,6 +275,22 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 7] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_INVARIANT_TIMEOUT,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_LOAD_STARTED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_LOAD_SUCCEEDED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_LOAD_FAILED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_MOD_DEPENDENCY_MISSING,
         schema_version: 1,
     },
 ];

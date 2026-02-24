@@ -71,18 +71,19 @@ See `design_docs/graphshell_docs/BUILD.md` for platform prerequisites and extend
 
 M1 foundation is complete. Current active work is M2 architecture and UX stabilization:
 
-- Workspace routing/membership behavior and persistence semantics
-- Edge traversal model migration (`EdgeType` -> traversal payload model)
-- Settings architecture migration (`graphshell://settings/*` pages)
-- Embedder decomposition (stage-based split of runtime/embedder/UI responsibilities)
-- Graph UX polish closeout + headed/manual validation checklist completion
+- **Registry Migration**: Phase 1 (Input/Action) complete; Phase 2 (Protocols/Viewers) active.
+- **Edge Traversal**: History Manager UI landed; archival storage active.
+- **Embedder Decomposition**: Stage 4 (GUI/Toolbar split) largely complete (toolbar decomposed into 7 submodules as of 2026-02-23); remaining: Input/Output boundary formalization.
+- **UDC Semantic Tagging**: Phase 1 (Registry & Parsing) active.
+- **Settings Architecture**: Blocked by Registry Phase 2.
+- **Workspace Routing**: Manifest-based persistence and membership complete.
 
 ## Planned
 
 ### Near-term
 
 - Bookmarks/history import and node tagging UX expansion
-- Edge traversal payload migration and history manager surfaces
+- Edge traversal payload migration and History Manager consolidation (Timeline + Dissolved)
 - Performance hardening for larger graphs (measurement-driven)
 - Continued embedder/runtime decomposition and UI module split
 - Accessibility improvements subject to Servo embedder/API surface constraints

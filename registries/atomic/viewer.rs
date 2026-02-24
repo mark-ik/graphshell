@@ -1,6 +1,17 @@
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ViewerDescriptor {
+    pub(crate) uri: String,
+    pub(crate) mime_hint: Option<String>,
+}
+
+pub(crate) trait ViewerHandler: Send + Sync {
+    fn viewer_id(&self) -> &'static str;
+    fn can_render(&self, descriptor: &ViewerDescriptor) -> bool;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ViewerSelection {
     pub(crate) viewer_id: &'static str,
     pub(crate) fallback_used: bool,
@@ -34,6 +45,18 @@ impl ViewerRegistry {
     }
 
     pub(crate) fn select_for_uri(&self, uri: &str, mime_hint: Option<&str>) -> ViewerSelection {
+        if uri.eq_ignore_ascii_case("graphshell://settings")
+            || uri
+                .to_ascii_lowercase()
+                .starts_with("graphshell://settings/")
+        {
+            return ViewerSelection {
+                viewer_id: "viewer:settings",
+                fallback_used: false,
+                matched_by: "internal",
+            };
+        }
+
         if let Some(mime) = mime_hint.map(|m| m.to_ascii_lowercase())
             && let Some(viewer_id) = self.mime_handlers.get(&mime)
         {
@@ -60,11 +83,21 @@ impl ViewerRegistry {
             matched_by: "fallback",
         }
     }
+
+    pub(crate) fn core_seed() -> Self {
+        let mut registry = Self::new("viewer:metadata");
+        registry.register_mime("text/plain", "viewer:plaintext");
+        registry.register_mime("application/octet-stream", "viewer:metadata");
+        registry.register_extension("txt", "viewer:plaintext");
+        registry
+    }
 }
 
 impl Default for ViewerRegistry {
     fn default() -> Self {
         let mut registry = Self::new("viewer:webview");
+        registry.register_mime("application/x-graphshell-settings", "viewer:settings");
+        registry.register_mime("application/x-graphshell-internal", "viewer:webview");
         registry.register_mime("text/html", "viewer:webview");
         registry.register_mime("text/markdown", "viewer:markdown");
         registry.register_mime("application/pdf", "viewer:pdf");
@@ -80,4 +113,32 @@ fn extract_extension(uri: &str) -> Option<&str> {
     let no_fragment = uri.split('#').next().unwrap_or(uri);
     let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
     no_query.rsplit_once('.').map(|(_, ext)| ext)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ViewerRegistry;
+
+    #[test]
+    fn viewer_registry_selects_internal_settings_viewer_for_graphshell_settings_url() {
+        let registry = ViewerRegistry::default();
+        let selection = registry.select_for_uri("graphshell://settings/history", None);
+
+        assert_eq!(selection.viewer_id, "viewer:settings");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "internal");
+    }
+
+    #[test]
+    fn viewer_registry_core_seed_uses_plaintext_and_metadata() {
+        let registry = ViewerRegistry::core_seed();
+
+        let plaintext = registry.select_for_uri("file:///notes/readme.txt", Some("text/plain"));
+        assert_eq!(plaintext.viewer_id, "viewer:plaintext");
+        assert!(!plaintext.fallback_used);
+
+        let fallback = registry.select_for_uri("file:///archive/blob.bin", None);
+        assert_eq!(fallback.viewer_id, "viewer:metadata");
+        assert!(fallback.fallback_used);
+    }
 }

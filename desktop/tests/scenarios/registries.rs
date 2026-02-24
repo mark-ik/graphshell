@@ -142,6 +142,28 @@ fn phase0_registry_decision_uses_protocol_inferred_mime_hint_when_available() {
 }
 
 #[test]
+fn phase0_registry_decision_selects_settings_viewer_for_graphshell_settings_url() {
+    let mut harness = TestHarness::new();
+    let parsed = ServoUrl::parse("graphshell://settings/history").expect("url should parse");
+
+    let decision = registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
+
+    assert_eq!(decision.normalized_url.scheme(), "graphshell");
+    assert_eq!(decision.viewer.viewer_id, "viewer:settings");
+    assert_eq!(decision.viewer.matched_by, "internal");
+
+    let snapshot = harness.snapshot();
+    assert!(
+        TestHarness::channel_count(&snapshot, "registry.protocol.resolve_succeeded") > 0,
+        "graphshell scheme should emit protocol resolve success channel"
+    );
+    assert!(
+        TestHarness::channel_count(&snapshot, "registry.viewer.select_succeeded") > 0,
+        "settings viewer selection should emit viewer select success channel"
+    );
+}
+
+#[test]
 fn phase0_registry_cancellation_short_circuits_before_viewer_selection() {
     let mut harness = TestHarness::new();
     let parsed = ServoUrl::parse("https://example.com/readme.md").expect("url should parse");
@@ -407,11 +429,11 @@ fn phase2_lens_component_id_resolution_emits_component_fallback_channels() {
     );
     assert_eq!(
         normalized.layout_id.as_deref(),
-        Some(registries::layout::LAYOUT_ID_DEFAULT)
+        Some(crate::registries::atomic::layout::LAYOUT_ID_DEFAULT)
     );
     assert_eq!(
         normalized.theme_id.as_deref(),
-        Some(registries::theme::THEME_ID_DEFAULT)
+        Some(crate::registries::atomic::theme::THEME_ID_DEFAULT)
     );
 
     let snapshot = harness.snapshot();
@@ -497,7 +519,7 @@ fn phase3_identity_registry_key_unavailable_emits_failure_channels() {
 #[test]
 fn diagnostics_channel_config_update_emits_config_changed_channel() {
     let mut harness = TestHarness::new();
-    let config = registries::diagnostics::ChannelConfig {
+    let config = crate::registries::atomic::diagnostics::ChannelConfig {
         enabled: true,
         sample_rate: 0.5,
         retention_count: 256,

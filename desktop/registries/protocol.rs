@@ -112,7 +112,7 @@ impl ProtocolRegistry {
 impl Default for ProtocolRegistry {
     fn default() -> Self {
         let mut registry = Self::new("https");
-        for scheme in ["http", "https", "file", "about", "resource", "data"] {
+        for scheme in ["http", "https", "file", "about", "resource", "data", "graphshell"] {
             registry.register_scheme(scheme);
         }
         registry
@@ -120,6 +120,10 @@ impl Default for ProtocolRegistry {
 }
 
 fn infer_mime_hint(uri: &str, scheme: &str) -> Option<String> {
+    if scheme == "graphshell" {
+        return infer_graphshell_mime_hint(uri);
+    }
+
     if scheme == "data" {
         return infer_data_uri_mime_hint(uri);
     }
@@ -150,6 +154,19 @@ fn infer_data_uri_mime_hint(uri: &str) -> Option<String> {
         .unwrap_or("text/plain");
 
     Some(media_type.to_ascii_lowercase())
+}
+
+fn infer_graphshell_mime_hint(uri: &str) -> Option<String> {
+    let tail = uri
+        .strip_prefix("graphshell://")
+        .unwrap_or(uri)
+        .to_ascii_lowercase();
+
+    if tail == "settings" || tail.starts_with("settings/") {
+        return Some("application/x-graphshell-settings".to_string());
+    }
+
+    Some("application/x-graphshell-internal".to_string())
 }
 
 #[cfg(test)]
@@ -189,5 +206,19 @@ mod tests {
         let resolution = registry.resolve("https://example.com/path/report.pdf");
         assert_eq!(resolution.inferred_mime_hint.as_deref(), Some("application/pdf"));
         assert!(resolution.supported);
+    }
+
+    #[test]
+    fn protocol_resolution_supports_graphshell_scheme_with_settings_hint() {
+        let registry = ProtocolRegistry::default();
+        let resolution = registry.resolve("graphshell://settings/history");
+
+        assert!(resolution.supported);
+        assert!(!resolution.fallback_used);
+        assert_eq!(resolution.matched_scheme, "graphshell");
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("application/x-graphshell-settings")
+        );
     }
 }

@@ -12,6 +12,8 @@ use egui_tiles::{Behavior, Container, SimplificationOptions, TabState, Tile, Til
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, SearchDisplayMode};
 use crate::graph::{NodeKey, NodeLifecycle};
+use crate::registries::domain::layout::LayoutDomainRegistry;
+use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use crate::render;
 use crate::render::GraphAction;
 use crate::util::truncate_with_ellipsis;
@@ -155,13 +157,12 @@ impl<'a> GraphshellTileBehavior<'a> {
         Some(handle.id())
     }
 
-    fn should_detach_tab_on_drag_stop(ui: &Ui, tab_rect: egui::Rect) -> bool {
+    fn should_detach_tab_on_drag_stop(ui: &Ui, tab_rect: egui::Rect, detach_band_margin: f32) -> bool {
         // Treat release clearly outside the tab strip band as "detach tab to split".
         // Horizontal motion within the tab strip should keep normal tab reorder/group behavior.
         let Some(pointer) = ui.ctx().pointer_interact_pos() else {
             return false;
         };
-        let detach_band_margin = 12.0;
         pointer.y < tab_rect.top() - detach_band_margin
             || pointer.y > tab_rect.bottom() + detach_band_margin
     }
@@ -188,10 +189,13 @@ impl<'a> GraphshellTileBehavior<'a> {
 
 impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn simplification_options(&self) -> SimplificationOptions {
-        // Keep a tab container around every pane so split panes always expose
-        // a local tab strip for move/merge flows.
+        let layout_domain = LayoutDomainRegistry::default();
+        let workbench_surface = layout_domain
+            .workbench_surface()
+            .resolve(WORKBENCH_SURFACE_DEFAULT);
+
         SimplificationOptions {
-            all_panes_must_have_tabs: true,
+            all_panes_must_have_tabs: workbench_surface.profile.layout.all_panes_must_have_tabs,
             ..SimplificationOptions::default()
         }
     }
@@ -368,6 +372,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         let icon_size = 16.0;
         let icon_spacing = 6.0;
         let x_margin = self.tab_title_spacing(ui.visuals());
+        let layout_domain = LayoutDomainRegistry::default();
+        let workbench_surface = layout_domain
+            .workbench_surface()
+            .resolve(WORKBENCH_SURFACE_DEFAULT);
 
         let (title_text, favicon_texture) = match tiles.get(tile_id) {
             Some(Tile::Pane(TileKind::Graph(_))) => ("Graph".to_string(), None),
@@ -378,13 +386,32 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     .get_node(*node_key)
                     .map(|n| n.title.clone())
                     .unwrap_or_else(|| format!("Node {:?}", node_key));
-                let title = truncate_with_ellipsis(&title, 26);
+                let title = truncate_with_ellipsis(
+                    &title,
+                    workbench_surface.profile.interaction.title_truncation_chars,
+                );
                 let favicon = self.favicon_texture_id(ui, *node_key);
                 (title, favicon)
             },
             #[cfg(feature = "diagnostics")]
             Some(Tile::Pane(TileKind::Diagnostic)) => ("Diagnostics".to_string(), None),
-            Some(Tile::Container(container)) => (format!("{:?}", container.kind()), None),
+            Some(Tile::Container(Container::Linear(linear))) => {
+                let label = match linear.dir {
+                    egui_tiles::LinearDir::Horizontal => {
+                        workbench_surface.profile.split_horizontal_label.clone()
+                    }
+                    egui_tiles::LinearDir::Vertical => {
+                        workbench_surface.profile.split_vertical_label.clone()
+                    }
+                };
+                (label, None)
+            }
+            Some(Tile::Container(Container::Tabs(_))) => {
+                (workbench_surface.profile.tab_group_label.clone(), None)
+            }
+            Some(Tile::Container(Container::Grid(_))) => {
+                (workbench_surface.profile.grid_label.clone(), None)
+            }
             None => ("MISSING TILE".to_string(), None),
         };
 
@@ -451,7 +478,13 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             && let Some(Tile::Pane(TileKind::WebView(node_key))) = tiles.get(tile_id)
         {
             self.pending_tab_drag_stopped_nodes.insert(*node_key);
-            if Self::should_detach_tab_on_drag_stop(ui, tab_rect) {
+            if workbench_surface.profile.interaction.tab_detach_enabled
+                && Self::should_detach_tab_on_drag_stop(
+                    ui,
+                    tab_rect,
+                    workbench_surface.profile.interaction.tab_detach_band_margin,
+                )
+            {
                 self.graph_app.request_detach_node_to_split(*node_key);
             }
         }

@@ -13,12 +13,12 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde_json::{Value, json};
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
-use crate::desktop::registries::diagnostics as diagnostics_registry;
 use crate::desktop::registries::{
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
 };
 use crate::graph::NodeKey;
 use crate::persistence::GraphStore;
+use crate::registries::atomic::diagnostics as diagnostics_registry;
 
 static GLOBAL_DIAGNOSTICS_TX: OnceLock<Sender<DiagnosticEvent>> = OnceLock::new();
 

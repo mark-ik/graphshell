@@ -23,6 +23,7 @@ pub struct KeyboardActions {
     pub toggle_view: bool,
     pub fit_to_screen: bool,
     pub toggle_physics_panel: bool,
+    pub toggle_history_manager: bool,
     pub toggle_help_panel: bool,
     pub toggle_command_palette: bool,
     pub toggle_radial_menu: bool,
@@ -93,14 +94,24 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             actions.toggle_physics_panel = true;
         }
 
+        // Ctrl+H: Toggle history manager panel
+        if i.modifiers.ctrl && i.key_pressed(Key::H) {
+            actions.toggle_history_manager = true;
+        }
+
         // N: Create new node
         if i.key_pressed(Key::N) {
             actions.create_node = true;
         }
 
-        // Z: zoom to selected (without Ctrl modifier)
+        // Z: focus selection (or fit when selection is small)
         if i.key_pressed(Key::Z) && !i.modifiers.ctrl {
             actions.zoom_to_selected = true;
+        }
+
+        // C: camera fit
+        if i.key_pressed(Key::C) && !i.modifiers.ctrl {
+            actions.fit_to_screen = true;
         }
 
         // R: manual physics reheat (no modifiers).
@@ -245,6 +256,9 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     if actions.toggle_physics_panel {
         intents.push(GraphIntent::TogglePhysicsPanel);
     }
+    if actions.toggle_history_manager {
+        intents.push(GraphIntent::ToggleHistoryManager);
+    }
     if actions.toggle_help_panel {
         intents.push(GraphIntent::ToggleHelpPanel);
     }
@@ -347,7 +361,8 @@ mod tests {
     #[test]
     fn test_fit_to_screen_action() {
         let mut app = test_app();
-        assert!(!app.fit_to_screen_requested);
+        assert!(app.pending_camera_command().is_some());
+        app.clear_pending_camera_command();
 
         let intents = intents_from_actions(&KeyboardActions {
             fit_to_screen: true,
@@ -355,7 +370,10 @@ mod tests {
         });
         app.apply_intents(intents);
 
-        assert!(app.fit_to_screen_requested);
+        assert!(matches!(
+            app.pending_camera_command(),
+            Some(crate::app::CameraCommand::Fit)
+        ));
     }
 
     #[test]

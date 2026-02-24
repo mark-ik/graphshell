@@ -118,6 +118,13 @@ pub(super) fn render_settings_menu(
     {
         graph_app.set_scroll_zoom_inertia_min_abs(zoom_min_abs);
     }
+    let mut zoom_requires_ctrl = graph_app.scroll_zoom_requires_ctrl;
+    if ui
+        .checkbox(&mut zoom_requires_ctrl, "Scroll Zoom Requires Ctrl")
+        .changed()
+    {
+        graph_app.set_scroll_zoom_requires_ctrl(zoom_requires_ctrl);
+    }
     ui.separator();
     ui.label("Input");
     ui.label(format!(

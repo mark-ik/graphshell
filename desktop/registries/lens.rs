@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use super::layout::LAYOUT_ID_DEFAULT;
+use crate::registries::atomic::layout::LAYOUT_ID_DEFAULT;
 use super::physics::PHYSICS_ID_DEFAULT;
-use super::theme::THEME_ID_DEFAULT;
+use crate::registries::atomic::theme::THEME_ID_DEFAULT;
 
 pub(crate) const LENS_ID_DEFAULT: &str = "lens:default";
 

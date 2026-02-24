@@ -18,7 +18,7 @@ use crate::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigation
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
 use log::{debug, warn};
-use crate::desktop::registries::ontology::CompactCode;
+use crate::desktop::registries::knowledge::CompactCode;
 use crate::registries::atomic::diagnostics::ChannelConfig;
 // Platform-agnostic renderer handle.
 // On desktop this aliases servo::WebViewId so existing callers in the
@@ -50,7 +50,7 @@ impl Camera {
         Self {
             zoom_min: 0.1,
             zoom_max: 10.0,
-            current_zoom: 1.0,
+            current_zoom: 0.8,
         }
     }
 
@@ -103,7 +103,6 @@ pub struct PhysicsProfile {
     pub attraction_strength: f32,
     pub gravity_strength: f32,
     pub damping: f32,
-    pub layout_mode: LayoutMode,
     pub degree_repulsion: bool,
     pub domain_clustering: bool,
     pub semantic_clustering: bool,
@@ -125,7 +124,6 @@ impl PhysicsProfile {
             attraction_strength: 0.22,
             gravity_strength: 0.18,
             damping: 0.55,
-            layout_mode: LayoutMode::Free,
             degree_repulsion: true,
             domain_clustering: false,
             semantic_clustering: false,
@@ -141,12 +139,26 @@ impl PhysicsProfile {
             attraction_strength: 0.05,
             gravity_strength: 0.0,
             damping: 0.8,
-            layout_mode: LayoutMode::Free,
             degree_repulsion: false,
             domain_clustering: false,
             semantic_clustering: false,
             semantic_strength: 0.05,
             auto_pause: false,
+        }
+    }
+
+    pub fn solid() -> Self {
+        Self {
+            name: "Solid".to_string(),
+            repulsion_strength: 0.12,
+            attraction_strength: 0.42,
+            gravity_strength: 0.24,
+            damping: 0.4,
+            degree_repulsion: true,
+            domain_clustering: true,
+            semantic_clustering: false,
+            semantic_strength: 0.05,
+            auto_pause: true,
         }
     }
 
@@ -465,6 +477,14 @@ pub enum KeyboardZoomRequest {
     In,
     Out,
     Reset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CameraCommand {
+    Fit,
+    FitSelection,
+    SetZoom(f32),
+    StartupFit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -887,6 +907,27 @@ pub enum GraphIntent {
         width: u32,
         height: u32,
     },
+    ClearHistoryTimeline,
+    ClearHistoryDissolved,
+    ExportHistoryTimeline,
+    ExportHistoryDissolved,
+    /// No-op intent; used in tests and as a placeholder in async producers.
+    Noop,
+    /// Update the app's memory pressure status from an async background worker.
+    SetMemoryPressureStatus {
+        level: MemoryPressureLevel,
+        available_mib: u64,
+        total_mib: u64,
+    },
+    /// Emitted by the Control Panel mod loader when a mod activates.
+    ModActivated {
+        mod_id: String,
+    },
+    /// Emitted by the Control Panel mod loader when a mod fails to load.
+    ModLoadFailed {
+        mod_id: String,
+        reason: String,
+    },
 }
 
 /// Main application state
@@ -977,6 +1018,8 @@ pub struct GraphBrowserApp {
     pub scroll_zoom_inertia_damping: f32,
     /// Minimum absolute inertia velocity before stopping.
     pub scroll_zoom_inertia_min_abs: f32,
+    /// Whether scroll-wheel zoom requires the Ctrl/Command modifier.
+    pub scroll_zoom_requires_ctrl: bool,
 
     /// Last hovered node in graph view (updated by graph render pass).
     pub hovered_graph_node: Option<NodeKey>,
@@ -1053,11 +1096,11 @@ pub struct GraphBrowserApp {
     /// Pending keyboard-driven zoom command to apply against graph metadata.
     pending_keyboard_zoom_request: Option<KeyboardZoomRequest>,
 
-    /// Pending "zoom to selected" request for graph render metadata.
-    pending_zoom_to_selected_request: bool,
+    /// Durable camera command retried until metadata frame is available.
+    pending_camera_command: Option<CameraCommand>,
 
-    /// One-shot flag: fit graph to screen on next frame (triggered by 'C' key)
-    pub fit_to_screen_requested: bool,
+    /// Scroll delta intercepted pre-render and consumed post-render as wheel zoom.
+    pending_wheel_zoom_delta: f32,
 
     /// Active graph views, keyed by ID.
     pub views: HashMap<GraphViewId, GraphViewState>,
@@ -1168,6 +1211,8 @@ impl GraphBrowserApp {
         "workspace:settings-scroll-zoom-damping";
     pub const SETTINGS_SCROLL_ZOOM_MIN_ABS_NAME: &'static str =
         "workspace:settings-scroll-zoom-min-abs";
+    pub const SETTINGS_SCROLL_ZOOM_REQUIRES_CTRL_NAME: &'static str =
+        "workspace:settings-scroll-zoom-requires-ctrl";
     pub const SETTINGS_REGISTRY_LENS_ID_NAME: &'static str =
         "workspace:settings-registry-lens-id";
     pub const SETTINGS_REGISTRY_PHYSICS_ID_NAME: &'static str =
@@ -1178,7 +1223,7 @@ impl GraphBrowserApp {
         "workspace:settings-registry-theme-id";
     pub const SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX: &'static str =
         "workspace:settings-diagnostics-channel-config:";
-    pub const DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE: f32 = 0.01;
+    pub const DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE: f32 = 0.012;
     pub const DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING: f32 = 0.86;
     pub const DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS: f32 = 0.00035;
     pub const MIN_SCROLL_ZOOM_IMPULSE_SCALE: f32 = 0.001;
@@ -1268,6 +1313,7 @@ impl GraphBrowserApp {
             scroll_zoom_impulse_scale: Self::DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE,
             scroll_zoom_inertia_damping: Self::DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING,
             scroll_zoom_inertia_min_abs: Self::DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS,
+            scroll_zoom_requires_ctrl: false,
             hovered_graph_node: None,
             search_display_mode: SearchDisplayMode::Highlight,
             pending_node_context_target: None,
@@ -1295,8 +1341,8 @@ impl GraphBrowserApp {
             pending_clipboard_copy: None,
             pending_switch_data_dir: None,
             pending_keyboard_zoom_request: None,
-            pending_zoom_to_selected_request: false,
-            fit_to_screen_requested: false,
+            pending_camera_command: Some(CameraCommand::StartupFit),
+            pending_wheel_zoom_delta: 0.0,
             camera: Camera::new(),
             views: HashMap::new(),
             focused_view: None,
@@ -1373,6 +1419,7 @@ impl GraphBrowserApp {
             scroll_zoom_impulse_scale: Self::DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE,
             scroll_zoom_inertia_damping: Self::DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING,
             scroll_zoom_inertia_min_abs: Self::DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS,
+            scroll_zoom_requires_ctrl: false,
             hovered_graph_node: None,
             search_display_mode: SearchDisplayMode::Highlight,
             pending_node_context_target: None,
@@ -1400,8 +1447,8 @@ impl GraphBrowserApp {
             pending_clipboard_copy: None,
             pending_switch_data_dir: None,
             pending_keyboard_zoom_request: None,
-            pending_zoom_to_selected_request: false,
-            fit_to_screen_requested: false,
+            pending_camera_command: Some(CameraCommand::StartupFit),
+            pending_wheel_zoom_delta: 0.0,
             camera: Camera::new(),
             views: HashMap::new(),
             focused_view: None,
@@ -1489,9 +1536,13 @@ impl GraphBrowserApp {
         }
     }
 
-    /// Request fit-to-screen on next render frame (one-shot)
+    /// Request camera fit on next render frame.
     pub fn request_fit_to_screen(&mut self) {
-        self.fit_to_screen_requested = true;
+        self.request_camera_command(CameraCommand::Fit);
+    }
+
+    pub fn request_camera_command(&mut self, command: CameraCommand) {
+        self.pending_camera_command = Some(command);
     }
 
     /// Consume one pending keyboard zoom request.
@@ -1499,9 +1550,25 @@ impl GraphBrowserApp {
         self.pending_keyboard_zoom_request.take()
     }
 
-    /// Consume pending zoom-to-selected request.
-    pub fn take_pending_zoom_to_selected_request(&mut self) -> bool {
-        std::mem::take(&mut self.pending_zoom_to_selected_request)
+    /// Read pending camera command without consuming it.
+    pub fn pending_camera_command(&self) -> Option<CameraCommand> {
+        self.pending_camera_command
+    }
+
+    pub fn clear_pending_camera_command(&mut self) {
+        self.pending_camera_command = None;
+    }
+
+    pub fn queue_pending_wheel_zoom_delta(&mut self, delta: f32) {
+        self.pending_wheel_zoom_delta += delta;
+    }
+
+    pub fn pending_wheel_zoom_delta(&self) -> f32 {
+        self.pending_wheel_zoom_delta
+    }
+
+    pub fn clear_pending_wheel_zoom_delta(&mut self) {
+        self.pending_wheel_zoom_delta = 0.0;
     }
 
     /// Set whether the user is actively interacting with the graph
@@ -1589,9 +1656,9 @@ impl GraphBrowserApp {
                 // - 0 or 1 selected node: use full-graph fit.
                 // - 2+ selected nodes: fit selected bounds.
                 if self.selected_nodes.len() < 2 {
-                    self.request_fit_to_screen();
+                    self.request_camera_command(CameraCommand::Fit);
                 } else {
-                    self.pending_zoom_to_selected_request = true;
+                    self.request_camera_command(CameraCommand::FitSelection);
                 }
             },
             GraphIntent::ReheatPhysics => {
@@ -1977,6 +2044,76 @@ impl GraphBrowserApp {
                     self.semantic_index_dirty = true;
                 }
             },
+            GraphIntent::ClearHistoryTimeline => {
+                if let Some(store) = &mut self.persistence {
+                    store.clear_traversal_archive();
+                    log::info!("Cleared traversal archive (Timeline)");
+                }
+            },
+            GraphIntent::ClearHistoryDissolved => {
+                if let Some(store) = &mut self.persistence {
+                    store.clear_dissolved_archive();
+                    log::info!("Cleared dissolved archive (Dissolved)");
+                }
+            },
+            GraphIntent::ExportHistoryTimeline => {
+                if let Some(store) = &self.persistence {
+                    match store.export_traversal_archive() {
+                        Ok(content) => {
+                            // Save to user's home directory
+                            if let Some(home_dir) = dirs::home_dir() {
+                                let timestamp = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs();
+                                let filename = format!("graphshell_traversal_archive_{}.txt", timestamp);
+                                let path = home_dir.join(filename);
+                                if let Err(e) = std::fs::write(&path, content) {
+                                    log::error!("Failed to export traversal archive: {e}");
+                                } else {
+                                    log::info!("Exported traversal archive to {:?}", path);
+                                    // TODO: Show toast notification with path
+                                }
+                            }
+                        }
+                        Err(e) => log::error!("Failed to export traversal archive: {e}"),
+                    }
+                }
+            },
+            GraphIntent::ExportHistoryDissolved => {
+                if let Some(store) = &self.persistence {
+                    match store.export_dissolved_archive() {
+                        Ok(content) => {
+                            // Save to user's home directory
+                            if let Some(home_dir) = dirs::home_dir() {
+                                let timestamp = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs();
+                                let filename = format!("graphshell_dissolved_archive_{}.txt", timestamp);
+                                let path = home_dir.join(filename);
+                                if let Err(e) = std::fs::write(&path, content) {
+                                    log::error!("Failed to export dissolved archive: {e}");
+                                } else {
+                                    log::info!("Exported dissolved archive to {:?}", path);
+                                    // TODO: Show toast notification with path
+                                }
+                            }
+                        }
+                        Err(e) => log::error!("Failed to export dissolved archive: {e}"),
+                    }
+                }
+            },
+            GraphIntent::Noop => {}
+            GraphIntent::SetMemoryPressureStatus { level, available_mib, total_mib } => {
+                self.set_memory_pressure_status(level, available_mib, total_mib);
+            }
+            GraphIntent::ModActivated { mod_id } => {
+                log::info!("mod activated: {mod_id}");
+            }
+            GraphIntent::ModLoadFailed { mod_id, reason } => {
+                log::warn!("mod load failed: {mod_id} ({reason})");
+            }
         }
     }
 
@@ -2402,6 +2539,14 @@ impl GraphBrowserApp {
         );
     }
 
+    pub fn set_scroll_zoom_requires_ctrl(&mut self, required: bool) {
+        self.scroll_zoom_requires_ctrl = required;
+        self.save_workspace_layout_json(
+            Self::SETTINGS_SCROLL_ZOOM_REQUIRES_CTRL_NAME,
+            if required { "true" } else { "false" },
+        );
+    }
+
     pub fn set_default_registry_lens_id(&mut self, lens_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(lens_id.map(str::to_owned));
         self.default_registry_lens_id = normalized.clone();
@@ -2589,6 +2734,12 @@ impl GraphBrowserApp {
                     warn!("Ignoring invalid persisted scroll zoom inertia minimum velocity: '{raw}'")
                 },
             }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_SCROLL_ZOOM_REQUIRES_CTRL_NAME)
+        {
+            self.scroll_zoom_requires_ctrl =
+                matches!(raw.trim(), "true" | "TRUE" | "True" | "1");
         }
 
         self.default_registry_lens_id = self
@@ -3044,7 +3195,8 @@ impl GraphBrowserApp {
         self.pending_prune_empty_workspaces = false;
         self.pending_keep_latest_named_workspaces = None;
         self.pending_keyboard_zoom_request = None;
-        self.pending_zoom_to_selected_request = false;
+        self.pending_camera_command = Some(CameraCommand::Fit);
+        self.pending_wheel_zoom_delta = 0.0;
         self.node_workspace_membership.clear();
         self.views.clear();
         self.focused_view = None;
@@ -3057,7 +3209,6 @@ impl GraphBrowserApp {
         self.semantic_tags.clear();
         self.semantic_index.clear();
         self.semantic_index_dirty = true;
-        self.fit_to_screen_requested = true;
     }
 
     /// List named full-graph snapshots.
@@ -3105,7 +3256,8 @@ impl GraphBrowserApp {
         self.pending_prune_empty_workspaces = false;
         self.pending_keep_latest_named_workspaces = None;
         self.pending_keyboard_zoom_request = None;
-        self.pending_zoom_to_selected_request = false;
+        self.pending_camera_command = Some(CameraCommand::Fit);
+        self.pending_wheel_zoom_delta = 0.0;
         self.views.clear();
         self.focused_view = None;
         self.next_placeholder_id = next_placeholder_id;
@@ -3137,6 +3289,7 @@ impl GraphBrowserApp {
         self.scroll_zoom_impulse_scale = Self::DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE;
         self.scroll_zoom_inertia_damping = Self::DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING;
         self.scroll_zoom_inertia_min_abs = Self::DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS;
+        self.scroll_zoom_requires_ctrl = false;
         self.load_persisted_ui_settings();
         Ok(())
     }
@@ -3423,6 +3576,16 @@ impl GraphBrowserApp {
         self.highlighted_graph_edge = next.highlighted_graph_edge;
         self.pending_history_workspace_layout_json = next.workspace_layout_json;
         true
+    }
+
+    /// Get the length of the undo stack (for testing).
+    pub fn undo_stack_len(&self) -> usize {
+        self.undo_stack.len()
+    }
+
+    /// Get the length of the redo stack (for testing).
+    pub fn redo_stack_len(&self) -> usize {
+        self.redo_stack.len()
     }
 
     /// Take pending workspace layout restore emitted by undo/redo.
@@ -4427,7 +4590,8 @@ impl GraphBrowserApp {
         self.pending_prune_empty_workspaces = false;
         self.pending_keep_latest_named_workspaces = None;
         self.pending_keyboard_zoom_request = None;
-        self.pending_zoom_to_selected_request = false;
+        self.pending_camera_command = None;
+        self.pending_wheel_zoom_delta = 0.0;
         self.views.clear();
         self.focused_view = None;
         self.webview_to_node.clear();
@@ -4471,7 +4635,8 @@ impl GraphBrowserApp {
         self.pending_prune_empty_workspaces = false;
         self.pending_keep_latest_named_workspaces = None;
         self.pending_keyboard_zoom_request = None;
-        self.pending_zoom_to_selected_request = false;
+        self.pending_camera_command = None;
+        self.pending_wheel_zoom_delta = 0.0;
         self.views.clear();
         self.focused_view = None;
         self.webview_to_node.clear();
@@ -4579,16 +4744,15 @@ mod tests {
     fn test_request_fit_to_screen() {
         let mut app = GraphBrowserApp::new_for_testing();
 
-        // Initially false
-        assert!(!app.fit_to_screen_requested);
+        app.clear_pending_camera_command();
+        assert!(app.pending_camera_command().is_none());
 
         // Request fit to screen
         app.request_fit_to_screen();
-        assert!(app.fit_to_screen_requested);
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
 
-        // Reset (as render would do)
-        app.fit_to_screen_requested = false;
-        assert!(!app.fit_to_screen_requested);
+        app.clear_pending_camera_command();
+        assert!(app.pending_camera_command().is_none());
     }
 
     #[test]
@@ -4619,12 +4783,12 @@ mod tests {
     fn test_zoom_to_selected_falls_back_to_fit_when_selection_empty() {
         let mut app = GraphBrowserApp::new_for_testing();
         assert!(app.selected_nodes.is_empty());
-        assert!(!app.fit_to_screen_requested);
+        app.clear_pending_camera_command();
+        assert!(app.pending_camera_command().is_none());
 
         app.apply_intents([GraphIntent::RequestZoomToSelected]);
 
-        assert!(app.fit_to_screen_requested);
-        assert!(!app.take_pending_zoom_to_selected_request());
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
     }
 
     #[test]
@@ -4634,12 +4798,12 @@ mod tests {
             .graph
             .add_node("test".to_string(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
-        assert!(!app.fit_to_screen_requested);
+        app.clear_pending_camera_command();
+        assert!(app.pending_camera_command().is_none());
 
         app.apply_intents([GraphIntent::RequestZoomToSelected]);
 
-        assert!(app.fit_to_screen_requested);
-        assert!(!app.take_pending_zoom_to_selected_request());
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
     }
 
     #[test]
@@ -4652,12 +4816,12 @@ mod tests {
         app.select_node(key_a, false);
         app.select_node(key_b, true);
         assert_eq!(app.selected_nodes.len(), 2);
-        assert!(!app.fit_to_screen_requested);
+        app.clear_pending_camera_command();
+        assert!(app.pending_camera_command().is_none());
 
         app.apply_intents([GraphIntent::RequestZoomToSelected]);
 
-        assert!(app.take_pending_zoom_to_selected_request());
-        assert!(!app.fit_to_screen_requested);
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::FitSelection));
     }
 
     #[test]
@@ -5652,7 +5816,7 @@ mod tests {
         let cam = Camera::new();
         assert_eq!(cam.zoom_min, 0.1);
         assert_eq!(cam.zoom_max, 10.0);
-        assert_eq!(cam.current_zoom, 1.0);
+        assert_eq!(cam.current_zoom, 0.8);
     }
 
     #[test]
@@ -6693,7 +6857,7 @@ mod tests {
         let resolved = &app.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.lens_id.as_deref(), Some("lens:default"));
         assert_eq!(resolved.name, "Default");
-        assert_eq!(resolved.physics_id.as_deref(), Some("physics:default"));
+        assert_eq!(resolved.physics_id.as_deref(), Some("physics:liquid"));
         assert_eq!(resolved.layout_id.as_deref(), Some("layout:default"));
         assert_eq!(resolved.theme_id.as_deref(), Some("theme:default"));
         assert_eq!(resolved.physics.name, "Liquid");

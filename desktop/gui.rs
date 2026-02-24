@@ -46,7 +46,7 @@ use super::tile_runtime;
 use super::tile_view_ops::{self, TileOpenMode, ToggleTileViewArgs};
 use super::toolbar_routing::ToolbarOpenMode;
 use super::toolbar_ui::OmnibarSearchSession;
-use super::registries::{RegistryRuntime, ontology};
+use super::registries::{RegistryRuntime, knowledge};
 use super::webview_backpressure::WebviewCreationBackpressureState;
 use super::webview_status_sync;
 use crate::app::{
@@ -608,6 +608,7 @@ impl Gui {
             .with_margin(egui::vec2(12.0, 12.0));
         context.run(winit_window, |ctx| {
             graph_app.tick_frame();
+
             #[cfg(feature = "diagnostics")]
             {
                 let toggle_diagnostics = ctx.input(|i| {
@@ -776,7 +777,7 @@ impl Gui {
             );
 
             // Phase 2: Reconcile semantic index (UDC codes)
-            ontology::reconcile_semantics(graph_app, &registry_runtime.ontology);
+            knowledge::reconcile_semantics(graph_app, &registry_runtime.knowledge);
 
             gui_frame::run_post_render_phase(
                 gui_frame::PostRenderPhaseArgs {

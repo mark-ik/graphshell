@@ -155,6 +155,15 @@ pub(crate) struct AddressBarIntentOutcome {
     pub intents: Vec<GraphIntent>,
 }
 
+fn settings_intent_for_viewer(viewer_id: &str, normalized_url: &str) -> Option<GraphIntent> {
+    if viewer_id == "viewer:settings" {
+        return Some(GraphIntent::OpenSettingsUrl {
+            url: normalized_url.to_string(),
+        });
+    }
+    None
+}
+
 pub(crate) fn handle_address_bar_submit_intents(
     app: &GraphBrowserApp,
     url: &str,
@@ -178,7 +187,7 @@ pub(crate) fn handle_address_bar_submit_intents(
     }
 
     if is_graph_view {
-        let normalized_input = match location_bar_input_to_url(input, searchpage) {
+        let (normalized_input, settings_intent) = match location_bar_input_to_url(input, searchpage) {
             Some(parsed_url) => {
                 let decision = registries::phase0_decide_navigation_with_control(
                     parsed_url,
@@ -194,12 +203,21 @@ pub(crate) fn handle_address_bar_submit_intents(
                         intents: Vec::new(),
                     };
                 };
-                decision.normalized_url.as_str().to_string()
+                (
+                    decision.normalized_url.as_str().to_string(),
+                    settings_intent_for_viewer(
+                        decision.viewer.viewer_id,
+                        decision.normalized_url.as_str(),
+                    ),
+                )
             },
-            None => input.to_string(),
+            None => (input.to_string(), None),
         };
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, mut intents) =
             registries::phase2_execute_graph_view_submit_action(app, &normalized_input);
+        if let Some(settings_intent) = settings_intent {
+            intents.push(settings_intent);
+        }
 
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
@@ -221,7 +239,7 @@ pub(crate) fn handle_address_bar_submit_intents(
             };
         };
 
-        let parsed_url = {
+        let (parsed_url, selected_viewer_id, viewer_surface, settings_intent) = {
             let decision = registries::phase0_decide_navigation_with_control(
                 parsed_url,
                 None,
@@ -236,8 +254,55 @@ pub(crate) fn handle_address_bar_submit_intents(
                     intents: Vec::new(),
                 };
             };
-            decision.normalized_url
+            let normalized_url_string = decision.normalized_url.as_str().to_string();
+            let selected_viewer_id = decision.viewer.viewer_id.to_string();
+            let viewer_surface =
+                registries::phase3_resolve_viewer_surface_profile(decision.viewer.viewer_id);
+            (
+                decision.normalized_url,
+                selected_viewer_id,
+                viewer_surface,
+                settings_intent_for_viewer(decision.viewer.viewer_id, normalized_url_string.as_str()),
+            )
         };
+
+        if let Some(settings_intent) = settings_intent {
+            let (open_selected_tile, mut intents) =
+                registries::phase2_execute_detail_view_submit_action(app, parsed_url.as_str(), focused_node);
+            intents.push(settings_intent);
+            return AddressBarIntentOutcome {
+                outcome: AddressBarSubmitOutcome {
+                    mark_clean: true,
+                    open_selected_tile,
+                },
+                intents,
+            };
+        }
+
+        if selected_viewer_id != "viewer:webview" {
+            log::debug!(
+                "viewer '{}' selected for '{}'; applying viewer surface '{}' (reader_mode_default={}, smooth_scroll_enabled={}, zoom_step={})",
+                selected_viewer_id,
+                parsed_url,
+                viewer_surface.resolved_id,
+                viewer_surface.profile.reader_mode_default,
+                viewer_surface.profile.smooth_scroll_enabled,
+                viewer_surface.profile.zoom_step
+            );
+
+            let (open_selected_tile, intents) = registries::phase2_execute_detail_view_submit_action(
+                app,
+                parsed_url.as_str(),
+                focused_node,
+            );
+            return AddressBarIntentOutcome {
+                outcome: AddressBarSubmitOutcome {
+                    mark_clean: true,
+                    open_selected_tile,
+                },
+                intents,
+            };
+        }
 
         if let Some(webview_id) = focused_webview
             && let Some(webview) = window.webview_by_id(webview_id)
@@ -479,5 +544,17 @@ mod tests {
         .expect("default protocol resolve control should not cancel")
         .normalized_url;
         assert_eq!(rewritten.scheme(), "https");
+    }
+
+    #[test]
+    fn settings_intent_is_emitted_for_settings_viewer() {
+        let intent = settings_intent_for_viewer("viewer:settings", "graphshell://settings/history");
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenSettingsUrl { ref url }) if url == "graphshell://settings/history"
+        ));
+
+        let none_intent = settings_intent_for_viewer("viewer:webview", "https://example.com");
+        assert!(none_intent.is_none());
     }
 }
