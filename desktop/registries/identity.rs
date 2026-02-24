@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
+// Import Verse P2P types for trait implementation
+use crate::mods::native::verse::{P2PIdentityExt, TrustedPeer};
+
 pub(crate) const IDENTITY_ID_DEFAULT: &str = "identity:default";
+pub(crate) const IDENTITY_ID_P2P: &str = "identity:p2p";
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityResolution {
@@ -157,5 +161,33 @@ mod tests {
         assert!(!result.succeeded);
         assert!(!result.resolution.key_available);
         assert_eq!(result.resolution.resolved_id, "identity:locked");
+    }
+}
+
+// ===== P2PIdentityExt Trait Implementation =====
+
+impl P2PIdentityExt for IdentityRegistry {
+    fn p2p_node_id(&self) -> iroh::NodeId {
+        crate::mods::native::verse::node_id()
+    }
+
+    fn sign_sync_payload(&self, payload: &[u8]) -> Vec<u8> {
+        crate::mods::native::verse::sign_sync_payload(payload)
+    }
+
+    fn verify_peer_signature(&self, peer: iroh::NodeId, payload: &[u8], sig: &[u8]) -> bool {
+        crate::mods::native::verse::verify_peer_signature(peer, payload, sig)
+    }
+
+    fn get_trusted_peers(&self) -> Vec<TrustedPeer> {
+        crate::mods::native::verse::get_trusted_peers()
+    }
+
+    fn trust_peer(&mut self, peer: TrustedPeer) {
+        crate::mods::native::verse::trust_peer(peer);
+    }
+
+    fn revoke_peer(&mut self, node_id: iroh::NodeId) {
+        crate::mods::native::verse::revoke_peer(node_id);
     }
 }
