@@ -8,7 +8,9 @@
 //! - `Graph`: Main graph container backed by petgraph::StableGraph
 //! - `Node`: Webpage node with position, velocity, and metadata
 //! - `EdgePayload`: Edge semantics and traversal events between nodes
-// During 6.4 path migration, direct mutation methods are pub(crate) for transition compatibility.
+//!
+//! Boundary: direct mutation methods are `pub(crate)` — callers outside the
+//! reducer path are single-write-path invariant violations.
 
 use euclid::default::{Point2D, Vector2D};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
@@ -18,7 +20,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use crate::persistence::types::{
+use crate::services::persistence::types::{
     GraphSnapshot, PersistedEdge, PersistedEdgeType, PersistedNode, PersistedNodeSessionState,
 };
 
@@ -256,10 +258,8 @@ impl Graph {
         }
     }
 
-    // Mutation boundary policy (Phase 6.3): reducer-owned paths should be the
-    // canonical writers for graph topology in runtime/shell flows.
-    // These mutators remain crate-visible while persistence/restore paths are
-    // still being converged to reducer-mediated updates.
+    // Single-write-path boundary (Phase 6.5): graph topology mutators are
+    // crate-internal. Callers outside the reducer path are invariant violations.
 
     /// Add a new node to the graph
     pub(crate) fn add_node(&mut self, url: String, position: Point2D<f32>) -> NodeKey {
@@ -313,7 +313,7 @@ impl Graph {
 
     /// Update a node's URL, maintaining the url_to_node index.
     /// Returns the old URL, or None if the node doesn't exist.
-    pub fn update_node_url(&mut self, key: NodeKey, new_url: String) -> Option<String> {
+    pub(crate) fn update_node_url(&mut self, key: NodeKey, new_url: String) -> Option<String> {
         let node = self.inner.node_weight_mut(key)?;
         let old_url = std::mem::replace(&mut node.url, new_url.clone());
         self.remove_url_mapping(&old_url, key);
@@ -484,7 +484,7 @@ impl Graph {
     }
 
     /// Get a mutable edge payload by key.
-    pub fn get_edge_mut(&mut self, key: EdgeKey) -> Option<&mut EdgePayload> {
+    pub(crate) fn get_edge_mut(&mut self, key: EdgeKey) -> Option<&mut EdgePayload> {
         self.inner.edge_weight_mut(key)
     }
 
@@ -499,7 +499,7 @@ impl Graph {
     }
 
     /// Append a traversal event to an existing edge, or create an edge carrying the traversal.
-    pub fn push_traversal(&mut self, from: NodeKey, to: NodeKey, traversal: Traversal) -> bool {
+    pub(crate) fn push_traversal(&mut self, from: NodeKey, to: NodeKey, traversal: Traversal) -> bool {
         if from == to || !self.inner.contains_node(from) || !self.inner.contains_node(to) {
             return false;
         }
@@ -521,7 +521,7 @@ impl Graph {
     }
 
     /// Get a mutable node by key
-    pub fn get_node_mut(&mut self, key: NodeKey) -> Option<&mut Node> {
+    pub(crate) fn get_node_mut(&mut self, key: NodeKey) -> Option<&mut Node> {
         self.inner.node_weight_mut(key)
     }
 
@@ -1131,7 +1131,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_edge_with_missing_url_is_dropped() {
-        use crate::persistence::types::{
+        use crate::services::persistence::types::{
             GraphSnapshot, PersistedEdge, PersistedEdgeType, PersistedNode,
         };
 
@@ -1170,7 +1170,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_duplicate_urls_last_wins() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode};
 
         let snapshot = GraphSnapshot {
             nodes: vec![
@@ -1244,7 +1244,7 @@ mod tests {
 
     #[test]
     fn test_cold_restore_reapplies_history_index() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
 
         let node_id = Uuid::new_v4();
         let snapshot = GraphSnapshot {
@@ -1287,7 +1287,7 @@ mod tests {
 
     #[test]
     fn test_cold_restore_reapplies_scroll_offset() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {
@@ -1324,7 +1324,7 @@ mod tests {
 
     #[test]
     fn test_restore_fallback_without_session_state() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode};
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {

@@ -1,6 +1,6 @@
 # Registry Layer Architecture Plan (2026-02-22)
 
-**Status**: Phases 0–4 complete (2026-02-23). Phase 5 in progress (5.1–5.3 implemented with diagnostics channel/invariant contracts; 5.4–5.5 partial). Phase 6 in progress (6.1 compile-green; 6.2 seam/boundary contracts in place; 6.3 single-write-path runtime closure complete; 6.4 filesystem/import canonicalization advanced with host paths moved under `shell/desktop/host` and remaining non-shell host imports rewritten; 6.5 shim removal pending).
+**Status**: Phases 0–4 complete (2026-02-23). Phase 5 in progress (5.1–5.3 implemented with diagnostics channel/invariant contracts; 5.4–5.5 partial). Phase 6 in progress (6.1 compile-green; 6.2 seam/boundary contracts in place; 6.3 single-write-path runtime closure complete; 6.4 filesystem/import canonicalization complete; 6.5 shim removal and final boundary lock complete).
 **Supersedes**: `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (archived to `archive_docs/checkpoint_2026-02-23/`)
 **Goal**: Decompose Graphshell's monolithic logic into a modular ecosystem of registries, enabling extensibility and the "Knowledge User Agent" vision.
 
@@ -652,12 +652,12 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 
 ### Phase 6: Topology Consolidation (Model / Services / Shell)
 
-**Status**: In progress. Step 6.1 (`GraphWorkspace`/`AppServices` split) is compile-green and integrated. Step 6.2 callsite migration + seam/boundary contract coverage are in place. Step 6.3 runtime closure is implemented (persistence convergence to graph-owned helpers + contract guards). Step 6.4 has begun with a compile-green host subtree move slice (`running_app_state.rs` + `window.rs` canonicalized under `shell/desktop/host/` with temporary root re-export shims). Remaining closure work is broader Step 6.4 filesystem restructuring and Step 6.5 shim removal.
+**Status**: Complete. Step 6.1 (`GraphWorkspace`/`AppServices` split) is compile-green and integrated. Step 6.2 callsite migration + seam/boundary contract coverage are in place. Step 6.3 runtime closure is implemented (persistence convergence to graph-owned helpers + contract guards). Step 6.4 canonical import/path migration is complete (host paths under `shell/desktop/host/`, `crate::persistence::*` consumers migrated to `crate::services::persistence::*`). Step 6.5 shim removal and boundary lock are complete.
 
-**2026-02-24 audited open items (strict):**
-- Step 6.4 remains partial: canonical import/path migration still has remaining legacy path consumers (notably `crate::persistence::*` users).
-- Step 6.5 has not started: transition root shims (`running_app_state.rs`, `window.rs`, `search.rs`, `persistence/mod.rs`) are still present.
-- Step 6.3 done-gate text requires mutator visibility tightened to `pub(super)`; current graph mutators remain `pub(crate)` and need final boundary lock alignment.
+**2026-02-25 status (closed):**
+- Step 6.4 complete: all `crate::persistence::*` consumers migrated to `crate::services::persistence::*`.
+- Step 6.5 complete: root transition shims (`running_app_state.rs`, `window.rs`, `search.rs`, `persistence/mod.rs`) deleted; graph topology mutators tightened to `pub(crate)`.
+- Boundary lock applied: `graph/mod.rs` mutation methods are `pub(crate)`; compiler enforces single-write-path boundary.
 
 **Goal**: Enforce the three-authority-domain boundary in both type structure and filesystem layout. Phase 6 is not a path-move exercise — the moves matter only insofar as they make the authority boundaries visible and hard to violate. The moves follow from the type splits; not the other way around.
 
