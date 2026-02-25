@@ -177,8 +177,8 @@ impl<'a> GraphshellTileBehavior<'a> {
             }
             let mut out = Vec::new();
             for child_id in &tabs.children {
-                if let Some(Tile::Pane(TileKind::WebView(key))) = tiles.get(*child_id) {
-                    out.push(*key);
+                if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(*child_id) {
+                    out.push(state.node);
                 }
             }
             return Some(out);
@@ -262,12 +262,13 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 render::sync_graph_positions_from_layout(self.graph_app);
                 render::render_graph_info_in_ui(ui, self.graph_app);
             },
-            TileKind::WebView(node_key) => {
-                let Some(node) = self.graph_app.workspace.graph.get_node(*node_key) else {
+            TileKind::Node(state) => {
+                let node_key = state.node;
+                let Some(node) = self.graph_app.workspace.graph.get_node(node_key) else {
                     ui.label("Missing node for this tile.");
                     return UiResponse::None;
                 };
-                if let Some(crash) = self.graph_app.runtime_crash_state_for_node(*node_key) {
+                if let Some(crash) = self.graph_app.runtime_crash_state_for_node(node_key) {
                     let crash_reason = crash.message.as_deref().unwrap_or("unknown");
                     ui.colored_label(
                         egui::Color32::from_rgb(220, 120, 120),
@@ -277,12 +278,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         if ui.button("Reload").clicked() {
                             self.pending_graph_intents
                                 .push(lifecycle_intents::promote_node_to_active(
-                                    *node_key,
+                                    node_key,
                                     LifecycleCause::UserSelect,
                                 ));
                         }
                         if ui.button("Close Tile").clicked() {
-                            self.pending_closed_nodes.push(*node_key);
+                            self.pending_closed_nodes.push(node_key);
                         }
                     });
                     if crash.has_backtrace {
@@ -295,7 +296,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     }
                     return UiResponse::None;
                 }
-                if self.graph_app.get_webview_for_node(*node_key).is_none() {
+                if self.graph_app.get_webview_for_node(node_key).is_none() {
                     log::debug!("tile_behavior: node {:?} has no active webview", node_key);
                     let lifecycle_hint = match node.lifecycle {
                         NodeLifecycle::Cold => {
@@ -313,12 +314,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     ui.horizontal(|ui| {
                         if ui.button("Reactivate").clicked() {
                             self.pending_graph_intents.push(GraphIntent::SelectNode {
-                                key: *node_key,
+                                key: node_key,
                                 multi_select: false,
                             });
                             self.pending_graph_intents
                                 .push(lifecycle_intents::promote_node_to_active(
-                                    *node_key,
+                                    node_key,
                                     LifecycleCause::UserSelect,
                                 ));
                         }
@@ -338,8 +339,16 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 }
             },
             #[cfg(feature = "diagnostics")]
-            TileKind::Diagnostic => {
-                self.diagnostics_state.render_in_pane(ui, self.graph_app);
+            TileKind::Tool(tool) => {
+                use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+                match tool {
+                    ToolPaneState::Diagnostics => {
+                        self.diagnostics_state.render_in_pane(ui, self.graph_app);
+                    }
+                    _ => {
+                        ui.label("Tool pane (not yet rendered).");
+                    }
+                }
             }
         }
         UiResponse::None
@@ -348,14 +357,14 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn tab_title_for_pane(&mut self, pane: &TileKind) -> WidgetText {
         match pane {
             TileKind::Graph(_) => "Graph".into(),
-            TileKind::WebView(node_key) => self
+            TileKind::Node(state) => self
                 .graph_app
                 .workspace.graph
-                .get_node(*node_key)
+                .get_node(state.node)
                 .map(|n| n.title.clone().into())
-                .unwrap_or_else(|| format!("Node {:?}", node_key).into()),
+                .unwrap_or_else(|| format!("Node {:?}", state.node).into()),
             #[cfg(feature = "diagnostics")]
-            TileKind::Diagnostic => "Diagnostics".into(),
+            TileKind::Tool(_) => "Diagnostics".into(),
         }
     }
 
@@ -379,22 +388,22 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
         let (title_text, favicon_texture) = match tiles.get(tile_id) {
             Some(Tile::Pane(TileKind::Graph(_))) => ("Graph".to_string(), None),
-            Some(Tile::Pane(TileKind::WebView(node_key))) => {
+            Some(Tile::Pane(TileKind::Node(state))) => {
                 let title = self
                     .graph_app
                     .workspace.graph
-                    .get_node(*node_key)
+                    .get_node(state.node)
                     .map(|n| n.title.clone())
-                    .unwrap_or_else(|| format!("Node {:?}", node_key));
+                    .unwrap_or_else(|| format!("Node {:?}", state.node));
                 let title = truncate_with_ellipsis(
                     &title,
                     workbench_surface.profile.interaction.title_truncation_chars,
                 );
-                let favicon = self.favicon_texture_id(ui, *node_key);
+                let favicon = self.favicon_texture_id(ui, state.node);
                 (title, favicon)
             },
             #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Diagnostic)) => ("Diagnostics".to_string(), None),
+            Some(Tile::Pane(TileKind::Tool(_))) => ("Diagnostics".to_string(), None),
             Some(Tile::Container(Container::Linear(linear))) => {
                 let label = match linear.dir {
                     egui_tiles::LinearDir::Horizontal => {
@@ -439,21 +448,22 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             .on_hover_cursor(self.tab_hover_cursor_icon());
 
         if tab_response.clicked()
-            && let Some(Tile::Pane(TileKind::WebView(node_key))) = tiles.get(tile_id)
+            && let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id)
         {
+            let node_key = state.node;
             let modifiers = ui.input(|i| i.modifiers);
             if modifiers.shift {
                 let ordered_nodes =
-                    Self::tab_group_node_order_for_tile(tiles, tile_id).unwrap_or_else(|| vec![*node_key]);
+                    Self::tab_group_node_order_for_tile(tiles, tile_id).unwrap_or_else(|| vec![node_key]);
                 let target_index = ordered_nodes
                     .iter()
-                    .position(|key| *key == *node_key)
+                    .position(|key| *key == node_key)
                     .unwrap_or(0);
                 let anchor_key = self
                     .graph_app
                     .workspace
                     .tab_selection_anchor
-                    .unwrap_or(*node_key);
+                    .unwrap_or(node_key);
                 let anchor_index = ordered_nodes
                     .iter()
                     .position(|key| *key == anchor_key)
@@ -468,20 +478,21 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         .add_tab_selection_keys(range.map(|idx| ordered_nodes[idx]));
                 }
             } else if modifiers.ctrl {
-                self.graph_app.toggle_tab_selection(*node_key);
+                self.graph_app.toggle_tab_selection(node_key);
             } else {
-                self.graph_app.set_tab_selection_single(*node_key);
+                self.graph_app.set_tab_selection_single(node_key);
                 self.pending_graph_intents.push(GraphIntent::SelectNode {
-                    key: *node_key,
+                    key: node_key,
                     multi_select: false,
                 });
             }
         }
 
         if tab_response.drag_stopped()
-            && let Some(Tile::Pane(TileKind::WebView(node_key))) = tiles.get(tile_id)
+            && let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id)
         {
-            self.pending_tab_drag_stopped_nodes.insert(*node_key);
+            let node_key = state.node;
+            self.pending_tab_drag_stopped_nodes.insert(node_key);
             if workbench_surface.profile.interaction.tab_detach_enabled
                 && Self::should_detach_tab_on_drag_stop(
                     ui,
@@ -489,7 +500,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     workbench_surface.profile.interaction.tab_detach_band_margin,
                 )
             {
-                self.graph_app.request_detach_node_to_split(*node_key);
+                self.graph_app.request_detach_node_to_split(node_key);
             }
         }
 
@@ -498,8 +509,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             let mut stroke = self.tab_outline_stroke(ui.visuals(), tiles, tile_id, state);
             let tab_multi_selected = matches!(
                 tiles.get(tile_id),
-                Some(Tile::Pane(TileKind::WebView(node_key)))
-                    if self.graph_app.workspace.selected_tab_nodes.contains(node_key)
+                Some(Tile::Pane(TileKind::Node(state)))
+                    if self.graph_app.workspace.selected_tab_nodes.contains(&state.node)
             );
             if tab_multi_selected && !state.active {
                 bg_color = bg_color.linear_multiply(1.08);
@@ -570,25 +581,26 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn is_tab_closable(&self, tiles: &Tiles<TileKind>, tile_id: TileId) -> bool {
         match tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::WebView(_))) => true,
+            Some(Tile::Pane(TileKind::Node(_))) => true,
             Some(Tile::Pane(TileKind::Graph(_))) => false,
             #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Diagnostic)) => true,
+            Some(Tile::Pane(TileKind::Tool(_))) => true,
             _ => false,
         }
     }
 
     fn on_tab_close(&mut self, tiles: &mut Tiles<TileKind>, tile_id: TileId) -> bool {
-        if let Some(Tile::Pane(TileKind::WebView(node_key))) = tiles.get(tile_id) {
-            self.pending_closed_nodes.push(*node_key);
-            self.graph_app.workspace.selected_tab_nodes.remove(node_key);
-            if self.graph_app.workspace.tab_selection_anchor == Some(*node_key) {
+        if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
+            let node_key = state.node;
+            self.pending_closed_nodes.push(node_key);
+            self.graph_app.workspace.selected_tab_nodes.remove(&node_key);
+            if self.graph_app.workspace.tab_selection_anchor == Some(node_key) {
                 self.graph_app.workspace.tab_selection_anchor = None;
             }
         }
         #[cfg(feature = "diagnostics")]
-        if let Some(Tile::Pane(TileKind::Diagnostic)) = tiles.get(tile_id) {
-            // No extra cleanup needed for diagnostic pane
+        if let Some(Tile::Pane(TileKind::Tool(_))) = tiles.get(tile_id) {
+            // No extra cleanup needed for tool pane
         }
         true
     }

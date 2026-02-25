@@ -75,12 +75,12 @@ fn tile_hierarchy_lines(
         let marker = if active.contains(&tile_id) { "*" } else { " " };
         let (label, node_key) = match tile {
             Tile::Pane(TileKind::Graph(_)) => ("Graph".to_string(), None),
-            Tile::Pane(TileKind::WebView(node_key)) => {
-                let mapped = graph_app.get_webview_for_node(*node_key).is_some();
-                (format!("WebView {:?} mapped={}", node_key, mapped), Some(*node_key))
+            Tile::Pane(TileKind::Node(state)) => {
+                let mapped = graph_app.get_webview_for_node(state.node).is_some();
+                (format!("Node {:?} mapped={}", state.node, mapped), Some(state.node))
             }
             #[cfg(feature = "diagnostics")]
-            Tile::Pane(TileKind::Diagnostic) => ("Diagnostic".to_string(), None),
+            Tile::Pane(TileKind::Tool(_)) => ("Tool".to_string(), None),
             Tile::Container(Container::Tabs(tabs)) => {
                 (
                     format!("Tabs active={:?} children={}", tabs.active, tabs.children.len()),
@@ -238,8 +238,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         log::debug!("tile_render_pass: tile node {:?}", node_key);
         // Debug: find why node might be inactive
         let tile_id = tiles_tree.tiles.iter().find_map(|(id, tile)| {
-            if let egui_tiles::Tile::Pane(TileKind::WebView(k)) = tile {
-                if *k == node_key { Some(*id) } else { None }
+            if let egui_tiles::Tile::Pane(TileKind::Node(state)) = tile {
+                if state.node == node_key { Some(*id) } else { None }
             } else {
                 None
             }
@@ -263,10 +263,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     log::debug!("tile_render_pass: {} egui active_tiles", active_tiles.len());
     for tile_id in active_tiles.iter().copied() {
         let tile_label = match tiles_tree.tiles.get(tile_id) {
-            Some(egui_tiles::Tile::Pane(TileKind::WebView(_))) => "WebView",
+            Some(egui_tiles::Tile::Pane(TileKind::Node(_))) => "Node",
             Some(egui_tiles::Tile::Pane(TileKind::Graph(_))) => "Graph",
             #[cfg(feature = "diagnostics")]
-            Some(egui_tiles::Tile::Pane(TileKind::Diagnostic)) => "Diagnostic",
+            Some(egui_tiles::Tile::Pane(TileKind::Tool(_))) => "Tool",
             Some(egui_tiles::Tile::Container(_)) => "Container",
             None => "Missing",
         };

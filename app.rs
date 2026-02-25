@@ -220,6 +220,10 @@ pub struct GraphViewState {
     pub name: String,
     pub camera: Camera,
     pub lens: LensConfig,
+    /// Whether this graph pane uses shared canonical positions or owns a private local simulation.
+    /// Defaults to `Canonical` (shared positions, independent camera only).
+    #[serde(default)]
+    pub layout_mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode,
     pub local_simulation: Option<LocalSimulation>,
     #[serde(skip)]
     pub egui_state: Option<EguiGraphState>,
@@ -232,6 +236,7 @@ impl std::fmt::Debug for GraphViewState {
             .field("name", &self.name)
             .field("camera", &self.camera)
             .field("lens", &self.lens)
+            .field("layout_mode", &self.layout_mode)
             .field("local_simulation", &self.local_simulation)
             .finish_non_exhaustive()
     }
@@ -244,6 +249,7 @@ impl Clone for GraphViewState {
             name: self.name.clone(),
             camera: self.camera.clone(),
             lens: self.lens.clone(),
+            layout_mode: self.layout_mode,
             local_simulation: self.local_simulation.clone(),
             egui_state: None,
         }
@@ -257,6 +263,7 @@ impl GraphViewState {
             name: name.into(),
             camera: Camera::new(),
             lens: LensConfig::default(),
+            layout_mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode::default(),
             local_simulation: None,
             egui_state: None,
         }
@@ -950,6 +957,38 @@ pub enum GraphIntent {
     RevokeWorkspaceAccess {
         peer_id: String,
         workspace_id: String,
+    },
+    /// Split an existing pane, creating a new pane in the given direction.
+    ///
+    /// Introduced in P5 (pane-hosted view architecture). Workbench-layer handled;
+    /// wired to tile behavior in P6.
+    #[allow(dead_code)]
+    SplitPane {
+        source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
+    },
+    /// Change the view payload of an existing pane.
+    ///
+    /// Introduced in P5. Workbench-layer handled; wired to tile behavior in P6.
+    #[allow(dead_code)]
+    SetPaneView {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        view: crate::shell::desktop::workbench::pane_model::PaneViewState,
+    },
+    /// Open a node in a specific pane (node viewer pane).
+    ///
+    /// Introduced in P5. Workbench-layer handled; wired to tile behavior in P6.
+    #[allow(dead_code)]
+    OpenNodeInPane {
+        node: NodeKey,
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+    },
+    /// Open a tool pane of the given kind.
+    ///
+    /// Introduced in P5. Workbench-layer handled; wired to tile behavior in P6.
+    #[allow(dead_code)]
+    OpenToolPane {
+        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
     },
 }
 
@@ -2359,6 +2398,15 @@ impl GraphBrowserApp {
                         );
                     }
                 }
+            }
+            // Pane-level intents (P5 architecture). Handled by the workbench layer (tile behavior).
+            // These are recognized here so the intent bus remains exhaustive; actual routing
+            // to split/view-change tile operations is wired in Stage 6 (P6).
+            GraphIntent::SplitPane { .. }
+            | GraphIntent::SetPaneView { .. }
+            | GraphIntent::OpenNodeInPane { .. }
+            | GraphIntent::OpenToolPane { .. } => {
+                log::debug!("pane intent received (workbench-layer handling pending Stage 6)");
             }
         }
     }

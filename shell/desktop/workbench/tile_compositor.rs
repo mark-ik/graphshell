@@ -26,10 +26,10 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 pub(crate) fn active_webview_tile_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKey, egui::Rect)> {
     let mut tile_rects = Vec::new();
     for tile_id in tiles_tree.active_tiles() {
-        if let Some(Tile::Pane(TileKind::WebView(node_key))) = tiles_tree.tiles.get(tile_id)
+        if let Some(Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
             && let Some(rect) = tiles_tree.tiles.rect(tile_id)
         {
-            tile_rects.push((*node_key, rect));
+            tile_rects.push((state.node, rect));
         }
     }
     tile_rects
@@ -44,8 +44,8 @@ pub(crate) fn focused_webview_id_for_tree(
         let hint_present_in_tree = tiles_tree.tiles.iter().any(|(_, tile)| {
             matches!(
                 tile,
-                Tile::Pane(TileKind::WebView(node_key))
-                    if graph_app.get_webview_for_node(*node_key) == Some(hint)
+                Tile::Pane(TileKind::Node(state))
+                    if graph_app.get_webview_for_node(state.node) == Some(hint)
             )
         });
         if hint_present_in_tree {
@@ -228,7 +228,7 @@ fn active_webview_tile_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
         .active_tiles()
         .into_iter()
         .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::WebView(node_key))) => Some(*node_key),
+            Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
             _ => None,
         })
 }

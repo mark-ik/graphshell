@@ -960,7 +960,7 @@ mod tests {
         }]);
 
         let mut tiles = egui_tiles::Tiles::default();
-        let local_leaf = tiles.insert_pane(TileKind::WebView(local_tab));
+        let local_leaf = tiles.insert_pane(TileKind::Node(local_tab.into()));
         let root = tiles.insert_tab_tile(vec![local_leaf]);
         let tree = Tree::new("non_at_contextual", root, tiles);
 
@@ -1017,7 +1017,7 @@ mod tests {
             app.add_node_and_sync("https://alpha-node.example".into(), Point2D::new(20.0, 0.0));
 
         let mut tiles = egui_tiles::Tiles::default();
-        let tab_tile = tiles.insert_pane(TileKind::WebView(tab_key));
+        let tab_tile = tiles.insert_pane(TileKind::Node(tab_key.into()));
         let tabs = tiles.insert_tab_tile(vec![tab_tile]);
         let tree = Tree::new("tabs_mode_test", tabs, tiles);
 
@@ -1035,7 +1035,7 @@ mod tests {
             app.add_node_and_sync("https://beta-node.example".into(), Point2D::new(20.0, 0.0));
 
         let mut tiles = egui_tiles::Tiles::default();
-        let tab_tile = tiles.insert_pane(TileKind::WebView(tab_key));
+        let tab_tile = tiles.insert_pane(TileKind::Node(tab_key.into()));
         let tabs = tiles.insert_tab_tile(vec![tab_tile]);
         let tree = Tree::new("mixed_mode_test", tabs, tiles);
 
@@ -1066,9 +1066,9 @@ mod tests {
         }]);
 
         let mut tiles = egui_tiles::Tiles::default();
-        let context_tile = tiles.insert_pane(TileKind::WebView(context_key));
-        let unrelated_tile = tiles.insert_pane(TileKind::WebView(unrelated_tab));
-        let related_tile = tiles.insert_pane(TileKind::WebView(related_tab));
+        let context_tile = tiles.insert_pane(TileKind::Node(context_key.into()));
+        let unrelated_tile = tiles.insert_pane(TileKind::Node(unrelated_tab.into()));
+        let related_tile = tiles.insert_pane(TileKind::Node(related_tab.into()));
         let tabs = tiles.insert_tab_tile(vec![context_tile, unrelated_tile, related_tile]);
         let tree = Tree::new("mixed_related_test", tabs, tiles);
 
@@ -1098,10 +1098,10 @@ mod tests {
         }]);
 
         let mut tiles = egui_tiles::Tiles::default();
-        let context_leaf = tiles.insert_pane(TileKind::WebView(context_key));
-        let hop3_leaf = tiles.insert_pane(TileKind::WebView(hop3));
-        let hop2_leaf = tiles.insert_pane(TileKind::WebView(hop2));
-        let hop1_leaf = tiles.insert_pane(TileKind::WebView(hop1));
+        let context_leaf = tiles.insert_pane(TileKind::Node(context_key.into()));
+        let hop3_leaf = tiles.insert_pane(TileKind::Node(hop3.into()));
+        let hop2_leaf = tiles.insert_pane(TileKind::Node(hop2.into()));
+        let hop1_leaf = tiles.insert_pane(TileKind::Node(hop1.into()));
         let root = tiles.insert_tab_tile(vec![context_leaf, hop3_leaf, hop2_leaf, hop1_leaf]);
         let tree = Tree::new("hop_order_test", root, tiles);
 
@@ -1187,7 +1187,7 @@ mod tests {
         let tab_key = app.add_node_and_sync("https://saved-tab.example".into(), Point2D::zero());
 
         let mut workspace_tiles = egui_tiles::Tiles::default();
-        let tab_leaf = workspace_tiles.insert_pane(TileKind::WebView(tab_key));
+        let tab_leaf = workspace_tiles.insert_pane(TileKind::Node(tab_key.into()));
         let tabs_root = workspace_tiles.insert_tab_tile(vec![tab_leaf]);
         let workspace_tree = Tree::new("saved_workspace", tabs_root, workspace_tiles);
         persistence_ops::save_named_workspace_bundle(&mut app, "workspace:saved-tabs", &workspace_tree)
@@ -1219,12 +1219,12 @@ mod tests {
         );
 
         let mut current_tiles = egui_tiles::Tiles::default();
-        let local_leaf = current_tiles.insert_pane(TileKind::WebView(local_tab));
+        let local_leaf = current_tiles.insert_pane(TileKind::Node(local_tab.into()));
         let current_root = current_tiles.insert_tab_tile(vec![local_leaf]);
         let current_tree = Tree::new("current_tree", current_root, current_tiles);
 
         let mut workspace_tiles = egui_tiles::Tiles::default();
-        let saved_leaf = workspace_tiles.insert_pane(TileKind::WebView(saved_tab));
+        let saved_leaf = workspace_tiles.insert_pane(TileKind::Node(saved_tab.into()));
         let saved_root = workspace_tiles.insert_tab_tile(vec![saved_leaf]);
         let workspace_tree = Tree::new("saved_workspace", saved_root, workspace_tiles);
         persistence_ops::save_named_workspace_bundle(&mut app, "workspace:saved-alpha", &workspace_tree)

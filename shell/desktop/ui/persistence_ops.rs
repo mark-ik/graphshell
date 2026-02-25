@@ -39,6 +39,8 @@ pub(crate) struct WorkspaceLayout {
 pub(crate) enum PaneContent {
     Graph,
     WebViewNode { node_uuid: Uuid },
+    /// Tool pane (diagnostics, history manager, settings, etc.).
+    Tool { kind: crate::shell::desktop::workbench::pane_model::ToolPaneState },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -113,6 +115,7 @@ pub(crate) fn derive_membership_from_manifest(manifest: &WorkspaceManifest) -> B
         .filter_map(|pane| match pane {
             PaneContent::WebViewNode { node_uuid } => Some(*node_uuid),
             PaneContent::Graph => None,
+            PaneContent::Tool { .. } => None,
         })
         .collect()
 }
@@ -159,12 +162,12 @@ fn runtime_tree_to_bundle(
             serde_json::from_value(pane_value.clone()).map_err(|e| e.to_string())?;
         let persisted_pane = match runtime_pane {
             TileKind::Graph(_) => PersistedPaneTile::Graph,
-            TileKind::WebView(node_key) => {
+            TileKind::Node(state) => {
                 let node = graph_app
                     .workspace
                     .graph
-                    .get_node(node_key)
-                    .ok_or_else(|| format!("workspace contains stale node key {}", node_key.index()))?;
+                    .get_node(state.node)
+                    .ok_or_else(|| format!("workspace contains stale node key {}", state.node.index()))?;
                 let pane_id = tile_id.0;
                 panes.insert(
                     pane_id,
@@ -173,7 +176,11 @@ fn runtime_tree_to_bundle(
                 PersistedPaneTile::Pane(pane_id)
             }
             #[cfg(feature = "diagnostics")]
-            TileKind::Diagnostic => PersistedPaneTile::Diagnostic,
+            TileKind::Tool(tool_state) => {
+                let pane_id = tile_id.0;
+                panes.insert(pane_id, PaneContent::Tool { kind: tool_state });
+                PersistedPaneTile::Pane(pane_id)
+            }
         };
         *pane_value = serde_json::to_value(persisted_pane).map_err(|e| e.to_string())?;
     }
@@ -278,14 +285,28 @@ pub(crate) fn restore_runtime_tree_from_workspace_bundle(
         let runtime_pane = match persisted_pane {
             PersistedPaneTile::Graph => Some(TileKind::Graph(GraphViewId::default())),
             #[cfg(feature = "diagnostics")]
-            PersistedPaneTile::Diagnostic => Some(TileKind::Diagnostic),
+            PersistedPaneTile::Diagnostic => Some(TileKind::Tool(
+                crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
+            )),
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
                 Some(PaneContent::Graph) => Some(TileKind::Graph(GraphViewId::default())),
                 Some(PaneContent::WebViewNode { node_uuid }) => {
                     if let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(*node_uuid) {
                         restored_nodes.push(node_key);
-                        Some(TileKind::WebView(node_key))
+                        Some(TileKind::Node(node_key.into()))
                     } else {
+                        missing_tile_ids.push(*tile_id);
+                        None
+                    }
+                }
+                Some(PaneContent::Tool { kind }) => {
+                    #[cfg(feature = "diagnostics")]
+                    {
+                        Some(TileKind::Tool(kind.clone()))
+                    }
+                    #[cfg(not(feature = "diagnostics"))]
+                    {
+                        let _ = kind;
                         missing_tile_ids.push(*tile_id);
                         None
                     }
@@ -416,7 +437,7 @@ fn workspace_nodes_from_tree(tree: &Tree<TileKind>) -> Vec<NodeKey> {
     tree.tiles
         .iter()
         .filter_map(|(_, tile)| match tile {
-            egui_tiles::Tile::Pane(TileKind::WebView(key)) => Some(*key),
+            egui_tiles::Tile::Pane(TileKind::Node(state)) => Some(state.node),
             _ => None,
         })
         .collect()
@@ -568,7 +589,7 @@ mod tests {
         let mut children = Vec::new();
         children.push(tiles.insert_pane(TileKind::Graph(GraphViewId::default())));
         for node_key in node_keys {
-            children.push(tiles.insert_pane(TileKind::WebView(*node_key)));
+            children.push(tiles.insert_pane(TileKind::Node((*node_key).into())));
         }
         let root = if children.len() == 1 {
             children[0]
@@ -709,7 +730,7 @@ mod tests {
             let node = app.add_node_and_sync("https://restart.example".into(), Point2D::new(0.0, 0.0));
             let mut tiles = Tiles::default();
             let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
-            let webview = tiles.insert_pane(TileKind::WebView(node));
+            let webview = tiles.insert_pane(TileKind::Node(node.into()));
             let root = tiles.insert_tab_tile(vec![graph, webview]);
             let tree = Tree::new("restart_bundle", root, tiles);
 

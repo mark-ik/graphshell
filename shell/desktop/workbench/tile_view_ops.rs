@@ -57,16 +57,16 @@ pub(crate) fn open_or_focus_webview_tile_with_mode(
         mode
     );
     if tiles_tree.make_active(
-        |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
     ) {
-        log::debug!("tile_view_ops: focused existing webview tile for node {:?}", node_key);
+        log::debug!("tile_view_ops: focused existing node tile for node {:?}", node_key);
         return;
     }
 
-    let webview_tile_id = tiles_tree.tiles.insert_pane(TileKind::WebView(node_key));
+    let webview_tile_id = tiles_tree.tiles.insert_pane(TileKind::Node(node_key.into()));
     let split_leaf_tile_id = tiles_tree.tiles.insert_tab_tile(vec![webview_tile_id]);
     log::debug!(
-        "tile_view_ops: inserted webview tile {:?} (split leaf {:?}) for node {:?}",
+        "tile_view_ops: inserted node tile {:?} (split leaf {:?}) for node {:?}",
         webview_tile_id,
         split_leaf_tile_id,
         node_key
@@ -97,14 +97,14 @@ pub(crate) fn open_or_focus_webview_tile_with_mode(
                 .insert_tab_tile(vec![root_id, webview_tile_id]);
             tiles_tree.root = Some(tabs_root);
             tiles_tree.make_active(
-                |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
+                |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
             );
         },
         TileOpenMode::SplitHorizontal => {
             // Never split directly against a raw leaf pane: wrap it in tabs first.
             let split_lhs_id = if matches!(
                 tiles_tree.tiles.get(root_id),
-                Some(Tile::Pane(TileKind::WebView(_)))
+                Some(Tile::Pane(TileKind::Node(_)))
             ) {
                 let wrapped = tiles_tree.tiles.insert_tab_tile(vec![root_id]);
                 tiles_tree.root = Some(wrapped);
@@ -118,7 +118,7 @@ pub(crate) fn open_or_focus_webview_tile_with_mode(
             {
                 linear.add_child(split_leaf_tile_id);
                 tiles_tree.make_active(
-                    |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
+                    |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
                 );
                 return;
             }
@@ -127,7 +127,7 @@ pub(crate) fn open_or_focus_webview_tile_with_mode(
                 .insert_horizontal_tile(vec![split_lhs_id, split_leaf_tile_id]);
             tiles_tree.root = Some(split_root);
             tiles_tree.make_active(
-                |_, tile| matches!(tile, Tile::Pane(TileKind::WebView(key)) if *key == node_key),
+                |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
             );
         },
     }
@@ -138,7 +138,7 @@ pub(crate) fn detach_webview_tile_to_split(tiles_tree: &mut Tree<TileKind>, node
         .tiles
         .iter()
         .find_map(|(tile_id, tile)| match tile {
-            Tile::Pane(TileKind::WebView(key)) if *key == node_key => Some(*tile_id),
+            Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(*tile_id),
             _ => None,
         });
 
@@ -156,7 +156,7 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
             .tiles
             .iter()
             .filter_map(|(tile_id, tile)| match tile {
-                Tile::Pane(TileKind::WebView(_)) => Some(*tile_id),
+                Tile::Pane(TileKind::Node(_)) => Some(*tile_id),
                 _ => None,
             })
             .collect();
