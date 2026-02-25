@@ -1213,6 +1213,38 @@ pub(crate) fn phase0_decide_navigation_for_tests_with_control(
     })
 }
 
+/// Test-harness helper: evaluate workspace access control for an inbound sync.
+///
+/// Returns `true` if the peer is permitted to apply the described sync (access granted),
+/// or `false` if the sync should be rejected.  When rejected the
+/// `verse.sync.access_denied` diagnostic channel is emitted through `diagnostics_state`.
+/// No graph mutations are performed by this function.
+#[cfg(test)]
+pub(crate) fn phase5_check_verse_workspace_sync_access_for_tests(
+    diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+    peers: &[crate::mods::native::verse::TrustedPeer],
+    peer_id: iroh::NodeId,
+    workspace_id: &str,
+    has_mutating_intents: bool,
+) -> bool {
+    use crate::mods::native::verse::sync_worker::resolve_peer_grant;
+    use crate::mods::native::verse::AccessLevel;
+
+    let access = resolve_peer_grant(peers, peer_id, workspace_id);
+
+    let Some(access) = access else {
+        diagnostics_state.emit_message_received_for_tests(CHANNEL_VERSE_SYNC_ACCESS_DENIED, 0);
+        return false;
+    };
+
+    if access == AccessLevel::ReadOnly && has_mutating_intents {
+        diagnostics_state.emit_message_received_for_tests(CHANNEL_VERSE_SYNC_ACCESS_DENIED, 0);
+        return false;
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
