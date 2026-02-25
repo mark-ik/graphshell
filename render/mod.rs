@@ -87,8 +87,11 @@ fn canvas_interaction_settings(
     profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
     radial_open: bool,
     right_button_down: bool,
+    multi_select_modifier: bool,
 ) -> SettingsInteraction {
     let is_tree_topology = profile.topology.policy_id == "topology:tree";
+    let selection_enabled =
+        profile.interaction.node_selection_enabled && !radial_open && !right_button_down;
 
     SettingsInteraction::new()
         .with_dragging_enabled(
@@ -97,9 +100,8 @@ fn canvas_interaction_settings(
                 && !right_button_down
                 && !is_tree_topology,
         )
-        .with_node_selection_enabled(
-            profile.interaction.node_selection_enabled && !radial_open && !right_button_down,
-        )
+        .with_node_selection_enabled(selection_enabled)
+        .with_node_selection_multi_enabled(selection_enabled && multi_select_modifier)
         .with_node_clicking_enabled(profile.interaction.node_clicking_enabled && !radial_open)
 }
 
@@ -178,7 +180,8 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Graph settings resolved from layout domain canvas surface profile.
     let nav = canvas_navigation_settings(canvas_profile);
-    let interaction = canvas_interaction_settings(canvas_profile, radial_open, right_button_down);
+    let interaction =
+        canvas_interaction_settings(canvas_profile, radial_open, right_button_down, ctrl_pressed);
     let style = canvas_style_settings(canvas_profile);
 
     // Resolve physics state and lens from the view (or default to global).
@@ -1241,8 +1244,21 @@ fn collect_graph_actions(
                     }
                 }
             },
-            Event::NodeDeselect(_) => {
-                // Selection clearing handled by the next SelectNode action
+            Event::NodeDeselect(p) => {
+                // When Ctrl is held, a NodeDeselect means the user Ctrl+Clicked an
+                // already-selected node to toggle it out of the multi-selection.
+                if multi_select_modifier {
+                    if let Some(state) = app.workspace.egui_state.as_ref() {
+                        let idx = NodeIndex::new(p.id);
+                        if let Some(key) = state.get_key(idx) {
+                            actions.push(GraphAction::SelectNode {
+                                key,
+                                multi_select: true,
+                            });
+                        }
+                    }
+                }
+                // Without modifier: selection clearing is handled by the next SelectNode action.
             },
             Event::Zoom(p) => {
                 actions.push(GraphAction::Zoom(p.new_zoom));
@@ -3937,6 +3953,76 @@ mod tests {
         app.apply_intents(intents);
 
         assert!(app.workspace.selected_nodes.contains(&key));
+    }
+
+    #[test]
+    fn test_select_node_action_ctrl_click_adds_to_selection() {
+        let mut app = test_app();
+        let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
+
+        // Single-click selects a.
+        let intents =
+            intents_from_graph_actions(vec![GraphAction::SelectNode { key: a, multi_select: false }]);
+        app.apply_intents(intents);
+
+        // Ctrl+Click adds b without deselecting a.
+        let intents =
+            intents_from_graph_actions(vec![GraphAction::SelectNode { key: b, multi_select: true }]);
+        app.apply_intents(intents);
+
+        assert!(app.workspace.selected_nodes.contains(&a));
+        assert!(app.workspace.selected_nodes.contains(&b));
+        assert_eq!(app.workspace.selected_nodes.len(), 2);
+    }
+
+    #[test]
+    fn test_select_node_action_ctrl_click_toggles_off_selected() {
+        let mut app = test_app();
+        let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
+
+        // Select both nodes.
+        app.apply_intents(intents_from_graph_actions(vec![
+            GraphAction::SelectNode { key: a, multi_select: false },
+            GraphAction::SelectNode { key: b, multi_select: true },
+        ]));
+        assert_eq!(app.workspace.selected_nodes.len(), 2);
+
+        // Ctrl+Click a again → toggles a out of the selection.
+        app.apply_intents(intents_from_graph_actions(vec![GraphAction::SelectNode {
+            key: a,
+            multi_select: true,
+        }]));
+
+        assert!(!app.workspace.selected_nodes.contains(&a));
+        assert!(app.workspace.selected_nodes.contains(&b));
+        assert_eq!(app.workspace.selected_nodes.len(), 1);
+    }
+
+    #[test]
+    fn test_select_node_single_click_does_not_affect_multi_selection() {
+        let mut app = test_app();
+        let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
+        let c = app.add_node_and_sync("c".into(), Point2D::new(200.0, 0.0));
+
+        // Select a and b via multi-select.
+        app.apply_intents(intents_from_graph_actions(vec![
+            GraphAction::SelectNode { key: a, multi_select: false },
+            GraphAction::SelectNode { key: b, multi_select: true },
+        ]));
+
+        // Single click c (no modifier): replaces selection with just c.
+        app.apply_intents(intents_from_graph_actions(vec![GraphAction::SelectNode {
+            key: c,
+            multi_select: false,
+        }]));
+
+        assert!(!app.workspace.selected_nodes.contains(&a));
+        assert!(!app.workspace.selected_nodes.contains(&b));
+        assert!(app.workspace.selected_nodes.contains(&c));
+        assert_eq!(app.workspace.selected_nodes.len(), 1);
     }
 
     #[test]
