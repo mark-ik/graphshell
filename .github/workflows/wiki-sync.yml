@@ -1,0 +1,60 @@
+name: Sync Design Docs to Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - design_docs/**
+      - .github/scripts/sync_wiki.py
+      - .github/workflows/wiki-sync.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve wiki token
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.WIKI_TOKEN }}" ]; then
+            echo "WIKI_PUSH_TOKEN=${{ secrets.WIKI_TOKEN }}" >> "$GITHUB_ENV"
+          else
+            echo "WIKI_PUSH_TOKEN=${{ github.token }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Clone wiki repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          WIKI_URL="https://x-access-token:${WIKI_PUSH_TOKEN}@github.com/${{ github.repository }}.wiki.git"
+          git clone "$WIKI_URL" wiki
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Sync design_docs into wiki checkout
+        run: |
+          python .github/scripts/sync_wiki.py --source design_docs --wiki-dir wiki
+
+      - name: Commit and push wiki changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd wiki
+          if git diff --quiet; then
+            echo "No wiki changes to publish"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs(wiki): sync from design_docs"
+          git push
