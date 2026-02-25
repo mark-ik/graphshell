@@ -4,6 +4,7 @@ use crate::app::{
 };
 use crate::shell::desktop::host::running_app_state::{RunningAppState, UserInterfaceCommand};
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use egui::Slider;
 
 pub(super) fn render_settings_menu(
@@ -18,6 +19,9 @@ pub(super) fn render_settings_menu(
 ) {
     if ui.button("Open Persistence Hub").clicked() {
         graph_app.workspace.show_persistence_panel = true;
+        frame_intents.push(GraphIntent::OpenToolPane {
+            kind: ToolPaneState::Settings,
+        });
         ui.close();
     }
     if ui
@@ -50,7 +54,13 @@ pub(super) fn render_settings_menu(
         })
         .clicked()
     {
+        let opening = !graph_app.workspace.show_history_manager;
         frame_intents.push(GraphIntent::ToggleHistoryManager);
+        if opening {
+            frame_intents.push(GraphIntent::OpenToolPane {
+                kind: ToolPaneState::HistoryManager,
+            });
+        }
         ui.close();
     }
     ui.separator();

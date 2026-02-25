@@ -654,7 +654,8 @@ impl Gui {
                         || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::D))
                 });
                 if toggle_diagnostics {
-                    Self::open_or_focus_diagnostic_pane(tiles_tree);
+                    use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+                    Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Diagnostics);
                 }
             }
             let pre_frame = Self::run_pre_frame_phase(
@@ -782,8 +783,16 @@ impl Gui {
                 );
             }
 
+            // Workbench-layer pane intents (P6) mutate tile state directly and should
+            // not flow through GraphBrowserApp's semantic reducer.
+            Self::handle_tool_pane_intents(tiles_tree, &mut frame_intents);
+
             // Phase 1: apply semantic/UI intents before lifecycle reconciliation.
             gui_frame::apply_intents_if_any(graph_app, tiles_tree, &mut frame_intents);
+            // Bridge legacy panel flags to pane-hosted tool surfaces where mappings exist.
+            // This preserves current panel behavior while letting pane-hosted architecture
+            // become the visible runtime path.
+            Self::bridge_legacy_panel_flags_to_tool_panes(graph_app, tiles_tree);
             Self::handle_pending_open_node_after_intents(
                 graph_app,
                 tiles_tree,
@@ -1109,29 +1118,73 @@ impl Gui {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn open_or_focus_diagnostic_pane(tiles_tree: &mut Tree<TileKind>) {
-        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-        if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_)))) {
+    fn open_or_focus_tool_pane(
+        tiles_tree: &mut Tree<TileKind>,
+        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    ) {
+        if tiles_tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind)
+        }) {
             return;
         }
 
-        let diagnostic_tile_id = tiles_tree.tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+        let tool_tile_id = tiles_tree.tiles.insert_pane(TileKind::Tool(kind.clone()));
         let Some(root_id) = tiles_tree.root() else {
-            tiles_tree.root = Some(diagnostic_tile_id);
+            tiles_tree.root = Some(tool_tile_id);
             return;
         };
 
         if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
             tiles_tree.tiles.get_mut(root_id)
         {
-            tabs.add_child(diagnostic_tile_id);
-            tabs.set_active(diagnostic_tile_id);
+            tabs.add_child(tool_tile_id);
+            tabs.set_active(tool_tile_id);
             return;
         }
 
-        let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, diagnostic_tile_id]);
+        let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, tool_tile_id]);
         tiles_tree.root = Some(tabs_root);
-        let _ = tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_))));
+        let _ = tiles_tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind)
+        });
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    fn open_or_focus_tool_pane(
+        _tiles_tree: &mut Tree<TileKind>,
+        _kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    ) {
+    }
+
+    fn handle_tool_pane_intents(tiles_tree: &mut Tree<TileKind>, frame_intents: &mut Vec<GraphIntent>) {
+        let mut remaining = Vec::with_capacity(frame_intents.len());
+        for intent in frame_intents.drain(..) {
+            match intent {
+                GraphIntent::OpenToolPane { kind } => {
+                    Self::open_or_focus_tool_pane(tiles_tree, kind);
+                }
+                other => remaining.push(other),
+            }
+        }
+        *frame_intents = remaining;
+    }
+
+    fn bridge_legacy_panel_flags_to_tool_panes(
+        graph_app: &GraphBrowserApp,
+        tiles_tree: &mut Tree<TileKind>,
+    ) {
+        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+
+        if graph_app.workspace.show_history_manager {
+            Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::HistoryManager);
+        }
+
+        // Persistence/sync/settings URLs still route through legacy booleans today.
+        // Bridge those requests to the unified Settings tool pane while compatibility
+        // panels continue to exist during migration.
+        if graph_app.workspace.show_persistence_panel || graph_app.workspace.show_sync_panel {
+            Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
+        }
     }
 
     fn handle_pending_open_node_after_intents(
