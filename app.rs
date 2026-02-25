@@ -2172,6 +2172,18 @@ impl GraphBrowserApp {
                     .map(|n| n.url != new_url)
                     .unwrap_or(false)
                 {
+                    // Resolve the destination node key BEFORE mutating the node URL so that the
+                    // prior URL is still present when push_history_traversal_and_sync records the
+                    // from_url. Capturing to_key after update_node_url_and_log would overwrite the
+                    // node URL and produce incorrect from_url/to_url in traversal records.
+                    let to_key = self.workspace.graph.get_node_by_url(&new_url).map(|(k, _)| k);
+                    if let Some(to_key) = to_key {
+                        self.push_history_traversal_and_sync(
+                            node_key,
+                            to_key,
+                            NavigationTrigger::Unknown,
+                        );
+                    }
                     let _ = self.update_node_url_and_log(node_key, new_url);
                 }
             },
@@ -5642,6 +5654,41 @@ mod tests {
             "https://after.com"
         );
         assert_eq!(app.get_node_for_webview(wv), Some(key));
+    }
+
+    #[test]
+    fn test_webview_url_changed_appends_traversal_between_known_nodes() {
+        // Navigating from a known node (a) to another known node (b) via WebViewUrlChanged
+        // must append a traversal on the a→b edge. The prior URL must be captured BEFORE
+        // update_node_url_and_log overwrites it; otherwise the traversal would be recorded
+        // on the wrong edge (b→b self-loop) rather than the correct a→b edge.
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app
+            .workspace
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+        let b = app
+            .workspace
+            .graph
+            .add_node("https://b.com".into(), Point2D::new(100.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, a);
+
+        app.apply_intents([GraphIntent::WebViewUrlChanged {
+            webview_id: wv,
+            new_url: "https://b.com".into(),
+        }]);
+
+        let edge_key = app
+            .workspace
+            .graph
+            .find_edge_key(a, b)
+            .expect("traversal edge from a to b should exist");
+        let payload = app.workspace.graph.get_edge(edge_key).unwrap();
+        assert_eq!(payload.traversals.len(), 1);
+        assert_eq!(payload.traversals[0].trigger, NavigationTrigger::Unknown);
+        // No self-loop on b — confirms prior URL was captured before mutation.
+        assert!(app.workspace.graph.find_edge_key(b, b).is_none());
     }
 
     #[test]
