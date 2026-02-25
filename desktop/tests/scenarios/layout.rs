@@ -141,7 +141,7 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
 
     let hierarchy = vec![
         HierarchySample {
-            line: "* Split Horizontal".to_string(),
+            line: "* Split ↔".to_string(),
             node_key: None,
         },
         HierarchySample {
@@ -222,7 +222,7 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
     let viewport = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(700.0, 260.0));
     let hierarchy = vec![
         HierarchySample {
-            line: "* Split Horizontal".to_string(),
+            line: "* Split ↔".to_string(),
             node_key: None,
         },
         HierarchySample {
@@ -268,7 +268,7 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
         .collect::<Vec<_>>();
 
     assert!(
-        hierarchy_lines.iter().any(|line| line.contains("Split Horizontal")),
+        hierarchy_lines.iter().any(|line| line.contains("Split ↔")),
         "hierarchy should include split container"
     );
     assert!(

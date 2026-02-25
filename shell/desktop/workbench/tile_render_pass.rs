@@ -73,6 +73,12 @@ fn tile_hierarchy_lines(
         };
         let indent = "  ".repeat(depth);
         let marker = if active.contains(&tile_id) { "*" } else { " " };
+        use crate::registries::domain::layout::LayoutDomainRegistry;
+        use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
+        let layout_domain = LayoutDomainRegistry::default();
+        let workbench_surface = layout_domain
+            .workbench_surface()
+            .resolve(WORKBENCH_SURFACE_DEFAULT);
         let (label, node_key) = match tile {
             Tile::Pane(TileKind::Graph(_)) => ("Graph".to_string(), None),
             Tile::Pane(TileKind::Node(state)) => {
@@ -81,16 +87,23 @@ fn tile_hierarchy_lines(
             }
             #[cfg(feature = "diagnostics")]
             Tile::Pane(TileKind::Tool(_)) => ("Tool".to_string(), None),
-            Tile::Container(Container::Tabs(tabs)) => {
-                (
-                    format!("Tabs active={:?} children={}", tabs.active, tabs.children.len()),
-                    None,
-                )
+            Tile::Container(Container::Tabs(_)) => {
+                (workbench_surface.profile.tab_group_label.clone(), None)
             }
             Tile::Container(Container::Linear(linear)) => {
-                (format!("Linear children={}", linear.children.len()), None)
+                let label = match linear.dir {
+                    egui_tiles::LinearDir::Horizontal => {
+                        workbench_surface.profile.split_horizontal_label.clone()
+                    }
+                    egui_tiles::LinearDir::Vertical => {
+                        workbench_surface.profile.split_vertical_label.clone()
+                    }
+                };
+                (label, None)
             }
-            Tile::Container(other) => (format!("Container {:?}", other.kind()), None),
+            Tile::Container(Container::Grid(_)) => {
+                (workbench_surface.profile.grid_label.clone(), None)
+            }
         };
         out.push(crate::shell::desktop::runtime::diagnostics::HierarchySample {
             line: format!("{}{} {:?} {}", indent, marker, tile_id, label),
