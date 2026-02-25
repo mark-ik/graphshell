@@ -1,0 +1,120 @@
+name: Claude Code Review
+
+# Triggers:
+#  1. A PR or issue gets the "claude_review" or "review" label added
+#  2. New commits are pushed to a PR that already has the "claude_review" label
+#     (the script checks whether a fresh review is warranted)
+#  3. Every 4 hours — re-review any labeled PRs with new activity since the
+#     last Claude review comment
+#  4. Manual dispatch — review a specific PR or issue number
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+  issues:
+    types: [labeled]
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review (leave blank to scan all labeled PRs)'
+        required: false
+        default: ''
+      issue_number:
+        description: 'Issue number to review'
+        required: false
+        default: ''
+      force:
+        description: 'Force re-review even if already reviewed at current commit'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    name: Claude Review
+    runs-on: ubuntu-latest
+
+    # Filter early: only run when the relevant label is present (for event-based triggers)
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+        (github.event.label.name == 'claude_review' ||
+         github.event.label.name == 'review')) ||
+      (github.event_name == 'pull_request' &&
+        (github.event.label.name == 'claude_review' ||
+         github.event.label.name == 'review' ||
+         contains(github.event.pull_request.labels.*.name, 'claude_review') ||
+         contains(github.event.pull_request.labels.*.name, 'review')))
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch enough history so the diff is available
+          fetch-depth: 50
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install anthropic requests
+
+      - name: Determine review target
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          INPUT_ISSUE: ${{ inputs.issue_number }}
+        run: |
+          python - <<'PYEOF'
+          import os, json
+
+          event = os.environ.get("EVENT_NAME", "")
+          pr = os.environ.get("PR_NUMBER", "")
+          issue = os.environ.get("ISSUE_NUMBER", "")
+          inp_pr = os.environ.get("INPUT_PR", "")
+          inp_issue = os.environ.get("INPUT_ISSUE", "")
+
+          targets = []
+          if inp_pr:
+              targets.append(f"pr:{inp_pr}")
+          if inp_issue:
+              targets.append(f"issue:{inp_issue}")
+          if event == "pull_request" and pr:
+              targets.append(f"pr:{pr}")
+          if event == "issues" and issue:
+              targets.append(f"issue:{issue}")
+          # schedule / empty workflow_dispatch: handled by the review script itself
+
+          mode = "scan" if not targets else "explicit"
+          output = "\n".join([
+              f"mode={mode}",
+              f"targets={json.dumps(targets)}",
+          ])
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(output + "\n")
+          print(f"Review mode: {mode}, targets: {targets}")
+          PYEOF
+
+      - name: Run Claude review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_MODE: ${{ steps.target.outputs.mode }}
+          REVIEW_TARGETS: ${{ steps.target.outputs.targets }}
+          FORCE_REVIEW: ${{ inputs.force || 'false' }}
+          REVIEW_LABELS: 'claude_review,review'
+        run: python .github/scripts/claude_review.py
