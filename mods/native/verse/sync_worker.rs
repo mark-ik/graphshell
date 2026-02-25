@@ -487,7 +487,7 @@ impl SyncWorkerHandle {
     }
 }
 
-fn resolve_peer_grant(
+pub(crate) fn resolve_peer_grant(
     peers: &[TrustedPeer],
     peer_id: NodeId,
     workspace_id: &str,
