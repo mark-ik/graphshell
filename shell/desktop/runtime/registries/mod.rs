@@ -100,6 +100,8 @@ pub(crate) const CHANNEL_VERSE_SYNC_INTENT_APPLIED: &str = "verse.sync.intent_ap
 pub(crate) const CHANNEL_VERSE_SYNC_ACCESS_DENIED: &str = "verse.sync.access_denied";
 pub(crate) const CHANNEL_VERSE_SYNC_CONNECTION_REJECTED: &str = "verse.sync.connection_rejected";
 pub(crate) const CHANNEL_VERSE_SYNC_IDENTITY_GENERATED: &str = "verse.sync.identity_generated";
+pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_DETECTED: &str = "verse.sync.conflict_detected";
+pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED: &str = "verse.sync.conflict_resolved";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Phase0NavigationDecision {

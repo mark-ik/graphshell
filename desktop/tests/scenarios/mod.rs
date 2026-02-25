@@ -7,3 +7,4 @@ mod registries;
 mod routing;
 mod tags;
 mod undo_redo;
+mod verse_delta_sync_basic;
