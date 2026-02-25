@@ -25,8 +25,8 @@ use url::Url;
 use crate::egl::host_trait::HostTrait;
 use crate::parser::location_bar_input_to_url;
 use crate::prefs::AppPreferences;
-use crate::running_app_state::RunningAppState;
-use crate::window::{PlatformWindow, EmbedderWindow, EmbedderWindowId};
+use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::host::window::{PlatformWindow, EmbedderWindow, EmbedderWindowId};
 
 const INPUT_TARGET_FALLBACK_WARN_INTERVAL: Duration = Duration::from_secs(60);
 

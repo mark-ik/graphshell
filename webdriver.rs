@@ -13,8 +13,8 @@ use servo::{
 };
 use url::Url;
 
-use crate::running_app_state::RunningAppState;
-use crate::window::PlatformWindow;
+use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::host::window::PlatformWindow;
 
 #[derive(Default)]
 pub(crate) struct WebDriverEmbedderControls {

@@ -120,7 +120,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             && !i.modifiers.shift
             && !i.modifiers.alt
             && !i.modifiers.command
-            && !matches!(graph_app.radial_menu_shortcut, RadialMenuShortcut::R)
+            && !matches!(graph_app.workspace.radial_menu_shortcut, RadialMenuShortcut::R)
         {
             actions.reheat_physics = true;
         }
@@ -157,7 +157,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         }
 
         // Toggle keyboard shortcut help panel.
-        match graph_app.help_panel_shortcut {
+        match graph_app.workspace.help_panel_shortcut {
             HelpPanelShortcut::F1OrQuestion => {
                 if i.key_pressed(Key::F1) || i.key_pressed(Key::Questionmark) {
                     actions.toggle_help_panel = true;
@@ -171,7 +171,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         }
 
         // Toggle edge command palette.
-        match graph_app.command_palette_shortcut {
+        match graph_app.workspace.command_palette_shortcut {
             CommandPaletteShortcut::F2 => {
                 if i.key_pressed(Key::F2) {
                     actions.toggle_command_palette = true;
@@ -185,7 +185,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         }
 
         // Toggle radial command menu.
-        match graph_app.radial_menu_shortcut {
+        match graph_app.workspace.radial_menu_shortcut {
             RadialMenuShortcut::F3 => {
                 if i.key_pressed(Key::F3) {
                     actions.toggle_radial_menu = true;
@@ -331,31 +331,31 @@ mod tests {
         let mut app = test_app();
         use euclid::default::Point2D;
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
-        let selected_before = app.selected_nodes.clone();
-        let count_before = app.graph.node_count();
+        let selected_before = app.workspace.selected_nodes.clone();
+        let count_before = app.workspace.graph.node_count();
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_view: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert_eq!(app.selected_nodes, selected_before);
-        assert_eq!(app.graph.node_count(), count_before);
+        assert_eq!(app.workspace.selected_nodes, selected_before);
+        assert_eq!(app.workspace.graph.node_count(), count_before);
     }
 
     #[test]
     fn test_toggle_physics_action() {
         let mut app = test_app();
-        let was_running = app.physics.base.is_running;
+        let was_running = app.workspace.physics.base.is_running;
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_physics: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert_ne!(app.physics.base.is_running, was_running);
+        assert_ne!(app.workspace.physics.base.is_running, was_running);
     }
 
     #[test]
@@ -368,7 +368,7 @@ mod tests {
             fit_to_screen: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
         assert!(matches!(
             app.pending_camera_command(),
@@ -444,73 +444,73 @@ mod tests {
     #[test]
     fn test_toggle_physics_panel_action() {
         let mut app = test_app();
-        let was_shown = app.show_physics_panel;
+        let was_shown = app.workspace.show_physics_panel;
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_physics_panel: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert_ne!(app.show_physics_panel, was_shown);
+        assert_ne!(app.workspace.show_physics_panel, was_shown);
     }
 
     #[test]
     fn test_toggle_help_panel_action() {
         let mut app = test_app();
-        assert!(!app.show_help_panel);
+        assert!(!app.workspace.show_help_panel);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_help_panel: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert!(app.show_help_panel);
+        assert!(app.workspace.show_help_panel);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_help_panel: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert!(!app.show_help_panel);
+        assert!(!app.workspace.show_help_panel);
     }
 
     #[test]
     fn test_toggle_command_palette_action() {
         let mut app = test_app();
-        assert!(!app.show_command_palette);
+        assert!(!app.workspace.show_command_palette);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_command_palette: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert!(app.show_command_palette);
+        assert!(app.workspace.show_command_palette);
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_command_palette: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert!(!app.show_command_palette);
+        assert!(!app.workspace.show_command_palette);
     }
 
     #[test]
     fn test_create_node_action() {
         let mut app = test_app();
-        assert_eq!(app.graph.node_count(), 0);
+        assert_eq!(app.workspace.graph.node_count(), 0);
 
         let intents = intents_from_actions(&KeyboardActions {
             create_node: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert_eq!(app.graph.node_count(), 1);
+        assert_eq!(app.workspace.graph.node_count(), 1);
     }
 
     #[test]
@@ -602,15 +602,15 @@ mod tests {
         use euclid::default::Point2D;
         let key = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
-        assert_eq!(app.graph.node_count(), 1);
+        assert_eq!(app.workspace.graph.node_count(), 1);
 
         let intents = intents_from_actions(&KeyboardActions {
             delete_selected: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert_eq!(app.graph.node_count(), 0);
+        assert_eq!(app.workspace.graph.node_count(), 0);
     }
 
     #[test]
@@ -619,15 +619,15 @@ mod tests {
         use euclid::default::Point2D;
         app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
         app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
-        assert_eq!(app.graph.node_count(), 2);
+        assert_eq!(app.workspace.graph.node_count(), 2);
 
         let intents = intents_from_actions(&KeyboardActions {
             clear_graph: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert_eq!(app.graph.node_count(), 0);
+        assert_eq!(app.workspace.graph.node_count(), 0);
     }
 
     #[test]
@@ -636,14 +636,14 @@ mod tests {
         use euclid::default::Point2D;
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
 
-        let before_count = app.graph.node_count();
-        let before_physics = app.physics.base.is_running;
+        let before_count = app.workspace.graph.node_count();
+        let before_physics = app.workspace.physics.base.is_running;
 
         let intents = intents_from_actions(&KeyboardActions::default());
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert_eq!(app.graph.node_count(), before_count);
-        assert_eq!(app.physics.base.is_running, before_physics);
+        assert_eq!(app.workspace.graph.node_count(), before_count);
+        assert_eq!(app.workspace.physics.base.is_running, before_physics);
     }
 
     #[test]
@@ -658,12 +658,12 @@ mod tests {
             select_all: true,
             ..Default::default()
         });
-        app.apply_intents_with_services(crate::app::default_app_services(), intents);
+        app.apply_intents(intents);
 
-        assert!(app.selected_nodes.contains(&a));
-        assert!(app.selected_nodes.contains(&b));
-        assert!(app.selected_nodes.contains(&c));
-        assert_eq!(app.selected_nodes.len(), 3);
+        assert!(app.workspace.selected_nodes.contains(&a));
+        assert!(app.workspace.selected_nodes.contains(&b));
+        assert!(app.workspace.selected_nodes.contains(&c));
+        assert_eq!(app.workspace.selected_nodes.len(), 3);
     }
 
     #[test]

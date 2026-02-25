@@ -693,7 +693,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
             default_window_size.min(screen_size_override)
         });
 
-    let app_preferences = AppPreferences {
+    let mut app_preferences = AppPreferences {
         url: Some(cmd_args.url),
         no_native_titlebar: cmd_args.no_native_titlebar,
         device_pixel_ratio_override: cmd_args.device_pixel_ratio,
@@ -718,6 +718,8 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
         log_to_file: cmd_args.log_to_file,
         ..Default::default()
     };
+
+    apply_env_overrides(&mut app_preferences);
 
     let mut debug_options = DiagnosticsLogging::new();
 
@@ -759,6 +761,56 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
     };
 
     ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences)
+}
+
+fn apply_env_overrides(app_preferences: &mut AppPreferences) {
+    if let Ok(value) = env::var("GRAPHSHELL_TRACING_FILTER") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            app_preferences.tracing_filter = Some(trimmed.to_string());
+        }
+    }
+
+    if let Ok(value) = env::var("GRAPHSHELL_GRAPH_DATA_DIR") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            app_preferences.graph_data_dir = Some(PathBuf::from(trimmed));
+        }
+    }
+
+    if let Ok(value) = env::var("GRAPHSHELL_GRAPH_SNAPSHOT_INTERVAL_SECS") {
+        let trimmed = value.trim();
+        match trimmed.parse::<u64>() {
+            Ok(parsed) => app_preferences.graph_snapshot_interval_secs = Some(parsed),
+            Err(err) => warn!(
+                "GRAPHSHELL_GRAPH_SNAPSHOT_INTERVAL_SECS invalid ('{trimmed}'): {err}"
+            ),
+        }
+    }
+
+    if let Ok(value) = env::var("GRAPHSHELL_DEVICE_PIXEL_RATIO") {
+        let trimmed = value.trim();
+        match trimmed.parse::<f32>() {
+            Ok(parsed) => app_preferences.device_pixel_ratio_override = Some(parsed),
+            Err(err) => warn!("GRAPHSHELL_DEVICE_PIXEL_RATIO invalid ('{trimmed}'): {err}"),
+        }
+    }
+
+    if let Ok(value) = env::var("GRAPHSHELL_SCREEN_SIZE") {
+        match parse_resolution_string(value) {
+            Ok(Some(size)) => app_preferences.screen_size_override = Some(size),
+            Ok(None) => {}
+            Err(err) => warn!("GRAPHSHELL_SCREEN_SIZE invalid: {err}"),
+        }
+    }
+
+    if let Ok(value) = env::var("GRAPHSHELL_WINDOW_SIZE") {
+        match parse_resolution_string(value) {
+            Ok(Some(size)) => app_preferences.initial_window_size = size,
+            Ok(None) => {}
+            Err(err) => warn!("GRAPHSHELL_WINDOW_SIZE invalid: {err}"),
+        }
+    }
 }
 
 #[cfg(test)]

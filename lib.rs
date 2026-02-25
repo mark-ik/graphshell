@@ -9,8 +9,11 @@ mod test;
 
 // Graph browser core modules
 mod app;
+mod model;
 mod graph;
 mod input;
+mod services;
+mod shell;
 mod persistence;
 mod render;
 mod search;
@@ -51,7 +54,7 @@ pub mod platform {
 
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 pub fn main() {
-    desktop::cli::main()
+    shell::desktop::runtime::cli::main()
 }
 
 pub fn init_crypto() {

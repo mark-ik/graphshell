@@ -2,8 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-pub(crate) use crate::services::persistence::*;
-
-pub(crate) mod types {
-    pub(crate) use crate::services::persistence::types::*;
-}
+pub(crate) mod cli;
+pub(crate) mod control_panel;
+pub(crate) mod diagnostics;
+pub(crate) mod protocols;
+pub(crate) mod registries;
+pub(crate) mod tracing;
