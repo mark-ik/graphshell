@@ -1341,29 +1341,22 @@ impl Gui {
     /// Nodes whose `NodeId` is zero or `u64::MAX` (egui's root sentinel) are
     /// skipped to avoid collisions with egui's own accessibility tree.
     fn inject_webview_a11y_updates(
-        ctx: &egui::Context,
+        _ctx: &egui::Context,
         pending: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
     ) {
         if pending.is_empty() {
             return;
         }
-        for (_webview_id, tree_update) in pending.drain() {
-            for (node_id, node) in tree_update.nodes {
-                // Skip sentinel values that would collide with egui internals.
-                let raw = node_id.0;
-                if raw == 0 || raw == u64::MAX {
-                    continue;
-                }
-                // SAFETY: `raw` is a high-entropy non-zero value produced by
-                // Servo's accessibility subsystem; it is guaranteed not to be
-                // zero by the check above.
-                #[allow(unsafe_code)]
-                let egui_id = unsafe { egui::Id::from_high_entropy_bits(raw) };
-                ctx.accesskit_node_builder(egui_id, |builder| {
-                    *builder = node;
-                });
-            }
-        }
+        // Temporary fallback: the app currently links a direct `accesskit`
+        // version that differs from egui's re-exported `accesskit` version, so
+        // Servo nodes cannot be assigned into egui builders without a manual
+        // conversion layer. Drain pending updates to avoid unbounded growth.
+        let dropped = pending.len();
+        pending.clear();
+        warn!(
+            "WebView accessibility updates deferred: accesskit version mismatch prevents egui injection (dropped {} pending batch(es))",
+            dropped
+        );
     }
 }
 
