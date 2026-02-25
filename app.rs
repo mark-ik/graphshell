@@ -2123,9 +2123,13 @@ impl GraphBrowserApp {
             } => {
                 let parent_node = self.get_node_for_webview(parent_webview_id);
                 let position = if let Some(parent_key) = parent_node {
+                    use rand::Rng;
+                    let mut rng = rand::thread_rng();
+                    let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
+                    let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
                     self.workspace.graph
                         .get_node(parent_key)
-                        .map(|node| Point2D::new(node.position.x + 140.0, node.position.y + 80.0))
+                        .map(|node| Point2D::new(node.position.x + 140.0 + jitter_x, node.position.y + 80.0 + jitter_y))
                         .unwrap_or_else(|| Point2D::new(400.0, 300.0))
                 } else {
                     Point2D::new(400.0, 300.0)
@@ -2168,6 +2172,18 @@ impl GraphBrowserApp {
                     .map(|n| n.url != new_url)
                     .unwrap_or(false)
                 {
+                    // Resolve the destination node key BEFORE mutating the node URL so that the
+                    // prior URL is still present when push_history_traversal_and_sync records the
+                    // from_url. Capturing to_key after update_node_url_and_log would overwrite the
+                    // node URL and produce incorrect from_url/to_url in traversal records.
+                    let to_key = self.workspace.graph.get_node_by_url(&new_url).map(|(k, _)| k);
+                    if let Some(to_key) = to_key {
+                        self.push_history_traversal_and_sync(
+                            node_key,
+                            to_key,
+                            NavigationTrigger::Unknown,
+                        );
+                    }
                     let _ = self.update_node_url_and_log(node_key, new_url);
                 }
             },
@@ -2429,6 +2445,8 @@ impl GraphBrowserApp {
             });
         }
         self.workspace.egui_state_dirty = true; // Graph structure changed
+        self.workspace.physics.base.is_running = true;
+        self.workspace.drag_release_frames_remaining = 0;
         key
     }
 
@@ -5570,6 +5588,32 @@ mod tests {
     }
 
     #[test]
+    fn test_intent_webview_created_places_child_near_parent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let parent = app
+            .workspace
+            .graph
+            .add_node("https://parent.com".into(), Point2D::new(10.0, 20.0));
+        let parent_wv = test_webview_id();
+        let child_wv = test_webview_id();
+        app.map_webview_to_node(parent_wv, parent);
+
+        app.apply_intents([GraphIntent::WebViewCreated {
+            parent_webview_id: parent_wv,
+            child_webview_id: child_wv,
+            initial_url: Some("https://child.com".into()),
+        }]);
+
+        let child = app.get_node_for_webview(child_wv).unwrap();
+        let child_pos = app.workspace.graph.get_node(child).unwrap().position;
+        // Child should be placed near the parent (not at fallback center 400, 300).
+        // The base offset is (+140, +80) plus jitter in [-50, +50].
+        // So x is in [100, 200] and y is in [50, 150] relative to parent at (10, 20).
+        assert!(child_pos.x >= 10.0 + 140.0 - 50.0 && child_pos.x <= 10.0 + 140.0 + 50.0);
+        assert!(child_pos.y >= 20.0 + 80.0 - 50.0 && child_pos.y <= 20.0 + 80.0 + 50.0);
+    }
+
+    #[test]
     fn test_intent_webview_created_about_blank_uses_placeholder() {
         let mut app = GraphBrowserApp::new_for_testing();
         let child_wv = test_webview_id();
@@ -5610,6 +5654,41 @@ mod tests {
             "https://after.com"
         );
         assert_eq!(app.get_node_for_webview(wv), Some(key));
+    }
+
+    #[test]
+    fn test_webview_url_changed_appends_traversal_between_known_nodes() {
+        // Navigating from a known node (a) to another known node (b) via WebViewUrlChanged
+        // must append a traversal on the a→b edge. The prior URL must be captured BEFORE
+        // update_node_url_and_log overwrites it; otherwise the traversal would be recorded
+        // on the wrong edge (b→b self-loop) rather than the correct a→b edge.
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app
+            .workspace
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+        let b = app
+            .workspace
+            .graph
+            .add_node("https://b.com".into(), Point2D::new(100.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, a);
+
+        app.apply_intents([GraphIntent::WebViewUrlChanged {
+            webview_id: wv,
+            new_url: "https://b.com".into(),
+        }]);
+
+        let edge_key = app
+            .workspace
+            .graph
+            .find_edge_key(a, b)
+            .expect("traversal edge from a to b should exist");
+        let payload = app.workspace.graph.get_edge(edge_key).unwrap();
+        assert_eq!(payload.traversals.len(), 1);
+        assert_eq!(payload.traversals[0].trigger, NavigationTrigger::Unknown);
+        // No self-loop on b — confirms prior URL was captured before mutation.
+        assert!(app.workspace.graph.find_edge_key(b, b).is_none());
     }
 
     #[test]
@@ -6022,6 +6101,18 @@ mod tests {
             command: EdgeCommand::UnpinSelected,
         }]);
         assert!(app.workspace.graph.get_node(key).is_some_and(|node| !node.is_pinned));
+    }
+
+    #[test]
+    fn test_add_node_and_sync_reheats_physics() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.physics.base.is_running = false;
+        app.workspace.drag_release_frames_remaining = 5;
+
+        app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
+
+        assert!(app.workspace.physics.base.is_running);
+        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
     }
 
     #[test]

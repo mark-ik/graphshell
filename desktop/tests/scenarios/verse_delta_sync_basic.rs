@@ -1,6 +1,6 @@
 use super::super::harness::TestHarness;
 use crate::mods::native::verse::{SyncLog, SyncedIntent};
-use crate::persistence::types::LogEntry;
+use crate::services::persistence::types::LogEntry;
 use crate::registries::atomic::diagnostics;
 use crate::shell::desktop::runtime::registries;
 
