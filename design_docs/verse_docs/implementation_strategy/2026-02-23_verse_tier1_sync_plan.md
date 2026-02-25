@@ -777,7 +777,19 @@ This subsection absorbs and replaces `2026-02-24_sync_logic_validation_plan.md`.
 
 ## 12. Next Steps
 
-After Tier 1 validation (Q2 2026), the architecture extends naturally to Tier 2:
+After Tier 1 validation (Q2 2026), the architecture extends naturally in two directions:
+
+### 12.1 Presence UX (Post-Phase-5, pre-Tier-2)
+
+The first post-Phase-5 feature is **Collaborative Presence** — ghost cursors, remote selection highlights, and follow mode. This is the bridge between data sync (Phase 5) and a live shared-work UX. It does not require Tier 2 protocols; it layers directly on the iroh connection and `SyncWorker` established in Phase 5.
+
+**Trigger**: Both Phase 5.4 and 5.5 done gates must be closed before presence work begins. Presence built on unstable sync logic would mask sync regressions.
+
+See [2026-02-25_verse_presence_plan.md](2026-02-25_verse_presence_plan.md) for the minimum presence feature set, wire format, diagnostics channels, privacy constraints, and phased scope.
+
+### 12.2 Tier 2 (Long-horizon)
+
+After Tier 1 validation, the architecture also extends to Tier 2:
 - libp2p for public community swarms (complementary to iroh, not a replacement)
 - Identity bridge: same Ed25519 keypair derives both iroh NodeId and libp2p PeerId
 - VerseBlob content format (ported from SyncUnit design) for universal content addressing
