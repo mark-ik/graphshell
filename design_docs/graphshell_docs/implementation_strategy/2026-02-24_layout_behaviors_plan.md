@@ -83,21 +83,74 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 
 ## Phase 3: Magnetic Zones
 
+**Status**: Design prerequisites defined. Implementation blocked pending layout injection hook (Phase 2 prerequisite) and Multi-view Canonical/Divergent scope settlement.
+
+**Tracking note**: This section is the authoritative tracked plan for Magnetic Zones / Group-in-a-Box. It was promoted from research/layout notes into the active implementation sequence per the concept adoption roadmap.
+
+### 3.0 Prerequisites for Implementation
+
+Before any Phase 3 code lands, the following design gaps must be resolved:
+
+1. **Layout injection hook** (`apply_post_frame_layout_injection`) from Phase 2 must be in place. Zone forces are applied through this hook; they are not a separate layout engine.
+2. **Multi-view Canonical/Divergent semantics** must be settled enough to assign a zone scope. See `2026-02-22_multi_graph_pane_plan.md` for current state and blocking questions.
+
 ### 3.1 Data Model
 
 - `Zone { id, name, centroid, strength }`
 - `GraphWorkspace.zones` persisted in snapshots
 - `node.zone_id: Option<Uuid>` membership pointer
 
-### 3.2 Zone Force Application
+### 3.2 Zone Persistence Scope
 
-- For zone-bound nodes, apply attraction to zone centroid during layout injection.
+Zones carry spatial meaning and must be scoped to a persistence boundary. Three candidate scopes are defined here; one must be selected before implementation begins.
+
+| Scope | Definition | Trade-offs |
+| --- | --- | --- |
+| **Workspace** | Zone lives in `GraphWorkspace`; all views that open this workspace share the same zone set. | Simple model; natural snapshot/roundtrip unit. Risk: zones created for one view's layout may pollute other views of the same workspace. |
+| **View (per-pane)** | Zone belongs to a specific `GraphViewId`; deleted when the pane is closed unless explicitly promoted. | Clean isolation for Divergent views. Risk: zones are lost if a view is closed unexpectedly; requires view-lifecycle durability work. |
+| **Lens** | Zone is attached to a Lens definition and is activated/deactivated with the Lens. | Natural fit for thematic groupings. Risk: adds coupling between layout subsystem and Lens resolution; Lens lifecycle rules must be finalized first. |
+
+**Recommended scope (pre-implementation)**: Start with **Workspace** scope. It aligns with the existing snapshot shape (`GraphWorkspace.zones`), requires no view-lifecycle or Lens coupling, and can be narrowed later if per-view isolation is needed.
+
+**Overlap rules**:
+- A node may belong to at most one zone at a time (`node.zone_id: Option<Uuid>`).
+- If a zone membership reassignment occurs (e.g., drag into overlapping zone), the most recent explicit assignment wins (last-write precedence).
+- Overlapping zone backdrop regions are rendered with distinct visual depth (lower z-order zone renders behind, no force conflict occurs since membership is exclusive).
+
+### 3.3 Zone Force Application
+
+- For zone-bound nodes, apply attraction to zone centroid during layout injection hook.
+- Force magnitude is proportional to `Zone.strength` and distance from centroid.
+- Zone force is applied **after** global physics forces in the injection hook so it acts as a soft bias, not a hard constraint.
 - Render subtle zone backdrop (member bounds + padding) for spatial affordance.
 
-### 3.3 User Interaction
+### 3.4 Interaction Model
 
-- Create Zone: from selected nodes, derive initial centroid.
-- Drag Zone: move centroid; member nodes follow by soft force.
+| Interaction | Behavior |
+| --- | --- |
+| **Create Zone** | Select ≥1 nodes → "Create Zone" action → derives initial centroid from selection bounding box center; assigns all selected nodes to new zone. |
+| **Rename Zone** | Double-click zone label or zone context menu → inline rename. |
+| **Add node to Zone** | Drag node onto zone backdrop; node's `zone_id` updated; physics bias shifts toward new centroid. |
+| **Remove node from Zone** | Context menu "Remove from Zone" or drag node entirely outside zone backdrop with confirmation; `zone_id` cleared. |
+| **Drag Zone** | Drag zone centroid handle → centroid moves; zone members follow by soft force (not teleport). |
+| **Delete Zone** | Context menu "Delete Zone" → zone removed; member nodes' `zone_id` fields cleared; nodes retain their last positions. |
+| **Merge Zones** | Drag one zone backdrop onto another → combine membership under target zone; source zone deleted. |
+
+**Overlap interaction rules**:
+- Zone backdrops may visually overlap; membership is still exclusive (a node cannot be in two zones).
+- A drag gesture that ends inside an overlapping backdrop region assigns membership to the topmost (most recently created) zone unless the user explicitly targets the lower one via context menu.
+
+### 3.5 Implementation Sequence
+
+Once prerequisites (§3.0) are resolved:
+
+1. **Step 1**: Add `Zone` type and `GraphWorkspace.zones: Vec<Zone>` to data model; wire snapshot serialization/deserialization.
+2. **Step 2**: Add `node.zone_id: Option<Uuid>` field; ensure existing snapshots deserialize with `zone_id = None`.
+3. **Step 3**: Implement zone force computation in layout injection hook; gate by `CanvasRegistry.zones_enabled`.
+4. **Step 4**: Render zone backdrop (bounding box of member nodes + padding, semi-transparent fill, label).
+5. **Step 5**: Wire "Create Zone from Selection" action through `ActionRegistry`.
+6. **Step 6**: Implement drag-to-assign and drag-zone interactions.
+7. **Step 7**: Implement merge, rename, and delete zone interactions.
 
 ---
 
@@ -108,3 +161,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 - [ ] Degree repulsion toggle changes hub spread behavior measurably.
 - [ ] Domain clustering toggle creates visible same-domain grouping.
 - [ ] Zone create/drag updates node spatial behavior and survives snapshot roundtrip.
+- [ ] Zone persistence scope is workspace-scoped; zones appear consistently across all views of the same workspace.
+- [ ] Node belongs to at most one zone; membership reassignment follows last-write precedence.
+- [ ] Deleting a zone clears `zone_id` on all member nodes; nodes retain their positions.
+- [ ] Zone force applies as a soft bias after physics forces, not a hard override.
