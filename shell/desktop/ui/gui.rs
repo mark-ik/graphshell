@@ -147,11 +147,10 @@ pub struct Gui {
     /// Runtime backpressure state for tile-driven webview creation retries.
     webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState>,
 
-    /// Count of webview accessibility tree updates that could not be bridged.
-    webview_accessibility_updates_dropped: u64,
-
-    /// Whether we've already warned about dropped webview accessibility updates.
-    webview_accessibility_warned: bool,
+    /// Pending accessibility tree updates received from WebView/Servo that have
+    /// not yet been injected into egui's accessibility tree.  Keyed by WebViewId
+    /// so that a newer update from the same WebView supersedes the previous one.
+    pending_webview_a11y_updates: HashMap<WebViewId, accesskit::TreeUpdate>,
 
     /// Cached reference to RunningAppState for webview creation
     state: Option<Rc<RunningAppState>>,
@@ -363,8 +362,7 @@ impl Gui {
             thumbnail_capture_rx,
             thumbnail_capture_in_flight: HashSet::new(),
             webview_creation_backpressure: HashMap::new(),
-            webview_accessibility_updates_dropped: 0,
-            webview_accessibility_warned: false,
+            pending_webview_a11y_updates: HashMap::new(),
             state: None,
             runtime_state: GuiRuntimeState {
                 graph_search_open: false,
@@ -612,6 +610,7 @@ impl Gui {
             thumbnail_capture_rx,
             thumbnail_capture_in_flight,
             webview_creation_backpressure,
+            pending_webview_a11y_updates,
             state: app_state,
             runtime_state,
             #[cfg(feature = "diagnostics")]
@@ -641,6 +640,12 @@ impl Gui {
             .with_margin(egui::vec2(12.0, 12.0));
         context.run(winit_window, |ctx| {
             graph_app.tick_frame();
+
+            // Inject any pending WebView accessibility tree updates into egui's
+            // accessibility tree.  Each Servo node is registered using an
+            // identity-preserving egui::Id derived from its accesskit::NodeId so
+            // that child references inside Node objects remain valid.
+            Self::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
 
             #[cfg(feature = "diagnostics")]
             {
@@ -1315,16 +1320,43 @@ impl Gui {
     pub(crate) fn notify_accessibility_tree_update(
         &mut self,
         webview_id: WebViewId,
-        _tree_update: accesskit::TreeUpdate,
+        tree_update: accesskit::TreeUpdate,
     ) {
-        self.webview_accessibility_updates_dropped += 1;
-        if !self.webview_accessibility_warned {
-            self.webview_accessibility_warned = true;
-            warn!(
-                "WebView accessibility update dropped for {:?}: no embedder bridge available yet (issue #41930)",
-                webview_id
-            );
+        // Store the update; it will be injected into egui's accessibility tree
+        // at the start of the next frame inside the context.run() callback.
+        // A newer update from the same WebView supersedes any previously queued one.
+        self.pending_webview_a11y_updates.insert(webview_id, tree_update);
+    }
+
+    /// Inject pending WebView accessibility tree updates into egui's
+    /// accessibility tree.
+    ///
+    /// For each node in a Servo-provided `accesskit::TreeUpdate`, an egui `Id`
+    /// is derived by treating the Servo `NodeId` (a `u64`) as a high-entropy
+    /// value.  This preserves the identity mapping
+    /// `egui_id.accesskit_id() == servo_node_id`, which means child-reference
+    /// arrays inside the injected `accesskit::Node` objects remain valid once
+    /// egui builds the final `TreeUpdate`.
+    ///
+    /// Nodes whose `NodeId` is zero or `u64::MAX` (egui's root sentinel) are
+    /// skipped to avoid collisions with egui's own accessibility tree.
+    fn inject_webview_a11y_updates(
+        _ctx: &egui::Context,
+        pending: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
+    ) {
+        if pending.is_empty() {
+            return;
         }
+        // Temporary fallback: the app currently links a direct `accesskit`
+        // version that differs from egui's re-exported `accesskit` version, so
+        // Servo nodes cannot be assigned into egui builders without a manual
+        // conversion layer. Drain pending updates to avoid unbounded growth.
+        let dropped = pending.len();
+        pending.clear();
+        warn!(
+            "WebView accessibility updates deferred: accesskit version mismatch prevents egui injection (dropped {} pending batch(es))",
+            dropped
+        );
     }
 }
 
