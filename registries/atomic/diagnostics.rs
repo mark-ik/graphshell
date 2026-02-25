@@ -32,9 +32,17 @@ use crate::shell::desktop::runtime::registries::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChannelSeverity {
+    Info,
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DiagnosticChannelDescriptor {
     pub(crate) channel_id: &'static str,
     pub(crate) schema_version: u16,
+    pub(crate) severity: ChannelSeverity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +94,7 @@ impl DiagnosticsChannelOwner {
 pub(crate) struct RuntimeChannelDescriptor {
     pub(crate) channel_id: String,
     pub(crate) schema_version: u16,
+    pub(crate) severity: ChannelSeverity,
     pub(crate) owner: DiagnosticsChannelOwner,
     pub(crate) description: Option<String>,
 }
@@ -95,6 +104,7 @@ impl RuntimeChannelDescriptor {
         Self {
             channel_id: descriptor.channel_id.to_string(),
             schema_version: descriptor.schema_version,
+            severity: descriptor.severity,
             owner: DiagnosticsChannelOwner::core(),
             description: None,
         }
@@ -157,30 +167,37 @@ const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 7] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VIEWER_SELECT_STARTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VIEWER_FALLBACK_USED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
 ];
 
@@ -188,74 +205,92 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_ACTION_EXECUTE_STARTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_ACTION_EXECUTE_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_ACTION_EXECUTE_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_INPUT_BINDING_RESOLVED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_INPUT_BINDING_MISSING,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_INPUT_BINDING_CONFLICT,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_LENS_RESOLVE_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_LENS_RESOLVE_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_LENS_FALLBACK_USED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_LAYOUT_LOOKUP_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_LAYOUT_FALLBACK_USED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_THEME_LOOKUP_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_THEME_LOOKUP_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_THEME_FALLBACK_USED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PHYSICS_LOOKUP_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PHYSICS_FALLBACK_USED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
 ];
 
@@ -263,98 +298,122 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 24] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_KEY_UNAVAILABLE,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_INVARIANT_TIMEOUT,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_MOD_LOAD_STARTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_MOD_LOAD_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_MOD_LOAD_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_MOD_DEPENDENCY_MISSING,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_CONFIG_SNAPSHOT,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PERSISTENCE_RECOVER_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_VERSE_INIT_MODE,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_VERSE_INIT_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UI_HISTORY_MANAGER_LIMIT,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_PREINIT_CALL,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
 ];
 
@@ -362,34 +421,42 @@ const PHASE5_CHANNELS: [DiagnosticChannelDescriptor; 8] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_UNIT_SENT,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_UNIT_RECEIVED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_INTENT_APPLIED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_ACCESS_DENIED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_CONNECTION_REJECTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_IDENTITY_GENERATED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
         schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
 ];
 
@@ -573,6 +640,7 @@ impl DiagnosticsRegistry {
             RuntimeChannelDescriptor {
                 channel_id: channel_id.to_string(),
                 schema_version,
+                severity: ChannelSeverity::Info,
                 owner: DiagnosticsChannelOwner::mod_owner(mod_id),
                 description,
             },
@@ -599,6 +667,7 @@ impl DiagnosticsRegistry {
             RuntimeChannelDescriptor {
                 channel_id: channel_id.to_string(),
                 schema_version,
+                severity: ChannelSeverity::Info,
                 owner: DiagnosticsChannelOwner::verse_owner(peer_id),
                 description,
             },
@@ -613,6 +682,7 @@ impl DiagnosticsRegistry {
                 RuntimeChannelDescriptor {
                     channel_id: normalized.clone(),
                     schema_version: 1,
+                    severity: ChannelSeverity::Info,
                     owner: DiagnosticsChannelOwner::runtime(),
                     description: Some("Auto-registered runtime channel".to_string()),
                 },
@@ -973,6 +1043,7 @@ mod tests {
                 RuntimeChannelDescriptor {
                     channel_id: "agent.think.started".to_string(),
                     schema_version: 1,
+                    severity: ChannelSeverity::Info,
                     owner: DiagnosticsChannelOwner {
                         source: DiagnosticsChannelSource::Agent,
                         owner_id: Some("agent:planner".to_string()),
@@ -994,6 +1065,7 @@ mod tests {
             RuntimeChannelDescriptor {
                 channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED.to_string(),
                 schema_version: 7,
+                severity: ChannelSeverity::Info,
                 owner: DiagnosticsChannelOwner::core(),
                 description: None,
             },
@@ -1090,5 +1162,40 @@ mod tests {
                 .iter()
                 .any(|entry| entry.invariant_id == INVARIANT_VERSE_SYNC_SENT_COMPLETES)
         );
+    }
+
+    #[test]
+    fn diagnostics_registry_channel_severity_roundtrips_through_registration() {
+        let mut registry = DiagnosticsRegistry::default();
+
+        let created = registry
+            .register_runtime_channel(
+                RuntimeChannelDescriptor {
+                    channel_id: "agent.warn.channel".to_string(),
+                    schema_version: 1,
+                    severity: ChannelSeverity::Warn,
+                    owner: DiagnosticsChannelOwner {
+                        source: DiagnosticsChannelSource::Agent,
+                        owner_id: None,
+                    },
+                    description: None,
+                },
+                ChannelRegistrationPolicy::RejectConflict,
+            )
+            .expect("registration should succeed");
+
+        assert!(created);
+        let descriptor = registry.channels.get("agent.warn.channel").expect("channel should exist");
+        assert_eq!(descriptor.severity, ChannelSeverity::Warn);
+    }
+
+    #[test]
+    fn diagnostics_registry_contract_channels_default_to_info_severity() {
+        let registry = DiagnosticsRegistry::default();
+        let descriptor = registry
+            .channels
+            .get(CHANNEL_PROTOCOL_RESOLVE_STARTED)
+            .expect("phase0 channel should be seeded");
+        assert_eq!(descriptor.severity, ChannelSeverity::Info);
     }
 }
