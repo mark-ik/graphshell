@@ -39,8 +39,14 @@ pub(crate) enum EdgeLodPolicy {
     Hidden,
 }
 
+/// Rendering performance and quality policy controls.
+///
+/// These toggles gate Phase 1 performance optimizations so behavior remains
+/// policy-driven rather than hardcoded in render callsites.
 #[derive(Debug, Clone)]
 pub(crate) struct CanvasPerformancePolicy {
+    /// When true, only nodes within the visible viewport are submitted to the
+    /// graph renderer each frame.
     pub(crate) viewport_culling_enabled: bool,
     pub(crate) label_culling_enabled: bool,
     pub(crate) edge_lod: EdgeLodPolicy,
@@ -146,7 +152,7 @@ impl Default for CanvasRegistry {
                     labels_always: true,
                 },
                 performance: CanvasPerformancePolicy {
-                    viewport_culling_enabled: false,
+                    viewport_culling_enabled: true,
                     label_culling_enabled: false,
                     edge_lod: EdgeLodPolicy::Full,
                 },
@@ -173,6 +179,7 @@ mod tests {
             "graph_layout:force_directed"
         );
         assert!(!resolution.profile.navigation.zoom_and_pan_enabled);
+        assert!(resolution.profile.performance.viewport_culling_enabled);
     }
 
     #[test]
@@ -189,7 +196,7 @@ mod tests {
         let registry = CanvasRegistry::default();
         let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
         let perf = &resolution.profile.performance;
-        assert!(!perf.viewport_culling_enabled);
+        assert!(perf.viewport_culling_enabled);
         assert!(!perf.label_culling_enabled);
         assert_eq!(perf.edge_lod, EdgeLodPolicy::Full);
     }

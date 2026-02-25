@@ -149,10 +149,36 @@ pub fn render_graph_in_ui_collect_actions(
         } else {
             None
         };
-    let graph_for_render = filtered_graph.as_ref().unwrap_or(&app.workspace.graph);
 
-    // Build or reuse egui_graphs state (rebuild always when filtering is active).
-    if app.workspace.egui_state.is_none() || app.workspace.egui_state_dirty || filtered_graph.is_some() {
+    let layout_domain = LayoutDomainRegistry::default();
+    let layout_profile = layout_domain.resolve_profile(
+        CANVAS_PROFILE_DEFAULT,
+        WORKBENCH_SURFACE_DEFAULT,
+        VIEWER_SURFACE_DEFAULT,
+    );
+    let canvas_profile = &layout_profile.canvas.profile;
+
+    // Viewport culling: compute visible node set from previous-frame camera
+    // metadata and exclude off-screen nodes before rebuilding egui_state.
+    // Gated by the canvas performance policy toggle.
+    let culled_graph =
+        if canvas_profile.performance.viewport_culling_enabled && filtered_graph.is_none() {
+            viewport_culled_graph(ui, app)
+        } else {
+            None
+        };
+
+    let graph_for_render = culled_graph
+        .as_ref()
+        .or(filtered_graph.as_ref())
+        .unwrap_or(&app.workspace.graph);
+
+    // Build or reuse egui_graphs state (rebuild always when filtering or culling is active).
+    if app.workspace.egui_state.is_none()
+        || app.workspace.egui_state_dirty
+        || filtered_graph.is_some()
+        || culled_graph.is_some()
+    {
         let crashed_nodes: HashSet<NodeKey> = app.crash_blocked_node_keys().collect();
         let memberships_by_uuid: HashMap<Uuid, Vec<String>> = graph_for_render
             .nodes()
@@ -185,14 +211,6 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Event collection buffer
     let events: Rc<RefCell<Vec<Event>>> = Rc::new(RefCell::new(Vec::new()));
-
-    let layout_domain = LayoutDomainRegistry::default();
-    let layout_profile = layout_domain.resolve_profile(
-        CANVAS_PROFILE_DEFAULT,
-        WORKBENCH_SURFACE_DEFAULT,
-        VIEWER_SURFACE_DEFAULT,
-    );
-    let canvas_profile = &layout_profile.canvas.profile;
 
     // Graph settings resolved from layout domain canvas surface profile.
     let nav = canvas_navigation_settings(canvas_profile);
@@ -618,6 +636,75 @@ fn filtered_graph_for_search(
         filtered.remove_node(key);
     }
     filtered
+}
+
+/// Compute a viewport-culled graph containing only the nodes visible in the
+/// current frame's viewport (plus any additional nodes needed to keep edges
+/// intact).  Returns `None` when culling is not applicable — e.g. when there
+/// is no previous-frame camera metadata yet, when the graph is small enough
+/// that culling has no effect, or when the canvas rect cannot be computed.
+///
+/// **Edge ghost-endpoint policy**: If either endpoint of an edge is visible,
+/// both endpoints are included in the culled graph so that the renderer
+/// never sees an edge with a missing endpoint.
+fn viewport_culled_graph(ui: &Ui, app: &GraphBrowserApp) -> Option<crate::graph::Graph> {
+    // Read previous-frame MetadataFrame from egui_graphs' stable persisted key.
+    let meta = MetadataFrame::new(None).load(ui);
+
+    // A zoom of exactly 0 means no valid camera data is available yet.
+    if meta.zoom.abs() < f32::EPSILON {
+        return None;
+    }
+
+    // Convert the screen-space widget rect to canvas space.
+    let screen_rect = ui.max_rect();
+    let canvas_min = meta.screen_to_canvas_pos(screen_rect.min);
+    let canvas_max = meta.screen_to_canvas_pos(screen_rect.max);
+    let canvas_rect = egui::Rect::from_min_max(canvas_min, canvas_max);
+
+    // Build a spatial index from app-graph node positions, which are always
+    // current (kept up-to-date by the physics layout engine).  Using a
+    // constant default radius matches the `GraphNodeShape` default.
+    const DEFAULT_NODE_RADIUS: f32 = 5.0;
+    let index = NodeSpatialIndex::build(app.workspace.graph.nodes().map(|(key, node)| {
+        let pos = egui::Pos2::new(node.position.x, node.position.y);
+        (key, pos, DEFAULT_NODE_RADIUS)
+    }));
+
+    let visible_keys: HashSet<NodeKey> = index.nodes_in_canvas_rect(canvas_rect).into_iter().collect();
+
+    // Nothing visible yet (e.g. first frame before layout): skip culling.
+    if visible_keys.is_empty() {
+        return None;
+    }
+
+    // Culling has no effect when all nodes are already visible.
+    if visible_keys.len() >= app.workspace.graph.node_count() {
+        return None;
+    }
+
+    // Expand visible set to include ghost endpoints for any edge where at
+    // least one endpoint is in the viewport (preserves edge integrity).
+    let mut extended: HashSet<NodeKey> = visible_keys.clone();
+    for edge in app.workspace.graph.edges() {
+        if visible_keys.contains(&edge.from) || visible_keys.contains(&edge.to) {
+            extended.insert(edge.from);
+            extended.insert(edge.to);
+        }
+    }
+
+    // Build the culled graph by removing nodes outside the extended visible set.
+    let mut culled = app.workspace.graph.clone();
+    let to_remove: Vec<NodeKey> = culled
+        .nodes()
+        .map(|(key, _)| key)
+        .filter(|key| !extended.contains(key))
+        .collect();
+    for key in to_remove {
+        culled.remove_node(key);
+    }
+
+    Some(culled)
 }
 
 fn lifecycle_color(lifecycle: NodeLifecycle) -> Color32 {
