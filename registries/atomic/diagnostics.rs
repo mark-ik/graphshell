@@ -102,14 +102,75 @@ pub(crate) struct RuntimeChannelDescriptor {
 }
 
 impl RuntimeChannelDescriptor {
-    pub(crate) fn from_contract(descriptor: DiagnosticChannelDescriptor) -> Self {
+    pub(crate) fn new(
+        channel_id: impl Into<String>,
+        schema_version: u16,
+        owner: DiagnosticsChannelOwner,
+        description: Option<String>,
+        severity: ChannelSeverity,
+    ) -> Self {
         Self {
-            channel_id: descriptor.channel_id.to_string(),
-            schema_version: descriptor.schema_version,
-            owner: DiagnosticsChannelOwner::core(),
-            description: None,
-            severity: descriptor.severity,
+            channel_id: channel_id.into(),
+            schema_version,
+            owner,
+            description,
+            severity,
         }
+    }
+
+    pub(crate) fn info(
+        channel_id: impl Into<String>,
+        schema_version: u16,
+        owner: DiagnosticsChannelOwner,
+        description: Option<String>,
+    ) -> Self {
+        Self::new(
+            channel_id,
+            schema_version,
+            owner,
+            description,
+            ChannelSeverity::Info,
+        )
+    }
+
+    pub(crate) fn warn(
+        channel_id: impl Into<String>,
+        schema_version: u16,
+        owner: DiagnosticsChannelOwner,
+        description: Option<String>,
+    ) -> Self {
+        Self::new(
+            channel_id,
+            schema_version,
+            owner,
+            description,
+            ChannelSeverity::Warn,
+        )
+    }
+
+    pub(crate) fn error(
+        channel_id: impl Into<String>,
+        schema_version: u16,
+        owner: DiagnosticsChannelOwner,
+        description: Option<String>,
+    ) -> Self {
+        Self::new(
+            channel_id,
+            schema_version,
+            owner,
+            description,
+            ChannelSeverity::Error,
+        )
+    }
+
+    pub(crate) fn from_contract(descriptor: DiagnosticChannelDescriptor) -> Self {
+        Self::new(
+            descriptor.channel_id,
+            descriptor.schema_version,
+            DiagnosticsChannelOwner::core(),
+            None,
+            descriptor.severity,
+        )
     }
 }
 
@@ -639,13 +700,12 @@ impl DiagnosticsRegistry {
         }
 
         self.register_runtime_channel(
-            RuntimeChannelDescriptor {
-                channel_id: channel_id.to_string(),
+            RuntimeChannelDescriptor::info(
+                channel_id,
                 schema_version,
-                owner: DiagnosticsChannelOwner::mod_owner(mod_id),
+                DiagnosticsChannelOwner::mod_owner(mod_id),
                 description,
-                severity: ChannelSeverity::Info,
-            },
+            ),
             ChannelRegistrationPolicy::RejectConflict,
         )
     }
@@ -666,13 +726,12 @@ impl DiagnosticsRegistry {
         }
 
         self.register_runtime_channel(
-            RuntimeChannelDescriptor {
-                channel_id: channel_id.to_string(),
+            RuntimeChannelDescriptor::info(
+                channel_id,
                 schema_version,
-                owner: DiagnosticsChannelOwner::verse_owner(peer_id),
+                DiagnosticsChannelOwner::verse_owner(peer_id),
                 description,
-                severity: ChannelSeverity::Info,
-            },
+            ),
             ChannelRegistrationPolicy::RejectConflict,
         )
     }
@@ -681,13 +740,12 @@ impl DiagnosticsRegistry {
         let normalized = normalize_channel_id(channel_id);
         if !self.channels.contains_key(&normalized) {
             let _ = self.register_runtime_channel(
-                RuntimeChannelDescriptor {
-                    channel_id: normalized.clone(),
-                    schema_version: 1,
-                    owner: DiagnosticsChannelOwner::runtime(),
-                    description: Some("Auto-registered runtime channel".to_string()),
-                severity: ChannelSeverity::Info,
-            },
+                RuntimeChannelDescriptor::info(
+                    normalized.clone(),
+                    1,
+                    DiagnosticsChannelOwner::runtime(),
+                    Some("Auto-registered runtime channel".to_string()),
+                ),
                 ChannelRegistrationPolicy::KeepExisting,
             );
         }
@@ -1042,16 +1100,15 @@ mod tests {
         let mut registry = DiagnosticsRegistry::default();
         let created = registry
             .register_runtime_channel(
-                RuntimeChannelDescriptor {
-                    channel_id: "agent.think.started".to_string(),
-                    schema_version: 1,
-                    owner: DiagnosticsChannelOwner {
+                RuntimeChannelDescriptor::info(
+                    "agent.think.started",
+                    1,
+                    DiagnosticsChannelOwner {
                         source: DiagnosticsChannelSource::Agent,
                         owner_id: Some("agent:planner".to_string()),
-                severity: ChannelSeverity::Info,
-            },
-                    description: Some("planner think loop started".to_string()),
-                },
+                    },
+                    Some("planner think loop started".to_string()),
+                ),
                 ChannelRegistrationPolicy::RejectConflict,
             )
             .expect("runtime channel registration should succeed");
@@ -1064,13 +1121,12 @@ mod tests {
     fn diagnostics_registry_rejects_conflicting_schema_on_reject_policy() {
         let mut registry = DiagnosticsRegistry::default();
         let result = registry.register_runtime_channel(
-            RuntimeChannelDescriptor {
-                channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED.to_string(),
-                schema_version: 7,
-                owner: DiagnosticsChannelOwner::core(),
-                description: None,
-                severity: ChannelSeverity::Info,
-            },
+            RuntimeChannelDescriptor::info(
+                CHANNEL_PROTOCOL_RESOLVE_STARTED,
+                7,
+                DiagnosticsChannelOwner::core(),
+                None,
+            ),
             ChannelRegistrationPolicy::RejectConflict,
         );
 
