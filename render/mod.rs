@@ -128,7 +128,7 @@ pub fn render_graph_in_ui_collect_actions(
     search_display_mode: SearchDisplayMode,
     search_query_active: bool,
 ) -> Vec<GraphAction> {
-    let ctrl_pressed = ui.input(|i| i.modifiers.ctrl);
+    let ctrl_pressed = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
     let right_button_down = ui.input(|i| i.pointer.secondary_down());
     let radial_open = app.workspace.show_radial_menu;
     let filtered_graph =
