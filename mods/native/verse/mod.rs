@@ -8,7 +8,7 @@
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
 };
-use crate::persistence::types::LogEntry;
+use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_VERSE_PREINIT_CALL;
 use keyring::Entry;

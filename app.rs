@@ -15,8 +15,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
-use crate::persistence::GraphStore;
-use crate::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigationTrigger};
+use crate::services::persistence::GraphStore;
+use crate::services::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigationTrigger};
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
 use log::{debug, warn};

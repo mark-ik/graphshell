@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use crate::persistence::types::{
+use crate::services::persistence::types::{
     GraphSnapshot, PersistedEdge, PersistedEdgeType, PersistedNode, PersistedNodeSessionState,
 };
 
@@ -1131,7 +1131,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_edge_with_missing_url_is_dropped() {
-        use crate::persistence::types::{
+        use crate::services::persistence::types::{
             GraphSnapshot, PersistedEdge, PersistedEdgeType, PersistedNode,
         };
 
@@ -1170,7 +1170,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_duplicate_urls_last_wins() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode};
 
         let snapshot = GraphSnapshot {
             nodes: vec![
@@ -1244,7 +1244,7 @@ mod tests {
 
     #[test]
     fn test_cold_restore_reapplies_history_index() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
 
         let node_id = Uuid::new_v4();
         let snapshot = GraphSnapshot {
@@ -1287,7 +1287,7 @@ mod tests {
 
     #[test]
     fn test_cold_restore_reapplies_scroll_offset() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {
@@ -1324,7 +1324,7 @@ mod tests {
 
     #[test]
     fn test_restore_fallback_without_session_state() {
-        use crate::persistence::types::{GraphSnapshot, PersistedNode};
+        use crate::services::persistence::types::{GraphSnapshot, PersistedNode};
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {

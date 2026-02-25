@@ -1857,7 +1857,7 @@ pub(crate) fn history_manager_entry_limit_for_tests() -> usize {
 fn render_history_manager_rows(
     ui: &mut Ui,
     app: &GraphBrowserApp,
-    entries: &[crate::persistence::types::LogEntry],
+    entries: &[crate::services::persistence::types::LogEntry],
     intents: &mut Vec<GraphIntent>,
 ) {
     if entries.is_empty() {
@@ -1874,7 +1874,7 @@ fn render_history_manager_rows(
         .auto_shrink([false, false])
         .show(ui, |ui| {
             for entry in entries {
-                let crate::persistence::types::LogEntry::AppendTraversal {
+                let crate::services::persistence::types::LogEntry::AppendTraversal {
                     from_node_id,
                     to_node_id,
                     timestamp_ms,
@@ -1916,9 +1916,9 @@ fn render_history_manager_rows(
                 };
 
                 let trigger_label = match trigger {
-                    crate::persistence::types::PersistedNavigationTrigger::Back => "⬅ Back",
-                    crate::persistence::types::PersistedNavigationTrigger::Forward => "➡ Forward",
-                    crate::persistence::types::PersistedNavigationTrigger::Unknown => "↔",
+                    crate::services::persistence::types::PersistedNavigationTrigger::Back => "⬅ Back",
+                    crate::services::persistence::types::PersistedNavigationTrigger::Forward => "➡ Forward",
+                    crate::services::persistence::types::PersistedNavigationTrigger::Unknown => "↔",
                 };
 
                 ui.horizontal(|ui| {
@@ -2972,7 +2972,7 @@ pub fn render_persistence_panel(
                     .data_mut(|d| d.get_persisted::<String>(interval_input_id))
                     .unwrap_or_else(|| {
                         app.snapshot_interval_secs()
-                            .unwrap_or(crate::persistence::DEFAULT_SNAPSHOT_INTERVAL_SECS)
+                            .unwrap_or(crate::services::persistence::DEFAULT_SNAPSHOT_INTERVAL_SECS)
                             .to_string()
                     });
                 if ui
