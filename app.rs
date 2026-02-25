@@ -810,6 +810,15 @@ pub enum GraphIntent {
         view_id: GraphViewId,
         lens: LensConfig,
     },
+    /// Switch a graph view between Canonical and Divergent layout modes.
+    ///
+    /// - **Canonical → Divergent**: snapshots current shared node positions into a
+    ///   `LocalSimulation` so the pane can evolve its own layout independently.
+    /// - **Divergent → Canonical**: discards the local simulation (positions revert to shared).
+    SetViewLayoutMode {
+        view_id: GraphViewId,
+        mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode,
+    },
     SetNodeUrl {
         key: NodeKey,
         new_url: String,
@@ -2029,6 +2038,33 @@ impl GraphBrowserApp {
                 };
                 if let Some(view) = self.workspace.views.get_mut(&view_id) {
                     view.lens = lens;
+                }
+            },
+            GraphIntent::SetViewLayoutMode { view_id, mode } => {
+                use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
+                if let Some(view) = self.workspace.views.get_mut(&view_id) {
+                    match (view.layout_mode, mode) {
+                        (ViewLayoutMode::Canonical, ViewLayoutMode::Divergent) => {
+                            // Snapshot current shared positions into a private local simulation.
+                            let positions: HashMap<NodeKey, euclid::default::Point2D<f32>> = self
+                                .workspace
+                                .graph
+                                .nodes()
+                                .map(|(k, n)| (k, n.position))
+                                .collect();
+                            view.local_simulation = Some(LocalSimulation {
+                                positions,
+                                physics: self.workspace.physics.clone(),
+                            });
+                            view.layout_mode = mode;
+                        }
+                        (ViewLayoutMode::Divergent, ViewLayoutMode::Canonical) => {
+                            // Discard local simulation; positions revert to shared graph state.
+                            view.local_simulation = None;
+                            view.layout_mode = mode;
+                        }
+                        _ => {}
+                    }
                 }
             },
             GraphIntent::SetNodeUrl { key, new_url } => {
@@ -7532,5 +7568,69 @@ mod tests {
         assert_eq!(resolved.physics.name, "Liquid");
         assert!(matches!(resolved.layout, LayoutMode::Free));
         assert_eq!(resolved.theme.as_deref(), Some("theme:default"));
+    }
+
+    #[test]
+    fn test_set_view_layout_mode_canonical_to_divergent_snapshots_positions() {
+        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let view_id = GraphViewId::new();
+        app.workspace.views.insert(view_id, GraphViewState::new("Test"));
+        assert_eq!(
+            app.workspace.views[&view_id].layout_mode,
+            ViewLayoutMode::Canonical
+        );
+        assert!(app.workspace.views[&view_id].local_simulation.is_none());
+
+        app.apply_intents([GraphIntent::SetViewLayoutMode {
+            view_id,
+            mode: ViewLayoutMode::Divergent,
+        }]);
+
+        let view = &app.workspace.views[&view_id];
+        assert_eq!(view.layout_mode, ViewLayoutMode::Divergent);
+        // Local simulation should be created (positions may be empty for an empty graph).
+        assert!(view.local_simulation.is_some());
+    }
+
+    #[test]
+    fn test_set_view_layout_mode_divergent_to_canonical_discards_simulation() {
+        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let view_id = GraphViewId::new();
+        let mut view_state = GraphViewState::new("Test");
+        view_state.layout_mode = ViewLayoutMode::Divergent;
+        view_state.local_simulation = Some(LocalSimulation {
+            positions: Default::default(),
+            physics: app.workspace.physics.clone(),
+        });
+        app.workspace.views.insert(view_id, view_state);
+
+        app.apply_intents([GraphIntent::SetViewLayoutMode {
+            view_id,
+            mode: ViewLayoutMode::Canonical,
+        }]);
+
+        let view = &app.workspace.views[&view_id];
+        assert_eq!(view.layout_mode, ViewLayoutMode::Canonical);
+        assert!(view.local_simulation.is_none());
+    }
+
+    #[test]
+    fn test_set_view_layout_mode_no_op_same_mode() {
+        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let view_id = GraphViewId::new();
+        app.workspace.views.insert(view_id, GraphViewState::new("Test"));
+
+        // Applying Canonical -> Canonical should not create a local simulation.
+        app.apply_intents([GraphIntent::SetViewLayoutMode {
+            view_id,
+            mode: ViewLayoutMode::Canonical,
+        }]);
+        assert!(app.workspace.views[&view_id].local_simulation.is_none());
     }
 }

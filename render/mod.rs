@@ -122,6 +122,16 @@ pub fn render_graph_in_ui_collect_actions(
     search_display_mode: SearchDisplayMode,
     search_query_active: bool,
 ) -> Vec<GraphAction> {
+    // Ensure a GraphViewState exists for this pane so per-view camera, lens,
+    // and layout mode can be stored independently.
+    if let Some(vid) = view_id {
+        if !app.workspace.views.contains_key(&vid) {
+            app.workspace
+                .views
+                .insert(vid, crate::app::GraphViewState::new("Graph View"));
+        }
+    }
+
     let ctrl_pressed = ui.input(|i| i.modifiers.ctrl);
     let right_button_down = ui.input(|i| i.pointer.secondary_down());
     let radial_open = app.workspace.show_radial_menu;
@@ -206,6 +216,11 @@ pub fn render_graph_in_ui_collect_actions(
     // cannot consume the delta first.
     let graph_rect = ui.max_rect();
     if ui.rect_contains_pointer(graph_rect) {
+        // Track the focused graph view — used to route keyboard zoom / camera
+        // commands to the correct pane when multiple graph panes are open.
+        if let Some(vid) = view_id {
+            app.workspace.focused_view = Some(vid);
+        }
         ui.input_mut(|input| {
             let scroll_delta = if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
                 input.smooth_scroll_delta.y
@@ -333,7 +348,7 @@ pub fn render_graph_in_ui_collect_actions(
     // Custom navigation handling (Zoom/Pan/Fit)
     // We use the widget ID from the response to target the correct MetadataFrame.
     let metadata_id = response.id.with("metadata");
-    let custom_zoom = handle_custom_navigation(ui, &response, metadata_id, app, !radial_open);
+    let custom_zoom = handle_custom_navigation(ui, &response, metadata_id, app, !radial_open, view_id);
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
     let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
@@ -717,19 +732,30 @@ fn handle_custom_navigation(
     metadata_id: egui::Id,
     app: &mut GraphBrowserApp,
     enabled: bool,
+    view_id: Option<crate::app::GraphViewId>,
 ) -> Option<f32> {
     if !enabled {
         return None;
     }
 
     // Apply pending durable camera command.
-    let camera_zoom = apply_pending_camera_command(ui, app, metadata_id);
+    let camera_zoom = apply_pending_camera_command(ui, app, metadata_id, view_id);
 
-    // Apply keyboard zoom
-    let keyboard_zoom = apply_pending_keyboard_zoom_request(ui, app, metadata_id);
+    // Apply keyboard zoom — only for the currently focused graph view so that
+    // pressing +/– targets the pane the user last hovered, not all panes.
+    let is_focused = match (view_id, app.workspace.focused_view) {
+        (Some(vid), Some(focused)) => vid == focused,
+        // No focused view yet — allow any graph pane to consume the request.
+        (Some(_), None) | (None, _) => true,
+    };
+    let keyboard_zoom = if is_focused {
+        apply_pending_keyboard_zoom_request(ui, app, metadata_id, view_id)
+    } else {
+        None
+    };
 
     // Apply pre-intercepted wheel zoom delta.
-    let wheel_zoom = apply_pending_wheel_zoom(ui, response, metadata_id, app);
+    let wheel_zoom = apply_pending_wheel_zoom(ui, response, metadata_id, app, view_id);
 
     let pointer_inside = response.hovered();
     
@@ -748,14 +774,30 @@ fn handle_custom_navigation(
         }
     }
 
-    // Clamp zoom bounds
+    // Clamp zoom bounds using per-view camera if available, else global camera.
+    let zoom_min = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_min)
+        .unwrap_or(app.workspace.camera.zoom_min);
+    let zoom_max = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_max)
+        .unwrap_or(app.workspace.camera.zoom_max);
     ui.ctx().data_mut(|data| {
         if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-            let clamped = app.workspace.camera.clamp(meta.zoom);
+            let clamped = meta.zoom.clamp(zoom_min, zoom_max);
             if (meta.zoom - clamped).abs() > f32::EPSILON {
                 meta.zoom = clamped;
-                app.workspace.camera.current_zoom = clamped;
-                data.insert_persisted(metadata_id, meta);
+            }
+            let current_zoom = meta.zoom;
+            data.insert_persisted(metadata_id, meta);
+            // Keep per-view current_zoom in sync.
+            if let Some(vid) = view_id {
+                if let Some(view) = app.workspace.views.get_mut(&vid) {
+                    view.camera.current_zoom = current_zoom;
+                }
+            } else {
+                app.workspace.camera.current_zoom = current_zoom;
             }
         }
     });
@@ -767,6 +809,7 @@ fn apply_pending_keyboard_zoom_request(
     ui: &Ui,
     app: &mut GraphBrowserApp,
     metadata_id: egui::Id,
+    view_id: Option<crate::app::GraphViewId>,
 ) -> Option<f32> {
     let Some(request) = app.take_pending_keyboard_zoom_request() else {
         return None;
@@ -778,6 +821,15 @@ fn apply_pending_keyboard_zoom_request(
         KeyboardZoomRequest::Reset => 1.0,
     };
 
+    let zoom_min = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_min)
+        .unwrap_or(app.workspace.camera.zoom_min);
+    let zoom_max = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_max)
+        .unwrap_or(app.workspace.camera.zoom_max);
+
     let graph_rect = ui.max_rect();
     let local_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size());
     let local_center = local_rect.center().to_vec2();
@@ -786,22 +838,30 @@ fn apply_pending_keyboard_zoom_request(
     ui.ctx().data_mut(|data| {
         if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
             let graph_center_pos = (local_center - meta.pan) / meta.zoom;
-            let new_zoom = app
-                .workspace
-                .camera
-                .clamp(if matches!(request, KeyboardZoomRequest::Reset) {
-                    factor
-                } else {
-                    meta.zoom * factor
-                });
+            let target = if matches!(request, KeyboardZoomRequest::Reset) {
+                factor
+            } else {
+                meta.zoom * factor
+            };
+            let new_zoom = target.clamp(zoom_min, zoom_max);
             let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
             meta.pan += pan_delta;
             meta.zoom = new_zoom;
-            app.workspace.camera.current_zoom = new_zoom;
             data.insert_persisted(metadata_id, meta);
             updated_zoom = Some(new_zoom);
         }
     });
+
+    // Keep zoom in sync on the appropriate camera.
+    if let Some(new_zoom) = updated_zoom {
+        if let Some(vid) = view_id {
+            if let Some(view) = app.workspace.views.get_mut(&vid) {
+                view.camera.current_zoom = new_zoom;
+            }
+        } else {
+            app.workspace.camera.current_zoom = new_zoom;
+        }
+    }
 
     updated_zoom
 }
@@ -814,23 +874,40 @@ fn apply_pending_camera_command(
     ui: &Ui,
     app: &mut GraphBrowserApp,
     metadata_id: egui::Id,
+    view_id: Option<crate::app::GraphViewId>,
 ) -> Option<f32> {
     let Some(command) = app.pending_camera_command() else {
         return None;
     };
+
+    let zoom_min = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_min)
+        .unwrap_or(app.workspace.camera.zoom_min);
+    let zoom_max = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_max)
+        .unwrap_or(app.workspace.camera.zoom_max);
+
     match command {
         CameraCommand::SetZoom(target_zoom) => {
             let mut updated_zoom = None;
             ui.ctx().data_mut(|data| {
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-                    let new_zoom = app.workspace.camera.clamp(target_zoom);
+                    let new_zoom = target_zoom.clamp(zoom_min, zoom_max);
                     meta.zoom = new_zoom;
-                    app.workspace.camera.current_zoom = new_zoom;
                     data.insert_persisted(metadata_id, meta);
                     updated_zoom = Some(new_zoom);
                 }
             });
-            if updated_zoom.is_some() {
+            if let Some(new_zoom) = updated_zoom {
+                if let Some(vid) = view_id {
+                    if let Some(view) = app.workspace.views.get_mut(&vid) {
+                        view.camera.current_zoom = new_zoom;
+                    }
+                } else {
+                    app.workspace.camera.current_zoom = new_zoom;
+                }
                 app.clear_pending_camera_command();
             }
             updated_zoom
@@ -867,11 +944,12 @@ fn apply_pending_camera_command(
             let padded_width = width * padding;
             let padded_height = height * padding;
             let fit_zoom = (view_size.x / padded_width).min(view_size.y / padded_height);
-            let target_zoom = if matches!(command, CameraCommand::FitSelection) {
-                app.workspace.camera.clamp(fit_zoom)
+            let raw_target = if matches!(command, CameraCommand::FitSelection) {
+                fit_zoom
             } else {
-                app.workspace.camera.clamp(fit_zoom * CAMERA_FIT_RELAX)
+                fit_zoom * CAMERA_FIT_RELAX
             };
+            let target_zoom = raw_target.clamp(zoom_min, zoom_max);
 
             let center = egui::pos2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
             let viewport_center = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size())
@@ -884,13 +962,19 @@ fn apply_pending_camera_command(
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
                     meta.zoom = target_zoom;
                     meta.pan = target_pan;
-                    app.workspace.camera.current_zoom = target_zoom;
                     data.insert_persisted(metadata_id, meta);
                     updated_zoom = Some(target_zoom);
                 }
             });
 
-            if updated_zoom.is_some() {
+            if let Some(new_zoom) = updated_zoom {
+                if let Some(vid) = view_id {
+                    if let Some(view) = app.workspace.views.get_mut(&vid) {
+                        view.camera.current_zoom = new_zoom;
+                    }
+                } else {
+                    app.workspace.camera.current_zoom = new_zoom;
+                }
                 app.clear_pending_camera_command();
             }
             updated_zoom
@@ -903,11 +987,21 @@ fn apply_pending_wheel_zoom(
     response: &egui::Response,
     metadata_id: egui::Id,
     app: &mut GraphBrowserApp,
+    view_id: Option<crate::app::GraphViewId>,
 ) -> Option<f32> {
     let scroll_delta = app.pending_wheel_zoom_delta();
     if scroll_delta.abs() <= f32::EPSILON {
         return None;
     }
+
+    let zoom_min = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_min)
+        .unwrap_or(app.workspace.camera.zoom_min);
+    let zoom_max = view_id
+        .and_then(|vid| app.workspace.views.get(&vid))
+        .map(|v| v.camera.zoom_max)
+        .unwrap_or(app.workspace.camera.zoom_max);
 
     let velocity_id = egui::Id::new("graph_scroll_zoom_velocity");
     let mut velocity = ui
@@ -933,15 +1027,23 @@ fn apply_pending_wheel_zoom(
             ui.ctx().data_mut(|data| {
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
                     let graph_center_pos = (local_center - meta.pan) / meta.zoom;
-                    let new_zoom = app.workspace.camera.clamp(meta.zoom * factor);
+                    let new_zoom = (meta.zoom * factor).clamp(zoom_min, zoom_max);
                     let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
                     meta.pan += pan_delta;
                     meta.zoom = new_zoom;
-                    app.workspace.camera.current_zoom = new_zoom;
                     data.insert_persisted(metadata_id, meta);
                     updated_zoom = Some(new_zoom);
                 }
             });
+            if let Some(new_zoom) = updated_zoom {
+                if let Some(vid) = view_id {
+                    if let Some(view) = app.workspace.views.get_mut(&vid) {
+                        view.camera.current_zoom = new_zoom;
+                    }
+                } else {
+                    app.workspace.camera.current_zoom = new_zoom;
+                }
+            }
         }
     }
 

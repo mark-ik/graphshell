@@ -17,6 +17,7 @@ use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFA
 use crate::render;
 use crate::render::GraphAction;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
 use crate::util::truncate_with_ellipsis;
 
 use super::selection_range::inclusive_index_range;
@@ -203,10 +204,14 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: TileId, pane: &mut TileKind) -> UiResponse {
         match pane {
             TileKind::Graph(view_id) => {
+                let view_id = *view_id;
+                // Snapshot the pane rect now (before the graph fills the space).
+                let pane_rect = ui.max_rect();
+
                 let actions = render::render_graph_in_ui_collect_actions(
                     ui,
                     self.graph_app,
-                    Some(*view_id),
+                    Some(view_id),
                     self.search_matches,
                     self.active_search_match,
                     if self.search_filter_mode {
@@ -261,6 +266,15 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     .extend(render::intents_from_graph_actions(passthrough_actions));
                 render::sync_graph_positions_from_layout(self.graph_app);
                 render::render_graph_info_in_ui(ui, self.graph_app);
+
+                // Per-pane overlay: lens selector + Canonical/Divergent toggle.
+                render_graph_pane_overlay(
+                    ui.ctx(),
+                    self.graph_app,
+                    view_id,
+                    pane_rect,
+                    &mut self.pending_graph_intents,
+                );
             },
             TileKind::Node(state) => {
                 let node_key = state.node;
@@ -356,7 +370,13 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn tab_title_for_pane(&mut self, pane: &TileKind) -> WidgetText {
         match pane {
-            TileKind::Graph(_) => "Graph".into(),
+            TileKind::Graph(view_id) => self
+                .graph_app
+                .workspace
+                .views
+                .get(view_id)
+                .map(|v| v.name.clone().into())
+                .unwrap_or_else(|| "Graph".into()),
             TileKind::Node(state) => self
                 .graph_app
                 .workspace.graph
@@ -387,7 +407,16 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             .resolve(WORKBENCH_SURFACE_DEFAULT);
 
         let (title_text, favicon_texture) = match tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Graph(_))) => ("Graph".to_string(), None),
+            Some(Tile::Pane(TileKind::Graph(view_id))) => {
+                let name = self
+                    .graph_app
+                    .workspace
+                    .views
+                    .get(view_id)
+                    .map(|v| v.name.clone())
+                    .unwrap_or_else(|| "Graph".to_string());
+                (name, None)
+            }
             Some(Tile::Pane(TileKind::Node(state))) => {
                 let title = self
                     .graph_app
@@ -604,4 +633,107 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         }
         true
     }
+}
+
+/// Render a per-pane overlay showing the current lens and a Canonical/Divergent toggle.
+///
+/// The overlay appears as a translucent bar in the top-right corner of the graph pane.
+/// Intended to satisfy P6.d (per-pane lens selector) and P6.e (Canonical/Divergent toggle).
+fn render_graph_pane_overlay(
+    ctx: &egui::Context,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    pane_rect: egui::Rect,
+    pending_intents: &mut Vec<GraphIntent>,
+) {
+    let Some(view) = app.workspace.views.get(&view_id) else {
+        return;
+    };
+    let lens_name = view.lens.lens_id.clone().unwrap_or_else(|| view.lens.name.clone());
+    let layout_mode = view.layout_mode;
+
+    // Overlay anchored to top-right of the pane, with a small margin.
+    let overlay_width = 150.0;
+    let overlay_pos = egui::pos2(
+        pane_rect.max.x - overlay_width - 4.0,
+        pane_rect.min.y + 4.0,
+    );
+
+    egui::Area::new(egui::Id::new("graph_pane_overlay").with(view_id))
+        .fixed_pos(overlay_pos)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgba_unmultiplied(20, 24, 30, 180))
+                .rounding(egui::Rounding::same(4))
+                .inner_margin(egui::Margin::same(4))
+                .show(ui, |ui| {
+                    ui.set_width(overlay_width - 8.0);
+
+                    // Lens row: display current lens with a click-to-reset affordance.
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Lens:")
+                                .small()
+                                .color(egui::Color32::from_rgb(160, 175, 190)),
+                        );
+                        let display = crate::util::truncate_with_ellipsis(
+                            lens_name.trim_start_matches("lens:"),
+                            12,
+                        );
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(display)
+                                        .small()
+                                        .color(egui::Color32::from_rgb(210, 225, 240)),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text("Click to reset lens to default")
+                            .clicked()
+                        {
+                            pending_intents.push(GraphIntent::SetViewLens {
+                                view_id,
+                                lens: crate::app::LensConfig::default(),
+                            });
+                        }
+                    });
+
+                    // Layout mode row: toggle between Canonical and Divergent.
+                    ui.horizontal(|ui| {
+                        let (label, next_mode, hover) = match layout_mode {
+                            ViewLayoutMode::Canonical => (
+                                "⬤ Canonical",
+                                ViewLayoutMode::Divergent,
+                                "Switch to Divergent: own a private layout simulation",
+                            ),
+                            ViewLayoutMode::Divergent => (
+                                "⬤ Divergent",
+                                ViewLayoutMode::Canonical,
+                                "Switch to Canonical: use shared graph positions",
+                            ),
+                        };
+                        let color = match layout_mode {
+                            ViewLayoutMode::Canonical => egui::Color32::from_rgb(100, 200, 130),
+                            ViewLayoutMode::Divergent => egui::Color32::from_rgb(200, 170, 90),
+                        };
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(label).small().color(color),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text(hover)
+                            .clicked()
+                        {
+                            pending_intents.push(GraphIntent::SetViewLayoutMode {
+                                view_id,
+                                mode: next_mode,
+                            });
+                        }
+                    });
+                });
+        });
 }
