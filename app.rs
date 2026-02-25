@@ -2429,6 +2429,8 @@ impl GraphBrowserApp {
             });
         }
         self.workspace.egui_state_dirty = true; // Graph structure changed
+        self.workspace.physics.base.is_running = true;
+        self.workspace.drag_release_frames_remaining = 0;
         key
     }
 
@@ -6022,6 +6024,18 @@ mod tests {
             command: EdgeCommand::UnpinSelected,
         }]);
         assert!(app.workspace.graph.get_node(key).is_some_and(|node| !node.is_pinned));
+    }
+
+    #[test]
+    fn test_add_node_and_sync_reheats_physics() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.physics.base.is_running = false;
+        app.workspace.drag_release_frames_remaining = 5;
+
+        app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
+
+        assert!(app.workspace.physics.base.is_running);
+        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
     }
 
     #[test]
