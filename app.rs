@@ -2123,9 +2123,13 @@ impl GraphBrowserApp {
             } => {
                 let parent_node = self.get_node_for_webview(parent_webview_id);
                 let position = if let Some(parent_key) = parent_node {
+                    use rand::Rng;
+                    let mut rng = rand::thread_rng();
+                    let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
+                    let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
                     self.workspace.graph
                         .get_node(parent_key)
-                        .map(|node| Point2D::new(node.position.x + 140.0, node.position.y + 80.0))
+                        .map(|node| Point2D::new(node.position.x + 140.0 + jitter_x, node.position.y + 80.0 + jitter_y))
                         .unwrap_or_else(|| Point2D::new(400.0, 300.0))
                 } else {
                     Point2D::new(400.0, 300.0)
@@ -5569,6 +5573,32 @@ mod tests {
             app.workspace.graph.get_node(child).unwrap().url,
             "https://child.com"
         );
+    }
+
+    #[test]
+    fn test_intent_webview_created_places_child_near_parent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let parent = app
+            .workspace
+            .graph
+            .add_node("https://parent.com".into(), Point2D::new(10.0, 20.0));
+        let parent_wv = test_webview_id();
+        let child_wv = test_webview_id();
+        app.map_webview_to_node(parent_wv, parent);
+
+        app.apply_intents([GraphIntent::WebViewCreated {
+            parent_webview_id: parent_wv,
+            child_webview_id: child_wv,
+            initial_url: Some("https://child.com".into()),
+        }]);
+
+        let child = app.get_node_for_webview(child_wv).unwrap();
+        let child_pos = app.workspace.graph.get_node(child).unwrap().position;
+        // Child should be placed near the parent (not at fallback center 400, 300).
+        // The base offset is (+140, +80) plus jitter in [-50, +50].
+        // So x is in [100, 200] and y is in [50, 150] relative to parent at (10, 20).
+        assert!(child_pos.x >= 10.0 + 140.0 - 50.0 && child_pos.x <= 10.0 + 140.0 + 50.0);
+        assert!(child_pos.y >= 20.0 + 80.0 - 50.0 && child_pos.y <= 20.0 + 80.0 + 50.0);
     }
 
     #[test]
