@@ -214,6 +214,70 @@ impl Default for LensConfig {
     }
 }
 
+/// How z-coordinates are assigned to nodes when a graph view is in a 3D mode.
+///
+/// `ZSource` is part of `GraphViewState` — it is a per-view configuration.
+/// z-positions are ephemeral: they are recomputed from this source + node metadata on
+/// every 2D→3D switch and are never persisted independently.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ZSource {
+    /// All nodes coplanar — soft 3D visual effect only.
+    Zero,
+    /// Recent nodes float to front; `max_depth` controls the maximum z offset.
+    Recency { max_depth: f32 },
+    /// Root nodes at z=0; deeper BFS nodes further back; `scale` controls layer spacing.
+    BfsDepth { scale: f32 },
+    /// UDC main class determines z layer; `scale` controls layer spacing.
+    UdcLevel { scale: f32 },
+    /// Per-node z override sourced from node metadata.
+    Manual,
+}
+
+impl Default for ZSource {
+    fn default() -> Self {
+        Self::Zero
+    }
+}
+
+/// Sub-mode for a 3D graph view.
+///
+/// Ordered by implementation complexity — `TwoPointFive` is purely visual and the
+/// lowest-cost starting point; `Standard` is the highest-fidelity, highest-complexity mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ThreeDMode {
+    /// 2.5D: fixed top-down perspective; z is visual-only depth offset.
+    /// Navigation remains 2D (pan/zoom). No camera tilt. Mobile-compatible.
+    TwoPointFive,
+    /// Isometric: quantized z layers, fixed-angle projection.
+    /// Layer separation reveals hierarchical/temporal structure.
+    Isometric,
+    /// Standard 3D: reorientable arcball camera, arbitrary z.
+    /// Highest fidelity; most complex interaction model.
+    Standard,
+}
+
+/// Dimension mode for a graph view pane.
+///
+/// Owned by `GraphViewState` and persisted with the view snapshot.
+/// The z-positions cache (`z_positions: HashMap<NodeKey, f32>`) derived from
+/// `ThreeD { z_source }` is ephemeral — recomputed on each 2D→3D switch and
+/// never stored separately.  Snapshot degradation rule: if a persisted snapshot
+/// contains `ThreeD` but 3D rendering is unavailable (e.g., unsupported platform),
+/// the view falls back to `TwoD`; (x, y) positions are preserved unchanged.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ViewDimension {
+    /// Standard 2D planar graph (default).
+    TwoD,
+    /// 3D graph with the given sub-mode and z-source.
+    ThreeD { mode: ThreeDMode, z_source: ZSource },
+}
+
+impl Default for ViewDimension {
+    fn default() -> Self {
+        Self::TwoD
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct GraphViewState {
     pub id: GraphViewId,
@@ -225,6 +289,13 @@ pub struct GraphViewState {
     #[serde(default)]
     pub layout_mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode,
     pub local_simulation: Option<LocalSimulation>,
+    /// The rendering dimension for this view (2D or 3D sub-mode).
+    ///
+    /// Persisted with the view state so that reopening a workspace restores the
+    /// user's last dimension choice.  Snapshot degradation: falls back to `TwoD`
+    /// if 3D rendering is unavailable on the target platform.
+    #[serde(default)]
+    pub dimension: ViewDimension,
     #[serde(skip)]
     pub egui_state: Option<EguiGraphState>,
 }
@@ -238,6 +309,7 @@ impl std::fmt::Debug for GraphViewState {
             .field("lens", &self.lens)
             .field("layout_mode", &self.layout_mode)
             .field("local_simulation", &self.local_simulation)
+            .field("dimension", &self.dimension)
             .finish_non_exhaustive()
     }
 }
@@ -251,6 +323,7 @@ impl Clone for GraphViewState {
             lens: self.lens.clone(),
             layout_mode: self.layout_mode,
             local_simulation: self.local_simulation.clone(),
+            dimension: self.dimension.clone(),
             egui_state: None,
         }
     }
@@ -265,6 +338,7 @@ impl GraphViewState {
             lens: LensConfig::default(),
             layout_mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode::default(),
             local_simulation: None,
+            dimension: ViewDimension::default(),
             egui_state: None,
         }
     }
@@ -818,6 +892,17 @@ pub enum GraphIntent {
     SetViewLayoutMode {
         view_id: GraphViewId,
         mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode,
+    },
+    /// Switch the rendering dimension for a graph view (2D ↔ 3D hotswitch).
+    ///
+    /// Introduced in F9 (concept adoption). Blocked on P5 + P6 completion.
+    /// The reducer must recompute ephemeral z-positions from `ViewDimension`'s
+    /// `ZSource` when switching to 3D, and discard them when switching back to 2D.
+    /// (x, y) positions are preserved unchanged in both directions.
+    #[allow(dead_code)]
+    SetViewDimension {
+        view_id: GraphViewId,
+        dimension: ViewDimension,
     },
     SetNodeUrl {
         key: NodeKey,
