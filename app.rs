@@ -2171,6 +2171,13 @@ impl GraphBrowserApp {
                     }
                 }
             },
+            GraphIntent::SetViewDimension { view_id, dimension } => {
+                if let Some(view) = self.workspace.views.get_mut(&view_id) {
+                    // F9 tracked capability: persist view preference now; renderer/runtime
+                    // behavior for 3D modes lands in follow-up implementation slices.
+                    view.dimension = dimension;
+                }
+            },
             GraphIntent::SetNodeUrl { key, new_url } => {
                 let _ = self.update_node_url_and_log(key, new_url);
             },
