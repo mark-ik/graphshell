@@ -990,6 +990,23 @@ pub enum GraphIntent {
     OpenToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
     },
+    /// Set (or clear) the MIME type hint on a node.
+    ///
+    /// Emitted after extension sniffing at node creation time, or after content-byte
+    /// detection when the resolver receives response bytes for the node.
+    /// A `None` value clears the hint (used when URL changes).
+    UpdateNodeMimeHint {
+        key: NodeKey,
+        mime_hint: Option<String>,
+    },
+    /// Update the address-kind classification of a node.
+    ///
+    /// Normally inferred from the URL scheme at creation time; can be re-emitted
+    /// when a redirect or URL change results in a different scheme.
+    UpdateNodeAddressKind {
+        key: NodeKey,
+        kind: crate::graph::AddressKind,
+    },
 }
 
 #[derive(Default)]
@@ -1929,6 +1946,8 @@ impl GraphBrowserApp {
                 | GraphIntent::ExecuteEdgeCommand { .. }
                 | GraphIntent::TagNode { .. }
                 | GraphIntent::UntagNode { .. }
+                | GraphIntent::UpdateNodeMimeHint { .. }
+                | GraphIntent::UpdateNodeAddressKind { .. }
         ) {
             // Any graph mutation starts a fresh unsaved-change episode for
             // workspace-switch prompt gating.
@@ -2407,6 +2426,45 @@ impl GraphBrowserApp {
             | GraphIntent::OpenNodeInPane { .. }
             | GraphIntent::OpenToolPane { .. } => {
                 log::debug!("pane intent received (workbench-layer handling pending Stage 6)");
+            }
+            GraphIntent::UpdateNodeMimeHint { key, mime_hint } => {
+                if let Some(node) = self.workspace.graph.get_node_mut(key) {
+                    let node_id = node.id;
+                    node.mime_hint = mime_hint.clone();
+                    if let Some(store) = &mut self.services.persistence {
+                        store.log_mutation(
+                            &LogEntry::UpdateNodeMimeHint {
+                                node_id: node_id.to_string(),
+                                mime_hint,
+                            },
+                        );
+                    }
+                }
+            }
+            GraphIntent::UpdateNodeAddressKind { key, kind } => {
+                if let Some(node) = self.workspace.graph.get_node_mut(key) {
+                    let node_id = node.id;
+                    node.address_kind = kind;
+                    if let Some(store) = &mut self.services.persistence {
+                        let persisted_kind = match kind {
+                            crate::graph::AddressKind::Http => {
+                                crate::services::persistence::types::PersistedAddressKind::Http
+                            },
+                            crate::graph::AddressKind::File => {
+                                crate::services::persistence::types::PersistedAddressKind::File
+                            },
+                            crate::graph::AddressKind::Custom => {
+                                crate::services::persistence::types::PersistedAddressKind::Custom
+                            },
+                        };
+                        store.log_mutation(
+                            &LogEntry::UpdateNodeAddressKind {
+                                node_id: node_id.to_string(),
+                                kind: persisted_kind,
+                            },
+                        );
+                    }
+                }
             }
         }
     }
@@ -4978,12 +5036,43 @@ impl GraphBrowserApp {
     /// Update a node's URL and log to persistence.
     /// Returns the old URL, or None if the node doesn't exist.
     pub fn update_node_url_and_log(&mut self, key: NodeKey, new_url: String) -> Option<String> {
+        // Recompute content metadata from the new URL before logging.
+        let new_mime_hint = crate::graph::detect_mime(&new_url);
+        let new_address_kind = crate::graph::address_kind_from_url(&new_url);
+
         let old_url = self.workspace.graph.update_node_url(key, new_url.clone())?;
+
+        // Apply updated metadata to the in-memory node.
+        if let Some(node) = self.workspace.graph.get_node_mut(key) {
+            node.mime_hint = new_mime_hint.clone();
+            node.address_kind = new_address_kind;
+        }
+
         if let Some(store) = &mut self.services.persistence {
             if let Some(node) = self.workspace.graph.get_node(key) {
+                let node_id = node.id.to_string();
                 store.log_mutation(&LogEntry::UpdateNodeUrl {
-                    node_id: node.id.to_string(),
+                    node_id: node_id.clone(),
                     new_url,
+                });
+                store.log_mutation(&LogEntry::UpdateNodeMimeHint {
+                    node_id: node_id.clone(),
+                    mime_hint: new_mime_hint,
+                });
+                let persisted_kind = match new_address_kind {
+                    crate::graph::AddressKind::Http => {
+                        crate::services::persistence::types::PersistedAddressKind::Http
+                    },
+                    crate::graph::AddressKind::File => {
+                        crate::services::persistence::types::PersistedAddressKind::File
+                    },
+                    crate::graph::AddressKind::Custom => {
+                        crate::services::persistence::types::PersistedAddressKind::Custom
+                    },
+                };
+                store.log_mutation(&LogEntry::UpdateNodeAddressKind {
+                    node_id,
+                    kind: persisted_kind,
                 });
             }
         }
@@ -7532,5 +7621,108 @@ mod tests {
         assert_eq!(resolved.physics.name, "Liquid");
         assert!(matches!(resolved.layout, LayoutMode::Free));
         assert_eq!(resolved.theme.as_deref(), Some("theme:default"));
+    }
+
+    // --- UpdateNodeMimeHint / UpdateNodeAddressKind intent tests ---
+
+    #[test]
+    fn update_node_mime_hint_intent_sets_hint_on_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("file:///doc.pdf".to_string(), Point2D::new(0.0, 0.0));
+
+        app.apply_intents([GraphIntent::UpdateNodeMimeHint {
+            key,
+            mime_hint: Some("application/pdf".to_string()),
+        }]);
+
+        let node = app.workspace.graph.get_node(key).unwrap();
+        assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
+    }
+
+    #[test]
+    fn update_node_mime_hint_intent_can_clear_hint() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("file:///doc.pdf".to_string(), Point2D::new(0.0, 0.0));
+
+        // Set then clear.
+        app.apply_intents([GraphIntent::UpdateNodeMimeHint {
+            key,
+            mime_hint: Some("application/pdf".to_string()),
+        }]);
+        app.apply_intents([GraphIntent::UpdateNodeMimeHint {
+            key,
+            mime_hint: None,
+        }]);
+
+        let node = app.workspace.graph.get_node(key).unwrap();
+        assert!(node.mime_hint.is_none());
+    }
+
+    #[test]
+    fn update_node_address_kind_intent_sets_kind_on_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+
+        app.apply_intents([GraphIntent::UpdateNodeAddressKind {
+            key,
+            kind: crate::graph::AddressKind::Custom,
+        }]);
+
+        let node = app.workspace.graph.get_node(key).unwrap();
+        assert_eq!(node.address_kind, crate::graph::AddressKind::Custom);
+    }
+
+    #[test]
+    fn node_created_with_http_url_has_http_address_kind_after_add_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let node = app.workspace.graph.get_node(key).unwrap();
+        assert_eq!(node.address_kind, crate::graph::AddressKind::Http);
+    }
+
+    #[test]
+    fn node_created_with_file_pdf_url_gets_mime_hint_after_add_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("file:///home/user/doc.pdf".to_string(), Point2D::new(0.0, 0.0));
+        let node = app.workspace.graph.get_node(key).unwrap();
+        assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
+        assert_eq!(node.address_kind, crate::graph::AddressKind::File);
+    }
+
+    #[test]
+    fn update_node_url_and_log_refreshes_mime_hint_and_address_kind() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+
+        // Start with HTTP
+        assert_eq!(
+            app.workspace.graph.get_node(key).unwrap().address_kind,
+            crate::graph::AddressKind::Http
+        );
+
+        // Navigate to a local PDF file
+        app.update_node_url_and_log(key, "file:///home/user/report.pdf".to_string());
+
+        let node = app.workspace.graph.get_node(key).unwrap();
+        assert_eq!(node.address_kind, crate::graph::AddressKind::File);
+        assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
     }
 }
