@@ -2,7 +2,7 @@
 
 **Status**: Implementation-Ready
 **Supersedes**: `2026-02-19_layout_advanced_plan.md`
-**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs).
+**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs), `2026-02-22_multi_graph_pane_plan.md` (graph-pane Canonical/Divergent semantics and per-pane budgets).
 
 ## Context
 
@@ -15,6 +15,9 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 1. Keep force-behavior toggles policy-driven (`CanvasRegistry`), not hardcoded in render callsites.
 2. Preserve existing intent and lifecycle boundaries (`apply_intents` -> reconcile -> render).
 3. Treat this plan as additive to current physics system; avoid introducing a parallel layout engine.
+4. Scope applies to **graph panes** only (`CanvasRegistry` surface behavior). Node viewer panes and tool panes are out of scope.
+
+**Multi-view note**: Canonical vs Divergent graph-pane semantics are defined in `2026-02-22_multi_graph_pane_plan.md`. Unless explicitly stated otherwise, behaviors in this plan target the canonical shared graph layout path and should not implicitly overwrite divergent local simulations.
 
 ---
 

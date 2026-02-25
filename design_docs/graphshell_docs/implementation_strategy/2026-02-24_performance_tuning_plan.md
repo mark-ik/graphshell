@@ -3,6 +3,7 @@
 **Status**: Implementation-Ready  
 **Supersedes**: `2026-02-11_performance_optimization_plan.md`  
 **Context**: Post-Registry migration cleanup and scaling.
+**Relates to**: `2026-02-22_multi_graph_pane_plan.md` (per-graph-pane culling/LOD semantics and divergent-simulation budgets)
 
 ## Goal
 
@@ -16,8 +17,9 @@ Target performance envelopes on reference hardware:
 
 - `CanvasRegistry`: runtime toggles/policies (`viewport_culling_enabled`, `label_culling_enabled`, edge LOD mode).
 - `DiagnosticRegistry`: frame-time/entity metrics with bounded sampling.
-- `MetadataFrame`: previous-frame zoom/pan oracle used for LOD and viewport decisions.
+- `MetadataFrame`: per-graph-pane previous-frame zoom/pan oracle used for LOD and viewport decisions.
 - `render/spatial_index.rs`: viewport candidate lookup using spatial index (avoid full O(N) scans).
+- Multi-pane rule: culling and LOD decisions are computed per graph pane, not globally.
 
 ---
 

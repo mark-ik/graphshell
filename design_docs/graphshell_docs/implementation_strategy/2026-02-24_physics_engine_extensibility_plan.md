@@ -12,7 +12,7 @@ mod architecture, fractal layouts, rapier2d functional physics layer, mobile con
 - `2026-02-22_registry_layer_plan.md` — `PhysicsProfileRegistry` owns named presets; `CanvasRegistry` owns engine execution; `LayoutRegistry` owns positioning algorithms
 - `2026-02-24_layout_behaviors_plan.md` — behavioral micro-features (reheat, clustering, magnetic zones) that build on top of whichever engine is active
 - `2026-02-23_graph_interaction_consistency_plan.md` — gravity locus dampening (Phase 3) is a concrete `ExtraForce` candidate
-- `2026-02-22_multi_graph_pane_plan.md` — `GraphViewState`, `Canonical`/`Divergent` layout modes, `LocalSimulation`; 3D views are a new `ViewDimension` axis on `GraphViewState`
+- `2026-02-22_multi_graph_pane_plan.md` — pane-hosted multi-view architecture; `GraphViewState`, `Canonical`/`Divergent` layout modes, and `LocalSimulation` remain graph-pane payload concepts; 3D views are a new `ViewDimension` axis on `GraphViewState`
 - `design_docs/PROJECT_DESCRIPTION.md` — 2D↔3D hotswitch with position parity is a named first-class vision feature
 
 ---

@@ -39,6 +39,7 @@ Graphshell has two sovereign data territories with fundamentally different struc
 
 2. **Workbench Domain** (Pillar B — "The Window Manager"): The tile tree of panes and tabs.
    - Concerns: Tile-tree structure (splits, tabs, grids), drag/drop rules, resizing constraints, layout simplification
+   - Payload model: panes host view payloads (graph panes, node viewer panes, tool panes); payload selection is separate from tile-tree layout policy
    - Registry: `WorkbenchSurfaceRegistry` — two sections: **layout policy**, **interaction policy**
    - Extensibility: Mods can register new split policies, tab bar styles, container layouts
 
@@ -67,7 +68,7 @@ This generalizes: "Mind Map" = cycles allowed + force-directed + liquid physics.
 
 ### Cross-Domain Orchestration
 
-**`LensCompositor`** composes a reusable, named **Lens** = Canvas profile + Presentation profile + Knowledge filters. A Lens is a *graph view configuration* — it does not include Workbench layout. Lenses are reusable across different Workbench configurations.
+**`LensCompositor`** composes a reusable, named **Lens** = Canvas profile + Presentation profile + Knowledge filters. A Lens is a *graph view configuration* (applies to graph-pane payloads) — it does not include Workbench layout. Lenses are reusable across different Workbench configurations.
 
 **`WorkflowRegistry`** (Future) = active Lens + active InputProfile + active WorkbenchSurface profile. This is the full session mode. The semantic hierarchy is: **Workflow = Lens × WorkbenchProfile** (where WorkbenchProfile = Workbench + Input configuration).
 
@@ -80,6 +81,7 @@ This generalizes: "Mind Map" = cycles allowed + force-directed + liquid physics.
 - **Core Seed**: minimal registry population that makes the app functional without mods (offline graph organizer).
 - **DiagnosticsRegistry**: canonical component for diagnostic channel and schema contracts.
 - **Atomic Registry**: primitive capability registry. **Domain Registry**: composite context registry.
+- **Pane View**: pane-hosted surface payload (Graph / Node Viewer / Tool). Workbench layout manages panes; payload-specific registries manage surface behavior.
 - **Lens / Input / Workflow**: domain names; concrete implementations are `*Registry` types.
 - **Layout Domain**: controls structure + interaction + rendering policy via `CanvasRegistry`, `WorkbenchSurfaceRegistry`, and `ViewerSurfaceRegistry`.
 - **Presentation Domain**: controls appearance + motion semantics via `ThemeRegistry` + `PhysicsProfileRegistry`.
@@ -186,8 +188,8 @@ These combine primitives to define a user experience context. **Domain sequencin
     *   **Coordinator**: `LayoutDomainRegistry`
     *   **Surface Registries**:
         *   `CanvasRegistry` — three sections: (1) topology policy (DAG/free/tree rule sets, edge type constraints), (2) layout algorithms (force-directed, tree, radial — delegates to atomic `LayoutRegistry`), (3) interaction/rendering policy (selection, zoom/pan, node creation, edge routing, badge display, physics engine execution).
-        *   `WorkbenchSurfaceRegistry` — two sections: (1) layout policy (split types, tab rules, `SimplificationOptions`), (2) interaction policy (drag/drop rules, resize constraints, drop zone behavior, container labels).
-        *   `ViewerSurfaceRegistry` — document viewport behavior: zoom/scaling, reader mode, scroll policy. (Viewer *selection* — MIME routing — stays in atomic `ViewerRegistry`; this governs how the selected viewer presents its viewport.)
+        *   `WorkbenchSurfaceRegistry` — two sections: (1) layout policy (split types, tab rules, `SimplificationOptions`), (2) interaction policy (drag/drop rules, resize constraints, drop zone behavior, container labels). Applies to pane hosts regardless of payload kind.
+        *   `ViewerSurfaceRegistry` — document viewport behavior for node viewer panes: zoom/scaling, reader mode, scroll policy. (Viewer *selection* — MIME routing — stays in atomic `ViewerRegistry`; this governs how the selected viewer presents its viewport. Overlay vs embedded backend constraints remain viewer/backend concerns, e.g. Wry pane-only overlay mode.)
 
 *   **Presentation Domain**:
     *   **Role**: Controls *appearance* and *motion semantics* after layout.
@@ -504,10 +506,12 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 - Define `WorkbenchSurfaceRegistry` with two sections:
   - **Layout Policy**: `SimplificationOptions`, split direction defaults, tab wrapping rules.
   - **Interaction Policy**: Drag-to-rearrange rules, resize constraints, drop zone behavior, tab bar style, container labels (semantic: `Split ↔`, `Tab Group`, etc.), title truncation.
+- Scope note: this registry governs pane host behavior for graph panes, node viewer panes, and tool panes equally; it does not decide viewer backend selection.
 - Refactor `tile_behavior.rs` to resolve policy profiles via workbench surface registry.
 
 #### Step 3.4: Viewer Surface Subregistry
-- Define `ViewerSurfaceRegistry` covering viewer viewport behavior: zoom/scaling defaults, reader mode, scroll policy.
+- Define `ViewerSurfaceRegistry` covering node viewer pane viewport behavior: zoom/scaling defaults, reader mode, scroll policy.
+- Viewer surface policy is backend-agnostic; overlay/embedded constraints (Servo texture vs Wry overlay) remain part of viewer/backend capability handling.
 - Update viewer entrypoints to resolve surface policies via layout domain.
 
 **Phase 3 Done Gate**:

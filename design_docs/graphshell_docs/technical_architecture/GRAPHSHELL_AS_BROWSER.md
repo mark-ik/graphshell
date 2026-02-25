@@ -16,8 +16,9 @@ Graphshell is a spatial tab manager with three authority domains:
 - **Tile tree**: layout/focus/visibility state.
 - **Webviews / viewers**: runtime rendering instances reconciled from graph lifecycle.
 
-- **Graph view**: Overview and organizational control surface. Drag nodes between clusters, create edges, delete nodes — all affect the tile tree and viewers.
-- **Tile panes**: Focused working contexts. Each pane's tab bar shows the nodes in that pane's cluster. Closing a tab tile closes the viewer and demotes the node to `Cold` (node remains in graph unless explicitly deleted).
+- **Graph view pane**: Overview and organizational control surface. Drag nodes between clusters, create edges, delete nodes — all affect the tile tree and viewers.
+- **Node viewer panes**: Focused working contexts. Each pane's tab bar shows the nodes in that pane's cluster. Closing a tab tile closes the viewer and demotes the node to `Cold` (node remains in graph unless explicitly deleted).
+- **Tool panes**: Diagnostics/history/settings and other utility surfaces using the same tile-tree focus/layout semantics (not graph lifecycle owners).
 - **Tab bars**: Per-pane projections of graph clusters. Active tabs (with viewer) are highlighted; inactive tabs (no viewer) are dimmed and reactivatable.
 
 **Key invariant**: semantic truth lives in graph/intents; tile and viewer runtime state are coordinated through explicit intent/reconciliation boundaries.

@@ -5,6 +5,7 @@
 **Relates to**:
 
 - `2026-02-22_registry_layer_plan.md` — `ViewerRegistry` (Phase 2, complete) is the contract surface for both backends; `WorkbenchSurfaceRegistry` (Phase 3, complete) owns tile layout policy that drives overlay positioning
+- `2026-02-22_multi_graph_pane_plan.md` — pane-hosted multi-view model; Wry applies to Node Viewer panes, not graph panes
 - `2026-02-19_ios_port_plan.md` — `wry` is already in scope for the iOS port; coordinate feature-flag usage
 - `2026-02-20_cross_platform_sync_and_extension_plan.md` — cross-platform deployment context
 
@@ -19,6 +20,9 @@ fundamentally different rendering models that constrain where each can be used.
 
 This plan defines how to add `wry` as a second backend under the existing Verso native mod without
 splitting user-facing configuration or duplicating shared infrastructure.
+
+In the pane-hosted multi-view model, this is specifically the **Node Viewer pane** backend path.
+It should not introduce a separate pane category or bypass pane/compositor routing.
 
 ---
 
@@ -110,6 +114,9 @@ returning true.
 After `desktop/tile_compositor.rs` computes layout for each frame, it must notify overlay-backed
 viewers of their new screen rect. This is a direct call — not a `GraphIntent`, because it is a
 layout effect with no semantic meaning, analogous to how egui passes rects to child widgets.
+
+Pane-hosted interpretation: this applies to overlay-backed **node viewer panes** (or transitional
+tile equivalents during migration), not graph-pane render paths.
 
 ```rust
 // tile_compositor.rs::compose_frame()

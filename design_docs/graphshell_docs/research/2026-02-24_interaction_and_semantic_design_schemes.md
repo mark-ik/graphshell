@@ -2,7 +2,7 @@
 
 **Status**: Research / Synthesis
 **Context**: Leveraging the Registry Layer Architecture (`2026-02-22_registry_layer_plan.md`) to define high-level UX patterns.
-**See Also**: `2026-02-22_multi_graph_pane_plan.md`
+**See Also**: `2026-02-22_multi_graph_pane_plan.md` (pane-hosted multi-view plan; graph-pane Canonical/Divergent semantics)
 
 ## Executive Summary
 
@@ -107,7 +107,8 @@ Graphshell's architecture has evolved from a monolithic application to a registr
 
 This document is a UX design reference, not an implementation roadmap. Implementation is
 covered by `2026-02-22_registry_layer_plan.md` (registries), `2026-02-22_multi_graph_pane_plan.md`
-(Canonical/Divergent views), and `2026-02-24_physics_engine_extensibility_plan.md` (physics
+(pane-hosted multi-view dispatch + Canonical/Divergent graph views), and
+`2026-02-24_physics_engine_extensibility_plan.md` (physics
 presets and ExtraForce). This section notes gaps and ordering constraints.
 
 **Registry status**: `ActionRegistry`, `InputRegistry`, `LensCompositor`, `PhysicsProfileRegistry`,

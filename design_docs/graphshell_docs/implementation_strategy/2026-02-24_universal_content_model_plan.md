@@ -7,6 +7,7 @@
 - `../technical_architecture/2026-02-18_universal_node_content_model.md` — Research vision document; this plan is the implementation-ready follow-through
 - `2026-02-20_node_badge_and_tagging_plan.md` — Badge/tag system; `viewer_id` field and `mime_hint` interplay with badge display and tag assignment UI
 - `2026-02-22_registry_layer_plan.md` — `ViewerRegistry` (Phase 2, complete) is the primary contract surface; `ProtocolRegistry` and `KnowledgeRegistry` are prerequisites for Steps 3 and 6
+- `2026-02-22_multi_graph_pane_plan.md` — node viewers are pane-hosted view payloads; graph panes remain separate surface types
 - `2026-02-23_wry_integration_strategy.md` — Wry backend is a `Viewer` implementation; Steps 1–3 here are prerequisites for the Wry plan
 - `2026-02-23_udc_semantic_tagging_plan.md` — UDC semantic tags drive renderer selection hints and the tag badge system
 - `2026-02-24_layout_behaviors_plan.md` — Zone attractor and semantic physics extend naturally to content-type clusters
@@ -30,6 +31,8 @@ This plan translates that vision into an implementation strategy that:
    default fallback throughout all stages.
 5. Provides a clear sandboxing story for non-Servo renderers via the existing `wry` feature
    gate model and Cargo feature flags.
+6. Fits the pane-hosted multi-view model: node viewers render inside node viewer panes while graph
+   panes remain graph projections over the same node data.
 
 ---
 
@@ -41,8 +44,9 @@ anywhere in the scene (graph canvas nodes, workbench tiles, thumbnails). Primary
 **Wry — overlay mode**: native OS window handle composited above the app surface. Workbench tiles
 only. Fully covered in `2026-02-23_wry_integration_strategy.md`.
 
-**Non-web renderers (PDF, image, text, audio)**: render via egui widgets directly into any tile
-pane or graph node view. These are the new content types this plan introduces.
+**Non-web renderers (PDF, image, text, audio)**: render via egui widgets directly into node viewer
+panes (and can also provide graph-node previews/thumbnails where appropriate). These are the new
+content types this plan introduces.
 
 All three paths implement the `Viewer` trait from the registry layer plan and share the
 `render_embedded` / `sync_overlay` / `is_overlay_mode` interface.
