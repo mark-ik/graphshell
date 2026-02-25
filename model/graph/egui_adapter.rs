@@ -1211,6 +1211,109 @@ mod tests {
     }
 
     #[test]
+    fn test_label_tier_boundary_lower_hide() {
+        // zoom just below 0.6 must hide label
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "Title",
+            "https://example.com",
+            "fallback",
+            0.59,
+        );
+        assert!(label.is_none());
+    }
+
+    #[test]
+    fn test_label_tier_boundary_lower_domain() {
+        // zoom exactly 0.6 must show domain tier
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "Title",
+            "https://example.com",
+            "fallback",
+            0.6,
+        );
+        assert_eq!(label.as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn test_label_tier_boundary_upper_domain() {
+        // zoom exactly 1.5 must still show domain tier
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "Title",
+            "https://example.com",
+            "fallback",
+            1.5,
+        );
+        assert_eq!(label.as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn test_label_tier_boundary_upper_full() {
+        // zoom just above 1.5 must show full tier
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "My Page Title",
+            "https://example.com",
+            "fallback",
+            1.51,
+        );
+        assert_eq!(label.as_deref(), Some("My Page Title"));
+    }
+
+    #[test]
+    fn test_label_tier_domain_non_url_fallback_to_title() {
+        // non-parseable URL in domain tier falls back to truncated title
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "My Title",
+            "not-a-valid-url",
+            "fallback",
+            1.0,
+        );
+        assert_eq!(label.as_deref(), Some("My Title"));
+    }
+
+    #[test]
+    fn test_label_tier_domain_empty_title_uses_fallback() {
+        // empty title in domain tier falls back to fallback text
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "",
+            "not-a-valid-url",
+            "fb",
+            1.0,
+        );
+        assert_eq!(label.as_deref(), Some("fb"));
+    }
+
+    #[test]
+    fn test_label_tier_full_prefers_title_over_url() {
+        // when title differs from URL, full tier returns title
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "Page Title",
+            "https://example.com/some/path",
+            "fallback",
+            2.0,
+        );
+        assert_eq!(label.as_deref(), Some("Page Title"));
+    }
+
+    #[test]
+    fn test_label_tier_full_empty_title_uses_url() {
+        // empty title in full tier falls back to URL
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "",
+            "https://example.com",
+            "fallback",
+            2.0,
+        );
+        assert_eq!(label.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn test_label_tier_full_all_empty_returns_none() {
+        // all fields empty at full zoom returns None
+        let label = GraphNodeShape::label_text_for_zoom_value("", "", "", 2.0);
+        assert!(label.is_none());
+    }
+
+    #[test]
     fn test_edge_shape_selection() {
         let history = GraphEdgeShape::from(EdgeProps {
             payload: EdgePayload::from_edge_type(EdgeType::History),
