@@ -6,6 +6,21 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+/// Address type hint for persistence (mirrors `AddressKind` in the graph model).
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[rkyv(derive(Debug, PartialEq))]
+pub enum PersistedAddressKind {
+    Http,
+    File,
+    Custom,
+}
+
+impl Default for PersistedAddressKind {
+    fn default() -> Self {
+        Self::Http
+    }
+}
+
 /// Persisted per-node session fidelity state.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug)]
 pub struct PersistedNodeSessionState {
@@ -35,6 +50,10 @@ pub struct PersistedNode {
     pub favicon_width: u32,
     pub favicon_height: u32,
     pub session_state: Option<PersistedNodeSessionState>,
+    /// Optional MIME type hint; drives renderer selection.
+    pub mime_hint: Option<String>,
+    /// Address type hint; inferred from URL scheme.
+    pub address_kind: PersistedAddressKind,
 }
 
 /// Edge type for persistence.
@@ -120,6 +139,17 @@ pub enum LogEntry {
         node_id: String,
         tag: String,
     },
+    /// Set (or clear) the MIME type hint on a node.
+    UpdateNodeMimeHint {
+        node_id: String,
+        /// `None` clears the hint; `Some(mime)` sets it.
+        mime_hint: Option<String>,
+    },
+    /// Update the address-kind classification of a node.
+    UpdateNodeAddressKind {
+        node_id: String,
+        kind: PersistedAddressKind,
+    },
 }
 
 #[cfg(test)]
@@ -154,6 +184,8 @@ mod tests {
                 scroll_y: Some(345.0),
                 form_draft: Some("draft body".to_string()),
             }),
+            mime_hint: Some("text/html".to_string()),
+            address_kind: PersistedAddressKind::Http,
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&node).unwrap();
@@ -178,6 +210,8 @@ mod tests {
         assert_eq!(session.scroll_x, Some(12.0));
         assert_eq!(session.scroll_y, Some(345.0));
         assert_eq!(session.form_draft.as_ref().unwrap().as_str(), "draft body");
+        assert_eq!(archived.mime_hint.as_ref().unwrap().as_str(), "text/html");
+        assert_eq!(archived.address_kind, ArchivedPersistedAddressKind::Http);
     }
 
     #[test]
@@ -227,6 +261,8 @@ mod tests {
                 favicon_width: 0,
                 favicon_height: 0,
                 session_state: None,
+                mime_hint: None,
+                address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
             timestamp_secs: 1234567890,
@@ -332,6 +368,81 @@ mod tests {
                 assert_eq!(*trigger, ArchivedPersistedNavigationTrigger::Back);
             },
             _ => panic!("Expected AppendTraversal variant"),
+        }
+    }
+
+    #[test]
+    fn test_log_entry_update_node_mime_hint_roundtrip() {
+        let node_id = Uuid::new_v4().to_string();
+
+        // Set hint
+        let entry = LogEntry::UpdateNodeMimeHint {
+            node_id: node_id.clone(),
+            mime_hint: Some("application/pdf".to_string()),
+        };
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
+        let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
+        match archived {
+            ArchivedLogEntry::UpdateNodeMimeHint { node_id: id, mime_hint } => {
+                assert_eq!(id.as_str(), node_id);
+                assert_eq!(mime_hint.as_ref().unwrap().as_str(), "application/pdf");
+            },
+            _ => panic!("Expected UpdateNodeMimeHint variant"),
+        }
+
+        // Clear hint
+        let entry_clear = LogEntry::UpdateNodeMimeHint {
+            node_id: node_id.clone(),
+            mime_hint: None,
+        };
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry_clear).unwrap();
+        let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
+        match archived {
+            ArchivedLogEntry::UpdateNodeMimeHint { mime_hint, .. } => {
+                assert!(mime_hint.is_none());
+            },
+            _ => panic!("Expected UpdateNodeMimeHint variant"),
+        }
+    }
+
+    #[test]
+    fn test_log_entry_update_node_address_kind_roundtrip() {
+        for (kind, expected) in [
+            (PersistedAddressKind::Http, ArchivedPersistedAddressKind::Http),
+            (PersistedAddressKind::File, ArchivedPersistedAddressKind::File),
+            (PersistedAddressKind::Custom, ArchivedPersistedAddressKind::Custom),
+        ] {
+            let entry = LogEntry::UpdateNodeAddressKind {
+                node_id: Uuid::new_v4().to_string(),
+                kind,
+            };
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
+            let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
+            match archived {
+                ArchivedLogEntry::UpdateNodeAddressKind { kind: archived_kind, .. } => {
+                    assert_eq!(*archived_kind, expected);
+                },
+                _ => panic!("Expected UpdateNodeAddressKind variant"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_persisted_address_kind_roundtrip() {
+        for kind in [
+            PersistedAddressKind::Http,
+            PersistedAddressKind::File,
+            PersistedAddressKind::Custom,
+        ] {
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&kind).unwrap();
+            let archived =
+                rkyv::access::<ArchivedPersistedAddressKind, rkyv::rancor::Error>(&bytes).unwrap();
+            let expected = match kind {
+                PersistedAddressKind::Http => ArchivedPersistedAddressKind::Http,
+                PersistedAddressKind::File => ArchivedPersistedAddressKind::File,
+                PersistedAddressKind::Custom => ArchivedPersistedAddressKind::Custom,
+            };
+            assert_eq!(*archived, expected);
         }
     }
 }

@@ -102,7 +102,7 @@
 - **GitHub Issue Title**: `Registry: finish Phase 6.4 canonical imports and path migration cleanup`
 - **GitHub Labels**: `priority/top10`, `registry`, `refactor`, `architecture`, `migration`
 - **GitHub Milestone**: `Wave A / Registry closure`
-- **GitHub Issue Status**: `Ready`
+- **GitHub Issue Status**: `Closed (completed 2026-02-25)`
 - **Blocking Prerequisites**: `None`
 - **Backlog Lane**: `Now`
 - **Milestone**: `Wave A / Registry closure`
@@ -131,6 +131,8 @@
   - Repository is ready for shim deletion without hidden path churn.
 - **Review Check (comprehension)**:
   - 6.4 is a mechanical migration discipline task; logic changes should be isolated elsewhere.
+- **Status update (2026-02-25)**:
+  - Closed via `mark-ik/graphshell#3`.
 - **Source refs**:
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:46`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:174`
@@ -141,7 +143,7 @@
 - **GitHub Issue Title**: `Registry: execute Phase 6.5 shim removal and final boundary lock`
 - **GitHub Labels**: `priority/top10`, `registry`, `refactor`, `architecture`, `docs`
 - **GitHub Milestone**: `Wave A / Registry closure`
-- **GitHub Issue Status**: `Deferred (blocked)`
+- **GitHub Issue Status**: `Closed (completed 2026-02-25)`
 - **Blocking Prerequisites**:
   - `P3` complete (Phase 6.4 canonical imports/path closure)
 - **Backlog Lane**: `Now`
@@ -173,6 +175,8 @@
   - Strategy docs no longer describe transitional structure as current.
 - **Review Check (comprehension)**:
   - This is the closure task that converts "migration in progress" into enforceable architecture.
+- **Status update (2026-02-25)**:
+  - Closed via `mark-ik/graphshell#4`.
 - **Source refs**:
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:46`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:189`
@@ -183,7 +187,7 @@
 - **GitHub Issue Title**: `Workbench: establish pane-hosted view payload architecture (graph/node/tool panes)`
 - **GitHub Labels**: `priority/top10`, `architecture`, `workbench`, `pane-system`, `design`
 - **GitHub Milestone**: `Wave B / Pane-view foundation`
-- **GitHub Issue Status**: `Queued` (Wave B sequencing after Wave A closure)
+- **GitHub Issue Status**: `Closed (completed 2026-02-25)`
 - **Blocking Prerequisites**:
   - `None (hard blockers)`
 - **Sequencing Prerequisites (recommended first)**:
@@ -215,6 +219,8 @@
   - P6/P7/P8 can proceed without revisiting pane semantics.
 - **Review Check (comprehension)**:
   - This task prevents graph-pane improvements from hardcoding assumptions that break viewer/tool panes later.
+- **Status update (2026-02-25)**:
+  - Closed via `mark-ik/graphshell#5`.
 - **Source refs**:
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md:34`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:46`

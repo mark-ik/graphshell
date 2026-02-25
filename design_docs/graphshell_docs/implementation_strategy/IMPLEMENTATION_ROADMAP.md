@@ -335,6 +335,18 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 ## Phase 3: Advanced Features
 
+### Feature Target 8b: Interactive HTML Export (Self-Contained Graph Artifact)
+
+**Goal**: Export a workspace snapshot as a standalone `.html` file that renders an interactive, pannable, zoomable graph — works offline in any browser with no Graphshell runtime required.
+
+**Status**: Deferred (blocked) — concept adopted into planning. See `2026-02-25_interactive_html_export_plan.md` for artifact scope, privacy/redaction rules, and viewer fallback spec.
+
+**Blocking prerequisites**:
+- Universal content model Steps 1–3 complete (`2026-02-24_universal_content_model_plan.md`)
+- Settings-backed redaction configuration surface available (`2026-02-20_settings_architecture_plan.md`)
+
+---
+
 ### Feature Target 9: Clipping (DOM Element Extraction)
 
 **Goal**: Right-click element in webpage → "Clip to Graph" → element becomes independent node.

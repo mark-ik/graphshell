@@ -17,18 +17,23 @@ Three categories of UX inconsistency:
 
 ---
 
-## Interaction Model Invariant
+## Interaction Model Defaults (Revised)
 
-**Hover activates; scroll goes to the hovered pane; keyboard goes to the focused (last-clicked) pane.**
+**Use conventional defaults first; keep alternatives as configuration.**
 
-This is the canonical focus model for all Workbench panes and must be preserved across all input routing changes:
+This document no longer treats a single focus-routing rule as a hard invariant. The default interaction model should prioritize what users generally expect from pane-based interfaces, while exposing alternative routing policies as configuration options.
 
-- **Hovering** a pane makes it the scroll target. No click required.
-- **Scrolling** always routes to the currently hovered pane — graph panes zoom, webview panes scroll page content. No modifier key required by default.
-- **Keyboard input** routes to the focused pane (last-clicked). Text fields within a pane capture alphanumeric keys; graph navigation keys (Z, C, Delete, etc.) are active when no text field is focused.
-- **`scroll_zoom_requires_ctrl`** is an explicit opt-out escape hatch for users who prefer the Ctrl convention. It is not the default. The default is modifier-free scroll routing.
+Default policy targets:
 
-This model matches VS Code's editor/terminal panel behavior and is the unifying rationale behind Phase 1's pre-render input interception design. Every future input routing decision should be evaluated against this invariant first.
+- **Hovering** a pane makes it the active pointer/scroll target. No click required.
+- **Scrolling** routes to the currently hovered pane — graph panes zoom, webview panes scroll page content. No modifier key required by default.
+- **Keyboard and camera/navigation commands** should target the pane/view the user most recently interacted with (including hover-driven graph-pane focus where that feels more natural), rather than enforcing a custom last-click-only rule across all surfaces.
+- **`scroll_zoom_requires_ctrl`** remains an explicit opt-out for users who prefer Ctrl-to-zoom conventions.
+
+Design rule:
+
+- Prefer mainstream, predictable defaults first.
+- Preserve configuration hooks so alternate focus/input-routing behaviors can be offered later without re-architecting the input path.
 
 ---
 
