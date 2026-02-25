@@ -475,6 +475,15 @@ These five features enable the core MVP: **users can browse real websites in a s
 - Diagnostic mode visualizes engine
 - P2P collaboration (if Verse phase reached)
 
+**M4: Graph Spatial Depth — 2D↔3D Hotswitch** *(Deferred — blocked on M2 Multi-Graph Pane + GraphViewState stabilization)*
+
+- `ViewDimension` (`TwoD` / `ThreeD { mode, z_source }`) owned by `GraphViewState` and persisted with view snapshot.
+- `ZSource` variants (`Zero`, `Recency`, `BfsDepth`, `UdcLevel`, `Manual`) drive ephemeral z-coordinate assignment.
+- `SetViewDimension` intent wired to reducer: recompute z-positions on 2D→3D, discard on 3D→2D; (x, y) preserved.
+- Snapshot degradation rule: `ThreeD` snapshots fall back to `TwoD` when 3D rendering is unavailable.
+- Implementation sequence: 2.5D visual-only → Isometric layers → Full Standard 3D.
+- See: `2026-02-24_physics_engine_extensibility_plan.md` §2D↔3D Hotswitch Architecture
+
 **Validation Gates**:
 
 - After M1: deterministic integration tests for graph/webview semantics and persistence recovery
