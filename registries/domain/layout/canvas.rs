@@ -32,6 +32,18 @@ pub(crate) struct CanvasStylePolicy {
     pub(crate) labels_always: bool,
 }
 
+/// Rendering performance and quality policy controls.
+///
+/// These toggles gate Phase 1 performance optimizations so that behavior
+/// remains policy-driven rather than hardcoded in render callsites.
+#[derive(Debug, Clone)]
+pub(crate) struct CanvasRenderingPolicy {
+    /// When true, only nodes within the visible viewport are submitted to the
+    /// graph renderer each frame. Reduces GPU/CPU work for large graphs where
+    /// only a fraction of nodes are visible.
+    pub(crate) viewport_culling_enabled: bool,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct CanvasSurfaceProfile {
     pub(crate) profile_id: String,
@@ -40,6 +52,7 @@ pub(crate) struct CanvasSurfaceProfile {
     pub(crate) navigation: CanvasNavigationPolicy,
     pub(crate) interaction: CanvasInteractionPolicy,
     pub(crate) style: CanvasStylePolicy,
+    pub(crate) rendering: CanvasRenderingPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +143,9 @@ impl Default for CanvasRegistry {
                 style: CanvasStylePolicy {
                     labels_always: true,
                 },
+                rendering: CanvasRenderingPolicy {
+                    viewport_culling_enabled: true,
+                },
             },
         );
         registry
@@ -153,6 +169,7 @@ mod tests {
             "graph_layout:force_directed"
         );
         assert!(!resolution.profile.navigation.zoom_and_pan_enabled);
+        assert!(resolution.profile.rendering.viewport_culling_enabled);
     }
 
     #[test]
