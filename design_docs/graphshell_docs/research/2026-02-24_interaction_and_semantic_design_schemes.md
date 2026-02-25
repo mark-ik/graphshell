@@ -131,11 +131,13 @@ new concepts introduced here. The radial menu and command palette (§4) emit `Ac
 4. Visual Feedback (theme reinforcing physics states) — blocked on `ThemeRegistry` Phase 4
    being active. Low priority relative to physics correctness.
 
-**Progressive Lenses (§1) — open design question**: automatic zoom-triggered Lens switching
-needs a trigger model before implementation. Silent auto-switch is surprising. The
-`Lens-physics binding preference` item in `2026-02-24_physics_engine_extensibility_plan.md
-§User Configuration Surface` (`Always / Ask / Never`) applies here. Resolve trigger semantics
-(threshold-based vs. continuous interpolation, with or without confirmation) before implementing.
+**Progressive Lenses (§1) — resolved**: trigger semantics are specified in
+`2026-02-25_progressive_lens_and_physics_binding_plan.md`. Switching is threshold-based
+(not continuous interpolation), governed by a `ProgressiveLensAutoSwitch` preference
+(`Always / Ask / Never`, default `Ask`) with a ±10 % hysteresis band at each breakpoint.
+The `Lens-physics binding preference` (`LensPhysicsBindingPreference`) is also formally
+specified there and chains after the progressive-switch gate. Do not implement progressive
+Lens switching or physics binding before the prerequisites in §4 of that plan are met.
 
 **Divergent view types (§3)**: Timeline, Kanban, and Map projections are now tracked as
 layout algorithm requirements in `2026-02-24_physics_engine_extensibility_plan.md §Layout
