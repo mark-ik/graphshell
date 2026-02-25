@@ -116,6 +116,9 @@ Appended staged backlog summary (preserved from PR `#56`, pending section refact
 Appended adoption note (preserved from PR `#58`, pending table refactor):
 - Semantic Fisheye + DOI (`Rank 4`) is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-25_doi_fisheye_plan.md` and should be linked from the forgotten-concepts table during later cleanup.
 
+Appended adoption note (preserved from PR `#60`, pending table refactor):
+- Progressive Lenses + Lens/Physics Binding Policy (`Rank 8`) now has a strategy doc: `design_docs/graphshell_docs/implementation_strategy/2026-02-25_progressive_lens_and_physics_binding_plan.md`; treat the concept as policy-specified (implementation still blocked on runtime prerequisites).
+
 ---
 
 ## 3. Top 10 Quickest Improvements (Low-Effort / High-Leverage Slices)
@@ -878,26 +881,27 @@ _Source file before consolidation: `2026-02-25_backlog_ticket_stubs.md`_
 - **GitHub Issue Title**: `Lens UX roadmap: adopt progressive lenses and lens/physics binding policy`
 - **GitHub Labels**: `concept/adoption`, `lens`, `physics`, `ux`, `research-followup`
 - **GitHub Milestone**: `Concept Adoption / Lens UX`
-- **GitHub Issue Status**: `Deferred (blocked)`
+- **GitHub Issue Status**: `Deferred (blocked)` — policy doc written; blocked on runtime prerequisites
 - **Blocking Prerequisites**:
   - Active Lens resolution path stable in runtime
   - Distinct physics preset behaviors established
-  - Lens/physics binding preference semantics resolved
+  - ~~Lens/physics binding preference semantics resolved~~ ✓ resolved in `2026-02-25_progressive_lens_and_physics_binding_plan.md`
 - **Goal**: Move progressive lens behavior from research notes into planned design/implementation.
 - **Scope**:
   - Define trigger semantics (`Always/Ask/Never`, thresholds/interpolation).
   - Specify lens-to-physics binding contract.
 - **Dependencies**: Active Lens resolution path + distinct physics presets.
 - **Acceptance**:
-  - Lens/physics binding is represented in a strategy doc with explicit open questions resolved.
+  - Lens/physics binding is represented in a strategy doc with explicit open questions resolved. ✓ **Done** — see `2026-02-25_progressive_lens_and_physics_binding_plan.md`
 - **Definition of Done**:
-  - Progressive lens switching trigger semantics (`Always/Ask/Never`, thresholds/interpolation) are specified.
+  - Progressive lens switching trigger semantics (`Always/Ask/Never`, thresholds/interpolation) are specified. ✓ **Done** — §2 of strategy doc.
 - **Review Check (comprehension)**:
   - This feature is a policy/interaction problem first; implementing it too early causes surprising behavior.
 - **Source refs**:
   - `design_docs/graphshell_docs/research/2026-02-24_interaction_and_semantic_design_schemes.md`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_physics_engine_extensibility_plan.md`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:70`
+  - `design_docs/graphshell_docs/implementation_strategy/2026-02-25_progressive_lens_and_physics_binding_plan.md` *(strategy doc)*
 
 ### F9. Adopt 2D↔3D Hotswitch as a Tracked Multi-View Capability
 
