@@ -74,7 +74,7 @@ These are not "do now" items. They are concepts that should be explicitly adopte
 | Rank | Forgotten Concept | Adoption Value | Source Docs | Adoption Trigger |
 | --- | --- | --- | --- | --- |
 | 1 | **Visual Tombstones (ghost nodes/edges after deletion)** | Preserves structural memory and reduces disorientation after destructive edits. | `2026-02-24_visual_tombstones_research.md` | After traversal/history UI and deletion UX are stable. |
-| 2 | **Temporal Navigation / Time-Travel Preview** | Makes traversal history and deterministic intent log materially useful to users (not just diagnostics). | `2026-02-20_edge_traversal_impl_plan.md` (Stage F), `GRAPHSHELL_AS_BROWSER.md`, `2026-02-18_graph_ux_research_report.md` | After Stage E History Manager closure and preview-mode effect isolation hardening. |
+| 2 | **Temporal Navigation / Time-Travel Preview** ✅ *Adopted — promoted to staged backlog as Stage F (2026-02-25)* | Makes traversal history and deterministic intent log materially useful to users (not just diagnostics). | `2026-02-20_edge_traversal_impl_plan.md` (Stage F, now includes preview-mode effect isolation contract), `GRAPHSHELL_AS_BROWSER.md`, `2026-02-18_graph_ux_research_report.md` | Stage E History Manager closure (tiered storage + dissolution correctness). See Stage F backlog entry in §6 below. |
 | 3 | **Collaborative Presence (ghost cursors, remote selection, follow mode)** | Turns Verse sync from data sync into shared work. | `2026-02-18_graph_ux_research_report.md` §15.2, `GRAPHSHELL_AS_BROWSER.md`, Verse vision docs cited there | After Phase 5 done gates and identity/presence semantics are stable. |
 | 4 | **Semantic Fisheye + DOI (focus+context without geometric distortion)** | High-value readability improvement for dense graphs; preserves mental map while surfacing relevance. | `2026-02-18_graph_ux_research_report.md` §§13.2, 14.8, 14.9 | After basic LOD and viewport culling are in place. |
 | 5 | **Magnetic Zones / Group-in-a-Box / Query-to-Zone** | Adds spatial organization as a first-class workflow, not just emergent physics. | `2026-02-24_layout_behaviors_plan.md` Phase 3, `2026-02-18_graph_ux_research_report.md` §13.1 | After layout injection hook and zone persistence rules are specified. |
@@ -209,3 +209,54 @@ This is the strict closure checklist derived from the current `2026-02-22_regist
 2. Implement `verse_access_control` harness and deny-path assertions.
 3. Complete remaining 6.4 import canonicalization (`persistence` path cleanup).
 4. Execute 6.5 shim removal in one controlled slice with full-suite validation.
+
+---
+
+## 6. Stage F: Temporal Navigation (Tracked Staged Backlog Item)
+
+**Adopted**: 2026-02-25 (promoted from Forgotten Concepts §2 above)
+**Status**: Deferred — blocked on Stage E maturity
+**Source plan**: `2026-02-20_edge_traversal_impl_plan.md` §Stage F
+
+### Prerequisites
+
+- Stage E History Manager: tiered storage (hot/archive keyspaces) is stable and test-covered.
+- Stage E dissolution transfer and count-reconciliation correctness are confirmed by passing tests.
+- Stage E History Manager UI (Timeline + Dissolved tabs) is complete enough that the WAL shape
+  consumed by Stage F replay is considered stable.
+
+### What Stage F delivers
+
+1. Timeline index: `timestamp -> WAL position` lookup structure built from WAL.
+2. `replay_to_timestamp(...)`: replays WAL from nearest snapshot up to a given timestamp.
+3. Preview-only graph state: detached copy operated on during scrub; live graph is untouched.
+4. Timeline slider + "Return to present" UI control.
+5. Ghost rendering in preview mode (visual distinction between live and preview states).
+
+### Preview-mode effect isolation contract (summary)
+
+Correctness depends on traversal truth and preview safety — not just UI timeline controls.
+The following must hold while preview mode is active (full contract in the source plan above):
+
+- No WAL writes.
+- No webview lifecycle mutations (create/destroy/navigate suppressed).
+- No live graph mutations.
+- No persistence side effects (snapshot writes, archival, dissolution).
+- Clean return to present on exit (no preview-state leakage).
+
+`desktop/gui_frame.rs` is the designated enforcement point for all effect-suppression gates.
+
+### Non-goals (Stage F)
+
+- Real-time collaborative replay (Verse presence dependency, not traversal truth).
+- General undo/redo editing primitive (temporal navigation is read-only replay).
+- Scrubber UX polish or ghost visual fidelity (secondary to isolation correctness).
+- Exporting timeline snapshots (future export deliverable).
+
+### Done gate
+
+- `test_replay_to_timestamp_produces_subset_of_full_graph` passing.
+- `test_preview_mode_does_not_write_wal` passing.
+- `test_close_timeline_preview_restores_live_state` passing.
+- Headed slider/return-to-present flow exercised manually.
+- Preview-state isolation ships before timeline UX polish.
