@@ -388,6 +388,31 @@ mod step_5_3_tests {
     }
 
     #[test]
+    fn pairing_code_decode_accepts_node_id_suffix_payload() {
+        let node_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        let code = format!(
+            "abandon-ability-able-about-above-absent:{}",
+            node_id
+        );
+
+        let decoded = decode_pairing_code(&code).expect("pairing code should decode");
+        assert_eq!(decoded, node_id);
+    }
+
+    #[test]
+    fn pairing_code_decode_rejects_missing_suffix_payload() {
+        let code = "abandon-ability-able-about-above-absent";
+        let result = decode_pairing_code(code);
+        assert!(result.is_err(), "Should reject code missing node-id suffix");
+        assert!(
+            result
+                .unwrap_err()
+                .contains("missing node-id suffix"),
+            "Error should mention missing suffix"
+        );
+    }
+
+    #[test]
     fn mdns_service_name_sanitization() {
         assert_eq!(sanitize_service_name("Marks-Desktop"), "Marks-Desktop");
         assert_eq!(sanitize_service_name("My Computer!"), "My-Computer");

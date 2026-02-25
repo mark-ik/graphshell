@@ -7,8 +7,10 @@
 // - Enforces workspace access grants
 
 use crate::app::GraphIntent;
-use crate::desktop::diagnostics::{DiagnosticEvent, emit_event};
-use crate::desktop::control_panel::{IntentSource as ControlIntentSource, QueuedIntent};
+use crate::shell::desktop::runtime::control_panel::{
+    publish_discovery_results, IntentSource as ControlIntentSource, QueuedIntent,
+};
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::mods::native::verse::{
     VersionVector, SyncLog, SyncedIntent, TrustedPeer, WorkspaceGrant, AccessLevel,
 };
@@ -20,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Commands sent to the SyncWorker
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum SyncCommand {
     /// Initiate sync with a peer for a specific workspace
     SyncWorkspace {
@@ -38,6 +41,10 @@ pub enum SyncCommand {
     /// Revoke all access for a peer
     RevokeAccess {
         peer: NodeId,
+    },
+    /// Discover nearby peers via mDNS without blocking the UI thread.
+    DiscoverNearby {
+        timeout_secs: u64,
     },
     /// Shutdown the worker
     Shutdown,
@@ -187,6 +194,18 @@ impl SyncWorker {
                             log::info!("Revoked access for peer {}", peer);
                             // Remove peer from trust store (handled externally)
                         }
+                        SyncCommand::DiscoverNearby { timeout_secs } => {
+                            tokio::spawn(async move {
+                                let result = tokio::task::spawn_blocking(move || {
+                                    crate::mods::native::verse::discover_nearby_peers(timeout_secs)
+                                })
+                                .await
+                                .map_err(|join_err| format!("discovery worker join failed: {join_err}"))
+                                .and_then(|res| res);
+
+                                publish_discovery_results(result);
+                            });
+                        }
                         SyncCommand::AcceptIncoming { conn_info } => {
                             log::debug!("Accepting incoming: {}", conn_info);
                         }
@@ -208,6 +227,7 @@ struct SyncWorkerHandle {
     trusted_peers: Arc<RwLock<Vec<TrustedPeer>>>,
     intent_tx: mpsc::Sender<QueuedIntent>,
     our_secret_key: iroh::SecretKey,
+    #[allow(dead_code)]
     our_node_id: NodeId,
 }
 
@@ -232,7 +252,7 @@ impl SyncWorkerHandle {
         if !is_trusted {
             log::warn!("Rejecting connection from untrusted peer: {}", peer_id);
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "verse.sync.connection_rejected",
+                channel_id: CHANNEL_CONNECTION_REJECTED,
                 latency_us: 0,
             });
             return Err("untrusted peer".to_string());
@@ -264,7 +284,7 @@ impl SyncWorkerHandle {
         log::info!("Received SyncUnit from {}: {} intents", peer_id, sync_unit.intents.len());
         
         emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: "verse.sync.unit_received",
+            channel_id: CHANNEL_SYNC_UNIT_RECEIVED,
             latency_us: buf.len() as u64,
         });
         
@@ -291,7 +311,7 @@ impl SyncWorkerHandle {
         log::info!("Sent SyncUnit to {}: {} intents", peer_id, our_sync_unit.intents.len());
         
         emit_event(DiagnosticEvent::MessageSent {
-            channel_id: "verse.sync.unit_sent",
+            channel_id: CHANNEL_SYNC_UNIT_SENT,
             byte_len: compressed.len(),
         });
         
@@ -403,7 +423,7 @@ impl SyncWorkerHandle {
         let Some(access) = access else {
             log::warn!("Peer {} has no workspace grants - rejecting sync", peer_id);
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "verse.sync.access_denied",
+                channel_id: CHANNEL_ACCESS_DENIED,
                 latency_us: 0,
             });
             return Err("access denied".to_string());
@@ -412,7 +432,7 @@ impl SyncWorkerHandle {
         if access == AccessLevel::ReadOnly && !sync_unit.intents.is_empty() {
             log::warn!("Peer {} is read-only for {} - rejecting mutations", peer_id, workspace_id);
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "verse.sync.access_denied",
+                channel_id: CHANNEL_ACCESS_DENIED,
                 latency_us: 0,
             });
             return Err("read-only access".to_string());
@@ -459,7 +479,7 @@ impl SyncWorkerHandle {
         }
         
         emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: "verse.sync.intent_applied",
+            channel_id: CHANNEL_INTENT_APPLIED,
             latency_us: intent_count as u64,
         });
         

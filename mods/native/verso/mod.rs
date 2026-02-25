@@ -20,7 +20,7 @@ use crate::registries::atomic::{
 /// Verso mod manifest - registered at compile time via inventory
 pub(crate) fn verso_manifest() -> ModManifest {
     ModManifest::new(
-        "verso",
+        "mod:verso",
         "Verso — Web Rendering",
         ModType::Native,
         vec![
@@ -60,6 +60,7 @@ pub(crate) fn activate() -> Result<(), String> {
 
 /// Register Verso's protocol handlers into the ProtocolHandlerProviders.
 /// Called during application initialization to wire Verso's handlers.
+#[allow(dead_code)]
 pub(crate) fn register_protocol_handlers(providers: &mut ProtocolHandlerProviders) {
     providers.register_fn(|registry| {
         // Register HTTP and HTTPS protocol handlers
@@ -72,6 +73,7 @@ pub(crate) fn register_protocol_handlers(providers: &mut ProtocolHandlerProvider
 
 /// Register Verso's viewer handlers into the ViewerHandlerProviders.
 /// Called during application initialization to wire Verso's handlers.
+#[allow(dead_code)]
 pub(crate) fn register_viewer_handlers(providers: &mut ViewerHandlerProviders) {
     providers.register_fn(|registry| {
         // Register webview viewer for common MIME types and extensions
@@ -95,7 +97,7 @@ mod tests {
     #[test]
     fn verso_manifest_provides_required_capabilities() {
         let manifest = verso_manifest();
-        assert_eq!(manifest.mod_id, "verso");
+        assert_eq!(manifest.mod_id, "mod:verso");
         assert_eq!(manifest.mod_type, ModType::Native);
         assert!(manifest.provides.contains(&"protocol:http".to_string()));
         assert!(manifest.provides.contains(&"protocol:https".to_string()));

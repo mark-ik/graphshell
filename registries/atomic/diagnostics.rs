@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
-use crate::desktop::registries::{
+use crate::shell::desktop::runtime::registries::{
     CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED, CHANNEL_ACTION_EXECUTE_SUCCEEDED,
     CHANNEL_IDENTITY_KEY_UNAVAILABLE, CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED,
     CHANNEL_IDENTITY_SIGN_SUCCEEDED,
@@ -18,6 +18,16 @@ use crate::desktop::registries::{
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
     CHANNEL_THEME_FALLBACK_USED, CHANNEL_THEME_LOOKUP_FAILED, CHANNEL_THEME_LOOKUP_SUCCEEDED,
     CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
+    CHANNEL_STARTUP_CONFIG_SNAPSHOT, CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT, CHANNEL_PERSISTENCE_RECOVER_FAILED,
+    CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED, CHANNEL_STARTUP_VERSE_INIT_FAILED,
+    CHANNEL_STARTUP_VERSE_INIT_MODE, CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
+    CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UI_CLIPBOARD_COPY_FAILED,
+    CHANNEL_VERSE_PREINIT_CALL, CHANNEL_VERSE_SYNC_ACCESS_DENIED,
+    CHANNEL_VERSE_SYNC_CONNECTION_REJECTED, CHANNEL_VERSE_SYNC_IDENTITY_GENERATED,
+    CHANNEL_VERSE_SYNC_INTENT_APPLIED, CHANNEL_VERSE_SYNC_UNIT_RECEIVED,
+    CHANNEL_VERSE_SYNC_UNIT_SENT,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,7 +258,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 11] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 24] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -293,6 +303,93 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 11] = [
         channel_id: CHANNEL_MOD_DEPENDENCY_MISSING,
         schema_version: 1,
     },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_CONFIG_SNAPSHOT,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_PERSISTENCE_RECOVER_FAILED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_VERSE_INIT_MODE,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_VERSE_INIT_FAILED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_HISTORY_MANAGER_LIMIT,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_PREINIT_CALL,
+        schema_version: 1,
+    },
+];
+
+const PHASE5_CHANNELS: [DiagnosticChannelDescriptor; 6] = [
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_UNIT_SENT,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_UNIT_RECEIVED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_INTENT_APPLIED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_ACCESS_DENIED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_CONNECTION_REJECTED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_IDENTITY_GENERATED,
+        schema_version: 1,
+    },
+];
+
+const INVARIANT_VERSE_SYNC_RECEIVED_COMPLETES: &str =
+    "invariant.verse.sync.received_completes";
+const INVARIANT_VERSE_SYNC_SENT_COMPLETES: &str = "invariant.verse.sync.sent_completes";
+const PHASE5_INVARIANT_IDS: [&str; 2] = [
+    INVARIANT_VERSE_SYNC_RECEIVED_COMPLETES,
+    INVARIANT_VERSE_SYNC_SENT_COMPLETES,
 ];
 
 pub(crate) fn phase0_required_channels() -> &'static [DiagnosticChannelDescriptor] {
@@ -305,6 +402,15 @@ pub(crate) fn phase2_required_channels() -> &'static [DiagnosticChannelDescripto
 
 pub(crate) fn phase3_required_channels() -> &'static [DiagnosticChannelDescriptor] {
     &PHASE3_CHANNELS
+}
+
+pub(crate) fn phase5_required_channels() -> &'static [DiagnosticChannelDescriptor] {
+    &PHASE5_CHANNELS
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase5_required_invariant_ids() -> &'static [&'static str] {
+    &PHASE5_INVARIANT_IDS
 }
 
 #[derive(Debug, Clone)]
@@ -345,6 +451,7 @@ impl Default for DiagnosticsRegistry {
         registry.register_batch(phase0_required_channels());
         registry.register_batch(phase2_required_channels());
         registry.register_batch(phase3_required_channels());
+        registry.register_batch(phase5_required_channels());
         registry.register_default_invariants();
 
         registry
@@ -638,6 +745,36 @@ impl DiagnosticsRegistry {
             },
             &[DiagnosticsCapability::RegisterInvariants],
         );
+
+        let phase5_terminal_channels = vec![
+            CHANNEL_VERSE_SYNC_INTENT_APPLIED.to_string(),
+            CHANNEL_VERSE_SYNC_ACCESS_DENIED.to_string(),
+            CHANNEL_VERSE_SYNC_CONNECTION_REJECTED.to_string(),
+        ];
+
+        let _ = self.register_invariant(
+            DiagnosticsInvariant {
+                invariant_id: INVARIANT_VERSE_SYNC_RECEIVED_COMPLETES.to_string(),
+                start_channel: CHANNEL_VERSE_SYNC_UNIT_RECEIVED.to_string(),
+                terminal_channels: phase5_terminal_channels.clone(),
+                timeout_ms: 1_000,
+                owner: DiagnosticsChannelOwner::core(),
+                enabled: true,
+            },
+            &[DiagnosticsCapability::RegisterInvariants],
+        );
+
+        let _ = self.register_invariant(
+            DiagnosticsInvariant {
+                invariant_id: INVARIANT_VERSE_SYNC_SENT_COMPLETES.to_string(),
+                start_channel: CHANNEL_VERSE_SYNC_UNIT_SENT.to_string(),
+                terminal_channels: phase5_terminal_channels,
+                timeout_ms: 2_000,
+                owner: DiagnosticsChannelOwner::core(),
+                enabled: true,
+            },
+            &[DiagnosticsCapability::RegisterInvariants],
+        );
     }
 }
 
@@ -714,6 +851,19 @@ pub(crate) fn list_channel_configs_snapshot() -> Vec<(RuntimeChannelDescriptor, 
         .list_channel_configs()
 }
 
+#[allow(dead_code)]
+pub(crate) fn list_invariants_snapshot() -> Vec<DiagnosticsInvariant> {
+    let mut invariants: Vec<DiagnosticsInvariant> = global_registry()
+        .lock()
+        .expect("diagnostics registry lock poisoned")
+        .invariants
+        .values()
+        .cloned()
+        .collect();
+    invariants.sort_by(|a, b| a.invariant_id.cmp(&b.invariant_id));
+    invariants
+}
+
 pub(crate) fn set_channel_config_global(channel_id: &str, config: ChannelConfig) {
     global_registry()
         .lock()
@@ -785,6 +935,7 @@ mod tests {
         assert!(registry.has_channel(CHANNEL_PROTOCOL_RESOLVE_STARTED));
         assert!(registry.has_channel(CHANNEL_ACTION_EXECUTE_STARTED));
         assert!(registry.has_channel(CHANNEL_IDENTITY_SIGN_STARTED));
+        assert!(registry.has_channel(CHANNEL_VERSE_SYNC_UNIT_SENT));
     }
 
     #[test]
@@ -886,6 +1037,49 @@ mod tests {
         assert_eq!(
             violations[0].invariant_id,
             "invariant.test.compute_finishes".to_string()
+        );
+    }
+
+    #[test]
+    fn diagnostics_registry_registers_phase5_sync_watchdog_invariants() {
+        let registry = DiagnosticsRegistry::default();
+
+        assert!(
+            registry
+                .invariants
+                .contains_key(INVARIANT_VERSE_SYNC_RECEIVED_COMPLETES)
+        );
+        assert!(
+            registry
+                .invariants
+                .contains_key(INVARIANT_VERSE_SYNC_SENT_COMPLETES)
+        );
+    }
+
+    #[test]
+    fn diagnostics_registry_phase5_received_watchdog_clears_on_terminal_channel() {
+        let mut registry = DiagnosticsRegistry::default();
+        let started_at = 100;
+
+        let _ = registry.observe_channel_event(CHANNEL_VERSE_SYNC_UNIT_RECEIVED, started_at);
+        let _ = registry.observe_channel_event(CHANNEL_VERSE_SYNC_INTENT_APPLIED, started_at + 10);
+        let violations = registry.sweep_invariants(started_at + 2_000);
+
+        assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_registry_phase5_sent_watchdog_times_out_without_terminal() {
+        let mut registry = DiagnosticsRegistry::default();
+        let started_at = 100;
+
+        let _ = registry.observe_channel_event(CHANNEL_VERSE_SYNC_UNIT_SENT, started_at);
+        let violations = registry.sweep_invariants(started_at + 2_100);
+
+        assert!(
+            violations
+                .iter()
+                .any(|entry| entry.invariant_id == INVARIANT_VERSE_SYNC_SENT_COMPLETES)
         );
     }
 }

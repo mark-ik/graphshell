@@ -6,8 +6,11 @@ use euclid::Point2D;
 use serde_json::Value;
 
 use crate::app::{GraphBrowserApp, GraphViewId};
-use crate::desktop::diagnostics::{CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample};
-use crate::desktop::tile_kind::TileKind;
+use crate::shell::desktop::runtime::diagnostics::{
+    CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample,
+};
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 use crate::graph::NodeKey;
 
 pub(crate) struct TestHarness {
@@ -37,10 +40,10 @@ impl TestHarness {
     }
 
     pub(crate) fn open_node_tab(&mut self, key: NodeKey) {
-        super::super::tile_view_ops::open_or_focus_webview_tile_with_mode(
+        tile_view_ops::open_or_focus_webview_tile_with_mode(
             &mut self.tiles_tree,
             key,
-            super::super::tile_view_ops::TileOpenMode::Tab,
+            TileOpenMode::Tab,
         );
     }
 

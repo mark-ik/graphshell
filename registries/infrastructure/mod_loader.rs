@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::OnceLock;
 
-// No direct DiagnosticsState import needed - we'll use emit_event from desktop::diagnostics
+// No direct DiagnosticsState import needed - this module emits via runtime diagnostics.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ModType {
@@ -259,8 +259,8 @@ impl ModRegistry {
     /// Resolve dependencies and compute load order.
     /// Returns error if dependencies are missing or cyclic.
     pub(crate) fn resolve_dependencies(&mut self) -> Result<(), ModDependencyError> {
-        use crate::desktop::registries::CHANNEL_MOD_DEPENDENCY_MISSING;
-        use crate::desktop::diagnostics::{emit_event, DiagnosticEvent};
+        use crate::shell::desktop::runtime::diagnostics::{emit_event, DiagnosticEvent};
+        use crate::shell::desktop::runtime::registries::CHANNEL_MOD_DEPENDENCY_MISSING;
 
         let manifests_vec: Vec<_> = self
             .manifests
@@ -289,14 +289,17 @@ impl ModRegistry {
     /// Load all mods in dependency order.
     /// Emits lifecycle diagnostics for each mod.
     pub(crate) fn load_all(&mut self) -> Vec<String> {
-        use crate::desktop::registries::{
+        use crate::shell::desktop::runtime::diagnostics::{emit_event, DiagnosticEvent};
+        use crate::shell::desktop::runtime::registries::{
             CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED, CHANNEL_MOD_LOAD_FAILED,
         };
-        use crate::desktop::diagnostics::{emit_event, DiagnosticEvent};
 
         let mut loaded = Vec::new();
 
         for mod_id in &self.load_order {
+            if self.disabled_mod_ids.contains(mod_id) {
+                continue;
+            }
             let manifest = match self.manifests.get(mod_id) {
                 Some(m) => m,
                 None => continue,
@@ -333,6 +336,10 @@ impl ModRegistry {
             }
         }
 
+        for mod_id in &self.disabled_mod_ids {
+            self.status.insert(mod_id.clone(), ModStatus::Unloaded);
+        }
+
         loaded
     }
 
@@ -361,6 +368,9 @@ impl ModRegistry {
     /// Check if a specific capability is provided by any loaded mod
     pub(crate) fn is_capability_available(&self, capability_id: &str) -> bool {
         self.manifests.values().any(|m| {
+            if self.disabled_mod_ids.contains(&m.mod_id) {
+                return false;
+            }
             let mod_active = self
                 .status
                 .get(&m.mod_id)

@@ -13,10 +13,11 @@ fn create_user_grouped_edge_from_primary_selection_creates_grouped_edge() {
 
     harness
         .app
-        .apply_intents_with_services(crate::app::default_app_services(), [GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
+        .apply_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
 
     let grouped_edge_count = harness
         .app
+        .workspace
         .graph
         .edges()
         .filter(|edge| {

@@ -8,8 +8,9 @@
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
 };
-use crate::desktop::diagnostics::{DiagnosticEvent, emit_event};
 use crate::persistence::types::LogEntry;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_VERSE_PREINIT_CALL;
 use keyring::Entry;
 use std::sync::OnceLock;
 
@@ -274,6 +275,7 @@ struct VerseState {
 }
 
 static VERSE_STATE: OnceLock<VerseState> = OnceLock::new();
+static FALLBACK_NODE_ID: OnceLock<iroh::NodeId> = OnceLock::new();
 
 /// Initialize the Verse mod (called on app startup if mod is enabled)
 pub(crate) fn init() -> Result<(), VerseInitError> {
@@ -424,7 +426,14 @@ fn get_trust_store_path() -> Result<std::path::PathBuf, std::io::Error> {
 
 /// Sign a payload with our private key (returns raw signature bytes)
 pub(crate) fn sign_sync_payload(payload: &[u8]) -> Vec<u8> {
-    let state = get_verse_state();
+    let Some(state) = VERSE_STATE.get() else {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VERSE_PREINIT_CALL,
+            byte_len: "sign_sync_payload".len(),
+        });
+        log::warn!("sign_sync_payload called before Verse initialization");
+        return Vec::new();
+    };
     // iroh's SecretKey provides a sign() method
     let signature = state.identity.secret_key.sign(payload);
     signature.to_bytes().to_vec()
@@ -757,20 +766,41 @@ fn get_sync_log_path(workspace_id: &str) -> Result<std::path::PathBuf, String> {
 
 /// Get our NodeId (public key derived from secret key)
 pub(crate) fn node_id() -> iroh::NodeId {
-    get_verse_state().identity.secret_key.public()
+    if let Some(state) = VERSE_STATE.get() {
+        return state.identity.secret_key.public();
+    }
+
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_VERSE_PREINIT_CALL,
+        byte_len: "node_id".len(),
+    });
+    log::warn!("node_id called before Verse initialization; using temporary fallback NodeId");
+    *FALLBACK_NODE_ID.get_or_init(|| iroh::SecretKey::generate(&mut rand::thread_rng()).public())
 }
 
 /// Get our device name
 pub(crate) fn device_name() -> String {
-    get_verse_state().identity.device_name.clone()
+    if let Some(state) = VERSE_STATE.get() {
+        state.identity.device_name.clone()
+    } else {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VERSE_PREINIT_CALL,
+            byte_len: "device_name".len(),
+        });
+        "Verse (initializing)".to_string()
+    }
 }
 
 /// Get all trusted peers
 pub(crate) fn get_trusted_peers() -> Vec<TrustedPeer> {
-    get_verse_state()
+    let Some(state) = VERSE_STATE.get() else {
+        return Vec::new();
+    };
+
+    state
         .trusted_peers
-    .read()
-    .expect("trust store lock poisoned")
+        .read()
+        .expect("trust store lock poisoned")
         .clone()
 }
 
@@ -836,7 +866,10 @@ pub(crate) fn sync_logs_handle() -> std::sync::Arc<std::sync::RwLock<std::collec
 
 /// Add or update a trusted peer
 pub(crate) fn trust_peer(peer: TrustedPeer) {
-    let state = get_verse_state();
+    let Some(state) = VERSE_STATE.get() else {
+        log::warn!("trust_peer called before Verse initialization");
+        return;
+    };
     let mut peers = state
         .trusted_peers
         .write()
@@ -854,7 +887,10 @@ pub(crate) fn trust_peer(peer: TrustedPeer) {
 
 /// Revoke trust for a peer (remove from trust store)
 pub(crate) fn revoke_peer(node_id: iroh::NodeId) {
-    let state = get_verse_state();
+    let Some(state) = VERSE_STATE.get() else {
+        log::warn!("revoke_peer called before Verse initialization");
+        return;
+    };
     let mut peers = state
         .trusted_peers
         .write()
@@ -870,7 +906,10 @@ pub(crate) fn revoke_peer(node_id: iroh::NodeId) {
 
 /// Grant workspace access for a peer
 pub(crate) fn grant_workspace_access(node_id: iroh::NodeId, workspace_id: String, access: AccessLevel) {
-    let state = get_verse_state();
+    let Some(state) = VERSE_STATE.get() else {
+        log::warn!("grant_workspace_access called before Verse initialization");
+        return;
+    };
     let mut peers = state
         .trusted_peers
         .write()
@@ -898,7 +937,10 @@ pub(crate) fn grant_workspace_access(node_id: iroh::NodeId, workspace_id: String
 
 /// Revoke workspace access for a peer
 pub(crate) fn revoke_workspace_access(node_id: iroh::NodeId, workspace_id: String) {
-    let state = get_verse_state();
+    let Some(state) = VERSE_STATE.get() else {
+        log::warn!("revoke_workspace_access called before Verse initialization");
+        return;
+    };
     let mut peers = state
         .trusted_peers
         .write()
@@ -992,13 +1034,19 @@ pub struct PairingCode {
 
 /// Encode our NodeAddr into a 6-word pairing code
 pub fn generate_pairing_code() -> Result<PairingCode, String> {
-    let state = get_verse_state();
+    let Some(state) = VERSE_STATE.get() else {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VERSE_PREINIT_CALL,
+            byte_len: "generate_pairing_code".len(),
+        });
+        return Err("Verse is not initialized yet".to_string());
+    };
     
     // Get NodeId directly (NodeAddr requires async, but NodeId is synchronous)
     let node_id = state.endpoint.node_id();
     
-    // For Step 5.3: encode just the NodeId into 6 words (32 bytes → 6 words using first 6 bytes)
-    // Step 5.4 will add relay addresses and full NodeAddr serialization with proper encoding
+    // Keep the 6-word mnemonic prefix for usability, and append a full NodeId suffix
+    // so decode can reconstruct the exact peer identity.
     let node_id_bytes = node_id.as_bytes();
     
     // Take first 6 bytes and encode as 6 words (8 bits per word)
@@ -1009,7 +1057,8 @@ pub fn generate_pairing_code() -> Result<PairingCode, String> {
         words.push(PAIRING_WORDLIST[word_idx]);
     }
     
-    let phrase = words.join("-");
+    let mnemonic = words.join("-");
+    let phrase = format!("{}:{}", mnemonic, node_id);
     let expires_at = std::time::SystemTime::now() + std::time::Duration::from_secs(5 * 60);
     
     // Note: For Step 5.3, we create a minimal NodeAddr with just the NodeId
@@ -1023,34 +1072,27 @@ pub fn generate_pairing_code() -> Result<PairingCode, String> {
     })
 }
 
-/// Decode a 6-word pairing code back into a NodeId (simplified for Step 5.3)
-/// Full NodeAddr reconstruction requires relay + direct addresses, which we'll add in Step 5.4.
+/// Decode a pairing code back into a NodeId.
 pub fn decode_pairing_code(phrase: &str) -> Result<iroh::NodeId, String> {
-    let words: Vec<&str> = phrase.split('-').collect();
+    let (mnemonic, encoded_node_id) = phrase
+        .split_once(':')
+        .ok_or_else(|| "pairing code missing node-id suffix".to_string())?;
+
+    let words: Vec<&str> = mnemonic.split('-').collect();
     if words.len() != 6 {
         return Err(format!("expected 6 words, got {}", words.len()));
     }
     
-    // Decode words back to bytes
-    let mut bytes = Vec::with_capacity(6);
     for word in words {
-        let word_idx = PAIRING_WORDLIST
+        let _word_idx = PAIRING_WORDLIST
             .iter()
             .position(|&w| w == word)
             .ok_or_else(|| format!("unknown word: {}", word))?;
-        bytes.push(word_idx as u8);
     }
-    
-    // For Step 5.3: just reconstruct the NodeId from the first 32 bytes
-    // (This is a simplified version; Step 5.4 will use full NodeAddr serialization)
-    if bytes.len() < 6 {
-        return Err("code too short".to_string());
-    }
-    
-    // Reconstruct node_id from the encoded bytes
-    // For now, we'll use a placeholder that extracts partial info
-    // In Step 5.4, we'll properly serialize/deserialize the full NodeAddr
-    Err("decode_pairing_code not yet fully implemented - requires relay address info from Step 5.4".to_string())
+
+    encoded_node_id
+        .parse::<iroh::NodeId>()
+        .map_err(|e| format!("invalid node id payload: {e}"))
 }
 
 /// Generate a QR code for the pairing phrase (returns ASCII art for terminal display)
@@ -1070,6 +1112,7 @@ pub(crate) fn generate_qr_code_ascii(phrase: &str) -> Result<String, String> {
 }
 
 /// Generate QR code image data (PNG bytes) for UI display
+#[cfg(test)]
 pub(crate) fn generate_qr_code_png(phrase: &str) -> Result<Vec<u8>, String> {
     use qrcode::{QrCode, render::svg};
     
@@ -1149,6 +1192,7 @@ pub(crate) fn sanitize_service_name(name: &str) -> String {
 
 /// Discovered peer from mDNS
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DiscoveredPeer {
     pub device_name: String,
     pub node_id: iroh::NodeId,
@@ -1156,6 +1200,7 @@ pub struct DiscoveredPeer {
 }
 
 /// Browse for nearby devices on the local network (blocking for up to timeout_secs)
+#[allow(dead_code)]
 pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, String> {
     let daemon = mdns_sd::ServiceDaemon::new()
         .map_err(|e| format!("mDNS daemon creation failed: {}", e))?;
@@ -1200,8 +1245,6 @@ pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, S
 const CHANNEL_MOD_LOAD_SUCCEEDED: &str = "registry.mod.load_succeeded";
 const CHANNEL_IDENTITY_GENERATED: &str = "verse.sync.identity_generated";
 const CHANNEL_P2P_KEY_LOADED: &str = "registry.identity.p2p_key_loaded";
-const CHANNEL_PAIRING_SUCCEEDED: &str = "verse.sync.pairing_succeeded";
-const CHANNEL_PAIRING_FAILED: &str = "verse.sync.pairing_failed";
 
 fn emit_mod_loaded() {
     emit_event(DiagnosticEvent::MessageSent {
@@ -1224,20 +1267,4 @@ fn emit_p2p_key_loaded() {
         channel_id: CHANNEL_P2P_KEY_LOADED,
         byte_len: 32, // Ed25519 public key size
     });
-}
-
-pub(crate) fn emit_pairing_succeeded(peer_name: &str) {
-    emit_event(DiagnosticEvent::MessageSent {
-        channel_id: CHANNEL_PAIRING_SUCCEEDED,
-        byte_len: peer_name.len(),
-    });
-    log::info!("Pairing succeeded with {}", peer_name);
-}
-
-pub(crate) fn emit_pairing_failed(error: &str) {
-    emit_event(DiagnosticEvent::MessageSent {
-        channel_id: CHANNEL_PAIRING_FAILED,
-        byte_len: error.len(),
-    });
-    log::warn!("Pairing failed: {}", error);
 }

@@ -1,5 +1,5 @@
 use super::super::harness::TestHarness;
-use crate::desktop::diagnostics::{CompositorTileSample, HierarchySample};
+use crate::shell::desktop::runtime::diagnostics::{CompositorTileSample, HierarchySample};
 
 #[test]
 fn compositor_frames_capture_sequence_and_active_tile_count_transitions() {

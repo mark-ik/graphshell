@@ -1,7 +1,7 @@
 use super::super::harness::TestHarness;
 use crate::app::{GraphBrowserApp, GraphIntent};
-use crate::desktop::registries;
-use crate::desktop::registries::protocol::ProtocolResolveControl;
+use crate::shell::desktop::runtime::registries;
+use crate::shell::desktop::runtime::registries::protocol::ProtocolResolveControl;
 use euclid::default::Point2D;
 use servo::ServoUrl;
 
@@ -70,7 +70,7 @@ fn phase0_registry_graph_view_normalization_rewrites_unknown_scheme_and_emits_fa
     let mut harness = TestHarness::new();
     let parsed = ServoUrl::parse("foo://example.com/path").expect("url should parse");
 
-    let rewritten = crate::desktop::registries::phase0_decide_navigation_for_tests(
+    let rewritten = crate::shell::desktop::runtime::registries::phase0_decide_navigation_for_tests(
         &harness.diagnostics,
         parsed,
         None,
@@ -198,9 +198,10 @@ fn phase2_action_registry_omnibox_search_emits_action_channels() {
     let mut harness = TestHarness::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
+        .workspace
         .graph
         .add_node("https://example.com".into(), Point2D::new(0.0, 0.0));
-    if let Some(node) = app.graph.get_node_mut(key) {
+    if let Some(node) = app.workspace.graph.get_node_mut(key) {
         node.title = "Example Handle".into();
     }
 
@@ -235,9 +236,10 @@ fn phase2_action_registry_graph_submit_emits_action_channels() {
     let mut harness = TestHarness::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
+        .workspace
         .graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
-    app.selected_nodes.select(key, false);
+    app.workspace.selected_nodes.select(key, false);
 
     let (open_selected_tile, intents) = registries::phase2_execute_graph_view_submit_action_for_tests(
         &harness.diagnostics,
@@ -272,6 +274,7 @@ fn phase2_action_registry_detail_submit_emits_action_channels() {
     let mut harness = TestHarness::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
+        .workspace
         .graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
 
@@ -525,7 +528,7 @@ fn diagnostics_channel_config_update_emits_config_changed_channel() {
         retention_count: 256,
     };
 
-    crate::desktop::diagnostics::apply_channel_config_update_with_diagnostics(
+    crate::shell::desktop::runtime::diagnostics::apply_channel_config_update_with_diagnostics(
         &harness.diagnostics,
         &mut harness.app,
         registries::CHANNEL_VIEWER_SELECT_STARTED,

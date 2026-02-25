@@ -1,4 +1,5 @@
 mod black_tile;
+mod diagnostics_startup;
 mod grouping;
 mod layout;
 mod persistence;
