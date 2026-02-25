@@ -119,6 +119,9 @@ Appended adoption note (preserved from PR `#58`, pending table refactor):
 Appended adoption note (preserved from PR `#60`, pending table refactor):
 - Progressive Lenses + Lens/Physics Binding Policy (`Rank 8`) now has a strategy doc: `design_docs/graphshell_docs/implementation_strategy/2026-02-25_progressive_lens_and_physics_binding_plan.md`; treat the concept as policy-specified (implementation still blocked on runtime prerequisites).
 
+Appended adoption note (preserved from PR `#54`, pending table refactor):
+- Collaborative Presence (`Rank 3`) is now backed by `design_docs/verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md` and should be linked from the forgotten-concepts table during later cleanup.
+
 ---
 
 ## 3. Top 10 Quickest Improvements (Low-Effort / High-Leverage Slices)
