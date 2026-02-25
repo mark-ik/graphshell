@@ -113,6 +113,9 @@ Appended staged backlog summary (preserved from PR `#56`, pending section refact
 - Designated enforcement point preserved: `desktop/gui_frame.rs` effect-suppression gates.
 - Preserved non-goals: collaborative replay, undo/redo replacement, scrubber polish fidelity, timeline snapshot export.
 
+Appended adoption note (preserved from PR `#58`, pending table refactor):
+- Semantic Fisheye + DOI (`Rank 4`) is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-25_doi_fisheye_plan.md` and should be linked from the forgotten-concepts table during later cleanup.
+
 ---
 
 ## 3. Top 10 Quickest Improvements (Low-Effort / High-Leverage Slices)
@@ -794,6 +797,7 @@ _Source file before consolidation: `2026-02-25_backlog_ticket_stubs.md`_
 - **Source refs**:
   - `design_docs/graphshell_docs/research/2026-02-18_graph_ux_research_report.md`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:70`
+  - `design_docs/graphshell_docs/implementation_strategy/2026-02-25_doi_fisheye_plan.md`
 
 ### F5. Adopt Magnetic Zones / Group-in-a-Box Workflow
 
