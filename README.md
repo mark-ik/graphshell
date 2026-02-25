@@ -27,6 +27,20 @@ cargo clippy
 
 See `design_docs/graphshell_docs/BUILD.md` for platform prerequisites and extended options.
 
+## Environment Overrides
+
+These environment variables override CLI/prefs for quick tuning:
+
+- `GRAPHSHELL_PERSISTENCE_OPEN_TIMEOUT_MS`: Startup persistence open timeout in ms (0 = wait indefinitely).
+- `GRAPHSHELL_VERSE_INIT`: `off`, `background` (default), or `blocking`.
+- `GRAPHSHELL_TRACING_FILTER`: Overrides tracing filter string.
+- `GRAPHSHELL_GRAPH_DATA_DIR`: Override graph persistence directory.
+- `GRAPHSHELL_GRAPH_SNAPSHOT_INTERVAL_SECS`: Override snapshot cadence (seconds).
+- `GRAPHSHELL_DEVICE_PIXEL_RATIO`: Override device pixel ratio.
+- `GRAPHSHELL_SCREEN_SIZE`: Override screen size, e.g. `1280x720`.
+- `GRAPHSHELL_WINDOW_SIZE`: Override initial window size, e.g. `1024x740`.
+- `GRAPHSHELL_HISTORY_MANAGER_LIMIT`: Max entries shown in History Manager lists.
+
 ## Currently Implemented
 
 ### Graph UI

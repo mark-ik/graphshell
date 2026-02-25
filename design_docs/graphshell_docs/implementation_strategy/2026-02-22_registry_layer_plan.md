@@ -1,6 +1,6 @@
 # Registry Layer Architecture Plan (2026-02-22)
 
-**Status**: In Progress
+**Status**: Phases 0–4 complete (2026-02-23). Phase 5 in progress (5.1–5.3 implemented with diagnostics channel/invariant contracts; 5.4–5.5 partial). Phase 6 in progress (6.1 compile-green; 6.2 seam/boundary contracts in place; 6.3 single-write-path runtime closure complete; 6.4 filesystem/import canonicalization advanced with host paths moved under `shell/desktop/host` and remaining non-shell host imports rewritten; 6.5 shim removal pending).
 **Supersedes**: `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (archived to `archive_docs/checkpoint_2026-02-23/`)
 **Goal**: Decompose Graphshell's monolithic logic into a modular ecosystem of registries, enabling extensibility and the "Knowledge User Agent" vision.
 
@@ -86,6 +86,41 @@ This generalizes: "Mind Map" = cycles allowed + force-directed + liquid physics.
 - **KnowledgeRegistry**: the atomic UDC/taxonomy registry (not a domain coordinator).
 - **LensCompositor** (not LensRegistry): composes Graph-domain Canvas + Presentation + Knowledge + Filters into a named, reusable Lens.
 - **WorkflowRegistry** (Future): activates a Lens + InputProfile + WorkbenchSurface = a full session mode. `Workflow = Lens × WorkbenchProfile`.
+
+---
+
+## History Domains Contract (Phase Guidance)
+
+To prevent architectural drift, Graphshell maintains three distinct history domains with separate ownership and semantics:
+
+1. **UI Undo/Redo Domain (reversible workspace state)**
+    - Scope: graph topology/state snapshots, selection state, and workspace layout state.
+    - Semantics: user-invoked reversible checkpoints (`Undo`/`Redo`).
+    - Constraint: this domain must not be used as an audit log.
+
+2. **Traversal Archive Domain (append-only timeline)**
+    - Scope: traversal events (`AppendTraversal`) and dissolved traversal archival.
+    - Semantics: durable, append-only historical record for timeline/history manager views.
+    - Constraint: traversal archive entries are not mutated by UI undo/redo operations.
+
+3. **Runtime Navigation Domain (ephemeral web/session navigation)**
+    - Scope: per-webview back/forward state and runtime navigation updates.
+    - Semantics: immediate runtime behavior, not authoritative persistence.
+    - Constraint: runtime navigation may emit traversal records, but is not itself the archive of truth.
+
+### Clipboard Boundary Rule
+
+- Clipboard integration is a **shell/GUI concern only** (platform adapter boundary).
+- Core app/reducer logic emits clipboard intents/requests as data; it must not call platform clipboard APIs directly.
+- Clipboard failures must degrade gracefully (toast/log), never panic, and never block reducer progress.
+
+### Non-Negotiable Invariants
+
+- `Undo/Redo` never deletes or rewrites traversal archive history.
+- Traversal archival never serves as the mechanism for restoring full workspace state.
+- Runtime navigation state can be reset/rebuilt without corrupting persisted traversal archives.
+
+This contract applies to all subsequent registry and migration phases unless explicitly superseded by an ADR.
 
 ---
 
@@ -444,7 +479,7 @@ This phase encompasses what was originally planned as separate phases but was ex
 - Final protocol/viewer registries composed from core seed + active mod registrations.
 - Webview creation properly gates on `viewer:webview` availability.
 
-**Status**: In Progress — Phase 2.4 (App Init Integration) in progress. Phases 2.1–2.3 complete.
+**Status**: Complete (2026-02-23). Phase 2.4 app-init wiring confirmed in 2026-02-23 checkpoint (viewer:webview gating active, Verso mod disable path verified).
 
 See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Verso ↔ Servo integration design and Servo update strategy.
 
@@ -519,6 +554,13 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 ---
 
 ### Phase 5: Verse Native Mod (Tier 1: Direct P2P Sync)
+
+**Status**: In progress. Core scaffolding and runtime hooks are implemented (identity bootstrap, endpoint init, trust model/types, sync worker skeleton, sync panel surface, pair-by-code/decode path, async discovery enqueue path), and Phase 5 diagnostics channel + watchdog invariant contracts are in place. End-to-end done gates for Steps 5.4–5.5 remain open.
+
+**2026-02-24 audited open items (strict):**
+- Harness done-gate scenarios are still missing: `verse_delta_sync_basic`, `verse_access_control`.
+- Runtime diagnostics gap remains for conflict channels (`verse.sync.conflict_detected`, `verse.sync.conflict_resolved`) in code emission paths.
+- Phase 5 is not done until both scenario gates execute and pass alongside compile/test baseline.
 
 **Goal**: Package direct P2P networking as the Verse native mod. Implements bilateral, zero-cost sync between trusted devices via iroh (QUIC + Noise). No tokens, no servers, no Tier 2 complexity.
 
@@ -606,6 +648,13 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 
 ### Phase 6: Topology Consolidation (Model / Services / Shell)
 
+**Status**: In progress. Step 6.1 (`GraphWorkspace`/`AppServices` split) is compile-green and integrated. Step 6.2 callsite migration + seam/boundary contract coverage are in place. Step 6.3 runtime closure is implemented (persistence convergence to graph-owned helpers + contract guards). Step 6.4 has begun with a compile-green host subtree move slice (`running_app_state.rs` + `window.rs` canonicalized under `shell/desktop/host/` with temporary root re-export shims). Remaining closure work is broader Step 6.4 filesystem restructuring and Step 6.5 shim removal.
+
+**2026-02-24 audited open items (strict):**
+- Step 6.4 remains partial: canonical import/path migration still has remaining legacy path consumers (notably `crate::persistence::*` users).
+- Step 6.5 has not started: transition root shims (`running_app_state.rs`, `window.rs`, `search.rs`, `persistence/mod.rs`) are still present.
+- Step 6.3 done-gate text requires mutator visibility tightened to `pub(super)`; current graph mutators remain `pub(crate)` and need final boundary lock alignment.
+
 **Goal**: Enforce the three-authority-domain boundary in both type structure and filesystem layout. Phase 6 is not a path-move exercise — the moves matter only insofar as they make the authority boundaries visible and hard to violate. The moves follow from the type splits; not the other way around.
 
 The three authority domains, restated as an implementation invariant:
@@ -642,6 +691,8 @@ The single most important structural change. `GraphBrowserApp` currently holds b
 
 **Reducer signature change**: `apply_intents(&mut GraphWorkspace, Vec<GraphIntent>, &AppServices) -> Vec<SideEffect>`
 
+`SideEffect` is a new enum (defined in Step 6.1) covering effects the reducer cannot apply itself: `SpawnWebview`, `DestroyWebview`, `PersistSnapshot`, `EmitDiagnostic`. These are handed to the shell/reconcile layer after the pure data mutation completes — the reducer does not call Servo or touch I/O.
+
 Registries receive `(&GraphWorkspace, &AppServices)` via `RegistryContext` — never `&mut GraphBrowserApp`.
 
 **Done gate**: `GraphWorkspace` is `Send + Sync` (no `Rc`, no `Cell`). `cargo test` passes. No `AppServices` fields remain on `GraphWorkspace`.
@@ -670,27 +721,30 @@ The reducer (`apply_intents`) must be the only site that calls `graph.add_node()
 
 With types correctly bounded (6.1–6.3), the path moves are mechanical. Execute as separate commits — one per subtree — with no logic changes in the same commit.
 
-**`src/model/`**:
+**Repository reality check (2026-02-24):** this crate is currently root-layout (`lib.rs`/`main.rs` at repo root, no `src/`). Keep the same structure target, but apply it at crate root to avoid unnecessary Cargo path churn.
+
+**`model/` (crate root)**:
 
 - `graph/` — graph data structure (from root)
 - `intent.rs` — `GraphIntent` enum + reducer (`apply_intents`)
 - `workspace.rs` — `GraphWorkspace` struct (extracted from `app.rs` in 6.1)
 - `selection.rs` — `SelectionState`
 
-**`src/services/`**:
+**`services/` (crate root)**:
 
 - `persistence/` — from root `persistence/`
 - `search/` — from root `search.rs`
 - `physics/` — physics support utilities (if any grow beyond in-struct state)
 
-**`src/shell/desktop/`**:
+**`shell/desktop/` (crate root)**:
 
 - `host/` — `event_loop.rs`, `embedder.rs`, `headed_window.rs`, `headless_window.rs`
 - `lifecycle/` — `lifecycle_intents.rs`, `lifecycle_reconcile.rs`, `webview_controller.rs`, `webview_backpressure.rs`, `semantic_event_pipeline.rs`
 - `workbench/` — `tile_runtime.rs`, `tile_render_pass.rs`, `tile_compositor.rs`
 - `ui/toolbar/` — `toolbar_ui.rs` and all `toolbar_ui/*` submodules
-- `ui/gui.rs`, `ui/gui_frame.rs`
+- `ui/` — `gui.rs`, `gui_frame.rs`, dialog/panel rendering modules
 - `protocols/` — stays as-is
+- `runtime/` — `cli.rs`, `app.rs`, `control_panel.rs`, diagnostics/tracing/runtime glue
 
 Use `pub(crate)` re-exports at old paths during migration; remove them in Step 6.5.
 
@@ -703,14 +757,14 @@ Use `pub(crate)` re-exports at old paths during migration; remove them in Step 6
 - Update all doc cross-references (`CODEBASE_MAP.md`, `ARCHITECTURAL_OVERVIEW.md`) to canonical paths.
 - Run full test suite; update any harness scenario imports that still reference old paths.
 
-**Done gate**: `grep -r "use crate::desktop::" --include="*.rs"` returns only shell-internal references. Filesystem matches `src/{model,registries,services,mods,shell}` layout. `cargo test` passes.
+**Done gate**: `grep -r "use crate::desktop::" --include="*.rs"` returns only shell-internal references. Filesystem matches `{model,registries,services,mods,shell}` (crate root layout). `cargo test` passes.
 
 **Phase 6 Done Gate** (all steps):
 
 - `GraphWorkspace` is a self-contained, serializable data type. `AppServices` holds all runtime handles. The split is reflected in both types and filesystem.
 - `GraphSemanticEvent` is the exclusive channel from Servo callbacks to graph state. Contract test proves it.
 - `graph/mod.rs` mutating methods are `pub(super)`; compiler enforces the single-write-path invariant.
-- Filesystem matches `src/{model,registries,services,mods,shell}` layout with no transition shims.
+- Filesystem matches `{model,registries,services,mods,shell}` (crate root layout) with no transition shims.
 - All tests and diagnostics harness scenarios pass at canonical paths.
 
 ---
@@ -851,7 +905,7 @@ The `ProtocolRegistry` effectively abstracts storage. In the future, Verse Tier 
     - Protocol/viewer routing: cancellation-aware resolution, MIME hint inference, `phase0_decide_navigation_with_control` as canonical entrypoint.
     - Action decoupling: `ActionRegistry` with `action.omnibox_node_search`, `action.graph_view_submit`, `action.detail_view_submit`. Diagnostics contracts.
     - Input decoupling: `InputRegistry` with toolbar submit + nav bindings. `phase2_resolve_toolbar_submit_binding`, `phase2_resolve_input_binding`.
-    - Lens scaffolding: `LensCompositor` with compositional lens definitions (layout_id, theme_id, physics_id). Atomic `LayoutRegistry`, `ThemeRegistry`, `PhysicsRegistry`. Composed diagnostics (per-component lookup channels).
+    - Lens scaffolding: `LensCompositor` with compositional lens definitions (layout_id, theme_id, physics_id). Atomic `LayoutRegistry`, `ThemeRegistry`, `PhysicsProfileRegistry`. Composed diagnostics (per-component lookup channels).
     - Persisted user override source (`workspace:settings-registry-*-id`). Settings UI controls.
     - Identity scaffolding: `IdentityRegistry`, sign/fallback, diagnostics contracts.
     - `DiagnosticsRegistry` consolidated as sole contract source; `diagnostics_contract.rs` removed.
@@ -883,3 +937,20 @@ The `ProtocolRegistry` effectively abstracts storage. In the future, Verse Tier 
     - `PresentationDomainRegistry` integrated into lens/profile normalization and resolution paths.
     - `KnowledgeRegistry` promoted to atomic layer with desktop compatibility shim for semantic reconciliation.
 - Validation: focused registry/domain tests + full `cargo test --lib` regression pass (`540 passed; 0 failed; 3 ignored`).
+
+### 2026-02-24 — Phase 6 in progress
+
+- Phase 6.1 (`GraphWorkspace` / `AppServices` split) compile-green and integrated:
+    - `GraphWorkspace` struct introduced with ~80 pure-data fields across semantic graph, spatial layout, webview management, edit history, workspace management, and semantic indexing groups.
+    - `AppServices` placeholder struct created (registries, tokio runtime, persistence store, control panel).
+    - 518+ field access patterns bulk-migrated from `self.field` to `self.workspace.field`.
+    - Reference-error cleanup completed (`cargo check` green).
+- Phase 6.2 callsite migration active: service-aware reducer entrypoint is used across call sites (`apply_intents_with_services`), with remaining TODOs focused on deeper service-aware execution paths (for example remote sync intent application).
+- Reducer boundary hardening slice completed: workspace-only intent handler extracted from monolithic reducer path with boundary-focused tests proving Verse side-effect intents are excluded from workspace-only handling.
+
+### 2026-02-24 — Prerequisite Phase Sweep
+
+- Phases 0–4: no dangling steps found; prior done gates remain satisfied.
+- Phase 5: no longer blocked by compile stability; now tracked as partial implementation with remaining end-to-end integration and done-gate coverage work.
+- Phase 5 contract closure slice completed: Phase 5 diagnostics required-channel declarations added, default diagnostics seeding includes Phase 5 channels, and watchdog invariants for sync flow (`unit_received`/`unit_sent` -> terminal channels) are registered and tested.
+- Runtime contract visibility added: diagnostics API surface now exposes Phase 5 invariant IDs/snapshots with runtime registry tests asserting required invariant presence.

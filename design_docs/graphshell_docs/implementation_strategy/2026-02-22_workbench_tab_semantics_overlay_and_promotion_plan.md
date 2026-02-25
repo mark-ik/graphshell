@@ -8,7 +8,7 @@
 **Status**: Implementation-Ready (updated 2026-02-23)
 **Relates to**:
 
-- `2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation; `PaneId` and `WorkspaceManifest` types defined there, plus workspace membership/routing context lineage
+- `../../archive_docs/checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `WorkspaceManifest` types defined there, plus workspace membership/routing context lineage
 - `2026-02-22_registry_layer_plan.md` — `WorkbenchSurfaceRegistry` (Phase 3, complete) owns layout and interaction policy for tile containers; `GraphWorkspace`/`AppServices` split (Phase 6) is the future home of `WorkspaceTabSemantics`
 
 ---

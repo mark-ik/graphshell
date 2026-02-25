@@ -4,9 +4,9 @@
 
 # Workbench Workspace Manifest Persistence Plan
 
-**Status**: Completed (2026-02-22), retained as canonical foundation.
-**Follow-on**: `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
-**Relates to**: `../../archive_docs/checkpoint_2026-02-22/2026-02-19_workspace_routing_and_membership_plan.md`
+**Status**: Completed (2026-02-22). Archived 2026-02-24.
+**Follow-on**: `../../graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
+**Relates to**: `2026-02-19_workspace_routing_and_membership_plan.md` (same archive checkpoint)
 
 ---
 

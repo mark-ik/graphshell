@@ -5,10 +5,11 @@
 # Step 5.5: Workspace Access Control
 
 **Date:** 2026-02-24
-**Status:** ✅ Complete (Phase 1 — UI + Intent Infrastructure)
+**Status:** ✅ Complete (Phase 1 — UI + Intent Infrastructure). Archived 2026-02-24.
 **Related Plans:**
-- [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) — Step 5.4/5.5 specifications
-- [2026-02-23_verse_tier1_sync_plan.md](2026-02-23_verse_tier1_sync_plan.md) — Verse access control model
+
+- [../../graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md](../../graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md) — Step 5.4/5.5 specifications
+- [../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) — Verse access control model
 
 ---
 

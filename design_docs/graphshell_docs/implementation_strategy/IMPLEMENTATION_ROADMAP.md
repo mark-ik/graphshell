@@ -2,8 +2,8 @@
 
 **Document Type**: Feature-driven implementation plan
 **Organization**: By feature targets with validation tests (not calendar time)
-**Last Updated**: February 23, 2026
-**Priority Focus**: M1 complete (FT1-6); M2 active: Registry Migration, History Manager, Embedder Decomposition, UDC Tagging, Control Panel
+**Last Updated**: February 24, 2026
+**Priority Focus**: M1 complete (FT1-6); M2 active: Registry Layer (Phases 0–4 complete; Phase 5 partial; Phase 6 in progress), Multi-Graph Pane, Graph Interaction Consistency, Layout Behaviors, UDC Tagging, Control Panel
 
 **Policy Note (2026-02-14)**: Graphshell has no production users and no legacy dataset obligations. Do not add backward-compat contingency branches unless explicitly requested.
 
@@ -34,7 +34,9 @@
 
 **Current Gaps**:
 
-- [ ] Registry Migration Phase 2 (Protocols & Viewers) to unblock Settings Architecture
+- [x] Registry Layer Phase 6.1 compile-error cleanup (GraphWorkspace/AppServices split is compile-green)
+- [ ] Registry Layer Phase 6.2: complete remaining service-aware reducer integration paths (callsite migration largely complete)
+- [ ] Registry Layer Phase 5: finish Verse Tier 1 end-to-end done gates (protocol handler wiring, sync settings route completeness, harness scenarios)
 - [ ] Control Panel Phase CP2: mod loader worker + mod lifecycle intents
 
 **Status**: Core browsing, tiled webviews, persistence, thumbnail rendering, and graph search/filter are production-functional.
@@ -355,33 +357,42 @@ These five features enable the core MVP: **users can browse real websites in a s
 
 ### Feature Target 10: Diagnostic/Engine Inspector Mode ✅ COMPLETE
 
-**Goal**: Toggle mode to visualize Servo's internal architecture (Constellation, threads, IPC channels).
+**Goal**: Expose structured observability of the graph and webview engine via `DiagnosticsState` and `DiagnosticEvent`, enabling both developer inspection and automated integration testing.
 
 **Tasks**:
 
-1. [x] Instrument Servo with `tracing::span!()` at thread/channel boundaries
-2. [x] Collect trace events in GraphShell layer
-3. [x] Build dynamic graph: ThreadId → Node, Channel → Edge
-4. [x] Visualize message counts, latencies, backpressure as edge weights/colors
-5. [x] Implement mode toggle (Ctrl+Shift+D)
-6. [x] Support export as SVG for performance reports
+1. [x] `DiagnosticsState` struct captures tile topology, active-tile count, channel health, and routing resolution traces
+2. [x] `DiagnosticEvent` stream emitted on every intent application and lifecycle transition
+3. [x] `TestHarness` wraps `GraphBrowserApp` headlessly, consuming `DiagnosticsState` for observability-driven assertions
+4. [x] Scenario modules in `desktop/tests/scenarios/` cover routing, persistence, layout, grouping, tags, registries
+5. [x] Harness-local deterministic event injection (no global channel timing flakiness)
+6. [x] Governance rules: "No Invisible State" + "Intent-First" enforced in scenarios
 
 **Success Criteria**:
 
-- Developers can see real-time thread activity
-- Users understand what browser is doing (transparency/education)
-- Identifies performance bottlenecks visually
+- Any new `GraphIntent` variant is observable via diagnostics snapshot without private-field reach-through
+- 49+ integration scenarios passing as of 2026-02-23
+- Identifies regressions automatically (tile mapping invariants, persistence roundtrip, workspace routing)
 
 ---
 
 ### Feature Target 11: P2P Collaboration (Verse)
 
-**Goal**: Share graph with peers, real-time co-browsing, permissions-based access.
+**Goal**: Share graph workspace with peers via direct peer-to-peer connections; real-time bilateral sync without central servers.
 
-**Tasks**:
+**Tier 1 (iroh-based, active)**:
 
-- (Deferred to design_docs/verse_docs/)
-- Requires: IPFS integration, tokenization, CRDTs for sync
+- `iroh` for direct P2P transport and node identity bootstrap (`NodeId` as stable peer identity)
+- `TrustedPeerStore` tracks known peers per workspace (`mods/native/verse/`)
+- `IdentityRegistry` extends registry layer with peer identity and verification
+- Bilateral sync of `GraphWorkspace` snapshots and intent streams between trusted peers
+
+**Tier 2 (future)**:
+
+- Shared discovery beyond direct connections
+- Conflict resolution for concurrent graph mutations
+
+**Note**: IPFS integration, tokenization, and CRDT-based sync are not part of the Verse Tier 1 design. See `mods/native/verse/` and Verse design docs for current architecture.
 
 ---
 
@@ -392,20 +403,20 @@ These five features enable the core MVP: **users can browse real websites in a s
 | Feature | Crate | Status |
 | ------- | ----- | ------ |
 | Graph data structure | **petgraph** 0.8 | ✅ StableGraph as primary store |
-| Graph visualization | **egui_graphs** 0.29 | ✅ GraphView widget, events, navigation |
+| Graph visualization | **egui_graphs** 0.22 | ✅ GraphView widget, events, navigation |
 | Spatial queries | n/a | `kiddo` removed with physics migration |
 | Persistence snapshots | **redb** 2 | ✅ Periodic full graph snapshots |
 | Persistence log | **fjall** 3 | ✅ Append-only mutation log |
 | Serialization | **rkyv** 0.8 | ✅ Zero-copy, used by both fjall and redb |
-
 | Search (fuzzy) | **nucleo** | ✅ Integrated for graph search/filter (FT6) |
 | Async worker supervision | **tokio-util** | ✅ `ControlPanel` CP1 — `CancellationToken` + `JoinSet` |
-
-**Planned (Not Yet Integrated)**:
-
-| Feature | Recommended Crate | Why |
-| ------- | ----------------- | --- |
-| Search (full-text) | **tantivy** | Lucene equivalent, BM25, for future content indexing |
+| Syntax highlighting | **syntect** | ✅ Code/text node rendering |
+| Markdown rendering | **pulldown-cmark** | ✅ Markdown content nodes |
+| SVG rendering | **resvg** | ✅ SVG node rendering |
+| File type detection | **infer** | ✅ Content-type sniffing for node classification |
+| Mod registration | **inventory** | ✅ Native mod registration (`inventory::submit!`) |
+| Full-text search | **tantivy** | ✅ Integrated for content indexing |
+| P2P transport | **iroh** | ✅ Verse Tier 1 identity bootstrap (`mods/native/verse/`) |
 
 **Avoid**:
 
@@ -430,9 +441,19 @@ These five features enable the core MVP: **users can browse real websites in a s
 - ✅ Basic navigation (zoom, pan, center via egui_graphs)
 - ✅ Thumbnails and favicons for spatial recognition
 
-**M2: Usable Browser** (Feature Targets 6-8)
+**M2: Usable Browser** (Feature Targets 6-8 + Architecture Foundation)
 
 - ✅ Search/filter works (nucleo fuzzy search, FT6 complete)
+- ✅ Registry Layer (Phases 0–4): CanvasRegistry, PhysicsProfileRegistry, LensCompositor, KnowledgeRegistry, ViewerRegistry, ActionRegistry — complete
+- ✅ GraphWorkspace / AppServices split (Phase 6.1 structurally complete)
+- ✅ Observability-driven test harness (49+ scenarios across routing, persistence, layout, tags, grouping, registries)
+- ✅ Verse Tier 1 scaffold: iroh identity bootstrap + TrustedPeerStore
+- [ ] Phase 6.2 reducer callsite migration complete (service-aware `apply_intents`)
+- [ ] Multi-Graph Pane: Canonical/Divergent view layout mode, per-view Lens assignment
+- [ ] Graph Interaction Consistency: lasso, drag, selection semantics unified
+- [ ] Layout Behaviors: reheat on structural change, new-node placement, degree repulsion
+- [ ] UDC Semantic Tagging: `#pin`, `#archive`, `#star` tags propagating to node state
+- [ ] Control Panel CP2: mod loader worker + mod lifecycle intents
 - Performance acceptable (500 nodes)
 - Bookmarks import seeded graph
 
@@ -468,4 +489,4 @@ These five features enable the core MVP: **users can browse real websites in a s
 - **Checkpoint Analyses**: `archive_docs/checkpoint_2026-02-09/`
 - **Project Vision**: `PROJECT_DESCRIPTION.md`
 - **Architecture**: `ARCHITECTURAL_OVERVIEW.md`
-- **Code**: `ports/graphshell/` (~4,500 LOC in core modules)
+- **Code**: standalone crate root (`app.rs`, `desktop/`, `render/`, `mods/`, `persistence/`) — not under `ports/`

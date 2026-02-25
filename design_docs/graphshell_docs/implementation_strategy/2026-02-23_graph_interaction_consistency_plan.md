@@ -17,6 +17,21 @@ Three categories of UX inconsistency:
 
 ---
 
+## Interaction Model Invariant
+
+**Hover activates; scroll goes to the hovered pane; keyboard goes to the focused (last-clicked) pane.**
+
+This is the canonical focus model for all Workbench panes and must be preserved across all input routing changes:
+
+- **Hovering** a pane makes it the scroll target. No click required.
+- **Scrolling** always routes to the currently hovered pane — graph panes zoom, webview panes scroll page content. No modifier key required by default.
+- **Keyboard input** routes to the focused pane (last-clicked). Text fields within a pane capture alphanumeric keys; graph navigation keys (Z, C, Delete, etc.) are active when no text field is focused.
+- **`scroll_zoom_requires_ctrl`** is an explicit opt-out escape hatch for users who prefer the Ctrl convention. It is not the default. The default is modifier-free scroll routing.
+
+This model matches VS Code's editor/terminal panel behavior and is the unifying rationale behind Phase 1's pre-render input interception design. Every future input routing decision should be evaluated against this invariant first.
+
+---
+
 ## Terminology Corrections
 
 Per the TERMINOLOGY.md living document, the following renames apply in code comments, logs, and UI strings:
@@ -84,12 +99,32 @@ egui_tiles exposes `Container::Linear(LinearLayout { dir: LinearDir::Horizontal 
 
 **Why this works**: By zeroing the scroll delta *before* the GraphView widget runs, no other widget can consume it. The zoom application happens post-render against the now-populated MetadataFrame.
 
+**Zoom pivot transform** (pointer-relative zoom, exact form):
+
+```rust
+fn apply_zoom_around_point(meta: &mut MetadataFrame, pivot_screen: Pos2, factor: f32) {
+    let new_zoom = (meta.zoom * factor).clamp(ZOOM_MIN, ZOOM_MAX);
+    // Keep the graph-space point under the pointer stationary:
+    // pivot_screen = pan + pivot_graph * zoom  (before and after)
+    // => new_pan = pivot_screen - pivot_graph * new_zoom
+    //            = pivot_screen - (pivot_screen - pan) / zoom * new_zoom
+    meta.pan = pivot_screen - (pivot_screen - meta.pan) * (new_zoom / meta.zoom);
+    meta.zoom = new_zoom;
+}
+```
+
+This function should be extracted as a named, unit-testable helper so the coordinate-space arithmetic can be verified in isolation without a full harness frame.
+
+**Note — lasso drag shares the same input race**: Mouse drag on the graph pane for lasso selection must also be claimed before egui's own drag-panning consumes the pointer event. The pre-render `ui.input_mut()` infrastructure built here should be designed generically enough to support claiming drag events for lasso in the same interception pass. See Phase 1 tasks below.
+
 **Files**: `render/mod.rs`
 
 **Tasks**:
 - [ ] Add `pending_wheel_zoom_delta: f32` field to `GraphBrowserApp`.
 - [ ] In `render_graph_in_ui_collect_actions`, before `GraphView` render: `ui.input_mut()` to intercept and zero scroll deltas when graph is hovered.
-- [ ] In `handle_custom_navigation`, consume `pending_wheel_zoom_delta` and apply zoom with pointer-relative pivot.
+- [ ] Implement `apply_zoom_around_point(meta, pivot_screen, factor)` as a named helper with unit tests.
+- [ ] In `handle_custom_navigation`, consume `pending_wheel_zoom_delta` and call `apply_zoom_around_point` with current pointer position as pivot.
+- [ ] Design the pre-render interception block to also support claiming drag/pointer events (needed for lasso — same race, same fix location).
 - [ ] Remove old `apply_scroll_zoom_without_ctrl` function entirely.
 - [ ] Verify `scroll_zoom_requires_ctrl` setting is respected.
 
@@ -104,15 +139,16 @@ egui_tiles exposes `Container::Linear(LinearLayout { dir: LinearDir::Horizontal 
 1. Replace `fit_to_screen_requested: bool` and `pending_initial_zoom: Option<f32>` with a single `pending_camera_command: Option<CameraCommand>` enum:
    ```rust
    enum CameraCommand {
-       Fit,                          // Fit all nodes with relax factor
-       FitSelection,                 // Fit selected nodes (tighter)
-       SetZoom(f32),                 // Absolute zoom
-       StartupFit,                   // First-frame fit (same as Fit but triggered on init)
+       Fit,              // Fit all nodes with relax factor (also used on startup)
+       FitSelection,     // Fit selected nodes (tighter)
+       SetZoom(f32),     // Absolute zoom
    }
    ```
+   No `StartupFit` variant — startup uses `Fit` directly. The durable retry-until-MetadataFrame-ready pattern handles the first-frame timing race for both startup and keypress paths identically. A separate variant would add complexity without enabling any different behavior.
+
 2. `handle_custom_navigation` attempts to apply the pending command. If the MetadataFrame doesn't exist yet, it leaves the command in place for the next frame.
 3. On successful application, clear the command.
-4. Startup: set `pending_camera_command = Some(CameraCommand::StartupFit)` in the constructor. Remove `DEFAULT_STARTUP_ZOOM` constant and `pending_initial_zoom` field.
+4. Startup: set `pending_camera_command = Some(CameraCommand::Fit)` in the constructor. Remove `DEFAULT_STARTUP_ZOOM` constant and `pending_initial_zoom` field.
 5. Z key: if 2+ selected, `CameraCommand::FitSelection`; else `CameraCommand::Fit`.
 6. C key: always `CameraCommand::Fit`.
 
@@ -130,7 +166,7 @@ egui_tiles exposes `Container::Linear(LinearLayout { dir: LinearDir::Horizontal 
 - [ ] Update Z/C key handlers in `input/mod.rs` to emit the correct `CameraCommand`.
 - [ ] In `handle_custom_navigation`: single dispatch site for `CameraCommand` with retry-on-missing-metadata.
 - [ ] Remove `apply_pending_initial_zoom`, `apply_pending_fit_to_screen_request`, `apply_pending_zoom_to_selected_request` (consolidated into one function).
-- [ ] Constructor: initialize with `CameraCommand::StartupFit`.
+- [ ] Constructor: initialize with `CameraCommand::Fit`.
 
 ---
 
@@ -149,13 +185,25 @@ egui_tiles exposes `Container::Linear(LinearLayout { dir: LinearDir::Horizontal 
 
 **Fallback** (if upstream doesn't support target point): After the FR layout pass, apply a manual force toward the viewport center to all nodes. This is less elegant but achieves the same result.
 
+**Gravity locus dampening**: Snapping the gravity target to the exact viewport center every frame causes nodes to aggressively chase rapid panning gestures. Use an exponential lerp instead:
+
+```rust
+self.gravity_target = self.gravity_target.lerp(viewport_center_graph, 0.05);
+```
+
+A factor of `0.05` per frame (at 60fps) gives a ~3-second settling time — nodes drift gently toward where the user is looking rather than lurching. Expose this as a named constant `GRAVITY_TARGET_LERP_FACTOR: f32 = 0.05` so it can be tuned alongside the other physics parameters.
+
 **Files**: `render/mod.rs`, possibly `egui_graphs` fork
 
 **Tasks**:
+
+- [ ] Add `gravity_target: Pos2` field to the app or physics state (initialized to `(0, 0)`).
 - [ ] Check if `FruchtermanReingoldWithCenterGravity` params support a configurable gravity target.
-- [ ] If yes: set target each frame from MetadataFrame.
-- [ ] If no: add `apply_viewport_gravity` helper that applies a small force toward viewport center after layout.
+- [ ] If yes: lerp `gravity_target` toward viewport center each frame, then set as target.
+- [ ] If no: add `apply_viewport_gravity` helper that applies a small force toward `gravity_target` after layout.
+- [ ] Define `GRAVITY_TARGET_LERP_FACTOR: f32 = 0.05` constant alongside other physics tuning constants.
 - [ ] Verify single nodes stay on-screen after panning.
+- [ ] Verify nodes don't lurch during fast pan gestures (feel drifts, not snaps).
 
 ---
 
@@ -187,13 +235,18 @@ egui_tiles exposes `Container::Linear(LinearLayout { dir: LinearDir::Horizontal 
    - Pane tabs show pane titles; container tabs show semantic split/group labels.
    - If the split is later collapsed (all tabs closed on one side), the layout should simplify back to a single pane.
 
-5. **Documentation sync**: Keep `design_docs/TERMINOLOGY.md` as source-of-truth and add a brief "Workbench Layout" section to the help panel explaining Tile, Pane, Container, Split, and Tab Group semantics.
+5. **Container tab activation**: When a user clicks a `Split ↔` / `Split ↕` / `Tab Group` container tab (promoting the container to the active tab in its parent strip), the intended behavior is **no-op / passive focus**: the container becomes the active tab in the strip but does not navigate, collapse, or perform any destructive action. The container tab's selection state is ephemeral — it exists because the user clicked it, and is superseded as soon as the user clicks a content pane. This must be explicitly handled in `tab_title_for_tile` and the tab selection callback so it doesn't fall through to undefined behavior.
+
+   **Future upgrade path**: Stage 8D (`2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`) will upgrade container tab activation for demoted semantic tab groups — clicking the inverted-tab chrome affordance dispatches `PromotePaneToSemanticTabGroup`. That is a distinct surface and a follow-on concern; it does not change the no-op / passive focus behavior for `Split` and structural container tabs defined here.
+
+6. **Documentation sync**: Keep `design_docs/TERMINOLOGY.md` as source-of-truth and add a brief "Workbench Layout" section to the help panel explaining Tile, Pane, Container, Split, and Tab Group semantics.
 
 **Files**: `desktop/tile_behavior.rs`, `desktop/tile_view_ops.rs`
 
 **Tasks**:
 - [ ] Replace `format!("{:?}", container.kind())` fallback with semantic labels in `tab_title_for_tile`.
 - [ ] Add tooltip/help affordance for container tabs.
+- [ ] Specify and implement container-tab activation as no-op / passive focus (no collapse, no navigation).
 - [ ] Verify simplification invariants with targeted tests (including same-direction join + cross-direction preserve).
 - [ ] Test split → close → simplify flow and tab-detach predictability.
 - [ ] Ensure terminology alignment between UI strings and `TERMINOLOGY.md`.
@@ -228,6 +281,7 @@ egui_tiles exposes `Container::Linear(LinearLayout { dir: LinearDir::Horizontal 
 - [ ] Closing last tab in a split collapses the split.
 - [ ] Dragging a tab out of the strip creates a clean split.
 - [ ] Users can distinguish content panes vs layout-group tabs without ambiguity.
+- [ ] Clicking a container tab does not collapse the split, navigate, or produce any destructive action.
 
 ---
 
@@ -243,7 +297,7 @@ egui_graphs creates `MetadataFrame` lazily on its first layout pass. Any camera 
 
 ### Consistency principle
 
-Every pane in the Workbench should follow the same focus model: **hover to activate, scroll to interact with pane content**. For webview panes, "scroll to interact" means page scrolling. For graph panes, "scroll to interact" means zoom. This is the same principle used by VS Code's editor tabs and terminal panels. The `scroll_zoom_requires_ctrl` setting is an escape hatch for users who prefer the Ctrl convention, not the default.
+See **Interaction Model Invariant** above. The architectural rationale for Phase 1's pre-render interception is that scroll events must be claimed before any widget renders — the only way to guarantee hover-based routing is to act before the frame's layout/render pass begins.
 
 ### Captured decisions from architecture deep-dive (2026-02-23)
 

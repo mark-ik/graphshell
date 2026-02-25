@@ -329,29 +329,40 @@ Run at stage boundaries:
 
 ---
 
-## Done vs Remaining (as of 2026-02-22)
+## Done vs Remaining (as of 2026-02-23)
 
 **Done**
 - Stage 1 harness scaffold complete and green.
-- Stage 2 routing migration increment complete.
-- Stage 2 persistence migration increment complete for unsaved prompt + workspace mutation semantics.
-- Stage 3 expansion progressed with non-overlap + split/container hierarchy snapshot assertions.
+- Stage 2 routing migration increment complete (6 routing scenarios).
+- Stage 2 persistence migration increment complete for unsaved prompt + workspace mutation semantics (10 tests).
+- Stage 3 expansion complete: non-overlap, split/container hierarchy, layout compositor assertions (6 layout tests).
 - Phase A Session Autosave & Retention migration complete (scenarios authoritative; `app.rs` duplicates removed).
+- Phase A Persistence Switching migration complete (`switch_persistence_dir_reloads_graph_state`).
+- Phase A Preference Persistence: toast anchor migrated.
+- Semantic tagging scenarios added: `#pin` tag sync and `TagNode`/`UntagNode` state (2 tests in `tags.rs`).
+- First grouping-intent scenario: `create_user_grouped_edge_from_primary_selection_creates_grouped_edge` (1 test in `grouping.rs`).
+- Registries scenarios passing (`cargo test desktop::tests::scenarios::registries -- --nocapture`).
+- Full scenario matrix: **49 tests passing** (2026-02-23 checkpoint).
 
 **Remaining**
-- Stage 3 multi-pane grouping intent coverage (`UserGrouped` edge assertions).
-- Phase A persistence switching/preferences migration.
-- Stage 4 final migration cleanup and closure pass.
+
+- Phase A: remaining preference persistence tests (lasso binding, shortcut bindings).
+- Phase C.1: Undo/Redo stack mechanics and state restoration scenarios.
+- Phase C.2: Workspace routing explainability (resolver trace, membership affordance, batch observability).
+- Phase C: Navigation & History scenarios (`Back`/`Forward` intent ordering).
+- Phase C: Search & Filtering harness assertions (Omnibar scopes, Ctrl+F).
+- Stage 4 final migration cleanup and closure pass (remove remaining legacy duplicates, update command matrix evidence).
 
 ---
 
 ## Next Execution Slice
 
-Immediate next batch (remaining from this slice):
+Immediate next batch:
 
 1. Migrate remaining preference persistence tests (lasso binding + shortcut bindings) into `desktop/tests/scenarios/persistence.rs`.
-2. Extend grouping coverage beyond intent emission to split/container semantics in harness-observable outputs.
-3. Run full stage-boundary matrix (`cargo test desktop::tests::scenarios:: -- --nocapture`) and append evidence.
+2. Add Phase C.1 Undo/Redo scenarios (`stack_mechanics` + `state_restoration` sub-modules or inline in a new `undo.rs`).
+3. Extend grouping coverage to split/container hierarchy semantics in harness-observable outputs.
+4. Run full stage-boundary matrix and append evidence: `cargo test desktop::tests::scenarios:: -- --nocapture`.
 
 ---
 

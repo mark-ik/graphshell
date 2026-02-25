@@ -1,8 +1,8 @@
 # Layout Behaviors & Spatial Organization Plan (2026-02-24)
 
-**Status**: Implementation-Ready  
-**Supersedes**: `2026-02-19_layout_advanced_plan.md`  
-**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering).
+**Status**: Implementation-Ready
+**Supersedes**: `2026-02-19_layout_advanced_plan.md`
+**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs).
 
 ## Context
 
@@ -25,6 +25,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 **Problem**: Adding nodes/edges while paused leaves newly changed topology visually inert.
 
 **Plan**:
+
 - In `apply_intents()`, when `AddNode` or `AddEdge` occurs (excluding snapshot load/replay), set `physics.is_running = true`.
 - Do not zero or reset velocity state; only resume simulation.
 
@@ -33,6 +34,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 **Problem**: Center-spawned nodes break local context during navigation growth.
 
 **Plan**:
+
 - If node creation has a semantic source/parent, place at `parent_position + jitter`.
 - Ensure create-new event path carries parent identity (`GraphSemanticEvent::CreateNewWebView` -> parent node reference).
 
@@ -41,6 +43,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 **Problem**: Gravity behavior can drift from configured profile parameters.
 
 **Plan**:
+
 - Verify viewport-gravity implementation consumes current profile gravity strength.
 - Keep authoritative behavior aligned with `2026-02-23_graph_interaction_consistency_plan.md`.
 
@@ -55,6 +58,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 **Goal**: De-clutter high-degree hub topologies.
 
 **Plan**:
+
 - Compute per-node degree bonus (e.g., `log(degree) * k`).
 - Apply additional separation force to nearby neighbors.
 - Gate by `CanvasRegistry.degree_repulsion_enabled`.
@@ -64,6 +68,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 **Goal**: Pull same-domain nodes into soft spatial neighborhoods.
 
 **Plan**:
+
 - Group nodes by eTLD+1.
 - Compute group centroids.
 - Apply weak attraction toward domain centroid.

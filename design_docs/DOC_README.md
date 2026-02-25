@@ -56,6 +56,8 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/research/2026-02-18_graph_ux_research_report.md](graphshell_docs/research/2026-02-18_graph_ux_research_report.md) - Graph UI/UX research and synthesis.
 - [graphshell_docs/research/2026-02-20_edge_traversal_model_research.md](graphshell_docs/research/2026-02-20_edge_traversal_model_research.md) - Edge traversal model research.
 - [graphshell_docs/research/2026-02-24_visual_tombstones_research.md](graphshell_docs/research/2026-02-24_visual_tombstones_research.md) - Research backlog for visual tombstones/ghost placeholders.
+- [graphshell_docs/research/2026-02-24_interaction_and_semantic_design_schemes.md](graphshell_docs/research/2026-02-24_interaction_and_semantic_design_schemes.md) - Research on interaction patterns, physics-as-semantics, and lens-based UX.
+- [graphshell_docs/research/2026-02-24_diagnostics_research.md](graphshell_docs/research/2026-02-24_diagnostics_research.md) - Diagnostics system research: three-registry model (ChannelRegistry/AnalyzerRegistry/TestRegistry), probe vs. analyzer vs. test classification, current gaps, pane improvements, and priority order.
 - [graphshell_docs/research/STANDALONE_EXTRACTION.md](graphshell_docs/research/STANDALONE_EXTRACTION.md) - Standalone extraction notes.
 
 ### Graphshell Technical Architecture
@@ -92,6 +94,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md](graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md) - Behavioral layout/creative physics plan.
 - [graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md](graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md) - Performance scaling and frame-budget plan.
 - [graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md](graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md) - Universal node content model implementation plan: non-web renderers (PDF, image, text, audio, SVG, directory), MIME detection pipeline, ViewerRegistry selection policy, security/sandboxing model, crate selection with license analysis.
+- [graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md](graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md) - **Current Priorities**: Top 10 tasks, forgotten concepts, and quick improvements.
 
 ### Graphshell Design
 
