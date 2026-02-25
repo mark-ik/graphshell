@@ -525,6 +525,10 @@ Minimum shippable boundary (Stage E):
 
 ### Stage F: Temporal Navigation (Preview Mode)
 
+**Backlog status**: Tracked staged deliverable (promoted from distant concept 2026-02-25).
+**Prerequisite**: Stage E maturity — history manager archival/dissolution behaviors and tiered
+storage must be stable and test-covered before Stage F design work begins.
+
 Goal:
 
 - time-scrub graph state via WAL replay without mutating live runtime state
@@ -544,10 +548,31 @@ Deliverables:
 4. timeline slider + "Return to present"
 5. ghost rendering in preview mode
 
-Critical architectural rule:
+#### Preview-Mode Effect Isolation Contract
 
-- preview mode operates on a copy and must not trigger WAL writes, webview lifecycle actions, or
-  live app mutations
+The following invariants must hold for any code executing while preview mode is active.
+These are correctness requirements, not UX polish:
+
+1. **No WAL writes**: preview state replay must not append any entries to the WAL.
+2. **No webview lifecycle mutations**: webview create/destroy/navigate actions must be suppressed;
+   preview replay must not alter the live webview set.
+3. **No live graph mutations**: the live `Graph` instance must remain unchanged; all replay operates
+   on a detached preview-state copy.
+4. **No persistence side effects**: snapshot writes, archival passes, and dissolution transfers must
+   not execute while preview mode is active.
+5. **Clean return to present**: exiting preview mode must fully restore live state as it existed
+   before preview was entered; no residual preview-state leakage into live reducers.
+
+`desktop/gui_frame.rs` is the designated enforcement point: all effect paths that would violate
+these invariants must be gated on a `preview_mode_active` flag checked there before dispatch.
+
+Non-goals (Stage F):
+
+- Real-time collaborative replay (depends on Verse presence work, not traversal truth)
+- Undo/redo as a general editing primitive (temporal navigation is read-only replay, not a
+  mutation inverse)
+- Scrubber UX polish or ghost visual fidelity (secondary to isolation correctness)
+- Exporting timeline snapshots (out of scope; belongs to a future export deliverable)
 
 Tasks:
 

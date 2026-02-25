@@ -103,6 +103,16 @@ These are not "do now" items. They are concepts that should be explicitly adopte
 Appended adoption note (preserved from PR `#55`, pending table refactor):
 - Visual Tombstones (`Rank 1`) is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-25_visual_tombstones_plan.md` and should be treated as `✅ adopted` in future table cleanup.
 
+Appended adoption note (preserved from PR `#56`, pending table refactor):
+- Temporal Navigation / Time-Travel Preview (`Rank 2`) should be treated as `✅ adopted` and promoted to a tracked staged backlog item via `design_docs/graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md` Stage F.
+
+Appended staged backlog summary (preserved from PR `#56`, pending section refactor):
+- **Stage F: Temporal Navigation (Tracked Staged Backlog Item)** — Deferred until Stage E History Manager maturity (tiered storage, dissolution correctness, and stable WAL shape).
+- Deliverables preserved from PR summary: timeline index, `replay_to_timestamp(...)`, detached preview graph state, timeline slider/return-to-present UI, and preview ghost rendering.
+- Preview-mode effect isolation contract (preserved): no WAL writes, no webview lifecycle mutations, no live graph mutations, no persistence side effects, and clean return-to-present with no preview-state leakage.
+- Designated enforcement point preserved: `desktop/gui_frame.rs` effect-suppression gates.
+- Preserved non-goals: collaborative replay, undo/redo replacement, scrubber polish fidelity, timeline snapshot export.
+
 ---
 
 ## 3. Top 10 Quickest Improvements (Low-Effort / High-Leverage Slices)
