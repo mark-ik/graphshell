@@ -10,7 +10,10 @@ use crate::registries::infrastructure::mod_loader::{
 };
 use crate::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_VERSE_PREINIT_CALL;
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_VERSE_PREINIT_CALL, CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
+    CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
+};
 use keyring::Entry;
 use std::sync::OnceLock;
 
@@ -601,6 +604,16 @@ impl SyncLog {
                     self.last_write_title.insert(node_id.clone(), intent.authored_at_secs);
                     true
                 } else {
+                    if last > 0 {
+                        emit_event(DiagnosticEvent::MessageReceived {
+                            channel_id: CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
+                            latency_us: 0,
+                        });
+                        emit_event(DiagnosticEvent::MessageReceived {
+                            channel_id: CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
+                            latency_us: 0,
+                        });
+                    }
                     false
                 }
             }
@@ -611,6 +624,16 @@ impl SyncLog {
                     self.last_write_url.insert(node_id.clone(), intent.authored_at_secs);
                     true
                 } else {
+                    if last > 0 {
+                        emit_event(DiagnosticEvent::MessageReceived {
+                            channel_id: CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
+                            latency_us: 0,
+                        });
+                        emit_event(DiagnosticEvent::MessageReceived {
+                            channel_id: CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
+                            latency_us: 0,
+                        });
+                    }
                     false
                 }
             }

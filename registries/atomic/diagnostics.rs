@@ -28,6 +28,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_VERSE_SYNC_CONNECTION_REJECTED, CHANNEL_VERSE_SYNC_IDENTITY_GENERATED,
     CHANNEL_VERSE_SYNC_INTENT_APPLIED, CHANNEL_VERSE_SYNC_UNIT_RECEIVED,
     CHANNEL_VERSE_SYNC_UNIT_SENT,
+    CHANNEL_VERSE_SYNC_CONFLICT_DETECTED, CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,7 +358,7 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 24] = [
     },
 ];
 
-const PHASE5_CHANNELS: [DiagnosticChannelDescriptor; 6] = [
+const PHASE5_CHANNELS: [DiagnosticChannelDescriptor; 8] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_UNIT_SENT,
         schema_version: 1,
@@ -380,6 +381,14 @@ const PHASE5_CHANNELS: [DiagnosticChannelDescriptor; 6] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_SYNC_IDENTITY_GENERATED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
+        schema_version: 1,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
         schema_version: 1,
     },
 ];
