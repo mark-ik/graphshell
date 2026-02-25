@@ -37,7 +37,7 @@ impl TileCoordinator {
         tiles_tree
             .tiles
             .iter()
-            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::WebView(_))))
+            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(_))))
     }
 
     pub(crate) fn all_webview_tile_nodes(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
@@ -45,7 +45,7 @@ impl TileCoordinator {
             .tiles
             .iter()
             .filter_map(|(_, tile)| match tile {
-                Tile::Pane(TileKind::WebView(node_key)) => Some(*node_key),
+                Tile::Pane(TileKind::Node(state)) => Some(state.node),
                 _ => None,
             })
             .collect()
@@ -69,7 +69,7 @@ impl TileCoordinator {
             .tiles
             .iter()
             .filter_map(|(tile_id, tile)| match tile {
-                Tile::Pane(TileKind::WebView(_)) => Some(*tile_id),
+                Tile::Pane(TileKind::Node(_)) => Some(*tile_id),
                 _ => None,
             })
             .collect();
@@ -83,7 +83,7 @@ impl TileCoordinator {
             .tiles
             .iter()
             .filter_map(|(tile_id, tile)| match tile {
-                Tile::Pane(TileKind::WebView(key)) if *key == node_key => Some(*tile_id),
+                Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(*tile_id),
                 _ => None,
             })
             .collect();

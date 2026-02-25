@@ -59,7 +59,7 @@ const MAX_CONNECTED_OPEN_NODES: usize = 12;
 
 fn find_webview_tile_id(tree: &Tree<TileKind>, node_key: NodeKey) -> Option<TileId> {
     tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
-        Tile::Pane(TileKind::WebView(key)) if *key == node_key => Some(*tile_id),
+        Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(*tile_id),
         _ => None,
     })
 }
@@ -76,7 +76,7 @@ fn ensure_webview_tile_id(tree: &mut Tree<TileKind>, node_key: NodeKey) -> TileI
         }
         return tree.tiles.insert_tab_tile(vec![tile_id]);
     }
-    let pane_id = tree.tiles.insert_pane(TileKind::WebView(node_key));
+    let pane_id = tree.tiles.insert_pane(TileKind::Node(node_key.into()));
     tree.tiles.insert_tab_tile(vec![pane_id])
 }
 
@@ -150,7 +150,7 @@ fn pending_tile_mode_to_tile_mode(mode: PendingTileOpenMode) -> tile_view_ops::T
 
 fn workspace_tree_with_single_node(node_key: NodeKey) -> Tree<TileKind> {
     let mut tiles = Tiles::default();
-    let pane_id = tiles.insert_pane(TileKind::WebView(node_key));
+    let pane_id = tiles.insert_pane(TileKind::Node(node_key.into()));
     let root = tiles.insert_tab_tile(vec![pane_id]);
     Tree::new("graphshell_workspace_layout", root, tiles)
 }
@@ -612,7 +612,7 @@ pub(crate) fn active_webview_tile_node(tiles_tree: &Tree<TileKind>) -> Option<No
         .active_tiles()
         .into_iter()
         .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
-            Some(egui_tiles::Tile::Pane(TileKind::WebView(node_key))) => Some(*node_key),
+            Some(egui_tiles::Tile::Pane(TileKind::Node(state))) => Some(state.node),
             _ => None,
         })
 }

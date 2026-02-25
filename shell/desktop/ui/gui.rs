@@ -464,7 +464,7 @@ impl Gui {
     ) -> Option<(WebViewId, Point2D<f32, DeviceIndependentPixel>)> {
         let cursor = pos2(point.x, point.y);
         for tile_id in self.tiles_tree.active_tiles() {
-            let Some(Tile::Pane(TileKind::WebView(node_key))) = self.tiles_tree.tiles.get(tile_id)
+            let Some(Tile::Pane(TileKind::Node(state))) = self.tiles_tree.tiles.get(tile_id)
             else {
                 continue;
             };
@@ -474,7 +474,7 @@ impl Gui {
             if !rect.contains(cursor) {
                 continue;
             }
-            let Some(webview_id) = self.graph_app.get_webview_for_node(*node_key) else {
+            let Some(webview_id) = self.graph_app.get_webview_for_node(state.node) else {
                 continue;
             };
             let local = Point2D::new(point.x - rect.min.x, point.y - rect.min.y);
@@ -1105,11 +1105,12 @@ impl Gui {
 
     #[cfg(feature = "diagnostics")]
     fn open_or_focus_diagnostic_pane(tiles_tree: &mut Tree<TileKind>) {
-        if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Diagnostic))) {
+        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+        if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_)))) {
             return;
         }
 
-        let diagnostic_tile_id = tiles_tree.tiles.insert_pane(TileKind::Diagnostic);
+        let diagnostic_tile_id = tiles_tree.tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
         let Some(root_id) = tiles_tree.root() else {
             tiles_tree.root = Some(diagnostic_tile_id);
             return;
@@ -1125,7 +1126,7 @@ impl Gui {
 
         let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, diagnostic_tile_id]);
         tiles_tree.root = Some(tabs_root);
-        let _ = tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Diagnostic)));
+        let _ = tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_))));
     }
 
     fn handle_pending_open_node_after_intents(
@@ -1154,7 +1155,7 @@ impl Gui {
             let node_already_in_workspace = tiles_tree.tiles.iter().any(|(_, tile)| {
                 matches!(
                     tile,
-                    Tile::Pane(TileKind::WebView(existing_key)) if *existing_key == node_key
+                    Tile::Pane(TileKind::Node(state)) if state.node == node_key
                 )
             });
             log::debug!("gui: calling open_or_focus_webview_tile_with_mode for {:?} mode {:?}", node_key, open_mode);
@@ -1180,7 +1181,7 @@ impl Gui {
         self.tiles_tree.active_tiles().into_iter().any(|tile_id| {
             matches!(
                 self.tiles_tree.tiles.get(tile_id),
-                Some(Tile::Pane(TileKind::WebView(_)))
+                Some(Tile::Pane(TileKind::Node(_)))
             )
         })
     }
@@ -1188,7 +1189,7 @@ impl Gui {
     fn active_webview_tile_node(tiles_tree: &Tree<TileKind>) -> Option<crate::graph::NodeKey> {
         tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
             match tiles_tree.tiles.get(tile_id) {
-                Some(Tile::Pane(TileKind::WebView(node_key))) => Some(*node_key),
+                Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
                 _ => None,
             }
         })

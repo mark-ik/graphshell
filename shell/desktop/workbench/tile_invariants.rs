@@ -50,11 +50,11 @@ pub(crate) fn collect_active_tile_mapping_violations(
 ) -> Vec<String> {
     let mut violations = Vec::new();
     for tile_id in tiles_tree.active_tiles() {
-        let Some(egui_tiles::Tile::Pane(TileKind::WebView(node_key))) = tiles_tree.tiles.get(tile_id)
+        let Some(egui_tiles::Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
         else {
             continue;
         };
-        let node_key = *node_key;
+        let node_key = state.node;
         if graph_app.workspace.graph.get_node(node_key).is_none() {
             violations.push(format!(
                 "active tile desync: node {} no longer exists in graph",
@@ -88,7 +88,7 @@ mod tests {
     fn tree_with_active_webview(node_key: NodeKey) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
-        let webview = tiles.insert_pane(TileKind::WebView(node_key));
+        let webview = tiles.insert_pane(TileKind::Node(node_key.into()));
         let root = tiles.insert_tab_tile(vec![graph, webview]);
         let mut tree = Tree::new("tile_invariants_test", root, tiles);
         let _ = tree.make_active(|tile_id, _| tile_id == webview);
@@ -126,7 +126,7 @@ mod tests {
 
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
-        let webview = tiles.insert_pane(TileKind::WebView(node_key));
+        let webview = tiles.insert_pane(TileKind::Node(node_key.into()));
         let root = tiles.insert_tab_tile(vec![graph, webview]);
         let mut tree = Tree::new("tile_invariants_non_active", root, tiles);
         let _ = tree.make_active(|tile_id, _| tile_id == graph);

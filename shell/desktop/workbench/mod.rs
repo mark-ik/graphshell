@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+pub(crate) mod pane_model;
 pub(crate) mod selection_range;
 pub(crate) mod tile_behavior;
 pub(crate) mod tile_compositor;

@@ -30,11 +30,11 @@ pub(crate) fn webview_tab_group_memberships(
 ) -> HashMap<NodeKey, TileId> {
     let mut memberships = HashMap::new();
     for (tile_id, tile) in tiles_tree.tiles.iter() {
-        let Tile::Pane(super::tile_kind::TileKind::WebView(node_key)) = tile else {
+        let Tile::Pane(super::tile_kind::TileKind::Node(state)) = tile else {
             continue;
         };
         if let Some(group_id) = nearest_tabs_container_for_tile(tiles_tree, *tile_id) {
-            memberships.insert(*node_key, group_id);
+            memberships.insert(state.node, group_id);
         }
     }
     memberships
@@ -45,11 +45,11 @@ pub(crate) fn tab_group_nodes(
 ) -> HashMap<TileId, Vec<NodeKey>> {
     let mut groups: HashMap<TileId, Vec<NodeKey>> = HashMap::new();
     for (tile_id, tile) in tiles_tree.tiles.iter() {
-        let Tile::Pane(super::tile_kind::TileKind::WebView(node_key)) = tile else {
+        let Tile::Pane(super::tile_kind::TileKind::Node(state)) = tile else {
             continue;
         };
         if let Some(group_id) = nearest_tabs_container_for_tile(tiles_tree, *tile_id) {
-            groups.entry(group_id).or_default().push(*node_key);
+            groups.entry(group_id).or_default().push(state.node);
         }
     }
     groups
