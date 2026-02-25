@@ -541,10 +541,9 @@
 - **Source refs**:
   - `design_docs/graphshell_docs/research/2026-02-18_graph_ux_research_report.md`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:70`
+  - `design_docs/graphshell_docs/implementation_strategy/2026-02-25_doi_fisheye_plan.md`
 
 ### F5. Adopt Magnetic Zones / Group-in-a-Box Workflow
-
-- **Type**: Concept adoption / Spatial organization
 - **GitHub Issue Title**: `Layout roadmap: adopt magnetic zones / group-in-a-box workflow as tracked feature`
 - **GitHub Labels**: `concept/adoption`, `layout`, `graph-ui`, `spatial-organization`, `research-followup`
 - **GitHub Milestone**: `Concept Adoption / Layout`
