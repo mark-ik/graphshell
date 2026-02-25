@@ -77,7 +77,7 @@ mod step_5_2_tests {
         TrustedPeer, PeerRole, AccessLevel, WorkspaceGrant, VersionVector, SyncLog, SyncedIntent,
         sign_sync_payload, verify_peer_signature,
     };
-    use crate::persistence::types::LogEntry;
+    use crate::services::persistence::types::LogEntry;
 
     #[test]
     fn trusted_peer_serde_roundtrip() {
@@ -249,7 +249,7 @@ mod step_5_2_tests {
 #[cfg(test)]
 mod step_5_4_tests {
     use super::super::{SyncLog, SyncedIntent};
-    use crate::persistence::types::LogEntry;
+    use crate::services::persistence::types::LogEntry;
 
     #[test]
     fn sync_log_lww_rejects_older_title() {
