@@ -33,7 +33,15 @@ jobs:
         run: |
           set -euo pipefail
           WIKI_URL="https://x-access-token:${WIKI_PUSH_TOKEN}@github.com/${{ github.repository }}.wiki.git"
-          git clone "$WIKI_URL" wiki
+          if git clone "$WIKI_URL" wiki; then
+            echo "WIKI_TARGET_REF=master" >> "$GITHUB_ENV"
+          else
+            echo "Wiki clone failed (likely uninitialized wiki). Bootstrapping new wiki repo checkout."
+            mkdir -p wiki
+            git -C wiki init
+            git -C wiki remote add origin "$WIKI_URL"
+            echo "WIKI_TARGET_REF=master" >> "$GITHUB_ENV"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -57,4 +65,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "docs(wiki): sync from design_docs"
-          git push
+          git push -u origin "HEAD:${WIKI_TARGET_REF}"
