@@ -25,7 +25,7 @@ _Source file before consolidation: `2026-02-24_immediate_priorities.md`_
 - `2026-02-24_layout_behaviors_plan.md`
 - `2026-02-24_performance_tuning_plan.md`
 - `2026-02-24_control_ui_ux_plan.md`
-- `2026-02-24_spatial_accessibility_plan.md`
+- `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-24_spatial_accessibility_plan.md` → superseded by `2026-02-25_subsystem_accessibility.md`
 - `2026-02-24_universal_content_model_plan.md`
 - `2026-02-23_wry_integration_strategy.md`
 - `2026-02-20_edge_traversal_impl_plan.md`
@@ -56,6 +56,25 @@ _Source file before consolidation: `2026-02-24_immediate_priorities.md`_
 - Immediate-priority list promoted from a loose synthesis into a source-linked 10/10/10 register.
 - Multi-pane planning is now treated as a **pane-hosted multi-view problem** (graph + viewer + tool panes), not only "multi-graph."
 - Several low-effort, high-impact items from UX and diagnostics research were missing from the active queue and are now explicitly tracked.
+- **Cross-cutting subsystem consolidation**: Five runtime subsystems formalized with dedicated subsystem guides:
+  - `2026-02-25_subsystem_accessibility.md` — consolidates prior archived accessibility planning/detail docs in `design_docs/archive_docs/checkpoint_2026-02-25/` (both now superseded)
+  - `2026-02-25_subsystem_diagnostics.md` — elevated from `2026-02-24_diagnostics_research.md`
+  - `2026-02-25_subsystem_security_access_control.md` — new; consolidates security/trust material from Verse Tier 1 plan + registry layer plan Phase 5.5
+  - `2026-02-25_subsystem_persistence_integrity.md` — new; consolidates persistence material from registry layer plan Phase 6 + `services/persistence/mod.rs`
+  - `2026-02-25_subsystem_history_temporal_integrity.md` — new; consolidates traversal/archive/replay integrity guarantees and Stage F temporal navigation constraints
+- Surface Capability Declarations adopt the **folded approach** (sub-fields on `ViewerRegistry`, `CanvasRegistry`, `WorkbenchSurfaceRegistry` entries — not a standalone registry). See `TERMINOLOGY.md`.
+
+### Subsystem Implementation Order (Current Priority)
+
+This section sequences subsystem work by architectural leverage and unblock status. It links to subsystem guides instead of repeating subsystem contracts.
+
+| Order | Subsystem | Why Now | Best Next Slice | Key Blockers / Dependencies |
+| --- | --- | --- | --- | --- |
+| 1 | `diagnostics` | Enables confidence and regression detection across all other subsystems. | Expand invariant coverage + pane health/violation views; continue severity-driven surfacing. | Pane UX cleanup; cross-subsystem channel adoption. |
+| 2 | `storage` | Data integrity and persistence correctness are hard failure domains and a dependency for reliable history. | Add `persistence.*` diagnostics, round-trip/recovery coverage, degradation wiring. | App-level read-only UX wiring; crypto overlap with `security`. |
+| 3 | `history` | Temporal replay/preview and traversal correctness depend on `storage` guarantees and become a core user-facing integrity concern. | Add `history.*` diagnostics + traversal/archive correctness tests before Stage F replay UI. | Stage E history maturity; persistence diagnostics/archives. |
+| 4 | `security` | High-priority trust guarantees, but some slices are tied to Verse Phase 5.4/5.5 closure sequencing. | Grant matrix coverage + denial-path diagnostics assertions + trust-store integrity tests. | Verse sync path closure and shared `GraphIntent` classification patterns. |
+| 5 | `accessibility` | Project goal and major concern, but Graph Reader breadth should follow the immediate WebView bridge fix and diagnostics scaffolding. | WebView bridge compatibility fix (`accesskit` alignment/conversion) + anchor mapping + bridge invariants/tests. | `accesskit` version mismatch; pane/view lifecycle anchor registration; view model stabilization for Graph Reader. |
 
 ---
 
@@ -74,7 +93,7 @@ These are ordered for execution impact, not desirability. Items 1-4 are closure 
 | 5 | **Universal content model foundation (Steps 1-3)** | Required before native viewers, consistent viewer selection, and robust Wry/Servo co-existence. | `2026-02-24_universal_content_model_plan.md`, `GRAPHSHELL_AS_BROWSER.md` | `Node.mime_hint` + `address_kind`, `ViewerRegistry::select_for`, baseline `viewer:plaintext` embedded renderer. |
 | 6 | **Wry backend foundation (Steps 1-5)** | Windows compatibility path is a major practical blocker; depends on viewer contract and pane/overlay rules being explicit. | `2026-02-23_wry_integration_strategy.md`, `2026-02-24_universal_content_model_plan.md` | Feature gate, `WryManager`, `WryViewer`, overlay tracking, lifecycle reconcile integration. |
 | 7 | **Control UI/UX consolidation (ActionRegistry-driven command surfaces)** | Input surface fragmentation in `render/mod.rs` is a readability and maintainability drag; blocks gamepad-ready control UX. | `2026-02-24_control_ui_ux_plan.md`, `2026-02-23_graph_interaction_consistency_plan.md` | Extract radial/palette modules; route both through `ActionRegistry::list_actions_for_context`; unify command palette scopes. |
-| 8 | **Scale + accessibility baseline (Viewport Culling + WebView A11y Bridge)** | Performance and accessibility each have implementation-ready Phase 1 work that should start before feature breadth increases complexity. | `2026-02-24_performance_tuning_plan.md`, `2026-02-24_spatial_accessibility_plan.md` | Land viewport culling policy + implementation slice; land WebView accessibility bridge critical fix. |
+| 8 | **Scale + accessibility baseline (Viewport Culling + WebView A11y Bridge)** | Performance and accessibility each have implementation-ready Phase 1 work that should start before feature breadth increases complexity. | `2026-02-24_performance_tuning_plan.md`, `2026-02-25_subsystem_accessibility.md` | Land viewport culling policy + implementation slice; land WebView accessibility bridge critical fix. |
 
 ### Near-Miss (Implementation-Ready but Not Top 10)
 
@@ -94,7 +113,7 @@ These are not "do now" items. They are concepts that should be explicitly adopte
 | 3 | **Collaborative Presence (ghost cursors, remote selection, follow mode)** | Turns Verse sync from data sync into shared work. | `2026-02-18_graph_ux_research_report.md` §15.2, `GRAPHSHELL_AS_BROWSER.md`, Verse vision docs cited there | After Phase 5 done gates and identity/presence semantics are stable. |
 | 4 | **Semantic Fisheye + DOI (focus+context without geometric distortion)** | High-value readability improvement for dense graphs; preserves mental map while surfacing relevance. | `2026-02-18_graph_ux_research_report.md` §§13.2, 14.8, 14.9 | After basic LOD and viewport culling are in place. |
 | 5 | **Magnetic Zones / Group-in-a-Box / Query-to-Zone** | Adds spatial organization as a first-class workflow, not just emergent physics. | `2026-02-24_layout_behaviors_plan.md` Phase 3 (expanded with persistence scope, interaction model, and implementation sequence), `2026-02-18_graph_ux_research_report.md` §13.1 | **Prerequisites now documented** in `layout_behaviors_plan.md` §3.0–3.5. Implementation blocked on: (1) layout injection hook (Phase 2), (2) Canonical/Divergent scope settlement. Trigger: when both blockers are resolved, execute implementation sequence in §3.5. |
-| 6 | **Graph Reader ("Room" + "Map" linearization) and list-view fallback** | Critical accessibility concept beyond the initial webview bridge; gives non-visual users graph comprehension. | `2026-02-24_spatial_accessibility_research.md`, `2026-02-24_spatial_accessibility_plan.md` Phase 2 | After Phase 1 WebView Bridge lands. |
+| 6 | **Graph Reader ("Room" + "Map" linearization) and list-view fallback** | Critical accessibility concept beyond the initial webview bridge; gives non-visual users graph comprehension. | `2026-02-24_spatial_accessibility_research.md`, `2026-02-25_subsystem_accessibility.md` §8 Phase 2 | After Phase 1 WebView Bridge lands. |
 | 7 | **Unified Omnibar (URL + graph search + web search heuristics)** | Core browser differentiator; unifies navigation and retrieval. | `GRAPHSHELL_AS_BROWSER.md` §7, `2026-02-18_graph_ux_research_report.md` §15.4 | After command palette/input routing stabilization. |
 | 8 | **Progressive Lenses + Lens/Physics binding policy** | Makes Lens abstraction feel native and semantic, not static presets. | `2026-02-24_interaction_and_semantic_design_schemes.md`, `2026-02-24_physics_engine_extensibility_plan.md` (lens-physics binding preference) | After Lens resolution is active runtime path and physics presets are distinct in behavior. |
 | 9 | **2D↔3D Hotswitch with `ViewDimension` and position parity** | Named first-class vision feature; fits the new per-view architecture and future Rapier/3D work. | `2026-02-24_physics_engine_extensibility_plan.md`, `design_docs/PROJECT_DESCRIPTION.md` | After pane-hosted view model and `GraphViewState` are stable. |
@@ -695,7 +714,7 @@ _Source file before consolidation: `2026-02-25_backlog_ticket_stubs.md`_
   - This is intentionally a paired baseline ticket because both are implementation-ready and reduce risk before more surface-area work.
 - **Source refs**:
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md:24`
-  - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_spatial_accessibility_plan.md:32`
+  - `design_docs/graphshell_docs/implementation_strategy/2026-02-25_subsystem_accessibility.md` (supersedes archived `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-24_spatial_accessibility_plan.md`)
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:46`
 
 ---
@@ -845,13 +864,14 @@ _Source file before consolidation: `2026-02-25_backlog_ticket_stubs.md`_
   - Connect to AccessKit virtual tree / navigation model.
 - **Dependencies**: WebView bridge Phase 1 recommended first.
 - **Acceptance**:
-  - Accessibility plan Phase 2 references concrete linearization mode choices.
+  - Accessibility subsystem plan Phase 2 references concrete linearization mode choices.
 - **Definition of Done**:
-  - Accessibility plan contains explicit Graph Reader mode(s), navigation entrypoints, and output shape.
+  - Accessibility subsystem plan contains explicit Graph Reader mode(s), navigation entrypoints, and output shape.
 - **Review Check (comprehension)**:
   - The graph reader is the graph accessibility core, but WebView bridge is still the first critical fix.
 - **Source refs**:
   - `design_docs/graphshell_docs/research/2026-02-24_spatial_accessibility_research.md`
+  - `design_docs/graphshell_docs/implementation_strategy/2026-02-25_subsystem_accessibility.md` §8 Phase 2
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:70`
 
 ### F7. Adopt Unified Omnibar (URL + Graph Search + Web Search)

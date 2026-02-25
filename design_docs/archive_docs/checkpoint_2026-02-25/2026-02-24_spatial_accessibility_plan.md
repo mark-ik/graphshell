@@ -1,7 +1,12 @@
 # Spatial Accessibility Implementation Plan (2026-02-24)
 
-**Status**: Implementation-Ready
+> **SUPERSEDED** — This document has been consolidated into
+> `2026-02-25_subsystem_accessibility.md` (Cross-Cutting Subsystem: Accessibility).
+> Retained for historical reference only. Do not use as authoritative.
+
+**Status**: ~~Implementation-Ready~~ Superseded (2026-02-25)
 **Research**: `../research/2026-02-24_spatial_accessibility_research.md`
+**Required companion**: ~~`2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md`~~ → see `2026-02-25_subsystem_accessibility.md`
 **Goal**: Make Graphshell fully navigable and understandable for non-visual users.
 
 ## 1. Architecture
@@ -32,8 +37,10 @@ A service for "Live Regions" (polite/assertive notifications).
 ### Phase 1: The WebView Bridge (Critical Fix)
 **Goal**: Screen readers can read web content inside Graphshell.
 1.  **Update `EmbedderWindow`**: Ensure `notify_accessibility_tree_update` forwards events to `Gui`.
-2.  **Update `Gui`**: In `notify_accessibility_tree_update`, locate the `egui` widget ID for the webview tile.
-3.  **Bridge**: Use `egui::Context::push_accesskit_tree_update` (or equivalent lower-level hook) to merge the update.
+2.  **Update `Gui` bridge state**: Track `WebViewId -> egui::Id` accessibility anchors for active webview tiles and queue pending updates per webview.
+3.  **Compatibility layer**: Convert Servo `accesskit` tree updates to the `egui`-compatible `accesskit` type version (or align dependencies).
+4.  **Bridge injection**: Inject converted nodes via `egui`'s AccessKit node-builder hook(s) under the registered anchor.
+5.  **Diagnostics + degradation**: Emit accessibility bridge diagnostics for received/injected/dropped/conversion-failed updates and surface degraded status.
 
 ### Phase 2: Graph Linearization (The Graph Reader / Virtual Tree)
 **Goal**: The graph canvas is no longer a "black box" but a navigable list of nodes accessible to screen readers and keyboard-only users.
@@ -138,6 +145,9 @@ Root (role: Window — owned by egui)
 ---
 
 ## 3. Strategy: Ongoing Maintenance
+
+This section is scoped to feature maintenance only. Project-level guarantees, diagnostics integration, contracts, and CI validation requirements are defined in the required companion:
+- `2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md`
 
 ### 3.1 Diagnostics Integration
 Accessibility state is hidden state. We must make it visible.

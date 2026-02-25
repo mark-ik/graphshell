@@ -20,8 +20,9 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Tile**: The fundamental node in the layout tree. Either a **Pane** (leaf) or a **Container** (branch). Identified by a `TileId` (opaque `u64`, unique within one tree). Code: `egui_tiles::Tile<TileKind>`.
 *   **Pane**: A leaf Tile that renders content. The payload is a `TileKind` enum:
     *   `TileKind::Graph(GraphViewId)` — a force-directed graph canvas.
-    *   `TileKind::WebView(NodeKey)` — a webview bound to a graph node.
-    *   `TileKind::Diagnostic` — a system diagnostic inspector (feature-gated).
+    *   `TileKind::Node(NodePaneState)` — a node viewer pane bound to a graph node and resolved viewer backend (legacy serde alias preserves old `WebView(NodeKey)` layouts).
+    *   `TileKind::Tool(ToolPaneState)` — a tool/subsystem pane host (diagnostics today; history/settings/subsystem panes over time).
+*   **Tab**: A tab-bar affordance inside a **Tab Group** container used to select the active child Tile. A Tab is not a Pane; it is one UI control for addressing a Pane/Tile within a container.
 *   **Container**: A branch Tile that holds and arranges child Tiles. Three structural types exist:
 
     | Container type | egui_tiles type | Children visible | Resizable | Layout direction |
@@ -55,11 +56,18 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 ### Pane Types
 
 *   **Graph View**: A Pane (`TileKind::Graph`) containing a force-directed canvas visualization powered by `egui_graphs`. Renders the `Graph` data model with physics simulation, node selection, and camera controls.
-*   **Diagnostic Inspector**: A Pane (`TileKind::Diagnostic`, feature-gated) for visualizing system internals (Engine, Compositor, Intents).
+*   **Pane Presentation Mode** (aka **Pane Chrome Mode**): How a Pane is presented in the tile tree UI (chrome, mobility, and locking behavior), distinct from the Pane's content.
+*   **Tiled Pane** (aka **Promoted Pane**): A Pane presented with tile/tab chrome and normal tile-tree mobility operations (split/tab/arrange/reflow).
+*   **Docked Pane**: A Pane presented with reduced chrome and position-locked behavior inside the current tile arrangement. Intended to reduce accidental reflow and focus attention on content.
+*   **Subsystem Pane**: A pane-addressable surface for a subsystem's runtime state, health, configuration, and primary operations. Subsystems are expected to have dedicated panes, but implementations may be staged. Subsystem panes are hosted as tool panes (`TileKind::Tool(ToolPaneState)`).
+*   **Tool Pane**: A non-document pane hosted under `TileKind::Tool(ToolPaneState)` (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces.
+*   **Diagnostic Inspector**: A subsystem pane (currently the primary `ToolPaneState` implementation) for visualizing system internals (Engine, Compositor, Intents, and future subsystem health views).
 
 ## Interface Components
 
 *   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
+*   **Settings Pane**: A tool pane that aggregates configuration and controls across registries, subsystems, and app-level preferences. A settings pane may host subsystem-specific sections or summon dedicated subsystem panes.
+*   **Control Panel**: The runtime coordination surface/process host for async intent producers, background workers, and cancellation. In architectural terms it is a peer coordinator (not owner) for registries, subsystems, mods, and UI surfaces; in product terms it is the natural home for settings orchestration and subsystem control surfaces. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
 *   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*.
 *   **Command Palette**: A modifiable context menu that serves as an accessible interface for executing Actions.
 *   **The Register**: The central runtime infrastructure host. Contains all Atomic and Domain registries, owns the mod loader, manages the inter-registry Signal Bus, and supervises the **Control Panel** (async intent producers, background workers, cancellation tokens). Code-level: `RegistryRuntime` + `ControlPanel` + `SignalBus`.
@@ -131,6 +139,49 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Verse**: A native mod packaging P2P networking. Provides `protocol:verse-blobs` (iroh QUIC sync), `protocol:nostr` (signaling/invite relay), and `index:community` (federated tantivy search). Tier 1 (private device sync via iroh) and Tier 2 (public community swarms via libp2p) are distinct phases. Without Verse, the app is fully offline.
 *   **WorkbenchProfile**: The Workbench + Input configuration component of a Workflow. Captures active tile-tree layout policy, interaction bindings, and container behavior. Combined with a Lens to produce a full Workflow.
 *   **Workflow**: The full active session mode. `Workflow = Lens × WorkbenchProfile`. A Lens defines how the graph looks and moves; a WorkbenchProfile defines how the Workbench and input are configured. Managed by `WorkflowRegistry` (future).
+
+## Subsystems
+
+A **Subsystem** is a concern that spans multiple registries and components, where silent contract erosion — not one-time implementation gaps — is the dominant failure mode. All subsystems have (or will have) their own pane type. Each subsystem is defined by four layers:
+
+1. **Contracts (schema/invariants)** — Declarative requirements that must hold across the system.
+2. **Runtime State** — The live state managed by the subsystem (queued updates, counters, health status).
+3. **Diagnostics** — Runtime channels, health metrics, and invariant violations emitted through the diagnostics system.
+4. **Validation** — Unit/integration/scenario tests + CI gates that enforce contract compliance over time.
+
+Graphshell defines five cross-cutting runtime subsystems. For space-limited UI labels, the canonical short labels are: `diagnostics`, `accessibility`, `security`, `storage`, `history`.
+
+*   **Diagnostics Subsystem**: Runtime observability infrastructure. The reference subsystem — channel schema, invariant watchdogs, analyzers, and the diagnostic inspector pane.
+*   **Accessibility Subsystem** (`accessibility`): Guarantees that all surfaces remain navigable, comprehensible, and operable across input and assistive modalities (keyboard, screen reader / AccessKit, mouse, gamepad, touch, future speech/audio interaction). This subsystem is broader than the AccessKit bridge implementation alone.
+*   **Security & Access Control Subsystem**: Ensures identity integrity, trust boundaries, grant enforcement, and cryptographic correctness across local operations and Verse sync.
+*   **Storage Subsystem** (`storage`; long form: **Persistence & Data Integrity Subsystem**): Ensures committed state survives restart, serialization round-trips are lossless, data portability remains intact, and single-write-path boundaries remain inviolable.
+*   **History Subsystem** (`history`; long form: **Traversal & Temporal Integrity Subsystem**): Ensures traversal capture correctness, timeline/history integrity, replay/preview isolation, and temporal restoration semantics (including "return to present") remain correct as history features evolve.
+
+### Surface Capability Declarations (Folded Approach)
+
+**Capability** (in this section) means a **declaration/conformance mechanism**, not a peer subsystem. Each viewer/surface registered in `ViewerRegistry`, `CanvasRegistry`, or `WorkbenchSurfaceRegistry` carries **Surface Capability Declarations** — structured sub-fields declaring the surface's support level for each cross-cutting subsystem. This is not a standalone registry; capabilities are co-located with ownership.
+
+Each subsystem defines its own descriptor type (e.g., `AccessibilityCapabilities`, `SecurityCapabilities`). Surfaces declare `full`, `partial`, or `none` for each capability, plus a reason field for unsupported capabilities.
+
+**Why folded, not standalone**: Capabilities are properties of surfaces. A standalone registry adds indirection without adding clarity. The diagnostics system carries the observability; the owning registries carry the declarations.
+
+### Subsystem Conformance
+
+*   **Subsystem Conformance**: The degree to which a surface/viewer satisfies a subsystem's contract. Conformance is the evaluated outcome (e.g., health checks, tests, diagnostics), whereas a capability declaration is the claimed support level. This distinction prevents overloading the word "capability."
+
+### Degradation Mode
+
+*   **Degradation Mode**: The declared and observed state of a subsystem or surface when full contract compliance is unavailable. Canonical values are `full`, `partial`, and `unavailable` (or `none` in capability declarations). Degradation must be explicit, observable, and tested.
+
+### Invariant Class
+
+*   **Invariant Class**: A category of subsystem contract (e.g., integrity, routing, focus, replay, permission, serialization) used to organize diagnostics, validation, and ownership boundaries consistently across subsystems.
+
+### Subsystem Health
+
+*   **Subsystem Health**: The current runtime assessment of a subsystem derived from contract/invariant checks and diagnostics signals (not merely "is the pane open"). Used in subsystem panes and diagnostics summaries.
+
+---
 
 ## Network & Sync (Verse)
 
