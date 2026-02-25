@@ -1222,6 +1222,36 @@ impl GraphStore {
                 },
                 ArchivedLogEntry::TagNode { .. } => {},
                 ArchivedLogEntry::UntagNode { .. } => {},
+                ArchivedLogEntry::UpdateNodeMimeHint { node_id, mime_hint } => {
+                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(node_id)
+                        && let Some(node_mut) = graph.get_node_mut(key)
+                    {
+                        node_mut.mime_hint = mime_hint.as_ref().map(|s| s.to_string());
+                    }
+                },
+                ArchivedLogEntry::UpdateNodeAddressKind { node_id, kind } => {
+                    let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
+                        continue;
+                    };
+                    if let Some(key) = graph.get_node_key_by_id(node_id)
+                        && let Some(node_mut) = graph.get_node_mut(key)
+                    {
+                        node_mut.address_kind = match kind {
+                            types::ArchivedPersistedAddressKind::Http => {
+                                crate::graph::AddressKind::Http
+                            },
+                            types::ArchivedPersistedAddressKind::File => {
+                                crate::graph::AddressKind::File
+                            },
+                            types::ArchivedPersistedAddressKind::Custom => {
+                                crate::graph::AddressKind::Custom
+                            },
+                        };
+                    }
+                },
             }
         }
     }

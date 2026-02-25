@@ -21,13 +21,59 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::services::persistence::types::{
-    GraphSnapshot, PersistedEdge, PersistedEdgeType, PersistedNode, PersistedNodeSessionState,
+    GraphSnapshot, PersistedAddressKind, PersistedEdge, PersistedEdgeType, PersistedNode,
+    PersistedNodeSessionState,
 };
 
 pub mod egui_adapter;
 
 /// Stable node handle (petgraph NodeIndex — survives other deletions)
 pub type NodeKey = NodeIndex;
+
+/// Address type hint for renderer selection.
+///
+/// Set automatically from the URL scheme at node creation time; can be overridden
+/// by WAL entry `UpdateNodeAddressKind` when a more precise classification is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AddressKind {
+    /// Served over HTTP/HTTPS — default; Servo renders.
+    #[default]
+    Http,
+    /// Local filesystem path (`file://` URL).
+    File,
+    /// Any other scheme; renderer selected by `ViewerRegistry`.
+    Custom,
+}
+
+/// Infer `AddressKind` from a URL scheme.
+pub(crate) fn address_kind_from_url(url: &str) -> AddressKind {
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("file://") {
+        AddressKind::File
+    } else if lower.starts_with("http://") || lower.starts_with("https://") {
+        AddressKind::Http
+    } else {
+        AddressKind::Custom
+    }
+}
+
+/// Detect MIME type from a URL using extension sniffing.
+///
+/// Returns `None` when the extension is unknown or the URL has no path component.
+/// Content-byte sniffing (magic numbers) is left to a higher-level caller that
+/// has access to the bytes; this function performs extension-only detection.
+pub(crate) fn detect_mime(url: &str) -> Option<String> {
+    let no_fragment = url.split('#').next().unwrap_or(url);
+    let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
+    // Strip file:// scheme so mime_guess sees a plain path.
+    let path = no_query
+        .strip_prefix("file://")
+        .unwrap_or(no_query)
+        .trim_start_matches('/');
+    // Reconstruct a rooted path string for mime_guess.
+    let guess_path = format!("/{path}");
+    mime_guess::from_path(&guess_path).first().map(|m| m.to_string())
+}
 
 /// Stable edge handle (petgraph EdgeIndex)
 pub type EdgeKey = EdgeIndex;
@@ -93,6 +139,19 @@ pub struct Node {
 
     /// Optional best-effort form draft payload (feature-guarded by caller policy).
     pub session_form_draft: Option<String>,
+
+    /// Optional declared or sniffed MIME type; drives renderer selection.
+    ///
+    /// Set at node creation time from URL extension sniffing; may be updated by
+    /// WAL entry `UpdateNodeMimeHint` when content-byte detection or a
+    /// Content-Type header provides a more precise value.
+    pub mime_hint: Option<String>,
+
+    /// Address type hint (complement to `url` field).
+    ///
+    /// Inferred from the URL scheme at node creation time. May be overridden by
+    /// WAL entry `UpdateNodeAddressKind`.
+    pub address_kind: AddressKind,
 
     /// Webview lifecycle state
     pub lifecycle: NodeLifecycle,
@@ -292,6 +351,8 @@ impl Graph {
             favicon_height: 0,
             session_scroll: None,
             session_form_draft: None,
+            mime_hint: detect_mime(&url),
+            address_kind: address_kind_from_url(&url),
             lifecycle: NodeLifecycle::Cold,
         });
 
@@ -637,6 +698,12 @@ impl Graph {
                     scroll_y: node.session_scroll.map(|(_, y)| y),
                     form_draft: node.session_form_draft.clone(),
                 }),
+                mime_hint: node.mime_hint.clone(),
+                address_kind: match node.address_kind {
+                    AddressKind::Http => PersistedAddressKind::Http,
+                    AddressKind::File => PersistedAddressKind::File,
+                    AddressKind::Custom => PersistedAddressKind::Custom,
+                },
             })
             .collect();
 
@@ -702,6 +769,12 @@ impl Graph {
                 node.favicon_rgba = pnode.favicon_rgba.clone();
                 node.favicon_width = pnode.favicon_width;
                 node.favicon_height = pnode.favicon_height;
+                node.mime_hint = pnode.mime_hint.clone();
+                node.address_kind = match pnode.address_kind {
+                    PersistedAddressKind::Http => AddressKind::Http,
+                    PersistedAddressKind::File => AddressKind::File,
+                    PersistedAddressKind::Custom => AddressKind::Custom,
+                };
                 if let Some(session) = &pnode.session_state {
                     node.history_entries = session.history_entries.clone();
                     node.history_index = session
@@ -716,6 +789,11 @@ impl Graph {
             if let Some(current_url) = restore_url_from_session
                 && !current_url.is_empty()
             {
+                // Recompute MIME hint and address kind from the restored URL.
+                if let Some(node) = graph.get_node_mut(key) {
+                    node.mime_hint = detect_mime(&current_url);
+                    node.address_kind = address_kind_from_url(&current_url);
+                }
                 let _ = graph.update_node_url(key, current_url);
             }
         }
@@ -1132,7 +1210,7 @@ mod tests {
     #[test]
     fn test_snapshot_edge_with_missing_url_is_dropped() {
         use crate::services::persistence::types::{
-            GraphSnapshot, PersistedEdge, PersistedEdgeType, PersistedNode,
+            GraphSnapshot, PersistedAddressKind, PersistedEdge, PersistedEdgeType, PersistedNode,
         };
 
         let snapshot = GraphSnapshot {
@@ -1152,6 +1230,8 @@ mod tests {
                 favicon_width: 0,
                 favicon_height: 0,
                 session_state: None,
+                mime_hint: None,
+                address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![PersistedEdge {
                 from_node_id: Uuid::new_v4().to_string(),
@@ -1170,7 +1250,9 @@ mod tests {
 
     #[test]
     fn test_snapshot_duplicate_urls_last_wins() {
-        use crate::services::persistence::types::{GraphSnapshot, PersistedNode};
+        use crate::services::persistence::types::{
+            GraphSnapshot, PersistedAddressKind, PersistedNode,
+        };
 
         let snapshot = GraphSnapshot {
             nodes: vec![
@@ -1190,6 +1272,8 @@ mod tests {
                     favicon_width: 0,
                     favicon_height: 0,
                     session_state: None,
+                    mime_hint: None,
+                    address_kind: PersistedAddressKind::Http,
                 },
                 PersistedNode {
                     node_id: Uuid::new_v4().to_string(),
@@ -1207,6 +1291,8 @@ mod tests {
                     favicon_width: 0,
                     favicon_height: 0,
                     session_state: None,
+                    mime_hint: None,
+                    address_kind: PersistedAddressKind::Http,
                 },
             ],
             edges: vec![],
@@ -1244,7 +1330,9 @@ mod tests {
 
     #[test]
     fn test_cold_restore_reapplies_history_index() {
-        use crate::services::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
+        use crate::services::persistence::types::{
+            GraphSnapshot, PersistedAddressKind, PersistedNode, PersistedNodeSessionState,
+        };
 
         let node_id = Uuid::new_v4();
         let snapshot = GraphSnapshot {
@@ -1274,6 +1362,8 @@ mod tests {
                     scroll_y: Some(120.0),
                     form_draft: None,
                 }),
+                mime_hint: None,
+                address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
             timestamp_secs: 0,
@@ -1287,7 +1377,9 @@ mod tests {
 
     #[test]
     fn test_cold_restore_reapplies_scroll_offset() {
-        use crate::services::persistence::types::{GraphSnapshot, PersistedNode, PersistedNodeSessionState};
+        use crate::services::persistence::types::{
+            GraphSnapshot, PersistedAddressKind, PersistedNode, PersistedNodeSessionState,
+        };
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {
@@ -1312,6 +1404,8 @@ mod tests {
                     scroll_y: Some(640.0),
                     form_draft: None,
                 }),
+                mime_hint: None,
+                address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
             timestamp_secs: 0,
@@ -1324,7 +1418,9 @@ mod tests {
 
     #[test]
     fn test_restore_fallback_without_session_state() {
-        use crate::services::persistence::types::{GraphSnapshot, PersistedNode};
+        use crate::services::persistence::types::{
+            GraphSnapshot, PersistedAddressKind, PersistedNode,
+        };
 
         let snapshot = GraphSnapshot {
             nodes: vec![PersistedNode {
@@ -1343,6 +1439,8 @@ mod tests {
                 favicon_width: 0,
                 favicon_height: 0,
                 session_state: None,
+                mime_hint: None,
+                address_kind: PersistedAddressKind::Http,
             }],
             edges: vec![],
             timestamp_secs: 0,
@@ -1358,5 +1456,117 @@ mod tests {
         );
         assert_eq!(node.history_index, 0);
         assert_eq!(node.session_scroll, None);
+    }
+
+    // --- MIME / address-kind detection tests ---
+
+    #[test]
+    fn node_created_with_http_url_has_http_address_kind() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let node = graph.get_node(key).unwrap();
+        assert_eq!(node.address_kind, AddressKind::Http);
+    }
+
+    #[test]
+    fn node_created_with_file_url_has_file_address_kind() {
+        let mut graph = Graph::new();
+        let key = graph.add_node(
+            "file:///home/user/doc.pdf".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let node = graph.get_node(key).unwrap();
+        assert_eq!(node.address_kind, AddressKind::File);
+    }
+
+    #[test]
+    fn node_created_with_file_pdf_url_gets_pdf_mime_hint() {
+        let mut graph = Graph::new();
+        let key = graph.add_node(
+            "file:///home/user/document.pdf".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let node = graph.get_node(key).unwrap();
+        assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
+        assert_eq!(node.address_kind, AddressKind::File);
+    }
+
+    #[test]
+    fn node_created_with_http_url_has_no_mime_hint_by_default() {
+        let mut graph = Graph::new();
+        let key =
+            graph.add_node("https://example.com/page".to_string(), Point2D::new(0.0, 0.0));
+        let node = graph.get_node(key).unwrap();
+        // Plain HTTP URLs without a recognisable extension yield no MIME hint.
+        assert!(node.mime_hint.is_none());
+    }
+
+    #[test]
+    fn detect_mime_returns_pdf_for_pdf_path() {
+        assert_eq!(
+            detect_mime("file:///home/user/document.pdf"),
+            Some("application/pdf".to_string())
+        );
+    }
+
+    #[test]
+    fn detect_mime_returns_text_plain_for_txt_path() {
+        assert_eq!(
+            detect_mime("file:///notes/readme.txt"),
+            Some("text/plain".to_string())
+        );
+    }
+
+    #[test]
+    fn detect_mime_returns_none_for_no_extension() {
+        assert!(detect_mime("https://example.com/page").is_none());
+    }
+
+    #[test]
+    fn address_kind_from_url_http() {
+        assert_eq!(address_kind_from_url("http://example.com"), AddressKind::Http);
+        assert_eq!(
+            address_kind_from_url("https://example.com"),
+            AddressKind::Http
+        );
+    }
+
+    #[test]
+    fn address_kind_from_url_file() {
+        assert_eq!(
+            address_kind_from_url("file:///home/user/file.txt"),
+            AddressKind::File
+        );
+    }
+
+    #[test]
+    fn address_kind_from_url_custom() {
+        assert_eq!(
+            address_kind_from_url("gemini://gemini.circumlunar.space/"),
+            AddressKind::Custom
+        );
+        assert_eq!(address_kind_from_url("ftp://files.example.com/"), AddressKind::Custom);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_preserves_mime_hint_and_address_kind() {
+        let mut graph = Graph::new();
+        let key = graph.add_node(
+            "file:///home/user/report.pdf".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        assert_eq!(
+            graph.get_node(key).unwrap().mime_hint.as_deref(),
+            Some("application/pdf")
+        );
+        assert_eq!(graph.get_node(key).unwrap().address_kind, AddressKind::File);
+
+        let snapshot = graph.to_snapshot();
+        let restored = Graph::from_snapshot(&snapshot);
+        let (_, rnode) = restored
+            .get_node_by_url("file:///home/user/report.pdf")
+            .unwrap();
+        assert_eq!(rnode.mime_hint.as_deref(), Some("application/pdf"));
+        assert_eq!(rnode.address_kind, AddressKind::File);
     }
 }
