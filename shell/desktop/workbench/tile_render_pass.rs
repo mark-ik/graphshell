@@ -83,14 +83,19 @@ fn tile_hierarchy_lines(
             Tile::Pane(TileKind::Tool(_)) => ("Tool".to_string(), None),
             Tile::Container(Container::Tabs(tabs)) => {
                 (
-                    format!("Tabs active={:?} children={}", tabs.active, tabs.children.len()),
+                    format!("Tab Group ({} tabs)", tabs.children.len()),
                     None,
                 )
             }
             Tile::Container(Container::Linear(linear)) => {
-                (format!("Linear children={}", linear.children.len()), None)
+                use egui_tiles::LinearDir;
+                let dir_label = match linear.dir {
+                    LinearDir::Horizontal => "Split ↔",
+                    LinearDir::Vertical => "Split ↕",
+                };
+                (format!("{} ({} panes)", dir_label, linear.children.len()), None)
             }
-            Tile::Container(other) => (format!("Container {:?}", other.kind()), None),
+            Tile::Container(other) => (format!("Panel Group ({:?})", other.kind()), None),
         };
         out.push(crate::shell::desktop::runtime::diagnostics::HierarchySample {
             line: format!("{}{} {:?} {}", indent, marker, tile_id, label),

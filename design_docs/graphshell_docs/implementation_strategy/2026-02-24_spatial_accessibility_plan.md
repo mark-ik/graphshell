@@ -35,14 +35,84 @@ A service for "Live Regions" (polite/assertive notifications).
 2.  **Update `Gui`**: In `notify_accessibility_tree_update`, locate the `egui` widget ID for the webview tile.
 3.  **Bridge**: Use `egui::Context::push_accesskit_tree_update` (or equivalent lower-level hook) to merge the update.
 
-### Phase 2: Graph Linearization (The Virtual Tree)
-**Goal**: The graph canvas is no longer a "black box" but a navigable list of nodes.
+### Phase 2: Graph Linearization (The Graph Reader / Virtual Tree)
+**Goal**: The graph canvas is no longer a "black box" but a navigable list of nodes accessible to screen readers and keyboard-only users.
+
+#### 2.1 Graph Reader Modes
+
+Two explicit modes are defined, corresponding to the "Room" and "Map" metaphors in the research doc:
+
+**Mode A — Room Mode (Local Context, default when a node is focused)**
+- Activated when the user focuses any node in the graph (e.g., via click, Tab, or programmatic focus).
+- The focused node is treated as a "Room". The virtual tree rooted at that node exposes:
+  - **Node summary**: title, URL/address, UDC tags, content type (MIME hint).
+  - **Edges (Doors)**: connected nodes grouped by relationship type (Outgoing / Incoming / Bidirectional), each rendered as a child `accesskit::Node` with role `Link` and label `"<direction>: <neighbor title>"`.
+  - **Cluster context (Walls)**: a read-only `accesskit::Node` with role `Note` announcing the node's cluster membership and local degree (e.g., `"In cluster 'Rust'. 5 connections."`).
+- **Scope**: shallow — only the immediate neighborhood (depth 1) is materialized in the tree.
+
+**Mode B — Map Mode (Global Linearization, for full graph traversal)**
+- Activated explicitly by the user (see Entry Points below).
+- The entire graph is flattened using the **Semantic Hierarchy** algorithm:
+  - **Level 1 (Cluster nodes)**: One `accesskit::Node` per detected community/UDC cluster, role `Group`, label = cluster name or `"Uncategorized"`.
+  - **Level 2 (Hub nodes)**: High-degree nodes within each cluster, role `TreeItem`, sorted descending by degree.
+  - **Level 3 (Leaf nodes)**: Remaining nodes within each cluster, role `TreeItem`, sorted by title.
+- Edges are not materialized at map level to keep the tree manageable; activating (pressing Enter on) a hub or leaf node switches into **Room Mode** for that node.
+- **Fallback ordering**: If community detection is unavailable, fall back to **Spatial Sweep** (sort by Y then X, left-to-right reading order).
+
+#### 2.2 Navigation Entry Points
+
+| Trigger | Action |
+|---|---|
+| `Tab` / `Shift+Tab` (while graph canvas is focused) | Move to next / previous node in the active linearization (Room Mode: traverse edges; Map Mode: traverse hierarchy). |
+| `Ctrl+L` | Toggle the active graph pane between **Canvas Mode** (visual) and **List Mode** (renders graph as `egui::Tree`, enters Map Mode linearization). |
+| `Enter` on a focused node (in Map Mode) | Drill into **Room Mode** for that node. |
+| `Escape` (while in Room Mode) | Return to Map Mode, restoring focus to the previously selected node in the hierarchy. |
+| `Ctrl+Arrow` | Jump between cluster groups (Level 1 nodes) in Map Mode. |
+| `F6` | Cycle focus across top-level regions: Toolbar → Graph Canvas → Active Pane. Entering the Graph Canvas activates Room Mode on the last focused node (or first node if none). |
+| `Alt+Shift+R` | Explicitly enter **Map Mode** (Graph Reader) from anywhere in the application. |
+
+#### 2.3 AccessKit Virtual Tree Output Shape
+
+The `GraphAccessKitAdapter` produces an `accesskit::TreeUpdate` with the following structure:
+
+```
+Root (role: Window — owned by egui)
+└── GraphCanvas (role: ScrollView, label: "Graph Canvas")
+    ├── [Map Mode root, hidden when in Room Mode]
+    │   GraphReaderRoot (role: Tree, label: "Graph Reader — <N> nodes")
+    │   ├── ClusterGroup_<id> (role: Group, label: "<cluster name> — <k> nodes")
+    │   │   ├── HubNode_<uuid> (role: TreeItem, label: "<title>", description: "<url> · degree <d>")
+    │   │   │   └── ... (children omitted at map level; activated via Enter)
+    │   │   └── LeafNode_<uuid> (role: TreeItem, label: "<title>", description: "<url>")
+    │   └── ...
+    └── [Room Mode root, active when a node is focused]
+        FocusedNode_<uuid> (role: Article, label: "<title>", description: "<url> · <tags>")
+        ├── ClusterContext (role: Note, label: "In cluster '<name>'. <k> connections.")
+        ├── EdgeGroup_outgoing (role: Group, label: "Outgoing links — <n>")
+        │   └── Edge_<uuid> (role: Link, label: "Outgoing: <neighbor title>", description: "<neighbor url>")
+        ├── EdgeGroup_incoming (role: Group, label: "Incoming links — <n>")
+        │   └── Edge_<uuid> (role: Link, label: "Incoming: <neighbor title>", description: "<neighbor url>")
+        └── EdgeGroup_bidirectional (role: Group, label: "Bidirectional links — <n>")
+            └── Edge_<uuid> (role: Link, label: "Bidirectional: <neighbor title>", description: "<neighbor url>")
+```
+
+**Node ID stability**: `accesskit::NodeId`s are derived deterministically from `Node.id` (UUID) via a stable hash, ensuring focus is preserved across tree refreshes.
+
+**Update policy**: The adapter rebuilds only the subtree that changed (focused node's Room, or the full hierarchy when entering Map Mode). Updates are throttled to 10 Hz to avoid blocking the render thread.
+
+#### 2.4 Implementation Steps
+
 1.  **Implement `GraphAccessKitAdapter`**:
-    -   Define `SemanticHierarchy` algorithm (Cluster -> Hub -> Leaf).
+    -   Define `SemanticHierarchy` algorithm (Cluster → Hub → Leaf) with Spatial Sweep fallback.
+    -   Implement `RoomView` builder (focused node + depth-1 neighborhood).
     -   Generate stable `accesskit::NodeId`s from `NodeKey`s (using `Node.id` UUIDs).
-2.  **Wire to `GraphView`**:
+2.  **Implement mode state in `GraphViewState`**:
+    -   Add `GraphReaderMode` enum: `Room { focused: NodeKey }` | `Map` | `Off`.
+    -   Wire `Ctrl+L`, `Alt+Shift+R`, `Enter`, and `Escape` handlers in `input/mod.rs`.
+3.  **Wire to `GraphView`**:
     -   In `render/mod.rs`, populate the adapter during the render pass.
-    -   Submit the tree update to `egui`.
+    -   Submit the tree update to `egui` via `ctx.accesskit_placeholder()`.
+4.  **Wire `F6` skip-link** in `input/mod.rs` to cycle: Toolbar → Graph → Active Pane.
 
 ### Phase 3: Navigation & Focus
 **Goal**: Keyboard users can move efficiently between UI regions.

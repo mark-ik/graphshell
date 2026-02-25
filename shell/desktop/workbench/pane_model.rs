@@ -205,7 +205,7 @@ impl PaneViewState {
     /// Returns the graph view id if this is a `Graph` pane.
     pub(crate) fn graph_view_id(&self) -> Option<GraphViewId> {
         match self {
-            Self::Graph(ref graph_ref) => Some(graph_ref.graph_view_id),
+            Self::Graph(graph_ref) => Some(graph_ref.graph_view_id),
             _ => None,
         }
     }
