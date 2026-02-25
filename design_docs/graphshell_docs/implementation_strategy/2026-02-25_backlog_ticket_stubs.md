@@ -452,7 +452,7 @@
 - **GitHub Issue Title**: `Roadmap: adopt visual tombstones (ghost nodes/edges) into active UX planning`
 - **GitHub Labels**: `concept/adoption`, `ux`, `graph-ui`, `research-followup`, `future-roadmap`
 - **GitHub Milestone**: `Concept Adoption / UX`
-- **GitHub Issue Status**: `Queued`
+- **GitHub Issue Status**: `Done`
 - **Blocking Prerequisites**:
   - `None`
 - **Goal**: Promote ghost-node/ghost-edge deletion memory concept into planned UX work (not just research).
@@ -469,6 +469,7 @@
 - **Source refs**:
   - `design_docs/graphshell_docs/research/2026-02-24_visual_tombstones_research.md`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:70`
+  - `design_docs/graphshell_docs/implementation_strategy/2026-02-25_visual_tombstones_plan.md` ✅ phased plan with toggle + retention semantics
 
 ### F2. Adopt Temporal Navigation / Time-Travel Preview
 
