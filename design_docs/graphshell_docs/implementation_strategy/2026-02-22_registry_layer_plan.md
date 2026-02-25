@@ -1,6 +1,6 @@
 # Registry Layer Architecture Plan (2026-02-22)
 
-**Status**: Phases 0–4 complete (2026-02-23). Phase 5 in progress (5.1–5.3 implemented with diagnostics channel/invariant contracts; 5.4–5.5 partial). Phase 6 in progress (6.1 compile-green; 6.2 seam/boundary contracts in place; 6.3 single-write-path runtime closure complete; 6.4 filesystem/import canonicalization complete; 6.5 shim removal and final boundary lock complete).
+**Status**: Phases 0–4 complete (2026-02-23). Phase 5 complete (2026-02-25; 5.1–5.3 implemented with diagnostics channel/invariant contracts, and 5.4–5.5 done gates closed). Phase 6 complete (6.1 compile-green; 6.2 seam/boundary contracts in place; 6.3 single-write-path runtime closure complete; 6.4 filesystem/import canonicalization complete; 6.5 shim removal and final boundary lock complete).
 **Supersedes**: `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (archived to `archive_docs/checkpoint_2026-02-23/`)
 **Goal**: Decompose Graphshell's monolithic logic into a modular ecosystem of registries, enabling extensibility and the "Knowledge User Agent" vision.
 
@@ -559,12 +559,12 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 
 ### Phase 5: Verse Native Mod (Tier 1: Direct P2P Sync)
 
-**Status**: In progress. Core scaffolding and runtime hooks are implemented (identity bootstrap, endpoint init, trust model/types, sync worker skeleton, sync panel surface, pair-by-code/decode path, async discovery enqueue path), and Phase 5 diagnostics channel + watchdog invariant contracts are in place. End-to-end done gates for Steps 5.4–5.5 remain open.
+**Status**: Complete (2026-02-25). Core scaffolding and runtime hooks are implemented (identity bootstrap, endpoint init, trust model/types, sync worker skeleton, sync panel surface, pair-by-code/decode path, async discovery enqueue path), Phase 5 diagnostics channel + watchdog invariant contracts are in place, and end-to-end done gates for Steps 5.4–5.5 are closed (see issues `#1` and `#2`).
 
-**2026-02-24 audited open items (strict):**
-- Harness done-gate scenarios are still missing: `verse_delta_sync_basic`, `verse_access_control`.
-- Runtime diagnostics gap remains for conflict channels (`verse.sync.conflict_detected`, `verse.sync.conflict_resolved`) in code emission paths.
-- Phase 5 is not done until both scenario gates execute and pass alongside compile/test baseline.
+**2026-02-24 audited open items (strict, historical snapshot):**
+- At the time of the 2026-02-24 audit, harness done-gate scenarios were still missing: `verse_delta_sync_basic`, `verse_access_control`.
+- At the time of the 2026-02-24 audit, runtime diagnostics gaps remained for conflict channels (`verse.sync.conflict_detected`, `verse.sync.conflict_resolved`) in code emission paths.
+- Resolved on 2026-02-25 via Phase 5.4/5.5 done-gate closures tracked in issues `#1` and `#2`.
 
 **Goal**: Package direct P2P networking as the Verse native mod. Implements bilateral, zero-cost sync between trusted devices via iroh (QUIC + Noise). No tokens, no servers, no Tier 2 complexity.
 
