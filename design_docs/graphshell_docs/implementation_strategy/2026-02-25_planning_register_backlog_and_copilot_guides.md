@@ -100,6 +100,9 @@ These are not "do now" items. They are concepts that should be explicitly adopte
 | 9 | **2D↔3D Hotswitch with `ViewDimension` and position parity** | Named first-class vision feature; fits the new per-view architecture and future Rapier/3D work. | `2026-02-24_physics_engine_extensibility_plan.md`, `design_docs/PROJECT_DESCRIPTION.md` | After pane-hosted view model and `GraphViewState` are stable. |
 | 10 | **Interactive HTML Export (self-contained graph artifact)** | Strong shareability and offline review workflow; distinctive output mode. | `design_docs/archive_docs/checkpoint_2026-01-29/PROJECT_PHILOSOPHY.md` (archived concept) | After viewer/content model and export-safe snapshot shape are defined. |
 
+Appended adoption note (preserved from PR `#55`, pending table refactor):
+- Visual Tombstones (`Rank 1`) is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-25_visual_tombstones_plan.md` and should be treated as `✅ adopted` in future table cleanup.
+
 ---
 
 ## 3. Top 10 Quickest Improvements (Low-Effort / High-Leverage Slices)
@@ -691,7 +694,7 @@ _Source file before consolidation: `2026-02-25_backlog_ticket_stubs.md`_
 - **GitHub Issue Title**: `Roadmap: adopt visual tombstones (ghost nodes/edges) into active UX planning`
 - **GitHub Labels**: `concept/adoption`, `ux`, `graph-ui`, `research-followup`, `future-roadmap`
 - **GitHub Milestone**: `Concept Adoption / UX`
-- **GitHub Issue Status**: `Queued`
+- **GitHub Issue Status**: `Done`
 - **Blocking Prerequisites**:
   - `None`
 - **Goal**: Promote ghost-node/ghost-edge deletion memory concept into planned UX work (not just research).
@@ -708,6 +711,7 @@ _Source file before consolidation: `2026-02-25_backlog_ticket_stubs.md`_
 - **Source refs**:
   - `design_docs/graphshell_docs/research/2026-02-24_visual_tombstones_research.md`
   - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md:70`
+  - `design_docs/graphshell_docs/implementation_strategy/2026-02-25_visual_tombstones_plan.md` ✅ phased plan with toggle + retention semantics
 
 ### F2. Adopt Temporal Navigation / Time-Travel Preview
 
