@@ -32,6 +32,20 @@ pub(crate) struct CanvasStylePolicy {
     pub(crate) labels_always: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum EdgeLodPolicy {
+    Full,
+    SkipLabels,
+    Hidden,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CanvasPerformancePolicy {
+    pub(crate) viewport_culling_enabled: bool,
+    pub(crate) label_culling_enabled: bool,
+    pub(crate) edge_lod: EdgeLodPolicy,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct CanvasSurfaceProfile {
     pub(crate) profile_id: String,
@@ -40,6 +54,7 @@ pub(crate) struct CanvasSurfaceProfile {
     pub(crate) navigation: CanvasNavigationPolicy,
     pub(crate) interaction: CanvasInteractionPolicy,
     pub(crate) style: CanvasStylePolicy,
+    pub(crate) performance: CanvasPerformancePolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +145,11 @@ impl Default for CanvasRegistry {
                 style: CanvasStylePolicy {
                     labels_always: true,
                 },
+                performance: CanvasPerformancePolicy {
+                    viewport_culling_enabled: false,
+                    label_culling_enabled: false,
+                    edge_lod: EdgeLodPolicy::Full,
+                },
             },
         );
         registry
@@ -162,5 +182,57 @@ mod tests {
         assert!(!resolution.matched);
         assert!(resolution.fallback_used);
         assert_eq!(resolution.resolved_id, CANVAS_PROFILE_DEFAULT);
+    }
+
+    #[test]
+    fn canvas_registry_default_profile_has_performance_policy() {
+        let registry = CanvasRegistry::default();
+        let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
+        let perf = &resolution.profile.performance;
+        assert!(!perf.viewport_culling_enabled);
+        assert!(!perf.label_culling_enabled);
+        assert_eq!(perf.edge_lod, EdgeLodPolicy::Full);
+    }
+
+    #[test]
+    fn canvas_registry_custom_profile_with_culling_enabled() {
+        let mut registry = CanvasRegistry::default();
+        registry.register(
+            "canvas:perf",
+            CanvasSurfaceProfile {
+                profile_id: "canvas:perf".to_string(),
+                topology: CanvasTopologyPolicy {
+                    policy_id: "topology:free".to_string(),
+                    directed: false,
+                    cycles_allowed: true,
+                },
+                layout_algorithm: CanvasLayoutAlgorithmPolicy {
+                    algorithm_id: "graph_layout:force_directed".to_string(),
+                },
+                navigation: CanvasNavigationPolicy {
+                    fit_to_screen_enabled: false,
+                    zoom_and_pan_enabled: false,
+                },
+                interaction: CanvasInteractionPolicy {
+                    dragging_enabled: true,
+                    node_selection_enabled: true,
+                    node_clicking_enabled: true,
+                },
+                style: CanvasStylePolicy {
+                    labels_always: false,
+                },
+                performance: CanvasPerformancePolicy {
+                    viewport_culling_enabled: true,
+                    label_culling_enabled: true,
+                    edge_lod: EdgeLodPolicy::SkipLabels,
+                },
+            },
+        );
+        let resolution = registry.resolve("canvas:perf");
+        assert!(resolution.matched);
+        let perf = &resolution.profile.performance;
+        assert!(perf.viewport_culling_enabled);
+        assert!(perf.label_culling_enabled);
+        assert_eq!(perf.edge_lod, EdgeLodPolicy::SkipLabels);
     }
 }
