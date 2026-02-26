@@ -39,7 +39,7 @@ It serves three goals:
 
 # Design Docs Index
 
-Last updated: February 24, 2026 (session 2)
+Last updated: February 26, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -74,7 +74,8 @@ Project status source: [../README.md](../README.md)
 
 ### Graphshell Implementation Strategy
 
-- [graphshell_docs/implementation_strategy/IMPLEMENTATION_ROADMAP.md](graphshell_docs/implementation_strategy/IMPLEMENTATION_ROADMAP.md) - Feature targets, dependencies, validation order.
+- [graphshell_docs/implementation_strategy/PLANNING_REGISTER.md](graphshell_docs/implementation_strategy/PLANNING_REGISTER.md) - **Canonical execution register**: active lane sequencing, stabilization bug register, issue-seeding guidance, and subsystem/lane prioritization.
+- [graphshell_docs/implementation_strategy/2026-02-26_composited_viewer_pass_contract.md](graphshell_docs/implementation_strategy/2026-02-26_composited_viewer_pass_contract.md) - **Canonical surface-composition contract** for composited viewers, render-mode policy, and Appendix A foundation/debt analysis.
 - [graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md](graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md) - Bookmark/history import plan.
 - [graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md](graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md) - DOM clipping plan.
 - [graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md](graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) - Edge traversal migration plan.
@@ -94,7 +95,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md](graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md) - Behavioral layout/creative physics plan.
 - [graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md](graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md) - Performance scaling and frame-budget plan.
 - [graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md](graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md) - Universal node content model implementation plan: non-web renderers (PDF, image, text, audio, SVG, directory), MIME detection pipeline, ViewerRegistry selection policy, security/sandboxing model, crate selection with license analysis.
-- [graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md](graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md) - **Current Priorities**: Top 10 tasks, forgotten concepts, and quick improvements.
+- [graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md](graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md) - Canonical register-runtime/control-panel/signal-routing architecture and routing rules.
 
 ### Graphshell Design
 

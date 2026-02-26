@@ -27,7 +27,7 @@ All authoritative design material lives in `design_docs/`. Read the index at
 | `design_docs/PROJECT_DESCRIPTION.md` | Product goals, major features |
 | `design_docs/DOC_POLICY.md` | Documentation governance rules |
 | `design_docs/OPERATOR_GUIDE.md` | Build, run, configuration |
-| `design_docs/graphshell_docs/implementation_strategy/` | Dated feature plans and the current `IMPLEMENTATION_ROADMAP.md` |
+| `design_docs/graphshell_docs/implementation_strategy/` | Dated feature plans plus canonical execution/control docs (`PLANNING_REGISTER.md`, `SYSTEM_REGISTER.md`) |
 | `design_docs/graphshell_docs/implementation_progress/` | Phase completion reports — what's done |
 | `design_docs/graphshell_docs/technical_architecture/` | Architectural decisions and component diagrams |
 | `design_docs/graphshell_docs/research/` | Research backing design decisions |
@@ -37,8 +37,8 @@ All authoritative design material lives in `design_docs/`. Read the index at
 
 **Always-relevant files** (read these for every PR review):
 - `design_docs/TERMINOLOGY.md`
-- `design_docs/graphshell_docs/implementation_strategy/IMPLEMENTATION_ROADMAP.md`
-- `design_docs/graphshell_docs/implementation_strategy/2026-02-24_immediate_priorities.md`
+- `design_docs/graphshell_docs/implementation_strategy/PLANNING_REGISTER.md`
+- `design_docs/graphshell_docs/implementation_strategy/2026-02-26_composited_viewer_pass_contract.md`
 
 ---
 
@@ -55,8 +55,8 @@ the primary automated role.
 
 2. **Identify the plan step.** Find the strategy document(s) in
    `design_docs/graphshell_docs/implementation_strategy/` that describe the
-   work this PR is implementing. Use the roadmap and immediate-priorities doc
-   as entry points.
+   work this PR is implementing. Use `PLANNING_REGISTER.md` (`§1A` / `§1C`) as
+   the execution entry point and then follow linked strategy docs.
 
 3. **Read the relevant research.** If the strategy doc cites a research file,
    read it. Understanding *why* something was designed a certain way helps you
