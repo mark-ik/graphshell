@@ -19,6 +19,7 @@ use servo::{
 };
 
 use crate::app::GraphBrowserApp;
+use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -84,6 +85,7 @@ pub(crate) fn activate_focused_webview_for_frame(
 
 pub(crate) fn composite_active_node_pane_webviews(
     ctx: &egui::Context,
+    tiles_tree: &Tree<TileKind>,
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -113,6 +115,11 @@ pub(crate) fn composite_active_node_pane_webviews(
         }
     }
     for (node_key, tile_rect) in active_tile_rects {
+        let render_mode = render_mode_for_node_pane(tiles_tree, node_key);
+        if render_mode != TileRenderMode::CompositedTexture {
+            continue;
+        }
+
         let size = Size2D::new(tile_rect.width(), tile_rect.height()) * scale;
         let target_size = PhysicalSize::new(
             size.width.max(1.0).round() as u32,
@@ -232,4 +239,15 @@ fn active_node_pane_key(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
             Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
             _ => None,
         })
+}
+
+fn render_mode_for_node_pane(tiles_tree: &Tree<TileKind>, node_key: NodeKey) -> TileRenderMode {
+    tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(_, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(state.render_mode),
+            _ => None,
+        })
+        .unwrap_or(TileRenderMode::Placeholder)
 }

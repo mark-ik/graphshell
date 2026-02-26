@@ -10,7 +10,7 @@ use servo::{OffscreenRenderingContext, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
 use crate::shell::desktop::lifecycle::lifecycle_intents;
-use crate::shell::desktop::workbench::pane_model::NodePaneState;
+use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -18,6 +18,16 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 pub(crate) struct TileCoordinator;
 
 impl TileCoordinator {
+    fn render_mode_for_viewer_id(viewer_id: &str) -> TileRenderMode {
+        match viewer_id {
+            "viewer:webview" | "viewer:servo" => TileRenderMode::CompositedTexture,
+            "viewer:wry" => TileRenderMode::NativeOverlay,
+            "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
+            | "viewer:settings" | "viewer:metadata" => TileRenderMode::EmbeddedEgui,
+            _ => TileRenderMode::Placeholder,
+        }
+    }
+
     fn node_pane_effective_viewer_id<'a>(
         state: &'a NodePaneState,
         graph_app: &GraphBrowserApp,
@@ -33,14 +43,17 @@ impl TileCoordinator {
         )
     }
 
+    fn resolve_node_pane_render_mode(state: &NodePaneState, graph_app: &GraphBrowserApp) -> TileRenderMode {
+        Self::node_pane_effective_viewer_id(state, graph_app)
+            .map(Self::render_mode_for_viewer_id)
+            .unwrap_or(TileRenderMode::Placeholder)
+    }
+
     fn node_pane_hosts_webview_runtime_impl(
         state: &NodePaneState,
         graph_app: &GraphBrowserApp,
     ) -> bool {
-        matches!(
-            Self::node_pane_effective_viewer_id(state, graph_app),
-            Some("viewer:webview") | Some("viewer:servo")
-        )
+        Self::resolve_node_pane_render_mode(state, graph_app) == TileRenderMode::CompositedTexture
     }
 
     fn collect_node_pane_keys_hosting_webview_runtime(
@@ -107,6 +120,17 @@ impl TileCoordinator {
         graph_app: &GraphBrowserApp,
     ) -> bool {
         Self::node_pane_hosts_webview_runtime_impl(state, graph_app)
+    }
+
+    pub(crate) fn refresh_node_pane_render_modes(
+        tiles_tree: &mut Tree<TileKind>,
+        graph_app: &GraphBrowserApp,
+    ) {
+        for (_, tile) in tiles_tree.tiles.iter_mut() {
+            if let Tile::Pane(TileKind::Node(state)) = tile {
+                state.render_mode = Self::resolve_node_pane_render_mode(state, graph_app);
+            }
+        }
     }
 
     pub(crate) fn prune_stale_node_pane_keys_only(
@@ -253,6 +277,13 @@ pub(crate) fn node_pane_hosts_webview_runtime(
     TileCoordinator::node_pane_hosts_webview_runtime(state, graph_app)
 }
 
+pub(crate) fn refresh_node_pane_render_modes(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+) {
+    TileCoordinator::refresh_node_pane_render_modes(tiles_tree, graph_app);
+}
+
 pub(crate) fn prune_stale_node_pane_keys_only(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -304,12 +335,14 @@ pub(crate) fn release_webview_runtime_for_node_pane(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::TileCoordinator;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use egui_tiles::{Tiles, Tree};
     use euclid::Point2D;
     use crate::app::GraphBrowserApp;
-    use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
+    use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode, ViewerId};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
 
     fn test_webview_id() -> servo::WebViewId {
@@ -411,5 +444,38 @@ mod tests {
         assert!(host_nodes.contains(&webview_node));
         assert!(!host_nodes.contains(&plaintext_node));
         assert!(host_nodes.is_subset(&all_nodes));
+    }
+
+    #[test]
+    fn refresh_node_pane_render_modes_sets_mode_for_each_node_pane() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let webview_node =
+            app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
+        let plaintext_node =
+            app.add_node_and_sync("file:///tmp/readme.txt".into(), Point2D::new(10.0, 0.0));
+
+        let mut tiles = Tiles::default();
+        let a = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(webview_node)));
+        let b = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(plaintext_node)));
+        let root = tiles.insert_tab_tile(vec![a, b]);
+        let mut tree = Tree::new("tile_runtime_render_mode_refresh", root, tiles);
+
+        TileCoordinator::refresh_node_pane_render_modes(&mut tree, &app);
+
+        let mut mode_for = HashMap::new();
+        for (_, tile) in tree.tiles.iter() {
+            if let egui_tiles::Tile::Pane(TileKind::Node(state)) = tile {
+                mode_for.insert(state.node, state.render_mode);
+            }
+        }
+
+        assert_eq!(
+            mode_for.get(&webview_node).copied(),
+            Some(TileRenderMode::CompositedTexture)
+        );
+        assert_eq!(
+            mode_for.get(&plaintext_node).copied(),
+            Some(TileRenderMode::EmbeddedEgui)
+        );
     }
 }

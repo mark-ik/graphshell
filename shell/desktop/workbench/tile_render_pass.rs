@@ -153,6 +153,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         diagnostics_state,
     } = args;
 
+    tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+
     let mut post_render_intents = Vec::new();
     let mut pending_open_nodes = Vec::new();
     let mut pending_closed_nodes = Vec::new();
@@ -376,6 +378,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     let composite_started = Instant::now();
     tile_compositor::composite_active_node_pane_webviews(
         ctx,
+        tiles_tree,
         window,
         graph_app,
         tile_rendering_contexts,

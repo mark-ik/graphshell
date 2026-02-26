@@ -108,6 +108,19 @@ impl GraphPaneRef {
 /// Carries which node to display and an optional explicit viewer backend override.
 /// Canonical viewer selection (based on `mime_hint`, `address_kind`, user policy)
 /// is delegated to `ViewerRegistry`; `viewer_id_override` is an explicit user/intent override only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) enum TileRenderMode {
+    /// Viewer renders to a Graphshell-owned composited texture (e.g. Servo).
+    CompositedTexture,
+    /// Viewer uses an OS-native overlay window (e.g. Wry).
+    NativeOverlay,
+    /// Viewer renders directly into egui UI.
+    EmbeddedEgui,
+    /// Viewer is unavailable or unresolved for this pane.
+    #[default]
+    Placeholder,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(from = "NodePaneStateCompat")]
 pub(crate) struct NodePaneState {
@@ -115,15 +128,26 @@ pub(crate) struct NodePaneState {
     pub node: NodeKey,
     /// Optional explicit viewer backend override. `None` delegates to `ViewerRegistry`.
     pub viewer_id_override: Option<ViewerId>,
+    /// Runtime-authoritative render pipeline mode for this pane.
+    #[serde(default)]
+    pub render_mode: TileRenderMode,
 }
 
 impl NodePaneState {
     pub(crate) fn for_node(node: NodeKey) -> Self {
-        Self { node, viewer_id_override: None }
+        Self {
+            node,
+            viewer_id_override: None,
+            render_mode: TileRenderMode::Placeholder,
+        }
     }
 
     pub(crate) fn with_viewer(node: NodeKey, viewer_id: ViewerId) -> Self {
-        Self { node, viewer_id_override: Some(viewer_id) }
+        Self {
+            node,
+            viewer_id_override: Some(viewer_id),
+            render_mode: TileRenderMode::Placeholder,
+        }
     }
 }
 
@@ -141,15 +165,32 @@ enum NodePaneStateCompat {
     /// Legacy: bare `NodeKey` value (old `TileKind::WebView(NodeKey)` format).
     Legacy(NodeKey),
     /// Current: full `NodePaneState` struct.
-    Current { node: NodeKey, viewer_id_override: Option<ViewerId> },
+    Current {
+        node: NodeKey,
+        viewer_id_override: Option<ViewerId>,
+        #[serde(default)]
+        render_mode: TileRenderMode,
+    },
 }
 
 impl From<NodePaneStateCompat> for NodePaneState {
     fn from(compat: NodePaneStateCompat) -> Self {
         match compat {
-            NodePaneStateCompat::Legacy(node) => Self { node, viewer_id_override: None },
-            NodePaneStateCompat::Current { node, viewer_id_override } => {
-                Self { node, viewer_id_override }
+            NodePaneStateCompat::Legacy(node) => Self {
+                node,
+                viewer_id_override: None,
+                render_mode: TileRenderMode::Placeholder,
+            },
+            NodePaneStateCompat::Current {
+                node,
+                viewer_id_override,
+                render_mode,
+            } => {
+                Self {
+                    node,
+                    viewer_id_override,
+                    render_mode,
+                }
             }
         }
     }
@@ -287,6 +328,7 @@ mod tests {
         let state = NodePaneState::for_node(key);
         assert_eq!(state.node, key);
         assert!(state.viewer_id_override.is_none());
+        assert_eq!(state.render_mode, TileRenderMode::Placeholder);
     }
 
     #[test]
@@ -305,6 +347,7 @@ mod tests {
         let state = NodePaneState::with_viewer(key, viewer.clone());
         assert_eq!(state.node, key);
         assert_eq!(state.viewer_id_override, Some(viewer));
+        assert_eq!(state.render_mode, TileRenderMode::Placeholder);
     }
 
     #[test]
@@ -326,6 +369,20 @@ mod tests {
         use petgraph::stable_graph::NodeIndex;
         assert_eq!(state.node, NodeIndex::new(3));
         assert!(state.viewer_id_override.is_none());
+        assert_eq!(state.render_mode, TileRenderMode::Placeholder);
+    }
+
+    #[test]
+    fn node_pane_state_deserializes_without_render_mode_field() {
+        let json = r#"{"node":4,"viewer_id_override":"viewer:webview"}"#;
+        let state: NodePaneState = serde_json::from_str(json).unwrap();
+        use petgraph::stable_graph::NodeIndex;
+        assert_eq!(state.node, NodeIndex::new(4));
+        assert_eq!(
+            state.viewer_id_override,
+            Some(ViewerId::new("viewer:webview"))
+        );
+        assert_eq!(state.render_mode, TileRenderMode::Placeholder);
     }
 
     #[test]
