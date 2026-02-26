@@ -1115,6 +1115,7 @@ pub enum GraphIntent {
 pub struct AppServices {
     persistence: Option<GraphStore>,
     sync_command_tx: Option<tokio_mpsc::Sender<crate::mods::native::verse::SyncCommand>>,
+    discovery_result: Option<Result<Vec<crate::mods::native::verse::DiscoveredPeer>, String>>,
 }
 
 impl AppServices {
@@ -1122,6 +1123,7 @@ impl AppServices {
         Self {
             persistence,
             sync_command_tx: None,
+            discovery_result: None,
         }
     }
 }
@@ -2835,6 +2837,19 @@ impl GraphBrowserApp {
         };
         tx.try_send(crate::mods::native::verse::SyncCommand::DiscoverNearby { timeout_secs })
             .map_err(|e| format!("failed to enqueue discovery command: {e}"))
+    }
+
+    pub fn publish_discovery_results(
+        &mut self,
+        result: Result<Vec<crate::mods::native::verse::DiscoveredPeer>, String>,
+    ) {
+        self.services.discovery_result = Some(result);
+    }
+
+    pub fn take_discovery_results(
+        &mut self,
+    ) -> Option<Result<Vec<crate::mods::native::verse::DiscoveredPeer>, String>> {
+        self.services.discovery_result.take()
     }
 
     /// Load serialized tile layout JSON from persistence.

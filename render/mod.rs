@@ -2656,9 +2656,7 @@ pub fn render_sync_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
     let discovery_results_id = egui::Id::new("verse_discovery_results");
     let sync_status_id = egui::Id::new("verse_sync_status");
 
-    if let Some(discovery_result) =
-        crate::shell::desktop::runtime::control_panel::take_discovery_results()
-    {
+    if let Some(discovery_result) = app.take_discovery_results() {
         match discovery_result {
             Ok(peers) => {
                 let discovered_count = peers.len();

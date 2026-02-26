@@ -45,6 +45,10 @@ impl ProtocolContractRegistry {
         self.handlers.contains_key(&scheme.to_ascii_lowercase())
     }
 
+    pub(crate) fn scheme_ids(&self) -> Vec<String> {
+        self.handlers.keys().cloned().collect()
+    }
+
     pub(crate) fn resolve_scheme(&self, uri: &str) -> ProtocolContractResolution {
         let requested_scheme = uri
             .split_once(':')

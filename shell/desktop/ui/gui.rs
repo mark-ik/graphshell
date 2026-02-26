@@ -382,7 +382,7 @@ impl Gui {
             },
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
-            registry_runtime: RegistryRuntime::default(),
+            registry_runtime: RegistryRuntime::new_with_mods(),
             tokio_runtime,
             control_panel,
         }
@@ -679,6 +679,9 @@ impl Gui {
 
             // Drain async worker intents from Control Panel
             frame_intents.extend(control_panel.drain_pending());
+            while let Some(discovery_result) = control_panel.take_discovery_results() {
+                graph_app.publish_discovery_results(discovery_result);
+            }
 
             let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
 

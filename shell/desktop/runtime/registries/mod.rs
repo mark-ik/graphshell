@@ -9,6 +9,7 @@ pub(crate) mod knowledge;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::registries::atomic::diagnostics;
+use crate::registries::atomic::protocol::ProtocolContractRegistry;
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::infrastructure::ModRegistry;
@@ -172,12 +173,9 @@ pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) ->
 impl RegistryRuntime {
     /// Create a new RegistryRuntime with mods discovered and their handlers registered.
     /// This is the standard way to initialize registries during app startup (Phase 2.4).
-    /// 
-    /// Phase 2.4 Implementation Note:
-    /// Handler providers are populated during mod activation. Full integration with
-    /// atomic contract registries will complete when desktop registries are refactored
-    /// to use the atomic contract layer. For now, mod registration functions are called
-    /// but the actual WebView/HTTP/HTTPS dispatch still uses the legacy path.
+    ///
+    /// Provider wiring for protocol/viewer paths is applied into the runtime
+    /// registries returned by this constructor.
     #[allow(dead_code)]
     pub(crate) fn new_with_mods() -> Self {
         // Discover and resolve mod dependencies
@@ -187,9 +185,7 @@ impl RegistryRuntime {
         }
         let _loaded_mods = mod_registry.load_all();
 
-        // Wire up handler providers from active mods
-        // This establishes the capability surface even though the desktop registries
-        // still use the legacy dispatch mechanism (to be unified in Phase 2.4 completion)
+        // Wire up handler providers from active mods.
         let mut protocol_providers = ProtocolHandlerProviders::new();
         let mut viewer_providers = ViewerHandlerProviders::new();
 
@@ -200,13 +196,24 @@ impl RegistryRuntime {
             log::debug!("registries: verso mod handlers registered into provider registries");
         }
 
-        if mod_registry.get_status("mod:verse").is_some() {
+        if mod_registry.get_status("mod:verse").is_some()
+            || mod_registry.get_status("verse").is_some()
+        {
             crate::mods::verse::register_protocol_handlers(&mut protocol_providers);
             log::debug!("registries: verse mod handlers registered into provider registries");
         }
 
-        // Create the RegistryRuntime with default registries
-        // (Phase 2.4.1 will complete the wiring to atomic contract registries)
+        let mut protocol_registry = ProtocolRegistry::default();
+        let mut protocol_contract_registry = ProtocolContractRegistry::core_seed();
+        protocol_providers.apply_all(&mut protocol_contract_registry);
+        for scheme in protocol_contract_registry.scheme_ids() {
+            protocol_registry.register_scheme(&scheme);
+        }
+
+        let mut viewer_registry = ViewerRegistry::default();
+        viewer_providers.apply_all(&mut viewer_registry);
+
+        // Create the RegistryRuntime with provider-wired registries.
         Self {
             action: ActionRegistry::default(),
             diagnostics: DiagnosticsRegistry::default(),
@@ -215,9 +222,9 @@ impl RegistryRuntime {
             layout: LayoutRegistry::default(),
             lens: LensRegistry::default(),
             physics: PhysicsRegistry::default(),
-            protocol: ProtocolRegistry::default(),
+            protocol: protocol_registry,
             theme: ThemeRegistry::default(),
-            viewer: ViewerRegistry::default(),
+            viewer: viewer_registry,
             knowledge: KnowledgeRegistry::default(),
         }
     }
@@ -1372,6 +1379,25 @@ mod tests {
         let internal = registry.select_for_uri("graphshell://settings/history", None);
         assert_eq!(internal.viewer_id, "viewer:settings");
         assert_eq!(internal.matched_by, "internal");
+    }
+
+    #[test]
+    fn new_with_mods_applies_provider_wiring_to_runtime_viewer_dispatch() {
+        let baseline = ViewerRegistry::default()
+            .select_for_uri("https://example.com/diagram.svg", Some("image/svg+xml"));
+        let runtime = RegistryRuntime::new_with_mods();
+        let (_, viewer) = runtime
+            .observe_navigation_url_with_control(
+                "https://example.com/diagram.svg",
+                Some("image/svg+xml"),
+                ProtocolResolveControl::default(),
+            )
+            .expect("default protocol resolve control should be active");
+
+        assert!(baseline.fallback_used);
+        assert_eq!(viewer.viewer_id, "viewer:webview");
+        assert!(!viewer.fallback_used);
+        assert_ne!(viewer.matched_by, "fallback");
     }
 
     #[test]

@@ -15,7 +15,6 @@
 //! Part of The Register: `RegistryRuntime` + `ControlPanel` + a not-yet-implemented
 //! signal-routing layer (`SignalBus` or equivalent abstraction).
 
-use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use sysinfo::System;
@@ -32,26 +31,6 @@ const INTENT_CHANNEL_CAPACITY: usize = 256;
 
 /// How often the memory monitor samples system memory.
 const MEMORY_MONITOR_INTERVAL: Duration = Duration::from_secs(5);
-
-fn global_discovery_results() -> &'static RwLock<Option<Result<Vec<verse::DiscoveredPeer>, String>>> {
-    static GLOBAL_DISCOVERY_RESULTS: OnceLock<
-        RwLock<Option<Result<Vec<verse::DiscoveredPeer>, String>>>,
-    > = OnceLock::new();
-    GLOBAL_DISCOVERY_RESULTS.get_or_init(|| RwLock::new(None))
-}
-
-pub(crate) fn publish_discovery_results(result: Result<Vec<verse::DiscoveredPeer>, String>) {
-    if let Ok(mut slot) = global_discovery_results().write() {
-        *slot = Some(result);
-    }
-}
-
-pub(crate) fn take_discovery_results() -> Option<Result<Vec<verse::DiscoveredPeer>, String>> {
-    global_discovery_results()
-        .write()
-        .ok()
-        .and_then(|mut slot| slot.take())
-}
 
 /// Intent with source tracking for the async intent queue.
 ///
@@ -103,6 +82,8 @@ pub(crate) struct ControlPanel {
     pub(crate) intent_rx: mpsc::Receiver<QueuedIntent>,
     /// Optional sync worker command channel.
     pub(crate) sync_command_tx: Option<mpsc::Sender<SyncCommand>>,
+    /// Sync worker discovery-result stream.
+    discovery_result_rx: Option<mpsc::UnboundedReceiver<Result<Vec<verse::DiscoveredPeer>, String>>>,
     /// Shared cancellation token — `cancel()` stops all supervised workers.
     cancel: CancellationToken,
     /// Supervised background worker tasks.
@@ -120,6 +101,7 @@ impl ControlPanel {
             cancel: CancellationToken::new(),
             workers: JoinSet::new(),
             sync_command_tx: None,
+            discovery_result_rx: None,
         }
     }
 
@@ -133,6 +115,14 @@ impl ControlPanel {
             intents.push(queued.intent);
         }
         intents
+    }
+
+    pub(crate) fn take_discovery_results(
+        &mut self,
+    ) -> Option<Result<Vec<verse::DiscoveredPeer>, String>> {
+        self.discovery_result_rx
+            .as_mut()
+            .and_then(|rx| rx.try_recv().ok())
     }
 
     /// Spawn the memory monitor background worker.
@@ -181,7 +171,9 @@ impl ControlPanel {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
         let (cmd_tx, cmd_rx) = mpsc::channel(64);
+        let (discovery_result_tx, discovery_result_rx) = mpsc::unbounded_channel();
         self.sync_command_tx = Some(cmd_tx.clone());
+        self.discovery_result_rx = Some(discovery_result_rx);
 
         self.workers.spawn(async move {
             let resources = match verse::sync_worker_resources() {
@@ -199,6 +191,7 @@ impl ControlPanel {
                 resources.sync_logs,
                 tx,
                 cmd_rx,
+                discovery_result_tx,
                 cancel.clone(),
             );
 

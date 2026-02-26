@@ -7,9 +7,7 @@
 // - Enforces workspace access grants
 
 use crate::app::GraphIntent;
-use crate::shell::desktop::runtime::control_panel::{
-    publish_discovery_results, IntentSource as ControlIntentSource, QueuedIntent,
-};
+use crate::shell::desktop::runtime::control_panel::{IntentSource as ControlIntentSource, QueuedIntent};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::mods::native::verse::{
     VersionVector, SyncLog, SyncedIntent, TrustedPeer, WorkspaceGrant, AccessLevel,
@@ -101,6 +99,8 @@ pub struct SyncWorker {
     intent_tx: mpsc::Sender<QueuedIntent>,
     /// Command receiver
     command_rx: mpsc::Receiver<SyncCommand>,
+    /// Discovery result sender back to control-panel owner.
+    discovery_result_tx: mpsc::UnboundedSender<Result<Vec<crate::mods::native::verse::DiscoveredPeer>, String>>,
     /// Cancellation token for graceful shutdown
     cancel: CancellationToken,
 }
@@ -114,6 +114,7 @@ impl SyncWorker {
         sync_logs: Arc<RwLock<HashMap<String, SyncLog>>>,
         intent_tx: mpsc::Sender<QueuedIntent>,
         command_rx: mpsc::Receiver<SyncCommand>,
+        discovery_result_tx: mpsc::UnboundedSender<Result<Vec<crate::mods::native::verse::DiscoveredPeer>, String>>,
         cancel: CancellationToken,
     ) -> Self {
         Self {
@@ -123,6 +124,7 @@ impl SyncWorker {
             trusted_peers,
             intent_tx,
             command_rx,
+            discovery_result_tx,
             cancel,
         }
     }
@@ -195,6 +197,7 @@ impl SyncWorker {
                             // Remove peer from trust store (handled externally)
                         }
                         SyncCommand::DiscoverNearby { timeout_secs } => {
+                            let discovery_result_tx = self.discovery_result_tx.clone();
                             tokio::spawn(async move {
                                 let result = tokio::task::spawn_blocking(move || {
                                     crate::mods::native::verse::discover_nearby_peers(timeout_secs)
@@ -203,7 +206,7 @@ impl SyncWorker {
                                 .map_err(|join_err| format!("discovery worker join failed: {join_err}"))
                                 .and_then(|res| res);
 
-                                publish_discovery_results(result);
+                                let _ = discovery_result_tx.send(result);
                             });
                         }
                         SyncCommand::AcceptIncoming { conn_info } => {
