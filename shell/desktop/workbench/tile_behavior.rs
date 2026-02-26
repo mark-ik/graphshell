@@ -290,7 +290,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 let actions = render::render_graph_in_ui_collect_actions(
                     ui,
                     self.graph_app,
-                    Some(view_id),
+                    view_id,
                     self.search_matches,
                     self.active_search_match,
                     if self.search_filter_mode {

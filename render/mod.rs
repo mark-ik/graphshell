@@ -124,7 +124,7 @@ fn canvas_style_settings(
 pub fn render_graph_in_ui_collect_actions(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
-    view_id: Option<crate::app::GraphViewId>,
+    view_id: crate::app::GraphViewId,
     search_matches: &HashSet<NodeKey>,
     active_search_match: Option<NodeKey>,
     search_display_mode: SearchDisplayMode,
@@ -132,12 +132,10 @@ pub fn render_graph_in_ui_collect_actions(
 ) -> Vec<GraphAction> {
     // Ensure a GraphViewState exists for this pane so per-view camera, lens,
     // and layout mode can be stored independently.
-    if let Some(vid) = view_id {
-        if !app.workspace.views.contains_key(&vid) {
-            app.workspace
-                .views
-                .insert(vid, crate::app::GraphViewState::new_with_id(vid, "Graph View"));
-        }
+    if !app.workspace.views.contains_key(&view_id) {
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new_with_id(view_id, "Graph View"));
     }
 
     let ctrl_pressed = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
@@ -163,7 +161,7 @@ pub fn render_graph_in_ui_collect_actions(
     // Gated by the canvas performance policy toggle.
     let culled_graph =
         if canvas_profile.performance.viewport_culling_enabled && filtered_graph.is_none() {
-            viewport_culled_graph(ui, app)
+            viewport_culled_graph(ui, app, view_id)
         } else {
             None
         };
@@ -219,9 +217,7 @@ pub fn render_graph_in_ui_collect_actions(
     let style = canvas_style_settings(canvas_profile);
 
     // Resolve physics state and lens from the view (or default to global).
-    let (mut physics_state, lens_config) = if let Some(view_id) = view_id
-        && let Some(view) = app.workspace.views.get(&view_id)
-    {
+    let (mut physics_state, lens_config) = if let Some(view) = app.workspace.views.get(&view_id) {
         let state = if let Some(local) = &view.local_simulation {
             local.physics.clone()
         } else {
@@ -245,9 +241,7 @@ pub fn render_graph_in_ui_collect_actions(
     if ui.rect_contains_pointer(graph_rect) {
         // Track the focused graph view — used to route keyboard zoom / camera
         // commands to the correct pane when multiple graph panes are open.
-        if let Some(vid) = view_id {
-            app.workspace.focused_view = Some(vid);
-        }
+        app.workspace.focused_view = Some(view_id);
         ui.input_mut(|input| {
             let scroll_delta = if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
                 input.smooth_scroll_delta.y
@@ -302,8 +296,7 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Pull latest FR state from egui_graphs after this frame's layout step.
     let new_physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
-    if let Some(view_id) = view_id
-        && let Some(view) = app.workspace.views.get_mut(&view_id)
+    if let Some(view) = app.workspace.views.get_mut(&view_id)
         && let Some(local) = &mut view.local_simulation
     {
         local.physics = new_physics;
@@ -312,13 +305,11 @@ pub fn render_graph_in_ui_collect_actions(
     }
 
     // Apply semantic clustering forces if enabled (UDC Phase 2)
-    let semantic_config = if let Some(view_id) = view_id {
-        app.workspace.views
-            .get(&view_id)
-            .map(|v| (v.lens.physics.semantic_clustering, v.lens.physics.semantic_strength))
-    } else {
-        None
-    };
+    let semantic_config = app
+        .workspace
+        .views
+        .get(&view_id)
+        .map(|v| (v.lens.physics.semantic_clustering, v.lens.physics.semantic_strength));
     apply_semantic_clustering_forces(app, semantic_config);
 
     app.workspace.hovered_graph_node = app.workspace.egui_state.as_ref().and_then(|state| {
@@ -376,6 +367,20 @@ pub fn render_graph_in_ui_collect_actions(
     // We use the widget ID from the response to target the correct MetadataFrame.
     let metadata_id = response.id.with("metadata");
     let custom_zoom = handle_custom_navigation(ui, &response, metadata_id, app, !radial_open, view_id);
+
+    if let Some(meta) = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
+    {
+        app.workspace.graph_view_frames.insert(
+            view_id,
+            crate::app::GraphViewFrame {
+                zoom: meta.zoom,
+                pan_x: meta.pan.x,
+                pan_y: meta.pan.y,
+            },
+        );
+    }
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
     let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
@@ -738,22 +743,30 @@ fn viewport_culled_graph_for_canvas_rect(
 /// **Edge ghost-endpoint policy**: If either endpoint of an edge is visible,
 /// both endpoints are included in the culled graph so that the renderer
 /// never sees an edge with a missing endpoint.
-fn viewport_culled_graph(ui: &Ui, app: &GraphBrowserApp) -> Option<crate::graph::Graph> {
-    // Read previous-frame MetadataFrame from egui_graphs' stable persisted key.
-    let meta = MetadataFrame::new(None).load(ui);
+fn viewport_culled_graph(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+) -> Option<crate::graph::Graph> {
+    let frame = app.workspace.graph_view_frames.get(&view_id)?;
+    let canvas_rect = canvas_rect_from_view_frame(ui.max_rect(), *frame)?;
 
-    // A zoom of exactly 0 means no valid camera data is available yet.
-    if meta.zoom.abs() < f32::EPSILON {
+    viewport_culled_graph_for_canvas_rect(&app.workspace.graph, canvas_rect)
+}
+
+fn canvas_rect_from_view_frame(
+    screen_rect: egui::Rect,
+    frame: crate::app::GraphViewFrame,
+) -> Option<egui::Rect> {
+    if frame.zoom.abs() < f32::EPSILON {
         return None;
     }
 
-    // Convert the screen-space widget rect to canvas space.
-    let screen_rect = ui.max_rect();
-    let canvas_min = meta.screen_to_canvas_pos(screen_rect.min);
-    let canvas_max = meta.screen_to_canvas_pos(screen_rect.max);
-    let canvas_rect = egui::Rect::from_min_max(canvas_min, canvas_max);
-
-    viewport_culled_graph_for_canvas_rect(&app.workspace.graph, canvas_rect)
+    let pan = egui::vec2(frame.pan_x, frame.pan_y);
+    let canvas_min = (screen_rect.min.to_vec2() - pan) / frame.zoom;
+    let canvas_max = (screen_rect.max.to_vec2() - pan) / frame.zoom;
+    let canvas_rect = egui::Rect::from_min_max(canvas_min.to_pos2(), canvas_max.to_pos2());
+    Some(canvas_rect)
 }
 
 fn lifecycle_color(lifecycle: NodeLifecycle) -> Color32 {
@@ -877,7 +890,7 @@ fn handle_custom_navigation(
     metadata_id: egui::Id,
     app: &mut GraphBrowserApp,
     enabled: bool,
-    view_id: Option<crate::app::GraphViewId>,
+    view_id: crate::app::GraphViewId,
 ) -> Option<f32> {
     if !enabled {
         return None;
@@ -888,11 +901,7 @@ fn handle_custom_navigation(
 
     // Apply keyboard zoom — only for the currently focused graph view so that
     // pressing +/– targets the pane the user last hovered, not all panes.
-    let is_focused = match (view_id, app.workspace.focused_view) {
-        (Some(vid), Some(focused)) => vid == focused,
-        // No focused view yet — allow any graph pane to consume the request.
-        (Some(_), None) | (None, _) => true,
-    };
+    let is_focused = app.workspace.focused_view.is_none_or(|focused| focused == view_id);
     let keyboard_zoom = if is_focused {
         apply_pending_keyboard_zoom_request(ui, app, metadata_id, view_id)
     } else {
@@ -920,12 +929,16 @@ fn handle_custom_navigation(
     }
 
     // Clamp zoom bounds using per-view camera if available, else global camera.
-    let zoom_min = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_min = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_min)
         .unwrap_or(app.workspace.camera.zoom_min);
-    let zoom_max = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_max = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_max)
         .unwrap_or(app.workspace.camera.zoom_max);
     ui.ctx().data_mut(|data| {
@@ -937,12 +950,8 @@ fn handle_custom_navigation(
             let current_zoom = meta.zoom;
             data.insert_persisted(metadata_id, meta);
             // Keep per-view current_zoom in sync.
-            if let Some(vid) = view_id {
-                if let Some(view) = app.workspace.views.get_mut(&vid) {
-                    view.camera.current_zoom = current_zoom;
-                }
-            } else {
-                app.workspace.camera.current_zoom = current_zoom;
+            if let Some(view) = app.workspace.views.get_mut(&view_id) {
+                view.camera.current_zoom = current_zoom;
             }
         }
     });
@@ -954,7 +963,7 @@ fn apply_pending_keyboard_zoom_request(
     ui: &Ui,
     app: &mut GraphBrowserApp,
     metadata_id: egui::Id,
-    view_id: Option<crate::app::GraphViewId>,
+    view_id: crate::app::GraphViewId,
 ) -> Option<f32> {
     let Some(request) = app.take_pending_keyboard_zoom_request() else {
         return None;
@@ -966,12 +975,16 @@ fn apply_pending_keyboard_zoom_request(
         KeyboardZoomRequest::Reset => 1.0,
     };
 
-    let zoom_min = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_min = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_min)
         .unwrap_or(app.workspace.camera.zoom_min);
-    let zoom_max = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_max = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_max)
         .unwrap_or(app.workspace.camera.zoom_max);
 
@@ -999,12 +1012,8 @@ fn apply_pending_keyboard_zoom_request(
 
     // Keep zoom in sync on the appropriate camera.
     if let Some(new_zoom) = updated_zoom {
-        if let Some(vid) = view_id {
-            if let Some(view) = app.workspace.views.get_mut(&vid) {
-                view.camera.current_zoom = new_zoom;
-            }
-        } else {
-            app.workspace.camera.current_zoom = new_zoom;
+        if let Some(view) = app.workspace.views.get_mut(&view_id) {
+            view.camera.current_zoom = new_zoom;
         }
     }
 
@@ -1019,18 +1028,22 @@ fn apply_pending_camera_command(
     ui: &Ui,
     app: &mut GraphBrowserApp,
     metadata_id: egui::Id,
-    view_id: Option<crate::app::GraphViewId>,
+    view_id: crate::app::GraphViewId,
 ) -> Option<f32> {
     let Some(command) = app.pending_camera_command() else {
         return None;
     };
 
-    let zoom_min = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_min = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_min)
         .unwrap_or(app.workspace.camera.zoom_min);
-    let zoom_max = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_max = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_max)
         .unwrap_or(app.workspace.camera.zoom_max);
 
@@ -1046,12 +1059,8 @@ fn apply_pending_camera_command(
                 }
             });
             if let Some(new_zoom) = updated_zoom {
-                if let Some(vid) = view_id {
-                    if let Some(view) = app.workspace.views.get_mut(&vid) {
-                        view.camera.current_zoom = new_zoom;
-                    }
-                } else {
-                    app.workspace.camera.current_zoom = new_zoom;
+                if let Some(view) = app.workspace.views.get_mut(&view_id) {
+                    view.camera.current_zoom = new_zoom;
                 }
                 app.clear_pending_camera_command();
             }
@@ -1113,12 +1122,8 @@ fn apply_pending_camera_command(
             });
 
             if let Some(new_zoom) = updated_zoom {
-                if let Some(vid) = view_id {
-                    if let Some(view) = app.workspace.views.get_mut(&vid) {
-                        view.camera.current_zoom = new_zoom;
-                    }
-                } else {
-                    app.workspace.camera.current_zoom = new_zoom;
+                if let Some(view) = app.workspace.views.get_mut(&view_id) {
+                    view.camera.current_zoom = new_zoom;
                 }
                 app.clear_pending_camera_command();
             }
@@ -1132,19 +1137,23 @@ fn apply_pending_wheel_zoom(
     response: &egui::Response,
     metadata_id: egui::Id,
     app: &mut GraphBrowserApp,
-    view_id: Option<crate::app::GraphViewId>,
+    view_id: crate::app::GraphViewId,
 ) -> Option<f32> {
     let scroll_delta = app.pending_wheel_zoom_delta();
     if scroll_delta.abs() <= f32::EPSILON {
         return None;
     }
 
-    let zoom_min = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_min = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_min)
         .unwrap_or(app.workspace.camera.zoom_min);
-    let zoom_max = view_id
-        .and_then(|vid| app.workspace.views.get(&vid))
+    let zoom_max = app
+        .workspace
+        .views
+        .get(&view_id)
         .map(|v| v.camera.zoom_max)
         .unwrap_or(app.workspace.camera.zoom_max);
 
@@ -1180,14 +1189,10 @@ fn apply_pending_wheel_zoom(
                     updated_zoom = Some(new_zoom);
                 }
             });
-            if let Some(new_zoom) = updated_zoom {
-                if let Some(vid) = view_id {
-                    if let Some(view) = app.workspace.views.get_mut(&vid) {
-                        view.camera.current_zoom = new_zoom;
-                    }
-                } else {
-                    app.workspace.camera.current_zoom = new_zoom;
-                }
+            if let Some(new_zoom) = updated_zoom
+                && let Some(view) = app.workspace.views.get_mut(&view_id)
+            {
+                view.camera.current_zoom = new_zoom;
             }
         }
     }
@@ -3720,6 +3725,68 @@ mod tests {
             "expected culled prep to be faster; full={:?}, culled={:?}",
             full_elapsed,
             culled_elapsed
+        );
+    }
+
+    #[test]
+    fn canvas_rect_from_view_frame_respects_pan_and_zoom() {
+        let screen = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+        let frame = crate::app::GraphViewFrame {
+            zoom: 2.0,
+            pan_x: 50.0,
+            pan_y: 20.0,
+        };
+
+        let canvas = canvas_rect_from_view_frame(screen, frame)
+            .expect("non-zero zoom should produce a canvas rect");
+
+        assert!((canvas.min.x + 25.0).abs() < 0.001);
+        assert!((canvas.min.y + 10.0).abs() < 0.001);
+        assert!((canvas.max.x - 75.0).abs() < 0.001);
+        assert!((canvas.max.y - 90.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn viewport_culling_differs_for_distinct_graph_view_frames() {
+        let mut app = test_app();
+        let mut keys = Vec::new();
+        for idx in 0..20 {
+            keys.push(app.add_node_and_sync(
+                format!("https://pane.example/{idx}"),
+                Point2D::new(idx as f32 * 120.0, 0.0),
+            ));
+        }
+
+        let screen = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(300.0, 200.0));
+        let near_origin = crate::app::GraphViewFrame {
+            zoom: 1.0,
+            pan_x: 0.0,
+            pan_y: 0.0,
+        };
+        let shifted = crate::app::GraphViewFrame {
+            zoom: 1.0,
+            pan_x: -1200.0,
+            pan_y: 0.0,
+        };
+
+        let rect_a = canvas_rect_from_view_frame(screen, near_origin).unwrap();
+        let rect_b = canvas_rect_from_view_frame(screen, shifted).unwrap();
+        let selection_a = viewport_culling_selection_for_canvas_rect(&app.workspace.graph, rect_a)
+            .expect("expected culling selection for first view frame");
+        let selection_b = viewport_culling_selection_for_canvas_rect(&app.workspace.graph, rect_b)
+            .expect("expected culling selection for second view frame");
+
+        assert!(
+            selection_a.visible.contains(&keys[0]),
+            "origin view should include early nodes"
+        );
+        assert!(
+            !selection_b.visible.contains(&keys[0]),
+            "shifted view should exclude early nodes"
+        );
+        assert!(
+            selection_b.visible.contains(&keys[10]),
+            "shifted view should include later nodes"
         );
     }
 }

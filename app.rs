@@ -54,6 +54,13 @@ pub struct Camera {
     pub current_zoom: f32,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GraphViewFrame {
+    pub zoom: f32,
+    pub pan_x: f32,
+    pub pan_y: f32,
+}
+
 impl Camera {
     pub fn new() -> Self {
         Self {
@@ -1311,6 +1318,9 @@ pub struct GraphWorkspace {
     /// Active graph views, keyed by ID.
     pub views: HashMap<GraphViewId, GraphViewState>,
 
+    /// Last known camera frame per graph view (updated by graph render pass).
+    pub graph_view_frames: HashMap<GraphViewId, GraphViewFrame>,
+
     /// The currently focused graph view (target for keyboard zoom/pan).
     pub focused_view: Option<GraphViewId>,
 
@@ -1579,6 +1589,7 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_delta: 0.0,
                 camera: Camera::new(),
                 views: HashMap::new(),
+                graph_view_frames: HashMap::new(),
                 focused_view: None,
                 undo_stack: Vec::new(),
                 redo_stack: Vec::new(),
@@ -1773,6 +1784,7 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_delta: 0.0,
                 camera: Camera::new(),
                 views: HashMap::new(),
+                graph_view_frames: HashMap::new(),
                 focused_view: None,
                 undo_stack: Vec::new(),
                 redo_stack: Vec::new(),
@@ -3774,6 +3786,7 @@ impl GraphBrowserApp {
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.node_workspace_membership.clear();
         self.workspace.views.clear();
+        self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
         self.workspace.current_workspace_is_synthesized = false;
         self.workspace.workspace_has_unsaved_changes = false;
@@ -3834,6 +3847,7 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command = Some(CameraCommand::Fit);
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.views.clear();
+        self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
         self.workspace.next_placeholder_id = next_placeholder_id;
         self.workspace.egui_state = None;
@@ -5191,6 +5205,7 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command = None;
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.views.clear();
+        self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
         self.workspace.webview_to_node.clear();
         self.workspace.node_to_webview.clear();
@@ -5236,6 +5251,7 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command = None;
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.views.clear();
+        self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
         self.workspace.webview_to_node.clear();
         self.workspace.node_to_webview.clear();
