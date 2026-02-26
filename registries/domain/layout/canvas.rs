@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use super::{AccessibilityCapabilities, SecurityCapabilities};
+
 pub(crate) const CANVAS_PROFILE_DEFAULT: &str = "canvas:default";
 
 #[derive(Debug, Clone)]
@@ -61,6 +63,10 @@ pub(crate) struct CanvasSurfaceProfile {
     pub(crate) interaction: CanvasInteractionPolicy,
     pub(crate) style: CanvasStylePolicy,
     pub(crate) performance: CanvasPerformancePolicy,
+    /// Accessibility conformance declaration for this canvas surface profile.
+    pub(crate) accessibility: AccessibilityCapabilities,
+    /// Security conformance declaration for this canvas surface profile.
+    pub(crate) security: SecurityCapabilities,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +162,8 @@ impl Default for CanvasRegistry {
                     label_culling_enabled: false,
                     edge_lod: EdgeLodPolicy::Full,
                 },
+                accessibility: AccessibilityCapabilities::full(),
+                security: SecurityCapabilities::full(),
             },
         );
         registry
@@ -233,6 +241,8 @@ mod tests {
                     label_culling_enabled: true,
                     edge_lod: EdgeLodPolicy::SkipLabels,
                 },
+                accessibility: AccessibilityCapabilities::full(),
+                security: SecurityCapabilities::full(),
             },
         );
         let resolution = registry.resolve("canvas:perf");

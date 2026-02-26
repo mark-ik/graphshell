@@ -40,7 +40,7 @@ impl TestHarness {
     }
 
     pub(crate) fn open_node_tab(&mut self, key: NodeKey) {
-        tile_view_ops::open_or_focus_webview_tile_with_mode(
+        tile_view_ops::open_or_focus_node_pane_with_mode(
             &mut self.tiles_tree,
             key,
             TileOpenMode::Tab,
