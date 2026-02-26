@@ -19,7 +19,7 @@ use servo::{
 };
 
 use crate::app::GraphBrowserApp;
-use crate::shell::desktop::workbench::compositor_adapter::CompositorAdapter;
+use crate::shell::desktop::workbench::compositor_adapter::{CompositorAdapter, CompositorPassTracker};
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::NodeKey;
@@ -98,6 +98,7 @@ pub(crate) fn composite_active_node_pane_webviews(
     let composite_started = Instant::now();
     log::debug!("composite_active_node_pane_webviews: {} tiles", active_tile_rects.len());
     let scale = Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ctx.pixels_per_point());
+    let mut pass_tracker = CompositorPassTracker::new();
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
     let mut hovered_webview_id: Option<WebViewId> = None;
     if let Some(pos) = hover_pos {
@@ -114,6 +115,15 @@ pub(crate) fn composite_active_node_pane_webviews(
     for (node_key, tile_rect) in active_tile_rects {
         let render_mode = render_mode_for_node_pane(tiles_tree, node_key);
         if render_mode != TileRenderMode::CompositedTexture {
+            continue;
+        }
+
+        if !tile_rect.width().is_finite()
+            || !tile_rect.height().is_finite()
+            || tile_rect.width() <= 0.0
+            || tile_rect.height() <= 0.0
+        {
+            CompositorAdapter::report_invalid_tile_rect(node_key);
             continue;
         }
 
@@ -204,11 +214,13 @@ pub(crate) fn composite_active_node_pane_webviews(
                 tile_rect,
                 callback,
             );
+            pass_tracker.record_content_pass(node_key);
         } else {
             log::debug!("composite: no render_to_parent callback for webview {:?}", webview_id);
         }
 
         if focused_webview_id == Some(webview_id) && focus_ring_alpha > 0.0 {
+            pass_tracker.record_overlay_pass(node_key);
             let alpha = (focus_ring_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
             CompositorAdapter::draw_overlay_stroke(
                 ctx,
@@ -221,6 +233,7 @@ pub(crate) fn composite_active_node_pane_webviews(
                 ),
             );
         } else if hovered_webview_id == Some(webview_id) {
+            pass_tracker.record_overlay_pass(node_key);
             CompositorAdapter::draw_overlay_stroke(
                 ctx,
                 node_key,
