@@ -28,7 +28,20 @@
       "WebFetch(domain:crates.io)",
       "WebFetch(domain:lib.rs)",
       "Bash(ls:*)",
-      "Bash(powershell -File:*)"
+      "Bash(powershell -File:*)",
+      "Bash(git fetch origin)",
+      "Bash(git add design_docs/TERMINOLOGY.md shell/desktop/runtime/control_panel.rs shell/desktop/lifecycle/lifecycle_reconcile.rs shell/desktop/lifecycle/webview_status_sync.rs shell/desktop/ui/gui.rs shell/desktop/ui/gui_frame.rs shell/desktop/ui/persistence_ops.rs shell/desktop/ui/toolbar/toolbar_controls.rs shell/desktop/ui/toolbar/toolbar_location_dropdown.rs shell/desktop/ui/toolbar/toolbar_location_panel.rs shell/desktop/ui/toolbar/toolbar_location_submit.rs shell/desktop/ui/toolbar/toolbar_omnibar.rs shell/desktop/ui/toolbar/toolbar_right_controls.rs shell/desktop/ui/toolbar/toolbar_ui.rs shell/desktop/workbench/tile_invariants.rs shell/desktop/workbench/tile_post_render.rs shell/desktop/workbench/tile_render_pass.rs shell/desktop/workbench/tile_runtime.rs shell/desktop/workbench/tile_view_ops.rs design_docs/graphshell_docs/implementation_strategy/PLANNING_REGISTER.md design_docs/graphshell_docs/implementation_strategy/SUBSYSTEM_ACCESSIBILITY.md design_docs/graphshell_docs/implementation_strategy/SUBSYSTEM_DIAGNOSTICS.md design_docs/graphshell_docs/implementation_strategy/SUBSYSTEM_HISTORY.md design_docs/graphshell_docs/implementation_strategy/SUBSYSTEM_SECURITY.md design_docs/graphshell_docs/implementation_strategy/SUBSYSTEM_STORAGE.md design_docs/graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md design_docs/graphshell_docs/research/2026-02-26_architecture_terminology_alignment_gap_analysis.md design_docs/graphshell_docs/technical_architecture/TERM_ARCHITECTURE_DESC.md design_docs/graphshell_docs/implementation_strategy/2026-02-25_planning_register_backlog_and_copilot_guides.md design_docs/graphshell_docs/implementation_strategy/2026-02-25_subsystem_accessibility.md design_docs/graphshell_docs/implementation_strategy/2026-02-25_subsystem_diagnostics.md design_docs/graphshell_docs/implementation_strategy/2026-02-25_subsystem_history_temporal_integrity.md design_docs/graphshell_docs/implementation_strategy/2026-02-25_subsystem_persistence_integrity.md design_docs/graphshell_docs/implementation_strategy/2026-02-25_subsystem_security_access_control.md design_docs/graphshell_docs/implementation_strategy/IMPLEMENTATION_ROADMAP.md design_docs/graphshell_docs/implementation_strategy/2026-02-21_control_panel_async_scaling.md)",
+      "Bash(git add design_docs/archive_docs/checkpoint_2026-02-25/2026-02-24_immediate_priorities.md design_docs/archive_docs/checkpoint_2026-02-25/2026-02-24_spatial_accessibility_plan.md design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_backlog_ticket_stubs.md design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_copilot_implementation_guides.md design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_planning_register_lane_sequence_receipt.md design_docs/archive_docs/checkpoint_2026-02-25/IMPLEMENTATION_ROADMAP.md design_docs/archive_docs/checkpoint_2026-02-25/stubs/ design_docs/graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md design_docs/graphshell_docs/technical_architecture/VERSO_SERVO_ARCHITECTURE.md)",
+      "Bash(git commit:*)",
+      "Bash(git rebase origin/main)",
+      "Bash(git add design_docs/graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md app.rs shell/desktop/ui/gui.rs)",
+      "Bash(git stash)",
+      "Bash(git stash pop)",
+      "Bash(git add registries/domain/layout/mod.rs registries/domain/layout/canvas.rs registries/domain/layout/viewer_surface.rs registries/domain/layout/workbench_surface.rs desktop/tests/harness.rs shell/desktop/lifecycle/webview_backpressure.rs)",
+      "Bash(gh pr list --state all --head codex/p6-77-tool-pane-dispatch)",
+      "Bash(gh pr view 84 --json state,mergeCommit,baseRefName)",
+      "Bash(git push origin codex/p6-77-tool-pane-dispatch --force-with-lease)",
+      "Bash(git push origin codex/p6-77-tool-pane-dispatch:terminology-arch-alignment)"
     ]
   }
 }
