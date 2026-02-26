@@ -231,6 +231,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
     }
 
+    tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
+
     let active_tile_rects = tile_compositor::active_node_pane_rects(tiles_tree);
     log::debug!("tile_render_pass: {} active tile rects", active_tile_rects.len());
     for (key, rect) in active_tile_rects.iter() {
