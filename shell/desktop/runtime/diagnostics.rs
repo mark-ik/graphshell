@@ -170,6 +170,7 @@ pub(crate) struct CompositorTileSample {
     pub(crate) mapped_webview: bool,
     pub(crate) has_context: bool,
     pub(crate) paint_callback_registered: bool,
+    pub(crate) render_path_hint: &'static str,
 }
 
 #[derive(Clone, Debug)]
@@ -601,6 +602,7 @@ impl DiagnosticsState {
                             "mapped_webview": tile.mapped_webview,
                             "has_context": tile.has_context,
                             "paint_callback_registered": tile.paint_callback_registered,
+                            "render_path_hint": tile.render_path_hint,
                         })
                     })
                     .collect();
@@ -1263,6 +1265,7 @@ impl DiagnosticsState {
                             ui.strong("Mapped");
                             ui.strong("Context");
                             ui.strong("PaintCb");
+                            ui.strong("Path");
                             ui.strong("Rect");
                             ui.strong("W");
                             ui.strong("H");
@@ -1292,6 +1295,7 @@ impl DiagnosticsState {
                                 ui.monospace(format!("{}", tile.mapped_webview));
                                 ui.monospace(format!("{}", tile.has_context));
                                 ui.monospace(format!("{}", tile.paint_callback_registered));
+                                ui.monospace(tile.render_path_hint);
                                 ui.monospace(format!(
                                     "[{:.0},{:.0}]..[{:.0},{:.0}]",
                                     tile.rect.min.x,
@@ -1487,6 +1491,7 @@ mod tests {
                     mapped_webview: true,
                     has_context: true,
                     paint_callback_registered: true,
+                    render_path_hint: "composited",
                 }],
             });
             state.record_intents(&[GraphIntent::ToggleHelpPanel]);
@@ -1601,10 +1606,11 @@ mod tests {
             tiles: vec![CompositorTileSample {
                 node_key,
                 rect: egui::Rect::from_min_max(egui::pos2(4.0, 6.0), egui::pos2(80.0, 70.0)),
-                mapped_webview: true,
-                has_context: true,
-                paint_callback_registered: true,
-            }],
+                    mapped_webview: true,
+                    has_context: true,
+                    paint_callback_registered: true,
+                    render_path_hint: "composited",
+                }],
         });
         let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
             channel_id: "snapshot.shape",
@@ -1638,7 +1644,7 @@ mod tests {
             "generated_at_unix_secs": json["generated_at_unix_secs"],
             "first_frame_sequence": json["compositor_frames"][0]["sequence"],
         });
-                insta::assert_debug_snapshot!(shape, @r###"
+        insta::assert_debug_snapshot!(shape, @r###"
                 Object {
                     "top_level_keys": Array [
                         String("version"),
@@ -1659,9 +1665,35 @@ mod tests {
                     "frame_count": Number(1),
                     "intent_count": Number(1),
                     "generated_at_unix_secs": String("[unix-secs]"),
-                    "first_frame_sequence": String("[sequence]"),
-                }
-                "###);
+                "first_frame_sequence": String("[sequence]"),
+            }
+        "###);
+    }
+
+    #[test]
+    fn snapshot_json_includes_compositor_render_path_hint() {
+        let mut state = DiagnosticsState::new();
+        let node_key = NodeKey::new(9);
+        state.push_frame(CompositorFrameSample {
+            sequence: 1,
+            active_tile_count: 1,
+            focused_webview_present: false,
+            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
+            hierarchy: vec![],
+            tiles: vec![CompositorTileSample {
+                node_key,
+                rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(5.0, 5.0)),
+                mapped_webview: true,
+                has_context: true,
+                paint_callback_registered: true,
+                render_path_hint: "composited",
+            }],
+        });
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["compositor_frames"][0]["tiles"][0]["render_path_hint"].as_str(),
+            Some("composited")
+        );
     }
 
     #[test]

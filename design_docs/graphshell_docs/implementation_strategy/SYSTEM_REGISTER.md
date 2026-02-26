@@ -13,6 +13,7 @@
 - [2026-02-20_settings_architecture_plan.md](2026-02-20_settings_architecture_plan.md) (settings/control coordination model; Register-adjacent orchestration surface)
 - [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md) (intent schema and reducer boundary)
 - [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) (registry architecture and provider wiring)
+- [2026-02-26_composited_viewer_pass_contract.md](2026-02-26_composited_viewer_pass_contract.md) (composited viewer/backend render-pass ownership and overlay policy; relevant to viewer/compositor routing boundaries)
 - [PLANNING_REGISTER.md](PLANNING_REGISTER.md) (cross-subsystem sequencing / backlog)
 
 ---

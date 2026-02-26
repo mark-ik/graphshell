@@ -402,13 +402,25 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             .is_some_and(|id| graph_app.get_node_for_webview(*id).is_some());
         let tiles = active_tiles_for_diag
             .iter()
-            .map(|(node_key, rect)| crate::shell::desktop::runtime::diagnostics::CompositorTileSample {
-                node_key: *node_key,
-                rect: *rect,
-                mapped_webview: graph_app.get_webview_for_node(*node_key).is_some(),
-                has_context: tile_rendering_contexts.contains_key(node_key),
-                paint_callback_registered: graph_app.get_webview_for_node(*node_key).is_some()
-                    && tile_rendering_contexts.contains_key(node_key),
+            .map(|(node_key, rect)| {
+                let mapped_webview = graph_app.get_webview_for_node(*node_key).is_some();
+                let has_context = tile_rendering_contexts.contains_key(node_key);
+                let paint_callback_registered = mapped_webview && has_context;
+                let render_path_hint = if paint_callback_registered {
+                    "composited"
+                } else if mapped_webview {
+                    "missing-context"
+                } else {
+                    "unmapped-webview"
+                };
+                crate::shell::desktop::runtime::diagnostics::CompositorTileSample {
+                    node_key: *node_key,
+                    rect: *rect,
+                    mapped_webview,
+                    has_context,
+                    paint_callback_registered,
+                    render_path_hint,
+                }
             })
             .collect();
         diagnostics_state.push_frame(crate::shell::desktop::runtime::diagnostics::CompositorFrameSample {
