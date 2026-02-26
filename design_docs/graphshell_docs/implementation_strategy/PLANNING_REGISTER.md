@@ -95,33 +95,27 @@ This section is the canonical sequencing reference for conflict-aware execution 
 
 ### Recommended execution sequence (current)
 
-1. **lane:p6 pane/workbench architecture**
-  - `#76` → `#77`
-2. **lane:p7 viewer/content/registry alignment (phase 1)**
-  - `#78` → `#68` → `#69` → `#70`
-3. **lane:p6 graph multi-view stack**
-  - `#63` → `#64` → `#65` → `#66` → `#67`
-4. **lane:p6 storage/schema follow-up**
-  - `#79`
-5. **lane:p10 baseline completion**
-  - `#74` → `#75` → `#73` → close `#10`
-6. **lane:runtime (low-gui-churn window)**
-  - `#81`
-7. **lane:quickwins (opportunistic)**
+Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
+- The previously queued implementation chains below were audited and reconciled in issue state (closed):
+  - `lane:p6`: `#76`, `#77`, `#63`-`#67`, `#79`
+  - `lane:p7`: `#68`-`#71`, `#78`, `#80`, `#82`
+  - `lane:p10`: `#74`, `#75`, `#73` and parent `#10`
+  - `lane:runtime`: `#81`
+  - `gap-remediation hub`: `#86`
+- Evidence/receipt: `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_queue_execution_audit_receipt.md`
+
+1. **lane:quickwins (active next execution lane)**
   - `#21` → `#22` → `#27` → `#28`
-8. **lane:roadmap (docs/planning)**
+2. **lane:roadmap (docs/planning)**
   - `#11`, `#12`, `#13`, `#14`, `#18`, `#19`
+3. **lane:runtime / register roadmap follow-on (new work, not stale queue cleanup)**
+  - `SYSTEM_REGISTER.md` SR2/SR3 signal-routing contract + implementation slices (future tickets as needed)
 
 ### Near-term PR stack plan (merge order)
 
-- `lane:p6`: `#76` → `#77`
-- `lane:p7`: `#78` → `#68` → `#69` → `#70`
-- `lane:p10`: `#74`
-- `lane:p7`: `#71` → `#80` → `#82`
-- `lane:p6`: `#63` → `#64` → `#65` → `#66` → `#67`
-- `lane:p6`: `#79`
-- `lane:p10`: `#75` → `#73` → close `#10`
-- `lane:runtime`: `#81`
+- Completed (2026-02-26 audit/reconciliation): `lane:p6`, `lane:p7` phase-1, `lane:p10`, `lane:runtime` queues listed above
+- Active next mergeable stack: `lane:quickwins` → `#21` → `#22` → `#27` → `#28`
+- Follow with `lane:roadmap` docs/planning items (`#11`, `#12`, `#13`, `#14`, `#18`, `#19`)
 
 ---
 
