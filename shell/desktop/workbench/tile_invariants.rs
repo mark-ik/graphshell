@@ -19,7 +19,7 @@ pub(crate) fn collect_tile_invariant_violations(
     tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    for node_key in tile_runtime::all_webview_host_node_pane_keys(tiles_tree) {
+    for node_key in tile_runtime::all_webview_host_node_pane_keys(tiles_tree, graph_app) {
         if graph_app.workspace.graph.get_node(node_key).is_none() {
             violations.push(format!(
                 "tile/webview-host desync: tile has stale node key {}",
@@ -49,7 +49,7 @@ pub(crate) fn collect_active_tile_mapping_violations(
     tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    let webview_host_nodes = tile_runtime::all_webview_host_node_pane_keys(tiles_tree);
+    let webview_host_nodes = tile_runtime::all_webview_host_node_pane_keys(tiles_tree, graph_app);
     for tile_id in tiles_tree.active_tiles() {
         let Some(egui_tiles::Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
         else {

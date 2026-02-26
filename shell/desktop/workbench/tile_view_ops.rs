@@ -151,7 +151,8 @@ pub(crate) fn detach_node_pane_to_split(tiles_tree: &mut Tree<TileKind>, node_ke
 pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
     if tile_runtime::has_any_node_panes(args.tiles_tree) {
         let node_pane_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
-        let webview_host_nodes = tile_runtime::all_webview_host_node_pane_keys(args.tiles_tree);
+        let webview_host_nodes =
+            tile_runtime::all_webview_host_node_pane_keys(args.tiles_tree, args.graph_app);
         let tile_ids: Vec<_> = args
             .tiles_tree
             .tiles
