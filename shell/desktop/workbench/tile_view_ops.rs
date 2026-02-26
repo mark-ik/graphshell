@@ -10,6 +10,7 @@ use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId};
 use crate::shell::desktop::lifecycle::webview_backpressure::{self, WebviewCreationBackpressureState};
+use crate::shell::desktop::workbench::pane_model::NodePaneState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::graph::NodeKey;
@@ -276,18 +277,21 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
         }
     } else if let Some(node_key) = preferred_detail_node(args.graph_app) {
         open_or_focus_node_pane(args.tiles_tree, node_key);
-        webview_backpressure::ensure_webview_for_node(
-            args.graph_app,
-            args.window,
-            args.app_state,
-            args.base_rendering_context,
-            args.window_rendering_context,
-            args.tile_rendering_contexts,
-            node_key,
-            args.responsive_webviews,
-            args.webview_creation_backpressure,
-            args.lifecycle_intents,
-        );
+        let opened_node_pane = NodePaneState::for_node(node_key);
+        if tile_runtime::node_pane_hosts_webview_runtime(&opened_node_pane, args.graph_app) {
+            webview_backpressure::ensure_webview_for_node(
+                args.graph_app,
+                args.window,
+                args.app_state,
+                args.base_rendering_context,
+                args.window_rendering_context,
+                args.tile_rendering_contexts,
+                node_key,
+                args.responsive_webviews,
+                args.webview_creation_backpressure,
+                args.lifecycle_intents,
+            );
+        }
     }
 }
 

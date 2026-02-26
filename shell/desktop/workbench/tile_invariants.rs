@@ -49,14 +49,15 @@ pub(crate) fn collect_active_tile_mapping_violations(
     tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    let webview_host_nodes = tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
+    let node_panes_hosting_webview_runtime =
+        tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
     for tile_id in tiles_tree.active_tiles() {
         let Some(egui_tiles::Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
         else {
             continue;
         };
         let node_key = state.node;
-        if !webview_host_nodes.contains(&node_key) {
+        if !node_panes_hosting_webview_runtime.contains(&node_key) {
             continue;
         }
         if graph_app.workspace.graph.get_node(node_key).is_none() {
@@ -89,13 +90,13 @@ mod tests {
     use egui_tiles::Tiles;
     use euclid::Point2D;
 
-    fn tree_with_active_webview(node_key: NodeKey) -> Tree<TileKind> {
+    fn tree_with_active_node_pane_hosting_webview_runtime(node_key: NodeKey) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
-        let webview = tiles.insert_pane(TileKind::Node(node_key.into()));
-        let root = tiles.insert_tab_tile(vec![graph, webview]);
+        let node_pane = tiles.insert_pane(TileKind::Node(node_key.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
         let mut tree = Tree::new("tile_invariants_test", root, tiles);
-        let _ = tree.make_active(|tile_id, _| tile_id == webview);
+        let _ = tree.make_active(|tile_id, _| tile_id == node_pane);
         tree
     }
 
@@ -106,7 +107,7 @@ mod tests {
         if let Some(webview_id) = app.get_webview_for_node(node_key) {
             let _ = app.unmap_webview(webview_id);
         }
-        let tree = tree_with_active_webview(node_key);
+        let tree = tree_with_active_node_pane_hosting_webview_runtime(node_key);
         let contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>> = HashMap::new();
 
         let violations = collect_active_tile_mapping_violations(&tree, &app, &contexts);
@@ -124,14 +125,14 @@ mod tests {
     }
 
     #[test]
-    fn active_tile_mapping_violations_ignore_non_active_webview_tiles() {
+    fn active_tile_mapping_violations_ignore_non_active_node_panes_hosting_webview_runtime() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
 
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
-        let webview = tiles.insert_pane(TileKind::Node(node_key.into()));
-        let root = tiles.insert_tab_tile(vec![graph, webview]);
+        let node_pane = tiles.insert_pane(TileKind::Node(node_key.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
         let mut tree = Tree::new("tile_invariants_non_active", root, tiles);
         let _ = tree.make_active(|tile_id, _| tile_id == graph);
 

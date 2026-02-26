@@ -144,6 +144,7 @@ This register is intentionally large; to keep it operational for agents and cont
 
 Current receipt for this sequencing snapshot:
 - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_planning_register_lane_sequence_receipt.md`
+- `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_queue_execution_audit_receipt.md` (queue execution audit + landed-status verification + `#70` lifecycle policy patch)
 
 ---
 

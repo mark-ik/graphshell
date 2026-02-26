@@ -26,6 +26,7 @@ use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_invariants;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::pane_model::NodePaneState;
 use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops;
@@ -790,18 +791,22 @@ fn ensure_webviews_for_active_prewarm_nodes(
         if !tile_nodes.contains(&selected_key) {
             if let Some(node) = graph_app.workspace.graph.get_node(selected_key) {
                 if node.lifecycle == NodeLifecycle::Active {
-                    crate::shell::desktop::lifecycle::webview_backpressure::ensure_webview_for_node(
-                        graph_app,
-                        window,
-                        app_state,
-                        rendering_context,
-                        window_rendering_context,
-                        tile_rendering_contexts,
-                        selected_key,
-                        responsive_webviews,
-                        webview_creation_backpressure,
-                        &mut prewarm_intents,
-                    );
+                    let default_node_pane = NodePaneState::for_node(selected_key);
+                    if tile_runtime::node_pane_hosts_webview_runtime(&default_node_pane, graph_app)
+                    {
+                        crate::shell::desktop::lifecycle::webview_backpressure::ensure_webview_for_node(
+                            graph_app,
+                            window,
+                            app_state,
+                            rendering_context,
+                            window_rendering_context,
+                            tile_rendering_contexts,
+                            selected_key,
+                            responsive_webviews,
+                            webview_creation_backpressure,
+                            &mut prewarm_intents,
+                        );
+                    }
                 }
             }
         }

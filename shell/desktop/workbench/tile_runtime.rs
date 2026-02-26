@@ -33,7 +33,10 @@ impl TileCoordinator {
         )
     }
 
-    fn node_pane_hosts_webview_runtime(state: &NodePaneState, graph_app: &GraphBrowserApp) -> bool {
+    fn node_pane_hosts_webview_runtime_impl(
+        state: &NodePaneState,
+        graph_app: &GraphBrowserApp,
+    ) -> bool {
         matches!(
             Self::node_pane_effective_viewer_id(state, graph_app),
             Some("viewer:webview") | Some("viewer:servo")
@@ -49,7 +52,7 @@ impl TileCoordinator {
             .iter()
             .filter_map(|(_, tile)| match tile {
                 Tile::Pane(TileKind::Node(state))
-                    if Self::node_pane_hosts_webview_runtime(state, graph_app) =>
+                    if Self::node_pane_hosts_webview_runtime_impl(state, graph_app) =>
                 {
                     Some(state.node)
                 }
@@ -99,11 +102,11 @@ impl TileCoordinator {
         Self::collect_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
     }
 
-    pub(crate) fn all_webview_host_node_pane_keys(
-        tiles_tree: &Tree<TileKind>,
+    pub(crate) fn node_pane_hosts_webview_runtime(
+        state: &NodePaneState,
         graph_app: &GraphBrowserApp,
-    ) -> HashSet<NodeKey> {
-        Self::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
+    ) -> bool {
+        Self::node_pane_hosts_webview_runtime_impl(state, graph_app)
     }
 
     pub(crate) fn prune_stale_node_pane_keys_only(
@@ -236,18 +239,18 @@ pub(crate) fn all_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey
     TileCoordinator::all_node_pane_keys(tiles_tree)
 }
 
-pub(crate) fn all_webview_host_node_pane_keys(
-    tiles_tree: &Tree<TileKind>,
-    graph_app: &GraphBrowserApp,
-) -> HashSet<NodeKey> {
-    TileCoordinator::all_webview_host_node_pane_keys(tiles_tree, graph_app)
-}
-
 pub(crate) fn all_node_pane_keys_hosting_webview_runtime(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
 ) -> HashSet<NodeKey> {
     TileCoordinator::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
+}
+
+pub(crate) fn node_pane_hosts_webview_runtime(
+    state: &NodePaneState,
+    graph_app: &GraphBrowserApp,
+) -> bool {
+    TileCoordinator::node_pane_hosts_webview_runtime(state, graph_app)
 }
 
 pub(crate) fn prune_stale_node_pane_keys_only(
@@ -291,22 +294,6 @@ pub(crate) fn release_webview_runtime_for_node_pane(
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
     TileCoordinator::release_webview_runtime_for_node_pane(
-        graph_app,
-        window,
-        tile_rendering_contexts,
-        node_key,
-        lifecycle_intents,
-    );
-}
-
-pub(crate) fn close_webview_for_node(
-    graph_app: &mut GraphBrowserApp,
-    window: &EmbedderWindow,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    node_key: NodeKey,
-    lifecycle_intents: &mut Vec<GraphIntent>,
-) {
-    release_webview_runtime_for_node_pane(
         graph_app,
         window,
         tile_rendering_contexts,
@@ -360,7 +347,7 @@ mod tests {
         let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
-        let hosts = TileCoordinator::all_webview_host_node_pane_keys(&tree, &app);
+        let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
         assert!(hosts.contains(&node_key));
     }
 
@@ -370,7 +357,7 @@ mod tests {
         let node_key = app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
-        let hosts = TileCoordinator::all_webview_host_node_pane_keys(&tree, &app);
+        let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
         assert!(!hosts.contains(&node_key));
     }
 
@@ -380,7 +367,7 @@ mod tests {
         let node_key = app.add_node_and_sync("gemini://example.test".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
-        let hosts = TileCoordinator::all_webview_host_node_pane_keys(&tree, &app);
+        let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
         assert!(!hosts.contains(&node_key));
     }
 
@@ -395,8 +382,10 @@ mod tests {
         let file_webview_tree =
             tree_with_node_pane(NodePaneState::with_viewer(file_node, ViewerId::new("viewer:webview")));
 
-        let http_hosts = TileCoordinator::all_webview_host_node_pane_keys(&http_plaintext_tree, &app);
-        let file_hosts = TileCoordinator::all_webview_host_node_pane_keys(&file_webview_tree, &app);
+        let http_hosts =
+            TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&http_plaintext_tree, &app);
+        let file_hosts =
+            TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&file_webview_tree, &app);
 
         assert!(!http_hosts.contains(&http_node));
         assert!(file_hosts.contains(&file_node));
