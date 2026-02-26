@@ -162,7 +162,7 @@ impl CompositorAdapter {
     }
 
     pub(crate) fn run_content_callback_with_guardrails<F>(
-        node_key: NodeKey,
+        _node_key: NodeKey,
         gl: &glow::Context,
         render: F,
     ) where
@@ -216,7 +216,7 @@ impl CompositorAdapter {
         );
     }
 
-    pub(crate) fn report_invalid_tile_rect(node_key: NodeKey) {
+    pub(crate) fn report_invalid_tile_rect(_node_key: NodeKey) {
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_event(
             crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
@@ -241,8 +241,8 @@ mod tests {
     fn pass_scheduler_runs_content_before_overlay() {
         let order = RefCell::new(Vec::new());
         {
-            let mut content = || order.borrow_mut().push("content");
-            let mut overlay = || order.borrow_mut().push("overlay");
+            let content = || order.borrow_mut().push("content");
+            let overlay = || order.borrow_mut().push("overlay");
             content();
             overlay();
         }
