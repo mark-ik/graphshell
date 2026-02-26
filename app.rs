@@ -905,6 +905,14 @@ pub enum GraphIntent {
         view_id: GraphViewId,
         mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode,
     },
+    /// Explicit commit action for Divergent -> Canonical writeback path.
+    ///
+    /// P6.e delivers the control path as a stub; writeback semantics land in a
+    /// follow-up slice. This action must remain explicit and separate from mode
+    /// switches.
+    CommitDivergentLayout {
+        view_id: GraphViewId,
+    },
     /// Switch the rendering dimension for a graph view (2D ↔ 3D hotswitch).
     ///
     /// Introduced in F9 (concept adoption). Blocked on P5 + P6 completion.
@@ -2205,6 +2213,15 @@ impl GraphBrowserApp {
                         }
                         _ => {}
                     }
+                }
+            },
+            GraphIntent::CommitDivergentLayout { view_id } => {
+                if let Some(view) = self.workspace.views.get(&view_id) {
+                    log::debug!(
+                        "commit divergent layout stub invoked for view {:?} in mode {:?}",
+                        view_id,
+                        view.layout_mode
+                    );
                 }
             },
             GraphIntent::SetViewDimension { view_id, dimension } => {
@@ -8005,6 +8022,32 @@ mod tests {
             mode: ViewLayoutMode::Canonical,
         }]);
         assert!(app.workspace.views[&view_id].local_simulation.is_none());
+    }
+
+    #[test]
+    fn test_commit_divergent_layout_stub_does_not_mutate_shared_positions() {
+        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let node_key = app
+            .workspace
+            .graph
+            .add_node("https://example.com".into(), Point2D::new(10.0, 20.0));
+
+        let view_id = GraphViewId::new();
+        let mut view_state = GraphViewState::new_with_id(view_id, "Test");
+        view_state.layout_mode = ViewLayoutMode::Divergent;
+        view_state.local_simulation = Some(LocalSimulation {
+            positions: HashMap::from([(node_key, Point2D::new(200.0, 300.0))]),
+            physics: app.workspace.physics.clone(),
+        });
+        app.workspace.views.insert(view_id, view_state);
+
+        let before = app.workspace.graph.get_node(node_key).unwrap().position;
+        app.apply_intents([GraphIntent::CommitDivergentLayout { view_id }]);
+        let after = app.workspace.graph.get_node(node_key).unwrap().position;
+
+        assert_eq!(before, after, "stub commit must not mutate shared graph positions");
     }
 
     // --- UpdateNodeMimeHint / UpdateNodeAddressKind intent tests ---

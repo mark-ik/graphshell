@@ -924,6 +924,30 @@ fn render_graph_pane_overlay(
                             });
                         }
                     });
+
+                    if matches!(
+                        layout_mode,
+                        crate::shell::desktop::workbench::pane_model::ViewLayoutMode::Divergent
+                    ) {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("Commit Divergent (stub)")
+                                            .small()
+                                            .color(egui::Color32::from_rgb(220, 200, 130)),
+                                    )
+                                    .frame(false),
+                                )
+                                .on_hover_text(
+                                    "Explicit writeback action stub (no implicit commit on mode switch)",
+                                )
+                                .clicked()
+                            {
+                                pending_intents.push(GraphIntent::CommitDivergentLayout { view_id });
+                            }
+                        });
+                    }
                 });
         });
 }
