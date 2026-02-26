@@ -69,7 +69,7 @@ pub(crate) fn mapped_nodes_without_tiles(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) -> Vec<NodeKey> {
-    let tile_nodes = tile_runtime::all_node_pane_keys(tiles_tree);
+    let tile_nodes = tile_runtime::all_webview_host_node_pane_keys(tiles_tree);
     graph_app
         .webview_node_mappings()
         .map(|(_, node_key)| node_key)

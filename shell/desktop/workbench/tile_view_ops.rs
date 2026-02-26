@@ -151,6 +151,7 @@ pub(crate) fn detach_node_pane_to_split(tiles_tree: &mut Tree<TileKind>, node_ke
 pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
     if tile_runtime::has_any_node_panes(args.tiles_tree) {
         let node_pane_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
+        let webview_host_nodes = tile_runtime::all_webview_host_node_pane_keys(args.tiles_tree);
         let tile_ids: Vec<_> = args
             .tiles_tree
             .tiles
@@ -163,14 +164,19 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
         for tile_id in tile_ids {
             args.tiles_tree.remove_recursively(tile_id);
         }
-        for node_key in node_pane_nodes {
-            tile_runtime::close_webview_for_node(
+        for node_key in webview_host_nodes.iter().copied() {
+            tile_runtime::release_webview_runtime_for_node_pane(
                 args.graph_app,
                 args.window,
                 args.tile_rendering_contexts,
                 node_key,
                 args.lifecycle_intents,
             );
+        }
+        for node_key in node_pane_nodes {
+            if !webview_host_nodes.contains(&node_key) {
+                args.tile_rendering_contexts.remove(&node_key);
+            }
         }
     } else if let Some(node_key) = preferred_detail_node(args.graph_app) {
         open_or_focus_node_pane(args.tiles_tree, node_key);

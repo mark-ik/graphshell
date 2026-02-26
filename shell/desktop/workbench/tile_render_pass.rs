@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use egui_tiles::Tree;
 #[cfg(feature = "diagnostics")]
 use egui_tiles::{Container, Tile, TileId};
-use servo::{OffscreenRenderingContext, RenderingContext, WebViewId, WindowRenderingContext};
+use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use super::tile_behavior::PendingOpenMode;
 use super::tile_compositor;
@@ -210,7 +210,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         });
     }
     for node_key in pending_closed_nodes {
-        tile_runtime::close_webview_for_node(
+        tile_runtime::release_webview_runtime_for_node_pane(
             graph_app,
             window,
             tile_rendering_contexts,
@@ -220,7 +220,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     }
 
     for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
-        tile_runtime::close_webview_for_node(
+        tile_runtime::release_webview_runtime_for_node_pane(
             graph_app,
             window,
             tile_rendering_contexts,
@@ -278,23 +278,14 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         log::debug!("tile_render_pass: active tile {:?} kind {}", tile_id, tile_label);
     }
     
-    // Ensure rendering contexts exist for ALL tile nodes (not just active ones).
-    // This maintains the tile_rendering_contexts HashMap for hidden/inactive tiles too.
-    let all_tile_nodes = tile_runtime::all_node_pane_keys(tiles_tree);
-    for node_key in all_tile_nodes.iter().copied() {
-        if !tile_rendering_contexts.contains_key(&node_key) {
-            let render_context = Rc::new(
-                window_rendering_context.offscreen_context(rendering_context.size())
-            );
-            tile_rendering_contexts.insert(node_key, render_context);
-            log::debug!("tile_render_pass: created rendering context for node {:?}", node_key);
-        }
-    }
-    
     // Ensure webviews exist for active tiles, applying intents immediately
     // so compositing (below) can find the webviews via get_webview_for_node.
     let mut webview_creation_intents = Vec::new();
+    let webview_host_nodes = tile_runtime::all_webview_host_node_pane_keys(tiles_tree);
     for (node_key, _) in active_tile_rects.iter().copied() {
+        if !webview_host_nodes.contains(&node_key) {
+            continue;
+        }
         log::debug!("tile_render_pass: ensuring webview for active node {:?}", node_key);
         webview_backpressure::ensure_webview_for_node(
             graph_app,

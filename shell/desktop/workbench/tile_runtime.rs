@@ -10,6 +10,7 @@ use servo::{OffscreenRenderingContext, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -17,6 +18,29 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 pub(crate) struct TileCoordinator;
 
 impl TileCoordinator {
+    fn node_pane_hosts_webview_runtime(state: &NodePaneState) -> bool {
+        state
+            .viewer_id_override
+            .as_ref()
+            .map(ViewerId::as_str)
+            .map_or(true, |viewer_id| viewer_id == "viewer:webview")
+    }
+
+    fn collect_webview_host_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
+        tiles_tree
+            .tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(TileKind::Node(state))
+                    if Self::node_pane_hosts_webview_runtime(state) =>
+                {
+                    Some(state.node)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     fn should_preserve_runtime_webview(node_exists: bool, mapped_webview: Option<WebViewId>) -> bool {
         node_exists && mapped_webview.is_some()
     }
@@ -49,6 +73,10 @@ impl TileCoordinator {
                 _ => None,
             })
             .collect()
+    }
+
+    pub(crate) fn all_webview_host_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
+        Self::collect_webview_host_node_pane_keys(tiles_tree)
     }
 
     pub(crate) fn prune_stale_node_pane_keys_only(
@@ -106,7 +134,7 @@ impl TileCoordinator {
 
         for node_key in stale_nodes {
             Self::remove_node_pane_for_node(tiles_tree, node_key);
-            Self::close_webview_for_node(
+            Self::release_webview_runtime_for_node_pane(
                 graph_app,
                 window,
                 tile_rendering_contexts,
@@ -116,7 +144,7 @@ impl TileCoordinator {
         }
     }
 
-    pub(crate) fn close_webview_for_node(
+    pub(crate) fn release_webview_runtime_for_node_pane(
         graph_app: &mut GraphBrowserApp,
         window: &EmbedderWindow,
         tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -125,6 +153,11 @@ impl TileCoordinator {
     ) {
         let node_exists = graph_app.workspace.graph.get_node(node_key).is_some();
         let mapped_webview = graph_app.get_webview_for_node(node_key);
+
+        if mapped_webview.is_none() {
+            tile_rendering_contexts.remove(&node_key);
+            return;
+        }
 
         if Self::should_preserve_runtime_webview(node_exists, mapped_webview) {
             let lifecycle = graph_app
@@ -176,6 +209,10 @@ pub(crate) fn all_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey
     TileCoordinator::all_node_pane_keys(tiles_tree)
 }
 
+pub(crate) fn all_webview_host_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
+    TileCoordinator::all_webview_host_node_pane_keys(tiles_tree)
+}
+
 pub(crate) fn prune_stale_node_pane_keys_only(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -209,6 +246,22 @@ pub(crate) fn prune_stale_node_panes(
     );
 }
 
+pub(crate) fn release_webview_runtime_for_node_pane(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    node_key: NodeKey,
+    lifecycle_intents: &mut Vec<GraphIntent>,
+) {
+    TileCoordinator::release_webview_runtime_for_node_pane(
+        graph_app,
+        window,
+        tile_rendering_contexts,
+        node_key,
+        lifecycle_intents,
+    );
+}
+
 pub(crate) fn close_webview_for_node(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
@@ -216,7 +269,7 @@ pub(crate) fn close_webview_for_node(
     node_key: NodeKey,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
-    TileCoordinator::close_webview_for_node(
+    release_webview_runtime_for_node_pane(
         graph_app,
         window,
         tile_rendering_contexts,
@@ -229,6 +282,7 @@ pub(crate) fn close_webview_for_node(
 mod tests {
     use super::TileCoordinator;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+    use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
 
     fn test_webview_id() -> servo::WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -250,5 +304,22 @@ mod tests {
         let webview_id = test_webview_id();
         assert!(!TileCoordinator::should_preserve_runtime_webview(false, Some(webview_id)));
         assert!(!TileCoordinator::should_preserve_runtime_webview(true, None));
+    }
+
+    #[test]
+    fn node_pane_webview_runtime_hosting_respects_viewer_override() {
+        let default_state = NodePaneState::for_node(petgraph::stable_graph::NodeIndex::new(0));
+        let webview_state = NodePaneState::with_viewer(
+            petgraph::stable_graph::NodeIndex::new(1),
+            ViewerId::new("viewer:webview"),
+        );
+        let plaintext_state = NodePaneState::with_viewer(
+            petgraph::stable_graph::NodeIndex::new(2),
+            ViewerId::new("viewer:plaintext"),
+        );
+
+        assert!(TileCoordinator::node_pane_hosts_webview_runtime(&default_state));
+        assert!(TileCoordinator::node_pane_hosts_webview_runtime(&webview_state));
+        assert!(!TileCoordinator::node_pane_hosts_webview_runtime(&plaintext_state));
     }
 }
