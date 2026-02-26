@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 pub(crate) mod pane_model;
+pub(crate) mod compositor_adapter;
 pub(crate) mod selection_range;
 pub(crate) mod tile_behavior;
 pub(crate) mod tile_compositor;
