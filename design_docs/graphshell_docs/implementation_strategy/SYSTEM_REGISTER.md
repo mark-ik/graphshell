@@ -59,6 +59,73 @@ Gaps / active architectural work:
 - **Control Panel**: Async coordination/process host for workers that produce intents and background runtime tasks.
 - **SignalBus (or equivalent)**: Typed event distribution fabric for decoupled publish/subscribe between registries, mods, subsystems, and observers. Architectural role is expected; concrete API is future work.
 
+## Routing Decision Rules (Signal vs Intent vs Call)
+
+This section defines the canonical decision rule for choosing between routing
+mechanisms. Every cross-module interaction in the codebase should map cleanly to
+one of these four rows.
+
+### Decision table
+
+| Mechanism | When to use | Authority boundary |
+| --------- | ----------- | ------------------ |
+| **Direct call** | Same module / same struct; synchronous, co-owned state | No boundary crossing |
+| **`GraphIntent` → `apply_intents()`** | Mutation of graph/workspace data model; must be deterministic, testable, WAL-logged | Graph Reducer boundary |
+| **`WorkbenchIntent` (frame-loop intercept)** | Mutation of tile-tree shape (`egui_tiles`); workbench authority owns layout | Workbench Mutation Authority |
+| **Signal / `SignalBus`** | Decoupled cross-registry or cross-subsystem notification; emitter must not know observer | Register-owned signal layer |
+
+### The two-authority model (explicit)
+
+The architecture has **two distinct mutation authorities** — not one:
+
+**1. Graph Reducer** (`apply_intents` in `app.rs`)
+
+Authoritative for:
+
+- Graph data model (nodes, edges, selections)
+- Node/edge lifecycle transitions (Cold → Warm → Hot and reverse)
+- Traversal history, WAL journal, undo/redo checkpoints
+- WebView ↔ node mapping (`MapWebview`, `UnmapWebview`)
+
+Properties: always synchronous, always logged, always testable in isolation.
+
+**2. Workbench Authority** (Gui frame loop, `tile_behavior.rs`, `tile_view_ops.rs`)
+
+Authoritative for:
+
+- Tile-tree shape mutations (splits, tabs, pane open/close/focus)
+- `TileKind` pane insertion, removal, and focus changes
+
+The tile tree is an `egui_tiles` construct, not graph state. Tile mutations do
+not need the WAL, the graph reducer, or `ControlPanel` involvement.
+
+Intents that cross from workbench into the graph reducer (e.g. `OpenToolPane`
+dispatched during a graph interaction) belong in the Workbench Authority
+intercept path (`handle_tool_pane_intents` in `gui.rs`). This is correct
+architecture — not a gap — **provided the intercept is documented and
+consistent**.
+
+**The current gap:** `apply_intents` silently no-ops on workbench-authority
+intents (`OpenToolPane`, `SplitPane`, `SetPaneView`, `OpenNodeInPane`), making
+authority mis-routing invisible. The fix (tracked as item E in the gap-analysis
+plan) is to emit a `log::warn!` on these arms so mis-routing surfaces
+immediately during development.
+
+### Routing anti-patterns to avoid
+
+- **Do not call `apply_intents` for tile-tree mutations.** Tile layout is
+  workbench authority; routing it through the graph reducer couples layout
+  to the WAL and makes tests harder.
+- **Do not use direct calls across registry boundaries.** Two registries that
+  need to coordinate should use a Signal or delegate to `ControlPanel`, not
+  call each other's internal methods.
+- **Do not accumulate workbench state in `GraphBrowserApp` workspace fields.**
+  Legacy booleans like `show_history_manager` are a bridge for the migration
+  period only; all new pane-open/close state lives in the tile tree.
+- **Do not bypass `ControlPanel` for background intent producers.** All
+  background tasks that produce `GraphIntent` values must go through
+  `ControlPanel`'s supervised worker model, not spawn independent threads.
+
 ## Implementation Roadmap (Register-Local)
 
 ### SR1: Normalize Register Hub Boundaries (near-term)

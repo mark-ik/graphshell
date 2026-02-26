@@ -1156,6 +1156,24 @@ impl Gui {
     ) {
     }
 
+    /// Intercept workbench-authority intents before they reach `apply_intents()`.
+    ///
+    /// ## Two-authority model
+    ///
+    /// The architecture has two distinct mutation authorities:
+    ///
+    /// - **Graph Reducer** (`apply_intents` in `app.rs`): authoritative for the graph
+    ///   data model, node/edge lifecycle, WAL journal, and traversal history.
+    ///   Always synchronous, always logged, always testable.
+    ///
+    /// - **Workbench Authority** (this function + `tile_view_ops.rs`): authoritative
+    ///   for tile-tree shape mutations (`egui_tiles` splits, tabs, pane open/close/
+    ///   focus). The tile tree is a layout construct — not graph state — and must
+    ///   not flow through the graph reducer or the WAL.
+    ///
+    /// Intents tagged as workbench-authority (`OpenToolPane`, `SplitPane`,
+    /// `SetPaneView`, `OpenNodeInPane`) must be drained here, before `apply_intents`
+    /// is called. Any that leak through will produce a `log::warn!` in the reducer.
     fn handle_tool_pane_intents(tiles_tree: &mut Tree<TileKind>, frame_intents: &mut Vec<GraphIntent>) {
         let mut remaining = Vec::with_capacity(frame_intents.len());
         for intent in frame_intents.drain(..) {

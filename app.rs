@@ -1054,8 +1054,9 @@ pub enum GraphIntent {
     },
     /// Split an existing pane, creating a new pane in the given direction.
     ///
-    /// Introduced in P5 (pane-hosted view architecture). Workbench-layer handled;
-    /// wired to tile behavior in P6.
+    /// **Workbench-authority intent** — intercepted by the Gui frame loop
+    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
+    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
     #[allow(dead_code)]
     SplitPane {
         source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
@@ -1063,7 +1064,9 @@ pub enum GraphIntent {
     },
     /// Change the view payload of an existing pane.
     ///
-    /// Introduced in P5. Workbench-layer handled; wired to tile behavior in P6.
+    /// **Workbench-authority intent** — intercepted by the Gui frame loop
+    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
+    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
     #[allow(dead_code)]
     SetPaneView {
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
@@ -1071,7 +1074,9 @@ pub enum GraphIntent {
     },
     /// Open a node in a specific pane (node viewer pane).
     ///
-    /// Introduced in P5. Workbench-layer handled; wired to tile behavior in P6.
+    /// **Workbench-authority intent** — intercepted by the Gui frame loop
+    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
+    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
     #[allow(dead_code)]
     OpenNodeInPane {
         node: NodeKey,
@@ -1079,7 +1084,9 @@ pub enum GraphIntent {
     },
     /// Open a tool pane of the given kind.
     ///
-    /// Introduced in P5. Workbench-layer handled; wired to tile behavior in P6.
+    /// **Workbench-authority intent** — intercepted by the Gui frame loop
+    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
+    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
     #[allow(dead_code)]
     OpenToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
@@ -2562,14 +2569,19 @@ impl GraphBrowserApp {
                     }
                 }
             }
-            // Pane-level intents (P5 architecture). Handled by the workbench layer (tile behavior).
-            // These are recognized here so the intent bus remains exhaustive; actual routing
-            // to split/view-change tile operations is wired in Stage 6 (P6).
+            // Workbench-authority intents: tile-tree shape mutations owned by the Gui
+            // frame loop (handle_tool_pane_intents / tile_view_ops), NOT the graph reducer.
+            // Reaching this arm means an intent was queued but not intercepted by the
+            // frame-loop before apply_intents — that is a routing bug.
             GraphIntent::SplitPane { .. }
             | GraphIntent::SetPaneView { .. }
             | GraphIntent::OpenNodeInPane { .. }
             | GraphIntent::OpenToolPane { .. } => {
-                log::debug!("pane intent received (workbench-layer handling pending Stage 6)");
+                log::warn!(
+                    "workbench-authority intent reached graph reducer — \
+                     should have been intercepted by Gui frame-loop before apply_intents(); \
+                     check handle_tool_pane_intents() call order"
+                );
             }
             GraphIntent::UpdateNodeMimeHint { key, mime_hint } => {
                 if let Some(node) = self.workspace.graph.get_node_mut(key) {
