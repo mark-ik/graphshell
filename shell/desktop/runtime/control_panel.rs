@@ -12,8 +12,9 @@
 //! the [`QueuedIntent`] channel. Each frame, the caller drains the channel via
 //! [`ControlPanel::drain_pending`] before calling `apply_intents`.
 //!
-//! Part of The Register: `RegistryRuntime` + `ControlPanel` + a not-yet-implemented
-//! signal-routing layer (`SignalBus` or equivalent abstraction).
+//! Part of The Register: `RegistryRuntime` + `ControlPanel` + future signal
+//! routing. `SignalBus` remains an architecture term only in this phase; no
+//! dedicated runtime bus type is implemented here yet.
 
 use std::time::{Duration, Instant};
 
@@ -81,7 +82,7 @@ pub(crate) struct ControlPanel {
     /// Drained by the sync frame loop each tick via [`Self::drain_pending`].
     pub(crate) intent_rx: mpsc::Receiver<QueuedIntent>,
     /// Optional sync worker command channel.
-    pub(crate) sync_command_tx: Option<mpsc::Sender<SyncCommand>>,
+    sync_command_tx: Option<mpsc::Sender<SyncCommand>>,
     /// Sync worker discovery-result stream.
     discovery_result_rx: Option<mpsc::UnboundedReceiver<Result<Vec<verse::DiscoveredPeer>, String>>>,
     /// Shared cancellation token — `cancel()` stops all supervised workers.
@@ -117,12 +118,26 @@ impl ControlPanel {
         intents
     }
 
+    /// Clone the sync command sender, when the sync worker is available.
+    pub(crate) fn sync_command_sender(&self) -> Option<mpsc::Sender<SyncCommand>> {
+        self.sync_command_tx.clone()
+    }
+
     pub(crate) fn take_discovery_results(
         &mut self,
     ) -> Option<Result<Vec<verse::DiscoveredPeer>, String>> {
         self.discovery_result_rx
             .as_mut()
             .and_then(|rx| rx.try_recv().ok())
+    }
+
+    /// Enqueue a nearby-peer discovery command for the sync worker.
+    pub(crate) fn request_discover_nearby_peers(&self, timeout_secs: u64) -> Result<(), String> {
+        let Some(tx) = self.sync_command_tx.clone() else {
+            return Err("sync worker command channel unavailable".to_string());
+        };
+        tx.try_send(SyncCommand::DiscoverNearby { timeout_secs })
+            .map_err(|e| format!("failed to enqueue discovery command: {e}"))
     }
 
     /// Spawn the memory monitor background worker.
@@ -216,6 +231,11 @@ impl ControlPanel {
     #[cfg(test)]
     pub(crate) fn worker_count(&self) -> usize {
         self.workers.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_sync_command_sender_for_tests(&mut self, tx: mpsc::Sender<SyncCommand>) {
+        self.sync_command_tx = Some(tx);
     }
 }
 
@@ -446,9 +466,33 @@ mod tests {
         panel.spawn_sync_worker();
         tokio::task::yield_now().await;
 
-        assert!(panel.sync_command_tx.is_some());
+        assert!(panel.sync_command_sender().is_some());
 
         panel.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn request_discover_nearby_requires_sync_worker_channel() {
+        let panel = ControlPanel::new();
+        let result = panel.request_discover_nearby_peers(2);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn request_discover_nearby_enqueues_after_sync_worker_spawn() {
+        let mut panel = ControlPanel::new();
+        let (tx, mut rx) = mpsc::channel(1);
+        panel.set_sync_command_sender_for_tests(tx);
+
+        panel
+            .request_discover_nearby_peers(2)
+            .expect("discovery request should enqueue");
+
+        let command = rx
+            .recv()
+            .await
+            .expect("command should be received by test channel");
+        assert!(matches!(command, SyncCommand::DiscoverNearby { timeout_secs: 2 }));
     }
 
     async fn mod_loader_worker_with_manifests(

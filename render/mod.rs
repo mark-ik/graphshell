@@ -2700,7 +2700,11 @@ pub fn render_persistence_panel(
     app.workspace.show_persistence_panel = open;
 }
 
-pub fn render_sync_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+pub fn render_sync_panel(
+    ctx: &egui::Context,
+    app: &mut GraphBrowserApp,
+    control_panel: &mut crate::shell::desktop::runtime::control_panel::ControlPanel,
+) {
     if !app.workspace.show_sync_panel {
         return;
     }
@@ -2710,7 +2714,7 @@ pub fn render_sync_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
     let discovery_results_id = egui::Id::new("verse_discovery_results");
     let sync_status_id = egui::Id::new("verse_sync_status");
 
-    if let Some(discovery_result) = app.take_discovery_results() {
+    if let Some(discovery_result) = control_panel.take_discovery_results() {
         match discovery_result {
             Ok(peers) => {
                 let discovered_count = peers.len();
@@ -2760,7 +2764,7 @@ pub fn render_sync_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                         }
                     }
                     if ui.button("Discover Nearby").clicked() {
-                        match app.request_discover_nearby_peers(2) {
+                        match control_panel.request_discover_nearby_peers(2) {
                             Ok(()) => {
                                 ctx.data_mut(|d| {
                                     d.insert_temp(

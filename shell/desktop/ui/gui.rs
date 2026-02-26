@@ -333,7 +333,7 @@ impl Gui {
             panel.spawn_sync_worker();
             panel
         };
-        graph_app.set_sync_command_tx(control_panel.sync_command_tx.clone());
+        graph_app.set_sync_command_tx(control_panel.sync_command_sender());
 
         Self {
             rendering_context,
@@ -679,9 +679,6 @@ impl Gui {
 
             // Drain async worker intents from Control Panel
             frame_intents.extend(control_panel.drain_pending());
-            while let Some(discovery_result) = control_panel.take_discovery_results() {
-                graph_app.publish_discovery_results(discovery_result);
-            }
 
             let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
 
@@ -865,6 +862,7 @@ impl Gui {
                     focus_ring_started_at,
                     focus_ring_duration: *focus_ring_duration,
                     toasts,
+                    control_panel,
                     #[cfg(feature = "diagnostics")]
                     diagnostics_state,
                 },
