@@ -8,12 +8,12 @@ use std::sync::Arc;
 use egui::{Context, Id, LayerId, PaintCallback, Rect as EguiRect, Stroke, StrokeKind};
 use egui_glow::{CallbackFn, glow};
 use crate::graph::NodeKey;
+use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_GL_STATE_VIOLATION;
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = "tile_compositor.content_pass_registered";
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = "tile_compositor.overlay_pass_registered";
 const CHANNEL_PASS_ORDER_VIOLATION: &str = "tile_compositor.pass_order_violation";
 const CHANNEL_INVALID_TILE_RECT: &str = "tile_compositor.invalid_tile_rect";
-const CHANNEL_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GlStateSnapshot {
@@ -130,7 +130,7 @@ impl CompositorAdapter {
             #[cfg(feature = "diagnostics")]
             crate::shell::desktop::runtime::diagnostics::emit_event(
                 crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_GL_STATE_VIOLATION,
+                    channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
                     byte_len: std::mem::size_of::<NodeKey>() + std::mem::size_of::<GlStateSnapshot>(),
                 },
             );
