@@ -101,21 +101,22 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
   - `lane:p7`: `#68`-`#71`, `#78`, `#80`, `#82`
   - `lane:p10`: `#74`, `#75`, `#73` and parent `#10`
   - `lane:runtime`: `#81`
+  - `lane:quickwins`: `#21`, `#22`, `#27`, `#28`
   - `gap-remediation hub`: `#86`
 - Evidence/receipt: `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_queue_execution_audit_receipt.md`
 
-1. **lane:quickwins (active next execution lane)**
-  - `#21` → `#22` → `#27` → `#28`
-2. **lane:roadmap (docs/planning)**
+1. **lane:roadmap (docs/planning)**
   - `#11`, `#12`, `#13`, `#14`, `#18`, `#19`
-3. **lane:runtime / register roadmap follow-on (new work, not stale queue cleanup)**
+2. **lane:runtime / register roadmap follow-on (new work, not stale queue cleanup)**
   - `SYSTEM_REGISTER.md` SR2/SR3 signal-routing contract + implementation slices (future tickets as needed)
+3. **Bugfix / stabilization lane (ad hoc, user-reported)**
+  - Zoom-to-fit / unresponsive controls investigation (not part of the reconciled backlog queue)
 
 ### Near-term PR stack plan (merge order)
 
 - Completed (2026-02-26 audit/reconciliation): `lane:p6`, `lane:p7` phase-1, `lane:p10`, `lane:runtime` queues listed above
-- Active next mergeable stack: `lane:quickwins` → `#21` → `#22` → `#27` → `#28`
-- Follow with `lane:roadmap` docs/planning items (`#11`, `#12`, `#13`, `#14`, `#18`, `#19`)
+- Active next mergeable stack: `lane:roadmap` docs/planning items (`#11`, `#12`, `#13`, `#14`, `#18`, `#19`)
+- Parallel planning work (new tickets as needed): Register signal-routing roadmap slices (SR2/SR3)
 
 ---
 
