@@ -6,12 +6,25 @@
 ## Contents
 
 1. Immediate Priorities Register (10/10/10)
-2. Merge-Safe Lane Execution Reference
-3. Register Size Guardrails + Archive Receipts
-4. Backlog Ticket Stubs (Index)
-5. Implementation Guides (Index)
-6. Suggested Tracker Labels
-7. Import Notes
+2. Latest Checkpoint Delta (Code + Doc Audit)
+3. Merge-Safe Lane Execution Reference (Canonical)
+4. Register Size Guardrails + Archive Receipts
+5. Top 10 Active Execution Lanes (Strategic / Completion-Oriented)
+6. Prospective Lane Catalog (Comprehensive)
+7. Forgotten Concepts for Adoption (Vision / Research)
+8. Quickest Improvements (Low-Effort / High-Leverage)
+9. Historical Execution Sequence + Registry Closure Backlog (Reference)
+10. Backlog Ticket Stubs (Index)
+11. Implementation Guides (Index)
+12. Suggested Tracker Labels
+13. Import Notes
+
+### Contents Notes
+
+- `§1A` is the canonical sequencing control-plane section.
+- `§1C` is the current prioritized lane board.
+- `§1D` is the comprehensive lane catalog (including prospective and incubation lanes).
+- Later duplicated numeric section labels (`## 2`..`## 5` repeated near the end of the file) are retained for archive/reference continuity and should be treated as reference payload, not canonical sequencing state.
 
 ---
 
@@ -107,6 +120,7 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
 
 1. **lane:stabilization (ad hoc bugfix lane, active if user-reported regressions exist)**
   - Zoom-to-fit / unresponsive controls investigation (create/label issue before code work if no tracker exists)
+  - Hub: `#88` (Controls/camera/focus correctness stabilization tracker)
   - Hotspots likely: `render/mod.rs`, `app.rs`, `gui.rs`, input/camera command paths
   - Rule: run as a single focused PR, do not overlap with quick refactors in the same hotspots
 2. **lane:roadmap (docs/planning, merge-safe default lane)**
@@ -114,6 +128,7 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
   - Low conflict risk with runtime/render hot files; preferred background lane while bugfix lane is idle
 3. **lane:runtime-followon (new tickets required)**
   - `SYSTEM_REGISTER.md` SR2 (signal routing contract) before SR3 (`SignalBus`/equivalent fabric)
+  - Hub: `#91` (SR2/SR3 signal routing contract + fabric tracker)
   - Create new child issues before execution; avoid reusing closed queue-cleanup issues (`#80/#81/#82/#86`)
   - Keep separate from stabilization lane if touching `gui.rs` or registry runtime hotspots
 
@@ -154,6 +169,7 @@ Use these as first-pass stabilization issue seeds when a dedicated issue does no
 ### Debt-Retirement Lanes (Current)
 
 - `lane:embedder-debt` (servoshell inheritance retirement)
+  - Hub: `#90` (Servoshell inheritance retirement tracker)
   - Scope: `gui.rs`/`gui_frame.rs` decomposition, `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
   - Primary guide: `design_docs/graphshell_docs/implementation_strategy/2026-02-20_embedder_decomposition_plan.md`
   - Rule: pair mechanical moves with invariants/tests; avoid mixing with feature work in the same PR
@@ -161,6 +177,7 @@ Use these as first-pass stabilization issue seeds when a dedicated issue does no
 ### Incubation Lanes (Parallel / Non-blocking)
 
 - `lane:verse-intelligence`
+  - Hub: `#93` (Model slots + memory architecture implementation tracker)
   - Open a hub + child issue stack for the two design-ready plans (currently no implementation lane):
   - `design_docs/verse_docs/implementation_strategy/2026-02-26_model_slots_adapters_udc_personalization_plan.md`
   - `design_docs/verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md`
@@ -170,9 +187,9 @@ Use these as first-pass stabilization issue seeds when a dedicated issue does no
 
 | Mismatch | Current Reality | Owner Lane | Done Gate |
 | --- | --- | --- | --- |
-| `viewer:settings` selected but not embedded | Viewer resolution can select `viewer:settings`, but node-pane renderer still falls back to non-embedded placeholder for non-web viewers. | `lane:viewer-platform`, `lane:control-ui-settings` | Settings viewer path is renderable without placeholder fallback in node/tool contexts. |
-| Browser viewer table vs implemented viewer surfaces | Spec/docs describe broader viewer matrix than runtime embedded implementations currently expose. | `lane:viewer-platform` | Viewer table claims are either implemented or explicitly downgraded with phased status. |
-| Wry strategy/spec vs runtime registration/dependency path | Wry integration strategy exists, but runtime feature/dependency/registration path remains partial/transitional. | `lane:viewer-platform` | `viewer:wry` foundation is feature-gated and runtime-wired, or spec is marked deferred with constraints. |
+| `viewer:settings` selected but not embedded | Viewer resolution can select `viewer:settings`, but node-pane renderer still falls back to non-embedded placeholder for non-web viewers. | `lane:viewer-platform` (`#92`), `lane:control-ui-settings` (`#89`) | Settings viewer path is renderable without placeholder fallback in node/tool contexts. |
+| Browser viewer table vs implemented viewer surfaces | Spec/docs describe broader viewer matrix than runtime embedded implementations currently expose. | `lane:viewer-platform` (`#92`), `lane:spec-code-parity` (`#99`) | Viewer table claims are either implemented or explicitly downgraded with phased status. |
+| Wry strategy/spec vs runtime registration/dependency path | Wry integration strategy exists, but runtime feature/dependency/registration path remains partial/transitional. | `lane:viewer-platform` (`#92`), `lane:spec-code-parity` (`#99`) | `viewer:wry` foundation is feature-gated and runtime-wired, or spec is marked deferred with constraints. |
 
 ---
 
@@ -196,7 +213,6 @@ This register is intentionally large; to keep it operational for agents and cont
 Current receipt for this sequencing snapshot:
 - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_planning_register_lane_sequence_receipt.md`
 - `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_queue_execution_audit_receipt.md` (queue execution audit + landed-status verification + `#70` lifecycle policy patch)
-- `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_stabilization_and_mismatch_receipt.md` (stabilization regressions + control-ui/settings parity + spec/code mismatch register additions)
 
 ---
 
@@ -206,16 +222,16 @@ This supersedes the earlier registry-closure-heavy priority table. The queue aud
 
 | Rank | Lane | Why Now | Primary Scope (Next Tasks) | Primary Sources / Hotspots | Lane Done Gate |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **`lane:stabilization`** | User-visible regressions block trust and mask deeper architecture mistakes. | Fix zoom-to-fit / control responsiveness, lasso metadata keying, tile focus affordance over document views; add regression tests + control diagnostics. | `render/mod.rs`, `app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs`, `shell/desktop/workbench/tile_compositor.rs`; `SUBSYSTEM_DIAGNOSTICS.md` | Repros are tracked, fixed, and covered by targeted tests; no known open control/focus regressions in active bug register. |
-| 2 | **`lane:control-ui-settings`** | Control surfaces and settings IA still feel transitional despite underlying action plumbing progress. | Global/contextual command palette trigger parity, radial/palette dispatch unification, settings scaffold replacing placeholder pane, settings page model start. | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs`, `render/mod.rs`, `shell/desktop/workbench/tile_behavior.rs` | Command surfaces share one dispatch boundary; settings pane is no longer placeholder-only. |
-| 3 | **`lane:embedder-debt`** | Servoshell inheritance debt is now the main source of friction in host/UI evolution and regressions. | Decompose `gui.rs`/`gui_frame.rs`, reduce `RunningAppState` coupling, narrow host/UI boundaries, retire misleading servoshell-era assumptions/comments. | `2026-02-20_embedder_decomposition_plan.md`, `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `shell/desktop/host/*` | One stage of decomposition lands with tests/receipts; reduced hotspot surface area and clearer module ownership. |
-| 4 | **`lane:runtime-followon`** | `SYSTEM_REGISTER.md` remaining gaps are now mostly SR2/SR3 signal routing contract/fabric + observability. | Open child issues for SR2/SR3; implement typed signal envelope/facade, routing diagnostics, misroute observability, fabric/backpressure policy. | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md`, `shell/desktop/runtime/control_panel.rs`, `shell/desktop/runtime/registries/mod.rs` | SR2/SR3 child issues are landed or explicitly ticketed with done gates; signal routing boundary is testable and observable. |
-| 5 | **`lane:viewer-platform`** | Viewer selection/capability scaffolding is ahead of actual embedded viewers; Wry remains design-only. | Replace non-web viewer placeholders (`settings`/`pdf`/`csv` first), implement Wry feature gate + manager/viewer foundation, align Verso manifest/spec claims. | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `GRAPHSHELL_AS_BROWSER.md`, `mods/native/verso/mod.rs`, `Cargo.toml`, `shell/desktop/workbench/tile_behavior.rs` | At least one non-web native viewer is embedded; `viewer:wry` foundation exists behind feature gate or spec/docs are explicitly downgraded. |
-| 6 | **`lane:accessibility`** | Accessibility is a project-level requirement; phase-1 bridge work exists but Graph Reader/Inspector paths remain incomplete. | Finish bridge diagnostics/health surfacing, implement Graph Reader scaffolds, replace Accessibility Inspector placeholder pane, add focus/nav regression tests. | `SUBSYSTEM_ACCESSIBILITY.md`, `shell/desktop/workbench/tile_behavior.rs`, `shell/desktop/ui/gui.rs` | Accessibility Inspector is functional, bridge invariants/tests are green, and Graph Reader phase entry point exists. |
-| 7 | **`lane:diagnostics`** | Diagnostics remains the leverage multiplier for every other lane and still lacks analyzer/test harness execution surfaces. | Implement `AnalyzerRegistry` scaffold, in-pane `TestHarness`, expanded invariants, better violation/health views, orphan-channel surfacing. | `SUBSYSTEM_DIAGNOSTICS.md`, `shell/desktop/runtime/diagnostics/*`, diagnostics pane code paths | Analyzer/TestHarness scaffolds exist and can be run in-pane (feature-gated if needed). |
-| 8 | **`lane:subsystem-hardening`** | Storage/history/security are documented but still missing closure slices that protect integrity and trust. | Add `persistence.*` / `history.*` / `security.identity.*` diagnostics, degradation wiring, traversal/archive correctness tests, grant matrix denial-path coverage. | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md`, persistence/history/security runtime code | Subsystem health summaries and critical integrity/denial-path tests are in CI or documented as explicit follow-ons. |
-| 9 | **`lane:test-infra`** | Test scaling friction is now slowing safe refactors and subsystem closure. | Land `ACTIVE_CAPABILITIES` test-safe path, `test-utils` feature, `[[test]] scenarios` binary, incremental scenario migration, CI job split. | `2026-02-26_test_infrastructure_improvement_plan.md`, `registries/infrastructure/mod_loader.rs`, `Cargo.toml`, `tests/scenarios/` (new) | New scenarios test binary runs in CI and high-value scenario cases start moving out of ad hoc placements. |
-| 10 | **`lane:knowledge-capture`** | UDC/semantic organization, badges/tags, import, and clipping are strategically aligned but mostly still design-level or partial. | UDC semantic physics/workbench grouping, layout injection hook + Magnetic Zones prerequisites, badges/tags MVP, import and clipping MVPs. | `2026-02-23_udc_semantic_tagging_plan.md`, `2026-02-24_layout_behaviors_plan.md`, `2026-02-20_node_badge_and_tagging_plan.md`, `2026-02-11_*_plan.md` | One end-to-end knowledge capture path (import/clip -> tag/UDC -> visible graph/workbench effect) is shipped. |
+| 1 | **`lane:stabilization` (`#88`)** | User-visible regressions block trust and mask deeper architecture mistakes. | Fix zoom-to-fit / control responsiveness, lasso metadata keying, tile focus affordance over document views; add regression tests + control diagnostics. | `render/mod.rs`, `app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs`, `shell/desktop/workbench/tile_compositor.rs`; `SUBSYSTEM_DIAGNOSTICS.md` | Repros are tracked, fixed, and covered by targeted tests; no known open control/focus regressions in active bug register. |
+| 2 | **`lane:control-ui-settings` (`#89`)** | Control surfaces and settings IA still feel transitional despite underlying action plumbing progress. | Global/contextual command palette trigger parity, radial/palette dispatch unification, settings scaffold replacing placeholder pane, settings page model start. | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs`, `render/mod.rs`, `shell/desktop/workbench/tile_behavior.rs` | Command surfaces share one dispatch boundary; settings pane is no longer placeholder-only. |
+| 3 | **`lane:embedder-debt` (`#90`)** | Servoshell inheritance debt is now the main source of friction in host/UI evolution and regressions. | Decompose `gui.rs`/`gui_frame.rs`, reduce `RunningAppState` coupling, narrow host/UI boundaries, retire misleading servoshell-era assumptions/comments. | `2026-02-20_embedder_decomposition_plan.md`, `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `shell/desktop/host/*` | One stage of decomposition lands with tests/receipts; reduced hotspot surface area and clearer module ownership. |
+| 4 | **`lane:runtime-followon` (`#91`)** | `SYSTEM_REGISTER.md` remaining gaps are now mostly SR2/SR3 signal routing contract/fabric + observability. | Open child issues for SR2/SR3; implement typed signal envelope/facade, routing diagnostics, misroute observability, fabric/backpressure policy. | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md`, `shell/desktop/runtime/control_panel.rs`, `shell/desktop/runtime/registries/mod.rs` | SR2/SR3 child issues are landed or explicitly ticketed with done gates; signal routing boundary is testable and observable. |
+| 5 | **`lane:viewer-platform` (`#92`)** | Viewer selection/capability scaffolding is ahead of actual embedded viewers; Wry remains design-only. | Replace non-web viewer placeholders (`settings`/`pdf`/`csv` first), implement Wry feature gate + manager/viewer foundation, align Verso manifest/spec claims. | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `GRAPHSHELL_AS_BROWSER.md`, `mods/native/verso/mod.rs`, `Cargo.toml`, `shell/desktop/workbench/tile_behavior.rs` | At least one non-web native viewer is embedded; `viewer:wry` foundation exists behind feature gate or spec/docs are explicitly downgraded. |
+| 6 | **`lane:accessibility` (`#95`)** | Accessibility is a project-level requirement; phase-1 bridge work exists but Graph Reader/Inspector paths remain incomplete. | Finish bridge diagnostics/health surfacing, implement Graph Reader scaffolds, replace Accessibility Inspector placeholder pane, add focus/nav regression tests. | `SUBSYSTEM_ACCESSIBILITY.md`, `shell/desktop/workbench/tile_behavior.rs`, `shell/desktop/ui/gui.rs` | Accessibility Inspector is functional, bridge invariants/tests are green, and Graph Reader phase entry point exists. |
+| 7 | **`lane:diagnostics` (`#94`)** | Diagnostics remains the leverage multiplier for every other lane and still lacks analyzer/test harness execution surfaces. | Implement `AnalyzerRegistry` scaffold, in-pane `TestHarness`, expanded invariants, better violation/health views, orphan-channel surfacing. | `SUBSYSTEM_DIAGNOSTICS.md`, `shell/desktop/runtime/diagnostics/*`, diagnostics pane code paths | Analyzer/TestHarness scaffolds exist and can be run in-pane (feature-gated if needed). |
+| 8 | **`lane:subsystem-hardening` (`#96`)** | Storage/history/security are documented but still missing closure slices that protect integrity and trust. | Add `persistence.*` / `history.*` / `security.identity.*` diagnostics, degradation wiring, traversal/archive correctness tests, grant matrix denial-path coverage. | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md`, persistence/history/security runtime code | Subsystem health summaries and critical integrity/denial-path tests are in CI or documented as explicit follow-ons. |
+| 9 | **`lane:test-infra` (`#97`)** | Test scaling friction is now slowing safe refactors and subsystem closure. | Land `ACTIVE_CAPABILITIES` test-safe path, `test-utils` feature, `[[test]] scenarios` binary, incremental scenario migration, CI job split. | `2026-02-26_test_infrastructure_improvement_plan.md`, `registries/infrastructure/mod_loader.rs`, `Cargo.toml`, `tests/scenarios/` (new) | New scenarios test binary runs in CI and high-value scenario cases start moving out of ad hoc placements. |
+| 10 | **`lane:knowledge-capture` (`#98`)** | UDC/semantic organization, badges/tags, import, and clipping are strategically aligned but mostly still design-level or partial. | UDC semantic physics/workbench grouping, layout injection hook + Magnetic Zones prerequisites, badges/tags MVP, import and clipping MVPs. | `2026-02-23_udc_semantic_tagging_plan.md`, `2026-02-24_layout_behaviors_plan.md`, `2026-02-20_node_badge_and_tagging_plan.md`, `2026-02-11_*_plan.md` | One end-to-end knowledge capture path (import/clip -> tag/UDC -> visible graph/workbench effect) is shipped. |
 
 ### Core vs Incubation Note
 
@@ -232,27 +248,27 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
-| `lane:stabilization` | User-visible regressions, control responsiveness, focus affordances, camera/lasso correctness | Active when regressions exist | `render/mod.rs`, `app.rs`, `gui.rs`, `input/mod.rs`, `tile_compositor.rs` | Preempts other lanes while an active repro exists. |
+| `lane:stabilization` (`#88`) | User-visible regressions, control responsiveness, focus affordances, camera/lasso correctness | Active when regressions exist | `render/mod.rs`, `app.rs`, `gui.rs`, `input/mod.rs`, `tile_compositor.rs` | Preempts other lanes while an active repro exists. |
 | `lane:roadmap` | Docs/planning issues `#11/#12/#13/#14/#18/#19` | Active merge-safe default | `IMPLEMENTATION_ROADMAP.md`, planning docs | Low conflict background lane. |
-| `lane:control-ui-settings` | Command surfaces + settings IA/surface execution | Prospective (high priority) | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md` | Promoted due to command palette parity + settings placeholder debt. |
-| `lane:embedder-debt` | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority) | `2026-02-20_embedder_decomposition_plan.md`, `gui.rs`, `gui_frame.rs` | Debt-retirement lane; avoid feature mixing. |
-| `lane:runtime-followon` | SR2/SR3 signal routing contract/fabric + observability | Prospective (ticket first) | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md` | Requires fresh child issues; do not reuse queue-cleanup issues. |
+| `lane:control-ui-settings` (`#89`) | Command surfaces + settings IA/surface execution | Prospective (high priority) | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md` | Promoted due to command palette parity + settings placeholder debt. |
+| `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority) | `2026-02-20_embedder_decomposition_plan.md`, `gui.rs`, `gui_frame.rs` | Debt-retirement lane; avoid feature mixing. |
+| `lane:runtime-followon` (`#91`) | SR2/SR3 signal routing contract/fabric + observability | Prospective (ticket first) | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md` | Requires fresh child issues; do not reuse queue-cleanup issues. |
 
 ### B. Core Platform / Architecture Completion Lanes
 
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
-| `lane:viewer-platform` | Universal content execution + real embedded viewers + Wry foundation | Prospective | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `tile_behavior.rs`, `mods/native/verso/mod.rs`, `Cargo.toml` | Closes spec/code drift around viewer support and `viewer:wry`. |
-| `lane:diagnostics` | AnalyzerRegistry, in-pane TestHarness, invariant/health surfacing | Prospective | `SUBSYSTEM_DIAGNOSTICS.md`, diagnostics runtime/pane code | Leverage multiplier for all other lanes. |
-| `lane:subsystem-hardening` | Storage/history/security closure slices | Prospective | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md` | Can be split into sublanes once issue volume grows. |
-| `lane:test-infra` | T1/T2 scaling, `test-utils`, scenario binary, CI split | Prospective | `2026-02-26_test_infrastructure_improvement_plan.md`, `mod_loader.rs`, `Cargo.toml` | Prefer infra-only PRs to reduce merge risk. |
-| `lane:accessibility` | WebView bridge closure + Graph Reader + inspector + focus/nav contracts | Prospective | `SUBSYSTEM_ACCESSIBILITY.md`, `tile_behavior.rs`, `gui.rs` | Includes placeholder inspector replacement. |
+| `lane:viewer-platform` (`#92`) | Universal content execution + real embedded viewers + Wry foundation | Prospective | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `tile_behavior.rs`, `mods/native/verso/mod.rs`, `Cargo.toml` | Closes spec/code drift around viewer support and `viewer:wry`. |
+| `lane:diagnostics` (`#94`) | AnalyzerRegistry, in-pane TestHarness, invariant/health surfacing | Prospective | `SUBSYSTEM_DIAGNOSTICS.md`, diagnostics runtime/pane code | Leverage multiplier for all other lanes. |
+| `lane:subsystem-hardening` (`#96`) | Storage/history/security closure slices | Prospective | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md` | Can be split into sublanes once issue volume grows. |
+| `lane:test-infra` (`#97`) | T1/T2 scaling, `test-utils`, scenario binary, CI split | Prospective | `2026-02-26_test_infrastructure_improvement_plan.md`, `mod_loader.rs`, `Cargo.toml` | Prefer infra-only PRs to reduce merge risk. |
+| `lane:accessibility` (`#95`) | WebView bridge closure + Graph Reader + inspector + focus/nav contracts | Prospective | `SUBSYSTEM_ACCESSIBILITY.md`, `tile_behavior.rs`, `gui.rs` | Includes placeholder inspector replacement. |
 
 ### C. UX / Interaction / Graph Capability Lanes
 
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
-| `lane:knowledge-capture` | UDC organization, import, clipping, badges/tags, visible graph effects | Prospective | `2026-02-23_udc_semantic_tagging_plan.md`, `2026-02-24_layout_behaviors_plan.md`, `2026-02-20_node_badge_and_tagging_plan.md`, `2026-02-11_*_plan.md` | Canonical “capture + classify + surface” lane. |
+| `lane:knowledge-capture` (`#98`) | UDC organization, import, clipping, badges/tags, visible graph effects | Prospective | `2026-02-23_udc_semantic_tagging_plan.md`, `2026-02-24_layout_behaviors_plan.md`, `2026-02-20_node_badge_and_tagging_plan.md`, `2026-02-11_*_plan.md` | Canonical “capture + classify + surface” lane. |
 | `lane:layout-semantics` | Layout injection hook, Magnetic Zones prerequisites and execution | Prospective | `2026-02-24_layout_behaviors_plan.md` | May stay nested under `knowledge-capture` until hooks land. |
 | `lane:performance-physics` | Culling, LOD, physics responsiveness/reheat, policy tuning | Partial / follow-on | `2026-02-24_performance_tuning_plan.md`, `2026-02-24_physics_engine_extensibility_plan.md` | Some slices landed; keep as follow-on lane for deeper performance + policy work. |
 | `lane:command-surface-parity` | Omnibar/palette/radial/menu trigger parity and command discoverability | Prospective | `GRAPHSHELL_AS_BROWSER.md`, control UI UX docs, `render/command_palette.rs` | Can remain under `control-ui-settings` unless scope expands. |
@@ -277,7 +293,7 @@ These are mostly sourced from the forgotten-concepts table and adopted strategy 
 
 | Lane | Scope | Status | Primary Docs | Notes |
 | --- | --- | --- | --- | --- |
-| `lane:verse-intelligence` | Hub lane for model slots + adapters + conformance + portability + archetypes | Design-ready / issue hub missing | `2026-02-26_model_slots_adapters_udc_personalization_plan.md` | Start with schemas/contracts + slot binding + diagnostics, not training. |
+| `lane:verse-intelligence` (`#93`) | Hub lane for model slots + adapters + conformance + portability + archetypes | Design-ready / issue hub open | `2026-02-26_model_slots_adapters_udc_personalization_plan.md` | Start with schemas/contracts + slot binding + diagnostics, not training. |
 | `lane:intelligence-memory` | STM/LTM + engram memories + extractor/ingestor + ectoplasm interfaces | Design-ready / issue hub missing | `2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md` | May be tracked as a child lane under `lane:verse-intelligence`. |
 | `lane:model-index-verse` | Requirements/benchmarks/community reports evidence registry for model selection/diets | Conceptual / partially documented | model slots plan (Model Index sections), local intelligence research | Evidence substrate for archetypes and conformance decisions. |
 | `lane:adapter-portability` | LoRA extraction/import/export, portability classes, reverse-LoRA tooling integration | Design-ready / issue hub missing | model slots plan (`TransferProfile`, portability classes) | Likely late-phase child lane after schemas + evals exist. |
@@ -287,7 +303,7 @@ These are mostly sourced from the forgotten-concepts table and adopted strategy 
 
 | Lane | Scope | Status | Notes |
 | --- | --- | --- | --- |
-| `lane:spec-code-parity` | Reconcile docs/spec claims vs code reality (viewers, Wry, placeholders, status flags) | Ongoing | Use this when mismatches pile up; often docs-only, sometimes tiny code fixes. |
+| `lane:spec-code-parity` (`#99`) | Reconcile docs/spec claims vs code reality (viewers, Wry, placeholders, status flags) | Ongoing | Use this when mismatches pile up; often docs-only, sometimes tiny code fixes. |
 | `lane:queue-hygiene` | Issue state reconciliation, closure receipts, register refreshes | Ad hoc (recently exercised) | Keep rare and bounded; should support execution, not replace it. |
 | `lane:docs-canon` | Terminology/architecture canon cleanup across `TERMINOLOGY.md`, `SYSTEM_REGISTER.md`, subsystem guides | Ad hoc | Use when implementation changes invalidate routing/authority language. |
 
@@ -469,6 +485,12 @@ This is the strict closure checklist derived from the current `2026-02-22_regist
 4. Execute 6.5 shim removal in one controlled slice with full-suite validation.
 
 ---
+
+---
+
+## Reference Payload (Preserved Numbering / Historical Layout)
+
+The sections below retain their original numbering and structure for continuity with prior receipts/PRs. Treat them as reference material unless explicitly promoted into `§1A` / `§1C` / `§1D`.
 
 ## 2. Backlog Ticket Stubs
 
