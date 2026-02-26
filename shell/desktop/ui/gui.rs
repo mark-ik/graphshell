@@ -105,6 +105,20 @@ struct PreFramePhaseOutput {
     responsive_webviews: HashSet<WebViewId>,
 }
 
+struct WebViewA11yNodePlan {
+    node_id: accesskit::NodeId,
+    role: egui::accesskit::Role,
+    label: Option<String>,
+}
+
+struct WebViewA11yGraftPlan {
+    anchor_label: String,
+    root_node_id: Option<accesskit::NodeId>,
+    nodes: Vec<WebViewA11yNodePlan>,
+    dropped_node_count: usize,
+    conversion_fallback_count: usize,
+}
+
 /// The user interface of a headed servoshell. Currently this is implemented via
 /// egui.
 pub struct Gui {
@@ -649,9 +663,9 @@ impl Gui {
             graph_app.tick_frame();
 
             // Inject any pending WebView accessibility tree updates into egui's
-            // accessibility tree.  Each Servo node is registered using an
-            // identity-preserving egui::Id derived from its accesskit::NodeId so
-            // that child references inside Node objects remain valid.
+            // accessibility tree. Conversion is deterministic and degrades
+            // explicitly when incoming nodes cannot be represented in egui's
+            // current AccessKit version.
             Self::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
 
             #[cfg(feature = "diagnostics")]
@@ -1472,6 +1486,17 @@ impl Gui {
         egui::Id::new(("webview_accessibility_anchor", webview_id))
     }
 
+    fn webview_accessibility_node_id(
+        webview_id: WebViewId,
+        node_id: accesskit::NodeId,
+    ) -> egui::Id {
+        egui::Id::new(("webview_accessibility_node", webview_id, node_id.0))
+    }
+
+    fn is_reserved_webview_accessibility_node_id(node_id: accesskit::NodeId) -> bool {
+        node_id.0 == 0 || node_id.0 == u64::MAX
+    }
+
     fn webview_accessibility_label(
         webview_id: WebViewId,
         tree_update: &accesskit::TreeUpdate,
@@ -1502,15 +1527,83 @@ impl Gui {
         )
     }
 
+    fn convert_webview_accessibility_role(
+        role: accesskit::Role,
+    ) -> (egui::accesskit::Role, bool) {
+        let mapped = match format!("{role:?}").as_str() {
+            "Document" => egui::accesskit::Role::Document,
+            "Paragraph" => egui::accesskit::Role::Paragraph,
+            "Label" => egui::accesskit::Role::Label,
+            "Link" => egui::accesskit::Role::Link,
+            "List" => egui::accesskit::Role::List,
+            "ListItem" => egui::accesskit::Role::ListItem,
+            "Heading" => egui::accesskit::Role::Heading,
+            "Image" => egui::accesskit::Role::Image,
+            "Button" => egui::accesskit::Role::Button,
+            "TextInput" => egui::accesskit::Role::TextInput,
+            "StaticText" => egui::accesskit::Role::Label,
+            "Unknown" => egui::accesskit::Role::Unknown,
+            _ => return (egui::accesskit::Role::GenericContainer, true),
+        };
+        (mapped, false)
+    }
+
+    fn build_webview_a11y_graft_plan(
+        webview_id: WebViewId,
+        tree_update: &accesskit::TreeUpdate,
+    ) -> WebViewA11yGraftPlan {
+        let mut allowed_node_ids = HashSet::with_capacity(tree_update.nodes.len());
+        for (node_id, _) in &tree_update.nodes {
+            if !Self::is_reserved_webview_accessibility_node_id(*node_id) {
+                allowed_node_ids.insert(*node_id);
+            }
+        }
+
+        let mut nodes = Vec::with_capacity(allowed_node_ids.len());
+        let mut conversion_fallback_count = 0;
+        for (node_id, node) in &tree_update.nodes {
+            if !allowed_node_ids.contains(node_id) {
+                continue;
+            }
+
+            let (role, used_fallback) = Self::convert_webview_accessibility_role(node.role());
+            if used_fallback {
+                conversion_fallback_count += 1;
+            }
+
+            let label = node
+                .label()
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+                .map(str::to_owned);
+            nodes.push(WebViewA11yNodePlan {
+                node_id: *node_id,
+                role,
+                label,
+            });
+        }
+
+        let root_node_id = if allowed_node_ids.contains(&tree_update.focus) {
+            Some(tree_update.focus)
+        } else {
+            nodes.first().map(|node| node.node_id)
+        };
+
+        WebViewA11yGraftPlan {
+            anchor_label: Self::webview_accessibility_label(webview_id, tree_update),
+            root_node_id,
+            dropped_node_count: tree_update.nodes.len().saturating_sub(nodes.len()),
+            conversion_fallback_count,
+            nodes,
+        }
+    }
+
     /// Inject pending WebView accessibility tree updates into egui's
     /// accessibility tree.
     ///
-    /// For each node in a Servo-provided `accesskit::TreeUpdate`, an egui `Id`
-    /// is derived by treating the Servo `NodeId` (a `u64`) as a high-entropy
-    /// value.  This preserves the identity mapping
-    /// `egui_id.accesskit_id() == servo_node_id`, which means child-reference
-    /// arrays inside the injected `accesskit::Node` objects remain valid once
-    /// egui builds the final `TreeUpdate`.
+    /// For each node in a Servo-provided `accesskit::TreeUpdate`, this bridge
+    /// synthesizes a deterministic egui `Id` and applies a compatibility
+    /// conversion for role/label fields between AccessKit versions.
     ///
     /// Nodes whose `NodeId` is zero or `u64::MAX` (egui's root sentinel) are
     /// skipped to avoid collisions with egui's own accessibility tree.
@@ -1523,16 +1616,51 @@ impl Gui {
         }
 
         for (webview_id, tree_update) in pending.drain() {
+            let plan = Self::build_webview_a11y_graft_plan(webview_id, &tree_update);
             let anchor_id = Self::webview_accessibility_anchor_id(webview_id);
-            let label = Self::webview_accessibility_label(webview_id, &tree_update);
+
+            for node in &plan.nodes {
+                let node_id = Self::webview_accessibility_node_id(webview_id, node.node_id);
+                let role = node.role;
+                let label = node.label.clone();
+
+                ctx.accesskit_node_builder(node_id, |builder| {
+                    builder.set_role(role);
+                    if let Some(label) = &label {
+                        builder.set_label(label.clone());
+                    }
+                });
+            }
+
             ctx.accesskit_node_builder(anchor_id, |builder| {
                 builder.set_role(egui::accesskit::Role::Document);
-                builder.set_label(label);
+                builder.set_label(plan.anchor_label.clone());
             });
 
-            if tree_update.nodes.is_empty() {
+            if plan.nodes.is_empty() {
                 warn!(
                     "WebView accessibility injection used degraded synthesized document node for {:?}: incoming tree update had no nodes",
+                    webview_id
+                );
+            } else if plan.root_node_id.is_none() {
+                warn!(
+                    "WebView accessibility injection used degraded synthesized document node for {:?}: no injectable root node was found",
+                    webview_id
+                );
+            }
+
+            if plan.dropped_node_count > 0 {
+                warn!(
+                    "WebView accessibility injection dropped {} reserved node(s) for {:?}",
+                    plan.dropped_node_count,
+                    webview_id
+                );
+            }
+
+            if plan.conversion_fallback_count > 0 {
+                warn!(
+                    "WebView accessibility injection used degraded role conversion fallback for {} node(s) in {:?}",
+                    plan.conversion_fallback_count,
                     webview_id
                 );
             }
@@ -1682,6 +1810,66 @@ mod accessibility_bridge_tests {
             pending.is_empty(),
             "bridge injection should consume pending webview accessibility updates"
         );
+    }
+
+    #[test]
+    fn webview_a11y_graft_plan_includes_injectable_nodes_and_root() {
+        let webview_id = test_webview_id();
+        let mut root = Node::new(Role::Document);
+        root.set_label("Page root".to_string());
+        root.set_children(vec![NodeId(22)]);
+        let mut child = Node::new(Role::Paragraph);
+        child.set_label("Paragraph body".to_string());
+
+        let update = TreeUpdate {
+            nodes: vec![(NodeId(11), root), (NodeId(22), child)],
+            tree: Some(Tree::new(NodeId(11))),
+            tree_id: TreeId::ROOT,
+            focus: NodeId(11),
+        };
+
+        let plan = Gui::build_webview_a11y_graft_plan(webview_id, &update);
+        assert_eq!(plan.nodes.len(), 2);
+        assert_eq!(plan.root_node_id, Some(NodeId(11)));
+        assert_eq!(plan.dropped_node_count, 0);
+        assert_eq!(plan.conversion_fallback_count, 0);
+    }
+
+    #[test]
+    fn webview_a11y_graft_plan_marks_reserved_ids_as_degraded() {
+        let webview_id = test_webview_id();
+        let mut reserved_root = Node::new(Role::Document);
+        reserved_root.set_label("Reserved root".to_string());
+
+        let update = TreeUpdate {
+            nodes: vec![(NodeId(0), reserved_root)],
+            tree: Some(Tree::new(NodeId(0))),
+            tree_id: TreeId::ROOT,
+            focus: NodeId(0),
+        };
+
+        let plan = Gui::build_webview_a11y_graft_plan(webview_id, &update);
+        assert!(plan.nodes.is_empty());
+        assert_eq!(plan.root_node_id, None);
+        assert_eq!(plan.dropped_node_count, 1);
+        assert_eq!(plan.conversion_fallback_count, 0);
+    }
+
+    #[test]
+    fn webview_a11y_graft_plan_tracks_role_conversion_fallbacks() {
+        let webview_id = test_webview_id();
+        let mut node = Node::new(Role::Article);
+        node.set_label("Article root".to_string());
+        let update = TreeUpdate {
+            nodes: vec![(NodeId(44), node)],
+            tree: Some(Tree::new(NodeId(44))),
+            tree_id: TreeId::ROOT,
+            focus: NodeId(44),
+        };
+
+        let plan = Gui::build_webview_a11y_graft_plan(webview_id, &update);
+        assert_eq!(plan.nodes.len(), 1);
+        assert_eq!(plan.conversion_fallback_count, 1);
     }
 }
 
