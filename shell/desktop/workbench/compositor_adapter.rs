@@ -2,6 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+//! Surface Composition Contract guardrails for compositor callback boundaries.
+//! The guarded callback path enforces that these OpenGL state fields are
+//! stable before/after content-pass rendering: viewport, scissor enable,
+//! blend enable, active texture unit, and framebuffer binding.
+
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -43,6 +48,50 @@ fn capture_gl_state(gl: &glow::Context) -> GlStateSnapshot {
             framebuffer_binding: glow::HasContext::get_parameter_i32(gl, glow::FRAMEBUFFER_BINDING),
         }
     }
+}
+
+fn restore_gl_state(gl: &glow::Context, snapshot: GlStateSnapshot) {
+    unsafe {
+        glow::HasContext::viewport(
+            gl,
+            snapshot.viewport[0],
+            snapshot.viewport[1],
+            snapshot.viewport[2],
+            snapshot.viewport[3],
+        );
+        if snapshot.scissor_enabled {
+            glow::HasContext::enable(gl, glow::SCISSOR_TEST);
+        } else {
+            glow::HasContext::disable(gl, glow::SCISSOR_TEST);
+        }
+        if snapshot.blend_enabled {
+            glow::HasContext::enable(gl, glow::BLEND);
+        } else {
+            glow::HasContext::disable(gl, glow::BLEND);
+        }
+        glow::HasContext::active_texture(gl, snapshot.active_texture as u32);
+        glow::HasContext::bind_framebuffer(gl, glow::FRAMEBUFFER, None);
+    }
+}
+
+fn run_guarded_callback<Capture, Render, Restore>(
+    mut capture: Capture,
+    render: Render,
+    mut restore: Restore,
+) -> bool
+where
+    Capture: FnMut() -> GlStateSnapshot,
+    Render: FnOnce(),
+    Restore: FnMut(GlStateSnapshot),
+{
+    let before = capture();
+    render();
+    let after = capture();
+    if gl_state_violated(before, after) {
+        restore(before);
+        return true;
+    }
+    false
 }
 
 pub(crate) struct CompositorPassTracker {
@@ -122,11 +171,11 @@ impl CompositorAdapter {
         #[cfg(feature = "diagnostics")]
         let started = std::time::Instant::now();
 
-        let before = capture_gl_state(gl);
-        render();
-        let after = capture_gl_state(gl);
-
-        if gl_state_violated(before, after) {
+        if run_guarded_callback(
+            || capture_gl_state(gl),
+            render,
+            |snapshot| restore_gl_state(gl, snapshot),
+        ) {
             #[cfg(feature = "diagnostics")]
             crate::shell::desktop::runtime::diagnostics::emit_event(
                 crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
@@ -180,11 +229,13 @@ impl CompositorAdapter {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
 
     use crate::graph::NodeKey;
 
-    use super::{CompositorPassTracker, GlStateSnapshot, gl_state_violated};
+    use super::{
+        CompositorPassTracker, GlStateSnapshot, gl_state_violated, run_guarded_callback,
+    };
 
     #[test]
     fn pass_scheduler_runs_content_before_overlay() {
@@ -223,5 +274,67 @@ mod tests {
         };
         assert!(gl_state_violated(before, after));
         assert!(!gl_state_violated(before, before));
+    }
+
+    #[test]
+    fn guarded_callback_restores_state_when_callback_leaks() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+        let after = GlStateSnapshot {
+            viewport: [10, 20, 300, 200],
+            scissor_enabled: true,
+            blend_enabled: true,
+            active_texture: 2,
+            framebuffer_binding: 9,
+        };
+
+        let state = RefCell::new(before);
+        let restored = Cell::new(false);
+
+        let violated = run_guarded_callback(
+            || *state.borrow(),
+            || {
+                *state.borrow_mut() = after;
+            },
+            |snapshot| {
+                *state.borrow_mut() = snapshot;
+                restored.set(true);
+            },
+        );
+
+        assert!(violated);
+        assert!(restored.get());
+        assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn guarded_callback_skips_restore_when_state_is_unchanged() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        let state = RefCell::new(before);
+        let restored = Cell::new(false);
+
+        let violated = run_guarded_callback(
+            || *state.borrow(),
+            || {},
+            |_| {
+                restored.set(true);
+            },
+        );
+
+        assert!(!violated);
+        assert!(!restored.get());
+        assert_eq!(*state.borrow(), before);
     }
 }
