@@ -4,12 +4,12 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
+use std::sync::Arc;
 
 use dpi::PhysicalSize;
-use egui::{Id, LayerId, PaintCallback, Stroke, StrokeKind};
+use egui::Stroke;
 use egui_glow::CallbackFn;
 use egui_tiles::{Tile, Tree};
 use euclid::{Point2D, Rect, Scale, Size2D};
@@ -19,6 +19,7 @@ use servo::{
 };
 
 use crate::app::GraphBrowserApp;
+use crate::shell::desktop::workbench::compositor_adapter::{CompositorAdapter, CompositorPassTracker};
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::NodeKey;
@@ -96,11 +97,8 @@ pub(crate) fn composite_active_node_pane_webviews(
     #[cfg(feature = "diagnostics")]
     let composite_started = Instant::now();
     log::debug!("composite_active_node_pane_webviews: {} tiles", active_tile_rects.len());
-    // Draw rings above composited document tiles (`Order::Middle`) but below popup/tooltips
-    // that render in higher egui orders.
-    let focus_ring_layer = LayerId::new(egui::Order::Middle, Id::new("graphshell_focus_ring"));
-    let hover_ring_layer = LayerId::new(egui::Order::Middle, Id::new("graphshell_hover_ring"));
     let scale = Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ctx.pixels_per_point());
+    let mut pass_tracker = CompositorPassTracker::new();
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
     let mut hovered_webview_id: Option<WebViewId> = None;
     if let Some(pos) = hover_pos {
@@ -117,6 +115,15 @@ pub(crate) fn composite_active_node_pane_webviews(
     for (node_key, tile_rect) in active_tile_rects {
         let render_mode = render_mode_for_node_pane(tiles_tree, node_key);
         if render_mode != TileRenderMode::CompositedTexture {
+            continue;
+        }
+
+        if !tile_rect.width().is_finite()
+            || !tile_rect.height().is_finite()
+            || tile_rect.width() <= 0.0
+            || tile_rect.height() <= 0.0
+        {
+            CompositorAdapter::report_invalid_tile_rect(node_key);
             continue;
         }
 
@@ -182,45 +189,64 @@ pub(crate) fn composite_active_node_pane_webviews(
 
         if let Some(render_to_parent) = render_context.render_to_parent_callback() {
             log::debug!("composite: adding render_to_parent callback for webview {:?}", webview_id);
-            // Use Order::Middle so WebView content appears at UI level, not behind everything
-            let webview_layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new(("graphshell_webview", node_key)));
-            ctx.layer_painter(webview_layer).add(PaintCallback {
-                rect: tile_rect,
-                callback: Arc::new(CallbackFn::new(move |info, painter| {
-                    let clip = info.viewport_in_pixels();
-                    let rect_in_parent = Rect::new(
-                        Point2D::new(clip.left_px, clip.from_bottom_px),
-                        Size2D::new(clip.width_px, clip.height_px),
-                    );
-                    log::debug!("composite: render_to_parent callback executing");
-                    render_to_parent(painter.gl(), rect_in_parent)
-                })),
-            });
+            let callback = Arc::new(CallbackFn::new(move |info, painter| {
+                #[cfg(feature = "diagnostics")]
+                let started = Instant::now();
+
+                let clip = info.viewport_in_pixels();
+                let rect_in_parent = Rect::new(
+                    Point2D::new(clip.left_px, clip.from_bottom_px),
+                    Size2D::new(clip.width_px, clip.height_px),
+                );
+                log::debug!("composite: render_to_parent callback executing");
+                CompositorAdapter::run_content_callback_with_guardrails(
+                    node_key,
+                    painter.gl(),
+                    || render_to_parent(painter.gl(), rect_in_parent),
+                );
+
+                #[cfg(feature = "diagnostics")]
+                crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+                    "tile_compositor::content_pass_callback",
+                    started.elapsed().as_micros() as u64,
+                );
+            }));
+
+            CompositorAdapter::register_content_pass(
+                ctx,
+                node_key,
+                tile_rect,
+                callback,
+            );
+            pass_tracker.record_content_pass(node_key);
         } else {
             log::debug!("composite: no render_to_parent callback for webview {:?}", webview_id);
         }
 
         if focused_webview_id == Some(webview_id) && focus_ring_alpha > 0.0 {
+            pass_tracker.record_overlay_pass(node_key);
             let alpha = (focus_ring_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
-            ctx.layer_painter(focus_ring_layer).rect_stroke(
-                tile_rect.shrink(1.0),
+            CompositorAdapter::draw_overlay_stroke(
+                ctx,
+                node_key,
+                tile_rect,
                 4.0,
                 Stroke::new(
                     2.0,
                     egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
                 ),
-                StrokeKind::Inside,
             );
         } else if hovered_webview_id == Some(webview_id) {
-            // Temporary hover affordance (no input ownership change).
-            ctx.layer_painter(hover_ring_layer).rect_stroke(
-                tile_rect.shrink(1.0),
+            pass_tracker.record_overlay_pass(node_key);
+            CompositorAdapter::draw_overlay_stroke(
+                ctx,
+                node_key,
+                tile_rect,
                 4.0,
                 Stroke::new(
                     1.5,
                     egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180),
                 ),
-                StrokeKind::Inside,
             );
         }
     }

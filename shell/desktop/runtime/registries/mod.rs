@@ -113,6 +113,7 @@ pub(crate) const CHANNEL_VERSE_SYNC_CONNECTION_REJECTED: &str = "verse.sync.conn
 pub(crate) const CHANNEL_VERSE_SYNC_IDENTITY_GENERATED: &str = "verse.sync.identity_generated";
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_DETECTED: &str = "verse.sync.conflict_detected";
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED: &str = "verse.sync.conflict_resolved";
+pub(crate) const CHANNEL_COMPOSITOR_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -1633,6 +1634,11 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_IDENTITY_KEY_UNAVAILABLE)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_GL_STATE_VIOLATION)
         );
     }
 
