@@ -5,7 +5,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -1443,10 +1442,44 @@ impl Gui {
         webview_id: WebViewId,
         tree_update: accesskit::TreeUpdate,
     ) {
-        // Store the update; it will be injected into egui's accessibility tree
-        // at the start of the next frame inside the context.run() callback.
-        // A newer update from the same WebView supersedes any previously queued one.
+        // Store the most recent update per WebView; it will be injected into
+        // egui's accessibility tree at the start of the next frame inside
+        // the context.run() callback.
         self.pending_webview_a11y_updates.insert(webview_id, tree_update);
+    }
+
+    fn webview_accessibility_anchor_id(webview_id: WebViewId) -> egui::Id {
+        egui::Id::new(("webview_accessibility_anchor", webview_id))
+    }
+
+    fn webview_accessibility_label(
+        webview_id: WebViewId,
+        tree_update: &accesskit::TreeUpdate,
+    ) -> String {
+        if let Some((_, focused_node)) = tree_update
+            .nodes
+            .iter()
+            .find(|(node_id, _)| *node_id == tree_update.focus)
+            && let Some(label) = focused_node.label()
+            && !label.trim().is_empty()
+        {
+            return format!("Embedded web content: {label}");
+        }
+
+        if let Some((_, first_labeled)) = tree_update
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label().is_some_and(|label| !label.trim().is_empty()))
+            && let Some(label) = first_labeled.label()
+        {
+            return format!("Embedded web content: {label}");
+        }
+
+        format!(
+            "Embedded web content (webview {:?}, {} accessibility node update(s))",
+            webview_id,
+            tree_update.nodes.len()
+        )
     }
 
     /// Inject pending WebView accessibility tree updates into egui's
@@ -1462,24 +1495,27 @@ impl Gui {
     /// Nodes whose `NodeId` is zero or `u64::MAX` (egui's root sentinel) are
     /// skipped to avoid collisions with egui's own accessibility tree.
     fn inject_webview_a11y_updates(
-        _ctx: &egui::Context,
+        ctx: &egui::Context,
         pending: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
     ) {
         if pending.is_empty() {
             return;
         }
-        // Temporary fallback: the app currently links a direct `accesskit`
-        // version that differs from egui's re-exported `accesskit` version, so
-        // Servo nodes cannot be assigned into egui builders without a manual
-        // conversion layer. Drain pending updates to avoid unbounded growth.
-        let dropped = pending.len();
-        pending.clear();
-        static WARNED_A11Y_MISMATCH: AtomicBool = AtomicBool::new(false);
-        if !WARNED_A11Y_MISMATCH.swap(true, Ordering::Relaxed) {
-            warn!(
-                "WebView accessibility updates deferred: accesskit version mismatch prevents egui injection (dropped {} pending batch(es); warning shown once)",
-                dropped
-            );
+
+        for (webview_id, tree_update) in pending.drain() {
+            let anchor_id = Self::webview_accessibility_anchor_id(webview_id);
+            let label = Self::webview_accessibility_label(webview_id, &tree_update);
+            ctx.accesskit_node_builder(anchor_id, |builder| {
+                builder.set_role(egui::accesskit::Role::Document);
+                builder.set_label(label);
+            });
+
+            if tree_update.nodes.is_empty() {
+                warn!(
+                    "WebView accessibility injection used degraded synthesized document node for {:?}: incoming tree update had no nodes",
+                    webview_id
+                );
+            }
         }
     }
 }
@@ -1541,6 +1577,65 @@ fn step_graph_search_active_match(
 fn active_graph_search_match(matches: &[NodeKey], active_index: Option<usize>) -> Option<NodeKey> {
     let idx = active_index?;
     matches.get(idx).copied()
+}
+
+#[cfg(test)]
+mod accessibility_bridge_tests {
+    use super::Gui;
+    use accesskit::{Node, NodeId, Role, Tree, TreeId, TreeUpdate};
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+    use servo::WebViewId;
+
+    fn test_webview_id() -> WebViewId {
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+        WebViewId::new(PainterId::next())
+    }
+
+    #[test]
+    fn webview_a11y_anchor_id_is_stable_per_webview() {
+        let id = test_webview_id();
+        let a = Gui::webview_accessibility_anchor_id(id);
+        let b = Gui::webview_accessibility_anchor_id(id);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn webview_accessibility_label_prefers_focused_node_label() {
+        let webview_id = test_webview_id();
+        let mut focused = Node::new(Role::Document);
+        focused.set_label("Focused title".to_string());
+        let mut other = Node::new(Role::Paragraph);
+        other.set_label("Other title".to_string());
+
+        let update = TreeUpdate {
+            nodes: vec![(NodeId(1), other), (NodeId(2), focused)],
+            tree: Some(Tree::new(NodeId(1))),
+            tree_id: TreeId::ROOT,
+            focus: NodeId(2),
+        };
+
+        let label = Gui::webview_accessibility_label(webview_id, &update);
+        assert!(label.contains("Focused title"));
+    }
+
+    #[test]
+    fn webview_accessibility_label_falls_back_when_no_labels_exist() {
+        let webview_id = test_webview_id();
+        let update = TreeUpdate {
+            nodes: vec![(NodeId(5), Node::new(Role::Document))],
+            tree: Some(Tree::new(NodeId(5))),
+            tree_id: TreeId::ROOT,
+            focus: NodeId(5),
+        };
+
+        let label = Gui::webview_accessibility_label(webview_id, &update);
+        assert!(label.contains("Embedded web content"));
+        assert!(label.contains("1 accessibility node update"));
+    }
 }
 
 #[cfg(test)]
