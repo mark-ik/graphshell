@@ -638,6 +638,97 @@ fn filtered_graph_for_search(
     filtered
 }
 
+#[derive(Debug, Clone)]
+struct ViewportCullingSelection {
+    visible: HashSet<NodeKey>,
+    extended: HashSet<NodeKey>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ViewportCullingMetrics {
+    total_nodes: usize,
+    visible_nodes: usize,
+    submitted_nodes: usize,
+    removed_nodes: usize,
+    full_submission_units: usize,
+    culled_submission_units: usize,
+}
+
+fn estimated_submission_units(graph: &crate::graph::Graph) -> usize {
+    graph.node_count() + graph.edge_count()
+}
+
+fn viewport_culling_selection_for_canvas_rect(
+    graph: &crate::graph::Graph,
+    canvas_rect: egui::Rect,
+) -> Option<ViewportCullingSelection> {
+    const DEFAULT_NODE_RADIUS: f32 = 5.0;
+    let index = NodeSpatialIndex::build(graph.nodes().map(|(key, node)| {
+        let pos = egui::Pos2::new(node.position.x, node.position.y);
+        (key, pos, DEFAULT_NODE_RADIUS)
+    }));
+
+    let visible: HashSet<NodeKey> = index.nodes_in_canvas_rect(canvas_rect).into_iter().collect();
+    if visible.is_empty() || visible.len() >= graph.node_count() {
+        return None;
+    }
+
+    let mut extended = visible.clone();
+    for edge in graph.edges() {
+        if visible.contains(&edge.from) || visible.contains(&edge.to) {
+            extended.insert(edge.from);
+            extended.insert(edge.to);
+        }
+    }
+
+    if extended.len() >= graph.node_count() {
+        return None;
+    }
+
+    Some(ViewportCullingSelection { visible, extended })
+}
+
+fn viewport_culling_metrics_for_canvas_rect(
+    graph: &crate::graph::Graph,
+    canvas_rect: egui::Rect,
+) -> Option<ViewportCullingMetrics> {
+    let selection = viewport_culling_selection_for_canvas_rect(graph, canvas_rect)?;
+    let culled_edge_count = graph
+        .edges()
+        .filter(|edge| {
+            selection.extended.contains(&edge.from) && selection.extended.contains(&edge.to)
+        })
+        .count();
+
+    Some(ViewportCullingMetrics {
+        total_nodes: graph.node_count(),
+        visible_nodes: selection.visible.len(),
+        submitted_nodes: selection.extended.len(),
+        removed_nodes: graph.node_count().saturating_sub(selection.extended.len()),
+        full_submission_units: estimated_submission_units(graph),
+        culled_submission_units: selection.extended.len() + culled_edge_count,
+    })
+}
+
+fn viewport_culled_graph_for_canvas_rect(
+    graph: &crate::graph::Graph,
+    canvas_rect: egui::Rect,
+) -> Option<crate::graph::Graph> {
+    let selection = viewport_culling_selection_for_canvas_rect(graph, canvas_rect)?;
+
+    let mut culled = graph.clone();
+    let to_remove: Vec<NodeKey> = culled
+        .nodes()
+        .map(|(key, _)| key)
+        .filter(|key| !selection.extended.contains(key))
+        .collect();
+    for key in to_remove {
+        culled.remove_node(key);
+    }
+
+    Some(culled)
+}
+
 /// Compute a viewport-culled graph containing only the nodes visible in the
 /// current frame's viewport (plus any additional nodes needed to keep edges
 /// intact).  Returns `None` when culling is not applicable — e.g. when there
@@ -662,49 +753,7 @@ fn viewport_culled_graph(ui: &Ui, app: &GraphBrowserApp) -> Option<crate::graph:
     let canvas_max = meta.screen_to_canvas_pos(screen_rect.max);
     let canvas_rect = egui::Rect::from_min_max(canvas_min, canvas_max);
 
-    // Build a spatial index from app-graph node positions, which are always
-    // current (kept up-to-date by the physics layout engine).  Using a
-    // constant default radius matches the `GraphNodeShape` default.
-    const DEFAULT_NODE_RADIUS: f32 = 5.0;
-    let index = NodeSpatialIndex::build(app.workspace.graph.nodes().map(|(key, node)| {
-        let pos = egui::Pos2::new(node.position.x, node.position.y);
-        (key, pos, DEFAULT_NODE_RADIUS)
-    }));
-
-    let visible_keys: HashSet<NodeKey> = index.nodes_in_canvas_rect(canvas_rect).into_iter().collect();
-
-    // Nothing visible yet (e.g. first frame before layout): skip culling.
-    if visible_keys.is_empty() {
-        return None;
-    }
-
-    // Culling has no effect when all nodes are already visible.
-    if visible_keys.len() >= app.workspace.graph.node_count() {
-        return None;
-    }
-
-    // Expand visible set to include ghost endpoints for any edge where at
-    // least one endpoint is in the viewport (preserves edge integrity).
-    let mut extended: HashSet<NodeKey> = visible_keys.clone();
-    for edge in app.workspace.graph.edges() {
-        if visible_keys.contains(&edge.from) || visible_keys.contains(&edge.to) {
-            extended.insert(edge.from);
-            extended.insert(edge.to);
-        }
-    }
-
-    // Build the culled graph by removing nodes outside the extended visible set.
-    let mut culled = app.workspace.graph.clone();
-    let to_remove: Vec<NodeKey> = culled
-        .nodes()
-        .map(|(key, _)| key)
-        .filter(|key| !extended.contains(key))
-        .collect();
-    for key in to_remove {
-        culled.remove_node(key);
-    }
-
-    Some(culled)
+    viewport_culled_graph_for_canvas_rect(&app.workspace.graph, canvas_rect)
 }
 
 fn lifecycle_color(lifecycle: NodeLifecycle) -> Color32 {
@@ -3166,6 +3215,8 @@ fn resolve_source_node_context(
 mod tests {
     use super::*;
     use crate::app::SearchDisplayMode;
+    use std::hint::black_box;
+    use std::time::Instant;
 
     fn test_app() -> GraphBrowserApp {
         GraphBrowserApp::new_for_testing()
@@ -3588,5 +3639,87 @@ mod tests {
         let b_pos = app.workspace.graph.get_node(b).unwrap().position;
         assert!((b_pos.x - 100.0).abs() < 0.1, "b.x={}", b_pos.x);
         assert!((b_pos.y - 0.0).abs() < 0.1, "b.y={}", b_pos.y);
+    }
+
+    #[test]
+    fn viewport_culling_metrics_reduce_visible_set_and_submission_units() {
+        let mut app = test_app();
+        let mut keys = Vec::new();
+        for row in 0..20 {
+            for col in 0..20 {
+                let key = app.add_node_and_sync(
+                    format!("https://example.com/{row}/{col}"),
+                    Point2D::new(col as f32 * 50.0, row as f32 * 50.0),
+                );
+                keys.push(key);
+            }
+        }
+
+        for pair in keys.windows(2) {
+            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink);
+        }
+
+        let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(300.0, 300.0));
+        let metrics = viewport_culling_metrics_for_canvas_rect(&app.workspace.graph, canvas_rect)
+            .expect("culling metrics should be available for dense graph viewport");
+
+        assert!(metrics.visible_nodes < metrics.total_nodes);
+        assert!(metrics.submitted_nodes < metrics.total_nodes);
+        assert!(metrics.removed_nodes > 0);
+        assert!(metrics.culled_submission_units < metrics.full_submission_units);
+    }
+
+    #[test]
+    fn viewport_culling_benchmark_reports_lower_prep_time_than_full_rebuild() {
+        let mut app = test_app();
+        let mut keys = Vec::new();
+        for row in 0..30 {
+            for col in 0..30 {
+                let key = app.add_node_and_sync(
+                    format!("https://bench.example/{row}/{col}"),
+                    Point2D::new(col as f32 * 30.0, row as f32 * 30.0),
+                );
+                keys.push(key);
+            }
+        }
+
+        for pair in keys.windows(2) {
+            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink);
+        }
+
+        let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(260.0, 260.0));
+        let culled_graph = viewport_culled_graph_for_canvas_rect(&app.workspace.graph, canvas_rect)
+            .expect("expected culled graph for benchmark viewport");
+
+        let full_start = Instant::now();
+        for _ in 0..12 {
+            let state = EguiGraphState::from_graph_with_visual_state(
+                &app.workspace.graph,
+                &app.workspace.selected_nodes,
+                app.workspace.selected_nodes.primary(),
+                &HashSet::new(),
+            );
+            black_box(state.graph.node_count());
+        }
+        let full_elapsed = full_start.elapsed();
+
+        let culled_start = Instant::now();
+        for _ in 0..12 {
+            let state = EguiGraphState::from_graph_with_visual_state(
+                &culled_graph,
+                &app.workspace.selected_nodes,
+                app.workspace.selected_nodes.primary(),
+                &HashSet::new(),
+            );
+            black_box(state.graph.node_count());
+        }
+        let culled_elapsed = culled_start.elapsed();
+
+        assert!(
+            culled_elapsed < full_elapsed,
+            "expected culled prep to be faster; full={:?}, culled={:?}",
+            full_elapsed,
+            culled_elapsed
+        );
     }
 }

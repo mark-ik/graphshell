@@ -114,6 +114,35 @@ The diagnostic system exposes structured state (`DiagnosticsState`) that can be 
 - Pass/fail per checklist item above.
 - Any observed degraded behavior with reproduction notes.
 
+## Performance Baseline: Viewport Culling Validation + Benchmark (P10.b)
+
+**Source**: `implementation_strategy/2026-02-24_performance_tuning_plan.md` (Phase 1 + Validation)
+
+**Scope guard (P10.b only)**:
+- Validate culling effectiveness and benchmark instrumentation.
+- Do **not** change culling policy semantics in this slice.
+
+### Automated harness checks
+
+- [x] `cargo test -q viewport_culling_metrics_reduce_visible_set_and_submission_units -- --nocapture`
+   - Result: pass (1/1); confirms visible-set/submitted-set shrink relative to full graph and reduced submission work units.
+- [x] `cargo test -q viewport_culling_benchmark_reports_lower_prep_time_than_full_rebuild -- --nocapture`
+   - Result: pass (1/1); confirms benchmark instrumentation reports lower rebuild-prep time for culled graph vs full graph on dense synthetic fixture.
+
+### Manual benchmark run notes (before/after comparability)
+
+1. Run Graphshell against the same dense graph fixture and camera framing for each comparison run.
+2. Keep diagnostics sampling bounded (default diagnostics cadence) to avoid observer-effect distortion.
+3. Capture and compare:
+    - visible/submitted node counts from culling metrics path,
+    - prep/rebuild timing trend (full vs culled path),
+    - frame-time trend from diagnostics view over the same interaction script.
+
+**Evidence to capture in handoff comment**
+- Fixture size and viewport framing used.
+- Commands + pass/fail for automated checks.
+- Full vs culled timing summary and observed frame-time delta direction.
+
 ## Workspace Routing and Membership (Headed Manual)
 
 **Source**: `implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md` + `implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
