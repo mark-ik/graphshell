@@ -136,7 +136,7 @@ pub fn render_graph_in_ui_collect_actions(
         if !app.workspace.views.contains_key(&vid) {
             app.workspace
                 .views
-                .insert(vid, crate::app::GraphViewState::new("Graph View"));
+                .insert(vid, crate::app::GraphViewState::new_with_id(vid, "Graph View"));
         }
     }
 

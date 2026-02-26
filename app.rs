@@ -331,9 +331,9 @@ impl Clone for GraphViewState {
 }
 
 impl GraphViewState {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new_with_id(id: GraphViewId, name: impl Into<String>) -> Self {
         Self {
-            id: GraphViewId::new(),
+            id,
             name: name.into(),
             camera: Camera::new(),
             lens: LensConfig::default(),
@@ -342,6 +342,10 @@ impl GraphViewState {
             dimension: ViewDimension::default(),
             egui_state: None,
         }
+    }
+
+    pub fn new(name: impl Into<String>) -> Self {
+        Self::new_with_id(GraphViewId::new(), name)
     }
 }
 
@@ -1985,7 +1989,13 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetZoom { zoom } => {
-                self.workspace.camera.current_zoom = self.workspace.camera.clamp(*zoom);
+                if let Some(focused_view) = self.workspace.focused_view
+                    && let Some(view) = self.workspace.views.get_mut(&focused_view)
+                {
+                    view.camera.current_zoom = view.camera.clamp(*zoom);
+                } else {
+                    self.workspace.camera.current_zoom = self.workspace.camera.clamp(*zoom);
+                }
                 true
             }
             GraphIntent::SetHighlightedEdge { from, to } => {
@@ -7848,7 +7858,9 @@ mod tests {
         app.set_default_registry_theme_id(Some("theme:dark"));
 
         let view_id = GraphViewId::new();
-        app.workspace.views.insert(view_id, GraphViewState::new("Test"));
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
         let lens = LensConfig {
             name: "Custom Lens".to_string(),
@@ -7882,7 +7894,9 @@ mod tests {
         app.set_default_registry_theme_id(Some("theme:dark"));
 
         let view_id = GraphViewId::new();
-        app.workspace.views.insert(view_id, GraphViewState::new("Test"));
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
         let lens = LensConfig {
             name: "Custom Lens".to_string(),
@@ -7915,7 +7929,9 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
 
         let view_id = GraphViewId::new();
-        app.workspace.views.insert(view_id, GraphViewState::new("Test"));
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
         assert_eq!(
             app.workspace.views[&view_id].layout_mode,
             ViewLayoutMode::Canonical
@@ -7963,7 +7979,9 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
 
         let view_id = GraphViewId::new();
-        app.workspace.views.insert(view_id, GraphViewState::new("Test"));
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
         // Applying Canonical -> Canonical should not create a local simulation.
         app.apply_intents([GraphIntent::SetViewLayoutMode {
@@ -7990,6 +8008,32 @@ mod tests {
 
         let node = app.workspace.graph.get_node(key).unwrap();
         assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
+    }
+
+    #[test]
+    fn set_zoom_updates_focused_view_camera_when_present() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
+
+        app.apply_intents([GraphIntent::SetZoom { zoom: 2.5 }]);
+
+        assert!((app.workspace.views[&view_id].camera.current_zoom - 2.5).abs() < 0.0001);
+        assert!((app.workspace.camera.current_zoom - Camera::new().current_zoom).abs() < 0.0001);
+    }
+
+    #[test]
+    fn set_zoom_falls_back_to_global_camera_when_focused_view_missing() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let missing_view_id = GraphViewId::new();
+        app.workspace.focused_view = Some(missing_view_id);
+
+        app.apply_intents([GraphIntent::SetZoom { zoom: 3.0 }]);
+
+        assert!((app.workspace.camera.current_zoom - 3.0).abs() < 0.0001);
     }
 
     #[test]
