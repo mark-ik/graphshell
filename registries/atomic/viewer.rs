@@ -1,56 +1,24 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum ViewerConformanceLevel {
-    Full,
-    Partial,
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct ViewerCapabilityDeclaration {
-    pub(crate) level: ViewerConformanceLevel,
-    pub(crate) reason: Option<String>,
-}
-
-impl ViewerCapabilityDeclaration {
-    pub(crate) fn full() -> Self {
-        Self {
-            level: ViewerConformanceLevel::Full,
-            reason: None,
-        }
-    }
-
-    pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self {
-            level: ViewerConformanceLevel::Partial,
-            reason: Some(reason.into()),
-        }
-    }
-
-    pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self {
-            level: ViewerConformanceLevel::None,
-            reason: Some(reason.into()),
-        }
-    }
-}
+use crate::registries::domain::layout::{
+    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSubsystemCapabilities {
-    pub(crate) accessibility: ViewerCapabilityDeclaration,
-    pub(crate) security: ViewerCapabilityDeclaration,
-    pub(crate) storage: ViewerCapabilityDeclaration,
-    pub(crate) history: ViewerCapabilityDeclaration,
+    pub(crate) accessibility: AccessibilityCapabilities,
+    pub(crate) security: SecurityCapabilities,
+    pub(crate) storage: StorageCapabilities,
+    pub(crate) history: HistoryCapabilities,
 }
 
 impl ViewerSubsystemCapabilities {
     pub(crate) fn full() -> Self {
         Self {
-            accessibility: ViewerCapabilityDeclaration::full(),
-            security: ViewerCapabilityDeclaration::full(),
-            storage: ViewerCapabilityDeclaration::full(),
-            history: ViewerCapabilityDeclaration::full(),
+            accessibility: AccessibilityCapabilities::full(),
+            security: SecurityCapabilities::full(),
+            storage: StorageCapabilities::full(),
+            history: HistoryCapabilities::full(),
         }
     }
 }
@@ -228,16 +196,12 @@ impl Default for ViewerRegistry {
         registry.register_capabilities(
             "viewer:webview",
             ViewerSubsystemCapabilities {
-                accessibility: ViewerCapabilityDeclaration {
-                    level: ViewerConformanceLevel::Partial,
-                    reason: Some(
-                        "WebView accessibility tree injection deferred due accesskit version mismatch"
-                            .to_string(),
-                    ),
-                },
-                security: ViewerCapabilityDeclaration::full(),
-                storage: ViewerCapabilityDeclaration::full(),
-                history: ViewerCapabilityDeclaration::full(),
+                accessibility: AccessibilityCapabilities::partial(
+                    "WebView accessibility tree injection deferred due accesskit version mismatch",
+                ),
+                security: SecurityCapabilities::full(),
+                storage: StorageCapabilities::full(),
+                history: HistoryCapabilities::full(),
             },
         );
         registry.register_capabilities("viewer:settings", ViewerSubsystemCapabilities::full());
@@ -294,6 +258,7 @@ impl ViewerHandler for PlaintextViewerHandler {
 mod tests {
     use super::*;
     use crate::graph::AddressKind;
+    use crate::registries::domain::layout::ConformanceLevel;
 
     #[test]
     fn viewer_registry_selects_internal_settings_viewer_for_graphshell_settings_url() {
@@ -305,7 +270,7 @@ mod tests {
         assert_eq!(selection.matched_by, "internal");
         assert_eq!(
             selection.capabilities.accessibility.level,
-            ViewerConformanceLevel::Full
+            ConformanceLevel::Full
         );
     }
 
@@ -323,7 +288,7 @@ mod tests {
 
         assert_eq!(
             fallback.capabilities.history.level,
-            ViewerConformanceLevel::Full
+            ConformanceLevel::Full
         );
     }
 
@@ -334,13 +299,12 @@ mod tests {
         registry.register_capabilities(
             "viewer:plaintext",
             ViewerSubsystemCapabilities {
-                accessibility: ViewerCapabilityDeclaration {
-                    level: ViewerConformanceLevel::Partial,
-                    reason: Some("access bridge disabled in test".to_string()),
-                },
-                security: ViewerCapabilityDeclaration::full(),
-                storage: ViewerCapabilityDeclaration::full(),
-                history: ViewerCapabilityDeclaration::full(),
+                accessibility: AccessibilityCapabilities::partial(
+                    "access bridge disabled in test",
+                ),
+                security: SecurityCapabilities::full(),
+                storage: StorageCapabilities::full(),
+                history: HistoryCapabilities::full(),
             },
         );
 
@@ -348,7 +312,7 @@ mod tests {
         assert_eq!(selection.viewer_id, "viewer:plaintext");
         assert_eq!(
             selection.capabilities.accessibility.level,
-            ViewerConformanceLevel::Partial
+            ConformanceLevel::Partial
         );
         assert_eq!(
             selection.capabilities.accessibility.reason.as_deref(),
@@ -359,25 +323,22 @@ mod tests {
     #[test]
     fn viewer_capabilities_round_trip_via_json() {
         let capabilities = ViewerSubsystemCapabilities {
-            accessibility: ViewerCapabilityDeclaration {
-                level: ViewerConformanceLevel::Partial,
-                reason: Some("access bridge degraded".to_string()),
-            },
-            security: ViewerCapabilityDeclaration::full(),
-            storage: ViewerCapabilityDeclaration::full(),
-            history: ViewerCapabilityDeclaration::none("history replay unavailable"),
+            accessibility: AccessibilityCapabilities::partial("access bridge degraded"),
+            security: SecurityCapabilities::full(),
+            storage: StorageCapabilities::full(),
+            history: HistoryCapabilities::none("history replay unavailable"),
         };
 
         let json = serde_json::to_string(&capabilities).expect("capabilities should serialize");
         let restored: ViewerSubsystemCapabilities =
             serde_json::from_str(&json).expect("capabilities should deserialize");
 
-        assert_eq!(restored.accessibility.level, ViewerConformanceLevel::Partial);
+        assert_eq!(restored.accessibility.level, ConformanceLevel::Partial);
         assert_eq!(
             restored.accessibility.reason.as_deref(),
             Some("access bridge degraded")
         );
-        assert_eq!(restored.history.level, ViewerConformanceLevel::None);
+        assert_eq!(restored.history.level, ConformanceLevel::None);
     }
 
     // --- select_for tests ---

@@ -31,7 +31,7 @@ use protocol::{
 use knowledge::KnowledgeRegistry;
 use crate::registries::atomic::theme::ThemeRegistry;
 use crate::registries::atomic::viewer::{
-    ViewerConformanceLevel, ViewerRegistry, ViewerSelection,
+    ViewerRegistry, ViewerSelection,
 };
 use crate::registries::domain::layout::ConformanceLevel;
 use crate::registries::domain::presentation::PresentationDomainRegistry;
@@ -496,24 +496,36 @@ fn emit_lookup_diagnostics(
 }
 
 fn emit_viewer_capability_diagnostics(viewer: &ViewerSelection) {
-    for declaration in [
-        &viewer.capabilities.accessibility,
-        &viewer.capabilities.security,
-        &viewer.capabilities.storage,
-        &viewer.capabilities.history,
+    for (level, reason) in [
+        (
+            &viewer.capabilities.accessibility.level,
+            viewer.capabilities.accessibility.reason.as_deref(),
+        ),
+        (
+            &viewer.capabilities.security.level,
+            viewer.capabilities.security.reason.as_deref(),
+        ),
+        (
+            &viewer.capabilities.storage.level,
+            viewer.capabilities.storage.reason.as_deref(),
+        ),
+        (
+            &viewer.capabilities.history.level,
+            viewer.capabilities.history.reason.as_deref(),
+        ),
     ] {
-        match declaration.level {
-            ViewerConformanceLevel::Full => {}
-            ViewerConformanceLevel::Partial => {
+        match level {
+            ConformanceLevel::Full => {}
+            ConformanceLevel::Partial => {
                 emit_event(DiagnosticEvent::MessageSent {
                     channel_id: CHANNEL_VIEWER_CAPABILITY_PARTIAL,
-                    byte_len: declaration.reason.as_deref().unwrap_or_default().len(),
+                    byte_len: reason.unwrap_or_default().len(),
                 });
             }
-            ViewerConformanceLevel::None => {
+            ConformanceLevel::None => {
                 emit_event(DiagnosticEvent::MessageSent {
                     channel_id: CHANNEL_VIEWER_CAPABILITY_NONE,
-                    byte_len: declaration.reason.as_deref().unwrap_or_default().len(),
+                    byte_len: reason.unwrap_or_default().len(),
                 });
             }
         }
@@ -1155,21 +1167,33 @@ fn phase0_observe_navigation_url_for_tests_with_control(
     );
     let viewer = runtime.viewer.select_for_uri(uri, effective_mime_hint);
     diagnostics_state.emit_message_received_for_tests(CHANNEL_VIEWER_SELECT_SUCCEEDED, 1);
-    for declaration in [
-        &viewer.capabilities.accessibility,
-        &viewer.capabilities.security,
-        &viewer.capabilities.storage,
-        &viewer.capabilities.history,
+    for (level, reason) in [
+        (
+            &viewer.capabilities.accessibility.level,
+            viewer.capabilities.accessibility.reason.as_deref(),
+        ),
+        (
+            &viewer.capabilities.security.level,
+            viewer.capabilities.security.reason.as_deref(),
+        ),
+        (
+            &viewer.capabilities.storage.level,
+            viewer.capabilities.storage.reason.as_deref(),
+        ),
+        (
+            &viewer.capabilities.history.level,
+            viewer.capabilities.history.reason.as_deref(),
+        ),
     ] {
-        match declaration.level {
-            ViewerConformanceLevel::Full => {}
-            ViewerConformanceLevel::Partial => diagnostics_state.emit_message_sent_for_tests(
+        match level {
+            ConformanceLevel::Full => {}
+            ConformanceLevel::Partial => diagnostics_state.emit_message_sent_for_tests(
                 CHANNEL_VIEWER_CAPABILITY_PARTIAL,
-                declaration.reason.as_deref().unwrap_or_default().len(),
+                reason.unwrap_or_default().len(),
             ),
-            ViewerConformanceLevel::None => diagnostics_state.emit_message_sent_for_tests(
+            ConformanceLevel::None => diagnostics_state.emit_message_sent_for_tests(
                 CHANNEL_VIEWER_CAPABILITY_NONE,
-                declaration.reason.as_deref().unwrap_or_default().len(),
+                reason.unwrap_or_default().len(),
             ),
         }
     }

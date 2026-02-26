@@ -24,7 +24,7 @@ pub(crate) enum ConformanceLevel {
 ///
 /// Registered alongside a surface profile to allow accessibility subsystem
 /// diagnostics to audit conformance without reaching into rendering code.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AccessibilityCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap or
@@ -52,7 +52,7 @@ impl AccessibilityCapabilities {
 /// Registered alongside a surface profile to allow security subsystem
 /// diagnostics to audit whether content isolation, sandboxing, or CSP
 /// guarantees are satisfied.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SecurityCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap or
@@ -79,7 +79,7 @@ impl SecurityCapabilities {
 /// Declares whether the surface/profile participates in canonical workspace
 /// persistence contracts (schema integrity, deterministic restore semantics,
 /// and no special-case bypasses).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct StorageCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap.
@@ -104,7 +104,7 @@ impl StorageCapabilities {
 ///
 /// Declares whether traversal/timeline semantics and preview/replay integrity
 /// guarantees are supported for this surface/profile.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HistoryCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap.
