@@ -6,6 +6,8 @@ pub(crate) mod physics;
 pub(crate) mod protocol;
 pub(crate) mod knowledge;
 
+use std::sync::OnceLock;
+
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::registries::atomic::diagnostics;
@@ -112,6 +114,12 @@ pub(crate) const CHANNEL_VERSE_SYNC_IDENTITY_GENERATED: &str = "verse.sync.ident
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_DETECTED: &str = "verse.sync.conflict_detected";
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED: &str = "verse.sync.conflict_resolved";
 
+static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
+
+fn runtime() -> &'static RegistryRuntime {
+    REGISTRY_RUNTIME.get_or_init(RegistryRuntime::new_with_mods)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Phase0NavigationDecision {
     pub(crate) normalized_url: ServoUrl,
@@ -147,7 +155,7 @@ pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) ->
         byte_len: identity_id.len().saturating_add(payload.len()),
     });
 
-    let result = RegistryRuntime::default().identity.sign(identity_id, payload);
+    let result = runtime().identity.sign(identity_id, payload);
     if result.succeeded {
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_IDENTITY_SIGN_SUCCEEDED,
@@ -298,7 +306,7 @@ pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
 
-    let resolution = RegistryRuntime::default().input.resolve(binding_id);
+    let resolution = runtime().input.resolve(binding_id);
 
     if resolution.matched {
         emit_event(DiagnosticEvent::MessageSent {
@@ -318,7 +326,7 @@ pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
 pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
 
-    let runtime = RegistryRuntime::default();
+    let runtime = runtime();
     let resolution = runtime.lens.resolve(lens_id);
     log::debug!(
         "registry lens resolve requested='{}' resolved='{}' matched={} fallback={}",
@@ -407,7 +415,7 @@ pub(crate) fn phase2_resolve_lens_components(lens: &crate::app::LensConfig) -> c
         return lens.clone();
     }
 
-    let runtime = RegistryRuntime::default();
+    let runtime = runtime();
     let presentation_domain = PresentationDomainRegistry::default();
     let mut normalized = lens.clone();
 
@@ -568,7 +576,7 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
         byte_len: query.len(),
     });
 
-    let execution = RegistryRuntime::default()
+    let execution = runtime()
         .action
         .execute(
             ACTION_OMNIBOX_NODE_SEARCH,
@@ -600,7 +608,7 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
 
 pub(crate) fn phase5_execute_verse_sync_now_action(app: &GraphBrowserApp) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = RegistryRuntime::default()
+    let execution = runtime()
         .action
         .execute(ACTION_VERSE_SYNC_NOW, app, ActionPayload::VerseSyncNow);
     execution.intents
@@ -611,7 +619,7 @@ pub(crate) fn phase5_execute_verse_pair_local_peer_action(
     node_id: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = runtime().action.execute(
         ACTION_VERSE_PAIR_DEVICE,
         app,
         ActionPayload::VersePairDevice {
@@ -628,7 +636,7 @@ pub(crate) fn phase5_execute_verse_pair_code_action(
     code: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = runtime().action.execute(
         ACTION_VERSE_PAIR_DEVICE,
         app,
         ActionPayload::VersePairDevice {
@@ -645,7 +653,7 @@ pub(crate) fn phase5_execute_verse_share_workspace_action(
     workspace_id: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = runtime().action.execute(
         ACTION_VERSE_SHARE_WORKSPACE,
         app,
         ActionPayload::VerseShareWorkspace {
@@ -660,7 +668,7 @@ pub(crate) fn phase5_execute_verse_forget_device_action(
     node_id: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = runtime().action.execute(
         ACTION_VERSE_FORGET_DEVICE,
         app,
         ActionPayload::VerseForgetDevice {
@@ -971,7 +979,7 @@ pub(crate) fn phase2_execute_graph_view_submit_action(
         byte_len: input.len(),
     });
 
-    let execution = RegistryRuntime::default()
+    let execution = runtime()
         .action
         .execute(
             ACTION_GRAPH_VIEW_SUBMIT,
@@ -1014,7 +1022,7 @@ pub(crate) fn phase2_execute_detail_view_submit_action(
         byte_len: normalized_url.len(),
     });
 
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = runtime().action.execute(
         ACTION_DETAIL_VIEW_SUBMIT,
         app,
         ActionPayload::DetailViewSubmit {
@@ -1052,7 +1060,7 @@ fn phase0_observe_navigation_url_with_control(
     mime_hint: Option<&str>,
     control: ProtocolResolveControl,
 ) -> Option<(ProtocolResolution, ViewerSelection)> {
-    RegistryRuntime::default().observe_navigation_url_with_control(uri, mime_hint, control)
+    runtime().observe_navigation_url_with_control(uri, mime_hint, control)
 }
 
 fn apply_phase0_protocol_policy(
@@ -1444,6 +1452,25 @@ mod tests {
         assert_eq!(viewer.viewer_id, "viewer:webview");
         assert!(!viewer.fallback_used);
         assert_ne!(viewer.matched_by, "fallback");
+    }
+
+    #[test]
+    fn phase0_dispatch_uses_provider_wired_runtime_singleton() {
+        let baseline = ViewerRegistry::default()
+            .select_for_uri("https://example.com/diagram.svg", Some("image/svg+xml"));
+        let parsed = ServoUrl::parse("https://example.com/diagram.svg").expect("url should parse");
+
+        let decision = phase0_decide_navigation_with_control(
+            parsed,
+            Some("image/svg+xml"),
+            ProtocolResolveControl::default(),
+        )
+        .expect("default protocol resolve control should be active");
+
+        assert!(baseline.fallback_used);
+        assert_eq!(decision.viewer.viewer_id, "viewer:webview");
+        assert!(!decision.viewer.fallback_used);
+        assert_ne!(decision.viewer.matched_by, "fallback");
     }
 
     #[test]
