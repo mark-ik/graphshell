@@ -139,6 +139,36 @@ Terminology defines folded surface capability declarations, but viewer/workbench
 6. **Add capability/conformance fields to surface/viewer descriptors** and link subsystem diagnostics/validation to them.
 7. **Replace `SignalBus` implementation claims in code comments** with transitional wording until the routing layer lands.
 
+### Remediation Tracking Map (post queue-audit update, 2026-02-26)
+
+This maps the high-leverage remediation items above to the current issue set and
+records queue-audit status after the 2026-02-26 execution/closure pass.
+
+1. **Split `Control Panel` into aspect vs surface language**
+   - Primary tracker: `#86` (hub), likely follow-up docs issue if scope grows
+   - Status: `closed` (`#86` docs cleanup: `TERMINOLOGY.md` + `SYSTEM_REGISTER.md` clarify Control Panel as Aspect, not Surface)
+2. **Define `Signal` vs `Intent` vs direct call routing rules**
+   - Primary trackers: `#81` (runtime cleanup / SignalBus architecture), `#82` (RegistryRuntime dispatch)
+   - Status: `closed` (`#81` and `#82` closed for runtime slices; canonical routing rules now documented in `SYSTEM_REGISTER.md` and reflected in `TERMINOLOGY.md`)
+3. **Make pane/tool intents reducer-authoritative (or document separate authority)**
+   - Primary trackers: `#82` (runtime dispatch authority), `#86` (framing + explicit boundary language)
+   - Status: `closed` (`#82` runtime slice closed; two-authority model and workbench intercept boundary are now explicitly documented in `SYSTEM_REGISTER.md`)
+4. **Refactor node-pane runtime helpers away from webview naming/assumptions**
+   - Primary tracker: `#78`
+   - Status: `closed` (commit `714cfed`; queue-audit closure)
+5. **Normalize persistence schema terminology and special cases**
+   - Primary tracker: `#79`
+   - Status: `closed` (queue-audit closure; compat aliases/tests verified)
+6. **Add capability/conformance fields to surface/viewer descriptors and link diagnostics/validation**
+   - Primary tracker: `#80`
+   - Status: `closed` (`#80` implementation present; descriptors + runtime diagnostics/conformance inspection paths verified)
+7. **Replace `SignalBus` implementation claims in code comments** with transitional wording
+   - Primary trackers: `#81`, `#86`
+   - Status: `closed` for current docs/code scope (`#81` control-panel module wording is transitional; `TERMINOLOGY.md` + `SYSTEM_REGISTER.md` now use transitional/planned wording consistently)
+
+Queue-audit receipt (landed-status verification + issue reconciliation):
+- `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_queue_execution_audit_receipt.md`
+
 ## Why This Research Matters
 
 The terminology work succeeded: the architecture now has a coherent vocabulary. The remaining work is to make runtime authority and persistence/schema semantics conform to that vocabulary. The highest-risk failure mode is no longer naming confusion; it is **inconsistent enforcement of the intended boundaries** (reducer authority, Register authority, and generic node-pane semantics).

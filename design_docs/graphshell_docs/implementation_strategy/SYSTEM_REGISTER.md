@@ -47,11 +47,13 @@ Implemented:
 - `ControlPanel` async worker supervision and multi-producer intent queueing
 - Main GUI integration for control-panel worker lifecycle and intent draining
 - RegistryRuntime composition root for atomic/domain registries and mod/runtime services
+- RegistryRuntime provider-wired phase0 protocol/viewer dispatch paths and diagnostics coverage
+- Folded viewer/surface capability-conformance declarations with runtime diagnostics inspection hooks
 
 Gaps / active architectural work:
 - Signal/event routing is still transitional (no dedicated `SignalBus` abstraction/API yet)
-- Some desktop dispatch paths remain legacy and are not fully registry-runtime authoritative
-- Register hub terminology and docs were ahead of code on `SignalBus`; this hub now treats it as planned work
+- Canonical docs/terminology wording still needs tightening around `Signal` vs `Intent` vs direct calls (routing rules are defined here but not yet propagated everywhere)
+- Some authority-boundary misroutes are still too silent in fallback/no-op paths and should surface more explicitly during development
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 
@@ -137,8 +139,8 @@ Goals:
 
 Done gates:
 - [ ] Hub docs and terminology consistently describe `SignalBus` as planned / equivalent abstraction
-- [ ] `ControlPanel` APIs and comments avoid implying ownership of registries
-- [ ] `RegistryRuntime` integration issue follow-ups are linked from this hub (`#81`, `#82`)
+- [x] `ControlPanel` APIs and comments avoid implying ownership of registries
+- [x] `RegistryRuntime` integration issue follow-ups are linked from this hub (`#81`, `#82`)
 
 ### SR2: Introduce Signal Routing Layer Contract (typed signals, no hard pub/sub yet)
 
@@ -187,6 +189,7 @@ Goals:
 
 Done gates:
 - [ ] Legacy dispatch callsites removed or wrapped behind Register APIs
+- [x] Legacy dispatch callsites removed or wrapped behind Register APIs (phase0 navigation/provider-wired runtime dispatch slice; see `#82`)
 - [ ] `RegistryRuntime` + signal routing layer responsibilities are documented and tested
 - [ ] `ControlPanel` API surface reflects coordinator/process-host role only
 

@@ -67,10 +67,10 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 *   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
 *   **Settings Pane**: A tool pane that aggregates configuration and controls across registries, subsystems, and app-level preferences. A settings pane may host subsystem-specific sections or summon dedicated subsystem panes.
-*   **Control Panel**: The async coordination/process host for background workers and intent producers within The Register. In architectural terms it is a peer coordinator (not owner) for registries, subsystems, mods, and UI surfaces — an **Aspect** of The Register's runtime composition. It does not own or render UI surfaces directly; subsystems expose UI through their dedicated tool/subsystem panes. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
+*   **Control Panel**: The async coordination/process host for background workers and intent producers within The Register. In architectural terms it is an **Aspect** (runtime coordination concern), not a UI Surface. It supervises worker lifecycles and intent ingress, but does not own or render panes/surfaces directly; subsystem UI appears through dedicated tool/subsystem panes. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
 *   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*.
 *   **Command Palette**: A modifiable context menu that serves as an accessible interface for executing Actions.
-*   **The Register**: See *Registry Architecture* section below for the full definition.
+*   **The Register**: See *Registry Architecture* section below for the canonical definition (this interface-components mention is intentionally a cross-reference only to avoid duplicate-definition drift).
 *   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View. Stored separately from the Tile Tree as it is per-view runtime state, not a layout concern.
 
 ## Camera Commands
@@ -88,7 +88,10 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
     *   **Traversal-Derived**: Implicit connection formed by navigation events.
 *   **Traversal**: A temporal record of a navigation event (timestamp, trigger) stored on an Edge.
 *   **Edge Traversal History**: The aggregate of all Traversal records, forming the complete navigation history of the graph. Replaces linear global history.
-*   **Intent**: A data payload (`GraphIntent`) describing a desired state change. The fundamental unit of mutation in the system.
+*   **Intent**: A data payload describing a desired state change routed through an explicit mutation authority. The canonical graph/workspace intent type is `GraphIntent`.
+*   **WorkbenchIntent** (conceptual): A workbench-authority mutation request (tile-tree/pane layout operations) intercepted in the frame loop rather than applied by the graph reducer. This is an architectural routing class; it may be represented by specific `GraphIntent` variants during migration (for example `OpenToolPane`, `SplitPane`) but is not graph-reducer authority.
+*   **Direct Call** (routing): A synchronous call used only within the same module/struct ownership boundary (co-owned state, no authority crossing). Direct calls are not the mechanism for cross-registry decoupling.
+*   **Signal** (routing): A decoupled notification/event routed through The Register's signal-routing layer (`SignalBus` or equivalent). Signals are for publish/subscribe coordination where emitters must not know consumers. Signals are not direct state mutation; they may result in `Intent`s downstream.
 *   **Session**: A period of application activity, persisted via a specific write-ahead log (WAL). A temporal/persistence concept only — not to be confused with WorkbenchProfile.
 *   **Tag**: A user-applied string attribute on a Node (e.g., `#starred`, `#pin`, `udc:51`) used for organization and system behavior.
 
@@ -104,7 +107,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 ## Registry Architecture
 
-*   **The Register**: The root runtime infrastructure host. Owns both Atomic and Domain registries, the mod loader, inter-registry signal/event routing, and the **Control Panel** (async worker supervision, intent queue, cancellation tokens). The signal routing layer may be implemented as `SignalBus` or an equivalent abstraction over time. Code-level: `RegistryRuntime` + `ControlPanel` (+ signal routing layer).
+*   **The Register**: The root runtime infrastructure host. Owns both Atomic and Domain registries, the mod loader, inter-registry signal/event routing, and the **Control Panel** (async worker supervision, intent queue, cancellation tokens). The signal-routing layer is currently transitional and may be implemented as `SignalBus` or an equivalent abstraction over time. Code-level: `RegistryRuntime` + `ControlPanel` (+ signal routing layer).
 *   **Atomic Registry (Primitive)**: A registry that manages a specific capability contract. The "Vocabulary". Registries define contracts (empty surfaces with fallback defaults); mods populate them with implementations.
     *   *I/O & Routing*: `ProtocolRegistry`, `ViewerRegistry`, `IndexRegistry`.
     *   *Logic*: `ActionRegistry` (discrete deterministic commands), `AgentRegistry` (autonomous cognitive agents that observe app state, connect to AI intelligence providers, and emit intent streams).
@@ -135,7 +138,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
     *   `Subsystem` is a cross-cutting guarantee framework (diagnostics, accessibility, security, storage, history) applied across domains/aspects/surfaces.
 *   **Semantic gap principle**: On each architecture change, ask: "Is there a semantic gap that maps cleanly to technical, architectural, or design concerns and should become an explicit registry/domain boundary?"
 *   **Mod-first principle**: Registries define contracts. Mods populate them. The application must be fully functional as an offline graph organizer with only core seeds (no mods loaded).
-*   **SignalBus**: The planned (or equivalent) inter-registry event bus abstraction owned by The Register. Carries typed signals between registries without direct coupling. Registries subscribe to signal types; emitters do not know their consumers. This term may refer to the architectural role even while implementation remains transitional.
+*   **SignalBus**: The planned (or equivalent) inter-registry event bus abstraction owned by The Register. Carries typed signals between registries without direct coupling. Registries subscribe to signal types; emitters do not know their consumers. This term may refer to the architectural role even while implementation remains transitional (for example direct fanout or facade-based routing before a dedicated bus type exists).
 *   **Action**: An executable command defined in the `ActionRegistry`.
 *   **AgentRegistry**: An atomic registry for autonomous cognitive agents — background processes that observe app state, connect to external AI/inference providers, and emit `GraphIntent` streams. Distinct from `ActionRegistry` (discrete, deterministic, user-triggered commands): agents are continuous, probabilistic, and self-directed.
 *   **Mod**: A capability unit that registers entries into one or more registries. Two tiers:
