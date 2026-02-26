@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::{env, panic};
+use std::{env, fs, panic};
 use log::warn;
 
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -71,6 +71,7 @@ pub fn main() {
     };
 
     crate::init_tracing(app_preferences.tracing_filter.as_deref());
+    maybe_enable_wsl_software_rendering_fallback(app_preferences.headless);
 
     let clean_shutdown = app_preferences.clean_shutdown;
     let event_loop = match app_preferences.headless {
@@ -78,9 +79,14 @@ pub fn main() {
         false => AppEventLoop::headed(),
     };
 
+    let mut exit_code = 0;
+
     {
         let mut app = App::new(opts, preferences, app_preferences, &event_loop);
-        event_loop.run_app(&mut app);
+        if let Err(e) = event_loop.run_app(&mut app) {
+            log::error!("{e}");
+            exit_code = 1;
+        }
     }
 
     if let Some(handle) = verse_init_handle {
@@ -107,7 +113,22 @@ pub fn main() {
         }
     }
 
-    crate::platform::deinit(clean_shutdown)
+    crate::platform::deinit(clean_shutdown);
+    if exit_code != 0 {
+        terminate_with_exit_code(exit_code);
+    }
+}
+
+fn terminate_with_exit_code(code: i32) -> ! {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        libc::_exit(code)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        std::process::exit(code)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,6 +165,10 @@ fn emit_startup_env_snapshot() {
         "GRAPHSHELL_SCREEN_SIZE",
         "GRAPHSHELL_WINDOW_SIZE",
         "GRAPHSHELL_HISTORY_MANAGER_LIMIT",
+        "GRAPHSHELL_DISABLE_WSL_SOFTWARE_FALLBACK",
+        "LIBGL_ALWAYS_SOFTWARE",
+        "MESA_LOADER_DRIVER_OVERRIDE",
+        "GALLIUM_DRIVER",
     ] {
         if env::var(key).is_ok() {
             keys.push(key);
@@ -156,6 +181,57 @@ fn emit_startup_env_snapshot() {
         channel_id: CHANNEL_STARTUP_CONFIG_SNAPSHOT,
         byte_len: keys.join(",").len(),
     });
+}
+
+fn maybe_enable_wsl_software_rendering_fallback(headless: bool) {
+    if headless || !running_on_wsl() || env_flag_enabled("GRAPHSHELL_DISABLE_WSL_SOFTWARE_FALLBACK") {
+        return;
+    }
+
+    let mut applied = Vec::new();
+    if set_env_if_unset("LIBGL_ALWAYS_SOFTWARE", "1") {
+        applied.push("LIBGL_ALWAYS_SOFTWARE=1");
+    }
+    if set_env_if_unset("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe") {
+        applied.push("MESA_LOADER_DRIVER_OVERRIDE=llvmpipe");
+    }
+    if set_env_if_unset("GALLIUM_DRIVER", "llvmpipe") {
+        applied.push("GALLIUM_DRIVER=llvmpipe");
+    }
+
+    if !applied.is_empty() {
+        warn!(
+            "WSL detected: enabled software GL fallback ({}). Set GRAPHSHELL_DISABLE_WSL_SOFTWARE_FALLBACK=1 to disable.",
+            applied.join(", ")
+        );
+    }
+}
+
+fn set_env_if_unset(key: &str, value: &str) -> bool {
+    if env::var_os(key).is_some() {
+        return false;
+    }
+    unsafe { env::set_var(key, value) };
+    true
+}
+
+fn env_flag_enabled(key: &str) -> bool {
+    env::var(key)
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn running_on_wsl() -> bool {
+    if env::var_os("WSL_DISTRO_NAME").is_some() || env::var_os("WSL_INTEROP").is_some() {
+        return true;
+    }
+
+    fs::read_to_string("/proc/sys/kernel/osrelease")
+        .map(|s| {
+            let lower = s.to_ascii_lowercase();
+            lower.contains("microsoft") || lower.contains("wsl")
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

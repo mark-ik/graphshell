@@ -7,7 +7,7 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::time;
 
-use log::warn;
+use log::{error, warn};
 use servo::EventLoopWaker;
 use winit::event_loop::{EventLoop, EventLoop as WinitEventLoop, EventLoopProxy};
 use winit::window::WindowId;
@@ -80,15 +80,18 @@ impl AppEventLoop {
         }
     }
 
-    pub fn run_app(self, app: &mut App) {
+    pub fn run_app(self, app: &mut App) -> Result<(), String> {
         match self {
             AppEventLoop::Winit(event_loop) => {
-                event_loop
-                    .run_app(app)
-                    .expect("Failed while running events loop");
+                event_loop.run_app(app).map_err(|err| {
+                    let msg = format!("Failed while running events loop: {err}");
+                    error!("{msg}");
+                    msg
+                })?;
             },
             AppEventLoop::Headless(event_loop) => event_loop.run_app(app),
         }
+        Ok(())
     }
 }
 
