@@ -6,13 +6,44 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use egui::{Context, Id, LayerId, PaintCallback, Rect as EguiRect, Stroke, StrokeKind};
-use egui_glow::CallbackFn;
+use egui_glow::{CallbackFn, glow};
 use crate::graph::NodeKey;
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = "tile_compositor.content_pass_registered";
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = "tile_compositor.overlay_pass_registered";
 const CHANNEL_PASS_ORDER_VIOLATION: &str = "tile_compositor.pass_order_violation";
 const CHANNEL_INVALID_TILE_RECT: &str = "tile_compositor.invalid_tile_rect";
+const CHANNEL_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GlStateSnapshot {
+    viewport: [i32; 4],
+    scissor_enabled: bool,
+    blend_enabled: bool,
+    active_texture: i32,
+    framebuffer_binding: i32,
+}
+
+fn gl_state_violated(before: GlStateSnapshot, after: GlStateSnapshot) -> bool {
+    before != after
+}
+
+fn capture_gl_state(gl: &glow::Context) -> GlStateSnapshot {
+    let mut viewport = [0_i32; 4];
+
+    // Safety: this function performs read-only OpenGL state queries on the current context.
+    // No mutation is performed; values are captured for before/after invariant comparison.
+    unsafe {
+        glow::HasContext::get_parameter_i32_slice(gl, glow::VIEWPORT, &mut viewport);
+        GlStateSnapshot {
+            viewport,
+            scissor_enabled: glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST),
+            blend_enabled: glow::HasContext::is_enabled(gl, glow::BLEND),
+            active_texture: glow::HasContext::get_parameter_i32(gl, glow::ACTIVE_TEXTURE),
+            framebuffer_binding: glow::HasContext::get_parameter_i32(gl, glow::FRAMEBUFFER_BINDING),
+        }
+    }
+}
 
 pub(crate) struct CompositorPassTracker {
     content_pass_nodes: HashSet<NodeKey>,
@@ -81,6 +112,37 @@ impl CompositorAdapter {
         });
     }
 
+    pub(crate) fn run_content_callback_with_guardrails<F>(
+        node_key: NodeKey,
+        gl: &glow::Context,
+        render: F,
+    ) where
+        F: FnOnce(),
+    {
+        #[cfg(feature = "diagnostics")]
+        let started = std::time::Instant::now();
+
+        let before = capture_gl_state(gl);
+        render();
+        let after = capture_gl_state(gl);
+
+        if gl_state_violated(before, after) {
+            #[cfg(feature = "diagnostics")]
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_GL_STATE_VIOLATION,
+                    byte_len: std::mem::size_of::<NodeKey>() + std::mem::size_of::<GlStateSnapshot>(),
+                },
+            );
+        }
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+            "tile_compositor::content_pass_guarded_callback",
+            started.elapsed().as_micros() as u64,
+        );
+    }
+
     pub(crate) fn draw_overlay_stroke(
         ctx: &Context,
         node_key: NodeKey,
@@ -122,7 +184,7 @@ mod tests {
 
     use crate::graph::NodeKey;
 
-    use super::CompositorPassTracker;
+    use super::{CompositorPassTracker, GlStateSnapshot, gl_state_violated};
 
     #[test]
     fn pass_scheduler_runs_content_before_overlay() {
@@ -141,5 +203,25 @@ mod tests {
         let mut tracker = CompositorPassTracker::new();
         tracker.record_content_pass(NodeKey::new(1));
         tracker.record_overlay_pass(NodeKey::new(1));
+    }
+
+    #[test]
+    fn gl_state_violation_detects_differences() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+        let after = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: true,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+        assert!(gl_state_violated(before, after));
+        assert!(!gl_state_violated(before, before));
     }
 }

@@ -199,7 +199,11 @@ pub(crate) fn composite_active_node_pane_webviews(
                     Size2D::new(clip.width_px, clip.height_px),
                 );
                 log::debug!("composite: render_to_parent callback executing");
-                render_to_parent(painter.gl(), rect_in_parent);
+                CompositorAdapter::run_content_callback_with_guardrails(
+                    node_key,
+                    painter.gl(),
+                    || render_to_parent(painter.gl(), rect_in_parent),
+                );
 
                 #[cfg(feature = "diagnostics")]
                 crate::shell::desktop::runtime::diagnostics::emit_span_duration(
