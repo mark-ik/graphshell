@@ -528,6 +528,8 @@ impl Gui {
     pub(crate) fn focus_graph_surface(&mut self) {
         self.runtime_state.focused_webview_hint = None;
         self.runtime_state.graph_surface_focused = true;
+        self.graph_app.workspace.focused_view =
+            tile_view_ops::active_graph_view_id(&self.tiles_tree);
     }
 
     pub(crate) fn location_has_focus(&self) -> bool {
@@ -1219,9 +1221,10 @@ impl Gui {
                         crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state) => {
                             tile_view_ops::open_or_focus_node_pane(tiles_tree, state.node);
                         }
-                        crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_) => {
-                            let _ = tiles_tree.make_active(
-                                |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))),
+                        crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref) => {
+                            tile_view_ops::open_or_focus_graph_pane(
+                                tiles_tree,
+                                graph_ref.graph_view_id,
                             );
                         }
                     }
