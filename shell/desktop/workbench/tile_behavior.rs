@@ -5,6 +5,7 @@
 //! Initial egui_tiles behavior wiring.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::hash::{Hash, Hasher};
 
 use egui::{Color32, Id, Response, Sense, Stroke, TextStyle, Ui, Vec2, WidgetText, vec2};
@@ -22,6 +23,73 @@ use crate::util::truncate_with_ellipsis;
 
 use super::selection_range::inclusive_index_range;
 use super::tile_kind::TileKind;
+
+const PLAINTEXT_HEX_PREVIEW_BYTES: usize = 4096;
+
+enum PlaintextContent {
+    Text(String),
+    HexPreview(String),
+}
+
+fn decode_plaintext_content(bytes: &[u8]) -> PlaintextContent {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => PlaintextContent::Text(text.to_string()),
+        Err(_) => {
+            let preview_len = bytes.len().min(PLAINTEXT_HEX_PREVIEW_BYTES);
+            let mut hex = String::new();
+            for (row, chunk) in bytes[..preview_len].chunks(16).enumerate() {
+                let offset = row * 16;
+                hex.push_str(&format!("{offset:08x}: "));
+                for byte in chunk {
+                    hex.push_str(&format!("{byte:02x} "));
+                }
+                hex.push('\n');
+            }
+            if bytes.len() > preview_len {
+                hex.push_str("\n... truncated binary preview ...\n");
+            }
+            PlaintextContent::HexPreview(hex)
+        }
+    }
+}
+
+fn file_path_from_node_url(url: &str) -> Result<PathBuf, String> {
+    let parsed = url::Url::parse(url).map_err(|err| format!("Invalid URL: {err}"))?;
+    if parsed.scheme() != "file" {
+        return Err("Embedded plaintext viewer currently supports file:// URLs only.".to_string());
+    }
+
+    parsed
+        .to_file_path()
+        .map_err(|_| "Could not convert file:// URL to local path.".to_string())
+}
+
+fn load_plaintext_content_for_node(url: &str) -> Result<PlaintextContent, String> {
+    let path = file_path_from_node_url(url)?;
+    let bytes = std::fs::read(&path)
+        .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
+    Ok(decode_plaintext_content(&bytes))
+}
+
+fn render_markdown_embedded(ui: &mut Ui, markdown: &str) {
+    for line in markdown.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("### ") {
+            ui.label(egui::RichText::new(rest).strong());
+        } else if let Some(rest) = trimmed.strip_prefix("## ") {
+            ui.label(egui::RichText::new(rest).strong().size(18.0));
+        } else if let Some(rest) = trimmed.strip_prefix("# ") {
+            ui.label(egui::RichText::new(rest).strong().size(22.0));
+        } else if let Some(rest) = trimmed.strip_prefix("- ") {
+            ui.horizontal(|ui| {
+                ui.label("•");
+                ui.label(rest);
+            });
+        } else {
+            ui.label(line);
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PendingOpenMode {
@@ -293,6 +361,59 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     ui.label("Missing node for this tile.");
                     return UiResponse::None;
                 };
+                let effective_viewer_id = state
+                    .viewer_id_override
+                    .as_ref()
+                    .map(|viewer_id| viewer_id.as_str())
+                    .unwrap_or_else(|| {
+                        crate::registries::atomic::viewer::ViewerRegistry::default()
+                            .select_for(node.mime_hint.as_deref(), node.address_kind)
+                    });
+
+                if matches!(effective_viewer_id, "viewer:plaintext" | "viewer:markdown") {
+                    ui.label(format!("{}", node.url));
+                    ui.separator();
+                    match load_plaintext_content_for_node(&node.url) {
+                        Ok(PlaintextContent::Text(content)) => {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                if effective_viewer_id == "viewer:markdown" {
+                                    render_markdown_embedded(ui, &content);
+                                } else {
+                                    let mut read_only = content;
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut read_only)
+                                            .font(egui::TextStyle::Monospace)
+                                            .desired_width(f32::INFINITY)
+                                            .interactive(false),
+                                    );
+                                }
+                            });
+                        }
+                        Ok(PlaintextContent::HexPreview(hex)) => {
+                            ui.small("Binary content detected; showing hex preview.");
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                let mut read_only = hex;
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut read_only)
+                                        .font(egui::TextStyle::Monospace)
+                                        .desired_width(f32::INFINITY)
+                                        .interactive(false),
+                                );
+                            });
+                        }
+                        Err(error) => {
+                            ui.small(error);
+                        }
+                    }
+                    return UiResponse::None;
+                }
+
+                if !matches!(effective_viewer_id, "viewer:webview" | "viewer:servo") {
+                    ui.label(format!("Viewer '{}' is not yet embedded in this pane.", effective_viewer_id));
+                    ui.small(format!("URL: {}", node.url));
+                    return UiResponse::None;
+                }
+
                 if let Some(crash) = self.graph_app.runtime_crash_state_for_node(node_key) {
                     let crash_reason = crash.message.as_deref().unwrap_or("unknown");
                     ui.colored_label(
@@ -749,4 +870,38 @@ fn render_graph_pane_overlay(
                     });
                 });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PlaintextContent, decode_plaintext_content};
+
+    #[test]
+    fn decode_plaintext_content_returns_text_for_utf8() {
+        let bytes = b"# title\nhello world\n";
+        let decoded = decode_plaintext_content(bytes);
+
+        match decoded {
+            PlaintextContent::Text(text) => {
+                assert!(text.contains("title"));
+                assert!(text.contains("hello world"));
+            }
+            PlaintextContent::HexPreview(_) => panic!("expected text decode for utf8 payload"),
+        }
+    }
+
+    #[test]
+    fn decode_plaintext_content_returns_hex_preview_for_binary() {
+        let bytes = [0xff, 0x00, 0x81, 0x10, 0x22, 0x33, 0x44, 0x55];
+        let decoded = decode_plaintext_content(&bytes);
+
+        match decoded {
+            PlaintextContent::Text(_) => panic!("expected hex preview for binary payload"),
+            PlaintextContent::HexPreview(hex) => {
+                assert!(hex.contains("00000000:"));
+                assert!(hex.contains("ff"));
+                assert!(hex.contains("81"));
+            }
+        }
+    }
 }
