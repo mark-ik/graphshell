@@ -20,7 +20,14 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::host::window::EmbedderWindow;
 
-pub(crate) type PaneId = u64;
+/// Persisted pane identifier used inside workspace bundle schema.
+///
+/// Distinct from runtime `pane_model::PaneId` (UUID-backed) and scoped only to
+/// a single serialized layout tree.
+pub(crate) type PersistedPaneId = u64;
+
+/// Backward-compatible local alias retained while migrating callsites.
+pub(crate) type PaneId = PersistedPaneId;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum PersistedPaneTile {
@@ -737,6 +744,26 @@ mod tests {
         assert!(!root.contains_key("channels"));
         assert!(!root.contains_key("spans"));
         assert!(!root.contains_key("recent_intents"));
+    }
+
+    #[test]
+    fn test_workspace_bundle_serialization_uses_pane_model_terms_not_legacy_aliases() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node = app.add_node_and_sync("https://schema.example".into(), Point2D::new(0.0, 0.0));
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let node_pane = tiles.insert_pane(TileKind::Node(node.into()));
+        let root = tiles.insert_tab_tile(vec![graph, node_pane]);
+        let tree = Tree::new("workspace-schema-terms", root, tiles);
+
+        let json = serialize_named_workspace_bundle(&app, "workspace-schema-terms", &tree)
+            .expect("workspace bundle should serialize");
+
+        assert!(json.contains("\"NodePane\""));
+        assert!(!json.contains("\"WebViewNode\""));
+        assert!(!json.contains("\"Diagnostic\""));
     }
 
     #[test]
