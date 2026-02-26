@@ -1,4 +1,4 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 use crate::mods::native::verse::{AccessLevel, PeerRole, TrustedPeer, WorkspaceGrant};
 use crate::shell::desktop::runtime::registries;
 
@@ -20,7 +20,7 @@ fn make_peer(node_id: iroh::NodeId, workspace_id: &str, access: AccessLevel) -> 
 
 #[test]
 fn verse_access_control_rw_peer_with_mutations_is_allowed() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
     let peers = vec![make_peer(peer_id, "workspace-w", AccessLevel::ReadWrite)];
 
@@ -36,7 +36,7 @@ fn verse_access_control_rw_peer_with_mutations_is_allowed() {
 
     let snapshot = harness.snapshot();
     assert_eq!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED),
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED),
         0,
         "ReadWrite peer should not emit access_denied"
     );
@@ -44,7 +44,7 @@ fn verse_access_control_rw_peer_with_mutations_is_allowed() {
 
 #[test]
 fn verse_access_control_ro_peer_with_mutations_emits_access_denied() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
     let peers = vec![make_peer(peer_id, "workspace-w", AccessLevel::ReadOnly)];
 
@@ -60,14 +60,14 @@ fn verse_access_control_ro_peer_with_mutations_emits_access_denied() {
 
     let snapshot = harness.snapshot();
     assert!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
         "ReadOnly peer with mutations should emit access_denied"
     );
 }
 
 #[test]
 fn verse_access_control_ro_peer_without_mutations_is_allowed() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
     let peers = vec![make_peer(peer_id, "workspace-w", AccessLevel::ReadOnly)];
 
@@ -83,7 +83,7 @@ fn verse_access_control_ro_peer_without_mutations_is_allowed() {
 
     let snapshot = harness.snapshot();
     assert_eq!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED),
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED),
         0,
         "ReadOnly peer without mutations should not emit access_denied"
     );
@@ -93,7 +93,7 @@ fn verse_access_control_ro_peer_without_mutations_is_allowed() {
 
 #[test]
 fn verse_access_control_ungranted_peer_emits_access_denied() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
     // Peer is trusted but holds no grant for "workspace-w"
     let peer = TrustedPeer {
@@ -117,14 +117,14 @@ fn verse_access_control_ungranted_peer_emits_access_denied() {
 
     let snapshot = harness.snapshot();
     assert!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
         "Peer without workspace grant should emit access_denied"
     );
 }
 
 #[test]
 fn verse_access_control_unknown_peer_emits_access_denied() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
     let peers: Vec<TrustedPeer> = vec![]; // empty trust store
 
@@ -140,14 +140,14 @@ fn verse_access_control_unknown_peer_emits_access_denied() {
 
     let snapshot = harness.snapshot();
     assert!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
         "Peer absent from trust store should emit access_denied"
     );
 }
 
 #[test]
 fn verse_access_control_revoke_removes_grant_and_emits_access_denied() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
 
     // Before revoke: peer has ReadWrite access
@@ -176,7 +176,7 @@ fn verse_access_control_revoke_removes_grant_and_emits_access_denied() {
 
     let snapshot = harness.snapshot();
     assert!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_ACCESS_DENIED) > 0,
         "Revoked peer should emit access_denied"
     );
 }
@@ -184,7 +184,7 @@ fn verse_access_control_revoke_removes_grant_and_emits_access_denied() {
 /// Deny-path must not mutate graph state (P2.b behavioural guarantee).
 #[test]
 fn verse_access_control_deny_does_not_mutate_graph_state() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     let _node = harness.add_node("https://example.com");
     let node_count_before = harness.app.workspace.graph.node_count();

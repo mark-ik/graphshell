@@ -1,9 +1,9 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 use crate::app::{GraphBrowserApp, GraphIntent};
 
 #[test]
 fn set_node_pinned_intent_syncs_pin_tag() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
 
     harness.app.apply_intents([GraphIntent::SetNodePinned {
@@ -35,7 +35,7 @@ fn set_node_pinned_intent_syncs_pin_tag() {
 
 #[test]
 fn tag_node_pin_updates_pinned_state() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
 
     harness.app.apply_intents([GraphIntent::TagNode {

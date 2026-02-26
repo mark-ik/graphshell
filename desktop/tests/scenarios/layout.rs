@@ -1,9 +1,9 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 use crate::shell::desktop::runtime::diagnostics::{CompositorTileSample, HierarchySample};
 
 #[test]
 fn compositor_frames_capture_sequence_and_active_tile_count_transitions() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.open_node_tab(node);
     harness.map_test_webview(node);
@@ -46,7 +46,7 @@ fn compositor_frames_capture_sequence_and_active_tile_count_transitions() {
 
 #[test]
 fn compositor_tile_rects_are_non_zero_in_healthy_layout_path() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.open_node_tab(node);
     harness.map_test_webview(node);
@@ -55,7 +55,7 @@ fn compositor_tile_rects_are_non_zero_in_healthy_layout_path() {
     harness.step_with_tile_sample(node, true, true, rect);
 
     let snapshot = harness.snapshot();
-    let tile = TestHarness::tile_for_node(&snapshot, node).expect("tile should exist");
+    let tile = TestRegistry::tile_for_node(&snapshot, node).expect("tile should exist");
 
     let min_x = tile
         .get("rect")
@@ -88,7 +88,7 @@ fn compositor_tile_rects_are_non_zero_in_healthy_layout_path() {
 
 #[test]
 fn healthy_layout_path_keeps_active_tile_violation_channel_zero() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.open_node_tab(node);
     harness.map_test_webview(node);
@@ -96,7 +96,7 @@ fn healthy_layout_path_keeps_active_tile_violation_channel_zero() {
     harness.step_with_tile_sample(node, true, true, rect);
 
     let snapshot = harness.snapshot();
-    let violations = TestHarness::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
+    let violations = TestRegistry::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
 
     assert_eq!(
         violations, 0,
@@ -106,7 +106,7 @@ fn healthy_layout_path_keeps_active_tile_violation_channel_zero() {
 
 #[test]
 fn unhealthy_layout_signal_is_observable_via_active_tile_violation_channel() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.open_node_tab(node);
     let rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(280.0, 180.0));
@@ -117,7 +117,7 @@ fn unhealthy_layout_signal_is_observable_via_active_tile_violation_channel() {
         .emit_message_sent_for_tests("tile_render_pass.active_tile_violation", 1);
 
     let snapshot = harness.snapshot();
-    let violations = TestHarness::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
+    let violations = TestRegistry::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
 
     assert!(
         violations > 0,
@@ -127,7 +127,7 @@ fn unhealthy_layout_signal_is_observable_via_active_tile_violation_channel() {
 
 #[test]
 fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let left = harness.add_node("https://example.com/left");
     let right = harness.add_node("https://example.com/right");
     harness.open_node_tab(left);
@@ -211,7 +211,7 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
 
 #[test]
 fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let left = harness.add_node("https://example.com/a");
     let right = harness.add_node("https://example.com/b");
     harness.open_node_tab(left);

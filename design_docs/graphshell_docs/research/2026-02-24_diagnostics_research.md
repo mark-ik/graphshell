@@ -4,6 +4,16 @@
 **Date**: 2026-02-24
 **Scope**: `registries/atomic/diagnostics.rs`, `shell/desktop/runtime/diagnostics.rs`, `desktop/tests/harness.rs`, diagnostics pane
 
+> **Terminology note (2026-02-26)**: The names `TestHarness` and `TestRegistry` have been swapped
+> since this document was written. In current canonical terminology:
+>
+> - **`TestRegistry`** = the `cargo test` fixture struct (`desktop/tests/harness.rs`) — app factory + assertion surface
+> - **`TestHarness`** = the planned in-pane runner — named test suites, background execution, panic isolation
+>
+> Wherever this document says "TestHarness" for the `cargo test` fixture, read `TestRegistry`.
+> Wherever it says "TestRegistry" for the in-pane runner concept, read `TestHarness`.
+> See `SUBSYSTEM_DIAGNOSTICS.md §4` and `TERMINOLOGY.md` for canonical definitions.
+
 ---
 
 ## 1. Current System Inventory

@@ -22,7 +22,7 @@ This document formalizes diagnostics as a subsystem with explicit guarantees, no
 
 1. **ChannelRegistry** (rename of DiagnosticsRegistry) — schema layer
 2. **AnalyzerRegistry** (new) — continuous stream processors
-3. **TestRegistry** (new, feature-gated) — on-demand isolated test execution
+3. **TestHarness** (new, feature-gated) — on-demand isolated test execution (in-pane runner)
 
 ---
 
@@ -87,9 +87,11 @@ Key properties:
 - Makes the pane extensible without hardcoding subsystem knowledge into core.
 - Ships ungated (production observability infrastructure).
 
-### 4.3 TestRegistry (new, feature-gated)
+### 4.3 TestHarness (new, feature-gated, in-pane runner)
 
-On-demand isolated execution. Named test cases that run against synthetic fresh state, returning structured pass/fail results.
+On-demand isolated execution from within the diagnostics pane. Named test cases run against
+synthetic fresh state and return structured pass/fail results. Not related to `TestRegistry`
+(the `cargo test` fixture struct in `desktop/tests/`).
 
 - Feature-gated: `#[cfg(any(test, feature = "diagnostics_tests"))]`
 - Named `TestSuite` structs containing `&'static [TestCase]`
@@ -155,7 +157,7 @@ Required checks for PRs touching:
 
 ### 6.3 What Runs In-Pane (Gated)
 
-All `DiagnosticsRegistry` unit tests (create fresh local instances, zero global entanglement), channel registration contract tests, invariant watchdog behavior, config roundtrip, namespace enforcement, pure graph state machine tests via `TestHarness`.
+All `DiagnosticsRegistry` unit tests (create fresh local instances, zero global entanglement), channel registration contract tests, invariant watchdog behavior, config roundtrip, namespace enforcement, pure graph state machine tests via `TestRegistry`.
 
 **Does not run in-pane**: Tests requiring real webviews/GPU/network, tests conflicting with `GLOBAL_DIAGNOSTICS_REGISTRY`.
 
@@ -192,8 +194,8 @@ Diagnostics does not require per-surface capability declarations (it is the infr
 | **`DiagnosticsRegistry` (ChannelRegistry)** | Channel schema, invariant contracts, namespace enforcement, severity assignment, config persistence |
 | **`DiagnosticsState`** | Event ring, drain cycles, `DiagnosticGraph` aggregation, compositor snapshots, JSON export for tests |
 | **`AnalyzerRegistry`** (future) | Analyzer lifecycle, continuous processing, derived signal production, pane section registration |
-| **`TestRegistry`** (future, gated) | Test case registration, background execution, result streaming, panic isolation |
-| **`TestHarness`** | Headless integration driver, thread-local event isolation, structured assertion surface |
+| **`TestHarness`** (future, gated) | In-pane runner: test case registration, background execution, result streaming, panic isolation |
+| **`TestRegistry`** | `cargo test` fixture: app factory, snapshot helpers, structured assertion surface (`desktop/tests/`) |
 
 ---
 
@@ -205,9 +207,39 @@ Diagnostics does not require per-surface capability declarations (it is the infr
 4. **Wire channel config editor** — Infrastructure exists (`set_channel_config_global`, `apply_persisted_channel_configs`); build UI.
 5. **Startup structural verification as analyzer** — Runs at init, emits `startup.selfcheck.*` channels, no gate.
 6. **AnalyzerRegistry** — Extensible analysis layer. Required for mod-contributed pane sections.
-7. **TestRegistry** (`diagnostics_tests` feature) — Developer tool; smoke tests runnable from pane.
+7. **TestHarness** (`diagnostics_tests` feature) — In-pane runner; smoke tests runnable from diagnostics pane.
 8. **Wire `retention_count`** — Connect `DiagnosticsState` event ring to per-channel retention from registry config.
 9. **Orphan channel surface** — Track auto-registered unknown channels in a dedicated set.
+
+### Test Infrastructure (T1, T2) — `lane:runtime`
+
+*Detailed plan: `2026-02-26_test_infrastructure_improvement_plan.md`*
+
+**T1 — Make `ACTIVE_CAPABILITIES` OnceLock test-safe** (`registries/infrastructure/mod_loader.rs`)
+
+`runtime_has_capability` caches its result in a process-global `OnceLock` seeded from env vars.
+In a parallel test process the first thread to call it wins; all other threads see that cached
+result regardless of their own disabled-mod configuration. At 10x test scale this is a
+correctness hazard for any test exercising different capability configurations.
+
+Fix: add `compute_active_capabilities_with_disabled(disabled: &HashSet<String>)` as a `#[cfg(test)]`
+entry point that bypasses the OnceLock. Production call sites unchanged.
+
+**T2 — Split scenario tests to a separate `[[test]]` binary** (`Cargo.toml`, `tests/scenarios/`)
+
+`desktop/tests/` is compiled into the library under `#[cfg(test)]`. At 10x scale, editing any
+test file invalidates the full library compile cache. A `[[test]]` Cargo target is a separate
+compilation unit; editing it does not touch the library cache.
+
+Fix (two steps):
+
+- Step 1: Add `[[test]] name = "scenarios"` binary + `test-utils` feature flag. New scenario
+  tests land here from the start. Zero churn to existing code.
+- Step 2+: Migrate existing `desktop/tests/scenarios/` incrementally, widening `_for_tests`
+  helper visibility to `pub` under `#[cfg(any(test, feature = "test-utils"))]` as each scenario
+  file moves. One PR per scenario file.
+
+Both T1 and T2 step 1 are standalone PRs with no hotspot file conflict.
 
 ---
 
@@ -219,9 +251,12 @@ Diagnostics does not require per-surface capability declarations (it is the infr
 - Invariant watchdog infrastructure and self-check concepts exist in partial form.
 
 **What's missing / open**:
-- AnalyzerRegistry and TestRegistry are still planned, not implemented.
+
+- AnalyzerRegistry and TestHarness (in-pane runner) are still planned, not implemented.
 - Pane views for violations/health/analyzers/config editing remain incomplete.
 - Invariant coverage is still thin relative to the number of `*_started -> *_{succeeded|failed}` workflows.
+- `ACTIVE_CAPABILITIES` OnceLock is not test-safe (T1 — planned).
+- Scenario tests compile into the library; no `[[test]]` binary split yet (T2 — planned).
 
 ## 12. Pane-Level Gaps (from Research)
 

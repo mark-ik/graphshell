@@ -1,10 +1,10 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 use crate::app::GraphIntent;
 use crate::graph::EdgeType;
 
 #[test]
 fn create_user_grouped_edge_from_primary_selection_creates_grouped_edge() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let source = harness.add_node("https://a.com");
     let destination = harness.add_node("https://b.com");
 

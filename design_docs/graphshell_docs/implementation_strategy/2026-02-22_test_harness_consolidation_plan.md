@@ -3,6 +3,11 @@
 **Status**: In Progress
 **Goal**: Consolidate integration tests into a unified harness driven by the Diagnostic System, enabling "Observability-Driven Testing" and high automation coverage.
 
+> **Terminology note (2026-02-26)**: The struct this document calls `TestHarness` has been renamed
+> to `TestRegistry` in code and canonical docs. The name `TestHarness` now refers to the planned
+> in-pane runner (feature-gated, background execution, panic isolation). Read `TestRegistry`
+> wherever this document refers to the `cargo test` fixture struct. See `SUBSYSTEM_DIAGNOSTICS.md §4`.
+
 ## Consolidated Checkpoint (2026-02-23)
 
 Completed in this checkpoint:

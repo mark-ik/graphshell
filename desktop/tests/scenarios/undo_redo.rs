@@ -1,8 +1,8 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 
 #[test]
 fn test_capture_undo_checkpoint_pushes_and_clears_redo() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let _node_a = harness.add_node("https://example.com/a");
 
     // Capture first checkpoint
@@ -30,7 +30,7 @@ fn test_capture_undo_checkpoint_pushes_and_clears_redo() {
 
 #[test]
 fn test_undo_stack_trimmed_at_max() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     // Capture 129 checkpoints (more than MAX_UNDO_STEPS = 128)
     for i in 0..129 {
@@ -48,7 +48,7 @@ fn test_undo_stack_trimmed_at_max() {
 
 #[test]
 fn test_new_action_clears_redo_stack() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let _node_a = harness.add_node("https://example.com/a");
 
     // Set up: capture, add node, capture, undo to create redo
@@ -72,7 +72,7 @@ fn test_new_action_clears_redo_stack() {
 
 #[test]
 fn test_perform_undo_reverts_to_previous_graph() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     // Add first node
     let node_a = harness.add_node("https://example.com/a");
@@ -102,7 +102,7 @@ fn test_perform_undo_reverts_to_previous_graph() {
 
 #[test]
 fn test_perform_redo_reapplies_after_undo() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     // Add first node
     let node_a = harness.add_node("https://example.com/a");
@@ -130,7 +130,7 @@ fn test_perform_redo_reapplies_after_undo() {
 
 #[test]
 fn test_undo_returns_false_when_stack_empty() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     // With no captures, undo should fail
     let result = harness.app.perform_undo(None);

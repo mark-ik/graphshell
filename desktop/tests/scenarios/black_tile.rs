@@ -1,8 +1,8 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 
 #[test]
 fn webview_tile_snapshot_reports_mapping_and_context_health() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.open_node_tab(node);
     harness.map_test_webview(node);
@@ -11,7 +11,7 @@ fn webview_tile_snapshot_reports_mapping_and_context_health() {
     harness.step_with_tile_sample(node, true, true, rect);
 
     let snapshot = harness.snapshot();
-    let tile = TestHarness::tile_for_node(&snapshot, node).expect("tile should exist in snapshot");
+    let tile = TestRegistry::tile_for_node(&snapshot, node).expect("tile should exist in snapshot");
 
     assert_eq!(tile.get("mapped_webview").and_then(|v| v.as_bool()), Some(true));
     assert_eq!(tile.get("has_context").and_then(|v| v.as_bool()), Some(true));
@@ -31,7 +31,7 @@ fn webview_tile_snapshot_reports_mapping_and_context_health() {
 
 #[test]
 fn engine_snapshot_exposes_servo_runtime_channels() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     harness
         .diagnostics
@@ -41,7 +41,7 @@ fn engine_snapshot_exposes_servo_runtime_channels() {
         .emit_message_received_for_tests("servo.event_loop.spin", 42);
 
     let snapshot = harness.snapshot();
-    let channels = TestHarness::all_channels(&snapshot);
+    let channels = TestRegistry::all_channels(&snapshot);
 
     assert!(channels.get("servo.delegate.url_changed").copied().unwrap_or(0) > 0);
     assert!(channels.get("servo.event_loop.spin").copied().unwrap_or(0) > 0);

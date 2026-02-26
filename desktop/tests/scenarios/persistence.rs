@@ -1,4 +1,4 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 use crate::app::GraphBrowserApp;
 use crate::app::GraphIntent;
 use crate::app::ToastAnchorPreference;
@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 #[test]
 fn open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
@@ -43,7 +43,7 @@ fn open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
 
 #[test]
 fn workspace_has_unsaved_changes_for_graph_mutations() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     harness.app.mark_current_workspace_synthesized();
 
     harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
@@ -53,7 +53,7 @@ fn workspace_has_unsaved_changes_for_graph_mutations() {
 
 #[test]
 fn workspace_modified_for_graph_mutations_even_when_not_synthesized() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     assert!(!harness.app.should_prompt_unsaved_workspace_save());
     harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
@@ -63,7 +63,7 @@ fn workspace_modified_for_graph_mutations_even_when_not_synthesized() {
 
 #[test]
 fn unsaved_prompt_warning_resets_on_additional_graph_mutation() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     harness.app.mark_current_workspace_synthesized();
     harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
 
@@ -93,7 +93,7 @@ fn save_named_workspace_clears_unsaved_prompt_state() {
 
 #[test]
 fn workspace_not_modified_for_non_graph_mutations() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
@@ -107,7 +107,7 @@ fn workspace_not_modified_for_non_graph_mutations() {
 
 #[test]
 fn workspace_not_modified_for_set_node_position() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
@@ -121,7 +121,7 @@ fn workspace_not_modified_for_set_node_position() {
 
 #[test]
 fn workspace_has_unsaved_changes_for_set_node_pinned() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 

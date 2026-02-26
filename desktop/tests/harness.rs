@@ -13,18 +13,18 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 use crate::graph::NodeKey;
 
-pub(crate) struct TestHarness {
+pub(crate) struct TestRegistry {
     pub(crate) app: GraphBrowserApp,
     pub(crate) diagnostics: DiagnosticsState,
     pub(crate) tiles_tree: Tree<TileKind>,
     frame_sequence: u64,
 }
 
-impl TestHarness {
+impl TestRegistry {
     pub(crate) fn new() -> Self {
         let mut tiles = Tiles::default();
         let graph_tile = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
-        let tiles_tree = Tree::new("test_harness_tree", graph_tile, tiles);
+        let tiles_tree = Tree::new("test_registry_tree", graph_tile, tiles);
 
         Self {
             app: GraphBrowserApp::new_for_testing(),

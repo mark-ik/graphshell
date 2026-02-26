@@ -1,4 +1,4 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 use crate::mods::native::verse::{SyncLog, SyncedIntent};
 use crate::services::persistence::types::LogEntry;
 use crate::registries::atomic::diagnostics;
@@ -76,7 +76,7 @@ fn rename_conflict_resolves_deterministically_with_lww() {
     log_a.record_intent(intent_newer);
 
     // Peer B's conflicting title update arrives at t=150 (older — should lose)
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
 
     let intent_older = SyncedIntent {
         log_entry: LogEntry::UpdateNodeTitle {
@@ -101,11 +101,11 @@ fn rename_conflict_resolves_deterministically_with_lww() {
     // Conflict diagnostics must have been emitted
     let snapshot = harness.snapshot();
     assert!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_DETECTED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_DETECTED) > 0,
         "verse.sync.conflict_detected channel should be emitted on LWW conflict"
     );
     assert!(
-        TestHarness::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED) > 0,
         "verse.sync.conflict_resolved channel should be emitted after LWW resolution"
     );
 }

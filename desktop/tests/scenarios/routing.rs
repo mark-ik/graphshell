@@ -1,4 +1,4 @@
-use super::super::harness::TestHarness;
+use super::super::harness::TestRegistry;
 use crate::app::{
     GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkspaceOpenAction,
 };
@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 
 #[test]
 fn open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membership() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
 
     harness.app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
@@ -32,7 +32,7 @@ fn open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membershi
 
 #[test]
 fn open_node_workspace_routed_with_preferred_workspace_requests_restore() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
@@ -70,7 +70,7 @@ fn open_node_workspace_routed_with_preferred_workspace_requests_restore() {
 
 #[test]
 fn remove_selected_nodes_clears_workspace_membership_entry() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
@@ -92,7 +92,7 @@ fn remove_selected_nodes_clears_workspace_membership_entry() {
 
 #[test]
 fn resolve_workspace_open_prefers_recent_membership() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
@@ -121,7 +121,7 @@ fn resolve_workspace_open_prefers_recent_membership() {
 
 #[test]
 fn resolve_workspace_open_honors_preferred_workspace() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
@@ -150,7 +150,7 @@ fn resolve_workspace_open_honors_preferred_workspace() {
 
 #[test]
 fn set_node_url_preserves_workspace_membership() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let key = harness.add_node("https://before.example");
     let node_id = harness
         .app
@@ -193,7 +193,7 @@ fn set_node_url_preserves_workspace_membership() {
 
 #[test]
 fn open_settings_url_history_activates_history_manager_surface() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
 
@@ -214,7 +214,7 @@ fn open_settings_url_history_activates_history_manager_surface() {
 
 #[test]
 fn open_settings_url_physics_activates_physics_surface() {
-    let mut harness = TestHarness::new();
+    let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
 
