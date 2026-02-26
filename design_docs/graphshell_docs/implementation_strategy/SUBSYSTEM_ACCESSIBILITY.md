@@ -1,4 +1,4 @@
-# Cross-Cutting Subsystem: Accessibility (2026-02-25)
+# Cross-Cutting Subsystem: Accessibility
 
 **Status**: Active / Project Goal
 **Subsystem label**: `accessibility`
@@ -289,8 +289,8 @@ The graph canvas becomes a navigable structure for screen readers and keyboard-o
 - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-24_spatial_accessibility_plan.md` (detailed feature-plan phases and earlier implementation notes; archived and superseded by this guide)
 - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md` (companion guarantee framework; archived and superseded into this guide, retained for design history/detail)
 - `../research/2026-02-24_spatial_accessibility_research.md` (research basis)
-- `2026-02-25_subsystem_diagnostics.md` (diagnostics channels, severity, health summaries used by accessibility)
-- `2026-02-25_planning_register_backlog_and_copilot_guides.md` (cross-subsystem sequencing and backlog)
+- `SUBSYSTEM_DIAGNOSTICS.md` (diagnostics channels, severity, health summaries used by accessibility)
+- `PLANNING_REGISTER.md` (cross-subsystem sequencing and backlog)
 
 ## 13. Execution Order (Near-Term)
 

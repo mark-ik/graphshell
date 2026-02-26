@@ -1,12 +1,12 @@
 # Spatial Accessibility Implementation Plan (2026-02-24)
 
 > **SUPERSEDED** — This document has been consolidated into
-> `2026-02-25_subsystem_accessibility.md` (Cross-Cutting Subsystem: Accessibility).
+> `SUBSYSTEM_ACCESSIBILITY.md` (Cross-Cutting Subsystem: Accessibility).
 > Retained for historical reference only. Do not use as authoritative.
 
 **Status**: ~~Implementation-Ready~~ Superseded (2026-02-25)
 **Research**: `../research/2026-02-24_spatial_accessibility_research.md`
-**Required companion**: ~~`2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md`~~ → see `2026-02-25_subsystem_accessibility.md`
+**Required companion**: ~~`2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md`~~ → see `SUBSYSTEM_ACCESSIBILITY.md`
 **Goal**: Make Graphshell fully navigable and understandable for non-visual users.
 
 ## 1. Architecture

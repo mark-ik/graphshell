@@ -1,4 +1,4 @@
-# Cross-Cutting Subsystem: History (2026-02-25)
+# Cross-Cutting Subsystem: History
 
 **Status**: Active / Project Goal
 **Subsystem label**: `history`
@@ -10,8 +10,8 @@
 **Sources consolidated**:
 - `2026-02-20_edge_traversal_impl_plan.md` (Stages A-F, especially Stage E/F)
 - `2026-02-20_edge_traversal_model_research.md` (temporal model assumptions)
-- `2026-02-25_planning_register_backlog_and_copilot_guides.md` (temporal navigation adoption + Stage F append notes)
-**Related**: `2026-02-25_subsystem_persistence_integrity.md` (archive/WAL correctness), `2026-02-25_subsystem_diagnostics.md` (timeline observability)
+- `PLANNING_REGISTER.md` (temporal navigation adoption + Stage F append notes)
+**Related**: `SUBSYSTEM_STORAGE.md` (archive/WAL correctness), `SUBSYSTEM_DIAGNOSTICS.md` (timeline observability)
 
 ---
 
@@ -209,9 +209,9 @@ Required checks for PRs touching:
 ## 11. Linked Docs
 
 - `2026-02-20_edge_traversal_impl_plan.md` (Stage F temporal navigation/replay planning)
-- `2026-02-25_planning_register_backlog_and_copilot_guides.md` (cross-subsystem sequencing and preserved Stage F backlog notes)
-- `2026-02-25_subsystem_persistence_integrity.md` (archive durability and WAL integrity dependencies)
-- `2026-02-25_subsystem_diagnostics.md` (history diagnostics channels/health summary infrastructure)
+- `PLANNING_REGISTER.md` (cross-subsystem sequencing and preserved Stage F backlog notes)
+- `SUBSYSTEM_STORAGE.md` (archive durability and WAL integrity dependencies)
+- `SUBSYSTEM_DIAGNOSTICS.md` (history diagnostics channels/health summary infrastructure)
 
 ## 12. Implementation Roadmap (Subsystem-Local)
 

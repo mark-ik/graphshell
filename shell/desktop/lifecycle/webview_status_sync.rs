@@ -9,7 +9,7 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 pub(crate) fn update_location_in_toolbar(
     location_dirty: bool,
     location: &mut String,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     selected_node_url: Option<String>,
     focused_webview_id: Option<WebViewId>,
     window: &EmbedderWindow,
@@ -18,7 +18,7 @@ pub(crate) fn update_location_in_toolbar(
         return false;
     }
 
-    if !has_webview_tiles {
+    if !has_node_panes {
         if let Some(url) = selected_node_url
             && url != *location
         {

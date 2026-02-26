@@ -201,7 +201,7 @@ Persistence must serialize:
 - pane view payload (`Graph`, `Node`, `Tool`)
 - graph-pane references (`GraphViewId`) where applicable
 
-This avoids proliferating `TileKind::Graph`, `TileKind::WebView`, `TileKind::History`, etc.
+This avoids proliferating content-specific tile variants (for example legacy `TileKind::WebView` / `TileKind::History`) now that pane identity and pane payload carry the semantic type.
 
 ### 6. Intent Model (View- and Pane-Targeted)
 

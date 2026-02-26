@@ -78,7 +78,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         );
     }
 
-    tile_runtime::prune_stale_webview_tiles(
+    tile_runtime::prune_stale_node_panes(
         args.tiles_tree,
         args.graph_app,
         args.window,
@@ -112,13 +112,13 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     args.graph_app
         .set_memory_pressure_status(memory_pressure_level, available_mib, total_mib);
 
-    let tile_nodes = tile_runtime::all_webview_tile_nodes(args.tiles_tree);
+    let tile_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
     let active_tile_nodes: HashSet<NodeKey> =
         tile_compositor::active_webview_tile_rects(args.tiles_tree)
             .into_iter()
             .map(|(node_key, _)| node_key)
             .collect();
-    let has_webview_tiles = !tile_nodes.is_empty();
+    let has_node_panes = !tile_nodes.is_empty();
     // Emit lifecycle promotion intents for active tiles (intents applied after reconcile).
     // Webview creation happens in tile_render_pass after these intents are applied.
     for node_key in active_tile_nodes.iter().copied() {
@@ -161,7 +161,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         ));
     }
 
-    if has_webview_tiles {
+    if has_node_panes {
         args.frame_intents
             .extend(webview_controller::sync_to_graph_intents(
                 args.graph_app,
@@ -169,7 +169,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             ));
     }
 
-    if has_webview_tiles || prewarm_selected_node.is_some() {
+    if has_node_panes || prewarm_selected_node.is_some() {
         webview_backpressure::reconcile_webview_creation_backpressure(
             args.graph_app,
             args.window,

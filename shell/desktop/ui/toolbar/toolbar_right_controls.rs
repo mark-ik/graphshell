@@ -17,7 +17,7 @@ pub(super) fn render_toolbar_right_controls(
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     is_graph_view: bool,
     location: &mut String,
     location_dirty: &mut bool,
@@ -49,7 +49,7 @@ pub(super) fn render_toolbar_right_controls(
         );
     });
 
-    let (view_icon, view_tooltip) = if has_webview_tiles {
+    let (view_icon, view_tooltip) = if has_node_panes {
         ("Graph", "Switch to Graph View")
     } else {
         ("Detail", "Switch to Detail View")
@@ -88,7 +88,7 @@ pub(super) fn render_toolbar_right_controls(
     super::render_workspace_pin_controls(
         ui,
         graph_app,
-        has_webview_tiles,
+        has_node_panes,
         focused_pane_pin_name,
         persisted_workspace_names,
     );
@@ -101,7 +101,7 @@ pub(super) fn render_toolbar_right_controls(
         window,
         tiles_tree,
         focused_toolbar_node,
-        has_webview_tiles,
+        has_node_panes,
         is_graph_view,
         location,
         location_dirty,

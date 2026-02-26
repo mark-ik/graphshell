@@ -57,15 +57,15 @@ fn tile_open_mode_from_pending(
 const MAX_CONNECTED_SPLIT_PANES: usize = 4;
 const MAX_CONNECTED_OPEN_NODES: usize = 12;
 
-fn find_webview_tile_id(tree: &Tree<TileKind>, node_key: NodeKey) -> Option<TileId> {
+fn find_node_pane_tile_id(tree: &Tree<TileKind>, node_key: NodeKey) -> Option<TileId> {
     tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
         Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(*tile_id),
         _ => None,
     })
 }
 
-fn ensure_webview_tile_id(tree: &mut Tree<TileKind>, node_key: NodeKey) -> TileId {
-    if let Some(tile_id) = find_webview_tile_id(tree, node_key) {
+fn ensure_node_pane_tile_id(tree: &mut Tree<TileKind>, node_key: NodeKey) -> TileId {
+    if let Some(tile_id) = find_node_pane_tile_id(tree, node_key) {
         if let Some(parent_id) = tree.tiles.parent_of(tile_id)
             && matches!(
                 tree.tiles.get(parent_id),
@@ -104,7 +104,7 @@ fn restore_named_workspace_snapshot(
                         && graph_app.workspace.graph.get_node(request.key).is_some()
                     {
                         debug!("gui_frame: opening routed node {:?} in restored workspace", request.key);
-                        tile_view_ops::open_or_focus_webview_tile_with_mode(
+                        tile_view_ops::open_or_focus_node_pane_with_mode(
                             &mut restored_tree,
                             request.key,
                             pending_tile_mode_to_tile_mode(request.mode),
@@ -188,7 +188,7 @@ fn add_nodes_to_named_workspace_snapshot(
         workspace_tree = workspace_tree_with_single_node(live_nodes[0]);
     }
     for node_key in live_nodes {
-        tile_view_ops::open_or_focus_webview_tile_with_mode(
+        tile_view_ops::open_or_focus_node_pane_with_mode(
             &mut workspace_tree,
             node_key,
             tile_view_ops::TileOpenMode::Tab,
@@ -232,13 +232,13 @@ fn apply_connected_split_layout(tree: &mut Tree<TileKind>, nodes: &[NodeKey]) {
         .iter()
         .take(split_count)
         .copied()
-        .map(|key| ensure_webview_tile_id(tree, key))
+        .map(|key| ensure_node_pane_tile_id(tree, key))
         .collect();
     let overflow_tile_ids: Vec<TileId> = nodes
         .iter()
         .skip(split_count)
         .copied()
-        .map(|key| ensure_webview_tile_id(tree, key))
+        .map(|key| ensure_node_pane_tile_id(tree, key))
         .collect();
 
     let row1 = match split_tile_ids.as_slice() {
@@ -607,7 +607,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     frame_intents.extend(input::intents_from_actions(&keyboard_actions));
 }
 
-pub(crate) fn active_webview_tile_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
+pub(crate) fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
     tiles_tree
         .active_tiles()
         .into_iter()
@@ -677,7 +677,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         diagnostics_state,
     } = args;
 
-    let active_webview_node = active_webview_tile_node(tiles_tree);
+    let active_webview_node = active_node_pane_node(tiles_tree);
     let focused_toolbar_webview = if graph_surface_focused {
         None
     } else {
@@ -689,8 +689,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
         focused_toolbar_webview,
         graph_app.get_single_selected_node(),
     );
-    let has_webview_tiles = tile_runtime::has_any_webview_tiles(tiles_tree);
-    let is_graph_view = !has_webview_tiles;
+    let has_node_panes = tile_runtime::has_any_node_panes(tiles_tree);
+    let is_graph_view = !has_node_panes;
     if !is_graph_view {
         graph_app.workspace.hovered_graph_node = None;
     }
@@ -703,7 +703,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         window,
         tiles_tree,
         focused_toolbar_node,
-        has_webview_tiles,
+        has_node_panes,
         can_go_back,
         can_go_forward,
         location,
@@ -951,8 +951,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         }
     }
 
-    let has_webview_tiles = tile_runtime::has_any_webview_tiles(tiles_tree);
-    let is_graph_view = !has_webview_tiles;
+    let has_node_panes = tile_runtime::has_any_node_panes(tiles_tree);
+    let is_graph_view = !has_node_panes;
 
     *toolbar_height = Length::new(ctx.available_rect().min.y);
     graph_app.check_periodic_snapshot();
@@ -970,7 +970,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     );
 
     let mut post_render_intents = Vec::new();
-    if is_graph_view || has_webview_tiles {
+    if is_graph_view || has_node_panes {
         let search_matches: HashSet<NodeKey> = graph_search_matches.iter().copied().collect();
         let active_search_match =
             active_graph_search_match(graph_search_matches, graph_search_active_match_index);
@@ -1007,7 +1007,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     post_render_intents.extend(history_manager_intents);
     let focused_pane_node = focused_dialog_webview
         .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
-        .or_else(|| active_webview_tile_node(tiles_tree));
+        .or_else(|| active_node_pane_node(tiles_tree));
     render::render_command_palette_panel(
         ctx,
         graph_app,
@@ -1186,7 +1186,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
             graph_app.capture_undo_checkpoint(Some(layout_json));
         }
-        tile_view_ops::detach_webview_tile_to_split(tiles_tree, node_key);
+        tile_view_ops::detach_node_pane_to_split(tiles_tree, node_key);
     }
 
     if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
@@ -1223,7 +1223,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         match tile_mode {
             tile_view_ops::TileOpenMode::Tab => {
                 for node in ordered {
-                    tile_view_ops::open_or_focus_webview_tile_with_mode(
+                    tile_view_ops::open_or_focus_node_pane_with_mode(
                         tiles_tree,
                         node,
                         tile_view_ops::TileOpenMode::Tab,
@@ -1241,7 +1241,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     if let Some(layout_json) = graph_app.take_pending_history_workspace_layout_json() {
         match serde_json::from_str::<Tree<TileKind>>(&layout_json) {
             Ok(mut restored_tree) => {
-                tile_runtime::prune_stale_webview_tile_keys_only(&mut restored_tree, graph_app);
+                tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
                 if restored_tree.root().is_some() {
                     *tiles_tree = restored_tree;
                     graph_app.mark_session_workspace_layout_json(&layout_json);

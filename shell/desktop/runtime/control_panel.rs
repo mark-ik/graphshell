@@ -12,7 +12,8 @@
 //! the [`QueuedIntent`] channel. Each frame, the caller drains the channel via
 //! [`ControlPanel::drain_pending`] before calling `apply_intents`.
 //!
-//! Part of The Register: `RegistryRuntime` + `ControlPanel` + `SignalBus`.
+//! Part of The Register: `RegistryRuntime` + `ControlPanel` + (signal-routing layer —
+//! transitional; planned `SignalBus` or equivalent abstraction).
 
 use std::time::{Duration, Instant};
 use std::sync::{OnceLock, RwLock};

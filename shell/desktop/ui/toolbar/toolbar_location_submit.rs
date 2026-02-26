@@ -9,7 +9,7 @@ pub(super) fn handle_location_submit(
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     is_graph_view: bool,
     location: &mut String,
     location_dirty: &mut bool,
@@ -74,7 +74,7 @@ pub(super) fn handle_location_submit(
                         tiles_tree,
                         mode,
                         query,
-                        has_webview_tiles,
+                        has_node_panes,
                     );
                     if matches.is_empty() {
                         *omnibar_search_session = None;
@@ -101,7 +101,7 @@ pub(super) fn handle_location_submit(
                     apply_omnibar_match(
                         graph_app,
                         active_match,
-                        has_webview_tiles,
+                        has_node_panes,
                         shift_override_original,
                         frame_intents,
                         open_selected_mode_after_submit,
@@ -147,7 +147,7 @@ pub(super) fn handle_location_submit(
                     apply_omnibar_match(
                         graph_app,
                         other,
-                        has_webview_tiles,
+                        has_node_panes,
                         shift_override_original,
                         frame_intents,
                         open_selected_mode_after_submit,

@@ -2,14 +2,18 @@
      License, v. 2.0. If a copy of the MPL was not distributed with this
      file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
 
-# Control Panel: Async Scaling & Multi-Producer Intent Queuing
+# System Register (RegisterRuntime + Control Panel + Signal Routing)
 
-**Date:** 2026-02-21 (revised 2026-02-23, integrated 2026-02-24)
-**Status:** ✅ Complete — All phases integrated into main app
-**Related Plans:**
-- [2026-02-20_embedder_decomposition_plan.md](2026-02-20_embedder_decomposition_plan.md) (Stage 5 trigger)
-- [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md)
-- [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) (The Register)
+**Doc role:** Canonical hub / implementation guide for the Register runtime composition boundary.
+**Status:** Active / canonical (maintained; historical CP1/CP2 implementation details preserved below)
+**Short label:** `system_register`
+**Primary runtime types:** `RegistryRuntime`, `ControlPanel`
+**Related docs:**
+- [2026-02-20_embedder_decomposition_plan.md](2026-02-20_embedder_decomposition_plan.md) (embedder decomposition context)
+- [2026-02-20_settings_architecture_plan.md](2026-02-20_settings_architecture_plan.md) (settings/control coordination model; Register-adjacent orchestration surface)
+- [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md) (intent schema and reducer boundary)
+- [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) (registry architecture and provider wiring)
+- [PLANNING_REGISTER.md](PLANNING_REGISTER.md) (cross-subsystem sequencing / backlog)
 
 ---
 
@@ -17,9 +21,107 @@
 
 The **Control Panel** is the async adapter layer that allows concurrent background producers — network sync, prefetch scheduler, memory monitor, mod loader lifecycle — to feed intents into the synchronous two-phase reducer without compromising determinism or testability.
 
-The Control Panel is a core component of **The Register** (`RegistryRuntime` + `ControlPanel` + `SignalBus`).
+The Control Panel is a core component of **The Register** (implemented today as `RegistryRuntime` + `ControlPanel`, with a transitional signal-routing layer and a planned `SignalBus`-class abstraction).
 
 **Key principle:** The reducer stays 100% synchronous and testable. All I/O and background work happens in supervised tokio tasks that communicate exclusively via the intent queue. This is an async *adapter layer* around a deterministic sync core, not an async rewrite.
+
+---
+
+## Hub Scope
+
+This hub document exists to keep the Register architecture current without forcing all runtime coordination material into subsystem docs.
+
+In scope:
+- Register composition boundary (`RegistryRuntime`, `ControlPanel`, signal/event routing layer)
+- Async worker supervision and intent ingress policy
+- Cross-registry event distribution strategy (`SignalBus` or equivalent)
+- Ownership boundaries between registries, mods, subsystems, and runtime coordinators
+
+Out of scope:
+- Subsystem-specific contracts/validation (see subsystem guides)
+- Feature-specific workers (covered in their feature/subsystem docs except for Register-facing integration points)
+
+## Current Status & Gaps
+
+Implemented:
+- `ControlPanel` async worker supervision and multi-producer intent queueing
+- Main GUI integration for control-panel worker lifecycle and intent draining
+- RegistryRuntime composition root for atomic/domain registries and mod/runtime services
+
+Gaps / active architectural work:
+- Signal/event routing is still transitional (no dedicated `SignalBus` abstraction/API yet)
+- Some desktop dispatch paths remain legacy and are not fully registry-runtime authoritative
+- Register hub terminology and docs were ahead of code on `SignalBus`; this hub now treats it as planned work
+
+## Architecture Roles (Register vs Control Panel vs SignalBus)
+
+- **The Register**: Runtime composition root / infrastructure host (`RegistryRuntime`) that owns registries, mod/runtime wiring, and supervises the `ControlPanel`.
+- **Control Panel**: Async coordination/process host for workers that produce intents and background runtime tasks.
+- **SignalBus (or equivalent)**: Typed event distribution fabric for decoupled publish/subscribe between registries, mods, subsystems, and observers. Architectural role is expected; concrete API is future work.
+
+## Implementation Roadmap (Register-Local)
+
+### SR1: Normalize Register Hub Boundaries (near-term)
+
+Goals:
+- Keep `RegistryRuntime` as the composition root and `ControlPanel` as the async coordinator (avoid collapsing terms prematurely)
+- Remove doc/code mismatches that imply a concrete `SignalBus` implementation where none exists
+- Make signal/event routing a named internal layer owned by the Register (even if still direct/transitional)
+
+Done gates:
+- [ ] Hub docs and terminology consistently describe `SignalBus` as planned / equivalent abstraction
+- [ ] `ControlPanel` APIs and comments avoid implying ownership of registries
+- [ ] `RegistryRuntime` integration issue follow-ups are linked from this hub (`#81`, `#82`)
+
+### SR2: Introduce Signal Routing Layer Contract (typed signals, no hard pub/sub yet)
+
+Goals:
+- Define typed signal envelopes and ownership (`signal types`, payloads, source metadata, optional causality stamp)
+- Define publisher/observer contracts for registries and subsystems
+- Provide an internal Register-owned routing facade that can start as direct fanout
+
+Why:
+- Registries need to publish/observe changes without direct wiring
+- Mods need to trigger cross-registry workflows without point-to-point coupling
+- Subsystem health/diagnostics propagation benefits from decoupled observers
+- Future async/event-heavy coordination will otherwise push coupling into `ControlPanel`
+
+Done gates:
+- [ ] `Signal` type families and source metadata contract documented
+- [ ] Register-owned routing API skeleton exists (facade/trait/module)
+- [ ] At least one producer + two observers integrated through the routing contract
+
+### SR3: `SignalBus` (or Equivalent) Pub/Sub Implementation
+
+Goals:
+- Implement publish/subscribe event distribution fabric under the Register
+- Support typed signals and decoupled observers
+- Preserve deterministic reducer semantics by keeping signal handling outside direct state mutation paths (or routing to intents where needed)
+
+Core requirements:
+- Publish/subscribe
+- Typed signals
+- Decoupled observers
+- Backpressure/error handling policy (drop/coalesce/retry diagnostics must be explicit)
+- Diagnostics hooks (queue depth, dropped signals, handler failures, latency)
+
+Done gates:
+- [ ] Register signal bus/fabric implementation replaces transitional direct routing in selected paths
+- [ ] Diagnostics channels report signal routing health
+- [ ] Mod-triggered cross-registry workflow path uses signal routing instead of direct wiring
+- [ ] Subsystem health propagation path uses signal routing (or equivalent observer fabric)
+
+### SR4: Register Runtime Authoritative Dispatch Cleanup
+
+Goals:
+- Complete migration away from remaining legacy desktop dispatch paths
+- Make Register-owned provider wiring and event routing the canonical runtime path
+- Keep `ControlPanel` focused on worker orchestration, not cross-registry policy dispatch
+
+Done gates:
+- [ ] Legacy dispatch callsites removed or wrapped behind Register APIs
+- [ ] `RegistryRuntime` + signal routing layer responsibilities are documented and tested
+- [ ] `ControlPanel` API surface reflects coordinator/process-host role only
 
 ---
 
@@ -424,7 +526,7 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 | Phase | Status | What |
 |-------|--------|------|
 | **CP1** | ✅ Done | `ControlPanel` struct, channel, memory monitor stub, shutdown |
-| **CP2** | Pending | Mod loader worker + mod lifecycle intents |
+| **CP2** | ✅ Done | Mod loader worker + mod lifecycle intents |
 | **CP3** | Future | Prefetch scheduler + `LifecyclePolicy` watch |
 | **CP4** | Future | P2P sync worker (separate design doc) |
 
@@ -434,5 +536,6 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 
 - [2026-02-20_embedder_decomposition_plan.md](2026-02-20_embedder_decomposition_plan.md) — Stage 5 overview
 - [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md) — Intent schema and lifecycle state machine
-- [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) — The Register architecture (RegistryRuntime + ControlPanel + SignalBus)
+- [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) — The Register architecture and provider wiring
+- [PLANNING_REGISTER.md](PLANNING_REGISTER.md) — sequencing and backlog for Register/runtime follow-ups
 - Crates: `tokio`, `tokio-util` (CancellationToken), `tokio::task::JoinSet`

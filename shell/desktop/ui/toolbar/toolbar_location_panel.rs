@@ -10,7 +10,7 @@ pub(super) fn render_location_search_panel(
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     is_graph_view: bool,
     location: &mut String,
     location_dirty: &mut bool,
@@ -98,7 +98,7 @@ pub(super) fn render_location_search_panel(
                             tiles_tree,
                             mode,
                             query,
-                            has_webview_tiles,
+                            has_node_panes,
                         );
                         *omnibar_search_session = if matches.is_empty() {
                             None
@@ -123,7 +123,7 @@ pub(super) fn render_location_search_panel(
                 default_search_provider_from_searchpage(&state.app_preferences.searchpage)
                     .unwrap_or(SearchProviderKind::DuckDuckGo);
             let (initial_matches, should_fetch_provider) =
-                non_at_matches_for_settings(graph_app, tiles_tree, trimmed_location, has_webview_tiles);
+                non_at_matches_for_settings(graph_app, tiles_tree, trimmed_location, has_node_panes);
             let initial_status = if should_fetch_provider {
                 ProviderSuggestionStatus::Loading
             } else {
@@ -157,7 +157,7 @@ pub(super) fn render_location_search_panel(
                 tiles_tree,
                 OmnibarSearchMode::TabsLocal,
                 "",
-                has_webview_tiles,
+                has_node_panes,
             );
             let provider = default_search_provider_from_searchpage(&state.app_preferences.searchpage)
                 .unwrap_or(SearchProviderKind::DuckDuckGo);
@@ -224,7 +224,7 @@ pub(super) fn render_location_search_panel(
                     graph_app,
                     tiles_tree,
                     &session.query,
-                    has_webview_tiles,
+                    has_node_panes,
                     fallback_scope,
                 );
                 match graph_app.workspace.omnibar_non_at_order {
@@ -249,7 +249,7 @@ pub(super) fn render_location_search_panel(
                     graph_app,
                     tiles_tree,
                     &session.query,
-                    has_webview_tiles,
+                    has_node_panes,
                 );
             }
             if !session.matches.is_empty()
@@ -277,7 +277,7 @@ pub(super) fn render_location_search_panel(
         is_graph_view,
         focused_toolbar_node,
         window,
-        has_webview_tiles,
+        has_node_panes,
         frame_intents,
         open_selected_mode_after_submit,
     );
@@ -297,7 +297,7 @@ pub(super) fn render_location_search_panel(
             window,
             tiles_tree,
             focused_toolbar_node,
-            has_webview_tiles,
+            has_node_panes,
             is_graph_view,
             location,
             location_dirty,
