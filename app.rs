@@ -588,6 +588,12 @@ pub enum CameraCommand {
     StartupFit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PendingCameraCommand {
+    command: CameraCommand,
+    target_view: Option<GraphViewId>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryPressureLevel {
     Unknown,
@@ -1316,7 +1322,7 @@ pub struct GraphWorkspace {
     pending_keyboard_zoom_request: Option<KeyboardZoomRequest>,
 
     /// Durable camera command retried until metadata frame is available.
-    pending_camera_command: Option<CameraCommand>,
+    pending_camera_command: Option<PendingCameraCommand>,
 
     /// Scroll delta intercepted pre-render and consumed post-render as wheel zoom.
     pending_wheel_zoom_delta: f32,
@@ -1591,7 +1597,10 @@ impl GraphBrowserApp {
                 pending_clipboard_copy: None,
                 pending_switch_data_dir: None,
                 pending_keyboard_zoom_request: None,
-                pending_camera_command: Some(CameraCommand::StartupFit),
+                pending_camera_command: Some(PendingCameraCommand {
+                    command: CameraCommand::StartupFit,
+                    target_view: None,
+                }),
                 pending_wheel_zoom_delta: 0.0,
                 camera: Camera::new(),
                 views: HashMap::new(),
@@ -1786,7 +1795,10 @@ impl GraphBrowserApp {
                 pending_clipboard_copy: None,
                 pending_switch_data_dir: None,
                 pending_keyboard_zoom_request: None,
-                pending_camera_command: Some(CameraCommand::StartupFit),
+                pending_camera_command: Some(PendingCameraCommand {
+                    command: CameraCommand::StartupFit,
+                    target_view: None,
+                }),
                 pending_wheel_zoom_delta: 0.0,
                 camera: Camera::new(),
                 views: HashMap::new(),
@@ -1883,7 +1895,22 @@ impl GraphBrowserApp {
     }
 
     pub fn request_camera_command(&mut self, command: CameraCommand) {
-        self.workspace.pending_camera_command = Some(command);
+        let target_view = self
+            .workspace
+            .focused_view
+            .filter(|id| self.workspace.views.contains_key(id));
+        self.request_camera_command_for_view(target_view, command);
+    }
+
+    pub fn request_camera_command_for_view(
+        &mut self,
+        target_view: Option<GraphViewId>,
+        command: CameraCommand,
+    ) {
+        self.workspace.pending_camera_command = Some(PendingCameraCommand {
+            command,
+            target_view,
+        });
     }
 
     /// Consume one pending keyboard zoom request.
@@ -1893,7 +1920,14 @@ impl GraphBrowserApp {
 
     /// Read pending camera command without consuming it.
     pub fn pending_camera_command(&self) -> Option<CameraCommand> {
-        self.workspace.pending_camera_command
+        self.workspace.pending_camera_command.map(|p| p.command)
+    }
+
+    pub fn pending_camera_command_target(&self) -> Option<GraphViewId> {
+        self.workspace
+            .pending_camera_command
+            .and_then(|p| p.target_view)
+            .filter(|id| self.workspace.views.contains_key(id))
     }
 
     pub fn clear_pending_camera_command(&mut self) {
@@ -3776,7 +3810,10 @@ impl GraphBrowserApp {
         self.workspace.pending_prune_empty_workspaces = false;
         self.workspace.pending_keep_latest_named_workspaces = None;
         self.workspace.pending_keyboard_zoom_request = None;
-        self.workspace.pending_camera_command = Some(CameraCommand::Fit);
+        self.workspace.pending_camera_command = Some(PendingCameraCommand {
+            command: CameraCommand::Fit,
+            target_view: None,
+        });
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.node_workspace_membership.clear();
         self.workspace.views.clear();
@@ -3838,7 +3875,10 @@ impl GraphBrowserApp {
         self.workspace.pending_prune_empty_workspaces = false;
         self.workspace.pending_keep_latest_named_workspaces = None;
         self.workspace.pending_keyboard_zoom_request = None;
-        self.workspace.pending_camera_command = Some(CameraCommand::Fit);
+        self.workspace.pending_camera_command = Some(PendingCameraCommand {
+            command: CameraCommand::Fit,
+            target_view: None,
+        });
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();

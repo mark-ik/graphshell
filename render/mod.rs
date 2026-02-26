@@ -318,7 +318,8 @@ pub fn render_graph_in_ui_collect_actions(
             .hovered_node()
             .and_then(|idx| state.get_key(idx))
     });
-    let lasso = collect_lasso_action(ui, app, !radial_open);
+    let metadata_id = response.id.with("metadata");
+    let lasso = collect_lasso_action(ui, app, !radial_open, metadata_id);
 
     if ui.input(|i| i.pointer.secondary_clicked())
         && !lasso.suppress_context_menu
@@ -365,8 +366,10 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Custom navigation handling (Zoom/Pan/Fit)
     // We use the widget ID from the response to target the correct MetadataFrame.
-    let metadata_id = response.id.with("metadata");
-    let custom_zoom = handle_custom_navigation(ui, &response, metadata_id, app, !radial_open, view_id);
+    // Do not let a sticky radial-menu flag disable graph camera controls.
+    // The radial menu renderer runs later in the frame and should own its own clicks,
+    // but pan/zoom/fit must remain available for stabilization.
+    let custom_zoom = handle_custom_navigation(ui, &response, metadata_id, app, true, view_id);
 
     if let Some(meta) = ui
         .ctx()
@@ -1033,6 +1036,11 @@ fn apply_pending_camera_command(
     let Some(command) = app.pending_camera_command() else {
         return None;
     };
+    if let Some(target_view) = app.pending_camera_command_target()
+        && target_view != view_id
+    {
+        return None;
+    }
 
     let zoom_min = app
         .workspace
@@ -1081,7 +1089,7 @@ fn apply_pending_camera_command(
 
             let Some((min_x, max_x, min_y, max_y)) = bounds else {
                 if matches!(command, CameraCommand::FitSelection) {
-                    app.request_camera_command(CameraCommand::Fit);
+                    app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
                 } else {
                     app.clear_pending_camera_command();
                 }
@@ -1269,7 +1277,12 @@ struct LassoGestureResult {
     suppress_context_menu: bool,
 }
 
-fn collect_lasso_action(ui: &Ui, app: &GraphBrowserApp, enabled: bool) -> LassoGestureResult {
+fn collect_lasso_action(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    enabled: bool,
+    metadata_id: egui::Id,
+) -> LassoGestureResult {
     let start_id = egui::Id::new("graph_lasso_start_screen");
     let moved_id = egui::Id::new("graph_lasso_moved");
     let threshold_px = 6.0_f32;
@@ -1377,32 +1390,9 @@ fn collect_lasso_action(ui: &Ui, app: &GraphBrowserApp, enabled: bool) -> LassoG
     } else {
         SelectionUpdateMode::Replace
     };
-    // Note: Lasso uses a different metadata ID logic if we change the graph view ID.
-    // However, lasso uses screen coordinates and converts them.
-    // We need the metadata to convert screen to canvas.
-    // Since we don't have the response ID here easily, we might need to pass it or use the last known one.
-    // For now, let's assume lasso works if we use the same ID logic, but lasso is called *after* graph view.
-    // We can pass the ID to collect_lasso_action if needed, but let's stick to the current flow.
-    // Actually, lasso needs metadata to map screen rect to canvas rect.
-    // We should probably pass the metadata ID to collect_lasso_action too, but let's see if it breaks.
-    // The current implementation uses "egui_graphs_metadata_" which is the default if no ID is provided?
-    // No, egui_graphs uses `id.with("metadata")`.
-    // If we change the ID of the graph view, we MUST update where lasso looks for metadata.
-    // Since we can't easily pass the ID here without refactoring `collect_lasso_action` signature significantly
-    // (it's called before we have the response in the current flow), we might have a problem.
-    // BUT, `render_graph_in_ui_collect_actions` calls `collect_lasso_action`.
-    // We can move `collect_lasso_action` call to *after* we get the response.
-    
-    // Let's defer fixing lasso metadata ID until we see if it breaks.
-    // Actually, `collect_lasso_action` uses `egui::Id::new("egui_graphs_metadata_")` which is WRONG if we change the ID.
-    // We should fix this.
-    
-    let meta_id = egui::Id::new("egui_graphs_metadata_"); // This is likely wrong now.
-    // We will fix this by passing the ID in the next step if needed.
-    
     let meta = ui
         .ctx()
-        .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
         .unwrap_or_default();
     let Some(state) = app.workspace.egui_state.as_ref() else {
         return LassoGestureResult {

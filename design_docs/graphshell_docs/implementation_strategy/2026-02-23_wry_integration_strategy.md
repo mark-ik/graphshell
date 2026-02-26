@@ -1,13 +1,14 @@
 # Wry Integration Strategy: Native Webviews & The Verso Mod
 
 **Date**: 2026-02-23
-**Status**: Implementation-Ready (updated 2026-02-24)
+**Status**: Implementation-Ready (updated 2026-02-26)
 **Relates to**:
 
 - `2026-02-22_registry_layer_plan.md` — `ViewerRegistry` (Phase 2, complete) is the contract surface for both backends; `WorkbenchSurfaceRegistry` (Phase 3, complete) owns tile layout policy that drives overlay positioning
 - `2026-02-22_multi_graph_pane_plan.md` — pane-hosted multi-view model; Wry applies to Node Viewer panes, not graph panes
 - `2026-02-19_ios_port_plan.md` — `wry` is already in scope for the iOS port; coordinate feature-flag usage
 - `2026-02-20_cross_platform_sync_and_extension_plan.md` — cross-platform deployment context
+- `2026-02-26_composited_viewer_pass_contract.md` — canonical surface-composition contract and Appendix A foundation sequencing (`A.2`, `A.7`, `A.8`, `A.9` dependencies)
 
 ---
 
@@ -143,6 +144,17 @@ No new mechanism is needed. The existing thumbnail pipeline in `Node.thumbnail_d
 ---
 
 ## Implementation Plan
+
+### Foundation-first sequencing note (2026-02-26)
+
+To avoid over-scoping Wry integration before compositor foundations are stable, execute in this order:
+
+1. Land render-mode and compositor pass correctness (`TileRenderMode` + pass-order diagnostics).
+2. Land differential composition / GPU degradation rails for composited mode (`A.8`/`A.7` prerequisites).
+3. Land Wry baseline (Steps 1–5 below).
+4. Land backend hot-swap (`A.2`) and local telemetry schema (`A.9` groundwork).
+
+`A.9` Verse publication remains deferred until local telemetry quality and privacy boundaries are validated.
 
 ### Step 1: Feature Gate and Cargo.toml
 

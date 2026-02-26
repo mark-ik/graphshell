@@ -191,7 +191,7 @@ Current `render_path_hint` diagnostics are a useful transitional step, but the l
 
 ## A.0 — Debt Inventory Summary
 
-### A.0.1 Naming / Identity Debt (47 references)
+### A.0.1 Naming / Identity Debt (47 references) (approved)
 
 Forty-seven `servoshell` / `ServoShell` references remain across the codebase:
 
@@ -208,7 +208,7 @@ Forty-seven `servoshell` / `ServoShell` references remain across the codebase:
 
 **Risk**: The `tracing.rs` references are the only *functional* debt — everything else is cosmetic. The tracing rename needs a migration path (accept both `servoshell::` and `graphshell::` filter prefix temporarily).
 
-### A.0.2 Single-Webview Assumption Debt (30+ references)
+### A.0.2 Single-Webview Assumption Debt (30+ references) (approved)
 
 The `focused_webview_hint` / `focused_webview_id` pattern in `tile_render_pass.rs` (20+ occurrences) and `tile_compositor.rs` (6+ occurrences) assumes a single active webview per workbench. This is a servoshell-era assumption where there was exactly one browser window with one focused tab.
 
@@ -219,13 +219,13 @@ The `focused_webview_hint` / `focused_webview_id` pattern in `tile_render_pass.r
 
 **Migration path**: Replace `focused_webview_hint: Option<WebViewId>` with a `CompositorFocusSet` or per-tile focus state, then update all `tile_render_pass.rs` consumers. This is a prerequisite for multi-webview composition and should be tracked as a `lane:embedder-debt` item.
 
-### A.0.3 Compositor Callback Contract Debt (22 references)
+### A.0.3 Compositor Callback Contract Debt (22 references) (approved)
 
 The `render_to_parent` → `PaintCallback` → `CallbackFn` pipeline in `tile_compositor.rs` (10 references) uses raw GL callback closures without the full pass contract defined by this document. The `CompositorAdapter` in `compositor_adapter.rs` (merged via PR #165) adds GL state isolation, but the overlay affordance pass is not yet explicitly sequenced — it still depends on egui layer ordering rather than the contract-mandated compositor pass ordering.
 
 **Current state**: CompositorAdapter provides the state isolation guardrail (capture → callback → restore), but the three-pass architecture (UI Layout → Content → Overlay Affordance) is not yet structurally enforced. The overlay pass is "accidentally correct" due to egui `Order::Foreground`, which is exactly the fragile assumption this document was written to replace.
 
-### A.0.4 God-Object / Module Size Debt (11 files > 600 lines)
+### A.0.4 God-Object / Module Size Debt (11 files > 600 lines) (approved)
 
 | File | Lines | Issue |
 | --- | --- | --- |
@@ -243,7 +243,7 @@ The `render_to_parent` → `PaintCallback` → `CallbackFn` pipeline in `tile_co
 
 The embedder decomposition plan (Stage 4b) targets `gui.rs` and `gui_frame.rs` specifically. The 600-line guideline from that plan is aspirational — current trajectory suggests ~800–1000 is more realistic for coordinator modules.
 
-### A.0.5 Frame Loop Debt (paint/present/make_current patterns)
+### A.0.5 Frame Loop Debt (paint/present/make_current patterns) (approved)
 
 The `make_current` → `prepare_for_rendering` → `paint` → `present` sequence appears in:
 - `tile_compositor.rs` (compositor callback path)
@@ -255,7 +255,7 @@ This sequence is Servo-specific. When Wry is added, the frame loop must accommod
 
 ---
 
-## A.1 — Composited Content Replay / Time-Travel Debugging
+## A.1 — Composited Content Replay / Time-Travel Debugging (approved)
 
 **Problem it resolves**: Compositor state corruption bugs are notoriously hard to reproduce. The current GL state snapshot (5 fields: viewport, scissor, blend, active_texture, framebuffer_binding) captures enough to detect violations but not to *replay* them.
 
@@ -269,7 +269,7 @@ This sequence is Servo-specific. When Wry is added, the frame loop must accommod
 
 ---
 
-## A.2 — Multi-Backend Hot-Swap Per-Tile
+## A.2 — Multi-Backend Hot-Swap Per-Tile (approved)
 
 **Problem it resolves**: When a page doesn't render correctly in Servo, the user must close the tab, change the default backend, and re-open. The `ViewerRegistry` already supports multiple viewer IDs per protocol, and `TileRenderMode` is resolved at viewer attachment time.
 
@@ -290,7 +290,7 @@ Expose this via the Command Palette and a tile-chrome context action ("Try in Se
 
 ---
 
-## A.3 — Compositor Pass Chaos Engineering
+## A.3 — Compositor Pass Chaos Engineering (approved)
 
 **Problem it resolves**: The GL state isolation contract is currently verified by unit tests with mock GL state. Production backend callbacks may corrupt state in ways that mocks don't simulate (driver-specific, platform-specific, version-specific).
 
@@ -308,7 +308,7 @@ Expose this via the Command Palette and a tile-chrome context action ("Try in Se
 
 ---
 
-## A.4 — Shared Compositor Protocol to Verso
+## A.4 — Shared Compositor Protocol to Verso (approved)
 
 **Problem it resolves**: Graphshell's compositor pass contract, state isolation adapter, and overlay affordance hooks are currently Graphshell-internal. Verso (as the native mod packaging Servo) doesn't benefit from this work. Other Servo embedders (if they emerge) would reinvent the same patterns.
 
@@ -335,11 +335,11 @@ pub trait CompositorPassContract {
 
 ---
 
-## A.5 — Content-Aware Overlay Affordances
+## A.5 — Content-Aware Overlay Affordances (approved)
 
 **Problem it resolves**: Focus/hover rings use hard-coded colors that may be invisible or jarring against web content with matching colors (e.g., blue focus ring on a blue-dominant page, light ring on a white page).
 
-**Proposal**: After the composited content pass writes web pixels to the host texture, sample a strip of pixels along the tile border (e.g., 4px inside each edge). Compute dominant luminance. Choose affordance color and opacity from a lookup table:
+**Proposal**: Along with allowing user-configured color, intensity, and opacity values, after the composited content pass writes web pixels to the host texture, sample a strip of pixels along the tile border (e.g., 4px inside each edge). Compute dominant luminance. Choose affordance color and opacity from a lookup table:
 - Dark content → light affordance stroke (white/yellow, higher opacity).
 - Light content → dark affordance stroke (blue/gray, standard opacity).
 - Mixed → adaptive: per-edge luminance sampling, variable opacity.
@@ -354,7 +354,7 @@ Cache the luminance result per tile per N frames (content doesn't change every f
 
 ---
 
-## A.6 — Cross-Tile Compositor Transitions
+## A.6 — Cross-Tile Compositor Transitions (approved)
 
 **Problem it resolves**: When tiles are split, merged, or rearranged, the transition is currently instantaneous — a jarring jump. Conventional browsers handle this with tab-strip animations but not with live content during the transition.
 
@@ -371,7 +371,7 @@ Cache the luminance result per tile per N frames (content doesn't change every f
 
 ---
 
-## A.7 — Per-Tile GPU Memory Budget with Graceful Degradation
+## A.7 — Per-Tile GPU Memory Budget with Graceful Degradation (approved)
 
 **Problem it resolves**: Opening many composited webview tiles can exhaust GPU memory, causing driver-level failures or undefined behavior. Current mitigation is the lifecycle model (Active/Warm/Cold), but GPU memory is not directly tracked.
 
@@ -390,7 +390,7 @@ Cache the luminance result per tile per N frames (content doesn't change every f
 
 ---
 
-## A.8 — Differential Frame Composition
+## A.8 — Differential Frame Composition (approved)
 
 **Problem it resolves**: Every frame currently re-composites all visible tiles, even if their content hasn't changed. For document-heavy workflows (reading, reference browsing), most tiles are static most of the time.
 
@@ -408,7 +408,7 @@ Cache the luminance result per tile per N frames (content doesn't change every f
 
 ---
 
-## A.9 — Viewer Backend Telemetry Races
+## A.9 — Viewer Backend Telemetry Races (approved)
 
 **Problem it resolves**: When both Servo and Wry are available, there's no systematic way to determine which backend is *better* for a given site. Users report anecdotal preferences; engineers guess.
 
@@ -426,9 +426,9 @@ Cache the luminance result per tile per N frames (content doesn't change every f
 
 ---
 
-## A.10 — Mod-Hosted Overlay Passes (Compositor Extension Points)
+## A.10 — Mod-Hosted Overlay Passes (Compositor Extension Points) (approved)
 
-**Problem it resolves**: The three-pass model (UI Chrome → Content → Overlay Affordance) is Graphshell-internal. Third-party or first-party mods have no way to inject rendering between content and chrome — they can only add egui widgets, which are subject to the same ordering fragility this document was written to solve.
+**Problem it resolves**: The three-pass model (UI Chrome → Content → Overlay Affordance) is Graphshell-internal. Third-party or first-party mods have no way to inject rendering between content and chrome — they can only add egui widgets, which are subject to the same ordering fragility this document was written to solve. Depending on performance, it could be a good model to extend.
 
 **Proposal**: Extend the compositor pass contract to accept registered overlay passes from mods:
 

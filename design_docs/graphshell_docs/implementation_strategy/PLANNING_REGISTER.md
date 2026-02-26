@@ -295,6 +295,58 @@ The following entry in the Stabilization Bug Register (§1A) should be updated t
 
 **Updated done gate**: Servo focus affordance visible during tile rearrange (Pass 3 over Pass 2 for `CompositedTexture` mode); Wry path has explicit chrome-region affordance and documented limitation; `CompositorAdapter` GL state isolation test passes; diagnostics prove pass ordering in compositor frame samples.
 
+### 0.10 Foundation-First Activation (Appendix A Operationalization)
+
+Project phase statement (2026-02-26): **fix the foundation to enable aspirational capabilities**.
+
+Appendix A in `2026-02-26_composited_viewer_pass_contract.md` introduces 10 strategic opportunities (`A.1`..`A.10`). To avoid speculative drift, execution is constrained to a foundation-first sequence where architecture slices are landed before capability expansion.
+
+#### 0.10.1 Foundation slice order (must-run)
+
+1. **Pass-order + render-mode correctness (A.0/A.3 baseline)**
+  - Land `TileRenderMode` runtime authority + compositor pass ordering proofs.
+  - Blockers cleared: hidden focus ring symptom, inferred render-path ambiguity.
+2. **Compositor invariants and forensic tooling (A.1 + A.3)**
+  - Extend adapter diagnostics from "detect leak" to "replay + chaos-verify" mode.
+  - Blockers cleared: low reproducibility of GL regressions.
+3. **Performance and resource safety rails (A.8 + A.7)**
+  - Differential composition before GPU budget/degradation.
+  - Blockers cleared: unnecessary full-frame recomposition and opaque GPU pressure failure.
+4. **Backend control-plane maturity (A.2 + A.9 groundwork)**
+  - Hot-swap intent scaffolding + telemetry schema (local-only first).
+  - Blockers cleared: backend choice is static and anecdotal.
+
+#### 0.10.2 Foundation now vs later (scope discipline)
+
+**Now (architecture-enabling):**
+- A.1 Replay capture scaffolding (diagnostics-backed)
+- A.3 Chaos mode harness (feature-gated)
+- A.8 Differential composition hooks
+- A.7 GPU budget accounting + explicit degradation diagnostics
+- A.2 Hot-swap intent/model contract (without full state parity guarantees)
+
+**Later (capability expansion after foundation):**
+- A.6 cross-tile cinematic transitions
+- A.5 content-aware adaptive overlay styling
+- A.10 mod-hosted compositor extension passes
+- A.9 Verse-published telemetry races (keep local telemetry first)
+- A.4 upstream/shared protocol packaging to Verso once Graphshell contract stabilizes
+
+#### 0.10.3 Issue seeding from foundation slices
+
+Foundation child issues opened (2026-02-26):
+
+1. `#166` — `Compositor replay traces for callback-state forensics` (`lane:stabilization` / parent `#88`)
+2. `#171` — `Compositor chaos mode for GL isolation invariants` (`lane:embedder-debt` / parent `#90`)
+3. `#167` — `Differential composition for unchanged composited tiles` (`lane:stabilization` / parent `#88`)
+4. `#168` — `Per-tile GPU budget and degradation diagnostics` (`lane:viewer-platform` / parent `#92`)
+5. `#169` — `Viewer backend hot-swap intent and state contract` (`lane:viewer-platform` / parent `#92`)
+6. `#170` — `Backend telemetry schema (local-first, Verse-ready)` (`lane:runtime-followon` / parent `#91`)
+
+Duplicate cleanup note: `#172` was created in parallel and closed as a duplicate of `#170`.
+
+Each issue should explicitly reference Appendix subsection IDs (`A.1`, `A.3`, etc.) and include a **Foundation Done Gate**: "removes one concrete blocker for future capabilities without introducing new cross-lane hotspot conflicts."
+
 ---
 
 ## 1. Immediate Priorities Register (10/10/10)
