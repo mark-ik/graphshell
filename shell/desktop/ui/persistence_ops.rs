@@ -26,13 +26,6 @@ pub(crate) type PaneId = u64;
 pub(crate) enum PersistedPaneTile {
     Graph,
     Pane(PaneId),
-    /// Legacy schema special-case: diagnostics pane persisted directly without
-    /// a manifest entry. Architectural target is to normalize this to
-    /// `Pane(pane_id)` + `PaneContent::Tool { kind: ToolPaneState::Diagnostics }`
-    /// so all tool panes use the same layout path. Tracked in the storage
-    /// schema cleanup work (issue #79).
-    #[cfg(feature = "diagnostics")]
-    Diagnostic,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -294,10 +287,6 @@ pub(crate) fn restore_runtime_tree_from_workspace_bundle(
             serde_json::from_value(pane_value.clone()).map_err(|e| e.to_string())?;
         let runtime_pane = match persisted_pane {
             PersistedPaneTile::Graph => Some(TileKind::Graph(GraphViewId::default())),
-            #[cfg(feature = "diagnostics")]
-            PersistedPaneTile::Diagnostic => Some(TileKind::Tool(
-                crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
-            )),
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
                 Some(PaneContent::Graph) => Some(TileKind::Graph(GraphViewId::default())),
                 Some(PaneContent::NodePane { node_uuid }) => {

@@ -17,6 +17,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_PROTOCOL_RESOLVE_FAILED, CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
     CHANNEL_THEME_FALLBACK_USED, CHANNEL_THEME_LOOKUP_FAILED, CHANNEL_THEME_LOOKUP_SUCCEEDED,
+    CHANNEL_SURFACE_CONFORMANCE_NONE, CHANNEL_SURFACE_CONFORMANCE_PARTIAL,
+    CHANNEL_VIEWER_CAPABILITY_NONE, CHANNEL_VIEWER_CAPABILITY_PARTIAL,
     CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
     CHANNEL_STARTUP_CONFIG_SNAPSHOT, CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
@@ -226,7 +228,7 @@ struct PendingInvariantToken {
     deadline_unix_ms: u64,
 }
 
-const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 7] = [
+const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 9] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED,
         schema_version: 1,
@@ -261,6 +263,16 @@ const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 7] = [
         channel_id: CHANNEL_VIEWER_FALLBACK_USED,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VIEWER_CAPABILITY_PARTIAL,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_VIEWER_CAPABILITY_NONE,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
     },
 ];
 
@@ -357,7 +369,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 24] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 26] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -477,6 +489,16 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 24] = [
         channel_id: CHANNEL_VERSE_PREINIT_CALL,
         schema_version: 1,
         severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_SURFACE_CONFORMANCE_PARTIAL,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_SURFACE_CONFORMANCE_NONE,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
     },
 ];
 

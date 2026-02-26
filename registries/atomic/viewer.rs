@@ -1,5 +1,46 @@
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ViewerConformanceLevel {
+    Full,
+    Partial,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ViewerCapabilityDeclaration {
+    pub(crate) level: ViewerConformanceLevel,
+    pub(crate) reason: Option<String>,
+}
+
+impl ViewerCapabilityDeclaration {
+    pub(crate) fn full() -> Self {
+        Self {
+            level: ViewerConformanceLevel::Full,
+            reason: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ViewerSubsystemCapabilities {
+    pub(crate) accessibility: ViewerCapabilityDeclaration,
+    pub(crate) security: ViewerCapabilityDeclaration,
+    pub(crate) storage: ViewerCapabilityDeclaration,
+    pub(crate) history: ViewerCapabilityDeclaration,
+}
+
+impl ViewerSubsystemCapabilities {
+    pub(crate) fn full() -> Self {
+        Self {
+            accessibility: ViewerCapabilityDeclaration::full(),
+            security: ViewerCapabilityDeclaration::full(),
+            storage: ViewerCapabilityDeclaration::full(),
+            history: ViewerCapabilityDeclaration::full(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ViewerDescriptor {
     pub(crate) uri: String,
@@ -16,12 +57,14 @@ pub(crate) struct ViewerSelection {
     pub(crate) viewer_id: &'static str,
     pub(crate) fallback_used: bool,
     pub(crate) matched_by: &'static str,
+    pub(crate) capabilities: ViewerSubsystemCapabilities,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ViewerRegistry {
     mime_handlers: HashMap<String, &'static str>,
     extension_handlers: HashMap<String, &'static str>,
+    capabilities: HashMap<&'static str, ViewerSubsystemCapabilities>,
     fallback_viewer_id: &'static str,
 }
 
@@ -30,7 +73,37 @@ impl ViewerRegistry {
         Self {
             mime_handlers: HashMap::new(),
             extension_handlers: HashMap::new(),
+            capabilities: HashMap::new(),
             fallback_viewer_id,
+        }
+    }
+
+    pub(crate) fn register_capabilities(
+        &mut self,
+        viewer_id: &'static str,
+        capabilities: ViewerSubsystemCapabilities,
+    ) {
+        self.capabilities.insert(viewer_id, capabilities);
+    }
+
+    pub(crate) fn capabilities_for(&self, viewer_id: &'static str) -> ViewerSubsystemCapabilities {
+        self.capabilities
+            .get(viewer_id)
+            .cloned()
+            .unwrap_or_else(ViewerSubsystemCapabilities::full)
+    }
+
+    fn selection(
+        &self,
+        viewer_id: &'static str,
+        fallback_used: bool,
+        matched_by: &'static str,
+    ) -> ViewerSelection {
+        ViewerSelection {
+            viewer_id,
+            fallback_used,
+            matched_by,
+            capabilities: self.capabilities_for(viewer_id),
         }
     }
 
@@ -50,38 +123,22 @@ impl ViewerRegistry {
                 .to_ascii_lowercase()
                 .starts_with("graphshell://settings/")
         {
-            return ViewerSelection {
-                viewer_id: "viewer:settings",
-                fallback_used: false,
-                matched_by: "internal",
-            };
+            return self.selection("viewer:settings", false, "internal");
         }
 
         if let Some(mime) = mime_hint.map(|m| m.to_ascii_lowercase())
             && let Some(viewer_id) = self.mime_handlers.get(&mime)
         {
-            return ViewerSelection {
-                viewer_id,
-                fallback_used: false,
-                matched_by: "mime",
-            };
+            return self.selection(viewer_id, false, "mime");
         }
 
         if let Some(ext) = extract_extension(uri)
             && let Some(viewer_id) = self.extension_handlers.get(ext)
         {
-            return ViewerSelection {
-                viewer_id,
-                fallback_used: false,
-                matched_by: "extension",
-            };
+            return self.selection(viewer_id, false, "extension");
         }
 
-        ViewerSelection {
-            viewer_id: self.fallback_viewer_id,
-            fallback_used: true,
-            matched_by: "fallback",
-        }
+        self.selection(self.fallback_viewer_id, true, "fallback")
     }
 
     /// Select a viewer based on MIME hint and address kind.
@@ -121,6 +178,8 @@ impl ViewerRegistry {
         registry.register_mime("text/plain", "viewer:plaintext");
         registry.register_mime("application/octet-stream", "viewer:metadata");
         registry.register_extension("txt", "viewer:plaintext");
+        registry.register_capabilities("viewer:plaintext", ViewerSubsystemCapabilities::full());
+        registry.register_capabilities("viewer:metadata", ViewerSubsystemCapabilities::full());
         registry
     }
 }
@@ -152,6 +211,27 @@ impl Default for ViewerRegistry {
         registry.register_extension("py", "viewer:plaintext");
         registry.register_extension("js", "viewer:plaintext");
         registry.register_extension("ts", "viewer:plaintext");
+        registry.register_capabilities(
+            "viewer:webview",
+            ViewerSubsystemCapabilities {
+                accessibility: ViewerCapabilityDeclaration {
+                    level: ViewerConformanceLevel::Partial,
+                    reason: Some(
+                        "WebView accessibility tree injection deferred due accesskit version mismatch"
+                            .to_string(),
+                    ),
+                },
+                security: ViewerCapabilityDeclaration::full(),
+                storage: ViewerCapabilityDeclaration::full(),
+                history: ViewerCapabilityDeclaration::full(),
+            },
+        );
+        registry.register_capabilities("viewer:settings", ViewerSubsystemCapabilities::full());
+        registry.register_capabilities("viewer:metadata", ViewerSubsystemCapabilities::full());
+        registry.register_capabilities("viewer:plaintext", ViewerSubsystemCapabilities::full());
+        registry.register_capabilities("viewer:markdown", ViewerSubsystemCapabilities::full());
+        registry.register_capabilities("viewer:pdf", ViewerSubsystemCapabilities::full());
+        registry.register_capabilities("viewer:csv", ViewerSubsystemCapabilities::full());
         registry
     }
 }
@@ -209,6 +289,10 @@ mod tests {
         assert_eq!(selection.viewer_id, "viewer:settings");
         assert!(!selection.fallback_used);
         assert_eq!(selection.matched_by, "internal");
+        assert_eq!(
+            selection.capabilities.accessibility.level,
+            ViewerConformanceLevel::Full
+        );
     }
 
     #[test]
@@ -222,6 +306,40 @@ mod tests {
         let fallback = registry.select_for_uri("file:///archive/blob.bin", None);
         assert_eq!(fallback.viewer_id, "viewer:metadata");
         assert!(fallback.fallback_used);
+
+        assert_eq!(
+            fallback.capabilities.history.level,
+            ViewerConformanceLevel::Full
+        );
+    }
+
+    #[test]
+    fn viewer_registry_reports_registered_capabilities_in_selection() {
+        let mut registry = ViewerRegistry::new("viewer:fallback");
+        registry.register_mime("text/plain", "viewer:plaintext");
+        registry.register_capabilities(
+            "viewer:plaintext",
+            ViewerSubsystemCapabilities {
+                accessibility: ViewerCapabilityDeclaration {
+                    level: ViewerConformanceLevel::Partial,
+                    reason: Some("access bridge disabled in test".to_string()),
+                },
+                security: ViewerCapabilityDeclaration::full(),
+                storage: ViewerCapabilityDeclaration::full(),
+                history: ViewerCapabilityDeclaration::full(),
+            },
+        );
+
+        let selection = registry.select_for_uri("file:///notes/readme.txt", Some("text/plain"));
+        assert_eq!(selection.viewer_id, "viewer:plaintext");
+        assert_eq!(
+            selection.capabilities.accessibility.level,
+            ViewerConformanceLevel::Partial
+        );
+        assert_eq!(
+            selection.capabilities.accessibility.reason.as_deref(),
+            Some("access bridge disabled in test")
+        );
     }
 
     // --- select_for tests ---

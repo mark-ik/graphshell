@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::{AccessibilityCapabilities, SecurityCapabilities};
+use super::{
+    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
+};
 
 pub(crate) const CANVAS_PROFILE_DEFAULT: &str = "canvas:default";
 
@@ -67,6 +69,10 @@ pub(crate) struct CanvasSurfaceProfile {
     pub(crate) accessibility: AccessibilityCapabilities,
     /// Security conformance declaration for this canvas surface profile.
     pub(crate) security: SecurityCapabilities,
+    /// Storage conformance declaration for this canvas surface profile.
+    pub(crate) storage: StorageCapabilities,
+    /// History conformance declaration for this canvas surface profile.
+    pub(crate) history: HistoryCapabilities,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +170,8 @@ impl Default for CanvasRegistry {
                 },
                 accessibility: AccessibilityCapabilities::full(),
                 security: SecurityCapabilities::full(),
+                storage: StorageCapabilities::full(),
+                history: HistoryCapabilities::full(),
             },
         );
         registry
@@ -243,6 +251,8 @@ mod tests {
                 },
                 accessibility: AccessibilityCapabilities::full(),
                 security: SecurityCapabilities::full(),
+                storage: StorageCapabilities::full(),
+                history: HistoryCapabilities::full(),
             },
         );
         let resolution = registry.resolve("canvas:perf");

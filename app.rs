@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime};
+use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
@@ -1113,11 +1114,15 @@ pub enum GraphIntent {
 #[derive(Default)]
 pub struct AppServices {
     persistence: Option<GraphStore>,
+    sync_command_tx: Option<tokio_mpsc::Sender<crate::mods::native::verse::SyncCommand>>,
 }
 
 impl AppServices {
     fn new(persistence: Option<GraphStore>) -> Self {
-        Self { persistence }
+        Self {
+            persistence,
+            sync_command_tx: None,
+        }
     }
 }
 
@@ -2527,9 +2532,7 @@ impl GraphBrowserApp {
                 log::debug!("peer log entries received: {} bytes", entries.len());
             }
             GraphIntent::SyncNow => {
-                match crate::shell::desktop::runtime::control_panel::request_sync_all_trusted_peers(
-                    Self::SESSION_WORKSPACE_LAYOUT_NAME,
-                ) {
+                match self.request_sync_all_trusted_peers(Self::SESSION_WORKSPACE_LAYOUT_NAME) {
                     Ok(enqueued) => {
                         log::info!("manual Verse sync queued for {} peer(s)", enqueued);
                     }
@@ -2797,6 +2800,41 @@ impl GraphBrowserApp {
         {
             warn!("Failed to save tile layout: {e}");
         }
+    }
+
+    pub fn set_sync_command_tx(
+        &mut self,
+        tx: Option<tokio_mpsc::Sender<crate::mods::native::verse::SyncCommand>>,
+    ) {
+        self.services.sync_command_tx = tx;
+    }
+
+    pub fn request_sync_all_trusted_peers(&self, workspace_id: &str) -> Result<usize, String> {
+        let Some(tx) = self.services.sync_command_tx.clone() else {
+            return Err("sync worker command channel unavailable".to_string());
+        };
+        let peers = crate::mods::native::verse::get_trusted_peers();
+        let mut enqueued = 0usize;
+        for peer in peers {
+            if tx
+                .try_send(crate::mods::native::verse::SyncCommand::SyncWorkspace {
+                    peer: peer.node_id,
+                    workspace_id: workspace_id.to_string(),
+                })
+                .is_ok()
+            {
+                enqueued += 1;
+            }
+        }
+        Ok(enqueued)
+    }
+
+    pub fn request_discover_nearby_peers(&self, timeout_secs: u64) -> Result<(), String> {
+        let Some(tx) = self.services.sync_command_tx.clone() else {
+            return Err("sync worker command channel unavailable".to_string());
+        };
+        tx.try_send(crate::mods::native::verse::SyncCommand::DiscoverNearby { timeout_secs })
+            .map_err(|e| format!("failed to enqueue discovery command: {e}"))
     }
 
     /// Load serialized tile layout JSON from persistence.

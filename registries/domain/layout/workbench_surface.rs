@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::{AccessibilityCapabilities, SecurityCapabilities};
+use super::{
+    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
+};
 
 pub(crate) const WORKBENCH_SURFACE_DEFAULT: &str = "workbench_surface:default";
 
@@ -31,6 +33,10 @@ pub(crate) struct WorkbenchSurfaceProfile {
     pub(crate) accessibility: AccessibilityCapabilities,
     /// Security conformance declaration for this workbench surface profile.
     pub(crate) security: SecurityCapabilities,
+    /// Storage conformance declaration for this workbench surface profile.
+    pub(crate) storage: StorageCapabilities,
+    /// History conformance declaration for this workbench surface profile.
+    pub(crate) history: HistoryCapabilities,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +123,8 @@ impl Default for WorkbenchSurfaceRegistry {
                 grid_label: "Grid".to_string(),
                 accessibility: AccessibilityCapabilities::full(),
                 security: SecurityCapabilities::full(),
+                storage: StorageCapabilities::full(),
+                history: HistoryCapabilities::full(),
             },
         );
         registry

@@ -29,7 +29,10 @@ use protocol::{
 };
 use knowledge::KnowledgeRegistry;
 use crate::registries::atomic::theme::ThemeRegistry;
-use crate::registries::atomic::viewer::{ViewerRegistry, ViewerSelection};
+use crate::registries::atomic::viewer::{
+    ViewerConformanceLevel, ViewerRegistry, ViewerSelection,
+};
+use crate::registries::domain::layout::ConformanceLevel;
 use crate::registries::domain::presentation::PresentationDomainRegistry;
 use crate::registries::domain::layout::viewer_surface::{
     VIEWER_SURFACE_DEFAULT, ViewerSurfaceResolution,
@@ -44,6 +47,11 @@ pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED: &str =
 pub(crate) const CHANNEL_VIEWER_SELECT_STARTED: &str = "registry.viewer.select_started";
 pub(crate) const CHANNEL_VIEWER_SELECT_SUCCEEDED: &str = "registry.viewer.select_succeeded";
 pub(crate) const CHANNEL_VIEWER_FALLBACK_USED: &str = "registry.viewer.fallback_used";
+pub(crate) const CHANNEL_VIEWER_CAPABILITY_PARTIAL: &str = "registry.viewer.capability_partial";
+pub(crate) const CHANNEL_VIEWER_CAPABILITY_NONE: &str = "registry.viewer.capability_none";
+pub(crate) const CHANNEL_SURFACE_CONFORMANCE_PARTIAL: &str =
+    "registry.surface.conformance_partial";
+pub(crate) const CHANNEL_SURFACE_CONFORMANCE_NONE: &str = "registry.surface.conformance_none";
 pub(crate) const CHANNEL_ACTION_EXECUTE_STARTED: &str = "registry.action.execute_started";
 pub(crate) const CHANNEL_ACTION_EXECUTE_SUCCEEDED: &str = "registry.action.execute_succeeded";
 pub(crate) const CHANNEL_ACTION_EXECUTE_FAILED: &str = "registry.action.execute_failed";
@@ -263,6 +271,7 @@ impl RegistryRuntime {
             channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
             latency_us: 1,
         });
+        emit_viewer_capability_diagnostics(&viewer);
         if viewer.fallback_used {
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_VIEWER_FALLBACK_USED,
@@ -476,6 +485,56 @@ fn emit_lookup_diagnostics(
             channel_id: fallback_channel,
             byte_len: resolved_id.len(),
         });
+    }
+}
+
+fn emit_viewer_capability_diagnostics(viewer: &ViewerSelection) {
+    for declaration in [
+        &viewer.capabilities.accessibility,
+        &viewer.capabilities.security,
+        &viewer.capabilities.storage,
+        &viewer.capabilities.history,
+    ] {
+        match declaration.level {
+            ViewerConformanceLevel::Full => {}
+            ViewerConformanceLevel::Partial => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_VIEWER_CAPABILITY_PARTIAL,
+                    byte_len: declaration.reason.as_deref().unwrap_or_default().len(),
+                });
+            }
+            ViewerConformanceLevel::None => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_VIEWER_CAPABILITY_NONE,
+                    byte_len: declaration.reason.as_deref().unwrap_or_default().len(),
+                });
+            }
+        }
+    }
+}
+
+fn emit_surface_conformance_diagnostics(
+    accessibility: ConformanceLevel,
+    security: ConformanceLevel,
+    storage: ConformanceLevel,
+    history: ConformanceLevel,
+) {
+    for level in [accessibility, security, storage, history] {
+        match level {
+            ConformanceLevel::Full => {}
+            ConformanceLevel::Partial => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_SURFACE_CONFORMANCE_PARTIAL,
+                    byte_len: 1,
+                });
+            }
+            ConformanceLevel::None => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_SURFACE_CONFORMANCE_NONE,
+                    byte_len: 1,
+                });
+            }
+        }
     }
 }
 
@@ -1022,7 +1081,14 @@ pub(crate) fn phase3_resolve_viewer_surface_profile(
     _viewer_id: &str,
 ) -> ViewerSurfaceResolution {
     let layout_domain = LayoutDomainRegistry::default();
-    layout_domain.viewer_surface().resolve(VIEWER_SURFACE_DEFAULT)
+    let resolution = layout_domain.viewer_surface().resolve(VIEWER_SURFACE_DEFAULT);
+    emit_surface_conformance_diagnostics(
+        resolution.profile.accessibility.level.clone(),
+        resolution.profile.security.level.clone(),
+        resolution.profile.storage.level.clone(),
+        resolution.profile.history.level.clone(),
+    );
+    resolution
 }
 
 #[cfg(test)]
@@ -1060,6 +1126,24 @@ fn phase0_observe_navigation_url_for_tests_with_control(
     );
     let viewer = runtime.viewer.select_for_uri(uri, effective_mime_hint);
     diagnostics_state.emit_message_received_for_tests(CHANNEL_VIEWER_SELECT_SUCCEEDED, 1);
+    for declaration in [
+        &viewer.capabilities.accessibility,
+        &viewer.capabilities.security,
+        &viewer.capabilities.storage,
+        &viewer.capabilities.history,
+    ] {
+        match declaration.level {
+            ViewerConformanceLevel::Full => {}
+            ViewerConformanceLevel::Partial => diagnostics_state.emit_message_sent_for_tests(
+                CHANNEL_VIEWER_CAPABILITY_PARTIAL,
+                declaration.reason.as_deref().unwrap_or_default().len(),
+            ),
+            ViewerConformanceLevel::None => diagnostics_state.emit_message_sent_for_tests(
+                CHANNEL_VIEWER_CAPABILITY_NONE,
+                declaration.reason.as_deref().unwrap_or_default().len(),
+            ),
+        }
+    }
     if viewer.fallback_used {
         diagnostics_state.emit_message_sent_for_tests(CHANNEL_VIEWER_FALLBACK_USED, viewer.viewer_id.len());
     }

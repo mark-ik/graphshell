@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::{AccessibilityCapabilities, SecurityCapabilities};
+use super::{
+    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
+};
 
 pub(crate) const VIEWER_SURFACE_DEFAULT: &str = "viewer_surface:default";
 
@@ -17,6 +19,10 @@ pub(crate) struct ViewerSurfaceProfile {
     /// Security conformance declaration for this viewer surface profile.
     /// Reflects content isolation / sandbox guarantees for the viewer backend.
     pub(crate) security: SecurityCapabilities,
+    /// Storage conformance declaration for this viewer surface profile.
+    pub(crate) storage: StorageCapabilities,
+    /// History conformance declaration for this viewer surface profile.
+    pub(crate) history: HistoryCapabilities,
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +98,8 @@ impl Default for ViewerSurfaceRegistry {
                 zoom_step: 1.1,
                 accessibility: AccessibilityCapabilities::full(),
                 security: SecurityCapabilities::full(),
+                storage: StorageCapabilities::full(),
+                history: HistoryCapabilities::full(),
             },
         );
         registry

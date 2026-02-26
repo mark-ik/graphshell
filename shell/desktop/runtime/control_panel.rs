@@ -12,11 +12,11 @@
 //! the [`QueuedIntent`] channel. Each frame, the caller drains the channel via
 //! [`ControlPanel::drain_pending`] before calling `apply_intents`.
 //!
-//! Part of The Register: `RegistryRuntime` + `ControlPanel` + (signal-routing layer —
-//! transitional; planned `SignalBus` or equivalent abstraction).
+//! Part of The Register: `RegistryRuntime` + `ControlPanel` + a not-yet-implemented
+//! signal-routing layer (`SignalBus` or equivalent abstraction).
 
-use std::time::{Duration, Instant};
 use std::sync::{OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 use sysinfo::System;
 use tokio::sync::mpsc;
@@ -33,58 +33,11 @@ const INTENT_CHANNEL_CAPACITY: usize = 256;
 /// How often the memory monitor samples system memory.
 const MEMORY_MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 
-fn global_sync_command_tx() -> &'static RwLock<Option<mpsc::Sender<SyncCommand>>> {
-    static GLOBAL_SYNC_COMMAND_TX: OnceLock<RwLock<Option<mpsc::Sender<SyncCommand>>>> =
-        OnceLock::new();
-    GLOBAL_SYNC_COMMAND_TX.get_or_init(|| RwLock::new(None))
-}
-
 fn global_discovery_results() -> &'static RwLock<Option<Result<Vec<verse::DiscoveredPeer>, String>>> {
     static GLOBAL_DISCOVERY_RESULTS: OnceLock<
         RwLock<Option<Result<Vec<verse::DiscoveredPeer>, String>>>,
     > = OnceLock::new();
     GLOBAL_DISCOVERY_RESULTS.get_or_init(|| RwLock::new(None))
-}
-
-fn publish_sync_command_tx(tx: mpsc::Sender<SyncCommand>) {
-    if let Ok(mut slot) = global_sync_command_tx().write() {
-        *slot = Some(tx);
-    }
-}
-
-fn get_sync_command_tx() -> Option<mpsc::Sender<SyncCommand>> {
-    global_sync_command_tx()
-        .read()
-        .ok()
-        .and_then(|slot| slot.clone())
-}
-
-pub(crate) fn request_sync_all_trusted_peers(workspace_id: &str) -> Result<usize, String> {
-    let Some(tx) = get_sync_command_tx() else {
-        return Err("sync worker command channel unavailable".to_string());
-    };
-    let peers = verse::get_trusted_peers();
-    let mut enqueued = 0usize;
-    for peer in peers {
-        if tx
-            .try_send(SyncCommand::SyncWorkspace {
-                peer: peer.node_id,
-                workspace_id: workspace_id.to_string(),
-            })
-            .is_ok()
-        {
-            enqueued += 1;
-        }
-    }
-    Ok(enqueued)
-}
-
-pub(crate) fn request_discover_nearby_peers(timeout_secs: u64) -> Result<(), String> {
-    let Some(tx) = get_sync_command_tx() else {
-        return Err("sync worker command channel unavailable".to_string());
-    };
-    tx.try_send(SyncCommand::DiscoverNearby { timeout_secs })
-        .map_err(|e| format!("failed to enqueue discovery command: {e}"))
 }
 
 pub(crate) fn publish_discovery_results(result: Result<Vec<verse::DiscoveredPeer>, String>) {
@@ -229,7 +182,6 @@ impl ControlPanel {
         let tx = self.intent_tx.clone();
         let (cmd_tx, cmd_rx) = mpsc::channel(64);
         self.sync_command_tx = Some(cmd_tx.clone());
-        publish_sync_command_tx(cmd_tx);
 
         self.workers.spawn(async move {
             let resources = match verse::sync_worker_resources() {
@@ -495,63 +447,13 @@ mod tests {
         assert!(matches!(received.intent, GraphIntent::ModLoadFailed { mod_id, .. } if mod_id == "mod:bootstrap"));
     }
 
-    #[test]
-    fn request_sync_all_trusted_peers_returns_error_without_command_channel() {
-        if let Ok(mut slot) = global_sync_command_tx().write() {
-            *slot = None;
-        }
-
-        let result = request_sync_all_trusted_peers("workspace:test");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn request_sync_all_trusted_peers_returns_zero_when_no_trusted_peers() {
-        let (tx, _rx) = mpsc::channel(8);
-        publish_sync_command_tx(tx);
-
-        let result = request_sync_all_trusted_peers("workspace:test")
-            .expect("published command channel should be usable");
-
-        assert_eq!(result, 0);
-    }
-
-    #[test]
-    fn request_discover_nearby_peers_returns_error_without_command_channel() {
-        if let Ok(mut slot) = global_sync_command_tx().write() {
-            *slot = None;
-        }
-
-        let result = request_discover_nearby_peers(2);
-        assert!(result.is_err());
-    }
-
     #[tokio::test]
-    async fn request_discover_nearby_peers_enqueues_command() {
-        let (tx, mut rx) = mpsc::channel(8);
-        publish_sync_command_tx(tx);
-
-        request_discover_nearby_peers(2).expect("discovery command should enqueue");
-        let received = rx.recv().await.expect("command should be received");
-
-        assert!(matches!(
-            received,
-            SyncCommand::DiscoverNearby { timeout_secs: 2 }
-        ));
-    }
-
-    #[tokio::test]
-    async fn spawn_sync_worker_publishes_global_command_channel() {
-        if let Ok(mut slot) = global_sync_command_tx().write() {
-            *slot = None;
-        }
-
+    async fn spawn_sync_worker_sets_panel_command_channel() {
         let mut panel = ControlPanel::new();
         panel.spawn_sync_worker();
         tokio::task::yield_now().await;
 
         assert!(panel.sync_command_tx.is_some());
-        assert!(get_sync_command_tx().is_some());
 
         panel.shutdown().await;
     }

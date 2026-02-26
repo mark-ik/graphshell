@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -333,6 +334,7 @@ impl Gui {
             panel.spawn_sync_worker();
             panel
         };
+        graph_app.set_sync_command_tx(control_panel.sync_command_tx.clone());
 
         Self {
             rendering_context,
@@ -499,7 +501,7 @@ impl Gui {
         if self.runtime_state.graph_surface_focused {
             return None;
         }
-        tile_compositor::focused_webview_id_for_tree(
+        tile_compositor::focused_webview_id_for_node_panes(
             &self.tiles_tree,
             &self.graph_app,
             self.runtime_state.focused_webview_hint,
@@ -512,7 +514,11 @@ impl Gui {
 
     #[allow(dead_code)]
     pub(crate) fn active_tile_webview_id(&self) -> Option<WebViewId> {
-        tile_compositor::focused_webview_id_for_tree(&self.tiles_tree, &self.graph_app, None)
+        tile_compositor::focused_webview_id_for_node_panes(
+            &self.tiles_tree,
+            &self.graph_app,
+            None,
+        )
     }
 
     pub(crate) fn set_focused_webview_id(&mut self, webview_id: WebViewId) {
@@ -1174,12 +1180,50 @@ impl Gui {
     /// Intents tagged as workbench-authority (`OpenToolPane`, `SplitPane`,
     /// `SetPaneView`, `OpenNodeInPane`) must be drained here, before `apply_intents`
     /// is called. Any that leak through will produce a `log::warn!` in the reducer.
-    fn handle_tool_pane_intents(tiles_tree: &mut Tree<TileKind>, frame_intents: &mut Vec<GraphIntent>) {
+    fn handle_tool_pane_intents(
+        tiles_tree: &mut Tree<TileKind>,
+        frame_intents: &mut Vec<GraphIntent>,
+    ) {
         let mut remaining = Vec::with_capacity(frame_intents.len());
         for intent in frame_intents.drain(..) {
             match intent {
                 GraphIntent::OpenToolPane { kind } => {
                     Self::open_or_focus_tool_pane(tiles_tree, kind);
+                }
+                GraphIntent::OpenNodeInPane { node, pane } => {
+                    log::debug!(
+                        "workbench intent OpenNodeInPane ignored pane target {}; opening node pane directly",
+                        pane
+                    );
+                    tile_view_ops::open_or_focus_node_pane(tiles_tree, node);
+                }
+                GraphIntent::SetPaneView { pane, view } => {
+                    log::debug!(
+                        "workbench intent SetPaneView ignored pane target {}; applying view payload",
+                        pane
+                    );
+                    match view {
+                        crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(kind) => {
+                            Self::open_or_focus_tool_pane(tiles_tree, kind);
+                        }
+                        crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state) => {
+                            tile_view_ops::open_or_focus_node_pane(tiles_tree, state.node);
+                        }
+                        crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(_) => {
+                            let _ = tiles_tree.make_active(
+                                |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))),
+                            );
+                        }
+                    }
+                }
+                GraphIntent::SplitPane {
+                    source_pane,
+                    direction,
+                } => {
+                    log::debug!(
+                        "workbench intent SplitPane({source_pane}, {:?}) has no PaneId->TileId bridge yet; deferring split",
+                        direction
+                    );
                 }
                 other => remaining.push(other),
             }
@@ -1188,13 +1232,14 @@ impl Gui {
     }
 
     fn bridge_legacy_panel_flags_to_tool_panes(
-        graph_app: &GraphBrowserApp,
+        graph_app: &mut GraphBrowserApp,
         tiles_tree: &mut Tree<TileKind>,
     ) {
         use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 
         if graph_app.workspace.show_history_manager {
             Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::HistoryManager);
+            graph_app.workspace.show_history_manager = false;
         }
 
         // Persistence/sync/settings URLs still route through legacy booleans today.
@@ -1202,6 +1247,8 @@ impl Gui {
         // panels continue to exist during migration.
         if graph_app.workspace.show_persistence_panel || graph_app.workspace.show_sync_panel {
             Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
+            graph_app.workspace.show_persistence_panel = false;
+            graph_app.workspace.show_sync_panel = false;
         }
     }
 
@@ -1424,10 +1471,13 @@ impl Gui {
         // conversion layer. Drain pending updates to avoid unbounded growth.
         let dropped = pending.len();
         pending.clear();
-        warn!(
-            "WebView accessibility updates deferred: accesskit version mismatch prevents egui injection (dropped {} pending batch(es))",
-            dropped
-        );
+        static WARNED_A11Y_MISMATCH: AtomicBool = AtomicBool::new(false);
+        if !WARNED_A11Y_MISMATCH.swap(true, Ordering::Relaxed) {
+            warn!(
+                "WebView accessibility updates deferred: accesskit version mismatch prevents egui injection (dropped {} pending batch(es); warning shown once)",
+                dropped
+            );
+        }
     }
 }
 

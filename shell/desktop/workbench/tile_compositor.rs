@@ -23,7 +23,7 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 
-pub(crate) fn active_webview_tile_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKey, egui::Rect)> {
+pub(crate) fn active_node_pane_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKey, egui::Rect)> {
     let mut tile_rects = Vec::new();
     for tile_id in tiles_tree.active_tiles() {
         if let Some(Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
@@ -35,7 +35,7 @@ pub(crate) fn active_webview_tile_rects(tiles_tree: &Tree<TileKind>) -> Vec<(Nod
     tile_rects
 }
 
-pub(crate) fn focused_webview_id_for_tree(
+pub(crate) fn focused_webview_id_for_node_panes(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     focused_hint: Option<WebViewId>,
@@ -53,7 +53,7 @@ pub(crate) fn focused_webview_id_for_tree(
         }
     }
 
-    active_webview_tile_node(tiles_tree)
+    active_node_pane_key(tiles_tree)
         .and_then(|node_key| graph_app.get_webview_for_node(node_key))
 }
 
@@ -62,8 +62,8 @@ pub(crate) fn webview_for_frame_activation(
     graph_app: &GraphBrowserApp,
     focused_hint: Option<WebViewId>,
 ) -> Option<WebViewId> {
-    focused_webview_id_for_tree(tiles_tree, graph_app, focused_hint).or_else(|| {
-        active_webview_tile_rects(tiles_tree)
+    focused_webview_id_for_node_panes(tiles_tree, graph_app, focused_hint).or_else(|| {
+        active_node_pane_rects(tiles_tree)
             .first()
             .and_then(|(node_key, _)| graph_app.get_webview_for_node(*node_key))
     })
@@ -82,7 +82,7 @@ pub(crate) fn activate_focused_webview_for_frame(
     }
 }
 
-pub(crate) fn composite_active_webview_tiles(
+pub(crate) fn composite_active_node_pane_webviews(
     ctx: &egui::Context,
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
@@ -93,7 +93,7 @@ pub(crate) fn composite_active_webview_tiles(
 ) {
     #[cfg(feature = "diagnostics")]
     let composite_started = Instant::now();
-    log::debug!("composite_active_webview_tiles: {} tiles", active_tile_rects.len());
+    log::debug!("composite_active_node_pane_webviews: {} tiles", active_tile_rects.len());
     // Keep focus ring below popup/panel overlays (palette, dialogs) so it never occludes UI.
     let focus_ring_layer = LayerId::new(egui::Order::Background, Id::new("graphshell_focus_ring"));
     let hover_ring_layer = LayerId::new(egui::Order::Background, Id::new("graphshell_hover_ring"));
@@ -218,12 +218,12 @@ pub(crate) fn composite_active_webview_tiles(
     }
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-        "tile_compositor::composite_active_webview_tiles",
+        "tile_compositor::composite_active_node_pane_webviews",
         composite_started.elapsed().as_micros() as u64,
     );
 }
 
-fn active_webview_tile_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
+fn active_node_pane_key(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
     tiles_tree
         .active_tiles()
         .into_iter()

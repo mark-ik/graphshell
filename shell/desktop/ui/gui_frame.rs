@@ -681,7 +681,11 @@ pub(crate) fn handle_toolbar_dialog_phase(
     let focused_toolbar_webview = if graph_surface_focused {
         None
     } else {
-        tile_compositor::focused_webview_id_for_tree(tiles_tree, graph_app, focused_webview_hint)
+        tile_compositor::focused_webview_id_for_node_panes(
+            tiles_tree,
+            graph_app,
+            focused_webview_hint,
+        )
     };
     let focused_toolbar_node = nav_targeting::focused_toolbar_node(
         graph_app,
@@ -773,7 +777,7 @@ fn ensure_webviews_for_active_prewarm_nodes(
 
     // Find nodes that are Active but don't have visible tiles (prewarm candidates).
     let tile_nodes: std::collections::HashSet<NodeKey> = 
-        tile_compositor::active_webview_tile_rects(tiles_tree)
+        tile_compositor::active_node_pane_rects(tiles_tree)
             .into_iter()
             .map(|(node_key, _)| node_key)
             .collect();
@@ -960,7 +964,11 @@ pub(crate) fn run_post_render_phase<FActive>(
     let focused_dialog_webview = if graph_surface_focused {
         None
     } else {
-        tile_compositor::focused_webview_id_for_tree(tiles_tree, graph_app, *focused_webview_hint)
+        tile_compositor::focused_webview_id_for_node_panes(
+            tiles_tree,
+            graph_app,
+            *focused_webview_hint,
+        )
     };
     headed_window.for_each_active_dialog(
         window,

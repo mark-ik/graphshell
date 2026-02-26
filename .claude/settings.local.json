@@ -41,7 +41,11 @@
       "Bash(gh pr list --state all --head codex/p6-77-tool-pane-dispatch)",
       "Bash(gh pr view 84 --json state,mergeCommit,baseRefName)",
       "Bash(git push origin codex/p6-77-tool-pane-dispatch --force-with-lease)",
-      "Bash(git push origin codex/p6-77-tool-pane-dispatch:terminology-arch-alignment)"
+      "Bash(git push origin codex/p6-77-tool-pane-dispatch:terminology-arch-alignment)",
+      "Bash(git branch -a --format=\"%\\(refname:short\\)\")",
+      "Bash(gh pr list --state open)",
+      "Bash(gh pr list --state all --limit 20)",
+      "Bash(git pull origin main)"
     ]
   }
 }

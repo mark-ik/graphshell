@@ -2708,7 +2708,7 @@ pub fn render_sync_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                         }
                     }
                     if ui.button("Discover Nearby").clicked() {
-                        match crate::shell::desktop::runtime::control_panel::request_discover_nearby_peers(2) {
+                        match app.request_discover_nearby_peers(2) {
                             Ok(()) => {
                                 ctx.data_mut(|d| {
                                     d.insert_temp(

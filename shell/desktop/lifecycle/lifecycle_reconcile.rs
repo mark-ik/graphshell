@@ -114,7 +114,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
 
     let tile_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
     let active_tile_nodes: HashSet<NodeKey> =
-        tile_compositor::active_webview_tile_rects(args.tiles_tree)
+        tile_compositor::active_node_pane_rects(args.tiles_tree)
             .into_iter()
             .map(|(node_key, _)| node_key)
             .collect();

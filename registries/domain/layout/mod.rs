@@ -74,6 +74,57 @@ impl SecurityCapabilities {
     }
 }
 
+/// Storage conformance declaration for a surface profile.
+///
+/// Declares whether the surface/profile participates in canonical workspace
+/// persistence contracts (schema integrity, deterministic restore semantics,
+/// and no special-case bypasses).
+#[derive(Debug, Clone)]
+pub(crate) struct StorageCapabilities {
+    pub(crate) level: ConformanceLevel,
+    /// Required when `level` is `Partial` or `None`; describes the gap.
+    pub(crate) reason: Option<String>,
+}
+
+impl StorageCapabilities {
+    pub(crate) fn full() -> Self {
+        Self { level: ConformanceLevel::Full, reason: None }
+    }
+
+    pub(crate) fn partial(reason: impl Into<String>) -> Self {
+        Self { level: ConformanceLevel::Partial, reason: Some(reason.into()) }
+    }
+
+    pub(crate) fn none(reason: impl Into<String>) -> Self {
+        Self { level: ConformanceLevel::None, reason: Some(reason.into()) }
+    }
+}
+
+/// History conformance declaration for a surface profile.
+///
+/// Declares whether traversal/timeline semantics and preview/replay integrity
+/// guarantees are supported for this surface/profile.
+#[derive(Debug, Clone)]
+pub(crate) struct HistoryCapabilities {
+    pub(crate) level: ConformanceLevel,
+    /// Required when `level` is `Partial` or `None`; describes the gap.
+    pub(crate) reason: Option<String>,
+}
+
+impl HistoryCapabilities {
+    pub(crate) fn full() -> Self {
+        Self { level: ConformanceLevel::Full, reason: None }
+    }
+
+    pub(crate) fn partial(reason: impl Into<String>) -> Self {
+        Self { level: ConformanceLevel::Partial, reason: Some(reason.into()) }
+    }
+
+    pub(crate) fn none(reason: impl Into<String>) -> Self {
+        Self { level: ConformanceLevel::None, reason: Some(reason.into()) }
+    }
+}
+
 use canvas::CanvasRegistry;
 use viewer_surface::ViewerSurfaceRegistry;
 use workbench_surface::WorkbenchSurfaceRegistry;
@@ -190,5 +241,11 @@ mod tests {
         assert_eq!(resolution.workbench_surface.profile.accessibility.level, ConformanceLevel::Full);
         assert_eq!(resolution.viewer_surface.profile.accessibility.level, ConformanceLevel::Full);
         assert_eq!(resolution.canvas.profile.security.level, ConformanceLevel::Full);
+        assert_eq!(resolution.canvas.profile.storage.level, ConformanceLevel::Full);
+        assert_eq!(resolution.canvas.profile.history.level, ConformanceLevel::Full);
+        assert_eq!(resolution.workbench_surface.profile.storage.level, ConformanceLevel::Full);
+        assert_eq!(resolution.workbench_surface.profile.history.level, ConformanceLevel::Full);
+        assert_eq!(resolution.viewer_surface.profile.storage.level, ConformanceLevel::Full);
+        assert_eq!(resolution.viewer_surface.profile.history.level, ConformanceLevel::Full);
     }
 }

@@ -229,7 +229,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
     }
 
-    let active_tile_rects = tile_compositor::active_webview_tile_rects(tiles_tree);
+    let active_tile_rects = tile_compositor::active_node_pane_rects(tiles_tree);
     log::debug!("tile_render_pass: {} active tile rects", active_tile_rects.len());
     for (key, rect) in active_tile_rects.iter() {
         let mapped = graph_app.get_webview_for_node(*key);
@@ -352,7 +352,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 byte_len: active_tile_violations.len(),
             });
         }
-        let focused_webview_id = tile_compositor::focused_webview_id_for_tree(
+        let focused_webview_id = tile_compositor::focused_webview_id_for_node_panes(
             tiles_tree,
             graph_app,
             *focused_webview_hint,
@@ -383,7 +383,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
 
     #[cfg(feature = "diagnostics")]
     let composite_started = Instant::now();
-    tile_compositor::composite_active_webview_tiles(
+    tile_compositor::composite_active_node_pane_webviews(
         ctx,
         window,
         graph_app,
@@ -394,13 +394,13 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     );
     #[cfg(feature = "diagnostics")]
     diagnostics_state.record_span_duration(
-        "tile_compositor::composite_active_webview_tiles",
+        "tile_compositor::composite_active_node_pane_webviews",
         composite_started.elapsed().as_micros() as u64,
     );
 
     #[cfg(feature = "diagnostics")]
     {
-        let active_tiles_for_diag = tile_compositor::active_webview_tile_rects(tiles_tree);
+        let active_tiles_for_diag = tile_compositor::active_node_pane_rects(tiles_tree);
         let focused_webview_present = focused_webview_hint
             .as_ref()
             .is_some_and(|id| graph_app.get_node_for_webview(*id).is_some());
