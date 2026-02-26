@@ -1116,26 +1116,42 @@ pub(crate) fn phase3_resolve_viewer_surface_profile(
 
     let resolution = profile_resolution.viewer_surface;
     emit_surface_conformance_diagnostics(
-        profile_resolution.canvas.profile.accessibility.level,
-        profile_resolution.canvas.profile.security.level,
-        profile_resolution.canvas.profile.storage.level,
-        profile_resolution.canvas.profile.history.level,
+        profile_resolution.canvas.profile.subsystems.accessibility.level,
+        profile_resolution.canvas.profile.subsystems.security.level,
+        profile_resolution.canvas.profile.subsystems.storage.level,
+        profile_resolution.canvas.profile.subsystems.history.level,
     );
     emit_surface_conformance_diagnostics(
         profile_resolution
             .workbench_surface
             .profile
+            .subsystems
             .accessibility
             .level,
-        profile_resolution.workbench_surface.profile.security.level,
-        profile_resolution.workbench_surface.profile.storage.level,
-        profile_resolution.workbench_surface.profile.history.level,
+        profile_resolution
+            .workbench_surface
+            .profile
+            .subsystems
+            .security
+            .level,
+        profile_resolution
+            .workbench_surface
+            .profile
+            .subsystems
+            .storage
+            .level,
+        profile_resolution
+            .workbench_surface
+            .profile
+            .subsystems
+            .history
+            .level,
     );
     emit_surface_conformance_diagnostics(
-        resolution.profile.accessibility.level.clone(),
-        resolution.profile.security.level.clone(),
-        resolution.profile.storage.level.clone(),
-        resolution.profile.history.level.clone(),
+        resolution.profile.subsystems.accessibility.level.clone(),
+        resolution.profile.subsystems.security.level.clone(),
+        resolution.profile.subsystems.storage.level.clone(),
+        resolution.profile.subsystems.history.level.clone(),
     );
     resolution
 }

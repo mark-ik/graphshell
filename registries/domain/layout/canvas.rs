@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{
-    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
+    SurfaceSubsystemCapabilities,
 };
 
 pub(crate) const CANVAS_PROFILE_DEFAULT: &str = "canvas:default";
@@ -65,14 +65,9 @@ pub(crate) struct CanvasSurfaceProfile {
     pub(crate) interaction: CanvasInteractionPolicy,
     pub(crate) style: CanvasStylePolicy,
     pub(crate) performance: CanvasPerformancePolicy,
-    /// Accessibility conformance declaration for this canvas surface profile.
-    pub(crate) accessibility: AccessibilityCapabilities,
-    /// Security conformance declaration for this canvas surface profile.
-    pub(crate) security: SecurityCapabilities,
-    /// Storage conformance declaration for this canvas surface profile.
-    pub(crate) storage: StorageCapabilities,
-    /// History conformance declaration for this canvas surface profile.
-    pub(crate) history: HistoryCapabilities,
+    /// Folded subsystem conformance declarations for this canvas surface.
+    #[serde(flatten)]
+    pub(crate) subsystems: SurfaceSubsystemCapabilities,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -168,10 +163,7 @@ impl Default for CanvasRegistry {
                     label_culling_enabled: false,
                     edge_lod: EdgeLodPolicy::Full,
                 },
-                accessibility: AccessibilityCapabilities::full(),
-                security: SecurityCapabilities::full(),
-                storage: StorageCapabilities::full(),
-                history: HistoryCapabilities::full(),
+                subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
         registry
@@ -249,10 +241,7 @@ mod tests {
                     label_culling_enabled: true,
                     edge_lod: EdgeLodPolicy::SkipLabels,
                 },
-                accessibility: AccessibilityCapabilities::full(),
-                security: SecurityCapabilities::full(),
-                storage: StorageCapabilities::full(),
-                history: HistoryCapabilities::full(),
+                subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
         let resolution = registry.resolve("canvas:perf");

@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use super::{
-    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
-};
+use super::SurfaceSubsystemCapabilities;
 
 pub(crate) const VIEWER_SURFACE_DEFAULT: &str = "viewer_surface:default";
 
@@ -12,17 +10,9 @@ pub(crate) struct ViewerSurfaceProfile {
     pub(crate) reader_mode_default: bool,
     pub(crate) smooth_scroll_enabled: bool,
     pub(crate) zoom_step: f32,
-    /// Accessibility conformance declaration for this viewer surface profile.
-    /// Defaults to `Full` for built-in profiles; degraded-path registrations
-    /// should use `Partial` or `None` with a descriptive reason.
-    pub(crate) accessibility: AccessibilityCapabilities,
-    /// Security conformance declaration for this viewer surface profile.
-    /// Reflects content isolation / sandbox guarantees for the viewer backend.
-    pub(crate) security: SecurityCapabilities,
-    /// Storage conformance declaration for this viewer surface profile.
-    pub(crate) storage: StorageCapabilities,
-    /// History conformance declaration for this viewer surface profile.
-    pub(crate) history: HistoryCapabilities,
+    /// Folded subsystem conformance declarations for this viewer surface.
+    #[serde(flatten)]
+    pub(crate) subsystems: SurfaceSubsystemCapabilities,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -96,10 +86,7 @@ impl Default for ViewerSurfaceRegistry {
                 reader_mode_default: false,
                 smooth_scroll_enabled: true,
                 zoom_step: 1.1,
-                accessibility: AccessibilityCapabilities::full(),
-                security: SecurityCapabilities::full(),
-                storage: StorageCapabilities::full(),
-                history: HistoryCapabilities::full(),
+                subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
         registry
@@ -109,6 +96,7 @@ impl Default for ViewerSurfaceRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registries::domain::layout::ConformanceLevel;
 
     #[test]
     fn viewer_surface_registry_falls_back_for_unknown_profile() {
@@ -129,6 +117,9 @@ mod tests {
             serde_json::from_str(&json).expect("resolution should deserialize");
 
         assert_eq!(restored.resolved_id, VIEWER_SURFACE_DEFAULT);
-        assert_eq!(restored.profile.history.level, super::super::ConformanceLevel::Full);
+        assert_eq!(
+            restored.profile.subsystems.history.level,
+            ConformanceLevel::Full
+        );
     }
 }

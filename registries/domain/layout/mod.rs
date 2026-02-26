@@ -125,6 +125,30 @@ impl HistoryCapabilities {
     }
 }
 
+/// Folded subsystem conformance declarations carried by surface descriptors.
+///
+/// This keeps subsystem declarations typed and colocated with the owning
+/// surface profile while allowing runtime/diagnostics code to inspect one field
+/// instead of ad hoc per-subsystem plumbing.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SurfaceSubsystemCapabilities {
+    pub(crate) accessibility: AccessibilityCapabilities,
+    pub(crate) security: SecurityCapabilities,
+    pub(crate) storage: StorageCapabilities,
+    pub(crate) history: HistoryCapabilities,
+}
+
+impl SurfaceSubsystemCapabilities {
+    pub(crate) fn full() -> Self {
+        Self {
+            accessibility: AccessibilityCapabilities::full(),
+            security: SecurityCapabilities::full(),
+            storage: StorageCapabilities::full(),
+            history: HistoryCapabilities::full(),
+        }
+    }
+}
+
 use canvas::CanvasRegistry;
 use viewer_surface::ViewerSurfaceRegistry;
 use workbench_surface::WorkbenchSurfaceRegistry;
@@ -237,16 +261,51 @@ mod tests {
             crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT,
             crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT,
         );
-        assert_eq!(resolution.canvas.profile.accessibility.level, ConformanceLevel::Full);
-        assert_eq!(resolution.workbench_surface.profile.accessibility.level, ConformanceLevel::Full);
-        assert_eq!(resolution.viewer_surface.profile.accessibility.level, ConformanceLevel::Full);
-        assert_eq!(resolution.canvas.profile.security.level, ConformanceLevel::Full);
-        assert_eq!(resolution.canvas.profile.storage.level, ConformanceLevel::Full);
-        assert_eq!(resolution.canvas.profile.history.level, ConformanceLevel::Full);
-        assert_eq!(resolution.workbench_surface.profile.storage.level, ConformanceLevel::Full);
-        assert_eq!(resolution.workbench_surface.profile.history.level, ConformanceLevel::Full);
-        assert_eq!(resolution.viewer_surface.profile.storage.level, ConformanceLevel::Full);
-        assert_eq!(resolution.viewer_surface.profile.history.level, ConformanceLevel::Full);
+        assert_eq!(
+            resolution.canvas.profile.subsystems.accessibility.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution
+                .workbench_surface
+                .profile
+                .subsystems
+                .accessibility
+                .level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.viewer_surface.profile.subsystems.accessibility.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.canvas.profile.subsystems.security.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.canvas.profile.subsystems.storage.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.canvas.profile.subsystems.history.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.workbench_surface.profile.subsystems.storage.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.workbench_surface.profile.subsystems.history.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.viewer_surface.profile.subsystems.storage.level,
+            ConformanceLevel::Full
+        );
+        assert_eq!(
+            resolution.viewer_surface.profile.subsystems.history.level,
+            ConformanceLevel::Full
+        );
     }
 
     #[test]

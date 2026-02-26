@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use super::{
-    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
-};
+use super::SurfaceSubsystemCapabilities;
 
 pub(crate) const WORKBENCH_SURFACE_DEFAULT: &str = "workbench_surface:default";
 
@@ -29,14 +27,9 @@ pub(crate) struct WorkbenchSurfaceProfile {
     pub(crate) split_vertical_label: String,
     pub(crate) tab_group_label: String,
     pub(crate) grid_label: String,
-    /// Accessibility conformance declaration for this workbench surface profile.
-    pub(crate) accessibility: AccessibilityCapabilities,
-    /// Security conformance declaration for this workbench surface profile.
-    pub(crate) security: SecurityCapabilities,
-    /// Storage conformance declaration for this workbench surface profile.
-    pub(crate) storage: StorageCapabilities,
-    /// History conformance declaration for this workbench surface profile.
-    pub(crate) history: HistoryCapabilities,
+    /// Folded subsystem conformance declarations for this workbench surface.
+    #[serde(flatten)]
+    pub(crate) subsystems: SurfaceSubsystemCapabilities,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -121,10 +114,7 @@ impl Default for WorkbenchSurfaceRegistry {
                 split_vertical_label: "Split ↕".to_string(),
                 tab_group_label: "Tab Group".to_string(),
                 grid_label: "Grid".to_string(),
-                accessibility: AccessibilityCapabilities::full(),
-                security: SecurityCapabilities::full(),
-                storage: StorageCapabilities::full(),
-                history: HistoryCapabilities::full(),
+                subsystems: SurfaceSubsystemCapabilities::full(),
             },
         );
         registry
@@ -134,6 +124,7 @@ impl Default for WorkbenchSurfaceRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registries::domain::layout::ConformanceLevel;
 
     #[test]
     fn workbench_surface_registry_resolves_default() {
@@ -156,9 +147,6 @@ mod tests {
             serde_json::from_str(&json).expect("resolution should deserialize");
 
         assert_eq!(restored.resolved_id, WORKBENCH_SURFACE_DEFAULT);
-        assert_eq!(
-            restored.profile.accessibility.level,
-            super::super::ConformanceLevel::Full
-        );
+        assert_eq!(restored.profile.subsystems.accessibility.level, ConformanceLevel::Full);
     }
 }
