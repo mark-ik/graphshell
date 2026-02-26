@@ -1581,6 +1581,8 @@ fn active_graph_search_match(matches: &[NodeKey], active_index: Option<usize>) -
 
 #[cfg(test)]
 mod accessibility_bridge_tests {
+    use std::collections::HashMap;
+
     use super::Gui;
     use accesskit::{Node, NodeId, Role, Tree, TreeId, TreeUpdate};
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
@@ -1635,6 +1637,31 @@ mod accessibility_bridge_tests {
         let label = Gui::webview_accessibility_label(webview_id, &update);
         assert!(label.contains("Embedded web content"));
         assert!(label.contains("1 accessibility node update"));
+    }
+
+    #[test]
+    fn inject_webview_a11y_updates_drains_pending_map() {
+        let webview_id = test_webview_id();
+        let mut update_node = Node::new(Role::Document);
+        update_node.set_label("Injected title".to_string());
+        let update = TreeUpdate {
+            nodes: vec![(NodeId(9), update_node)],
+            tree: Some(Tree::new(NodeId(9))),
+            tree_id: TreeId::ROOT,
+            focus: NodeId(9),
+        };
+
+        let mut pending = HashMap::from([(webview_id, update)]);
+        let ctx = egui::Context::default();
+
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            Gui::inject_webview_a11y_updates(ctx, &mut pending);
+        });
+
+        assert!(
+            pending.is_empty(),
+            "bridge injection should consume pending webview accessibility updates"
+        );
     }
 }
 

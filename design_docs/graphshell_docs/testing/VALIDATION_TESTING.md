@@ -71,6 +71,49 @@ The diagnostic system exposes structured state (`DiagnosticsState`) that can be 
     - Result: user-confirmed on 2026-02-22 that Engine tab shows Servo-originated
        activity while loading/navigating real pages.
 
+## Accessibility Subsystem: Phase 1 WebView Bridge Validation (P10.d)
+
+**Source**: `implementation_strategy/SUBSYSTEM_ACCESSIBILITY.md` (§6.1, §8 Phase 1)
+
+**Scope guard (Phase 1 only)**:
+- Validate the WebView accessibility bridge baseline (`notify_accessibility_tree_update` -> bridge injection).
+- Do **not** include Graph Reader/Map/Room mode validation in this slice.
+
+### Automated harness check
+
+- [x] `cargo test inject_webview_a11y_updates_drains_pending_map -- --nocapture`
+  - Result: pass (1/1); confirms pending WebView accessibility updates are consumed by bridge injection each frame and do not accumulate across frames.
+
+### Manual screen-reader checklist (repeatable handoff script)
+
+**Preconditions**
+1. Build/run Graphshell with normal desktop runtime (`cargo run -p graphshell --bin graphshell -- -M https://example.com`).
+2. Ensure one screen reader is active on platform under test:
+   - Windows: NVDA
+   - Linux: Orca
+   - macOS: VoiceOver (if available for contributor)
+3. Open at least one node pane with live embedded web content.
+
+**Checks**
+1. [ ] **Bridge baseline readability**
+   - Action: move accessibility focus into the active embedded web content region.
+   - Expected: screen reader announces an embedded web content/document region (derived from focused or labeled nodes when present).
+2. [ ] **Focused-label preference**
+   - Action: navigate to a clearly labeled element (e.g., heading/link) in embedded content.
+   - Expected: announcement prefers focused element label over generic fallback wording.
+3. [ ] **Frame-to-frame continuity**
+   - Action: trigger content updates (scroll/navigation within the same pane) and continue reading.
+   - Expected: reading remains stable across updates; no repeated loss of document context.
+4. [ ] **Degraded fallback remains announced**
+   - Action: open sparse/minimal content where explicit labels may be absent.
+   - Expected: reader still announces a usable embedded web-content fallback label rather than silence.
+
+**Evidence to capture in handoff comment**
+- Platform + screen reader used.
+- URLs/content types tested.
+- Pass/fail per checklist item above.
+- Any observed degraded behavior with reproduction notes.
+
 ## Workspace Routing and Membership (Headed Manual)
 
 **Source**: `implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md` + `implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
