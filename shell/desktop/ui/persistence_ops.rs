@@ -26,6 +26,14 @@ pub(crate) type PaneId = u64;
 pub(crate) enum PersistedPaneTile {
     Graph,
     Pane(PaneId),
+    /// Legacy read-compat for historical workspace layouts that persisted a
+    /// diagnostics pane directly in layout tiles.
+    ///
+    /// This variant is deserialize-only compatibility and is never written by
+    /// current bundle serialization. Runtime restore maps it through the
+    /// generic `Tool { kind }` pane path.
+    #[serde(rename = "Diagnostic")]
+    LegacyDiagnostic,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -287,6 +295,19 @@ pub(crate) fn restore_runtime_tree_from_workspace_bundle(
             serde_json::from_value(pane_value.clone()).map_err(|e| e.to_string())?;
         let runtime_pane = match persisted_pane {
             PersistedPaneTile::Graph => Some(TileKind::Graph(GraphViewId::default())),
+            PersistedPaneTile::LegacyDiagnostic => {
+                #[cfg(feature = "diagnostics")]
+                {
+                    Some(TileKind::Tool(
+                        crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
+                    ))
+                }
+                #[cfg(not(feature = "diagnostics"))]
+                {
+                    missing_tile_ids.push(*tile_id);
+                    None
+                }
+            }
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
                 Some(PaneContent::Graph) => Some(TileKind::Graph(GraphViewId::default())),
                 Some(PaneContent::NodePane { node_uuid }) => {
@@ -750,5 +771,81 @@ mod tests {
         assert!(!root.contains_key("diagnostic_graph"));
         assert!(!root.contains_key("channels"));
         assert!(!root.contains_key("spans"));
+    }
+
+    #[test]
+    fn test_restore_runtime_tree_accepts_legacy_diagnostic_layout_tile() {
+        let dir = TempDir::new().unwrap();
+        let app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(PersistedPaneTile::Graph);
+        let legacy_diagnostic = tiles.insert_pane(PersistedPaneTile::LegacyDiagnostic);
+        let root = tiles.insert_tab_tile(vec![graph, legacy_diagnostic]);
+        let layout_tree = Tree::new("legacy_diagnostic_bundle", root, tiles);
+
+        let bundle = PersistedWorkspace {
+            version: 1,
+            name: "legacy-diagnostic".to_string(),
+            layout: WorkspaceLayout { tree: layout_tree },
+            manifest: WorkspaceManifest {
+                panes: BTreeMap::new(),
+                member_node_uuids: BTreeSet::new(),
+            },
+            metadata: WorkspaceMetadata {
+                created_at_ms: 1,
+                updated_at_ms: 1,
+                last_activated_at_ms: None,
+            },
+        };
+
+        let (restored, _) = restore_runtime_tree_from_workspace_bundle(&app, &bundle)
+            .expect("legacy diagnostic layout should restore");
+
+        let has_graph = restored
+            .tiles
+            .iter()
+            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+        assert!(has_graph);
+
+        #[cfg(feature = "diagnostics")]
+        {
+            let has_tool = restored.tiles.iter().any(|(_, tile)| {
+                matches!(
+                    tile,
+                    Tile::Pane(TileKind::Tool(
+                        crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics
+                    ))
+                )
+            });
+            assert!(has_tool, "legacy diagnostic tile should map to Tool::Diagnostics");
+        }
+    }
+
+    #[test]
+    fn test_load_named_workspace_bundle_accepts_legacy_webviewnode_alias() {
+        let dir = TempDir::new().unwrap();
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let node_key = app.add_node_and_sync("https://legacy.example".into(), Point2D::new(0.0, 0.0));
+        let node_uuid = app.workspace.graph.get_node(node_key).unwrap().id;
+
+                let mut runtime_tiles = Tiles::default();
+                let graph = runtime_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+                let node = runtime_tiles.insert_pane(TileKind::Node(node_key.into()));
+                let root = runtime_tiles.insert_tab_tile(vec![graph, node]);
+                let runtime_tree = Tree::new("workspace-legacy-alias", root, runtime_tiles);
+
+                let canonical_json = serialize_named_workspace_bundle(&app, "workspace-legacy-alias", &runtime_tree)
+                        .expect("canonical workspace bundle should serialize");
+                let bundle_json = canonical_json.replace("\"NodePane\"", "\"WebViewNode\"");
+
+        app.save_workspace_layout_json("workspace-legacy-alias", &bundle_json);
+
+        let loaded = load_named_workspace_bundle(&app, "workspace-legacy-alias")
+            .expect("legacy WebViewNode alias should deserialize");
+        assert!(matches!(
+            loaded.manifest.panes.get(&2),
+            Some(PaneContent::NodePane { node_uuid: id }) if *id == node_uuid
+        ));
     }
 }
