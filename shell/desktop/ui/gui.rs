@@ -1233,9 +1233,20 @@ impl Gui {
                     source_pane,
                     direction,
                 } => {
-                    log::debug!(
-                        "workbench intent SplitPane({source_pane}, {:?}) has no PaneId->TileId bridge yet; deferring split",
-                        direction
+                    if matches!(
+                        direction,
+                        crate::shell::desktop::workbench::pane_model::SplitDirection::Vertical
+                    ) {
+                        log::debug!(
+                            "workbench intent SplitPane({source_pane}, {:?}) currently maps to horizontal split in tile_view_ops",
+                            direction
+                        );
+                    }
+                    let new_view_id = GraphViewId::new();
+                    tile_view_ops::open_or_focus_graph_pane_with_mode(
+                        tiles_tree,
+                        new_view_id,
+                        TileOpenMode::SplitHorizontal,
                     );
                 }
                 other => remaining.push(other),
@@ -1729,6 +1740,53 @@ mod tool_pane_routing_tests {
             .count();
         assert_eq!(diagnostics_count, 1);
         assert!(diagnostics_active(&tree));
+    }
+}
+
+#[cfg(test)]
+mod graph_split_intent_tests {
+    use super::Gui;
+    use crate::app::{GraphIntent, GraphViewId};
+    use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection};
+    use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use egui_tiles::{Tile, Tiles, Tree};
+
+    fn active_graph_count(tree: &Tree<TileKind>) -> usize {
+        tree.active_tiles()
+            .into_iter()
+            .filter(|tile_id| matches!(tree.tiles.get(*tile_id), Some(Tile::Pane(TileKind::Graph(_)))))
+            .count()
+    }
+
+    #[test]
+    fn split_pane_intent_creates_new_graph_view_pane() {
+        let initial_view = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(initial_view));
+        let mut tree = Tree::new("graphshell_tiles", root, tiles);
+
+        let mut intents = vec![GraphIntent::SplitPane {
+            source_pane: PaneId::new(),
+            direction: SplitDirection::Horizontal,
+        }];
+
+        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+
+        assert!(intents.is_empty(), "split intent should be consumed by workbench authority");
+
+        let graph_views: Vec<GraphViewId> = tree
+            .tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(TileKind::Graph(view_id)) => Some(*view_id),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(graph_views.len(), 2, "split should produce a second graph pane");
+        assert!(graph_views.contains(&initial_view));
+        assert!(graph_views.iter().any(|view_id| *view_id != initial_view));
+        assert!(active_graph_count(&tree) >= 1, "a graph pane should remain active");
     }
 }
 

@@ -784,6 +784,12 @@ fn render_graph_pane_overlay(
         return;
     };
     let lens_name = view.lens.lens_id.clone().unwrap_or_else(|| view.lens.name.clone());
+    let current_lens_id = view
+        .lens
+        .lens_id
+        .clone()
+        .unwrap_or_else(|| crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string());
+    let base_lens = view.lens.clone();
     let layout_mode = view.layout_mode;
 
     // Overlay anchored to top-right of the pane, with a small margin.
@@ -803,6 +809,26 @@ fn render_graph_pane_overlay(
                 .inner_margin(egui::Margin::same(4))
                 .show(ui, |ui| {
                     ui.set_width(overlay_width - 8.0);
+
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("Split Graph")
+                                        .small()
+                                        .color(egui::Color32::from_rgb(190, 210, 230)),
+                                )
+                                .frame(false),
+                            )
+                            .on_hover_text("Create a split graph pane with a new graph view")
+                            .clicked()
+                        {
+                            pending_intents.push(GraphIntent::SplitPane {
+                                source_pane: crate::shell::desktop::workbench::pane_model::PaneId::new(),
+                                direction: crate::shell::desktop::workbench::pane_model::SplitDirection::Horizontal,
+                            });
+                        }
+                    });
 
                     // Lens row: display current lens with a click-to-reset affordance.
                     ui.horizontal(|ui| {
@@ -833,6 +859,36 @@ fn render_graph_pane_overlay(
                             });
                         }
                     });
+
+                    let lens_input_id = egui::Id::new("graph_pane_lens_input").with(view_id);
+                    let mut lens_input = ctx
+                        .data_mut(|d| d.get_persisted::<String>(lens_input_id))
+                        .unwrap_or_else(|| current_lens_id.clone());
+
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Lens ID")
+                                .small()
+                                .color(egui::Color32::from_rgb(160, 175, 190)),
+                        );
+                        let response = ui.add(
+                            egui::TextEdit::singleline(&mut lens_input)
+                                .desired_width(88.0)
+                                .hint_text("lens:..."),
+                        );
+                        let submit_with_enter =
+                            response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if ui.small_button("Apply").clicked() || submit_with_enter {
+                            let requested = lens_input.trim();
+                            if !requested.is_empty() {
+                                let mut lens = base_lens.clone();
+                                lens.lens_id = Some(requested.to_string());
+                                pending_intents.push(GraphIntent::SetViewLens { view_id, lens });
+                            }
+                        }
+                    });
+
+                    ctx.data_mut(|d| d.insert_persisted(lens_input_id, lens_input));
 
                     // Layout mode row: toggle between Canonical and Divergent.
                     ui.horizontal(|ui| {
