@@ -26,6 +26,11 @@ pub(crate) type PaneId = u64;
 pub(crate) enum PersistedPaneTile {
     Graph,
     Pane(PaneId),
+    /// Legacy schema special-case: diagnostics pane persisted directly without
+    /// a manifest entry. Architectural target is to normalize this to
+    /// `Pane(pane_id)` + `PaneContent::Tool { kind: ToolPaneState::Diagnostics }`
+    /// so all tool panes use the same layout path. Tracked in the storage
+    /// schema cleanup work (issue #79).
     #[cfg(feature = "diagnostics")]
     Diagnostic,
 }
@@ -38,7 +43,12 @@ pub(crate) struct WorkspaceLayout {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum PaneContent {
     Graph,
-    WebViewNode { node_uuid: Uuid },
+    /// Node viewer pane bound to a graph node (viewer backend is resolved at
+    /// runtime by `ViewerRegistry`). Serde alias preserves backward-compat
+    /// deserialization of workspaces saved before the `WebViewNode` → `NodePane`
+    /// terminology rename.
+    #[serde(alias = "WebViewNode")]
+    NodePane { node_uuid: Uuid },
     /// Tool pane (diagnostics, history manager, settings, etc.).
     Tool { kind: crate::shell::desktop::workbench::pane_model::ToolPaneState },
 }
@@ -113,7 +123,7 @@ pub(crate) fn derive_membership_from_manifest(manifest: &WorkspaceManifest) -> B
         .panes
         .values()
         .filter_map(|pane| match pane {
-            PaneContent::WebViewNode { node_uuid } => Some(*node_uuid),
+            PaneContent::NodePane { node_uuid } => Some(*node_uuid),
             PaneContent::Graph => None,
             PaneContent::Tool { .. } => None,
         })
@@ -171,7 +181,7 @@ fn runtime_tree_to_bundle(
                 let pane_id = tile_id.0;
                 panes.insert(
                     pane_id,
-                    PaneContent::WebViewNode { node_uuid: node.id },
+                    PaneContent::NodePane { node_uuid: node.id },
                 );
                 PersistedPaneTile::Pane(pane_id)
             }
@@ -290,7 +300,7 @@ pub(crate) fn restore_runtime_tree_from_workspace_bundle(
             )),
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
                 Some(PaneContent::Graph) => Some(TileKind::Graph(GraphViewId::default())),
-                Some(PaneContent::WebViewNode { node_uuid }) => {
+                Some(PaneContent::NodePane { node_uuid }) => {
                     if let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(*node_uuid) {
                         restored_nodes.push(node_key);
                         Some(TileKind::Node(node_key.into()))
@@ -328,7 +338,7 @@ pub(crate) fn restore_runtime_tree_from_workspace_bundle(
     for tile_id in missing_tile_ids {
         let _ = runtime_tree.remove_recursively(tile_id);
     }
-    tile_runtime::prune_stale_webview_tile_keys_only(&mut runtime_tree, graph_app);
+    tile_runtime::prune_stale_node_pane_keys_only(&mut runtime_tree, graph_app);
     let has_graph_pane = runtime_tree
         .tiles
         .iter()
@@ -425,7 +435,7 @@ pub(crate) fn restore_tiles_tree_from_persistence(graph_app: &GraphBrowserApp) -
     if let Some(layout_json) = graph_app.load_tile_layout_json()
         && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
     {
-        tile_runtime::prune_stale_webview_tile_keys_only(&mut restored_tree, graph_app);
+        tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
         if restored_tree.root().is_some() {
             tiles_tree = restored_tree;
         }
@@ -463,7 +473,7 @@ pub(crate) fn build_membership_index_from_layouts(
             warn!("Skipping workspace '{workspace_name}': invalid layout json");
             continue;
         };
-        tile_runtime::prune_stale_webview_tile_keys_only(&mut tree, graph_app);
+        tile_runtime::prune_stale_node_pane_keys_only(&mut tree, graph_app);
         for node_key in workspace_nodes_from_tree(&tree) {
             let Some(node) = graph_app.workspace.graph.get_node(node_key) else {
                 continue;
@@ -524,7 +534,7 @@ pub(crate) fn prune_empty_named_workspaces(graph_app: &mut GraphBrowserApp) -> u
             warn!("Skipping workspace '{workspace_name}': invalid layout json");
             continue;
         };
-        tile_runtime::prune_stale_webview_tile_keys_only(&mut tree, graph_app);
+        tile_runtime::prune_stale_node_pane_keys_only(&mut tree, graph_app);
         if workspace_nodes_from_tree(&tree).is_empty() {
             names_to_delete.push(workspace_name);
         }

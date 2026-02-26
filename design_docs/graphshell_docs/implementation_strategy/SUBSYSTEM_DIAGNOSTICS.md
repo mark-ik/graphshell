@@ -1,4 +1,4 @@
-# Cross-Cutting Subsystem: Diagnostics (2026-02-25)
+# Cross-Cutting Subsystem: Diagnostics
 
 **Status**: Active / Project Goal
 **Subsystem label**: `diagnostics`
@@ -252,7 +252,7 @@ Diagnostics does not require per-surface capability declarations (it is the infr
 - `../research/2026-02-24_diagnostics_research.md` (primary research basis)
 - `2026-02-22_registry_layer_plan.md` (Phase 3 channel contracts and related infrastructure sequencing)
 - `2026-02-22_test_harness_consolidation_plan.md` (harness/test execution integration)
-- `2026-02-25_planning_register_backlog_and_copilot_guides.md` (cross-subsystem sequencing and backlog)
+- `PLANNING_REGISTER.md` (cross-subsystem sequencing and backlog)
 
 ## 15. Done Definition
 

@@ -8,7 +8,7 @@
 **Status**: Implementation-Ready (Phase 2.3)  
 **Relates to**: 
 - [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) (Mod infrastructure)
-- [2026-02-21_control_panel_async_scaling.md](2026-02-21_control_panel_async_scaling.md) (Async mod activation)
+- [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) (Async mod activation)
 
 ---
 

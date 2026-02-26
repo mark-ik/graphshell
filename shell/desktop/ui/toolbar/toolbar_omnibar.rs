@@ -210,14 +210,14 @@ fn non_at_contextual_matches(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
 ) -> Vec<OmnibarMatch> {
     let local_tabs = omnibar_matches_for_query(
         graph_app,
         tiles_tree,
         OmnibarSearchMode::TabsLocal,
         query,
-        has_webview_tiles,
+        has_node_panes,
     );
     let local_tab_keys: HashSet<NodeKey> = local_tabs
         .iter()
@@ -239,19 +239,19 @@ pub(super) fn non_at_primary_matches_for_scope(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     scope: OmnibarPreferredScope,
 ) -> Vec<OmnibarMatch> {
     match scope {
         OmnibarPreferredScope::Auto => {
-            non_at_contextual_matches(graph_app, tiles_tree, query, has_webview_tiles)
+            non_at_contextual_matches(graph_app, tiles_tree, query, has_node_panes)
         },
         OmnibarPreferredScope::LocalTabs => omnibar_matches_for_query(
             graph_app,
             tiles_tree,
             OmnibarSearchMode::TabsLocal,
             query,
-            has_webview_tiles,
+            has_node_panes,
         ),
         OmnibarPreferredScope::ConnectedNodes => {
             connected_nodes_matches_for_query(graph_app, query, &HashSet::new())
@@ -262,7 +262,7 @@ pub(super) fn non_at_primary_matches_for_scope(
             tiles_tree,
             OmnibarSearchMode::NodesAll,
             query,
-            has_webview_tiles,
+            has_node_panes,
         )
         .into_iter()
         .take(OMNIBAR_GLOBAL_NODES_FALLBACK_CAP)
@@ -272,7 +272,7 @@ pub(super) fn non_at_primary_matches_for_scope(
             tiles_tree,
             OmnibarSearchMode::TabsAll,
             query,
-            has_webview_tiles,
+            has_node_panes,
         )
         .into_iter()
         .take(OMNIBAR_GLOBAL_TABS_FALLBACK_CAP)
@@ -284,13 +284,13 @@ pub(super) fn non_at_matches_for_settings(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
 ) -> (Vec<OmnibarMatch>, bool) {
     let primary_matches = non_at_primary_matches_for_scope(
         graph_app,
         tiles_tree,
         query,
-        has_webview_tiles,
+        has_node_panes,
         graph_app.workspace.omnibar_preferred_scope,
     );
 
@@ -312,7 +312,7 @@ pub(super) fn non_at_global_fallback_matches(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
 ) -> Vec<OmnibarMatch> {
     let mut out = Vec::new();
     out.extend(
@@ -321,7 +321,7 @@ pub(super) fn non_at_global_fallback_matches(
             tiles_tree,
             OmnibarSearchMode::NodesAll,
             query,
-            has_webview_tiles,
+            has_node_panes,
         )
         .into_iter()
         .take(OMNIBAR_GLOBAL_NODES_FALLBACK_CAP),
@@ -332,7 +332,7 @@ pub(super) fn non_at_global_fallback_matches(
             tiles_tree,
             OmnibarSearchMode::TabsAll,
             query,
-            has_webview_tiles,
+            has_node_panes,
         )
         .into_iter()
         .take(OMNIBAR_GLOBAL_TABS_FALLBACK_CAP),
@@ -571,7 +571,7 @@ fn ranked_matches(candidates: Vec<OmnibarSearchCandidate>, query: &str) -> Vec<O
 pub(super) fn apply_omnibar_match(
     graph_app: &GraphBrowserApp,
     active_match: OmnibarMatch,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     force_original_workspace: bool,
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
@@ -579,7 +579,7 @@ pub(super) fn apply_omnibar_match(
     match active_match {
         OmnibarMatch::Node(key) => {
             frame_intents.push(GraphIntent::ClearHighlightedEdge);
-            if has_webview_tiles && force_original_workspace {
+            if has_node_panes && force_original_workspace {
                 frame_intents.push(GraphIntent::OpenNodeWorkspaceRouted {
                     key,
                     prefer_workspace: None,
@@ -589,7 +589,7 @@ pub(super) fn apply_omnibar_match(
                     key,
                     multi_select: false,
                 });
-                if has_webview_tiles {
+                if has_node_panes {
                     *open_selected_mode_after_submit = Some(ToolbarOpenMode::Tab);
                 }
             }
@@ -597,7 +597,7 @@ pub(super) fn apply_omnibar_match(
         OmnibarMatch::NodeUrl(url) => {
             frame_intents.push(GraphIntent::ClearHighlightedEdge);
             if let Some((key, _)) = graph_app.workspace.graph.get_node_by_url(&url) {
-                if has_webview_tiles {
+                if has_node_panes {
                     frame_intents.push(GraphIntent::OpenNodeWorkspaceRouted {
                         key,
                         prefer_workspace: None,
@@ -609,7 +609,7 @@ pub(super) fn apply_omnibar_match(
                     });
                 }
             } else {
-                if has_webview_tiles {
+                if has_node_panes {
                     frame_intents.push(GraphIntent::CreateNodeAtUrlAndOpen {
                         url,
                         position: graph_center_for_new_node(graph_app),
@@ -643,7 +643,7 @@ pub(super) fn omnibar_matches_for_query(
     tiles_tree: &Tree<TileKind>,
     mode: OmnibarSearchMode,
     query: &str,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
 ) -> Vec<OmnibarMatch> {
     let query = query.trim();
     if query.is_empty() {
@@ -796,7 +796,7 @@ pub(super) fn omnibar_matches_for_query(
                 .map(|context| connected_hop_distances_for_context(graph_app, context))
                 .unwrap_or_default();
             let local_tab_set = tab_node_keys_in_tree(tiles_tree);
-            if !has_webview_tiles {
+            if !has_node_panes {
                 let node_rank: HashMap<NodeKey, usize> = node_matches
                     .iter()
                     .copied()

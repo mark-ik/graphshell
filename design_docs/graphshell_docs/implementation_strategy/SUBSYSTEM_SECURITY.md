@@ -1,4 +1,4 @@
-# Cross-Cutting Subsystem: Security & Access Control (2026-02-25)
+# Cross-Cutting Subsystem: Security & Access Control
 
 **Status**: Active / Project Goal
 **Subsystem label**: `security`
@@ -11,7 +11,7 @@
 - `2026-02-22_registry_layer_plan.md` Phase 5.5 (workspace access control spec)
 - `../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md` §§2, 7, 9.5 (identity, trust, encryption, access control)
 - `archive_docs/checkpoint_2026-02-24/2026-02-24_step5_5_workspace_access_control.md` (archived Phase 1 implementation status)
-**Related**: `2026-02-25_planning_register_backlog_and_copilot_guides.md` (P1/P2 priority tasks reference Phase 5.4/5.5 done gates)
+**Related**: `PLANNING_REGISTER.md` (P1/P2 priority tasks reference Phase 5.4/5.5 done gates)
 
 ---
 
@@ -243,9 +243,9 @@ Based on the Phase 5.4/5.5 done-gate closures and current code:
 
 - `2026-02-22_registry_layer_plan.md` (Phase 5.5 workspace access control)
 - `../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md` (identity/trust/encryption/access control)
-- `2026-02-25_planning_register_backlog_and_copilot_guides.md` (P1/P2 and subsystem sequencing)
-- `2026-02-25_subsystem_persistence_integrity.md` (at-rest encryption and keychain overlap)
-- `2026-02-25_subsystem_diagnostics.md` (security diagnostic channels/health summaries)
+- `PLANNING_REGISTER.md` (P1/P2 and subsystem sequencing)
+- `SUBSYSTEM_STORAGE.md` (at-rest encryption and keychain overlap)
+- `SUBSYSTEM_DIAGNOSTICS.md` (security diagnostic channels/health summaries)
 
 ## 13. Done Definition
 

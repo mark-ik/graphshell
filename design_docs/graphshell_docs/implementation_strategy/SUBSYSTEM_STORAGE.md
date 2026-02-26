@@ -1,4 +1,4 @@
-# Cross-Cutting Subsystem: Persistence & Data Integrity (2026-02-25)
+# Cross-Cutting Subsystem: Persistence & Data Integrity
 
 **Status**: Active / Project Goal
 **Subsystem label**: `storage`
@@ -11,7 +11,7 @@
 - `2026-02-22_registry_layer_plan.md` Phase 6 (three-authority-domain boundary, single-write-path enforcement, `pub(crate)` boundary lock)
 - `services/persistence/mod.rs` (GraphStore: fjall WAL + redb snapshots + rkyv serialization + zstd compression + AES-256-GCM encryption)
 - `archive_docs/` — historical persistence plans (superseded by this document)
-**Related**: `2026-02-25_subsystem_security_access_control.md` §3.4 (cryptographic correctness invariants overlap)
+**Related**: `SUBSYSTEM_SECURITY.md` §3.4 (cryptographic correctness invariants overlap)
 
 ---
 
@@ -269,10 +269,10 @@ Based on the existing `services/persistence/mod.rs` (2340 lines):
 
 - `2026-02-22_registry_layer_plan.md` (Phase 6 single-write-path and authority boundary contracts)
 - `services/persistence/mod.rs` (current implementation reference)
-- `2026-02-25_subsystem_security_access_control.md` (crypto/keychain overlap)
-- `2026-02-25_subsystem_history_temporal_integrity.md` (archive/replay temporal integrity dependencies)
-- `2026-02-25_subsystem_diagnostics.md` (diagnostics infrastructure for persistence health)
-- `2026-02-25_planning_register_backlog_and_copilot_guides.md` (cross-subsystem sequencing and priorities)
+- `SUBSYSTEM_SECURITY.md` (crypto/keychain overlap)
+- `SUBSYSTEM_HISTORY.md` (archive/replay temporal integrity dependencies)
+- `SUBSYSTEM_DIAGNOSTICS.md` (diagnostics infrastructure for persistence health)
+- `PLANNING_REGISTER.md` (cross-subsystem sequencing and priorities)
 
 ## 13. Done Definition
 

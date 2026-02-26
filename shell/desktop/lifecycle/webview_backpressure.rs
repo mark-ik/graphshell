@@ -405,6 +405,8 @@ mod tests {
             session_scroll: None,
             session_form_draft: None,
             lifecycle: NodeLifecycle::Cold,
+            mime_hint: None,
+            address_kind: crate::model::graph::AddressKind::Http,
         }
     }
 

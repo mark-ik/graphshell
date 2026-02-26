@@ -151,7 +151,7 @@ pub(crate) struct ToolbarUiInput<'a> {
     pub window: &'a EmbedderWindow,
     pub tiles_tree: &'a Tree<TileKind>,
     pub focused_toolbar_node: Option<NodeKey>,
-    pub has_webview_tiles: bool,
+    pub has_node_panes: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub location: &'a mut String,
@@ -306,7 +306,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
         window,
         tiles_tree,
         focused_toolbar_node,
-        has_webview_tiles,
+        has_node_panes,
         can_go_back,
         can_go_forward,
         location,
@@ -331,7 +331,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
 
     let mut toggle_tile_view_requested = false;
     let mut open_selected_mode_after_submit = None;
-    let is_graph_view = !has_webview_tiles;
+    let is_graph_view = !has_node_panes;
     let persisted_workspace_names: HashSet<String> = graph_app
         .list_workspace_layout_names()
         .into_iter()
@@ -370,7 +370,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
                             window,
                             tiles_tree,
                             focused_toolbar_node,
-                            has_webview_tiles,
+                            has_node_panes,
                             is_graph_view,
                             location,
                             location_dirty,

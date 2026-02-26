@@ -214,7 +214,7 @@ fn restore_startup_session_workspace_if_available(
     if let Some(layout_json) = graph_app.load_tile_layout_json()
         && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
     {
-        tile_runtime::prune_stale_webview_tile_keys_only(&mut restored_tree, graph_app);
+        tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
         if restored_tree.root().is_some() {
             graph_app.mark_session_workspace_layout_json(&layout_json);
             log::debug!("gui: restored startup session workspace from legacy layout json");
@@ -406,7 +406,7 @@ impl Gui {
     }
 
     pub(crate) fn is_graph_view(&self) -> bool {
-        !self.has_active_webview_tile()
+        !self.has_active_node_pane()
     }
 
     /// Set the RunningAppState reference for webview creation
@@ -431,7 +431,7 @@ impl Gui {
 
         // When no WebView tile is active, consume user input events so they
         // never reach an inactive/hidden WebView.
-        if !self.has_active_webview_tile() {
+        if !self.has_active_node_pane() {
             match event {
                 WindowEvent::KeyboardInput { .. }
                 | WindowEvent::ModifiersChanged(_)
@@ -803,7 +803,7 @@ impl Gui {
                 graph_app,
                 pre_frame.pending_open_child_webviews,
                 |node_key| {
-                    tile_view_ops::open_or_focus_webview_tile_with_mode(
+                    tile_view_ops::open_or_focus_node_pane_with_mode(
                         tiles_tree,
                         node_key,
                         Self::default_open_mode_for_layout(tiles_tree),
@@ -918,7 +918,7 @@ impl Gui {
         toolbar_state: &mut ToolbarState,
         frame_intents: &mut Vec<GraphIntent>,
     ) -> graph_search_flow::GraphSearchFlowOutput {
-        let graph_search_available = Self::active_webview_tile_node(tiles_tree).is_none();
+        let graph_search_available = Self::active_node_pane_node(tiles_tree).is_none();
         graph_app.workspace.search_display_mode = if *graph_search_filter_mode {
             SearchDisplayMode::Filter
         } else {
@@ -1156,6 +1156,24 @@ impl Gui {
     ) {
     }
 
+    /// Intercept workbench-authority intents before they reach `apply_intents()`.
+    ///
+    /// ## Two-authority model
+    ///
+    /// The architecture has two distinct mutation authorities:
+    ///
+    /// - **Graph Reducer** (`apply_intents` in `app.rs`): authoritative for the graph
+    ///   data model, node/edge lifecycle, WAL journal, and traversal history.
+    ///   Always synchronous, always logged, always testable.
+    ///
+    /// - **Workbench Authority** (this function + `tile_view_ops.rs`): authoritative
+    ///   for tile-tree shape mutations (`egui_tiles` splits, tabs, pane open/close/
+    ///   focus). The tile tree is a layout construct — not graph state — and must
+    ///   not flow through the graph reducer or the WAL.
+    ///
+    /// Intents tagged as workbench-authority (`OpenToolPane`, `SplitPane`,
+    /// `SetPaneView`, `OpenNodeInPane`) must be drained here, before `apply_intents`
+    /// is called. Any that leak through will produce a `log::warn!` in the reducer.
     fn handle_tool_pane_intents(tiles_tree: &mut Tree<TileKind>, frame_intents: &mut Vec<GraphIntent>) {
         let mut remaining = Vec::with_capacity(frame_intents.len());
         for intent in frame_intents.drain(..) {
@@ -1206,7 +1224,7 @@ impl Gui {
                 graph_app.capture_undo_checkpoint(Some(layout_json));
             }
             let anchor_before_open = if open_mode == TileOpenMode::Tab {
-                gui_frame::active_webview_tile_node(tiles_tree)
+                gui_frame::active_node_pane_node(tiles_tree)
             } else {
                 None
             };
@@ -1216,8 +1234,8 @@ impl Gui {
                     Tile::Pane(TileKind::Node(state)) if state.node == node_key
                 )
             });
-            log::debug!("gui: calling open_or_focus_webview_tile_with_mode for {:?} mode {:?}", node_key, open_mode);
-            tile_view_ops::open_or_focus_webview_tile_with_mode(tiles_tree, node_key, open_mode);
+            log::debug!("gui: calling open_or_focus_node_pane_with_mode for {:?} mode {:?}", node_key, open_mode);
+            tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, node_key, open_mode);
             if open_mode == TileOpenMode::Tab
                 && !node_already_in_workspace
                 && let Some(anchor) = anchor_before_open
@@ -1235,7 +1253,7 @@ impl Gui {
         }
     }
 
-    fn has_active_webview_tile(&self) -> bool {
+    fn has_active_node_pane(&self) -> bool {
         self.tiles_tree.active_tiles().into_iter().any(|tile_id| {
             matches!(
                 self.tiles_tree.tiles.get(tile_id),
@@ -1244,7 +1262,7 @@ impl Gui {
         })
     }
 
-    fn active_webview_tile_node(tiles_tree: &Tree<TileKind>) -> Option<crate::graph::NodeKey> {
+    fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<crate::graph::NodeKey> {
         tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
             match tiles_tree.tiles.get(tile_id) {
                 Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
@@ -1272,7 +1290,7 @@ impl Gui {
             // Preserve active omnibar node-search query text while cycling matches.
             return false;
         }
-        let has_webview_tiles = tile_runtime::has_any_webview_tiles(&self.tiles_tree);
+        let has_node_panes = tile_runtime::has_any_node_panes(&self.tiles_tree);
         let selected_node_url = self.graph_app.get_single_selected_node().and_then(|key| {
             self.graph_app
                 .workspace
@@ -1284,7 +1302,7 @@ impl Gui {
         webview_status_sync::update_location_in_toolbar(
             self.toolbar_state.location_dirty,
             &mut self.toolbar_state.location,
-            has_webview_tiles,
+            has_node_panes,
             selected_node_url,
             focused_webview_id,
             window,

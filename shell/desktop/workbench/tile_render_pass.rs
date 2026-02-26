@@ -190,7 +190,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     }
 
     for open in pending_open_nodes {
-        tile_view_ops::open_or_focus_webview_tile_with_mode(
+        tile_view_ops::open_or_focus_node_pane_with_mode(
             tiles_tree,
             open.key,
             open_mode_from_pending(open.mode),
@@ -199,7 +199,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
 
     #[cfg(feature = "diagnostics")]
     if let Some(node_key) = diagnostics_state.take_pending_focus_node() {
-        tile_view_ops::open_or_focus_webview_tile_with_mode(tiles_tree, node_key, TileOpenMode::Tab);
+        tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, node_key, TileOpenMode::Tab);
         post_render_intents.push(GraphIntent::SelectNode {
             key: node_key,
             multi_select: false,
@@ -237,7 +237,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         log::debug!("tile_render_pass: active tile {:?} rect {:?} mapped_webview={:?} has_context={}", key, rect, mapped, has_context);
     }
     
-    let all_tile_nodes = tile_runtime::all_webview_tile_nodes(tiles_tree);
+    let all_tile_nodes = tile_runtime::all_node_pane_keys(tiles_tree);
     log::debug!("tile_render_pass: {} all tile nodes", all_tile_nodes.len());
     for node_key in all_tile_nodes.iter().copied() {
         log::debug!("tile_render_pass: tile node {:?}", node_key);
@@ -280,7 +280,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     
     // Ensure rendering contexts exist for ALL tile nodes (not just active ones).
     // This maintains the tile_rendering_contexts HashMap for hidden/inactive tiles too.
-    let all_tile_nodes = tile_runtime::all_webview_tile_nodes(tiles_tree);
+    let all_tile_nodes = tile_runtime::all_node_pane_keys(tiles_tree);
     for node_key in all_tile_nodes.iter().copied() {
         if !tile_rendering_contexts.contains_key(&node_key) {
             let render_context = Rc::new(

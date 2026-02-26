@@ -100,6 +100,30 @@ impl<'a> GraphshellTileBehavior<'a> {
         hasher.finish()
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn tool_pane_title(
+        kind: &crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    ) -> &'static str {
+        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+        match kind {
+            ToolPaneState::Diagnostics => "Diagnostics",
+            ToolPaneState::HistoryManager => "History",
+            ToolPaneState::AccessibilityInspector => "Accessibility",
+            ToolPaneState::Settings => "Settings",
+        }
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn render_tool_pane_placeholder(
+        ui: &mut Ui,
+        kind: &crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    ) {
+        let title = Self::tool_pane_title(kind);
+        ui.heading(title);
+        ui.separator();
+        ui.label(format!("{title} tool pane is not yet rendered in the workbench."));
+    }
+
     fn favicon_texture_id(&mut self, ui: &Ui, node_key: NodeKey) -> Option<egui::TextureId> {
         let (favicon_rgba, favicon_width, favicon_height) = {
             let node = self.graph_app.workspace.graph.get_node(node_key)?;
@@ -360,7 +384,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         self.diagnostics_state.render_in_pane(ui, self.graph_app);
                     }
                     _ => {
-                        ui.label("Tool pane (not yet rendered).");
+                        Self::render_tool_pane_placeholder(ui, tool);
                     }
                 }
             }
@@ -384,7 +408,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 .map(|n| n.title.clone().into())
                 .unwrap_or_else(|| format!("Node {:?}", state.node).into()),
             #[cfg(feature = "diagnostics")]
-            TileKind::Tool(_) => "Diagnostics".into(),
+            TileKind::Tool(tool) => Self::tool_pane_title(tool).into(),
         }
     }
 
@@ -432,7 +456,9 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 (title, favicon)
             },
             #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Tool(_))) => ("Diagnostics".to_string(), None),
+            Some(Tile::Pane(TileKind::Tool(tool))) => {
+                (Self::tool_pane_title(tool).to_string(), None)
+            }
             Some(Tile::Container(Container::Linear(linear))) => {
                 let label = match linear.dir {
                     egui_tiles::LinearDir::Horizontal => {

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use super::{AccessibilityCapabilities, SecurityCapabilities};
+
 pub(crate) const VIEWER_SURFACE_DEFAULT: &str = "viewer_surface:default";
 
 #[derive(Debug, Clone)]
@@ -8,6 +10,13 @@ pub(crate) struct ViewerSurfaceProfile {
     pub(crate) reader_mode_default: bool,
     pub(crate) smooth_scroll_enabled: bool,
     pub(crate) zoom_step: f32,
+    /// Accessibility conformance declaration for this viewer surface profile.
+    /// Defaults to `Full` for built-in profiles; degraded-path registrations
+    /// should use `Partial` or `None` with a descriptive reason.
+    pub(crate) accessibility: AccessibilityCapabilities,
+    /// Security conformance declaration for this viewer surface profile.
+    /// Reflects content isolation / sandbox guarantees for the viewer backend.
+    pub(crate) security: SecurityCapabilities,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +90,8 @@ impl Default for ViewerSurfaceRegistry {
                 reader_mode_default: false,
                 smooth_scroll_enabled: true,
                 zoom_step: 1.1,
+                accessibility: AccessibilityCapabilities::full(),
+                security: SecurityCapabilities::full(),
             },
         );
         registry

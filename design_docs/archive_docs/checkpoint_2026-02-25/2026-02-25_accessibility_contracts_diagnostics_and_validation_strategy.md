@@ -1,13 +1,13 @@
 # Accessibility Contracts, Diagnostics, and Validation Strategy (2026-02-25)
 
 > **SUPERSEDED** — This document has been consolidated into
-> `2026-02-25_subsystem_accessibility.md` (Cross-Cutting Subsystem: Accessibility).
+> `SUBSYSTEM_ACCESSIBILITY.md` (Cross-Cutting Subsystem: Accessibility).
 > Retained for historical reference only. Do not use as authoritative.
 
 **Status**: ~~Active / Project Goal~~ Superseded (2026-02-25)
 **Scope**: Cross-cutting guarantees for WebView accessibility bridge, graph accessibility, focus/navigation, live announcements, and future viewer surfaces
 **Companion docs**:
-- ~~`2026-02-24_spatial_accessibility_plan.md`~~ → see `2026-02-25_subsystem_accessibility.md`
+- ~~`2026-02-24_spatial_accessibility_plan.md`~~ → see `SUBSYSTEM_ACCESSIBILITY.md`
 - `../research/2026-02-24_spatial_accessibility_research.md` (research basis)
 - `../research/2026-02-24_diagnostics_research.md` (observability/registry design precedent)
 

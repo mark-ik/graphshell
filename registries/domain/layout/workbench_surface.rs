@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use super::{AccessibilityCapabilities, SecurityCapabilities};
+
 pub(crate) const WORKBENCH_SURFACE_DEFAULT: &str = "workbench_surface:default";
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,10 @@ pub(crate) struct WorkbenchSurfaceProfile {
     pub(crate) split_vertical_label: String,
     pub(crate) tab_group_label: String,
     pub(crate) grid_label: String,
+    /// Accessibility conformance declaration for this workbench surface profile.
+    pub(crate) accessibility: AccessibilityCapabilities,
+    /// Security conformance declaration for this workbench surface profile.
+    pub(crate) security: SecurityCapabilities,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +115,8 @@ impl Default for WorkbenchSurfaceRegistry {
                 split_vertical_label: "Split ↕".to_string(),
                 tab_group_label: "Tab Group".to_string(),
                 grid_label: "Grid".to_string(),
+                accessibility: AccessibilityCapabilities::full(),
+                security: SecurityCapabilities::full(),
             },
         );
         registry

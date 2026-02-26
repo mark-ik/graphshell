@@ -17,7 +17,7 @@ pub fn render_omnibar_dropdown(
     is_graph_view: bool,
     focused_toolbar_node: Option<NodeKey>,
     window: &EmbedderWindow,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
 ) {
@@ -188,7 +188,7 @@ pub fn render_omnibar_dropdown(
                 apply_omnibar_match(
                     graph_app,
                     item,
-                    has_webview_tiles,
+                    has_node_panes,
                     false,
                     frame_intents,
                     open_selected_mode_after_submit,
@@ -250,7 +250,7 @@ pub fn render_omnibar_dropdown(
                 apply_omnibar_match(
                     graph_app,
                     other,
-                    has_webview_tiles,
+                    has_node_panes,
                     shift_override_original,
                     frame_intents,
                     open_selected_mode_after_submit,

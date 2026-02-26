@@ -67,10 +67,10 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 *   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
 *   **Settings Pane**: A tool pane that aggregates configuration and controls across registries, subsystems, and app-level preferences. A settings pane may host subsystem-specific sections or summon dedicated subsystem panes.
-*   **Control Panel**: The runtime coordination surface/process host for async intent producers, background workers, and cancellation. In architectural terms it is a peer coordinator (not owner) for registries, subsystems, mods, and UI surfaces; in product terms it is the natural home for settings orchestration and subsystem control surfaces. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
+*   **Control Panel**: The async coordination/process host for background workers and intent producers within The Register. In architectural terms it is a peer coordinator (not owner) for registries, subsystems, mods, and UI surfaces — an **Aspect** of The Register's runtime composition. It does not own or render UI surfaces directly; subsystems expose UI through their dedicated tool/subsystem panes. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
 *   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*.
 *   **Command Palette**: A modifiable context menu that serves as an accessible interface for executing Actions.
-*   **The Register**: The central runtime infrastructure host. Contains all Atomic and Domain registries, owns the mod loader, manages the inter-registry Signal Bus, and supervises the **Control Panel** (async intent producers, background workers, cancellation tokens). Code-level: `RegistryRuntime` + `ControlPanel` + `SignalBus`.
+*   **The Register**: See *Registry Architecture* section below for the full definition.
 *   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View. Stored separately from the Tile Tree as it is per-view runtime state, not a layout concern.
 
 ## Camera Commands
@@ -104,7 +104,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 ## Registry Architecture
 
-*   **The Register**: The root runtime infrastructure host. Owns both Atomic and Domain registries, the mod loader, the inter-registry Signal Bus, and the **Control Panel** (async worker supervision, intent queue, cancellation tokens). Code-level: `RegistryRuntime` + `ControlPanel` + `SignalBus`.
+*   **The Register**: The root runtime infrastructure host. Owns both Atomic and Domain registries, the mod loader, inter-registry signal/event routing, and the **Control Panel** (async worker supervision, intent queue, cancellation tokens). The signal routing layer may be implemented as `SignalBus` or an equivalent abstraction over time. Code-level: `RegistryRuntime` + `ControlPanel` (+ signal routing layer).
 *   **Atomic Registry (Primitive)**: A registry that manages a specific capability contract. The "Vocabulary". Registries define contracts (empty surfaces with fallback defaults); mods populate them with implementations.
     *   *I/O & Routing*: `ProtocolRegistry`, `ViewerRegistry`, `IndexRegistry`.
     *   *Logic*: `ActionRegistry` (discrete deterministic commands), `AgentRegistry` (autonomous cognitive agents that observe app state, connect to AI intelligence providers, and emit intent streams).
@@ -113,6 +113,9 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
     *   *Infrastructure*: `DiagnosticsRegistry`, `ModRegistry`, `LayoutRegistry` (atomic algorithm store: maps `LayoutId → Algorithm`; used by `CanvasRegistry` to resolve the active layout algorithm).
 *   **Domain Registry (Composite / Subregister)**: A subregister that groups related primitives by semantic concern and evaluation order.
     *   *Primary domains*: `LayoutDomainRegistry`, `PresentationDomainRegistry`, `InputRegistry`.
+*   **Domain**: An architectural concern boundary and evaluation layer (for example `layout`, `presentation`, `input`) that answers a class of behavior questions and defines sequencing constraints between related registries.
+*   **Aspect**: A synthesized runtime concern-oriented system (often non-visual, or not inherently visual) that ingests domain/registry capabilities to perform a task or family of related tasks. Aspects may expose one or more UI surfaces, but are not themselves defined by having UI.
+*   **Surface** (architectural): A UI presentation/interaction manifestation of a domain, aspect, or subsystem. Examples include the graph canvas, workbench tile-tree presentation, viewer viewport, and subsystem/tool panes. A Surface is not a synonym for a Pane: a Pane is a tile-tree host unit that contains a surface.
 *   **Layout Domain**: The domain responsible for how information is arranged and interacted with before styling. Each registry controls structure, interaction policy, and rendering policy for its territory.
     *   `LayoutDomainRegistry` (domain coordinator)
     *   `CanvasRegistry` (graph canvas: topology policy, layout algorithms, interaction/rendering policy, physics engine execution, badge display — the infinite, spatial, physics-driven graph surface)
@@ -125,9 +128,14 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Cross-Domain Compositor**:
     *   `LensCompositor` (composes Layout + Presentation + Knowledge + Filters; enforces domain sequencing during resolution)
 *   **Domain sequencing principle**: Resolve layout first (structure + interaction), then presentation (style + motion parameters).
+*   **Domain / Aspect / Surface / Subsystem distinction**:
+    *   `Domain` answers what class of behavior is being resolved (layout/presentation/input) and in what order.
+    *   `Aspect` is the synthesized runtime system oriented to a task family using registry/domain capabilities (may be headless or UI-backed).
+    *   `Surface` is the UI presentation through which users interact with or observe a domain/aspect/subsystem.
+    *   `Subsystem` is a cross-cutting guarantee framework (diagnostics, accessibility, security, storage, history) applied across domains/aspects/surfaces.
 *   **Semantic gap principle**: On each architecture change, ask: "Is there a semantic gap that maps cleanly to technical, architectural, or design concerns and should become an explicit registry/domain boundary?"
 *   **Mod-first principle**: Registries define contracts. Mods populate them. The application must be fully functional as an offline graph organizer with only core seeds (no mods loaded).
-*   **SignalBus**: The inter-registry event bus owned by The Register. Carries typed signals between registries without direct coupling. Registries subscribe to signal types; emitters do not know their consumers.
+*   **SignalBus**: The planned (or equivalent) inter-registry event bus abstraction owned by The Register. Carries typed signals between registries without direct coupling. Registries subscribe to signal types; emitters do not know their consumers. This term may refer to the architectural role even while implementation remains transitional.
 *   **Action**: An executable command defined in the `ActionRegistry`.
 *   **AgentRegistry**: An atomic registry for autonomous cognitive agents — background processes that observe app state, connect to external AI/inference providers, and emit `GraphIntent` streams. Distinct from `ActionRegistry` (discrete, deterministic, user-triggered commands): agents are continuous, probabilistic, and self-directed.
 *   **Mod**: A capability unit that registers entries into one or more registries. Two tiers:

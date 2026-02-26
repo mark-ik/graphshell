@@ -30,17 +30,17 @@ impl TileCoordinator {
         tile_rendering_contexts.clear();
         tile_favicon_textures.clear();
         favicon_textures.clear();
-        Self::remove_all_webview_tiles(tiles_tree);
+        Self::remove_all_node_panes(tiles_tree);
     }
 
-    pub(crate) fn has_any_webview_tiles(tiles_tree: &Tree<TileKind>) -> bool {
+    pub(crate) fn has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
         tiles_tree
             .tiles
             .iter()
             .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(_))))
     }
 
-    pub(crate) fn all_webview_tile_nodes(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
+    pub(crate) fn all_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
         tiles_tree
             .tiles
             .iter()
@@ -51,20 +51,20 @@ impl TileCoordinator {
             .collect()
     }
 
-    pub(crate) fn prune_stale_webview_tile_keys_only(
+    pub(crate) fn prune_stale_node_pane_keys_only(
         tiles_tree: &mut Tree<TileKind>,
         graph_app: &GraphBrowserApp,
     ) {
-        let stale_nodes: Vec<_> = Self::all_webview_tile_nodes(tiles_tree)
+        let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
             .into_iter()
             .filter(|node_key| graph_app.workspace.graph.get_node(*node_key).is_none())
             .collect();
         for node_key in stale_nodes {
-            Self::remove_webview_tile_for_node(tiles_tree, node_key);
+            Self::remove_node_pane_for_node(tiles_tree, node_key);
         }
     }
 
-    pub(crate) fn remove_all_webview_tiles(tiles_tree: &mut Tree<TileKind>) {
+    pub(crate) fn remove_all_node_panes(tiles_tree: &mut Tree<TileKind>) {
         let tile_ids: Vec<_> = tiles_tree
             .tiles
             .iter()
@@ -78,7 +78,7 @@ impl TileCoordinator {
         }
     }
 
-    pub(crate) fn remove_webview_tile_for_node(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
+    pub(crate) fn remove_node_pane_for_node(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
         let tile_ids: Vec<_> = tiles_tree
             .tiles
             .iter()
@@ -92,20 +92,20 @@ impl TileCoordinator {
         }
     }
 
-    pub(crate) fn prune_stale_webview_tiles(
+    pub(crate) fn prune_stale_node_panes(
         tiles_tree: &mut Tree<TileKind>,
         graph_app: &mut GraphBrowserApp,
         window: &EmbedderWindow,
         tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
         lifecycle_intents: &mut Vec<GraphIntent>,
     ) {
-        let stale_nodes: Vec<_> = Self::all_webview_tile_nodes(tiles_tree)
+        let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
             .into_iter()
             .filter(|node_key| graph_app.workspace.graph.get_node(*node_key).is_none())
             .collect();
 
         for node_key in stale_nodes {
-            Self::remove_webview_tile_for_node(tiles_tree, node_key);
+            Self::remove_node_pane_for_node(tiles_tree, node_key);
             Self::close_webview_for_node(
                 graph_app,
                 window,
@@ -168,39 +168,39 @@ pub(crate) fn reset_runtime_webview_state(
     );
 }
 
-pub(crate) fn has_any_webview_tiles(tiles_tree: &Tree<TileKind>) -> bool {
-    TileCoordinator::has_any_webview_tiles(tiles_tree)
+pub(crate) fn has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
+    TileCoordinator::has_any_node_panes(tiles_tree)
 }
 
-pub(crate) fn all_webview_tile_nodes(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
-    TileCoordinator::all_webview_tile_nodes(tiles_tree)
+pub(crate) fn all_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
+    TileCoordinator::all_node_pane_keys(tiles_tree)
 }
 
-pub(crate) fn prune_stale_webview_tile_keys_only(
+pub(crate) fn prune_stale_node_pane_keys_only(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,
 ) {
-    TileCoordinator::prune_stale_webview_tile_keys_only(tiles_tree, graph_app);
+    TileCoordinator::prune_stale_node_pane_keys_only(tiles_tree, graph_app);
 }
 
 #[allow(dead_code)]
-pub(crate) fn remove_all_webview_tiles(tiles_tree: &mut Tree<TileKind>) {
-    TileCoordinator::remove_all_webview_tiles(tiles_tree);
+pub(crate) fn remove_all_node_panes(tiles_tree: &mut Tree<TileKind>) {
+    TileCoordinator::remove_all_node_panes(tiles_tree);
 }
 
 #[allow(dead_code)]
-pub(crate) fn remove_webview_tile_for_node(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
-    TileCoordinator::remove_webview_tile_for_node(tiles_tree, node_key);
+pub(crate) fn remove_node_pane_for_node(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
+    TileCoordinator::remove_node_pane_for_node(tiles_tree, node_key);
 }
 
-pub(crate) fn prune_stale_webview_tiles(
+pub(crate) fn prune_stale_node_panes(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
-    TileCoordinator::prune_stale_webview_tiles(
+    TileCoordinator::prune_stale_node_panes(
         tiles_tree,
         graph_app,
         window,

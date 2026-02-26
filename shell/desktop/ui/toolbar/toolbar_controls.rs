@@ -9,11 +9,11 @@ use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 pub(super) fn render_workspace_pin_controls(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
-    has_webview_tiles: bool,
+    has_node_panes: bool,
     focused_pane_pin_name: Option<&str>,
     persisted_workspace_names: &HashSet<String>,
 ) {
-    if !has_webview_tiles {
+    if !has_node_panes {
         return;
     }
 
