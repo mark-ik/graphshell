@@ -4,6 +4,8 @@
 **Status:** Prospective — Stage 1 in progress, Stages 2+ planned
 **Relates to:** Architectural Concerns doc §8 (Monolithic UI)
 
+**Coordination note (2026-02-26):** Stage 4 decomposition should follow the foundation-first sequencing in `2026-02-26_composited_viewer_pass_contract.md` Appendix A and `PLANNING_REGISTER.md` §0.10. Specifically, compositor pass-order correctness + GL-state diagnostics hardening should land before UX-expansion slices that increase render-path complexity.
+
 ---
 
 ## Context

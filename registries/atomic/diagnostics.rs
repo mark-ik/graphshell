@@ -30,6 +30,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_VERSE_SYNC_CONNECTION_REJECTED, CHANNEL_VERSE_SYNC_IDENTITY_GENERATED,
     CHANNEL_VERSE_SYNC_INTENT_APPLIED, CHANNEL_VERSE_SYNC_UNIT_RECEIVED,
     CHANNEL_VERSE_SYNC_UNIT_SENT,
+    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
     CHANNEL_VERSE_SYNC_CONFLICT_DETECTED, CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
 };
 
@@ -369,7 +370,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 26] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 27] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -499,6 +500,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 26] = [
         channel_id: CHANNEL_SURFACE_CONFORMANCE_NONE,
         schema_version: 1,
         severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
     },
 ];
 
@@ -1096,6 +1102,7 @@ mod tests {
         assert!(registry.has_channel(CHANNEL_PROTOCOL_RESOLVE_STARTED));
         assert!(registry.has_channel(CHANNEL_ACTION_EXECUTE_STARTED));
         assert!(registry.has_channel(CHANNEL_IDENTITY_SIGN_STARTED));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_GL_STATE_VIOLATION));
         assert!(registry.has_channel(CHANNEL_VERSE_SYNC_UNIT_SENT));
     }
 

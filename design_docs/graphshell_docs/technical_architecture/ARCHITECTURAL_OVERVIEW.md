@@ -317,7 +317,7 @@ Scope: Readme/docs and selected files from GraphRAG, Midori Desktop, egui_node_g
 
 **Design Specs**:
 - [GRAPHSHELL_AS_BROWSER.md](GRAPHSHELL_AS_BROWSER.md) — Unified graph-tile-webview behavioral specification
-- [IMPLEMENTATION_ROADMAP.md](../implementation_strategy/IMPLEMENTATION_ROADMAP.md) — Feature targets and execution order
+- [PLANNING_REGISTER.md](../implementation_strategy/PLANNING_REGISTER.md) — Canonical execution priorities, lane sequencing, and issue-seeding guidance
 
 **Implementation Plans**:
 - [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) — Lifecycle/reconciliation intent model
