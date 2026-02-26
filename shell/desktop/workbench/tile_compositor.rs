@@ -94,9 +94,10 @@ pub(crate) fn composite_active_node_pane_webviews(
     #[cfg(feature = "diagnostics")]
     let composite_started = Instant::now();
     log::debug!("composite_active_node_pane_webviews: {} tiles", active_tile_rects.len());
-    // Keep focus ring below popup/panel overlays (palette, dialogs) so it never occludes UI.
-    let focus_ring_layer = LayerId::new(egui::Order::Background, Id::new("graphshell_focus_ring"));
-    let hover_ring_layer = LayerId::new(egui::Order::Background, Id::new("graphshell_hover_ring"));
+    // Draw rings above composited document tiles (`Order::Middle`) but below popup/tooltips
+    // that render in higher egui orders.
+    let focus_ring_layer = LayerId::new(egui::Order::Middle, Id::new("graphshell_focus_ring"));
+    let hover_ring_layer = LayerId::new(egui::Order::Middle, Id::new("graphshell_hover_ring"));
     let scale = Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ctx.pixels_per_point());
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
     let mut hovered_webview_id: Option<WebViewId> = None;
