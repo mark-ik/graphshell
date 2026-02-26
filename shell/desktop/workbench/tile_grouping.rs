@@ -25,7 +25,7 @@ fn nearest_tabs_container_for_tile(
     None
 }
 
-pub(crate) fn webview_tab_group_memberships(
+pub(crate) fn node_pane_tab_group_memberships(
     tiles_tree: &Tree<super::tile_kind::TileKind>,
 ) -> HashMap<NodeKey, TileId> {
     let mut memberships = HashMap::new();
@@ -38,6 +38,12 @@ pub(crate) fn webview_tab_group_memberships(
         }
     }
     memberships
+}
+
+pub(crate) fn webview_tab_group_memberships(
+    tiles_tree: &Tree<super::tile_kind::TileKind>,
+) -> HashMap<NodeKey, TileId> {
+    node_pane_tab_group_memberships(tiles_tree)
 }
 
 pub(crate) fn tab_group_nodes(

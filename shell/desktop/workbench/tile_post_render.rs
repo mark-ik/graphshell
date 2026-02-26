@@ -31,7 +31,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) -> TileRenderOutputs {
-    let tab_groups_before = tile_grouping::webview_tab_group_memberships(tiles_tree);
+    let tab_groups_before = tile_grouping::node_pane_tab_group_memberships(tiles_tree);
     let mut behavior = GraphshellTileBehavior::new(
         graph_app,
         tile_favicon_textures,
@@ -49,7 +49,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     let tab_drag_stopped_nodes = behavior.take_pending_tab_drag_stopped_nodes();
     let mut post_render_intents = behavior.take_pending_graph_intents();
 
-    let tab_groups_after = tile_grouping::webview_tab_group_memberships(tiles_tree);
+    let tab_groups_after = tile_grouping::node_pane_tab_group_memberships(tiles_tree);
     let tab_group_nodes_after = tile_grouping::tab_group_nodes(tiles_tree);
     post_render_intents.extend(tile_grouping::user_grouped_intents_for_tab_group_moves(
         &tab_groups_before,
@@ -69,7 +69,7 @@ pub(crate) fn mapped_nodes_without_tiles(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) -> Vec<NodeKey> {
-    let tile_nodes = tile_runtime::all_webview_host_node_pane_keys(tiles_tree, graph_app);
+    let tile_nodes = tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
     graph_app
         .webview_node_mappings()
         .map(|(_, node_key)| node_key)

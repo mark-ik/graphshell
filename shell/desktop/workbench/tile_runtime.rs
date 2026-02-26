@@ -40,7 +40,7 @@ impl TileCoordinator {
         )
     }
 
-    fn collect_webview_host_node_pane_keys(
+    fn collect_node_pane_keys_hosting_webview_runtime(
         tiles_tree: &Tree<TileKind>,
         graph_app: &GraphBrowserApp,
     ) -> HashSet<NodeKey> {
@@ -92,11 +92,18 @@ impl TileCoordinator {
             .collect()
     }
 
+    pub(crate) fn all_node_pane_keys_hosting_webview_runtime(
+        tiles_tree: &Tree<TileKind>,
+        graph_app: &GraphBrowserApp,
+    ) -> HashSet<NodeKey> {
+        Self::collect_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
+    }
+
     pub(crate) fn all_webview_host_node_pane_keys(
         tiles_tree: &Tree<TileKind>,
         graph_app: &GraphBrowserApp,
     ) -> HashSet<NodeKey> {
-        Self::collect_webview_host_node_pane_keys(tiles_tree, graph_app)
+        Self::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
     }
 
     pub(crate) fn prune_stale_node_pane_keys_only(
@@ -234,6 +241,13 @@ pub(crate) fn all_webview_host_node_pane_keys(
     graph_app: &GraphBrowserApp,
 ) -> HashSet<NodeKey> {
     TileCoordinator::all_webview_host_node_pane_keys(tiles_tree, graph_app)
+}
+
+pub(crate) fn all_node_pane_keys_hosting_webview_runtime(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+) -> HashSet<NodeKey> {
+    TileCoordinator::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
 }
 
 pub(crate) fn prune_stale_node_pane_keys_only(
@@ -386,5 +400,27 @@ mod tests {
 
         assert!(!http_hosts.contains(&http_node));
         assert!(file_hosts.contains(&file_node));
+    }
+
+    #[test]
+    fn hosting_webview_runtime_is_subset_of_all_node_panes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let webview_node = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
+        let plaintext_node = app.add_node_and_sync("file:///tmp/readme.txt".into(), Point2D::new(10.0, 0.0));
+
+        let mut tiles = Tiles::default();
+        let a = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(webview_node)));
+        let b = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(plaintext_node)));
+        let root = tiles.insert_tab_tile(vec![a, b]);
+        let tree = Tree::new("tile_runtime_node_vs_host_subset", root, tiles);
+
+        let all_nodes = TileCoordinator::all_node_pane_keys(&tree);
+        let host_nodes = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
+
+        assert!(all_nodes.contains(&webview_node));
+        assert!(all_nodes.contains(&plaintext_node));
+        assert!(host_nodes.contains(&webview_node));
+        assert!(!host_nodes.contains(&plaintext_node));
+        assert!(host_nodes.is_subset(&all_nodes));
     }
 }

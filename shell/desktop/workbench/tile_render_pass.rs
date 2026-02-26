@@ -281,7 +281,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     // Ensure webviews exist for active tiles, applying intents immediately
     // so compositing (below) can find the webviews via get_webview_for_node.
     let mut webview_creation_intents = Vec::new();
-    let webview_host_nodes = tile_runtime::all_webview_host_node_pane_keys(tiles_tree, graph_app);
+    let webview_host_nodes = tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
     for (node_key, _) in active_tile_rects.iter().copied() {
         if !webview_host_nodes.contains(&node_key) {
             continue;
