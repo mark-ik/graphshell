@@ -1,10 +1,11 @@
 # Planning Register
 
-**Status**: Active / Canonical (consolidated 2026-02-25)
+**Status**: Active / Canonical (revised 2026-02-26)
 **Purpose**: Single source for execution priorities, issue-ready backlog stubs, and implementation guidance.
 
 ## Contents
 
+0. Surface Composition Architecture (2026-02-26 Gap Analysis & Remediation)
 1. Immediate Priorities Register (10/10/10)
 2. Latest Checkpoint Delta (Code + Doc Audit)
 3. Merge-Safe Lane Execution Reference (Canonical)
@@ -21,10 +22,278 @@
 
 ### Contents Notes
 
+- `§0` is the 2026-02-26 compositor/render-pipeline gap analysis, architectural extension, and issue plan. It defines the **Surface Composition Contract** — a first-class render-pipeline architecture that replaces servoshell-inherited compositor assumptions.
 - `§1A` is the canonical sequencing control-plane section.
 - `§1C` is the current prioritized lane board.
 - `§1D` is the comprehensive lane catalog (including prospective and incubation lanes).
 - Later duplicated numeric section labels (`## 2`..`## 5` repeated near the end of the file) are retained for archive/reference continuity and should be treated as reference payload, not canonical sequencing state.
+
+---
+
+## 0. Surface Composition Architecture (2026-02-26 Gap Analysis & Remediation)
+
+### 0.1 Problem Statement
+
+Graphshell's tile compositor (`shell/desktop/workbench/tile_compositor.rs`) inherits a servoshell-era pattern that treats web content composition as "another egui layer" rather than a first-class render pipeline with explicit pass ownership and backend contracts. This produces a class of bugs where:
+
+- Focus/hover/selection affordances paint at the wrong z-order relative to composited web content (the "focus ring hidden under document view" symptom in the Stabilization Bug Register).
+- GL state leaks across compositor callback boundaries when `render_to_parent` callbacks execute without save/restore contracts.
+- egui `Order::Middle` layer IDs for both webview content and focus rings are the mechanism for z-order control, but egui's layer ordering is intended for UI widget stacking, not for managing a heterogeneous render pipeline mixing GL-composited textures, OS-native overlays, and egui-native draw calls.
+- The Wry integration strategy (`2026-02-23_wry_integration_strategy.md`) documents the texture-vs-overlay distinction but does not define a canonical overlay affordance policy that survives when both backends coexist at runtime.
+
+This is not a bug in any single file — it is an **architectural gap** between the servoshell-inherited single-backend assumption and Graphshell's multi-backend, multi-surface reality.
+
+### 0.2 Architectural Diagnosis (Mapped to Canonical Terms)
+
+The gap analysis maps to four missing architectural contracts, expressed in canonical Graphshell terminology:
+
+| Missing Contract | Architectural Location | Canonical Owner | Current State |
+| --- | --- | --- | --- |
+| **Surface Composition Contract** (node viewer pane render pipeline) | `tile_compositor.rs`, `tile_render_pass.rs` | `WorkbenchSurfaceRegistry` + `ViewerSurfaceRegistry` | Implicit; egui layer ordering is the only mechanism |
+| **Compositor Adapter** (GL callback isolation wrapper) | `tile_compositor::composite_active_node_pane_webviews()` | Verso mod / `EmbedderCore` boundary | Raw `PaintCallback` + `render_to_parent` with no explicit GL-state contract |
+| **Render Mode Enum** (backend-authoritative tile rendering classification) | `TileKind::Node(NodePaneState)` | `ViewerRegistry` + tile runtime | Inferred from side effects; `render_path_hint` diagnostics exist but are not authoritative |
+| **Overlay Affordance Policy** (focus/hover/selection ring rendering rules per backend mode) | `tile_compositor.rs` (focus/hover rings), `tile_render_pass.rs` (diagnostics overlay) | `PresentationDomainRegistry` + per-backend `Viewer` trait | Single hard-coded egui `LayerId` path regardless of backend |
+
+### 0.3 Architectural Solution: Surface Composition Contract
+
+**Core principle**: Stop treating web content composition as "just another egui layer." Make it a first-class render pipeline with explicit pass ownership and backend contracts.
+
+The solution introduces four architectural components, each rooted in existing Graphshell registry/domain/surface architecture:
+
+#### 0.3.1 Surface Composition Pass Model
+
+Each node viewer pane's per-frame render is decomposed into three **composition passes**, executed in strict order:
+
+| Pass | Name | Responsibility | Owner |
+| --- | --- | --- | --- |
+| **Pass 1** | UI Chrome Pass | Tab chrome, pane borders, workbench tile structure (`egui_tiles` layout) | `WorkbenchSurfaceRegistry` |
+| **Pass 2** | Content Pass | Web content rendering (Servo composited texture callback **or** Wry overlay sync **or** egui-native embedded viewer) | `ViewerSurfaceRegistry` via `Viewer` trait |
+| **Pass 3** | Overlay Affordance Pass | Focus ring, hover ring, selection indicator, diagnostics overlays, tile rearrange affordances | `PresentationDomainRegistry` (affordance policy) + per-`TileRenderMode` implementation |
+
+**Key invariant**: Pass 3 always renders *after* Pass 2 within the same frame for the same tile. For composited backends (Servo texture mode), this means the overlay affordance draws over the composited content in the same GL pipeline. For overlay backends (Wry), Pass 3 renders in the tile chrome/gutter region because the OS-native window cannot be occluded by egui draw calls — the affordance policy adapts to the render mode.
+
+This removes ambiguity from `egui::Order::*` assumptions. The pass model is not an egui concept; it is a Graphshell-owned sequencing contract that uses egui primitives internally but does not depend on egui layer ordering for correctness.
+
+#### 0.3.2 Compositor Adapter (GL State Isolation)
+
+The current path in `tile_compositor.rs` directly invokes the Servo `render_to_parent` callback inside a `PaintCallback` / `CallbackFn`. This callback borrows the GL context and has no contract about:
+
+- GL state save/restore (or state scrub) around the callback
+- Clipping/viewport setup and teardown
+- Error handling for failed `make_current` calls
+- Post-content overlay rendering sequencing
+
+**Solution**: Introduce a `CompositorAdapter` wrapper that owns:
+
+1. **Callback invocation ordering** — ensures content pass completes before overlay pass begins
+2. **GL state save/restore** — saves relevant GL state before `render_to_parent`, restores after (or scrubs to known-good defaults)
+3. **Clipping/viewport contract** — ensures the `rect_in_parent` calculation and viewport setup are correct and documented
+4. **Post-content overlay rendering hook** — the adapter exposes a slot where Pass 3 overlay affordances can be injected after content rendering
+
+The `CompositorAdapter` lives at the Verso mod / `EmbedderCore` boundary — it wraps the Servo-specific `render_to_parent` callback while remaining generic enough that other texture-mode viewers (`viewer:image` rendering to a texture, future GPU-accelerated renderers) can use the same pass contract.
+
+**Implementation target**: `shell/desktop/workbench/compositor_adapter.rs` (new module under the workbench subtree).
+
+#### 0.3.3 Tile Render Mode Enum (Runtime-Authoritative)
+
+Each node viewer pane carries an explicit render mode, resolved at viewer attachment time from the `ViewerRegistry`:
+
+```rust
+/// The render pipeline mode for a node viewer pane tile.
+/// Authoritative at runtime; drives compositor pass selection and overlay affordance policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TileRenderMode {
+    /// Viewer renders to a GPU texture owned by Graphshell (Servo, GPU-accelerated native viewers).
+    /// Overlay affordances draw in the same compositor pipeline after content.
+    CompositedTexture,
+
+    /// Viewer creates an OS-native overlay window (Wry).
+    /// Overlay affordances draw in tile chrome/gutter/frame, not over content.
+    NativeOverlay,
+
+    /// Viewer renders directly into egui UI region (plaintext, metadata, embedded viewers).
+    /// Overlay affordances draw via standard egui layering (no special compositor path).
+    EmbeddedEgui,
+
+    /// No viewer attached or viewer failed to initialize.
+    /// Renders placeholder/fallback content; overlay affordances draw on placeholder.
+    Placeholder,
+}
+```
+
+**Where it lives**: On `NodePaneState` (the existing pane-state struct inside `TileKind::Node`). Resolved when a viewer is attached to a tile (or when the viewer changes) via `ViewerRegistry` query. Diagnostics and runtime UI read this field directly — no inference from side effects.
+
+**Alignment with existing work**:
+- The `render_path_hint` diagnostics field (already present) becomes a projection of `TileRenderMode` rather than an independent diagnostic string.
+- The `Viewer` trait's `is_overlay_mode()` method (from the Wry integration strategy) maps directly: `is_overlay_mode() == true` → `NativeOverlay`, `render_embedded() returns true` → `EmbeddedEgui` or `CompositedTexture` depending on texture involvement.
+- The `overlay_tiles: HashSet<TileId>` tracking proposed in the Wry strategy is replaced by the more general `TileRenderMode` on each pane state.
+- `lane:viewer-platform` (`#92`) and `lane:spec-code-parity` (`#99`) track the broader viewer selection/capability work that this enum complements.
+
+#### 0.3.4 Overlay Affordance Policy (Per-Render-Mode)
+
+The overlay affordance policy defines how focus rings, hover indicators, selection outlines, tile-rearrange grips, and diagnostics overlays render for each `TileRenderMode`:
+
+| `TileRenderMode` | Focus Ring | Hover Ring | Rearrange Grip | Diagnostics Overlay |
+| --- | --- | --- | --- | --- |
+| `CompositedTexture` | Draw in compositor pipeline after content (Pass 3) — **over** content | Same (Pass 3) | Pass 3 | Pass 3 |
+| `NativeOverlay` | Draw in tile chrome border/gutter — **around** content, not over it | Gutter highlight or tab-strip indicator | Chrome-region only; OS overlay cannot be occluded | Chrome-region or separate egui window |
+| `EmbeddedEgui` | Standard egui stroke on pane rect (widget-level, after viewer `render_embedded`) | Standard egui hover response | Standard egui drag affordance | Standard egui overlay layer |
+| `Placeholder` | Standard egui stroke on placeholder rect | Standard egui hover | Standard egui | Standard egui |
+
+This policy is defined in the `PresentationDomainRegistry` as an affordance resolution rule. The Tile Render Pass (`tile_render_pass.rs`) and Tile Compositor (`tile_compositor.rs`) consult the policy (or encode it directly in the pass dispatch) rather than hard-coding a single `LayerId` path.
+
+**Key behavioral fix**: The current "focus ring hidden under document view" bug occurs because the focus ring and web content both paint at `egui::Order::Middle` without guaranteed ordering. Under the Surface Composition Contract, the compositor adapter ensures focus rings (Pass 3) always execute after content (Pass 2) for `CompositedTexture` tiles. For `NativeOverlay` tiles, the policy explicitly shifts affordances to chrome regions, accepting the z-order constraint rather than fighting it.
+
+### 0.4 Servoshell Technical Debt Retirement (Compositor-Specific)
+
+This section maps the servoshell-inherited code that the Surface Composition Contract replaces or wraps, distinguishing what is reusable from what must be retired:
+
+| Servoshell Inheritance | Current Location | Disposition | Notes |
+| --- | --- | --- | --- |
+| Raw `PaintCallback` + `render_to_parent` GL composition | `tile_compositor.rs` lines 154–175 | **Wrap** in `CompositorAdapter` | The `render_to_parent` callback itself is valid Servo API; only the uncontracted invocation path changes |
+| `egui::Order::Middle` layer IDs for both content and rings | `tile_compositor.rs` lines 99–100, 173 | **Replace** with pass-model dispatch | Content layer ID remains; ring layer IDs move to Pass 3 with render-mode-aware z-order |
+| `make_current` / `prepare_for_rendering` / `paint` / `present` sequence | `tile_compositor.rs` lines 142–161 | **Reuse** inside `CompositorAdapter` | The sequence is correct Servo API usage; adapter wraps it with state isolation |
+| Focus ring as hard-coded fade-in stroke at `Order::Middle` | `tile_compositor.rs` lines 185–196 | **Replace** with overlay affordance policy | Ring rendering becomes render-mode-aware |
+| Monolithic `composite_active_node_pane_webviews` function | `tile_compositor.rs` | **Decompose** into pass-model dispatch | Function remains as top-level orchestrator but delegates to per-mode composition paths |
+| Fork-shaped host/UI/frame orchestration | `gui.rs`, `gui_frame.rs`, `window.rs`, `running_app_state.rs` | **Continue `lane:embedder-debt` decomposition** | Embedder decomposition plan (Stage 4) already targets this; Surface Composition Contract is complementary, not overlapping |
+| Servoshell-era naming/comments in composition paths | `tile_compositor.rs` comments referencing servoshell patterns | **Retire** | Replace with Graphshell-canonical terminology as composition paths are touched |
+
+### 0.5 Relationship to Existing Plans and Lanes
+
+| Existing Lane/Plan | Relationship to Surface Composition Contract | Action |
+| --- | --- | --- |
+| `lane:stabilization` (`#88`) | The "tile focus ring hidden under document view" bug is the **primary symptom** this architecture resolves. | Add compositor pass contract child issue under `#88` |
+| `lane:embedder-debt` (`#90`) | Embedder decomposition (Stage 4: GUI decomposition) is complementary; the Surface Composition Contract targets the render pipeline specifically, while embedder debt targets host/UI boundary coupling. | Add GL state isolation wrapper child issue under `#90` |
+| `lane:viewer-platform` (`#92`) | The `TileRenderMode` enum is a viewer-platform concern; it makes the texture-vs-overlay-vs-embedded distinction runtime-authoritative. | Add render mode enum child issue under `#92` |
+| `lane:spec-code-parity` (`#99`) | The overlay affordance policy is a spec/code parity concern — the Wry strategy doc describes z-order constraints but no formal policy exists. | Add affordance policy doc slice under `#99` |
+| `2026-02-23_wry_integration_strategy.md` | The `overlay_tiles: HashSet<TileId>` tracking proposed there is superseded by `TileRenderMode` on `NodePaneState`. The `Viewer` trait contract (`render_embedded` / `sync_overlay` / `is_overlay_mode`) is fully compatible; `TileRenderMode` is the runtime-resolved outcome of those trait queries. | Update Wry strategy to reference `TileRenderMode` when compositor adapter lands |
+| `2026-02-20_embedder_decomposition_plan.md` | Stage 3 (`EmbedderCore` isolation) is complete. The `CompositorAdapter` wraps the rendering paths that `EmbedderCore` exposes; it does not re-entangle embedder coupling. | No conflict; `CompositorAdapter` is a clean consumer of `EmbedderCore` APIs |
+| `SYSTEM_REGISTER.md` (routing rules) | The Surface Composition Contract does not introduce new routing mechanisms. Pass ordering is a render-pipeline concern (direct call within the same module/frame), not a Signal or Intent. | No Signal/Intent routing changes needed |
+| `SUBSYSTEM_DIAGNOSTICS.md` | The compositor adapter should emit diagnostics events for GL state save/restore, callback duration, and pass ordering. The existing `tile_compositor.paint` channel is reusable. | Extend diagnostics channel coverage when adapter lands |
+
+### 0.6 Issue Plan (New Issues for Hub/Lane Assignment)
+
+These issues resolve the architectural gap identified in §0.2. Each is a discrete, mergeable slice scoped to avoid cross-lane hotspot conflicts.
+
+#### Issue: Compositor Pass Contract + CompositorAdapter (child of `lane:stabilization` / `#88`)
+
+**Title**: Introduce Surface Composition Pass Model and CompositorAdapter for GL state isolation
+
+**Scope**:
+1. Create `shell/desktop/workbench/compositor_adapter.rs` module
+2. Implement `CompositorAdapter` struct wrapping `render_to_parent` callback with GL state save/restore
+3. Decompose `composite_active_node_pane_webviews` into pass-model dispatch (Content Pass → Overlay Affordance Pass)
+4. Move focus ring / hover ring rendering from current `Order::Middle` co-layer to post-content Pass 3
+5. Add diagnostics spans for GL state save/restore and pass sequencing
+6. Add invariant test: overlay affordance callback executes after content callback for `CompositedTexture` tiles
+
+**Done gate**:
+- Focus ring renders over composited web content during tile rearrange (the primary symptom is resolved)
+- `CompositorAdapter` GL state save/restore wrapper is tested with a mock callback
+- Diagnostics prove pass order (content before overlay) in compositor frame samples
+- `cargo check` and `cargo test` pass; no regressions in tile composition
+
+**Hotspots**: `tile_compositor.rs`, new `compositor_adapter.rs`
+**Lane**: `lane:stabilization` (`#88`)
+**Labels**: `architecture`, `priority/top10`, `lane:stabilization`
+
+#### Issue: TileRenderMode Enum + Runtime Surfacing (child of `lane:viewer-platform` / `#92`)
+
+**Title**: Add `TileRenderMode` to `NodePaneState` with ViewerRegistry-driven resolution
+
+**Scope**:
+1. Define `TileRenderMode` enum (`CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, `Placeholder`)
+2. Add `render_mode: TileRenderMode` field to `NodePaneState`
+3. Resolve `TileRenderMode` from `ViewerRegistry` at viewer attachment time (when viewer is assigned to a tile)
+4. Replace `overlay_tiles: HashSet<TileId>` (Wry plan) with `TileRenderMode` query on pane state
+5. Project `render_path_hint` diagnostics field from `TileRenderMode` (single source of truth)
+6. Wire compositor pass dispatch to branch on `TileRenderMode` (content pass selection)
+
+**Done gate**:
+- `TileRenderMode` is set on every `NodePaneState` at viewer attachment time
+- Diagnostics inspector shows render mode per tile (from `TileRenderMode`, not inference)
+- Compositor branches on render mode for content pass (even if only `CompositedTexture` is implemented initially)
+- `cargo check` and `cargo test` pass
+
+**Hotspots**: `tile_kind.rs` (pane state), `tile_runtime.rs` (viewer attachment), `tile_compositor.rs` (dispatch)
+**Lane**: `lane:viewer-platform` (`#92`)
+**Labels**: `architecture`, `viewer`, `lane:viewer-platform`
+
+#### Issue: Overlay Affordance Policy by Render Mode (child of `lane:spec-code-parity` / `#99`)
+
+**Title**: Define and implement overlay affordance policy per `TileRenderMode`
+
+**Scope**:
+1. Document canonical affordance policy table (§0.3.4) in a design doc or as inline architecture comments
+2. Implement per-render-mode affordance dispatch in tile compositor / tile render pass
+3. For `CompositedTexture`: focus/hover rings draw in Pass 3 (after content)
+4. For `NativeOverlay`: focus/hover rings draw in tile chrome border region (documented limitation)
+5. For `EmbeddedEgui` and `Placeholder`: standard egui widget-level strokes (current behavior, validated)
+6. Add regression test: focus ring visibility covers at least `CompositedTexture` and `Placeholder` modes
+
+**Done gate**:
+- Affordance rendering is render-mode-aware (not one hard-coded path)
+- `NativeOverlay` path has explicit documented limitation (chrome-region only, cannot occlude OS overlay)
+- Spec/code parity claim for overlay z-order behavior is accurate
+- `cargo check` and `cargo test` pass
+
+**Hotspots**: `tile_compositor.rs`, `tile_render_pass.rs`
+**Lane**: `lane:spec-code-parity` (`#99`)
+**Labels**: `architecture`, `ui`, `lane:spec-code-parity`
+
+#### Issue: GL State Invariant Testing for Compositor Callbacks (child of `lane:embedder-debt` / `#90`)
+
+**Title**: Add GL state isolation invariants and tests for Servo compositor callback paths
+
+**Scope**:
+1. Define GL state invariant contract: callback must not leak GL state (viewport, scissor, blend mode, active texture unit, bound framebuffer) across composition passes
+2. Implement save/restore or scrub-to-defaults in `CompositorAdapter` (if not already fully covered by the primary issue)
+3. Add focused test validating GL state before/after a mock `render_to_parent` callback
+4. Add diagnostics channel `compositor.gl_state_violation` for runtime detection of state leaks (severity: Warn)
+5. Document GL state contract in `compositor_adapter.rs` module-level doc comment
+
+**Done gate**:
+- GL state invariant test exists and passes
+- `compositor.gl_state_violation` diagnostics channel is registered and emits on detected leaks
+- No GL state leak regressions from compositor callback paths in headed smoke tests
+- `cargo check` and `cargo test` pass
+
+**Hotspots**: new `compositor_adapter.rs`, `tile_compositor.rs`
+**Lane**: `lane:embedder-debt` (`#90`)
+**Labels**: `architecture`, `lane:embedder-debt`, `diag`
+
+### 0.7 Terminology Extensions
+
+The following terms are proposed additions to `TERMINOLOGY.md` for the architecture described in this section. They are consistent with existing canonical terminology and fill gaps exposed by the compositor analysis.
+
+| Term | Definition | Category |
+| --- | --- | --- |
+| **Surface Composition Contract** | The formal specification of how a node viewer pane tile's render frame is decomposed into ordered composition passes (UI Chrome, Content, Overlay Affordance), with backend-specific adaptations per `TileRenderMode`. Defined in the Planning Register §0.3 and implemented through the compositor adapter and pass-model dispatch. | Tile Tree Architecture |
+| **Composition Pass** | One of three ordered rendering phases within a single node viewer pane tile's frame: (1) UI Chrome Pass, (2) Content Pass, (3) Overlay Affordance Pass. Pass ordering is a Graphshell-owned sequencing contract that uses egui primitives internally but does not depend on egui layer ordering for correctness. | Tile Tree Architecture |
+| **CompositorAdapter** | A wrapper around backend-specific content rendering callbacks (e.g., Servo `render_to_parent`) that owns callback invocation ordering, GL state save/restore, clipping/viewport contracts, and the post-content overlay rendering hook. Lives at the `EmbedderCore` / workbench boundary. | Tile Tree Architecture |
+| **TileRenderMode** | The runtime-authoritative render pipeline classification for a node viewer pane tile: `CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, or `Placeholder`. Resolved from `ViewerRegistry` at viewer attachment time. Drives compositor pass selection and overlay affordance policy. Supersedes inference from side effects and the Wry strategy's proposed `overlay_tiles: HashSet<TileId>`. | Tile Tree Architecture |
+| **Overlay Affordance Policy** | The per-`TileRenderMode` rules governing how focus rings, hover indicators, selection outlines, and diagnostics overlays are rendered relative to content. For `CompositedTexture` tiles, affordances draw over content in the compositor pipeline; for `NativeOverlay` tiles, affordances draw in chrome/gutter regions. Owned by `PresentationDomainRegistry`. | Visual System / Presentation Domain |
+
+### 0.8 Sequencing and Priority
+
+The four issues in §0.6 should execute in this dependency order:
+
+1. **TileRenderMode Enum** — foundational; all other slices depend on render mode being queryable on pane state. Low risk (additive data model change + viewer attachment wiring). **Lane**: `lane:viewer-platform` (`#92`).
+2. **Compositor Pass Contract + CompositorAdapter** — the primary fix for the z-order symptom. Depends on `TileRenderMode` to branch on render mode. Medium risk (GL state manipulation, render sequencing). **Lane**: `lane:stabilization` (`#88`).
+3. **Overlay Affordance Policy** — the policy layer that makes Pass 3 render-mode-aware. Depends on both `TileRenderMode` and the compositor adapter. Low risk (rendering logic, no GL state). **Lane**: `lane:spec-code-parity` (`#99`).
+4. **GL State Invariant Testing** — hardening/testing layer. Depends on the compositor adapter existing. Low risk (test-only + diagnostics). **Lane**: `lane:embedder-debt` (`#90`).
+
+**Merge-safe assessment**: Issues 1 and 4 touch different hotspots; issues 2 and 3 share `tile_compositor.rs` and should be serialized (2 before 3). Issue 1 can be landed independently before 2/3/4. The four-issue sequence fits inside one merge window if serialized, or two merge windows if split (1 alone, then 2→3→4).
+
+### 0.9 Stabilization Bug Register Update
+
+The following entry in the Stabilization Bug Register (§1A) should be updated to reflect this architecture:
+
+**Bug**: "Tile rearrange focus indicator hidden under document view"
+
+**Updated architectural context**: The symptom is the primary motivator for the Surface Composition Contract (§0.3). The root cause is that focus ring and web content both paint at `egui::Order::Middle` without guaranteed ordering, and the `render_to_parent` GL callback has no post-content overlay hook. The fix class is the compositor pass model (Content Pass → Overlay Affordance Pass) with `CompositorAdapter` GL state isolation. For composited tiles, Pass 3 draws the focus ring after web content in the same GL pipeline. For Wry overlay tiles, the policy shifts affordances to tile chrome (documented limitation). The bug is not addressable by "more egui layers" — it requires an explicit compositor pass model with backend-aware overlay policy and callback state isolation.
+
+**Updated done gate**: Servo focus affordance visible during tile rearrange (Pass 3 over Pass 2 for `CompositedTexture` mode); Wry path has explicit chrome-region affordance and documented limitation; `CompositorAdapter` GL state isolation test passes; diagnostics prove pass ordering in compositor frame samples.
 
 ---
 
@@ -147,12 +416,12 @@ Track active regressions here before they get folded into broader refactors. The
 | --- | --- | --- | --- | --- |
 | Zoom-to-fit / unresponsive controls | Camera commands or controls intermittently no-op / feel stuck | `app.rs`, `render/mod.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs` | Multi-view exists, but camera command path still uses global pending workspace state; likely focus/input ownership interaction. | Repro captured, root cause fixed, focused regression tests added, diagnostics prove target view + command application. |
 | Lasso metadata ID mismatch after multi-view | Selection/lasso behavior breaks or targets wrong graph metadata in multi-pane scenarios | `render/mod.rs` | Known hardcoded `egui_graphs_metadata_` path needs per-view metadata keying. | Lasso works across split graph panes; test covers second pane / non-default `GraphViewId`. |
-| Tile rearrange focus indicator hidden under document view | Blue focus ring does not render over document/web content while rearranging tile | `shell/desktop/workbench/tile_compositor.rs` | Servo/texture path is a z-order bug; Wry/overlay path needs a distinct affordance policy (cannot fake egui-over-OS overlay parity). | Servo focus affordance visible during rearrange; Wry path has explicit fallback affordance and documented limitation. |
+| Tile rearrange focus indicator hidden under document view | Blue focus ring does not render over document/web content while rearranging tile | `shell/desktop/workbench/tile_compositor.rs`, new `compositor_adapter.rs` | **Root cause identified in §0.3**: focus ring and web content both paint at `egui::Order::Middle` without guaranteed ordering; `render_to_parent` GL callback has no post-content overlay hook. **Fix class**: Surface Composition Contract — compositor pass model (Content Pass → Overlay Affordance Pass) with `CompositorAdapter` GL state isolation and per-`TileRenderMode` overlay affordance policy. Not addressable by additional egui layers. | Servo focus affordance visible during tile rearrange (Pass 3 over Pass 2 for `CompositedTexture` mode); Wry path has explicit chrome-region affordance and documented limitation; `CompositorAdapter` GL state isolation test passes; diagnostics prove pass ordering in compositor frame samples. |
 | Command palette trigger parity | Command palette feels node-context-only; pointer/global triggers inconsistent | `render/mod.rs`, `render/command_palette.rs`, `input/mod.rs` | Keyboard trigger exists; pointer/global UX path and palette semantics still lag behind plan. | Global + contextual trigger paths documented and implemented; palette opens outside node hover/right-click path. |
 
 #### Known Rendering/Input Regressions (tracked under `lane:stabilization`)
 
-- Focus ring layer order mismatch while rearranging tile: ring paint layer is background while webview tile content renders at middle layer.
+- Focus ring layer order mismatch while rearranging tile: ring paint layer is background while webview tile content renders at middle layer. **Root cause and fix class identified in §0 (Surface Composition Contract)**; tracked as compositor pass contract child issue under `#88`.
 - Camera command ownership mismatch in multi-graph-pane context (global pending command state vs focused-view targeting).
 - Lasso metadata ID targeting drift after per-view metadata changes.
 - Input consumption/focus ownership edge cases when graph pane and node pane coexist.
@@ -190,6 +459,8 @@ Use these as first-pass stabilization issue seeds when a dedicated issue does no
 | `viewer:settings` selected but not embedded | Viewer resolution can select `viewer:settings`, but node-pane renderer still falls back to non-embedded placeholder for non-web viewers. | `lane:viewer-platform` (`#92`), `lane:control-ui-settings` (`#89`) | Settings viewer path is renderable without placeholder fallback in node/tool contexts. |
 | Browser viewer table vs implemented viewer surfaces | Spec/docs describe broader viewer matrix than runtime embedded implementations currently expose. | `lane:viewer-platform` (`#92`), `lane:spec-code-parity` (`#99`) | Viewer table claims are either implemented or explicitly downgraded with phased status. |
 | Wry strategy/spec vs runtime registration/dependency path | Wry integration strategy exists, but runtime feature/dependency/registration path remains partial/transitional. | `lane:viewer-platform` (`#92`), `lane:spec-code-parity` (`#99`) | `viewer:wry` foundation is feature-gated and runtime-wired, or spec is marked deferred with constraints. |
+| Overlay affordance policy unspecified by render mode | Wry strategy documents texture-vs-overlay z-order constraints but no canonical per-`TileRenderMode` affordance policy exists in spec or code. Focus/hover/selection ring behavior is single hard-coded path regardless of backend. | `lane:spec-code-parity` (`#99`), `lane:stabilization` (`#88`) | Overlay affordance policy table (§0.3.4) is implemented and validated per render mode; `NativeOverlay` limitations are documented. |
+| `overlay_tiles: HashSet<TileId>` vs `TileRenderMode` enum | Wry strategy proposes `overlay_tiles` set on `TileCompositor`; Surface Composition Contract supersedes with authoritative `TileRenderMode` on `NodePaneState`. | `lane:viewer-platform` (`#92`) | Wry strategy updated to reference `TileRenderMode`; no `overlay_tiles` tracking exists independent of pane state render mode. |
 
 ---
 
@@ -222,11 +493,11 @@ This supersedes the earlier registry-closure-heavy priority table. The queue aud
 
 | Rank | Lane | Why Now | Primary Scope (Next Tasks) | Primary Sources / Hotspots | Lane Done Gate |
 | --- | --- | --- | --- | --- | --- |
-| 1 | **`lane:stabilization` (`#88`)** | User-visible regressions block trust and mask deeper architecture mistakes. | Fix zoom-to-fit / control responsiveness, lasso metadata keying, tile focus affordance over document views; add regression tests + control diagnostics. | `render/mod.rs`, `app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs`, `shell/desktop/workbench/tile_compositor.rs`; `SUBSYSTEM_DIAGNOSTICS.md` | Repros are tracked, fixed, and covered by targeted tests; no known open control/focus regressions in active bug register. |
+| 1 | **`lane:stabilization` (`#88`)** | User-visible regressions block trust and mask deeper architecture mistakes. | Fix zoom-to-fit / control responsiveness, lasso metadata keying, **Surface Composition Contract** (§0: compositor pass model + `CompositorAdapter` GL state isolation for tile focus z-order), tile focus affordance over document views; add regression tests + control diagnostics. | `render/mod.rs`, `app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs`, `shell/desktop/workbench/tile_compositor.rs`, new `shell/desktop/workbench/compositor_adapter.rs`; `SUBSYSTEM_DIAGNOSTICS.md` | Repros are tracked, fixed, and covered by targeted tests; no known open control/focus regressions in active bug register; compositor pass ordering is validated by diagnostics + invariant tests. |
 | 2 | **`lane:control-ui-settings` (`#89`)** | Control surfaces and settings IA still feel transitional despite underlying action plumbing progress. | Global/contextual command palette trigger parity, radial/palette dispatch unification, settings scaffold replacing placeholder pane, settings page model start. | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs`, `render/mod.rs`, `shell/desktop/workbench/tile_behavior.rs` | Command surfaces share one dispatch boundary; settings pane is no longer placeholder-only. |
 | 3 | **`lane:embedder-debt` (`#90`)** | Servoshell inheritance debt is now the main source of friction in host/UI evolution and regressions. | Decompose `gui.rs`/`gui_frame.rs`, reduce `RunningAppState` coupling, narrow host/UI boundaries, retire misleading servoshell-era assumptions/comments. | `2026-02-20_embedder_decomposition_plan.md`, `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `shell/desktop/host/*` | One stage of decomposition lands with tests/receipts; reduced hotspot surface area and clearer module ownership. |
 | 4 | **`lane:runtime-followon` (`#91`)** | `SYSTEM_REGISTER.md` remaining gaps are now mostly SR2/SR3 signal routing contract/fabric + observability. | Open child issues for SR2/SR3; implement typed signal envelope/facade, routing diagnostics, misroute observability, fabric/backpressure policy. | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md`, `shell/desktop/runtime/control_panel.rs`, `shell/desktop/runtime/registries/mod.rs` | SR2/SR3 child issues are landed or explicitly ticketed with done gates; signal routing boundary is testable and observable. |
-| 5 | **`lane:viewer-platform` (`#92`)** | Viewer selection/capability scaffolding is ahead of actual embedded viewers; Wry remains design-only. | Replace non-web viewer placeholders (`settings`/`pdf`/`csv` first), implement Wry feature gate + manager/viewer foundation, align Verso manifest/spec claims. | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `GRAPHSHELL_AS_BROWSER.md`, `mods/native/verso/mod.rs`, `Cargo.toml`, `shell/desktop/workbench/tile_behavior.rs` | At least one non-web native viewer is embedded; `viewer:wry` foundation exists behind feature gate or spec/docs are explicitly downgraded. |
+| 5 | **`lane:viewer-platform` (`#92`)** | Viewer selection/capability scaffolding is ahead of actual embedded viewers; Wry remains design-only; **`TileRenderMode` enum** (§0.3.3) needed for compositor pass dispatch and overlay policy. | Replace non-web viewer placeholders (`settings`/`pdf`/`csv` first), implement Wry feature gate + manager/viewer foundation, align Verso manifest/spec claims, **add `TileRenderMode` to `NodePaneState` with ViewerRegistry-driven resolution**. | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `GRAPHSHELL_AS_BROWSER.md`, `mods/native/verso/mod.rs`, `Cargo.toml`, `shell/desktop/workbench/tile_behavior.rs`, `shell/desktop/workbench/tile_kind.rs` | At least one non-web native viewer is embedded; `viewer:wry` foundation exists behind feature gate or spec/docs are explicitly downgraded; `TileRenderMode` is set on every `NodePaneState` at viewer attachment time. |
 | 6 | **`lane:accessibility` (`#95`)** | Accessibility is a project-level requirement; phase-1 bridge work exists but Graph Reader/Inspector paths remain incomplete. | Finish bridge diagnostics/health surfacing, implement Graph Reader scaffolds, replace Accessibility Inspector placeholder pane, add focus/nav regression tests. | `SUBSYSTEM_ACCESSIBILITY.md`, `shell/desktop/workbench/tile_behavior.rs`, `shell/desktop/ui/gui.rs` | Accessibility Inspector is functional, bridge invariants/tests are green, and Graph Reader phase entry point exists. |
 | 7 | **`lane:diagnostics` (`#94`)** | Diagnostics remains the leverage multiplier for every other lane and still lacks analyzer/test harness execution surfaces. | Implement `AnalyzerRegistry` scaffold, in-pane `TestHarness`, expanded invariants, better violation/health views, orphan-channel surfacing. | `SUBSYSTEM_DIAGNOSTICS.md`, `shell/desktop/runtime/diagnostics/*`, diagnostics pane code paths | Analyzer/TestHarness scaffolds exist and can be run in-pane (feature-gated if needed). |
 | 8 | **`lane:subsystem-hardening` (`#96`)** | Storage/history/security are documented but still missing closure slices that protect integrity and trust. | Add `persistence.*` / `history.*` / `security.identity.*` diagnostics, degradation wiring, traversal/archive correctness tests, grant matrix denial-path coverage. | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md`, persistence/history/security runtime code | Subsystem health summaries and critical integrity/denial-path tests are in CI or documented as explicit follow-ons. |

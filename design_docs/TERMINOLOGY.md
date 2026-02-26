@@ -63,6 +63,13 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Tool Pane**: A non-document pane hosted under `TileKind::Tool(ToolPaneState)` (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces.
 *   **Diagnostic Inspector**: A subsystem pane (currently the primary `ToolPaneState` implementation) for visualizing system internals (Engine, Compositor, Intents, and future subsystem health views).
 
+### Surface Composition
+
+*   **Surface Composition Contract**: The formal specification of how a node viewer pane tile's render frame is decomposed into ordered composition passes (UI Chrome, Content, Overlay Affordance), with backend-specific adaptations per `TileRenderMode`.
+*   **Composition Pass**: One of three ordered rendering phases within a single node viewer pane tile frame: (1) UI Chrome Pass, (2) Content Pass, (3) Overlay Affordance Pass. Pass ordering is Graphshell-owned sequencing and must not rely on incidental egui layer behavior.
+*   **CompositorAdapter**: A wrapper around backend-specific content callbacks (for example Servo `render_to_parent`) that owns callback ordering, GL state isolation, clipping/viewport contracts, and the post-content overlay hook.
+*   **TileRenderMode**: The runtime-authoritative render pipeline classification for a node viewer pane tile: `CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, or `Placeholder`. Resolved from `ViewerRegistry` at viewer attachment time and used for compositor pass dispatch.
+
 ## Interface Components
 
 *   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
@@ -98,6 +105,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 ## Visual System
 
 *   **Badge**: A visual indicator on a Node or Tab representing a Tag or system state (e.g., Crashed, Unread).
+*   **Overlay Affordance Policy**: Per-`TileRenderMode` rules for rendering focus/hover/selection/diagnostic affordances relative to content. `CompositedTexture` renders affordances over content in the compositor pipeline; `NativeOverlay` renders affordances in tile chrome/gutter regions.
 
 ## Runtime Lifecycle
 

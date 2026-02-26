@@ -121,14 +121,15 @@ tile equivalents during migration), not graph-pane render paths.
 ```rust
 // tile_compositor.rs::compose_frame()
   for each tile:
-    if viewer_registry.is_overlay_mode(tile.viewer_id):
+    if tile.render_mode == TileRenderMode::NativeOverlay:
       let screen_rect = tile.computed_screen_rect();
       let visible = tile.is_active_tab() && !tile.is_occluded();
       viewer_registry.sync_overlay(tile.viewer_id, screen_rect, visible);
 ```
 
-`TileCompositor` must track which tile IDs are overlay-backed. Add `overlay_tiles: HashSet<TileId>`
-to its state, updated when `WryViewer` is attached or detached from a tile.
+`TileCompositor` should branch from `NodePaneState.render_mode` (`TileRenderMode`) rather than
+maintaining a separate overlay-tracking set. Render mode is resolved at viewer attachment time and
+serves as the runtime-authoritative source for compositor pass dispatch.
 
 ### Graph View Thumbnail Fallback
 
@@ -179,17 +180,16 @@ Register `viewer:wry` in Verso mod's `register_viewers()` function.
 Done gate: `viewer:wry` appears in `ViewerRegistry` when Verso mod loads with `wry` feature.
 `is_overlay_mode()` returns true. `render_embedded` renders placeholder without panic.
 
-### Step 4: TileCompositor Overlay Tracking
+### Step 4: TileCompositor NativeOverlay Dispatch
 
 Update `desktop/tile_compositor.rs`:
 
-- Add `overlay_tiles: HashSet<TileId>` field.
-- In `attach_viewer_to_tile()`: if `viewer_registry.is_overlay_mode(viewer_id)`, insert into
-  `overlay_tiles`.
-- In `detach_viewer_from_tile()`: remove from `overlay_tiles`; call `sync_overlay(rect, false)` on
-  the outgoing viewer to hide the OS window.
-- In `compose_frame()`: after computing rects, iterate `overlay_tiles` and call `sync_overlay` on
-  each.
+- Add `render_mode: TileRenderMode` to `NodePaneState` (or consume it once added by the viewer-platform lane).
+- At viewer attach/detach boundaries, resolve and persist `TileRenderMode` from `ViewerRegistry`.
+- In `compose_frame()`: after computing rects, iterate node viewer panes and call `sync_overlay` only
+  when `render_mode == TileRenderMode::NativeOverlay`.
+- On detachment or mode transition away from `NativeOverlay`, call `sync_overlay(rect, false)` to hide
+  the OS window.
 
 Done gate: a wry-backed tile receives `sync_overlay` calls each frame. Moving/resizing the
 workbench tile moves the underlying OS webview in sync (manual headed test).
@@ -208,7 +208,8 @@ path. The reconciler checks the node's `viewer_id` preference and calls the appr
 `WryManager` method.
 
 Done gate: promoting a cold node with `viewer_id = viewer:wry` creates a wry webview in the
-workbench tile. Demoting destroys it and the `overlay_tiles` set is updated correctly.
+workbench tile. Demoting destroys it and the tile transitions away from
+`TileRenderMode::NativeOverlay` correctly.
 
 ### Step 6: Per-Node and Per-Workspace Backend Selection
 
@@ -284,9 +285,9 @@ mods for the same browsing capability. The `ViewerRegistry` contract (`render_em
 knowledge of which backend is active. The lifecycle reconciler's existing Active/Warm/Cold model
 extends naturally to wry webviews without structural changes.
 
-The only novel infrastructure required is `overlay_tiles` tracking in `TileCompositor` and
-`WryManager` as a coordinator. Everything else — lifecycle, thumbnail fallback, settings persistence,
-node identity — reuses existing mechanisms.
+The only novel infrastructure required is `TileRenderMode`-driven compositor dispatch in
+`TileCompositor` and `WryManager` as a coordinator. Everything else — lifecycle, thumbnail fallback,
+settings persistence, node identity — reuses existing mechanisms.
 
 ---
 
@@ -304,8 +305,8 @@ node identity — reuses existing mechanisms.
 - `TileCompositor` call site made explicit: direct call after layout, not a `GraphIntent`.
 - Implementation plan structured as 7 sequential steps with done gates.
 - Platform targeting order defined: Windows first, macOS second, Linux third.
-- `WryManager` data model (`HashMap<NodeKey, wry::WebView>`) and `overlay_tiles: HashSet<TileId>`
-  tracking in `TileCompositor` made concrete.
+- `WryManager` data model (`HashMap<NodeKey, wry::WebView>`) and overlay-mode compositor dispatch
+  in `TileCompositor` made concrete.
 - Lifecycle integration with `lifecycle_reconcile.rs` and Active/Warm/Cold model described.
 - Per-node (`Node.viewer_id_override`) and per-workspace (`WorkspaceManifest.viewer_id_default`)
   backend selection defined with resolution order and `GraphIntent` variant.
