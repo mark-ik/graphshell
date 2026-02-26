@@ -659,8 +659,7 @@ impl Gui {
                         || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::D))
                 });
                 if toggle_diagnostics {
-                    use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-                    Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Diagnostics);
+                    Self::open_or_focus_diagnostics_tool_pane(tiles_tree);
                 }
             }
             let pre_frame = Self::run_pre_frame_phase(
@@ -1164,6 +1163,15 @@ impl Gui {
     ) {
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn open_or_focus_diagnostics_tool_pane(tiles_tree: &mut Tree<TileKind>) {
+        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+        Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Diagnostics);
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    fn open_or_focus_diagnostics_tool_pane(_tiles_tree: &mut Tree<TileKind>) {}
+
     /// Intercept workbench-authority intents before they reach `apply_intents()`.
     ///
     /// ## Two-authority model
@@ -1662,6 +1670,62 @@ mod accessibility_bridge_tests {
             pending.is_empty(),
             "bridge injection should consume pending webview accessibility updates"
         );
+    }
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+mod tool_pane_routing_tests {
+    use super::Gui;
+    use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+    use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use egui_tiles::{Tile, Tiles, Tree};
+
+    fn diagnostics_active(tree: &Tree<TileKind>) -> bool {
+        tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Tool(ToolPaneState::Diagnostics)))
+            )
+        })
+    }
+
+    #[test]
+    fn diagnostics_shortcut_focuses_existing_diagnostics_tool_pane() {
+        let mut tiles = Tiles::default();
+        let settings_id = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+        let diagnostics_id = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+        let tabs_root = tiles.insert_tab_tile(vec![settings_id, diagnostics_id]);
+        let mut tree = Tree::new("tool_tabs", tabs_root, tiles);
+
+        let _ = tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings)))
+        });
+        assert!(!diagnostics_active(&tree));
+
+        Gui::open_or_focus_diagnostics_tool_pane(&mut tree);
+        assert!(diagnostics_active(&tree));
+    }
+
+    #[test]
+    fn diagnostics_shortcut_inserts_diagnostics_tool_pane_when_missing() {
+        let mut tiles = Tiles::default();
+        let settings_id = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+        let mut tree = Tree::new("tool_tabs", settings_id, tiles);
+
+        Gui::open_or_focus_diagnostics_tool_pane(&mut tree);
+
+        let diagnostics_count = tree
+            .tiles
+            .iter()
+            .filter(|(_, tile)| {
+                matches!(
+                    tile,
+                    Tile::Pane(TileKind::Tool(ToolPaneState::Diagnostics))
+                )
+            })
+            .count();
+        assert_eq!(diagnostics_count, 1);
+        assert!(diagnostics_active(&tree));
     }
 }
 

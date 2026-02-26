@@ -171,6 +171,17 @@ pub(crate) enum ToolPaneState {
     Settings,
 }
 
+impl ToolPaneState {
+    pub(crate) fn title(&self) -> &'static str {
+        match self {
+            Self::Diagnostics => "Diagnostics",
+            Self::HistoryManager => "History",
+            Self::AccessibilityInspector => "Accessibility",
+            Self::Settings => "Settings",
+        }
+    }
+}
+
 /// Pane-hosted view payload.
 ///
 /// Determines how a workbench pane renders and routes input.
@@ -276,6 +287,14 @@ mod tests {
         let state = NodePaneState::for_node(key);
         assert_eq!(state.node, key);
         assert!(state.viewer_id_override.is_none());
+    }
+
+    #[test]
+    fn tool_pane_titles_are_stable_per_variant() {
+        assert_eq!(ToolPaneState::Diagnostics.title(), "Diagnostics");
+        assert_eq!(ToolPaneState::HistoryManager.title(), "History");
+        assert_eq!(ToolPaneState::AccessibilityInspector.title(), "Accessibility");
+        assert_eq!(ToolPaneState::Settings.title(), "Settings");
     }
 
     #[test]

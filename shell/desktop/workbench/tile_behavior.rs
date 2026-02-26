@@ -101,24 +101,11 @@ impl<'a> GraphshellTileBehavior<'a> {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn tool_pane_title(
-        kind: &crate::shell::desktop::workbench::pane_model::ToolPaneState,
-    ) -> &'static str {
-        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-        match kind {
-            ToolPaneState::Diagnostics => "Diagnostics",
-            ToolPaneState::HistoryManager => "History",
-            ToolPaneState::AccessibilityInspector => "Accessibility",
-            ToolPaneState::Settings => "Settings",
-        }
-    }
-
-    #[cfg(feature = "diagnostics")]
     fn render_tool_pane_placeholder(
         ui: &mut Ui,
         kind: &crate::shell::desktop::workbench::pane_model::ToolPaneState,
     ) {
-        let title = Self::tool_pane_title(kind);
+        let title = kind.title();
         ui.heading(title);
         ui.separator();
         ui.label(format!("{title} tool pane is not yet rendered in the workbench."));
@@ -408,7 +395,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 .map(|n| n.title.clone().into())
                 .unwrap_or_else(|| format!("Node {:?}", state.node).into()),
             #[cfg(feature = "diagnostics")]
-            TileKind::Tool(tool) => Self::tool_pane_title(tool).into(),
+            TileKind::Tool(tool) => tool.title().into(),
         }
     }
 
@@ -457,7 +444,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             },
             #[cfg(feature = "diagnostics")]
             Some(Tile::Pane(TileKind::Tool(tool))) => {
-                (Self::tool_pane_title(tool).to_string(), None)
+                (tool.title().to_string(), None)
             }
             Some(Tile::Container(Container::Linear(linear))) => {
                 let label = match linear.dir {
