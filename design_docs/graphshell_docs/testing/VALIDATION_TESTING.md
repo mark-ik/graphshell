@@ -145,11 +145,36 @@ Include the following in the issue/PR handoff comment:
 ### Manual benchmark run notes (before/after comparability)
 
 1. Run Graphshell against the same dense graph fixture and camera framing for each comparison run.
-2. Keep diagnostics sampling bounded (default diagnostics cadence) to avoid observer-effect distortion.
-3. Capture and compare:
+2. Keep diagnostics sampling bounded (default diagnostics cadence in the Diagnostic Inspector) to avoid observer-effect distortion.
+3. Capture both runs using this pair:
+    - **Baseline**: viewport culling disabled for the test window.
+    - **Candidate**: viewport culling enabled with identical fixture/camera path.
+4. Capture and compare:
     - visible/submitted node counts from culling metrics path,
     - prep/rebuild timing trend (full vs culled path),
     - frame-time trend from diagnostics view over the same interaction script.
+
+### Before/after capture template (required for handoff)
+
+Use this exact structure in handoff comments for cross-contributor comparability:
+
+- Fixture ID / node+edge count:
+- Camera framing / zoom / pan seed:
+- Interaction script duration:
+- Baseline (`culling=off`):
+   - visible/submitted nodes:
+   - full/culled submission units:
+   - prep timing summary:
+   - frame-time summary:
+- Candidate (`culling=on`):
+   - visible/submitted nodes:
+   - full/culled submission units:
+   - prep timing summary:
+   - frame-time summary:
+- Delta summary:
+   - visible-set reduction direction (expected: down)
+   - submission-unit reduction direction (expected: down)
+   - frame-time impact direction (expected: down or neutral)
 
 **Evidence to capture in handoff comment**
 - Fixture size and viewport framing used.
