@@ -179,6 +179,45 @@ pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) ->
 }
 
 impl RegistryRuntime {
+    fn build_provider_wired_registries(
+        protocol_providers: &ProtocolHandlerProviders,
+        viewer_providers: &ViewerHandlerProviders,
+    ) -> (ProtocolRegistry, ViewerRegistry) {
+        let mut protocol_registry = ProtocolRegistry::default();
+        let mut protocol_contract_registry = ProtocolContractRegistry::core_seed();
+        protocol_providers.apply_all(&mut protocol_contract_registry);
+        for scheme in protocol_contract_registry.scheme_ids() {
+            protocol_registry.register_scheme(&scheme);
+        }
+
+        let mut viewer_registry = ViewerRegistry::default();
+        viewer_providers.apply_all(&mut viewer_registry);
+
+        (protocol_registry, viewer_registry)
+    }
+
+    #[cfg(test)]
+    fn new_with_provider_registries_for_tests(
+        protocol_providers: ProtocolHandlerProviders,
+        viewer_providers: ViewerHandlerProviders,
+    ) -> Self {
+        let (protocol_registry, viewer_registry) =
+            Self::build_provider_wired_registries(&protocol_providers, &viewer_providers);
+        Self {
+            action: ActionRegistry::default(),
+            diagnostics: DiagnosticsRegistry::default(),
+            identity: IdentityRegistry::default(),
+            input: InputRegistry::default(),
+            layout: LayoutRegistry::default(),
+            lens: LensRegistry::default(),
+            physics: PhysicsRegistry::default(),
+            protocol: protocol_registry,
+            theme: ThemeRegistry::default(),
+            viewer: viewer_registry,
+            knowledge: KnowledgeRegistry::default(),
+        }
+    }
+
     /// Create a new RegistryRuntime with mods discovered and their handlers registered.
     /// This is the standard way to initialize registries during app startup (Phase 2.4).
     ///
@@ -211,15 +250,8 @@ impl RegistryRuntime {
             log::debug!("registries: verse mod handlers registered into provider registries");
         }
 
-        let mut protocol_registry = ProtocolRegistry::default();
-        let mut protocol_contract_registry = ProtocolContractRegistry::core_seed();
-        protocol_providers.apply_all(&mut protocol_contract_registry);
-        for scheme in protocol_contract_registry.scheme_ids() {
-            protocol_registry.register_scheme(&scheme);
-        }
-
-        let mut viewer_registry = ViewerRegistry::default();
-        viewer_providers.apply_all(&mut viewer_registry);
+        let (protocol_registry, viewer_registry) =
+            Self::build_provider_wired_registries(&protocol_providers, &viewer_providers);
 
         // Create the RegistryRuntime with provider-wired registries.
         Self {
@@ -1468,6 +1500,35 @@ mod tests {
         assert_eq!(viewer.viewer_id, "viewer:webview");
         assert!(!viewer.fallback_used);
         assert_ne!(viewer.matched_by, "fallback");
+    }
+
+    #[test]
+    fn provider_wired_runtime_applies_protocol_provider_dispatch() {
+        let baseline = ProtocolRegistry::default().resolve("modtest://example.com/path");
+        assert!(!baseline.supported);
+        assert!(baseline.fallback_used);
+
+        let mut protocol_providers = ProtocolHandlerProviders::new();
+        protocol_providers.register_fn(|registry| {
+            registry.register_scheme("modtest", "protocol:modtest");
+        });
+
+        let runtime = RegistryRuntime::new_with_provider_registries_for_tests(
+            protocol_providers,
+            ViewerHandlerProviders::new(),
+        );
+
+        let (protocol, _viewer) = runtime
+            .observe_navigation_url_with_control(
+                "modtest://example.com/path",
+                None,
+                ProtocolResolveControl::default(),
+            )
+            .expect("default protocol resolve control should be active");
+
+        assert!(protocol.supported);
+        assert!(!protocol.fallback_used);
+        assert_eq!(protocol.matched_scheme, "modtest");
     }
 
     #[test]
