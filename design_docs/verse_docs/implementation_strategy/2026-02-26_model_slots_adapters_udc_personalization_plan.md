@@ -65,6 +65,14 @@ These terms are consistent with `TERMINOLOGY.md` capability/conformance/degradat
 - **Adapter Bundle**: Base model binding + one or more adapters + merge/composition policy.
 - **Modality Projection**: A runtime binding that uses only one modality/capability subset of a multimodal model (for example STT only, vision caption only).
 - **Portability Class**: Compatibility status describing whether an adapter can be reused directly, conditionally, or requires retraining.
+- **Model Diet Profile**: A structured description of what data/task/modality mixtures a model family tends to respond well or poorly to during adaptation.
+- **Extractability Profile**: A structured declaration of what artifacts can be recovered/exported from a model given the current access level (API-only, local weights, base+tuned pair, etc.).
+- **Engram** (design term): The bundled, persistable customization package describing a model adaptation's lineage, tendencies, compatibility, and measured behavior.
+- **Ghost** (metaphor): The user-facing mental model for the transferable contents of an engram. In implementation terms, the ghost is represented by one or more serialized profiles/artifacts.
+- **Engram Memory**: A constituent stored piece inside an engram/ghost (for example dataset lineage, eval profile, adapter weights, prompt templates, or portability report). Use this as the neutral technical term rather than overloading "artifact."
+- **Ghost Memory** (metaphor): User-facing phrase for an `EngramMemory`.
+- **Ectoplasm** (runtime metaphor): An ephemeral exported internal-signal stream emitted by a model/provider for observation, probing, or interop (for example traces, latent probes, activation summaries). Ectoplasm is not the persisted engram bundle itself.
+- **Archetype**: A modular, reusable customization target profile that encodes desired tendencies (diet preferences, quality priorities, capability emphasis) relative to a model baseline.
 
 ---
 
@@ -321,6 +329,122 @@ Output adapters produced this way must be marked with:
 
 ---
 
+## 8A. Model Diet, Extractability, and Engram Schemas (v1)
+
+These schemas formalize the "what is good eating for who?" and "what kind of ghost can be pulled out?" questions.
+
+### 8A.1 Model Diet Profile (Conceptual)
+
+`ModelDietProfile` captures adaptation tendencies for a model family, revision, or specific checkpoint.
+
+```rust
+struct ModelDietProfile {
+    subject: DietProfileSubject, // family, revision, or checkpoint
+    architecture_type: String,   // decoder-only, encoder-only, multimodal, asr, embedding
+    tokenizer_family: Option<String>,
+    modalities_supported: Vec<ModalityId>,
+
+    adaptation_methods_supported: Vec<AdapterMethod>,
+    adaptation_sensitivity: Vec<SensitivityTag>, // overfit-prone, format-rigid, style-friendly, etc.
+
+    data_diet_preferences: Vec<DietPreference>,
+    data_diet_constraints: Vec<DietConstraint>,
+    risk_flags: Vec<RiskFlag>,
+
+    evidence_refs: Vec<EvidenceRef>, // benchmarks, internal evals, community reports
+    confidence: ConfidenceLevel,      // inferred | observed | validated
+}
+```
+
+Diet profile guidance:
+- Treat this as an evidence-backed recommendation layer, not a hard rule.
+- Populate from requirements, evals/benchmarks, and community reports (see Model Index Verse section).
+- Allow per-checkpoint overrides when quantization or tokenizer changes materially alter behavior.
+
+### 8A.2 Extractability Profile (Conceptual)
+
+`ExtractabilityProfile` declares what can be exported/recovered from a model under current access conditions.
+
+```rust
+struct ExtractabilityProfile {
+    subject: ExtractabilitySubject, // model family, provider, or checkpoint
+    access_level: AccessLevel,      // api_only | local_weights | base_plus_tuned_weights
+
+    extractable: Vec<ExtractableType>,   // eval_profile, prompts, embeddings, adapter_delta, etc.
+    non_extractable: Vec<ExtractableType>,
+    portability_limits: Vec<PortabilityConstraint>,
+
+    extraction_methods: Vec<ExtractionMethodRef>,
+    verification_requirements: Vec<VerificationRequirement>, // eval suites required post-extraction
+    notes: Option<String>,
+}
+```
+
+Examples:
+- API-only hosted model: behavior evals + prompts may be extractable; adapter deltas are not.
+- Local base+tuned pair: full weight delta and low-rank approximation may be extractable (tooling + eval required).
+
+### 8A.3 Engram / Ghost Bundle (Conceptual)
+
+An **Engram** is the persistable bundle; the **Ghost** is the user-facing concept for what it carries.
+
+Recommended serialized schema name:
+- `TransferProfile` (technical)
+
+Optional user-facing label:
+- "Export Ghost" / "Import Ghost"
+
+```rust
+struct TransferProfile { // aka Engram
+    engram_id: String,
+    display_name: String,
+    version: u32,
+
+    engram_memories: Vec<EngramMemoryRef>, // inventory of included memories
+
+    diet_profile_ref: Option<String>,           // ModelDietProfile
+    extractability_profile_ref: Option<String>, // ExtractabilityProfile
+    dataset_profile_ref: Option<String>,        // AdapterDatasetProfile
+    eval_profile_ref: Option<String>,           // AdapterEvalProfile
+    adapter_manifest_ref: Option<String>,
+
+    portability_class: PortabilityClass,
+    conformance_summary: Vec<SlotConformanceOutcome>,
+    provenance: ProvenanceRecord,
+}
+```
+
+Canonical engram memory classes (v1):
+- `dataset_lineage`
+- `eval_behavior`
+- `adapter_weights`
+- `adapter_manifest`
+- `compatibility_report`
+- `diet_profile`
+- `extractability_profile`
+- `prompt_bundle` (optional)
+- `synthetic_examples` (optional)
+
+### 8A.4 Ectoplasm (Optional Runtime Export Layer)
+
+`Ectoplasm` is the optional runtime/internal signal export path for models/providers that expose introspection or tracing data. It is intentionally separate from persisted engram memories.
+
+Use cases:
+- debugging and interpretability tooling
+- cross-model comparison of behavior traces
+- live observability during adaptation/evaluation
+- external systems subscribing to model-internal summaries (subject to privacy/safety policy)
+
+Conceptual terms:
+- `EctoplasmStream` — a live stream/channel of emitted internal signals
+- `EctoplasmSample` — one emitted unit/frame/sample on the stream
+- `EctoplasmCapabilities` — what kinds of internal signals a provider can expose
+- `EctoplasmPolicy` — privacy/safety/retention policy for ectoplasm export
+
+Ectoplasm may generate evidence used in evals or reports, but it should not be assumed available across all model families/providers.
+
+---
+
 ## 9. Evaluation and Feature Gating (Baseline vs Customized)
 
 ### 9.1 Adapter Eval Profile (Conceptual)
@@ -452,6 +576,36 @@ Index at least:
 - portability class
 - conformance summary
 
+### 11.4 Model Index Verse as Evidence Registry (Requirements + Benchmarks + Community Reports)
+
+The Model Index Verse should function as more than a file catalog. It should also serve as an **evidence registry** for model behavior claims.
+
+Evidence sources (all indexable and referenceable):
+- **Requirements-derived evaluations** (product-specific acceptance tests and feature gates)
+- **Benchmarks** (public or internal benchmark suites)
+- **Community reports** (structured field reports from users/teams about behavior in real usage)
+- **Regression receipts** (documented breakages after upgrade/adapter changes)
+
+This evidence layer is a major reason to maintain a dedicated Model Index Verse: it lets the ecosystem converge on shared compatibility and quality knowledge rather than only sharing weights.
+
+### 11.5 Community Reports (Structured, Weighted, Verifiable)
+
+Community reports should be structured enough to support aggregation without pretending every report is equally trustworthy.
+
+Recommended report facets:
+- model/checkpoint identity
+- adapter/engram identity (if any)
+- slot(s) used
+- capability subset used (important for multimodal projections)
+- task + modality tags
+- UDC domain tags (if relevant)
+- observed strengths/weaknesses
+- reproducible prompt/input examples (when shareable)
+- environment/resource conditions (CPU/GPU, quantization, latency)
+- confidence and reporter role (self-report, maintainer, benchmark runner)
+
+Use reports as **evidence refs** for `ModelDietProfile` and `ExtractabilityProfile`, not as direct replacements for eval profiles.
+
 ---
 
 ## 12. Upgrade Paths
@@ -483,6 +637,76 @@ Then train a new adapter for the upgraded base model.
 ### 12.4 Extracted Adapter ("Reverse LoRA")
 
 If a user has a full tuned checkpoint and the original base checkpoint, support extracting a low-rank adapter as a portability aid. This is a convenience path, not a guarantee of quality; extracted adapters still require eval and conformance gating.
+
+### 12.5 Archetypes (Customization Presets and Nudging Targets)
+
+Archetypes provide reusable "personalization goals" that users can choose, inspect, derive from existing models, and edit.
+
+An archetype is not a model or adapter. It is a **target tendency profile** that can guide:
+- dataset curation ("diet")
+- adapter training configuration defaults
+- feature weighting and eval priorities
+- recommendation/nudging in the customization UI
+
+#### Archetype Sources
+
+Archetypes may be created from:
+- **Saved model copies/checkpoints** (derive observed tendencies relative to baseline)
+- **Existing adapters/engram bundles** (derive diet + eval signature)
+- **Personality typing systems** (optional, user-facing presets; translated into task/style preferences)
+- **Domain-specific presets** (for example `rust-maintainer`, `legal-research`, `recipe-archivist`)
+- **User-authored custom archetypes** ("Design Your Archetype")
+
+#### Archetype Modularity
+
+Archetypes should be composable. Recommended modular dimensions:
+- `style_tendencies` (concise, exploratory, formal, literal)
+- `task_biases` (summarize vs extract vs classify)
+- `domain_biases` (UDC target distributions)
+- `safety_biases` (high precision / low creativity for specific tasks)
+- `resource_biases` (latency-first vs quality-first)
+- `adaptation_biases` (LoRA-friendly, prompt-only, RAG-heavy)
+
+#### Archetype Nudging
+
+The system can nudge a customization toward an archetype by adjusting:
+- suggested dataset mix (task/modality/UDC distributions)
+- training recipe defaults (rank, modules, regularization ranges)
+- eval suite weighting and thresholds
+- feature enablement thresholds per slot/capability
+
+The nudge is advisory and observable, never hidden.
+
+#### Design Your Archetype (User Feature)
+
+Allow users to define custom archetypes relative to a chosen baseline model:
+- start from baseline, existing archetype, or imported engram
+- set desired tendencies (diet preferences/constraints + quality priorities)
+- preview expected tradeoffs and required evidence/evals
+- save archetype as a reusable preset
+
+#### Archetype Schema (Conceptual)
+
+```rust
+struct ArchetypeProfile {
+    archetype_id: String,
+    display_name: String,
+    derived_from: Vec<ArchetypeSourceRef>, // model, adapter, engram, preset
+
+    target_diet: Vec<DietPreference>,
+    diet_constraints: Vec<DietConstraint>,
+    task_biases: Vec<TaskBias>,
+    modality_biases: Vec<ModalityBias>,
+    udc_biases: Vec<UdcBias>,
+
+    eval_priority_weights: Vec<EvalWeight>,
+    slot_threshold_overrides: Vec<SlotThresholdOverride>,
+
+    provenance: ProvenanceRecord,
+}
+```
+
+Archetypes are persistable and shareable through the Model Index Verse, but they must remain separable from actual model/adapter weights.
 
 ---
 
@@ -531,6 +755,7 @@ This keeps intelligence feature gating observable and debuggable.
 2. Implement portability class checks
 3. Add UI/diagnostics surfacing for compatibility and degradation
 4. Support adapter bundle attachment to slot bindings
+5. Add `ModelDietProfile` / `ExtractabilityProfile` schema storage and evidence refs
 
 ### Phase C — UDC Dataset/Eval Profiles
 
@@ -538,6 +763,7 @@ This keeps intelligence feature gating observable and debuggable.
 2. Implement `AdapterEvalProfile` schema with UDC-sliced metrics
 3. Require baseline comparison before enabling adapter-backed feature gates above low-risk level
 4. Index these artifacts in Verse model search
+5. Add structured community report schema + evidence weighting in Model Index Verse
 
 ### Phase D — Tooling and Upgrade Paths
 
@@ -545,6 +771,14 @@ This keeps intelligence feature gating observable and debuggable.
 2. Add extracted-adapter import path ("reverse LoRA" support metadata)
 3. Add shared-model arbitration for multi-slot multimodal bindings
 4. Add adapter scope fields for multimodal towers/backbone/fusion layers
+5. Add `ArchetypeProfile` derivation from existing model/adapter/engram signatures
+
+### Phase E — Archetypes and Engram UX
+
+1. Add "Design Your Archetype" UI (baseline-relative tendency controls)
+2. Add archetype-driven nudging for dataset mix and eval weighting
+3. Add `TransferProfile` (Engram) export/import with engram memory inventory
+4. Surface portability and extractability reports during import/upgrade flows
 
 ---
 
@@ -555,6 +789,9 @@ This keeps intelligence feature gating observable and debuggable.
 3. **Privacy defaults**: Are `AdapterDatasetProfile` lineage refs shareable by default, or summarized/redacted unless explicit consent is granted?
 4. **Eval standardization**: Which minimum eval suites become required for `full` conformance per slot?
 5. **Remote inference parity**: Do remote Verse providers publish the same conformance schema, or a reduced trust declaration?
+6. **Archetype interoperability**: Do we support importing archetypes from external personality frameworks directly, or only via an internal normalized schema?
+7. **Engram memory granularity**: What is the minimum memory inventory required for a valid `TransferProfile` export?
+8. **Ectoplasm standardization**: Do we define a common `EctoplasmSample` envelope, or keep provider-specific streams behind capability declarations?
 
 ---
 
@@ -576,5 +813,8 @@ This plan makes the "curated assistants + personalization" idea operational by t
 - **conformance** (measured quality)
 - **adapters** (portable deltas with compatibility metadata)
 - **UDC-grounded dataset/eval facets** (semantic lineage and domain-specific performance)
+- **diet/extractability profiles** (evidence-backed guidance on what a model responds to and what can be recovered from it)
+- **archetypes** (modular customization presets and nudging targets)
+- **engram/ghost bundles** (persistable transfer packages composed of multiple engram memories)
 
 It also explicitly supports the multimodal case: one model can fill many sockets, and a single modality path of a multimodal model can be bound independently when only that capability is good enough.
