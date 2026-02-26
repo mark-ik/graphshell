@@ -6,21 +6,21 @@ use super::{
 
 pub(crate) const WORKBENCH_SURFACE_DEFAULT: &str = "workbench_surface:default";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WorkbenchLayoutPolicy {
     pub(crate) all_panes_must_have_tabs: bool,
     pub(crate) split_horizontal_default: bool,
     pub(crate) tab_wrapping_enabled: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WorkbenchInteractionPolicy {
     pub(crate) tab_detach_enabled: bool,
     pub(crate) tab_detach_band_margin: f32,
     pub(crate) title_truncation_chars: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WorkbenchSurfaceProfile {
     pub(crate) profile_id: String,
     pub(crate) layout: WorkbenchLayoutPolicy,
@@ -39,7 +39,7 @@ pub(crate) struct WorkbenchSurfaceProfile {
     pub(crate) history: HistoryCapabilities,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WorkbenchSurfaceResolution {
     pub(crate) requested_id: String,
     pub(crate) resolved_id: String,
@@ -144,5 +144,21 @@ mod tests {
         assert!(resolution.profile.layout.all_panes_must_have_tabs);
         assert!(resolution.profile.interaction.tab_detach_enabled);
         assert_eq!(resolution.profile.interaction.title_truncation_chars, 26);
+    }
+
+    #[test]
+    fn workbench_surface_resolution_round_trips_via_json() {
+        let registry = WorkbenchSurfaceRegistry::default();
+        let resolution = registry.resolve(WORKBENCH_SURFACE_DEFAULT);
+
+        let json = serde_json::to_string(&resolution).expect("resolution should serialize");
+        let restored: WorkbenchSurfaceResolution =
+            serde_json::from_str(&json).expect("resolution should deserialize");
+
+        assert_eq!(restored.resolved_id, WORKBENCH_SURFACE_DEFAULT);
+        assert_eq!(
+            restored.profile.accessibility.level,
+            super::super::ConformanceLevel::Full
+        );
     }
 }

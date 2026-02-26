@@ -10,7 +10,7 @@ pub(crate) mod workbench_surface;
 ///
 /// Populated at registry registration time; read by subsystem diagnostics and
 /// validation to drive degraded-path warnings and conformance audit trails.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum ConformanceLevel {
     /// Guarantee fully satisfied by this surface/profile.
     Full,
@@ -24,7 +24,7 @@ pub(crate) enum ConformanceLevel {
 ///
 /// Registered alongside a surface profile to allow accessibility subsystem
 /// diagnostics to audit conformance without reaching into rendering code.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AccessibilityCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap or
@@ -52,7 +52,7 @@ impl AccessibilityCapabilities {
 /// Registered alongside a surface profile to allow security subsystem
 /// diagnostics to audit whether content isolation, sandboxing, or CSP
 /// guarantees are satisfied.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SecurityCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap or
@@ -79,7 +79,7 @@ impl SecurityCapabilities {
 /// Declares whether the surface/profile participates in canonical workspace
 /// persistence contracts (schema integrity, deterministic restore semantics,
 /// and no special-case bypasses).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct StorageCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap.
@@ -104,7 +104,7 @@ impl StorageCapabilities {
 ///
 /// Declares whether traversal/timeline semantics and preview/replay integrity
 /// guarantees are supported for this surface/profile.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HistoryCapabilities {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap.
@@ -247,5 +247,19 @@ mod tests {
         assert_eq!(resolution.workbench_surface.profile.history.level, ConformanceLevel::Full);
         assert_eq!(resolution.viewer_surface.profile.storage.level, ConformanceLevel::Full);
         assert_eq!(resolution.viewer_surface.profile.history.level, ConformanceLevel::Full);
+    }
+
+    #[test]
+    fn conformance_capability_structs_round_trip_via_json() {
+        let capability = AccessibilityCapabilities::partial("keyboard-only degraded path");
+        let json = serde_json::to_string(&capability).expect("capability should serialize");
+        let restored: AccessibilityCapabilities =
+            serde_json::from_str(&json).expect("capability should deserialize");
+
+        assert_eq!(restored.level, ConformanceLevel::Partial);
+        assert_eq!(
+            restored.reason.as_deref(),
+            Some("keyboard-only degraded path")
+        );
     }
 }

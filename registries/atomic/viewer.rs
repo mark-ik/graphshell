@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum ViewerConformanceLevel {
     Full,
     Partial,
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerCapabilityDeclaration {
     pub(crate) level: ViewerConformanceLevel,
     pub(crate) reason: Option<String>,
@@ -20,9 +20,23 @@ impl ViewerCapabilityDeclaration {
             reason: None,
         }
     }
+
+    pub(crate) fn partial(reason: impl Into<String>) -> Self {
+        Self {
+            level: ViewerConformanceLevel::Partial,
+            reason: Some(reason.into()),
+        }
+    }
+
+    pub(crate) fn none(reason: impl Into<String>) -> Self {
+        Self {
+            level: ViewerConformanceLevel::None,
+            reason: Some(reason.into()),
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSubsystemCapabilities {
     pub(crate) accessibility: ViewerCapabilityDeclaration,
     pub(crate) security: ViewerCapabilityDeclaration,
@@ -41,7 +55,7 @@ impl ViewerSubsystemCapabilities {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerDescriptor {
     pub(crate) uri: String,
     pub(crate) mime_hint: Option<String>,
@@ -52,7 +66,7 @@ pub(crate) trait ViewerHandler: Send + Sync {
     fn can_render(&self, descriptor: &ViewerDescriptor) -> bool;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSelection {
     pub(crate) viewer_id: &'static str,
     pub(crate) fallback_used: bool,
@@ -340,6 +354,30 @@ mod tests {
             selection.capabilities.accessibility.reason.as_deref(),
             Some("access bridge disabled in test")
         );
+    }
+
+    #[test]
+    fn viewer_capabilities_round_trip_via_json() {
+        let capabilities = ViewerSubsystemCapabilities {
+            accessibility: ViewerCapabilityDeclaration {
+                level: ViewerConformanceLevel::Partial,
+                reason: Some("access bridge degraded".to_string()),
+            },
+            security: ViewerCapabilityDeclaration::full(),
+            storage: ViewerCapabilityDeclaration::full(),
+            history: ViewerCapabilityDeclaration::none("history replay unavailable"),
+        };
+
+        let json = serde_json::to_string(&capabilities).expect("capabilities should serialize");
+        let restored: ViewerSubsystemCapabilities =
+            serde_json::from_str(&json).expect("capabilities should deserialize");
+
+        assert_eq!(restored.accessibility.level, ViewerConformanceLevel::Partial);
+        assert_eq!(
+            restored.accessibility.reason.as_deref(),
+            Some("access bridge degraded")
+        );
+        assert_eq!(restored.history.level, ViewerConformanceLevel::None);
     }
 
     // --- select_for tests ---

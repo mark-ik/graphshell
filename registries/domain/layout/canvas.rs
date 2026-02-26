@@ -6,37 +6,37 @@ use super::{
 
 pub(crate) const CANVAS_PROFILE_DEFAULT: &str = "canvas:default";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasTopologyPolicy {
     pub(crate) policy_id: String,
     pub(crate) directed: bool,
     pub(crate) cycles_allowed: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasLayoutAlgorithmPolicy {
     pub(crate) algorithm_id: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasNavigationPolicy {
     pub(crate) fit_to_screen_enabled: bool,
     pub(crate) zoom_and_pan_enabled: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasInteractionPolicy {
     pub(crate) dragging_enabled: bool,
     pub(crate) node_selection_enabled: bool,
     pub(crate) node_clicking_enabled: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasStylePolicy {
     pub(crate) labels_always: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum EdgeLodPolicy {
     Full,
     SkipLabels,
@@ -47,7 +47,7 @@ pub(crate) enum EdgeLodPolicy {
 ///
 /// These toggles gate Phase 1 performance optimizations so behavior remains
 /// policy-driven rather than hardcoded in render callsites.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasPerformancePolicy {
     /// When true, only nodes within the visible viewport are submitted to the
     /// graph renderer each frame.
@@ -56,7 +56,7 @@ pub(crate) struct CanvasPerformancePolicy {
     pub(crate) edge_lod: EdgeLodPolicy,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasSurfaceProfile {
     pub(crate) profile_id: String,
     pub(crate) topology: CanvasTopologyPolicy,
@@ -75,7 +75,7 @@ pub(crate) struct CanvasSurfaceProfile {
     pub(crate) history: HistoryCapabilities,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasSurfaceResolution {
     pub(crate) requested_id: String,
     pub(crate) resolved_id: String,

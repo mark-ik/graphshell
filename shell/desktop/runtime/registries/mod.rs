@@ -1088,7 +1088,29 @@ pub(crate) fn phase3_resolve_viewer_surface_profile(
     _viewer_id: &str,
 ) -> ViewerSurfaceResolution {
     let layout_domain = LayoutDomainRegistry::default();
-    let resolution = layout_domain.viewer_surface().resolve(VIEWER_SURFACE_DEFAULT);
+    let profile_resolution = layout_domain.resolve_profile(
+        crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT,
+        crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT,
+        VIEWER_SURFACE_DEFAULT,
+    );
+
+    let resolution = profile_resolution.viewer_surface;
+    emit_surface_conformance_diagnostics(
+        profile_resolution.canvas.profile.accessibility.level,
+        profile_resolution.canvas.profile.security.level,
+        profile_resolution.canvas.profile.storage.level,
+        profile_resolution.canvas.profile.history.level,
+    );
+    emit_surface_conformance_diagnostics(
+        profile_resolution
+            .workbench_surface
+            .profile
+            .accessibility
+            .level,
+        profile_resolution.workbench_surface.profile.security.level,
+        profile_resolution.workbench_surface.profile.storage.level,
+        profile_resolution.workbench_surface.profile.history.level,
+    );
     emit_surface_conformance_diagnostics(
         resolution.profile.accessibility.level.clone(),
         resolution.profile.security.level.clone(),

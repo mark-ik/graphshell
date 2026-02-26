@@ -6,7 +6,7 @@ use super::{
 
 pub(crate) const VIEWER_SURFACE_DEFAULT: &str = "viewer_surface:default";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSurfaceProfile {
     pub(crate) profile_id: String,
     pub(crate) reader_mode_default: bool,
@@ -25,7 +25,7 @@ pub(crate) struct ViewerSurfaceProfile {
     pub(crate) history: HistoryCapabilities,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSurfaceResolution {
     pub(crate) requested_id: String,
     pub(crate) resolved_id: String,
@@ -117,5 +117,18 @@ mod tests {
         assert!(!resolution.matched);
         assert!(resolution.fallback_used);
         assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DEFAULT);
+    }
+
+    #[test]
+    fn viewer_surface_resolution_round_trips_via_json() {
+        let registry = ViewerSurfaceRegistry::default();
+        let resolution = registry.resolve(VIEWER_SURFACE_DEFAULT);
+
+        let json = serde_json::to_string(&resolution).expect("resolution should serialize");
+        let restored: ViewerSurfaceResolution =
+            serde_json::from_str(&json).expect("resolution should deserialize");
+
+        assert_eq!(restored.resolved_id, VIEWER_SURFACE_DEFAULT);
+        assert_eq!(restored.profile.history.level, super::super::ConformanceLevel::Full);
     }
 }
