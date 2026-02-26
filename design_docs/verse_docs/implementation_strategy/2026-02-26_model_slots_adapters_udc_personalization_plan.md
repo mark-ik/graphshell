@@ -2,9 +2,10 @@
 
 **Date**: 2026-02-26
 **Status**: Proposed (design-ready)
-**Scope**: Local intelligence model management, capability-slot binding, LoRA adapter personalization, UDC-grounded dataset/evaluation metadata, and multimodal model slot reuse in Graphshell/Verse.
+**Scope**: Local intelligence model management, capability-slot binding, LoRA adapter personalization, UDC-grounded dataset/evaluation metadata, multimodal model slot reuse, and customization transfer semantics (engrams/ghosts) in Graphshell/Verse. Memory store architecture (STM/LTM, extractor/ingestor plumbing) is defined in a companion plan.
 **Related**:
 - `design_docs/verse_docs/research/2026-02-24_local_intelligence_research.md`
+- `design_docs/verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md`
 - `design_docs/TERMINOLOGY.md`
 - `design_docs/graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md`
 - `design_docs/graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md`
@@ -29,6 +30,10 @@ This plan converts those ideas into a concrete architecture with:
 - **multimodal binding semantics** (one model may satisfy many slots, including single-modality use)
 
 The goal is to make personalization portable, measurable, and feature-gatable instead of opaque.
+
+Companion scope note:
+- This document defines model-facing semantics (slots, capabilities, conformance, adapters, archetypes, engram composition).
+- STM/LTM memory storage, ingestion/extraction, and promotion/hydration workflows live in `2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md`.
 
 ---
 
@@ -429,6 +434,8 @@ Canonical engram memory classes (v1):
 
 `Ectoplasm` is the optional runtime/internal signal export path for models/providers that expose introspection or tracing data. It is intentionally separate from persisted engram memories.
 
+See the companion memory architecture plan for STM buffering, retention, promotion, and ingestor/extractor treatment of `Ectoplasm`.
+
 Use cases:
 - debugging and interpretability tooling
 - cross-model comparison of behavior traces
@@ -587,6 +594,8 @@ Evidence sources (all indexable and referenceable):
 - **Regression receipts** (documented breakages after upgrade/adapter changes)
 
 This evidence layer is a major reason to maintain a dedicated Model Index Verse: it lets the ecosystem converge on shared compatibility and quality knowledge rather than only sharing weights.
+
+Storage/indexing/retrieval mechanics for this evidence layer are defined in the companion memory architecture plan.
 
 ### 11.5 Community Reports (Structured, Weighted, Verifiable)
 
