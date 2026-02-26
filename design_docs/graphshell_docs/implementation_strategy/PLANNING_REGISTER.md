@@ -105,18 +105,24 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
   - `gap-remediation hub`: `#86`
 - Evidence/receipt: `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_queue_execution_audit_receipt.md`
 
-1. **lane:roadmap (docs/planning)**
-  - `#11`, `#12`, `#13`, `#14`, `#18`, `#19`
-2. **lane:runtime / register roadmap follow-on (new work, not stale queue cleanup)**
-  - `SYSTEM_REGISTER.md` SR2/SR3 signal-routing contract + implementation slices (future tickets as needed)
-3. **Bugfix / stabilization lane (ad hoc, user-reported)**
-  - Zoom-to-fit / unresponsive controls investigation (not part of the reconciled backlog queue)
+1. **lane:stabilization (ad hoc bugfix lane, active if user-reported regressions exist)**
+  - Zoom-to-fit / unresponsive controls investigation (create/label issue before code work if no tracker exists)
+  - Hotspots likely: `render/mod.rs`, `app.rs`, `gui.rs`, input/camera command paths
+  - Rule: run as a single focused PR, do not overlap with quick refactors in the same hotspots
+2. **lane:roadmap (docs/planning, merge-safe default lane)**
+  - `#11` → `#12` → `#13` → `#14` → `#18` → `#19`
+  - Low conflict risk with runtime/render hot files; preferred background lane while bugfix lane is idle
+3. **lane:runtime-followon (new tickets required)**
+  - `SYSTEM_REGISTER.md` SR2 (signal routing contract) before SR3 (`SignalBus`/equivalent fabric)
+  - Create new child issues before execution; avoid reusing closed queue-cleanup issues (`#80/#81/#82/#86`)
+  - Keep separate from stabilization lane if touching `gui.rs` or registry runtime hotspots
 
 ### Near-term PR stack plan (merge order)
 
-- Completed (2026-02-26 audit/reconciliation): `lane:p6`, `lane:p7` phase-1, `lane:p10`, `lane:runtime` queues listed above
-- Active next mergeable stack: `lane:roadmap` docs/planning items (`#11`, `#12`, `#13`, `#14`, `#18`, `#19`)
-- Parallel planning work (new tickets as needed): Register signal-routing roadmap slices (SR2/SR3)
+- Completed (2026-02-26 audit/reconciliation): `lane:p6`, `lane:p7` phase-1, `lane:p10`, `lane:runtime`, `lane:quickwins` queues listed above
+- Active merge-safe default stack: `lane:roadmap` docs/planning items (`#11` → `#12` → `#13` → `#14` → `#18` → `#19`)
+- Conditional priority override: `lane:stabilization` bugfix PR (zoom/control regression) supersedes roadmap lane while active
+- Parallel planning only (no code until ticketed): Register signal-routing roadmap slices (SR2/SR3)
 
 ---
 
