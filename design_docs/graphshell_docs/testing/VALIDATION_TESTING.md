@@ -81,10 +81,20 @@ The diagnostic system exposes structured state (`DiagnosticsState`) that can be 
 
 ### Automated harness check
 
-- [x] `cargo test inject_webview_a11y_updates_drains_pending_map -- --nocapture`
-  - Result: pass (1/1); confirms pending WebView accessibility updates are consumed by bridge injection each frame and do not accumulate across frames.
+Run these as the **P10.d baseline harness set**:
 
-### Manual screen-reader checklist (repeatable handoff script)
+- [x] `cargo test --lib shell::desktop::ui::gui::accessibility_bridge_tests::inject_webview_a11y_updates_drains_pending_map -- --exact`
+   - Result: pass (1/1); confirms pending WebView accessibility updates are consumed each frame and do not accumulate.
+- [x] `cargo test --lib shell::desktop::ui::gui::accessibility_bridge_tests::webview_a11y_graft_plan_includes_injectable_nodes_and_root -- --exact`
+   - Result: pass (1/1); confirms bridge planning yields an injectable node set + stable root in the supported baseline scenario.
+- [x] `cargo test --lib shell::desktop::ui::gui::accessibility_bridge_tests::webview_a11y_graft_plan_tracks_role_conversion_fallbacks -- --exact`
+   - Result: pass (1/1); confirms degraded conversion fallback remains explicit/observable when role compatibility falls back.
+- [x] `cargo check -q --lib`
+   - Result: pass (warnings only); confirms bridge validation/harness code compiles in library path.
+
+### Manual handoff checklist (repeatable)
+
+This checklist is the required **cross-contributor handoff script** for P10.c/P10.d split work.
 
 **Preconditions**
 1. Build/run Graphshell with normal desktop runtime (`cargo run -p graphshell --bin graphshell -- -M https://example.com`).
@@ -108,11 +118,14 @@ The diagnostic system exposes structured state (`DiagnosticsState`) that can be 
    - Action: open sparse/minimal content where explicit labels may be absent.
    - Expected: reader still announces a usable embedded web-content fallback label rather than silence.
 
-**Evidence to capture in handoff comment**
+### Handoff evidence template
+
+Include the following in the issue/PR handoff comment:
 - Platform + screen reader used.
 - URLs/content types tested.
 - Pass/fail per checklist item above.
-- Any observed degraded behavior with reproduction notes.
+- Any observed degraded behavior with concise reproduction notes.
+- Automated harness command output summary (the four commands above).
 
 ## Performance Baseline: Viewport Culling Validation + Benchmark (P10.b)
 
