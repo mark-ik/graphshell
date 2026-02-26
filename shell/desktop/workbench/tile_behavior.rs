@@ -491,7 +491,13 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     ToolPaneState::Diagnostics => {
                         self.diagnostics_state.render_in_pane(ui, self.graph_app);
                     }
-                    _ => {
+                    ToolPaneState::HistoryManager => {
+                        Self::render_tool_pane_placeholder(ui, tool);
+                    }
+                    ToolPaneState::AccessibilityInspector => {
+                        Self::render_tool_pane_placeholder(ui, tool);
+                    }
+                    ToolPaneState::Settings => {
                         Self::render_tool_pane_placeholder(ui, tool);
                     }
                 }
