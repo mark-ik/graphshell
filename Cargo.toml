@@ -72,6 +72,7 @@ crossbeam-channel = "0.5"
 dpi = "0.1"
 euclid = "0.22"
 inventory = "0.3"
+infer = "0.19"
 hitrace = { version = "0.1.6", features = ["api-19", "tracing-rs"], optional = true }
 image = { version = "0.25", default-features = false, features = ["avif", "rayon", "bmp", "gif", "ico", "jpeg", "png", "webp"] }
 keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }

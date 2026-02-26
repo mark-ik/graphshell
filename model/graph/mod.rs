@@ -57,12 +57,20 @@ pub(crate) fn address_kind_from_url(url: &str) -> AddressKind {
     }
 }
 
-/// Detect MIME type from a URL using extension sniffing.
+/// Detect MIME type from URL + optional content bytes.
 ///
-/// Returns `None` when the extension is unknown or the URL has no path component.
-/// Content-byte sniffing (magic numbers) is left to a higher-level caller that
-/// has access to the bytes; this function performs extension-only detection.
-pub(crate) fn detect_mime(url: &str) -> Option<String> {
+/// Detection order:
+/// 1) Content-byte sniffing via `infer` (when `content_bytes` are provided)
+/// 2) Extension fallback via `mime_guess`
+///
+/// Returns `None` when neither source yields a known MIME type.
+pub(crate) fn detect_mime(url: &str, content_bytes: Option<&[u8]>) -> Option<String> {
+    if let Some(bytes) = content_bytes {
+        if let Some(kind) = infer::get(bytes) {
+            return Some(kind.mime_type().to_string());
+        }
+    }
+
     let no_fragment = url.split('#').next().unwrap_or(url);
     let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
     // Strip file:// scheme so mime_guess sees a plain path.
@@ -351,7 +359,7 @@ impl Graph {
             favicon_height: 0,
             session_scroll: None,
             session_form_draft: None,
-            mime_hint: detect_mime(&url),
+            mime_hint: detect_mime(&url, None),
             address_kind: address_kind_from_url(&url),
             lifecycle: NodeLifecycle::Cold,
         });
@@ -791,7 +799,7 @@ impl Graph {
             {
                 // Recompute MIME hint and address kind from the restored URL.
                 if let Some(node) = graph.get_node_mut(key) {
-                    node.mime_hint = detect_mime(&current_url);
+                    node.mime_hint = detect_mime(&current_url, None);
                     node.address_kind = address_kind_from_url(&current_url);
                 }
                 let _ = graph.update_node_url(key, current_url);
@@ -1504,7 +1512,7 @@ mod tests {
     #[test]
     fn detect_mime_returns_pdf_for_pdf_path() {
         assert_eq!(
-            detect_mime("file:///home/user/document.pdf"),
+            detect_mime("file:///home/user/document.pdf", None),
             Some("application/pdf".to_string())
         );
     }
@@ -1512,14 +1520,32 @@ mod tests {
     #[test]
     fn detect_mime_returns_text_plain_for_txt_path() {
         assert_eq!(
-            detect_mime("file:///notes/readme.txt"),
+            detect_mime("file:///notes/readme.txt", None),
             Some("text/plain".to_string())
         );
     }
 
     #[test]
     fn detect_mime_returns_none_for_no_extension() {
-        assert!(detect_mime("https://example.com/page").is_none());
+        assert!(detect_mime("https://example.com/page", None).is_none());
+    }
+
+    #[test]
+    fn detect_mime_prefers_magic_bytes_when_available() {
+        let pdf_header = b"%PDF-1.7\n1 0 obj\n";
+        assert_eq!(
+            detect_mime("https://example.com/no-extension", Some(pdf_header)),
+            Some("application/pdf".to_string())
+        );
+    }
+
+    #[test]
+    fn detect_mime_falls_back_to_extension_when_magic_unknown() {
+        let unknown = b"not a known magic signature";
+        assert_eq!(
+            detect_mime("file:///home/user/data.json", Some(unknown)),
+            Some("application/json".to_string())
+        );
     }
 
     #[test]

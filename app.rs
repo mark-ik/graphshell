@@ -2590,15 +2590,17 @@ impl GraphBrowserApp {
             }
             GraphIntent::UpdateNodeMimeHint { key, mime_hint } => {
                 if let Some(node) = self.workspace.graph.get_node_mut(key) {
-                    let node_id = node.id;
-                    node.mime_hint = mime_hint.clone();
-                    if let Some(store) = &mut self.services.persistence {
-                        store.log_mutation(
-                            &LogEntry::UpdateNodeMimeHint {
-                                node_id: node_id.to_string(),
-                                mime_hint,
-                            },
-                        );
+                    if node.mime_hint != mime_hint {
+                        let node_id = node.id;
+                        node.mime_hint = mime_hint.clone();
+                        if let Some(store) = &mut self.services.persistence {
+                            store.log_mutation(
+                                &LogEntry::UpdateNodeMimeHint {
+                                    node_id: node_id.to_string(),
+                                    mime_hint,
+                                },
+                            );
+                        }
                     }
                 }
             }
@@ -5248,7 +5250,7 @@ impl GraphBrowserApp {
     /// Returns the old URL, or None if the node doesn't exist.
     pub fn update_node_url_and_log(&mut self, key: NodeKey, new_url: String) -> Option<String> {
         // Recompute content metadata from the new URL before logging.
-        let new_mime_hint = crate::graph::detect_mime(&new_url);
+        let new_mime_hint = crate::graph::detect_mime(&new_url, None);
         let new_address_kind = crate::graph::address_kind_from_url(&new_url);
 
         let old_url = self.workspace.graph.update_node_url(key, new_url.clone())?;
