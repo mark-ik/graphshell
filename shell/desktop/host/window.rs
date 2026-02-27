@@ -678,7 +678,7 @@ impl EmbedderWindow {
 }
 
 /// A `PlatformWindow` abstracts away the differents kinds of platform windows that might
-/// be used in a servoshell execution. This currently includes headed (winit) and headless
+/// be used in a Graphshell execution. This currently includes headed (winit) and headless
 /// windows.
 pub(crate) trait PlatformWindow {
     fn id(&self) -> EmbedderWindowId;

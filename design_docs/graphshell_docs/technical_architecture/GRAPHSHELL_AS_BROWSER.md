@@ -176,7 +176,7 @@ selected by `ViewerRegistry` based on the node's `mime_hint`, `address_kind`, an
 ### ViewerRegistry Selection Order
 
 1. `Node.viewer_id_override` — explicit user choice (persisted to WAL).
-2. Workspace `viewer_id_default` — workspace-level default.
+2. Frame `viewer_id_default` — frame-level default.
 3. `ViewerRegistry::select_for(mime, address_kind)` — highest-priority matching viewer.
 4. `viewer:servo` — fallback for HTTP/S and HTML files.
 5. `viewer:plaintext` — last resort; always succeeds.

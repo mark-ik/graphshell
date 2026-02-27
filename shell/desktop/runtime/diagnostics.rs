@@ -17,6 +17,10 @@ use crate::graph::NodeKey;
 use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
+    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
 };
 
@@ -179,7 +183,7 @@ pub(crate) struct CompositorTileSample {
 pub(crate) struct CompositorFrameSample {
     pub(crate) sequence: u64,
     pub(crate) active_tile_count: usize,
-    pub(crate) focused_webview_present: bool,
+    pub(crate) focused_node_present: bool,
     pub(crate) viewport_rect: egui::Rect,
     pub(crate) hierarchy: Vec<HierarchySample>,
     pub(crate) tiles: Vec<CompositorTileSample>,
@@ -310,6 +314,19 @@ const CHANNELS_BACKPRESSURE_TO_INTENTS: [&str; 3] = [
 
 const CHANNELS_INTENTS_TO_COMPOSITOR: [&str; 1] = ["tile_compositor.paint"];
 const CHANNEL_ACTIVE_TILE_VIOLATION: &str = "tile_render_pass.active_tile_violation";
+const CHANNELS_COMPOSITOR_OVERLAY_STYLE: [(&str, &str); 2] = [
+    ("RectStroke", CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE),
+    ("ChromeOnly", CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY),
+];
+const CHANNELS_COMPOSITOR_OVERLAY_MODE: [(&str, &str); 4] = [
+    (
+        "CompositedTexture",
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+    ),
+    ("NativeOverlay", CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY),
+    ("EmbeddedEgui", CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI),
+    ("Placeholder", CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER),
+];
 
 #[derive(Clone, Debug)]
 struct IntentSample {
@@ -338,6 +355,52 @@ pub(crate) struct DiagnosticsState {
 }
 
 impl DiagnosticsState {
+    fn render_compositor_overlay_buckets(&self, ui: &mut egui::Ui) {
+        ui.label("Compositor overlay buckets");
+
+        egui::Grid::new("diag_overlay_style_buckets")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.strong("Style");
+                ui.strong("Count");
+                ui.end_row();
+
+                for (label, channel_id) in CHANNELS_COMPOSITOR_OVERLAY_STYLE {
+                    let count = self
+                        .diagnostic_graph
+                        .message_counts
+                        .get(channel_id)
+                        .copied()
+                        .unwrap_or(0);
+                    ui.monospace(label);
+                    ui.monospace(format!("{count}"));
+                    ui.end_row();
+                }
+            });
+
+        ui.add_space(4.0);
+
+        egui::Grid::new("diag_overlay_mode_buckets")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.strong("RenderMode");
+                ui.strong("Count");
+                ui.end_row();
+
+                for (label, channel_id) in CHANNELS_COMPOSITOR_OVERLAY_MODE {
+                    let count = self
+                        .diagnostic_graph
+                        .message_counts
+                        .get(channel_id)
+                        .copied()
+                        .unwrap_or(0);
+                    ui.monospace(label);
+                    ui.monospace(format!("{count}"));
+                    ui.end_row();
+                }
+            });
+    }
+
     pub(crate) fn new() -> Self {
         let (event_tx, event_rx) = unbounded();
         install_global_sender(event_tx.clone());
@@ -628,7 +691,7 @@ impl DiagnosticsState {
                 json!({
                     "sequence": frame.sequence,
                     "active_tile_count": frame.active_tile_count,
-                    "focused_webview_present": frame.focused_webview_present,
+                    "focused_node_present": frame.focused_node_present,
                     "viewport_rect": {
                         "min": {"x": frame.viewport_rect.min.x, "y": frame.viewport_rect.min.y},
                         "max": {"x": frame.viewport_rect.max.x, "y": frame.viewport_rect.max.y},
@@ -1123,6 +1186,8 @@ impl DiagnosticsState {
                             ui.end_row();
                         }
                     });
+                ui.add_space(6.0);
+                self.render_compositor_overlay_buckets(ui);
                 ui.separator();
 
                 let mut channel_configs = diagnostics_registry::list_channel_configs_snapshot();
@@ -1209,7 +1274,7 @@ impl DiagnosticsState {
                     ui.separator();
                     ui.monospace(format!("active_tiles={}", last.active_tile_count));
                     ui.separator();
-                    ui.monospace(format!("focused_webview={}", last.focused_webview_present));
+                    ui.monospace(format!("focused_node={}", last.focused_node_present));
                     ui.separator();
                     ui.monospace(format!("history={}", self.compositor_state.frames.len()));
                     ui.separator();
@@ -1521,10 +1586,10 @@ mod tests {
         state.push_frame(CompositorFrameSample {
             sequence: 7,
             active_tile_count: 1,
-            focused_webview_present: true,
+            focused_node_present: true,
             viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 80.0)),
             hierarchy: vec![HierarchySample {
-                line: "* TileId(1) WebView NodeKey(1)".to_string(),
+                line: "* TileId(1) Node Viewer NodeKey(1)".to_string(),
                 node_key: Some(node_key),
             }],
             tiles: vec![CompositorTileSample {
@@ -1645,10 +1710,10 @@ mod tests {
         state.push_frame(CompositorFrameSample {
             sequence: 88,
             active_tile_count: 1,
-            focused_webview_present: true,
+            focused_node_present: true,
             viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(120.0, 100.0)),
             hierarchy: vec![HierarchySample {
-                line: "* TileId(2) WebView NodeKey(7)".to_string(),
+                line: "* TileId(2) Node Viewer NodeKey(7)".to_string(),
                 node_key: Some(node_key),
             }],
             tiles: vec![CompositorTileSample {
@@ -1725,7 +1790,7 @@ Object {
         state.push_frame(CompositorFrameSample {
             sequence: 1,
             active_tile_count: 1,
-            focused_webview_present: false,
+            focused_node_present: false,
             viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {

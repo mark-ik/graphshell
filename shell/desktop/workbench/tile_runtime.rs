@@ -20,12 +20,17 @@ pub(crate) struct TileCoordinator;
 impl TileCoordinator {
     fn render_mode_for_viewer_id(viewer_id: &str) -> TileRenderMode {
         match viewer_id {
+            // `viewer:servo` remains as a legacy compatibility alias for persisted overrides.
             "viewer:webview" | "viewer:servo" => TileRenderMode::CompositedTexture,
             "viewer:wry" => TileRenderMode::NativeOverlay,
             "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
             | "viewer:settings" | "viewer:metadata" => TileRenderMode::EmbeddedEgui,
             _ => TileRenderMode::Placeholder,
         }
+    }
+
+    pub(crate) fn viewer_id_uses_composited_runtime(viewer_id: &str) -> bool {
+        Self::render_mode_for_viewer_id(viewer_id) == TileRenderMode::CompositedTexture
     }
 
     fn node_pane_effective_viewer_id<'a>(
@@ -52,14 +57,14 @@ impl TileCoordinator {
             .unwrap_or(TileRenderMode::Placeholder)
     }
 
-    fn node_pane_hosts_webview_runtime_impl(
+    fn node_pane_uses_composited_runtime_impl(
         state: &NodePaneState,
         graph_app: &GraphBrowserApp,
     ) -> bool {
         Self::resolve_node_pane_render_mode(state, graph_app) == TileRenderMode::CompositedTexture
     }
 
-    fn collect_node_pane_keys_hosting_webview_runtime(
+    fn collect_node_pane_keys_using_composited_runtime(
         tiles_tree: &Tree<TileKind>,
         graph_app: &GraphBrowserApp,
     ) -> HashSet<NodeKey> {
@@ -68,7 +73,7 @@ impl TileCoordinator {
             .iter()
             .filter_map(|(_, tile)| match tile {
                 Tile::Pane(TileKind::Node(state))
-                    if Self::node_pane_hosts_webview_runtime_impl(state, graph_app) =>
+                    if Self::node_pane_uses_composited_runtime_impl(state, graph_app) =>
                 {
                     Some(state.node)
                 }
@@ -114,18 +119,18 @@ impl TileCoordinator {
             .collect()
     }
 
-    pub(crate) fn all_node_pane_keys_hosting_webview_runtime(
+    pub(crate) fn all_node_pane_keys_using_composited_runtime(
         tiles_tree: &Tree<TileKind>,
         graph_app: &GraphBrowserApp,
     ) -> HashSet<NodeKey> {
-        Self::collect_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
+        Self::collect_node_pane_keys_using_composited_runtime(tiles_tree, graph_app)
     }
 
-    pub(crate) fn node_pane_hosts_webview_runtime(
+    pub(crate) fn node_pane_uses_composited_runtime(
         state: &NodePaneState,
         graph_app: &GraphBrowserApp,
     ) -> bool {
-        Self::node_pane_hosts_webview_runtime_impl(state, graph_app)
+        Self::node_pane_uses_composited_runtime_impl(state, graph_app)
     }
 
     pub(crate) fn refresh_node_pane_render_modes(
@@ -194,7 +199,7 @@ impl TileCoordinator {
 
         for node_key in stale_nodes {
             Self::remove_node_pane_for_node(tiles_tree, node_key);
-            Self::release_webview_runtime_for_node_pane(
+            Self::release_node_runtime_for_pane(
                 graph_app,
                 window,
                 tile_rendering_contexts,
@@ -204,7 +209,7 @@ impl TileCoordinator {
         }
     }
 
-    pub(crate) fn release_webview_runtime_for_node_pane(
+    pub(crate) fn release_node_runtime_for_pane(
         graph_app: &mut GraphBrowserApp,
         window: &EmbedderWindow,
         tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -248,6 +253,10 @@ impl TileCoordinator {
     }
 }
 
+pub(crate) fn viewer_id_uses_composited_runtime(viewer_id: &str) -> bool {
+    TileCoordinator::viewer_id_uses_composited_runtime(viewer_id)
+}
+
 pub(crate) fn reset_runtime_webview_state(
     tiles_tree: &mut Tree<TileKind>,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
@@ -270,18 +279,18 @@ pub(crate) fn all_node_pane_keys(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey
     TileCoordinator::all_node_pane_keys(tiles_tree)
 }
 
-pub(crate) fn all_node_pane_keys_hosting_webview_runtime(
+pub(crate) fn all_node_pane_keys_using_composited_runtime(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
 ) -> HashSet<NodeKey> {
-    TileCoordinator::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
+    TileCoordinator::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app)
 }
 
-pub(crate) fn node_pane_hosts_webview_runtime(
+pub(crate) fn node_pane_uses_composited_runtime(
     state: &NodePaneState,
     graph_app: &GraphBrowserApp,
 ) -> bool {
-    TileCoordinator::node_pane_hosts_webview_runtime(state, graph_app)
+    TileCoordinator::node_pane_uses_composited_runtime(state, graph_app)
 }
 
 pub(crate) fn refresh_node_pane_render_modes(
@@ -324,14 +333,14 @@ pub(crate) fn prune_stale_node_panes(
     );
 }
 
-pub(crate) fn release_webview_runtime_for_node_pane(
+pub(crate) fn release_node_runtime_for_pane(
     graph_app: &mut GraphBrowserApp,
     window: &EmbedderWindow,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     node_key: NodeKey,
     lifecycle_intents: &mut Vec<GraphIntent>,
 ) {
-    TileCoordinator::release_webview_runtime_for_node_pane(
+    TileCoordinator::release_node_runtime_for_pane(
         graph_app,
         window,
         tile_rendering_contexts,
@@ -390,39 +399,39 @@ mod tests {
     }
 
     #[test]
-    fn node_pane_webview_runtime_hosting_uses_registry_selection_for_http_nodes() {
+    fn node_pane_using_composited_runtime_uses_registry_selection_for_http_nodes() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
-        let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
+        let hosts = TileCoordinator::all_node_pane_keys_using_composited_runtime(&tree, &app);
         assert!(hosts.contains(&node_key));
     }
 
     #[test]
-    fn node_pane_webview_runtime_hosting_uses_registry_selection_for_file_nodes() {
+    fn node_pane_using_composited_runtime_uses_registry_selection_for_file_nodes() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key =
             app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
-        let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
+        let hosts = TileCoordinator::all_node_pane_keys_using_composited_runtime(&tree, &app);
         assert!(!hosts.contains(&node_key));
     }
 
     #[test]
-    fn node_pane_webview_runtime_hosting_uses_fallback_for_custom_schemes() {
+    fn node_pane_using_composited_runtime_uses_fallback_for_custom_schemes() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key =
             app.add_node_and_sync("gemini://example.test".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
-        let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
+        let hosts = TileCoordinator::all_node_pane_keys_using_composited_runtime(&tree, &app);
         assert!(!hosts.contains(&node_key));
     }
 
     #[test]
-    fn node_pane_webview_runtime_hosting_preserves_explicit_viewer_override_precedence() {
+    fn node_pane_using_composited_runtime_preserves_explicit_viewer_override_precedence() {
         let mut app = GraphBrowserApp::new_for_testing();
         let http_node =
             app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
@@ -439,16 +448,16 @@ mod tests {
         ));
 
         let http_hosts =
-            TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&http_plaintext_tree, &app);
+            TileCoordinator::all_node_pane_keys_using_composited_runtime(&http_plaintext_tree, &app);
         let file_hosts =
-            TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&file_webview_tree, &app);
+            TileCoordinator::all_node_pane_keys_using_composited_runtime(&file_webview_tree, &app);
 
         assert!(!http_hosts.contains(&http_node));
         assert!(file_hosts.contains(&file_node));
     }
 
     #[test]
-    fn hosting_webview_runtime_is_subset_of_all_node_panes() {
+    fn composited_runtime_nodes_are_subset_of_all_node_panes() {
         let mut app = GraphBrowserApp::new_for_testing();
         let webview_node =
             app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
@@ -462,7 +471,7 @@ mod tests {
         let tree = Tree::new("tile_runtime_node_vs_host_subset", root, tiles);
 
         let all_nodes = TileCoordinator::all_node_pane_keys(&tree);
-        let host_nodes = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
+        let host_nodes = TileCoordinator::all_node_pane_keys_using_composited_runtime(&tree, &app);
 
         assert!(all_nodes.contains(&webview_node));
         assert!(all_nodes.contains(&plaintext_node));

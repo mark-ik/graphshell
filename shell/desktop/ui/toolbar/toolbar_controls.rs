@@ -6,26 +6,26 @@ use std::collections::HashSet;
 
 use crate::shell::desktop::ui::toolbar_routing::{self, ToolbarNavAction};
 
-pub(super) fn render_workspace_pin_controls(
+pub(super) fn render_frame_pin_controls(
     ui: &mut egui::Ui,
     graph_app: &mut GraphBrowserApp,
     has_node_panes: bool,
     focused_pane_pin_name: Option<&str>,
-    persisted_workspace_names: &HashSet<String>,
+    persisted_frame_names: &HashSet<String>,
 ) {
     if !has_node_panes {
         return;
     }
 
     if let Some(pane_pin_name) = focused_pane_pin_name {
-        let pane_is_pinned = persisted_workspace_names.contains(pane_pin_name);
+        let pane_is_pinned = persisted_frame_names.contains(pane_pin_name);
         let pane_pin_label = if pane_is_pinned { "P-" } else { "P+" };
         let pane_pin_button =
             ui.add(super::toolbar_button(pane_pin_label))
                 .on_hover_text(if pane_is_pinned {
-                    "Unpin focused pane workspace snapshot"
+                    "Unpin focused pane frame snapshot"
                 } else {
-                    "Pin focused pane workspace snapshot"
+                    "Pin focused pane frame snapshot"
                 });
         if pane_pin_button.clicked() {
             if pane_is_pinned {
@@ -33,45 +33,45 @@ pub(super) fn render_workspace_pin_controls(
                     log::warn!("Failed to unpin focused pane workspace '{pane_pin_name}': {e}");
                 }
             } else {
-                graph_app.request_save_workspace_snapshot_named(pane_pin_name.to_string());
+                graph_app.request_save_frame_snapshot_named(pane_pin_name.to_string());
             }
         }
 
         let pane_recall_button = ui
             .add_enabled(pane_is_pinned, super::toolbar_button("PR"))
-            .on_hover_text("Recall focused pane pinned workspace");
+            .on_hover_text("Recall focused pane pinned frame");
         if pane_recall_button.clicked() {
-            graph_app.request_restore_workspace_snapshot_named(pane_pin_name.to_string());
+            graph_app.request_restore_frame_snapshot_named(pane_pin_name.to_string());
         }
     }
 
-    let space_is_pinned = persisted_workspace_names.contains(super::WORKSPACE_PIN_NAME);
+    let space_is_pinned = persisted_frame_names.contains(super::WORKSPACE_PIN_NAME);
     let space_pin_label = if space_is_pinned { "W-" } else { "W+" };
     let space_pin_button = ui
         .add(super::toolbar_button(space_pin_label))
         .on_hover_text(if space_is_pinned {
-            "Unpin current workspace snapshot"
+            "Unpin current frame snapshot"
         } else {
-            "Pin current workspace snapshot"
+            "Pin current frame snapshot"
         });
     if space_pin_button.clicked() {
         if space_is_pinned {
             if let Err(e) = graph_app.delete_workspace_layout(super::WORKSPACE_PIN_NAME) {
                 log::warn!(
-                    "Failed to unpin workspace snapshot '{}': {e}",
+                    "Failed to unpin frame snapshot '{}': {e}",
                     super::WORKSPACE_PIN_NAME
                 );
             }
         } else {
-            graph_app.request_save_workspace_snapshot_named(super::WORKSPACE_PIN_NAME.to_string());
+            graph_app.request_save_frame_snapshot_named(super::WORKSPACE_PIN_NAME.to_string());
         }
     }
 
     let space_recall_button = ui
         .add_enabled(space_is_pinned, super::toolbar_button("WR"))
-        .on_hover_text("Recall pinned workspace snapshot");
+        .on_hover_text("Recall pinned frame snapshot");
     if space_recall_button.clicked() {
-        graph_app.request_restore_workspace_snapshot_named(super::WORKSPACE_PIN_NAME.to_string());
+        graph_app.request_restore_frame_snapshot_named(super::WORKSPACE_PIN_NAME.to_string());
     }
 }
 

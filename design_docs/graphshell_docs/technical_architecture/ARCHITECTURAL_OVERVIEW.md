@@ -105,6 +105,9 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 
 ## Architecture Decisions
 
+External comparison note:
+- See [../research/2026-02-27_freenet_takeaways_for_graphshell.md](../research/2026-02-27_freenet_takeaways_for_graphshell.md) for actionable patterns from Freenet relevant to Graphshell boundaries, capability contracts, and doc-to-test anti-drift discipline.
+
 ### Data Structures
 
 **Why petgraph StableGraph?**

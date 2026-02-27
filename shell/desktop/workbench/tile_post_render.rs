@@ -69,11 +69,11 @@ pub(crate) fn mapped_nodes_without_tiles(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) -> Vec<NodeKey> {
-    let node_panes_hosting_webview_runtime =
-        tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
+    let node_panes_using_composited_runtime =
+        tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app);
     graph_app
         .webview_node_mappings()
         .map(|(_, node_key)| node_key)
-        .filter(|node_key| !node_panes_hosting_webview_runtime.contains(node_key))
+        .filter(|node_key| !node_panes_using_composited_runtime.contains(node_key))
         .collect()
 }

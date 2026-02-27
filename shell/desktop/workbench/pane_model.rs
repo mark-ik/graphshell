@@ -48,7 +48,7 @@ impl std::fmt::Display for PaneId {
 
 /// Opaque viewer backend identifier.
 ///
-/// Examples: `"viewer:servo"`, `"viewer:wry"`, `"viewer:plaintext"`, `"viewer:pdf"`.
+/// Examples: `"viewer:webview"`, `"viewer:wry"`, `"viewer:plaintext"`, `"viewer:pdf"`.
 /// Canonical selection is resolved by `ViewerRegistry`; this type carries explicit overrides only.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerId(String);
@@ -291,8 +291,8 @@ mod tests {
 
     #[test]
     fn viewer_id_round_trips() {
-        let id = ViewerId::new("viewer:servo");
-        assert_eq!(id.as_str(), "viewer:servo");
+        let id = ViewerId::new("viewer:webview");
+        assert_eq!(id.as_str(), "viewer:webview");
         let json = serde_json::to_string(&id).unwrap();
         let back: ViewerId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, back);

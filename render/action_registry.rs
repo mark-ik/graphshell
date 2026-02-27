@@ -61,10 +61,10 @@ pub enum ActionId {
     NodePinSelected,
     NodeUnpinSelected,
     NodeDelete,
-    NodeChooseWorkspace,
-    NodeAddToWorkspace,
-    NodeAddConnectedToWorkspace,
-    NodeOpenWorkspace,
+    NodeChooseFrame,
+    NodeAddToFrame,
+    NodeAddConnectedToFrame,
+    NodeOpenFrame,
     NodeOpenNeighbors,
     NodeOpenConnected,
     NodeOpenSplit,
@@ -101,10 +101,10 @@ impl ActionId {
             Self::NodePinSelected => "Pin",
             Self::NodeUnpinSelected => "Unpin",
             Self::NodeDelete => "Delete",
-            Self::NodeChooseWorkspace => "Choose WS",
-            Self::NodeAddToWorkspace => "Add WS",
-            Self::NodeAddConnectedToWorkspace => "Add Conn WS",
-            Self::NodeOpenWorkspace => "Workspace",
+            Self::NodeChooseFrame => "Choose F",
+            Self::NodeAddToFrame => "Add F",
+            Self::NodeAddConnectedToFrame => "Add Conn F",
+            Self::NodeOpenFrame => "Frame",
             Self::NodeOpenNeighbors => "Neighbors",
             Self::NodeOpenConnected => "Connected",
             Self::NodeOpenSplit => "Split",
@@ -138,10 +138,10 @@ impl ActionId {
             Self::NodePinSelected => "Pin Selected",
             Self::NodeUnpinSelected => "Unpin Selected",
             Self::NodeDelete => "Delete Selected",
-            Self::NodeChooseWorkspace => "Choose Workspace...",
-            Self::NodeAddToWorkspace => "Add To Workspace...",
-            Self::NodeAddConnectedToWorkspace => "Add Connected To Workspace...",
-            Self::NodeOpenWorkspace => "Open via Workspace Route",
+            Self::NodeChooseFrame => "Choose Frame...",
+            Self::NodeAddToFrame => "Add To Frame...",
+            Self::NodeAddConnectedToFrame => "Add Connected To Frame...",
+            Self::NodeOpenFrame => "Open via Frame Route",
             Self::NodeOpenNeighbors => "Open with Neighbors",
             Self::NodeOpenConnected => "Open with Connected",
             Self::NodeOpenSplit => "Open Split",
@@ -158,8 +158,8 @@ impl ActionId {
             Self::GraphCommandPalette => "Open Command Palette",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
-            Self::PersistSaveSnapshot => "Save Workspace Snapshot",
-            Self::PersistRestoreSession => "Restore Session Workspace",
+            Self::PersistSaveSnapshot => "Save Frame Snapshot",
+            Self::PersistRestoreSession => "Restore Session Frame",
             Self::PersistSaveGraph => "Save Graph Snapshot",
             Self::PersistRestoreLatestGraph => "Restore Latest Graph",
             Self::PersistOpenHub => "Open Persistence Hub",
@@ -175,10 +175,10 @@ impl ActionId {
             | Self::NodePinSelected
             | Self::NodeUnpinSelected
             | Self::NodeDelete
-            | Self::NodeChooseWorkspace
-            | Self::NodeAddToWorkspace
-            | Self::NodeAddConnectedToWorkspace
-            | Self::NodeOpenWorkspace
+            | Self::NodeChooseFrame
+            | Self::NodeAddToFrame
+            | Self::NodeAddConnectedToFrame
+            | Self::NodeOpenFrame
             | Self::NodeOpenNeighbors
             | Self::NodeOpenConnected
             | Self::NodeOpenSplit
@@ -251,10 +251,10 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (NodePinSelected, node_ops_enabled),
         (NodeUnpinSelected, node_ops_enabled),
         (NodeDelete, node_ops_enabled),
-        (NodeChooseWorkspace, node_ops_enabled),
-        (NodeAddToWorkspace, node_ops_enabled),
-        (NodeAddConnectedToWorkspace, node_ops_enabled),
-        (NodeOpenWorkspace, node_ops_enabled),
+        (NodeChooseFrame, node_ops_enabled),
+        (NodeAddToFrame, node_ops_enabled),
+        (NodeAddConnectedToFrame, node_ops_enabled),
+        (NodeOpenFrame, node_ops_enabled),
         (NodeOpenNeighbors, node_ops_enabled),
         (NodeOpenConnected, node_ops_enabled),
         (NodeOpenSplit, node_ops_enabled),
@@ -479,10 +479,10 @@ mod tests {
             NodePinSelected,
             NodeUnpinSelected,
             NodeDelete,
-            NodeChooseWorkspace,
-            NodeAddToWorkspace,
-            NodeAddConnectedToWorkspace,
-            NodeOpenWorkspace,
+            NodeChooseFrame,
+            NodeAddToFrame,
+            NodeAddConnectedToFrame,
+            NodeOpenFrame,
             NodeOpenNeighbors,
             NodeOpenConnected,
             NodeOpenSplit,

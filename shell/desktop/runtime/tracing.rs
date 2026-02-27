@@ -3,17 +3,18 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /// Log an event from winit ([winit::event::Event]) at trace level.
-/// - To disable tracing: RUST_LOG='servoshell<winit@=off'
-/// - To enable tracing: RUST_LOG='servoshell<winit@'
+/// - Canonical target prefix: `graphshell<winit@`
+/// - To disable tracing: RUST_LOG='graphshell<winit@=off'
+/// - To enable tracing: RUST_LOG='graphshell<winit@'
 /// - Recommended filters when tracing is enabled:
-///   - servoshell<winit@DeviceEvent=off
-///   - servoshell<winit@MainEventsCleared=off
-///   - servoshell<winit@NewEvents(WaitCancelled)=off
-///   - servoshell<winit@RedrawEventsCleared=off
-///   - servoshell<winit@RedrawRequested=off
-///   - servoshell<winit@UserEvent(Waker)=off
-///   - servoshell<winit@WindowEvent(AxisMotion)=off
-///   - servoshell<winit@WindowEvent(CursorMoved)=off
+///   - graphshell<winit@DeviceEvent=off
+///   - graphshell<winit@MainEventsCleared=off
+///   - graphshell<winit@NewEvents(WaitCancelled)=off
+///   - graphshell<winit@RedrawEventsCleared=off
+///   - graphshell<winit@RedrawRequested=off
+///   - graphshell<winit@UserEvent(Waker)=off
+///   - graphshell<winit@WindowEvent(AxisMotion)=off
+///   - graphshell<winit@WindowEvent(CursorMoved)=off
 macro_rules! trace_winit_event {
     // This macro only exists to put the docs in the same file as the target prefix,
     // so the macro definition is always the same.
@@ -35,7 +36,7 @@ mod from_winit {
 
     macro_rules! target {
         ($($name:literal)+) => {
-            concat!("servoshell<winit@", $($name),+)
+            concat!("graphshell<winit@", $($name),+)
         };
     }
 

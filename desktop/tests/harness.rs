@@ -59,7 +59,7 @@ impl TestRegistry {
         rect: egui::Rect,
     ) {
         let hierarchy = vec![HierarchySample {
-            line: format!("* Tile WebView {:?}", key),
+            line: format!("* Tile Node Viewer {:?}", key),
             node_key: Some(key),
         }];
         let tiles = vec![CompositorTileSample {
@@ -73,7 +73,7 @@ impl TestRegistry {
             } else if mapped_webview {
                 "missing-context"
             } else {
-                "unmapped-webview"
+                "unmapped-node-viewer"
             },
         }];
 
@@ -83,7 +83,7 @@ impl TestRegistry {
     pub(crate) fn step_with_frame_sample(
         &mut self,
         active_tile_count: usize,
-        focused_webview_present: bool,
+        focused_node_present: bool,
         viewport_rect: egui::Rect,
         hierarchy: Vec<HierarchySample>,
         tiles: Vec<CompositorTileSample>,
@@ -91,7 +91,7 @@ impl TestRegistry {
         self.diagnostics.push_frame(CompositorFrameSample {
             sequence: self.frame_sequence,
             active_tile_count,
-            focused_webview_present,
+            focused_node_present,
             viewport_rect,
             hierarchy,
             tiles,

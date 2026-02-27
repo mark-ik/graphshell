@@ -44,7 +44,7 @@ pub(crate) static EXPERIMENTAL_PREFS: &[&str] = &[
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 #[derive(Clone)]
 pub(crate) struct AppPreferences {
-    /// A URL to load when starting servoshell.
+    /// A URL to load when starting Graphshell.
     pub url: Option<String>,
     /// An override value for the device pixel ratio.
     pub device_pixel_ratio_override: Option<f32>,
@@ -57,7 +57,7 @@ pub(crate) struct AppPreferences {
     /// URL string of the search engine page with '%s' standing in for the search term.
     /// For example <https://duckduckgo.com/html/?q=%s>.
     pub searchpage: String,
-    /// Whether or not to run servoshell in headless mode. While running in headless
+    /// Whether or not to run Graphshell in headless mode. While running in headless
     /// mode, image output is supported.
     pub headless: bool,
     /// Filter directives for our tracing implementation.
@@ -917,7 +917,7 @@ fn test_profiling_args() {
 }
 
 #[test]
-fn test_servoshell_cmd() {
+fn test_graphshell_cmd() {
     assert_eq!(
         test_parse("--screen-size=1000x1000")
             .2

@@ -46,12 +46,15 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 ### Composite Structures
 
 *   **Tile Tree**: The complete recursive structure of Tiles forming the layout. Backed by a flat `Tiles<TileKind>` hashmap keyed by `TileId`, plus a root `TileId`. Code: `egui_tiles::Tree<TileKind>`, stored as `Gui::tiles_tree`.
-*   **Workbench**: The top-level application surface: the Tile Tree (`Tree<TileKind>`) plus window chrome (toolbar, status bar, toasts). The Workbench owns the tree and drives the render loop. In code, this corresponds to `Gui` and its `tiles_tree` field.
-*   **Workspace**: A persistable snapshot of a Workbench layout plus its content manifest. Serialized as `PersistedWorkspace`, which contains:
-    *   `WorkspaceLayout` — the `Tree<PersistedPaneTile>` shape
-    *   `WorkspaceManifest` — the pane-to-content mapping and member node UUIDs
-    *   `WorkspaceMetadata` — timestamps for creation, update, last activation
-    A Workspace is the unit of save/restore ("Project Context").
+*   **App Scope**: The top-most global scope for a running Graphshell process. App Scope owns workbench switching/navigation.
+*   **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It owns the Tile Tree (`Tree<TileKind>`) and global chrome surfaces (omnibar, workbar, status, toasts), and drives frame switching/render.
+*   **Workbench Scope**: The full, unscoped graph domain of one Workbench (`GraphId`-bound).
+*   **Frame**: A local container inside the Workbench that groups tiles and preserves their arrangement/focus as a unit. Frame is the canonical runtime/UI term for window-like grouping within the Workbench.
+*   **Frame Snapshot** (**Persistence Snapshot**, canonical storage term): A persistable snapshot of a Workbench/Frame layout plus its content manifest. Serialized as `PersistedFrame`, which contains:
+    *   `FrameLayout` — the `Tree<PersistedPaneTile>` shape
+    *   `FrameManifest` — the pane-to-content mapping and member node UUIDs
+    *   `FrameMetadata` — timestamps for creation, update, last activation
+    Frame Snapshot is the canonical save/restore/storage term; Frame remains the primary runtime/UI container term.
 
 ### Pane Types
 
@@ -72,13 +75,15 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 ## Interface Components
 
+*   **Omnibar**: The primary global navigation/input bar for location, search, and command entry in the Workbench.
+*   **Workbar**: The secondary global bar that enumerates and activates Frames (frame tabs/handles) within the Workbench.
 *   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
 *   **Settings Pane**: A tool pane that aggregates configuration and controls across registries, subsystems, and app-level preferences. A settings pane may host subsystem-specific sections or summon dedicated subsystem panes.
 *   **Control Panel**: The async coordination/process host for background workers and intent producers within The Register. In architectural terms it is an **Aspect** (runtime coordination concern), not a UI Surface. It supervises worker lifecycles and intent ingress, but does not own or render panes/surfaces directly; subsystem UI appears through dedicated tool/subsystem panes. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
 *   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*.
 *   **Command Palette**: A modifiable context menu that serves as an accessible interface for executing Actions.
 *   **The Register**: See *Registry Architecture* section below for the canonical definition (this interface-components mention is intentionally a cross-reference only to avoid duplicate-definition drift).
-*   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View. Stored separately from the Tile Tree as it is per-view runtime state, not a layout concern.
+*   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View/Frame pane. Camera state is per-view runtime state, not a global layout concern.
 
 ## Camera Commands
 
@@ -89,6 +94,10 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 ## Data Model
 
 *   **Graph**: The persistent data structure containing Nodes and Edges. Acts as the "File System".
+*   **GraphId**: A stable identifier for a graph dataset bound to a Workbench context.
+*   **Graph Scope**: A bounded render/query scope used by a pane/frame within one Workbench Scope (for example region/filter subsets of the Workbench graph).
+*   **Scope Isolation**: Distinct graph scopes rendered in separate panes/frames within the same Workbench (`GraphId`) are interaction-isolated by default; selection, camera, gestures, and scope-local interactions do not implicitly affect sibling scopes unless an explicit bridge/sync rule is enabled.
+*   **Inter-Workbench Scope**: App-level scope used to switch between workbenches (and therefore between complete graphs/`GraphId`s).
 *   **Node**: A unit of content (webpage, note, file) identified by a stable UUID.
 *   **Edge**: A relationship between two nodes.
     *   **UserGrouped**: Explicit connection made by the user (flag on Edge).
@@ -252,6 +261,7 @@ Each subsystem defines its own descriptor type (e.g., `AccessibilityCapabilities
 *   *VerseRegistry*: Removed as a domain registry. Verse is a native mod that registers into atomic registries.
 *   *GraphLayoutRegistry / WorkbenchLayoutRegistry / ViewerLayoutRegistry*: Renamed to `CanvasRegistry` / `WorkbenchSurfaceRegistry` / `ViewerSurfaceRegistry` to signal that scope includes structure + interaction + rendering policy, not just positioning.
 *   *GraphSurfaceRegistry*: Renamed to **CanvasRegistry**. The graph view is an infinite, spatial, physics-driven canvas — semantically distinct from the bounded Workbench and Viewer surfaces.
+*   *Workspace* (runtime/window-like UI grouping): Replaced by **Frame**.
 *   *Session* (in Workflow/registry context): Replaced by **WorkbenchProfile**. Session remains valid only as the WAL-backed temporal activity period.
 *   *Tokenization* (Verse): Replaced by **VerseBlob** + **Proof of Access**. The original concept of "anonymizing a Report and minting it as a digital asset" is now the `Report` BlobType + the receipt economy.
 *   *Lamport Clock* (Verse): Replaced by **VersionVector**. Verse uses per-peer monotonic sequence numbers (a vector clock), not a single Lamport scalar. A VersionVector records causal dependencies across all peers; a Lamport clock only orders events globally.

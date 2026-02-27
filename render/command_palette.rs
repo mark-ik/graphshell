@@ -156,28 +156,28 @@ pub(super) fn execute_action(
             command: EdgeCommand::UnpinSelected,
         }),
         ActionId::NodeDelete => intents.push(GraphIntent::RemoveSelectedNodes),
-        ActionId::NodeChooseWorkspace => {
+        ActionId::NodeChooseFrame => {
             if let Some(key) = open_target
-                && !app.workspaces_for_node_key(key).is_empty()
+                && !app.frames_for_node_key(key).is_empty()
             {
-                app.request_choose_workspace_picker(key);
+                app.request_choose_frame_picker(key);
             }
         }
-        ActionId::NodeAddToWorkspace => {
+        ActionId::NodeAddToFrame => {
             if let Some(key) = open_target {
-                app.request_add_node_to_workspace_picker(key);
+                app.request_add_node_to_frame_picker(key);
             }
         }
-        ActionId::NodeAddConnectedToWorkspace => {
+        ActionId::NodeAddConnectedToFrame => {
             if let Some(key) = open_target {
-                app.request_add_connected_to_workspace_picker(key);
+                app.request_add_connected_to_frame_picker(key);
             }
         }
-        ActionId::NodeOpenWorkspace => {
+        ActionId::NodeOpenFrame => {
             if let Some(key) = open_target {
-                intents.push(GraphIntent::OpenNodeWorkspaceRouted {
+                intents.push(GraphIntent::OpenNodeFrameRouted {
                     key,
-                    prefer_workspace: None,
+                    prefer_frame: None,
                 });
             }
         }
@@ -211,9 +211,9 @@ pub(super) fn execute_action(
         }
         ActionId::NodeMoveToActivePane => {
             if let Some(key) = open_target {
-                intents.push(GraphIntent::OpenNodeWorkspaceRouted {
+                intents.push(GraphIntent::OpenNodeFrameRouted {
                     key,
-                    prefer_workspace: None,
+                    prefer_frame: None,
                 });
             }
         }
@@ -254,9 +254,9 @@ pub(super) fn execute_action(
         ActionId::GraphCommandPalette => intents.push(GraphIntent::ToggleCommandPalette),
         ActionId::PersistUndo => intents.push(GraphIntent::Undo),
         ActionId::PersistRedo => intents.push(GraphIntent::Redo),
-        ActionId::PersistSaveSnapshot => app.request_save_workspace_snapshot(),
+        ActionId::PersistSaveSnapshot => app.request_save_frame_snapshot(),
         ActionId::PersistRestoreSession => {
-            app.request_restore_workspace_snapshot_named(
+            app.request_restore_frame_snapshot_named(
                 GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME.to_string(),
             );
         }

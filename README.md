@@ -1,9 +1,9 @@
 # graphshell
 
-    An open source, prototype, spatial browser that represents nodes in a force-directed graph as tabs in tilable workspaces.
+    An open source, prototype, spatial browser that represents nodes in a force-directed graph as tabs in tilable frames.
 
 - Force-directed graph canvas with Servo-powered web rendering
-- Tiled multi-pane workspace: graph overview and webview panes, side by side
+- Tiled multi-pane frame: graph overview and webview panes, side by side
 - Local-first persistent browsing graph with crash-safe recovery
 - Event-driven navigation semantics from Servo delegate callbacks
 
@@ -63,10 +63,10 @@ These environment variables override CLI/prefs for quick tuning:
 - Node selection, creation, deletion, and explicit edge operations via command/radial/context flows
 - View-specific keyboard controls (guarded when text fields are focused)
 
-### Tiled Workspace
+### Tiled Frame
 
 - egui_tiles multi-pane layout: graph pane and webview panes coexist in a tile tree
-- Per-pane tab bars with close/focus management and workspace-aware open routing
+- Per-pane tab bars with close/focus management and frame-aware open routing
 - Three-tier lifecycle (`Active`/`Warm`/`Cold`) with desired-vs-observed runtime reconciliation
 - Explicit runtime backpressure and blocked/cooldown state for webview creation failures
 - Omnibar with scoped graph search (`@` modes) and URL navigation routed to explicit tile targets
@@ -101,7 +101,7 @@ M1 foundation is complete. Current active work is M2 architecture and UX stabili
 - **Embedder Decomposition**: Stage 4 (GUI/Toolbar split) largely complete (toolbar decomposed into 7 submodules as of 2026-02-23); remaining: Input/Output boundary formalization.
 - **UDC Semantic Tagging**: Phase 1 (Registry & Parsing) active.
 - **Settings Architecture**: Blocked by Registry Phase 2.
-- **Workspace Routing**: Manifest-based persistence and membership complete.
+- **Frame Routing**: Manifest-based persistence and membership complete.
 
 ## Planned
 

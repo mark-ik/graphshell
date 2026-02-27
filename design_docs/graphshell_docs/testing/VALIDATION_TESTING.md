@@ -29,8 +29,8 @@ The diagnostic system exposes structured state (`DiagnosticsState`) that can be 
 - [x] `cargo test --features diagnostics desktop::diagnostics::tests::snapshot_json -- --nocapture`
    - Result: pass (2/2); validates diagnostics snapshot JSON core-section presence and
      channel aggregate parity with in-memory diagnostics state.
-- [x] `cargo test desktop::persistence_ops::tests::test_workspace_bundle_serialization_excludes_diagnostics_payload -- --nocapture`
-    - Result: pass (1/1); verifies workspace/session bundle JSON payload excludes diagnostics
+- [x] `cargo test desktop::persistence_ops::tests::test_frame_bundle_serialization_excludes_diagnostics_payload -- --nocapture`
+   - Result: pass (1/1); verifies frame/session bundle JSON payload excludes diagnostics
        runtime sections (`diagnostic_graph`/channels/spans/event_ring/recent_intents).
 - [x] `cargo test semantic_event_pipeline::tests::test_graph_intents_and_responsive_emits_semantic_pipeline_trace_marker -- --nocapture`
    - Result: pass (1/1); confirms `tracing-test` log capture and semantic pipeline marker
@@ -45,7 +45,7 @@ The diagnostic system exposes structured state (`DiagnosticsState`) that can be 
    - Result: pass (1/1); verifies bottleneck highlighting threshold behavior.
 - [x] `cargo test proptest_tick_drain_aggregation_matches_event_stream -- --nocapture`
    - Result: pass (1/1); property test validates aggregate counters against event stream semantics.
-- [x] `cargo test test_workspace_bundle_payload_stays_clean_after_restart -- --nocapture`
+- [x] `cargo test test_frame_bundle_payload_stays_clean_after_restart -- --nocapture`
    - Result: pass (1/1); restart-style tempfile check confirms diagnostics payload remains ephemeral.
 - [x] `cargo test diagnostics_svg_snapshot_shape_is_stable -- --nocapture`
    - Result: pass (1/1); confirms Engine SVG topology shape includes Servo bridge node/edge
@@ -181,7 +181,7 @@ Use this exact structure in handoff comments for cross-contributor comparability
 - Commands + pass/fail for automated checks.
 - Full vs culled timing summary and observed frame-time delta direction.
 
-## Workspace Routing and Membership (Headed Manual)
+## Frame Routing and Membership (Headed Manual)
 
 **Source**: `implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md` + `implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
 
@@ -195,46 +195,46 @@ $env:RUST_LOG="graphshell=debug"; cargo run -p graphshell --bin graphshell -- -M
 
 **Baseline setup (once):**
 1. Create at least 4 nodes (`A`, `B`, `C`, `D`) by opening distinct URLs.
-2. Save workspace `workspace-alpha` containing `A` and `B`.
-3. Save workspace `workspace-beta` containing `A` and `C`.
-4. Save workspace `workspace-single` containing only `D`.
+2. Save frame `workspace-alpha` containing `A` and `B`.
+3. Save frame `workspace-beta` containing `A` and `C`.
+4. Save frame `workspace-single` containing only `D`.
 5. Return to a different layout so restore behavior is visible.
 
 1. [x] **Single-membership routed open**
    - Action: double-click node `D`.
-   - Expected: `workspace-single` restores directly; no synthesized fallback workspace behavior.
+   - Expected: `workspace-single` restores directly; no synthesized fallback frame behavior.
    - Run note (2026-02-19): Passed.
 
 2. [x] **Multi-membership default recency + explicit chooser**
    - Action A: restore `workspace-beta`, then leave it; double-click node `A`.
    - Expected A: default routed open restores `workspace-beta` (most recent).
-   - Action B: open node `A` context menu/radial and choose `Choose Workspace...`, select `workspace-alpha`.
+   - Action B: open node `A` context menu/radial and choose `Choose Frame...`, select `workspace-alpha`.
    - Expected B: `workspace-alpha` restores.
    - Run note (2026-02-19): Passed (A and B).
 
-3. [ ] **Zero-membership open remains in current workspace context**
-   - Action: create a new node `E` and do not save any workspace that contains it; open `E`.
-   - Expected: opens in current workspace context (tab open), no named workspace is created implicitly.
-   - Run note (2026-02-19): Core behavior passed (no named workspace auto-created). Prompt gating behavior changed twice (sticky, then suppressed). Follow-up fixes landed: routed workspace-open no longer clears workspace prompt state before switch handling; `SetNodePosition` no longer flags unsaved state; session-autosave path no longer raises modal prompt (prompting is reserved for explicit workspace-switch flows). Re-validation reported no prompt at all in expected switch case; follow-up fix pending and requires headed re-validation.
+3. [ ] **Zero-membership open remains in current frame context**
+   - Action: create a new node `E` and do not save any frame that contains it; open `E`.
+   - Expected: opens in current frame context (tab open), no named frame is created implicitly.
+   - Run note (2026-02-19): Core behavior passed (no named frame auto-created). Prompt gating behavior changed twice (sticky, then suppressed). Follow-up fixes landed: routed frame-open no longer clears frame prompt state before switch handling; `SetNodePosition` no longer flags unsaved state; session-autosave path no longer raises modal prompt (prompting is reserved for explicit frame-switch flows). Re-validation reported no prompt at all in expected switch case; follow-up fix pending and requires headed re-validation.
 
 4. [x] **Open with Neighbors synthesis cap**
    - Action: choose a hub node with many direct neighbors; run `Open with Neighbors`.
-   - Expected: synthesized workspace contains hub + direct neighbors, capped at 12 opened tiles.
+   - Expected: synthesized frame contains hub + direct neighbors, capped at 12 opened tiles.
    - Run note (2026-02-19): Passed (12-tile cap observed).
 
-5. [x] **Workspace delete removes routing target immediately**
-   - Action: delete `workspace-beta`, then open node `A` via default route and via `Choose Workspace...`.
+5. [x] **Frame delete removes routing target immediately**
+   - Action: delete `workspace-beta`, then open node `A` via default route and via `Choose Frame...`.
    - Expected: `workspace-beta` is never selected/returned; chooser does not list it.
    - Run note (2026-02-19): Passed.
 
-6. [x] **Startup membership scan before first frame**
+6. [x] **Startup membership scan before first render**
    - Action: restart app.
-   - Expected: membership badges/tooltips (`N`) are correct immediately on first render, without needing a manual workspace switch.
+   - Expected: membership badges/tooltips (`N`) are correct immediately on first render, without needing a manual frame switch.
    - Run note (2026-02-19): Passed.
 
 7. [ ] **Empty-restore fallback warning path**
-   - Action: trigger restore of a named workspace snapshot that prunes to empty after stale-key cleanup.
-   - Expected: app logs fallback warning and opens target node in current workspace instead of failing.
+   - Action: trigger restore of a named frame snapshot that prunes to empty after stale-key cleanup.
+   - Expected: app logs fallback warning and opens target node in current frame instead of failing.
    - Note: this case may require a stale-layout fixture or manual store edit to force an empty post-prune restore.
    - Run note (2026-02-19): Not yet reproduced.
 
@@ -245,19 +245,19 @@ $env:RUST_LOG="graphshell=debug"; cargo run -p graphshell --bin graphshell -- -M
 
 9. [x] **Node context menu hierarchy**
    - Action: right-click a node in graph view.
-   - Expected: context menu presents grouped hierarchy (`Workspace`, `Edge`, `Node`) via submenu-style entries, and closes on `Esc` or action selection.
+   - Expected: context menu presents grouped hierarchy (`Frame`, `Edge`, `Node`) via submenu-style entries, and closes on `Esc` or action selection.
    - Keyboard: while open, `Left/Right` switches group, `Up/Down` moves action focus (including `Close`), `Enter` executes highlighted action or closes when `Close` is focused.
    - Run note (2026-02-19): Passed; follow-up polish applied to rely on arrow-key navigation only and include keyboard-selectable close.
 
-10. [x] **Add node tab to existing workspace**
-   - Action: right-click node `E` -> `Workspace` -> `Add To Workspace...` and pick `workspace-alpha`.
-   - Expected: `workspace-alpha` snapshot now includes `E` as a tab on next restore/load, and `E` workspace badge count increments accordingly.
-   - Run note (2026-02-19): Passed; wording/label clarity for workspace-route action remains a UX follow-up.
+10. [x] **Add node tab to existing frame**
+   - Action: right-click node `E` -> `Frame` -> `Add To Frame...` and pick `workspace-alpha`.
+   - Expected: `workspace-alpha` snapshot now includes `E` as a tab on next restore/load, and `E` frame badge count increments accordingly.
+   - Run note (2026-02-19): Passed; wording/label clarity for frame-route action remains a UX follow-up.
 
 11. [ ] **Unified context-aware pin control**
-   - Action A: with graph/workspace focus (no active pane focus), use Persistence Hub `Pin Workspace`; mutate layout and verify highlight toggles off; restore using `Load Pin... -> Workspace Pin` and verify previous layout restores.
+   - Action A: with graph/frame focus (no active pane focus), use Persistence Hub `Pin Frame`; mutate layout and verify highlight toggles off; restore using `Load Pin... -> Frame Pin` and verify previous layout restores.
    - Action B: with an active pane focus, use Persistence Hub `Pin Pane`; mutate layout and verify highlight toggles off; restore using `Load Pin... -> Pane Pin` and verify previous layout restores.
-   - Expected: single pin control adapts to focus context (`Workspace` vs `Pane`) and renders active state only when current layout matches saved pin snapshot.
+   - Expected: single pin control adapts to focus context (`Frame` vs `Pane`) and renders active state only when current layout matches saved pin snapshot.
    - Run note (2026-02-19): Workspace pin flow passed. Pane pin restore semantics remain unclear in graph-only context, and pane pin persistence/visibility after view switching needs follow-up.
 
 ---
@@ -455,12 +455,12 @@ for back/forward transitions that emit `url_changed` for a URL that already exis
 
 **Context**: Scope implementation complete; headed validation not yet executed.
 **Automation Status**: Ready.
-**Strategy**: Inspect `DiagnosticsState.intents` to verify `OpenNodeWorkspaceRouted` vs `CreateNodeAtUrl` intent emission with correct scope.
+**Strategy**: Inspect `DiagnosticsState.intents` to verify `OpenNodeFrameRouted` vs `CreateNodeAtUrl` intent emission with correct scope.
 
 1. [ ] Graph mode, Enter cycling: type `@term`, press Enter repeatedly — active match cycles through all results and wraps at end.
 2. [ ] Detail mode, multi-pane: type `@term`, press Enter — each press focuses/opens the matched node in the correct pane/tab context.
 3. [ ] `@t term` in detail mode: only currently open tab/pane-backed nodes are cycled.
-4. [ ] `@T term` in detail mode: active and saved workspace tab matches cycled deterministically.
+4. [ ] `@T term` in detail mode: active and saved frame tab matches cycled deterministically.
 5. [ ] `@n term` in graph mode: only active-graph-context matches are cycled.
 6. [ ] `@N term` in graph mode: active + saved graph matches cycled deterministically.
 7. [ ] `@e term` in graph mode: only active-graph searchable edge matches cycled and selected.
@@ -505,7 +505,7 @@ for back/forward transitions that emit `url_changed` for a URL that already exis
 **Context**: Archived plan called for deterministic integration validation around targeted navigation.
 These checks remain relevant for current omnibar + tile-focused routing behavior.
 
-**Validation Aid**: Use **Diagnostic Inspector > Intents Tab** to confirm `OpenNodeWorkspaceRouted` vs `CreateNodeAtUrl` intent emission.
+**Validation Aid**: Use **Diagnostic Inspector > Intents Tab** to confirm `OpenNodeFrameRouted` vs `CreateNodeAtUrl` intent emission.
 **Automation Status**: Ready.
 **Strategy**: Assert `DiagnosticsState.intents` contains expected intent variants with correct target keys.
 

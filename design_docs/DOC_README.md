@@ -39,7 +39,7 @@ It serves three goals:
 
 # Design Docs Index
 
-Last updated: February 26, 2026
+Last updated: February 27, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -58,6 +58,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/research/2026-02-24_visual_tombstones_research.md](graphshell_docs/research/2026-02-24_visual_tombstones_research.md) - Research backlog for visual tombstones/ghost placeholders.
 - [graphshell_docs/research/2026-02-24_interaction_and_semantic_design_schemes.md](graphshell_docs/research/2026-02-24_interaction_and_semantic_design_schemes.md) - Research on interaction patterns, physics-as-semantics, and lens-based UX.
 - [graphshell_docs/research/2026-02-24_diagnostics_research.md](graphshell_docs/research/2026-02-24_diagnostics_research.md) - Diagnostics system research: three-registry model (ChannelRegistry/AnalyzerRegistry/TestRegistry), probe vs. analyzer vs. test classification, current gaps, pane improvements, and priority order.
+- [graphshell_docs/research/2026-02-27_viewer_state_matrix.md](graphshell_docs/research/2026-02-27_viewer_state_matrix.md) - Declared vs runtime-wired vs actually-rendered viewer matrix for migration planning.
 - [graphshell_docs/research/STANDALONE_EXTRACTION.md](graphshell_docs/research/STANDALONE_EXTRACTION.md) - Standalone extraction notes.
 
 ### Graphshell Technical Architecture
@@ -71,11 +72,13 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/technical_architecture/BUILD.md](graphshell_docs/technical_architecture/BUILD.md) - Build instructions and dependency notes.
 - [graphshell_docs/technical_architecture/QUICKSTART.md](graphshell_docs/technical_architecture/QUICKSTART.md) - Fast-start command reference.
 - [graphshell_docs/technical_architecture/2026-02-18_universal_node_content_model.md](graphshell_docs/technical_architecture/2026-02-18_universal_node_content_model.md) - Universal node content model vision.
+- [graphshell_docs/technical_architecture/2026-02-27_presentation_provider_and_ai_orchestration.md](graphshell_docs/technical_architecture/2026-02-27_presentation_provider_and_ai_orchestration.md) - Provider capability contract, node facet taxonomy, and tiered AI orchestration (tiny local model + retrieval + optional large-model escalation).
 
 ### Graphshell Implementation Strategy
 
 - [graphshell_docs/implementation_strategy/PLANNING_REGISTER.md](graphshell_docs/implementation_strategy/PLANNING_REGISTER.md) - **Canonical execution register**: active lane sequencing, stabilization bug register, issue-seeding guidance, and subsystem/lane prioritization.
 - [graphshell_docs/implementation_strategy/2026-02-26_composited_viewer_pass_contract.md](graphshell_docs/implementation_strategy/2026-02-26_composited_viewer_pass_contract.md) - **Canonical surface-composition contract** for composited viewers, render-mode policy, and Appendix A foundation/debt analysis.
+- [graphshell_docs/implementation_strategy/2026-02-27_ux_baseline_done_definition.md](graphshell_docs/implementation_strategy/2026-02-27_ux_baseline_done_definition.md) - UX baseline definition-of-done gate before AI-priority expansion; includes lane/issue mapping and dependency leverage plan using current Cargo stack.
 - [graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md](graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md) - Bookmark/history import plan.
 - [graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md](graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md) - DOM clipping plan.
 - [graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md](graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) - Edge traversal migration plan.
@@ -86,7 +89,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md](graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md) - Lifecycle intent model.
 - [graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md](graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md) - Multi-graph pane architecture and workflow plan.
 - [graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md) - Workbench workspace manifest persistence plan.
-- [graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) - Workbench tab semantics overlay/promotion plan (includes absorbed workspace-routing polish addendum).
+- [graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) - Workbench tab semantics overlay/promotion plan (includes absorbed frame-routing polish addendum).
 - [graphshell_docs/implementation_strategy/2026-02-22_test_harness_consolidation_plan.md](graphshell_docs/implementation_strategy/2026-02-22_test_harness_consolidation_plan.md) - Unified testing harness and validation consolidation plan.
 - [graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md](graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md) - **Canonical registry architecture**: Two-Pillar design (Graph/Workbench), atomic/domain registry catalog, phase plan (Phases 0–1 complete), mod system, core seed floor, topology target. Supersedes `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md`.
 - [graphshell_docs/implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md](graphshell_docs/implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md) - Graph interaction consistency and behavior harmonization plan (includes absorbed secondary input-surface polish scope).

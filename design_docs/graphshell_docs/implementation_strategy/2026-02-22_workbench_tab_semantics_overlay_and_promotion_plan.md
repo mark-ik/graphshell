@@ -8,8 +8,8 @@
 **Status**: Implementation-Ready (updated 2026-02-23)
 **Relates to**:
 
-- `../../archive_docs/checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `WorkspaceManifest` types defined there, plus workspace membership/routing context lineage
-- `2026-02-22_registry_layer_plan.md` — `WorkbenchSurfaceRegistry` (Phase 3, complete) owns layout and interaction policy for tile containers; `GraphWorkspace`/`AppServices` split (Phase 6) is the future home of `WorkspaceTabSemantics`
+- `../../archive_docs/checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `FrameManifest` types defined there, plus frame membership/routing context lineage
+- `2026-02-22_registry_layer_plan.md` — `WorkbenchSurfaceRegistry` (Phase 3, complete) owns layout and interaction policy for tile containers; `GraphWorkspace`/`AppServices` split (Phase 6) is the future home of `FrameTabSemantics`
 
 ---
 
@@ -31,7 +31,7 @@ implementation work.
 - **Pane rest state**: a valid pane-only representation of a semantic tab/group after demotion or `simplify()`
 - **Hoist / Unhoist**: structural workbench tree transforms only (egui_tiles operations)
 - **Promote / Demote**: semantic + structural lifecycle actions that may trigger hoist/unhoist
-- **PaneId**: stable pane identity from the manifest-backed workspace bundle model (defined in `2026-02-22_workbench_workspace_manifest_persistence_plan.md`)
+- **PaneId**: stable pane identity from the manifest-backed frame bundle model (defined in `2026-02-22_workbench_workspace_manifest_persistence_plan.md`)
 
 Resolved semantics:
 
@@ -63,8 +63,8 @@ with whatever simplification policy is active.
 
 ### GraphWorkspace / AppServices (Phase 6 — planned)
 
-`WorkspaceTabSemantics` is pure data and belongs in `GraphWorkspace` after Phase 6. Until then it
-lives alongside the workspace manifest. The overlay must not depend on runtime handles (`AppServices`
+`FrameTabSemantics` is pure data and belongs in `GraphWorkspace` after Phase 6. Until then it
+lives alongside the frame manifest. The overlay must not depend on runtime handles (`AppServices`
 fields) — it is serializable state only.
 
 ### Intent Boundary
@@ -83,7 +83,7 @@ Minimum planned shape; use `Uuid` for all IDs to be consistent with the codebase
 ```rust
 pub type TabGroupId = Uuid;
 
-pub struct WorkspaceTabSemantics {
+pub struct FrameTabSemantics {
     pub version: u32,                      // schema version for rkyv migration
     pub tab_groups: Vec<TabGroupMetadata>,
 }
@@ -95,7 +95,7 @@ pub struct TabGroupMetadata {
 }
 ```
 
-Persistence: serialized with rkyv and stored in the workspace bundle (redb). This is workspace
+Persistence: serialized with rkyv and stored in the frame bundle (redb). This is frame
 state, not graph WAL data — it must not appear in fjall `LogEntry` variants.
 
 Optional future additions (schema-additive, not breaking):
@@ -111,9 +111,9 @@ Optional future additions (schema-additive, not breaking):
 
 | Layer | Type | Contents |
 | ----- | ---- | -------- |
-| Manifest layout | `WorkspaceLayout` | Structural egui_tiles tree |
-| Manifest identity | `WorkspaceManifest` | Pane identity and node membership |
-| Semantic overlay | `WorkspaceTabSemantics` | Tab group order, active pane |
+| Manifest layout | `FrameLayout` | Structural egui_tiles tree |
+| Manifest identity | `FrameManifest` | Pane identity and node membership |
+| Semantic overlay | `FrameTabSemantics` | Tab group order, active pane |
 
 These three must not overlap. The overlay queries shape only as a fallback when overlay metadata is
 absent.
@@ -133,9 +133,9 @@ Implement through shared helper APIs — not per-feature ad hoc logic.
 Proposed helper surface (exact module TBD, likely `desktop/workbench_semantics.rs`):
 
 ```rust
-fn semantic_tab_groups_for_workspace(semantics: &WorkspaceTabSemantics) -> &[TabGroupMetadata];
-fn saved_tab_nodes_for_workspace(semantics: Option<&WorkspaceTabSemantics>, tree: &Tree<TileKind>) -> Vec<NodeKey>;
-fn pane_semantic_tab_state(pane_id: PaneId, semantics: Option<&WorkspaceTabSemantics>) -> PaneSemanticState;
+fn semantic_tab_groups_for_frame(semantics: &FrameTabSemantics) -> &[TabGroupMetadata];
+fn saved_tab_nodes_for_frame(semantics: Option<&FrameTabSemantics>, tree: &Tree<TileKind>) -> Vec<NodeKey>;
+fn pane_semantic_tab_state(pane_id: PaneId, semantics: Option<&FrameTabSemantics>) -> PaneSemanticState;
 ```
 
 ---
@@ -175,8 +175,8 @@ GraphIntent::PromotePaneToSemanticTabGroup {
 GraphIntent::DemoteSemanticTabGroupToPaneRest {
     group_id: TabGroupId,
 }
-GraphIntent::RepairWorkspaceTabSemantics {
-    workspace_name: String,
+GraphIntent::RepairFrameTabSemantics {
+  frame_name: String,
 }
 ```
 
@@ -201,7 +201,7 @@ When a semantic tab group has been demoted to pane rest state, expose a small in
 
 ### Invariants
 
-- Every `pane_id` in overlay metadata exists in the workspace manifest.
+- Every `pane_id` in overlay metadata exists in the frame manifest.
 - No pane belongs to more than one semantic tab group at once.
 - `active_pane_id` is either `None` or a member of the same group.
 - Group `pane_ids` ordering is deterministic and free of duplicates.
@@ -212,17 +212,17 @@ When a semantic tab group has been demoted to pane rest state, expose a small in
 - Preserve visible panes even if some semantic metadata must be dropped or corrected.
 - Reapply remaining valid semantics.
 - Repair must not depend on runtime webview availability.
-- Dispatch `RepairWorkspaceTabSemantics` intent; reducer applies repair; desktop layer updates UI.
+- Dispatch `RepairFrameTabSemantics` intent; reducer applies repair; desktop layer updates UI.
 
 ### Warning policy
 
-- Aggregate all repairs per workspace restore/load operation.
+- Aggregate all repairs per frame restore/load operation.
 - Emit detailed repair events to debug logs.
 - Emit at most one user-facing warning per restore/load by default.
-- Warning text must include: workspace name, affected group/pane IDs, exact repair action, what was
+- Warning text must include: frame name, affected group/pane IDs, exact repair action, what was
   preserved, what changed.
 
-Example: `Workspace 'research-1': repaired tab group g42 (missing active pane p9). Preserved panes [p3,p7]; active tab reset to p3.`
+Example: `Frame 'research-1': repaired tab group g42 (missing active pane p9). Preserved panes [p3,p7]; active tab reset to p3.`
 
 ---
 
@@ -232,13 +232,13 @@ Stage 8A (design lock) is complete. The following stages are implementation work
 
 ### Stage 8B: Overlay Persistence + Validation
 
-Goal: persist optional tab semantics metadata in the workspace bundle and validate/repair it on load.
+Goal: persist optional tab semantics metadata in the frame bundle and validate/repair it on load.
 
-- Extend bundle schema with optional `WorkspaceTabSemantics` field (rkyv, additive — bundle load
+- Extend bundle schema with optional `FrameTabSemantics` field (rkyv, additive — bundle load
   works with or without overlay present).
 - Implement validation helpers: check each invariant in order, collect all violations before repairing.
 - Implement repair helpers: drop/correct invalid entries; preserve valid entries; return repair log.
-- Implement `RepairWorkspaceTabSemantics` intent handling in reducer.
+- Implement `RepairFrameTabSemantics` intent handling in reducer.
 - Add roundtrip tests: bundle with overlay, bundle without overlay, bundle with invalid overlay.
 - Add repair invariant tests: duplicate pane, invalid active pane, missing pane.
 
@@ -251,7 +251,7 @@ Goal: route all tab-aware features through shared semantic queries; eliminate di
 inference from consumers.
 
 - Add overlay-first helper APIs in `desktop/workbench_semantics.rs`.
-- Update omnibar saved-tab discovery to use `saved_tab_nodes_for_workspace()`.
+- Update omnibar saved-tab discovery to use `saved_tab_nodes_for_frame()`.
 - Update pin UI tab-aware queries to use `pane_semantic_tab_state()`.
 - Preserve tree-shape fallback in the helpers during rollout; do not require overlay presence.
 - No new direct tree-shape inference paths in migrated consumers.
@@ -312,7 +312,7 @@ or tab metadata loss under supported transforms.
 ## Risks and Mitigations
 
 Overlay becoming a second layout engine: keep overlay semantic-only (groups/order/active), not a
-structural replacement. Clear ownership split with `WorkspaceLayout`.
+structural replacement. Clear ownership split with `FrameLayout`.
 
 Feature code bypassing helpers: shared overlay-first query APIs are the only permitted path for
 tab-aware queries. Migrate high-risk consumers first (omnibar, pin UI).
@@ -329,32 +329,32 @@ simplify-reapply pipeline (Stage 8E) must be re-validated.
 
 ---
 
-## Workspace Routing Polish Addendum (Absorbed 2026-02-24)
+## Frame Routing Polish Addendum (Absorbed 2026-02-24)
 
-This section absorbs and replaces `2026-02-24_workspace_routing_polish_plan.md`.
+This section absorbs and replaces the 2026-02-24 frame-routing polish plan.
 
 ### Resolver explainability
 
-- Emit structured resolver traces from `resolve_workspace_open`: candidates, recency scores, selected workspace, and decision reason (`MostRecent`, `ExplicitTarget`, `Fallback`).
+- Emit structured resolver traces from `resolve_frame_open`: candidates, recency scores, selected frame, and decision reason (`MostRecent`, `ExplicitTarget`, `Fallback`).
 - Surface traces through diagnostics/logging for headed validation and bug triage.
 - Optional preference strategy remains constrained to resolver policy selection, not alternate UI-side routing logic.
 
 ### Membership-aware UI affordances
 
-- Badge tooltips should list memberships in recency order and highlight current workspace.
-- Workspace-target actions in command palette should include membership hints.
-- Hide badge noise for nodes that belong only to the current workspace; keep stronger visual treatment for external membership.
+- Badge tooltips should list memberships in recency order and highlight current frame.
+- Frame-target actions in command palette should include membership hints.
+- Hide badge noise for nodes that belong only to the current frame; keep stronger visual treatment for external membership.
 
 ### Batch operation intent boundary
 
-- Route prune/retention operations through intent/request paths (`GraphIntent::PruneEmptyWorkspaces`, `GraphIntent::RetentionSweep { max_snapshots }`) rather than direct maintenance shortcuts.
+- Route prune/retention operations through intent/request paths (`GraphIntent::PruneEmptyFrames`, `GraphIntent::RetentionSweep { max_snapshots }`) rather than direct maintenance shortcuts.
 - Keep persistence effects in desktop helper layers, but preserve intent-layer observability.
 
 ### Validation additions
 
 - [ ] Multi-home open emits resolver trace with ranking and decision reason.
 - [ ] Membership badges follow local-only vs external-membership visibility rules.
-- [ ] Command palette workspace-target entries expose membership hints.
+- [ ] Command palette frame-target entries expose membership hints.
 - [ ] Batch prune/retention operations are visible in intent/request diagnostics.
 
 ---
@@ -378,8 +378,8 @@ Stage 8E here once confirmed.
 - Aligned to registry layer: `WorkbenchSurfaceRegistry` (Phase 3, complete) noted as owner of
   simplification options; overlay must be consistent with active simplification policy.
 - `TabGroupId` changed from `u64` to `Uuid` for consistency with the codebase identity model.
-- `GraphWorkspace`/`AppServices` split (Phase 6) noted as future home of `WorkspaceTabSemantics`.
-- Persistence path made explicit: rkyv/redb workspace bundle, not fjall WAL.
+- `GraphWorkspace`/`AppServices` split (Phase 6) noted as future home of `FrameTabSemantics`.
+- Persistence path made explicit: rkyv/redb frame bundle, not fjall WAL.
 - `GraphIntent` variants made concrete with field signatures.
 - Stage 8A declared complete (design document is the output); stages 8B–8E are now the
   implementation work items with explicit done gates.

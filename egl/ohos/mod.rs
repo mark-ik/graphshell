@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 #![allow(non_snake_case)]
-/// Servoshell for OpenHarmony
+/// Graphshell for OpenHarmony
 ///
 /// ## Overview
 ///
 /// Apps on OpenHarmony are written in ArkTS and use ArkUI.
-/// Servoshell is a native Rust application, which we compile as shared library,
+/// Graphshell is a native Rust application, which we compile as shared library,
 /// which can communicate with ArkTS via NAPI.
 /// The ArkTS portion of the code lives under `support/openharmony`, from the root of this
 /// repository.
@@ -19,7 +19,7 @@
 /// also only ability of our ArkTS application). At the top of this file we have a series of `import`
 /// commands, which import from various ArkTS libraries. One of those lines is
 /// ```
-/// import servoshell from 'libservoshell.so';
+/// import graphshell from 'libgraphshell.so';
 /// ```
 ///
 /// This import statement will cause our shared library to be `dlopen`ed and the runtime will call
@@ -37,22 +37,22 @@
 /// the new main thread of the rust application and returns. Note that this is not the same as the
 /// main thread of ArkUI.
 ///
-/// The servoshell [`main_thread()`] continues to initialize servo, while concurrently the ArkTS
+/// The Graphshell [`main_thread()`] continues to initialize servo, while concurrently the ArkTS
 /// code continues with `onWindowStageCreate()`, which will load our ArkUI page from
 /// `pages/Index.ets`. Once the page has been created, the `onForeground()` method will be invoked
 /// by ArkTS, in which we currently do nothing.
 /// Immediately afterwards, `aboutToAppear()` from our UIComponent in `Index.ets` will be invoked.
-/// We override this method, and use it to register callbacks with servoshell, that will allow
-/// servoshell to send events to ArkTS.
+/// We override this method, and use it to register callbacks with Graphshell, that will allow
+/// Graphshell to send events to ArkTS.
 ///
 /// Next, during construction of the ArkUI, the `XComponent` surface will be created, which will
 /// in turn cause [`init()`] to be invoked (again), this time with the xcomponent object.
-/// `servoshell` registers callbacks for the xcomponent object.
+/// `graphshell` registers callbacks for the xcomponent object.
 /// After [`init()`] finishes, ArkTS will call the callback for `on_surface_created`, that we just
 /// registered. In the callback we send a message to our main thread, informing it of the new window.
 /// Additionally, for the first window, we also setup vsync callbacks.
 ///
-/// At this point the initialization is finished, and servoshell is ready.
+/// At this point the initialization is finished, and Graphshell is ready.
 mod resources;
 
 use std::cell::RefCell;
@@ -194,12 +194,12 @@ fn get_native_values() -> NativeValues {
     }
 }
 
-/// Initialize the servoshell [`App`].
+/// Initialize the Graphshell [`App`].
 fn init_app(
     options: InitOpts,
     event_loop_waker: Box<dyn EventLoopWaker>,
 ) -> Result<Rc<App>, &'static str> {
-    info!("Entered servoshell init function");
+    info!("Entered graphshell init function");
     crate::init_crypto();
 
     let native_values = get_native_values();
@@ -731,10 +731,10 @@ static LOGGER: LazyLock<hilog::Logger> = LazyLock::new(|| {
     let filters = [
         "fonts",
         "servo",
-        "servoshell",
-        "servoshell::egl:gl_glue",
+        "graphshell",
+        "graphshell::egl:gl_glue",
         // Show redirected stdout / stderr by default
-        "servoshell::egl::log",
+        "graphshell::egl::log",
         // Show JS errors by default.
         "script::dom::bindings::error",
         "script::dom::console",
@@ -872,7 +872,7 @@ fn debug_jsobject(obj: &Object, obj_name: &str) -> napi_ohos::Result<()> {
 #[napi(module_exports)]
 fn init(exports: Object, env: Env) -> napi_ohos::Result<()> {
     initialize_logging_once();
-    info!("servoshell init function called");
+    info!("graphshell init function called");
     if let Ok(xcomponent) = exports.get_named_property::<Object>("__NATIVE_XCOMPONENT_OBJ__") {
         register_xcomponent_callbacks(&env, &xcomponent)?;
         info!("Registered Xcomponent callbacks!");

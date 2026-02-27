@@ -27,7 +27,7 @@ pub(super) fn render_toolbar_right_controls(
     omnibar_search_session: &mut Option<super::OmnibarSearchSession>,
     frame_intents: &mut Vec<GraphIntent>,
     focused_pane_pin_name: Option<&str>,
-    persisted_workspace_names: &HashSet<String>,
+    persisted_frame_names: &HashSet<String>,
     toggle_tile_view_requested: &mut bool,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
     #[cfg(feature = "diagnostics")]
@@ -85,12 +85,12 @@ pub(super) fn render_toolbar_right_controls(
         frame_intents.push(GraphIntent::ToggleCommandPalette);
     }
 
-    super::render_workspace_pin_controls(
+    super::render_frame_pin_controls(
         ui,
         graph_app,
         has_node_panes,
         focused_pane_pin_name,
-        persisted_workspace_names,
+        persisted_frame_names,
     );
 
     super::render_location_search_panel(

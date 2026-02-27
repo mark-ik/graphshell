@@ -182,7 +182,7 @@ pub(crate) struct RunningAppState {
     /// was enabled.
     pub(crate) webdriver_receiver: Option<Receiver<WebDriverCommandMsg>>,
 
-    /// servoshell specific preferences created during startup of the application.
+    /// Graphshell-specific preferences created during startup of the application.
     pub(crate) app_preferences: AppPreferences,
 
     /// Whether or not the application has achieved stable image output. This is used
@@ -261,7 +261,7 @@ impl RunningAppState {
         ))]
         gamepad_provider: Option<Rc<AppGamepadProvider>>,
     ) -> Self {
-        servo.set_delegate(Rc::new(ServoShellServoDelegate));
+        servo.set_delegate(Rc::new(GraphshellServoDelegate));
         let embedder_core = EmbedderCore::new(servo);
 
         let webdriver_receiver = app_preferences.webdriver_port.get().map(|port| {
@@ -974,8 +974,8 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
     }
 }
 
-struct ServoShellServoDelegate;
-impl ServoDelegate for ServoShellServoDelegate {
+struct GraphshellServoDelegate;
+impl ServoDelegate for GraphshellServoDelegate {
     fn notify_devtools_server_started(&self, port: u16, _token: String) {
         info!("Devtools Server running on port {port}");
     }

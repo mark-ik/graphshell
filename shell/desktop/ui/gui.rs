@@ -78,9 +78,9 @@ struct GuiRuntimeState {
     graph_search_filter_mode: bool,
     graph_search_matches: Vec<NodeKey>,
     graph_search_active_match_index: Option<usize>,
-    focused_webview_hint: Option<WebViewId>,
+    focused_node_hint: Option<NodeKey>,
     graph_surface_focused: bool,
-    focus_ring_webview_id: Option<WebViewId>,
+    focus_ring_node_key: Option<NodeKey>,
     focus_ring_started_at: Option<Instant>,
     focus_ring_duration: Duration,
     omnibar_search_session: Option<OmnibarSearchSession>,
@@ -115,7 +115,7 @@ struct WebViewA11yGraftPlan {
     conversion_fallback_count: usize,
 }
 
-/// The user interface of a headed servoshell. Currently this is implemented via
+/// The user interface of a headed Graphshell runtime. Currently this is implemented via
 /// egui.
 pub struct Gui {
     rendering_context: Rc<OffscreenRenderingContext>,
@@ -139,30 +139,30 @@ pub struct Gui {
     /// Graph browser application state
     graph_app: GraphBrowserApp,
 
-    /// Per-node offscreen rendering contexts for WebView tiles.
+    /// Per-node offscreen rendering contexts for composited node-viewer tiles.
     tile_rendering_contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
 
     /// Per-node favicon textures for egui_tiles tab rendering.
     tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)>,
 
-    /// Sender for asynchronous webview thumbnail capture results.
+    /// Sender for asynchronous runtime viewer thumbnail capture results.
     thumbnail_capture_tx: Sender<ThumbnailCaptureResult>,
 
-    /// Receiver for asynchronous webview thumbnail capture results.
+    /// Receiver for asynchronous runtime viewer thumbnail capture results.
     thumbnail_capture_rx: Receiver<ThumbnailCaptureResult>,
 
-    /// WebViews with an in-flight thumbnail request.
+    /// Runtime viewers with an in-flight thumbnail request.
     thumbnail_capture_in_flight: HashSet<WebViewId>,
 
-    /// Runtime backpressure state for tile-driven webview creation retries.
+    /// Runtime backpressure state for tile-driven viewer creation retries.
     webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState>,
 
-    /// Pending accessibility tree updates received from WebView/Servo that have
-    /// not yet been injected into egui's accessibility tree.  Keyed by WebViewId
-    /// so that a newer update from the same WebView supersedes the previous one.
+    /// Pending accessibility tree updates received from runtime viewers that have
+    /// not yet been injected into egui's accessibility tree. Keyed by WebViewId
+    /// so that a newer update from the same runtime viewer supersedes the previous one.
     pending_webview_a11y_updates: HashMap<WebViewId, accesskit::TreeUpdate>,
 
-    /// Cached reference to RunningAppState for webview creation
+    /// Cached reference to RunningAppState for runtime viewer creation.
     state: Option<Rc<RunningAppState>>,
 
     /// Runtime UI state used by the frame coordinator and toolbar/search flows.
@@ -202,21 +202,21 @@ impl Drop for Gui {
     }
 }
 
-fn restore_startup_session_workspace_if_available(
+fn restore_startup_session_frame_if_available(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) -> bool {
-    if let Ok(bundle) = persistence_ops::load_named_workspace_bundle(
+    if let Ok(bundle) = persistence_ops::load_named_frame_bundle(
         graph_app,
         GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
     ) && let Ok((restored_tree, _)) =
-        persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle)
+        persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
         && restored_tree.root().is_some()
     {
         if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
-            graph_app.mark_session_workspace_layout_json(&runtime_layout_json);
+            graph_app.mark_session_frame_layout_json(&runtime_layout_json);
         }
-        log::debug!("gui: restored startup session workspace from bundle");
+        log::debug!("gui: restored startup session frame from bundle");
         *tiles_tree = restored_tree;
         return true;
     }
@@ -226,8 +226,8 @@ fn restore_startup_session_workspace_if_available(
     {
         tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
         if restored_tree.root().is_some() {
-            graph_app.mark_session_workspace_layout_json(&layout_json);
-            log::debug!("gui: restored startup session workspace from legacy layout json");
+            graph_app.mark_session_frame_layout_json(&layout_json);
+            log::debug!("gui: restored startup session frame from legacy layout json");
             *tiles_tree = restored_tree;
             return true;
         }
@@ -291,7 +291,7 @@ impl Gui {
 
         context.egui_ctx.options_mut(|options| {
             // Disable the builtin egui handlers for the Ctrl+Plus, Ctrl+Minus and Ctrl+0
-            // shortcuts as they don't work well with servoshell's `device-pixel-ratio` CLI argument.
+            // shortcuts as they don't work well with Graphshell's `device-pixel-ratio` CLI argument.
             options.zoom_with_keyboard = false;
 
             // On platforms where winit fails to obtain a system theme, fall back to a light theme
@@ -311,7 +311,7 @@ impl Gui {
         let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let mut tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
 
-        let _ = restore_startup_session_workspace_if_available(&mut graph_app, &mut tiles_tree);
+        let _ = restore_startup_session_frame_if_available(&mut graph_app, &mut tiles_tree);
 
         // Only create initial node if graph wasn't recovered from persistence
         if !graph_app.has_recovered_graph() {
@@ -320,13 +320,13 @@ impl Gui {
                 graph_app.add_node_and_sync(initial_url.to_string(), Point2D::new(400.0, 300.0));
         }
         let membership_index =
-            persistence_ops::build_membership_index_from_workspace_manifests(&graph_app);
+            persistence_ops::build_membership_index_from_frame_manifests(&graph_app);
         graph_app.init_membership_index(membership_index);
         let (workspace_recency, workspace_activation_seq) =
-            persistence_ops::build_workspace_activation_recency_from_workspace_manifests(
+            persistence_ops::build_frame_activation_recency_from_frame_manifests(
                 &graph_app,
             );
-        graph_app.init_workspace_activation_recency(workspace_recency, workspace_activation_seq);
+        graph_app.init_frame_activation_recency(workspace_recency, workspace_activation_seq);
         let (thumbnail_capture_tx, thumbnail_capture_rx) = channel();
         let initial_search_filter_mode = matches!(
             graph_app.workspace.search_display_mode,
@@ -387,9 +387,9 @@ impl Gui {
                 graph_search_filter_mode: initial_search_filter_mode,
                 graph_search_matches: Vec::new(),
                 graph_search_active_match_index: None,
-                focused_webview_hint: None,
+                focused_node_hint: None,
                 graph_surface_focused: false,
-                focus_ring_webview_id: None,
+                focus_ring_node_key: None,
                 focus_ring_started_at: None,
                 focus_ring_duration: Duration::from_millis(500),
                 omnibar_search_session: None,
@@ -426,7 +426,7 @@ impl Gui {
         !self.has_active_node_pane()
     }
 
-    /// Set the RunningAppState reference for webview creation
+    /// Set the RunningAppState reference for runtime viewer creation.
     pub(crate) fn set_state(&mut self, state: Rc<RunningAppState>) {
         self.state = Some(state);
     }
@@ -446,8 +446,8 @@ impl Gui {
     ) -> EventResponse {
         let mut response = self.context.on_window_event(winit_window, event);
 
-        // When no WebView tile is active, consume user input events so they
-        // never reach an inactive/hidden WebView.
+        // When no node-viewer tile is active, consume user input events so they
+        // never reach an inactive/hidden runtime viewer.
         if !self.has_active_node_pane() {
             match event {
                 WindowEvent::KeyboardInput { .. }
@@ -467,8 +467,8 @@ impl Gui {
         response
     }
 
-    /// The height of the top toolbar of this user inteface ie the distance from the top of the
-    /// window to the position of the `WebView`.
+    /// The height of the top toolbar, i.e. distance from the top of the window
+    /// to the runtime viewer region.
     pub(crate) fn toolbar_height(&self) -> Length<f32, DeviceIndependentPixel> {
         self.toolbar_height
     }
@@ -511,33 +511,42 @@ impl Gui {
         })
     }
 
-    pub(crate) fn focused_webview_id(&self) -> Option<WebViewId> {
+    pub(crate) fn focused_node_key(&self) -> Option<NodeKey> {
         if self.runtime_state.graph_surface_focused {
             return None;
         }
-        tile_compositor::focused_webview_id_for_node_panes(
+        tile_compositor::focused_node_key_for_node_panes(
             &self.tiles_tree,
             &self.graph_app,
-            self.runtime_state.focused_webview_hint,
+            self.runtime_state.focused_node_hint,
         )
     }
 
-    pub(crate) fn focused_tile_webview_id(&self) -> Option<WebViewId> {
-        self.focused_webview_id()
+    pub(crate) fn has_focused_node(&self) -> bool {
+        self.focused_node_key().is_some()
+    }
+
+    pub(crate) fn webview_id_for_node_key(&self, node_key: NodeKey) -> Option<WebViewId> {
+        self.graph_app.get_webview_for_node(node_key)
     }
 
     #[allow(dead_code)]
     pub(crate) fn active_tile_webview_id(&self) -> Option<WebViewId> {
-        tile_compositor::focused_webview_id_for_node_panes(&self.tiles_tree, &self.graph_app, None)
+        tile_compositor::focused_node_key_for_node_panes(&self.tiles_tree, &self.graph_app, None)
+            .and_then(|node_key| self.graph_app.get_webview_for_node(node_key))
     }
 
-    pub(crate) fn set_focused_webview_id(&mut self, webview_id: WebViewId) {
-        self.runtime_state.focused_webview_hint = Some(webview_id);
+    pub(crate) fn set_focused_node_key(&mut self, node_key: Option<NodeKey>) {
+        self.runtime_state.focused_node_hint = node_key;
         self.runtime_state.graph_surface_focused = false;
     }
 
+    pub(crate) fn node_key_for_webview_id(&self, webview_id: WebViewId) -> Option<NodeKey> {
+        self.graph_app.get_node_for_webview(webview_id)
+    }
+
     pub(crate) fn focus_graph_surface(&mut self) {
-        self.runtime_state.focused_webview_hint = None;
+        self.runtime_state.focused_node_hint = None;
         self.runtime_state.graph_surface_focused = true;
         self.graph_app.workspace.focused_view =
             tile_view_ops::active_graph_view_id(&self.tiles_tree);
@@ -600,7 +609,7 @@ impl Gui {
             window,
             headed_window,
         } = input;
-        // Note: We need Rc<RunningAppState> for webview creation, but this method
+        // Note: We need Rc<RunningAppState> for runtime viewer creation, but this method
         // is called from trait methods that only provide &RunningAppState.
         // The caller should have Rc available at the call site.
         self.rendering_context
@@ -643,9 +652,9 @@ impl Gui {
             graph_search_filter_mode,
             graph_search_matches,
             graph_search_active_match_index,
-            focused_webview_hint,
+            focused_node_hint,
             graph_surface_focused,
-            focus_ring_webview_id,
+            focus_ring_node_key,
             focus_ring_started_at,
             focus_ring_duration,
             omnibar_search_session,
@@ -661,7 +670,7 @@ impl Gui {
         context.run(winit_window, |ctx| {
             graph_app.tick_frame();
 
-            // Inject any pending WebView accessibility tree updates into egui's
+            // Inject any pending runtime viewer accessibility tree updates into egui's
             // accessibility tree. Conversion is deterministic and degrades
             // explicitly when incoming nodes cannot be represented in egui's
             // current AccessKit version.
@@ -767,7 +776,7 @@ impl Gui {
                 diagnostics_state,
                 window,
                 tiles_tree,
-                *focused_webview_hint,
+                *focused_node_hint,
                 *graph_surface_focused,
                 toolbar_state,
                 graph_search_output.focus_location_field_for_search,
@@ -869,9 +878,9 @@ impl Gui {
                     window_rendering_context,
                     responsive_webviews: &pre_frame.responsive_webviews,
                     webview_creation_backpressure,
-                    focused_webview_hint,
+                    focused_node_hint,
                     graph_surface_focused: *graph_surface_focused,
-                    focus_ring_webview_id,
+                    focus_ring_node_key,
                     focus_ring_started_at,
                     focus_ring_duration: *focus_ring_duration,
                     toasts,
@@ -977,7 +986,7 @@ impl Gui {
         #[cfg(feature = "diagnostics")] diagnostics_state: &mut diagnostics::DiagnosticsState,
         window: &EmbedderWindow,
         tiles_tree: &mut Tree<TileKind>,
-        focused_webview_hint: Option<WebViewId>,
+        focused_node_hint: Option<NodeKey>,
         graph_surface_focused: bool,
         toolbar_state: &mut ToolbarState,
         focus_location_field_for_search: bool,
@@ -1002,7 +1011,7 @@ impl Gui {
                 graph_app,
                 window,
                 tiles_tree,
-                focused_webview_hint,
+                focused_node_hint,
                 graph_surface_focused,
                 can_go_back: toolbar_state.can_go_back,
                 can_go_forward: toolbar_state.can_go_forward,
@@ -1392,42 +1401,46 @@ impl Gui {
                 .get_node(key)
                 .map(|node| node.url.clone())
         });
-        let focused_webview_id = self.focused_webview_id();
+        let focused_node_key = self.focused_node_key();
         webview_status_sync::update_location_in_toolbar(
             self.toolbar_state.location_dirty,
             &mut self.toolbar_state.location,
             has_node_panes,
             selected_node_url,
-            focused_webview_id,
+            focused_node_key,
+            &self.graph_app,
             window,
         )
     }
 
     fn update_load_status(&mut self, window: &EmbedderWindow) -> bool {
-        let focused_webview_id = self.focused_webview_id();
+        let focused_node_key = self.focused_node_key();
         webview_status_sync::update_load_status(
             &mut self.toolbar_state.load_status,
             &mut self.toolbar_state.location_dirty,
-            focused_webview_id,
+            focused_node_key,
+            &self.graph_app,
             window,
         )
     }
 
     fn update_status_text(&mut self, window: &EmbedderWindow) -> bool {
-        let focused_webview_id = self.focused_webview_id();
+        let focused_node_key = self.focused_node_key();
         webview_status_sync::update_status_text(
             &mut self.toolbar_state.status_text,
-            focused_webview_id,
+            focused_node_key,
+            &self.graph_app,
             window,
         )
     }
 
     fn update_can_go_back_and_forward(&mut self, window: &EmbedderWindow) -> bool {
-        let focused_webview_id = self.focused_webview_id();
+        let focused_node_key = self.focused_node_key();
         webview_status_sync::update_can_go_back_and_forward(
             &mut self.toolbar_state.can_go_back,
             &mut self.toolbar_state.can_go_forward,
-            focused_webview_id,
+            focused_node_key,
+            &self.graph_app,
             window,
         )
     }
@@ -1487,7 +1500,7 @@ impl Gui {
         webview_id: WebViewId,
         tree_update: accesskit::TreeUpdate,
     ) {
-        // Store the most recent update per WebView; it will be injected into
+        // Store the most recent update per runtime viewer; it will be injected into
         // egui's accessibility tree at the start of the next frame inside
         // the context.run() callback.
         self.pending_webview_a11y_updates
@@ -1608,7 +1621,7 @@ impl Gui {
         }
     }
 
-    /// Inject pending WebView accessibility tree updates into egui's
+    /// Inject pending runtime viewer accessibility tree updates into egui's
     /// accessibility tree.
     ///
     /// For each node in a Servo-provided `accesskit::TreeUpdate`, this bridge
@@ -1649,26 +1662,26 @@ impl Gui {
 
             if plan.nodes.is_empty() {
                 warn!(
-                    "WebView accessibility injection used degraded synthesized document node for {:?}: incoming tree update had no nodes",
+                    "Runtime viewer accessibility injection used degraded synthesized document node for {:?}: incoming tree update had no nodes",
                     webview_id
                 );
             } else if plan.root_node_id.is_none() {
                 warn!(
-                    "WebView accessibility injection used degraded synthesized document node for {:?}: no injectable root node was found",
+                    "Runtime viewer accessibility injection used degraded synthesized document node for {:?}: no injectable root node was found",
                     webview_id
                 );
             }
 
             if plan.dropped_node_count > 0 {
                 warn!(
-                    "WebView accessibility injection dropped {} reserved node(s) for {:?}",
+                    "Runtime viewer accessibility injection dropped {} reserved node(s) for {:?}",
                     plan.dropped_node_count, webview_id
                 );
             }
 
             if plan.conversion_fallback_count > 0 {
                 warn!(
-                    "WebView accessibility injection used degraded role conversion fallback for {} node(s) in {:?}",
+                    "Runtime viewer accessibility injection used degraded role conversion fallback for {} node(s) in {:?}",
                     plan.conversion_fallback_count, webview_id
                 );
             }

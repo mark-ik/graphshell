@@ -603,6 +603,12 @@ pub enum Edge {
    - Monitor if process creation/destruction adds latency
    - Consider Verse's IPC-based helper process model if bottleneck found
 
+6. **Freenet Pattern Review** (External architecture comparison, 2026-02-27):
+   - Apply shared-state vs identity-secrets authority split.
+   - Apply capability-first provider/mod contracts.
+   - Enforce doc-to-test linkage to prevent spec/implementation drift.
+   - See: [2026-02-27_freenet_takeaways_for_verse.md](2026-02-27_freenet_takeaways_for_verse.md)
+
 ---
 
 **Document Generated**: 2025-02-04  

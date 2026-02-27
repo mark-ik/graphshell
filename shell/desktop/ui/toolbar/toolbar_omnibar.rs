@@ -350,16 +350,16 @@ fn tab_node_keys_in_tree(tiles_tree: &Tree<TileKind>) -> HashSet<NodeKey> {
 
 fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
     let mut saved_tab_nodes = HashSet::new();
-    for workspace_name in graph_app.list_workspace_layout_names() {
-        if GraphBrowserApp::is_reserved_workspace_layout_name(&workspace_name) {
+    for frame_name in graph_app.list_workspace_layout_names() {
+        if GraphBrowserApp::is_reserved_workspace_layout_name(&frame_name) {
             continue;
         }
-        let Ok(bundle) = persistence_ops::load_named_workspace_bundle(graph_app, &workspace_name)
+        let Ok(bundle) = persistence_ops::load_named_frame_bundle(graph_app, &frame_name)
         else {
             continue;
         };
         if let Ok((tree, _)) =
-            persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle)
+            persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
         {
             saved_tab_nodes.extend(tab_node_keys_in_tree(&tree));
         }
@@ -503,9 +503,9 @@ pub(super) fn omnibar_match_signifier(
             if is_connected && is_local_tab {
                 "related tab"
             } else if is_local_tab {
-                "workspace tab"
+                "frame tab"
             } else if is_saved_tab {
-                "other workspace"
+                "other frame"
             } else if is_connected {
                 "related node"
             } else {
@@ -574,17 +574,17 @@ pub(super) fn apply_omnibar_match(
     graph_app: &GraphBrowserApp,
     active_match: OmnibarMatch,
     has_node_panes: bool,
-    force_original_workspace: bool,
+    force_original_frame: bool,
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
 ) {
     match active_match {
         OmnibarMatch::Node(key) => {
             frame_intents.push(GraphIntent::ClearHighlightedEdge);
-            if has_node_panes && force_original_workspace {
-                frame_intents.push(GraphIntent::OpenNodeWorkspaceRouted {
+            if has_node_panes && force_original_frame {
+                frame_intents.push(GraphIntent::OpenNodeFrameRouted {
                     key,
-                    prefer_workspace: None,
+                    prefer_frame: None,
                 });
             } else {
                 frame_intents.push(GraphIntent::SelectNode {
@@ -600,9 +600,9 @@ pub(super) fn apply_omnibar_match(
             frame_intents.push(GraphIntent::ClearHighlightedEdge);
             if let Some((key, _)) = graph_app.workspace.graph.get_node_by_url(&url) {
                 if has_node_panes {
-                    frame_intents.push(GraphIntent::OpenNodeWorkspaceRouted {
+                    frame_intents.push(GraphIntent::OpenNodeFrameRouted {
                         key,
-                        prefer_workspace: None,
+                        prefer_frame: None,
                     });
                 } else {
                     frame_intents.push(GraphIntent::SelectNode {
@@ -836,8 +836,8 @@ pub(super) fn omnibar_matches_for_query(
                 .collect();
             let mut local_connected_tabs = Vec::new();
             let mut local_tabs = Vec::new();
-            let mut other_workspace_connected_tabs = Vec::new();
-            let mut other_workspace_tabs = Vec::new();
+            let mut other_frame_connected_tabs = Vec::new();
+            let mut other_frame_tabs = Vec::new();
             for candidate in all_tab_ranked_matches {
                 let OmnibarMatch::Node(key) = candidate else {
                     continue;
@@ -848,9 +848,9 @@ pub(super) fn omnibar_matches_for_query(
                 } else if local_tab_set.contains(&key) {
                     local_tabs.push(key);
                 } else if connected {
-                    other_workspace_connected_tabs.push(key);
+                    other_frame_connected_tabs.push(key);
                 } else {
-                    other_workspace_tabs.push(key);
+                    other_frame_tabs.push(key);
                 }
             }
             local_connected_tabs.sort_by_key(|key| {
@@ -859,7 +859,7 @@ pub(super) fn omnibar_matches_for_query(
                     tab_rank.get(key).copied().unwrap_or(usize::MAX),
                 )
             });
-            other_workspace_connected_tabs.sort_by_key(|key| {
+            other_frame_connected_tabs.sort_by_key(|key| {
                 (
                     hop_distances.get(key).copied().unwrap_or(usize::MAX),
                     tab_rank.get(key).copied().unwrap_or(usize::MAX),
@@ -868,8 +868,8 @@ pub(super) fn omnibar_matches_for_query(
             let mut out: Vec<OmnibarMatch> = local_connected_tabs
                 .into_iter()
                 .chain(local_tabs)
-                .chain(other_workspace_connected_tabs)
-                .chain(other_workspace_tabs)
+                .chain(other_frame_connected_tabs)
+                .chain(other_frame_tabs)
                 .map(OmnibarMatch::Node)
                 .collect();
             let mut remaining_nodes = ranked_matches(all_graph_node_candidates, query);
@@ -1188,21 +1188,21 @@ mod tests {
     }
 
     #[test]
-    fn test_omnibar_tabs_all_includes_saved_workspace_tabs() {
+    fn test_omnibar_tabs_all_includes_saved_frame_tabs() {
         let temp = TempDir::new().expect("temp dir");
         let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
         let tab_key = app.add_node_and_sync("https://saved-tab.example".into(), Point2D::zero());
 
-        let mut workspace_tiles = egui_tiles::Tiles::default();
-        let tab_leaf = workspace_tiles.insert_pane(TileKind::Node(tab_key.into()));
-        let tabs_root = workspace_tiles.insert_tab_tile(vec![tab_leaf]);
-        let workspace_tree = Tree::new("saved_workspace", tabs_root, workspace_tiles);
-        persistence_ops::save_named_workspace_bundle(
+        let mut frame_tiles = egui_tiles::Tiles::default();
+        let tab_leaf = frame_tiles.insert_pane(TileKind::Node(tab_key.into()));
+        let tabs_root = frame_tiles.insert_tab_tile(vec![tab_leaf]);
+        let frame_tree = Tree::new("saved_frame", tabs_root, frame_tiles);
+        persistence_ops::save_named_frame_bundle(
             &mut app,
-            "workspace:saved-tabs",
-            &workspace_tree,
+            "frame:saved-tabs",
+            &frame_tree,
         )
-        .expect("save workspace bundle");
+        .expect("save frame bundle");
 
         let mut current_tiles = egui_tiles::Tiles::default();
         let current_root = current_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
@@ -1219,7 +1219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_omnibar_mixed_mode_includes_other_workspace_tabs_after_local_tabs() {
+    fn test_omnibar_mixed_mode_includes_other_frame_tabs_after_local_tabs() {
         let temp = TempDir::new().expect("temp dir");
         let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
         let local_tab =
@@ -1234,16 +1234,16 @@ mod tests {
         let current_root = current_tiles.insert_tab_tile(vec![local_leaf]);
         let current_tree = Tree::new("current_tree", current_root, current_tiles);
 
-        let mut workspace_tiles = egui_tiles::Tiles::default();
-        let saved_leaf = workspace_tiles.insert_pane(TileKind::Node(saved_tab.into()));
-        let saved_root = workspace_tiles.insert_tab_tile(vec![saved_leaf]);
-        let workspace_tree = Tree::new("saved_workspace", saved_root, workspace_tiles);
-        persistence_ops::save_named_workspace_bundle(
+        let mut frame_tiles = egui_tiles::Tiles::default();
+        let saved_leaf = frame_tiles.insert_pane(TileKind::Node(saved_tab.into()));
+        let saved_root = frame_tiles.insert_tab_tile(vec![saved_leaf]);
+        let frame_tree = Tree::new("saved_frame", saved_root, frame_tiles);
+        persistence_ops::save_named_frame_bundle(
             &mut app,
-            "workspace:saved-alpha",
-            &workspace_tree,
+            "frame:saved-alpha",
+            &frame_tree,
         )
-        .expect("save workspace bundle");
+        .expect("save frame bundle");
 
         let matches =
             omnibar_matches_for_query(&app, &current_tree, OmnibarSearchMode::Mixed, "alpha", true);
@@ -1296,7 +1296,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_omnibar_node_match_opens_in_current_workspace_in_detail_mode() {
+    fn test_apply_omnibar_node_match_opens_in_current_frame_in_detail_mode() {
         let app = GraphBrowserApp::new_for_testing();
         let key = NodeKey::new(7);
         let mut intents = Vec::new();
@@ -1323,13 +1323,13 @@ mod tests {
         assert!(
             !intents
                 .iter()
-                .any(|intent| { matches!(intent, GraphIntent::OpenNodeWorkspaceRouted { .. }) })
+                .any(|intent| { matches!(intent, GraphIntent::OpenNodeFrameRouted { .. }) })
         );
         assert!(matches!(open_mode, Some(ToolbarOpenMode::Tab)));
     }
 
     #[test]
-    fn test_apply_omnibar_node_match_shift_forces_workspace_routing() {
+    fn test_apply_omnibar_node_match_shift_forces_frame_routing() {
         let app = GraphBrowserApp::new_for_testing();
         let key = NodeKey::new(9);
         let mut intents = Vec::new();
@@ -1347,9 +1347,9 @@ mod tests {
         assert!(intents.iter().any(|intent| {
             matches!(
                 intent,
-                GraphIntent::OpenNodeWorkspaceRouted {
+                GraphIntent::OpenNodeFrameRouted {
                     key: routed_key,
-                    prefer_workspace: None
+                    prefer_frame: None
                 } if *routed_key == key
             )
         }));
@@ -1362,7 +1362,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_omnibar_node_url_existing_routes_workspace_open_in_detail_mode() {
+    fn test_apply_omnibar_node_url_existing_routes_frame_open_in_detail_mode() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app.add_node_and_sync("https://node-url.example".into(), Point2D::zero());
         let mut intents = Vec::new();
@@ -1380,9 +1380,9 @@ mod tests {
         assert!(intents.iter().any(|intent| {
             matches!(
                 intent,
-                GraphIntent::OpenNodeWorkspaceRouted {
+                GraphIntent::OpenNodeFrameRouted {
                     key: routed_key,
-                    prefer_workspace: None
+                    prefer_frame: None
                 } if *routed_key == key
             )
         }));

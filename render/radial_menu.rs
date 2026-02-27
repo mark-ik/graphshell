@@ -57,17 +57,17 @@ impl RadialDomain {
 /// Maps to `ActionCategory` for registry-backed content.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum NodeContextGroup {
-    Workspace,
+    Frame,
     Edge,
     Node,
 }
 
 impl NodeContextGroup {
-    const ALL: [Self; 3] = [Self::Workspace, Self::Edge, Self::Node];
+    const ALL: [Self; 3] = [Self::Frame, Self::Edge, Self::Node];
 
     fn label(self) -> &'static str {
         match self {
-            Self::Workspace => "Workspace",
+            Self::Frame => "Frame",
             Self::Edge => "Edge",
             Self::Node => "Node",
         }
@@ -78,16 +78,16 @@ impl NodeContextGroup {
         use ActionId::*;
         let all = list_radial_actions_for_category(context, self.category());
         match self {
-            // Workspace group: subset of Node actions focused on workspace/open operations.
-            Self::Workspace => all
+            // Frame group: subset of Node actions focused on frame/open operations.
+            Self::Frame => all
                 .into_iter()
                 .filter(|e| {
                     matches!(
                         e.id,
-                        NodeOpenWorkspace
-                            | NodeChooseWorkspace
-                            | NodeAddToWorkspace
-                            | NodeAddConnectedToWorkspace
+                        NodeOpenFrame
+                            | NodeChooseFrame
+                            | NodeAddToFrame
+                            | NodeAddConnectedToFrame
                             | NodeOpenNeighbors
                             | NodeOpenConnected
                     )
@@ -109,7 +109,7 @@ impl NodeContextGroup {
 
     fn category(self) -> ActionCategory {
         match self {
-            Self::Workspace | Self::Node => ActionCategory::Node,
+            Self::Frame | Self::Node => ActionCategory::Node,
             Self::Edge => ActionCategory::Edge,
         }
     }

@@ -4,25 +4,18 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
 
-use dpi::PhysicalSize;
 use egui::Stroke;
-use egui_glow::CallbackFn;
 use egui_tiles::{Tile, Tree};
-use euclid::{Point2D, Rect, Scale, Size2D};
-use log::warn;
-use servo::{
-    DeviceIndependentPixel, DevicePixel, OffscreenRenderingContext, RenderingContext, WebViewId,
-};
+use servo::OffscreenRenderingContext;
 
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::compositor_adapter::{
-    CompositorAdapter, CompositorPassTracker,
+    CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle, OverlayStrokePass,
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -39,49 +32,43 @@ pub(crate) fn active_node_pane_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKe
     tile_rects
 }
 
-pub(crate) fn focused_webview_id_for_node_panes(
+pub(crate) fn focused_node_key_for_node_panes(
     tiles_tree: &Tree<TileKind>,
-    graph_app: &GraphBrowserApp,
-    focused_hint: Option<WebViewId>,
-) -> Option<WebViewId> {
-    if let Some(hint) = focused_hint {
+    _graph_app: &GraphBrowserApp,
+    focused_hint: Option<NodeKey>,
+) -> Option<NodeKey> {
+    if let Some(node_key) = focused_hint {
         let hint_present_in_tree = tiles_tree.tiles.iter().any(|(_, tile)| {
-            matches!(
-                tile,
-                Tile::Pane(TileKind::Node(state))
-                    if graph_app.get_webview_for_node(state.node) == Some(hint)
-            )
+            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
         });
         if hint_present_in_tree {
-            return Some(hint);
+            return Some(node_key);
         }
     }
 
-    active_node_pane_key(tiles_tree).and_then(|node_key| graph_app.get_webview_for_node(node_key))
+    active_node_pane_key(tiles_tree)
 }
 
-pub(crate) fn webview_for_frame_activation(
+pub(crate) fn node_for_frame_activation(
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
-    focused_hint: Option<WebViewId>,
-) -> Option<WebViewId> {
-    focused_webview_id_for_node_panes(tiles_tree, graph_app, focused_hint).or_else(|| {
-        active_node_pane_rects(tiles_tree)
-            .first()
-            .and_then(|(node_key, _)| graph_app.get_webview_for_node(*node_key))
-    })
+    focused_hint: Option<NodeKey>,
+) -> Option<NodeKey> {
+    focused_node_key_for_node_panes(tiles_tree, graph_app, focused_hint)
+        .or_else(|| active_node_pane_rects(tiles_tree).first().map(|(node_key, _)| *node_key))
 }
 
-pub(crate) fn activate_focused_webview_for_frame(
+pub(crate) fn activate_focused_node_for_frame(
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
-    focused_webview_hint: &mut Option<WebViewId>,
+    focused_node_hint: &mut Option<NodeKey>,
 ) {
-    if let Some(wv_id) = webview_for_frame_activation(tiles_tree, graph_app, *focused_webview_hint)
-    {
-        *focused_webview_hint = Some(wv_id);
-        window.activate_webview(wv_id);
+    if let Some(node_key) = node_for_frame_activation(tiles_tree, graph_app, *focused_node_hint) {
+        *focused_node_hint = Some(node_key);
+        if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
+            window.activate_webview(wv_id);
+        }
     }
 }
 
@@ -92,193 +79,106 @@ pub(crate) fn composite_active_node_pane_webviews(
     graph_app: &GraphBrowserApp,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     active_tile_rects: Vec<(NodeKey, egui::Rect)>,
-    focused_webview_id: Option<WebViewId>,
+    focused_node_key: Option<NodeKey>,
     focus_ring_alpha: f32,
 ) {
     #[cfg(feature = "diagnostics")]
     let composite_started = Instant::now();
     log::debug!(
-        "composite_active_node_pane_webviews: {} tiles",
+        "composite_active_node_pane_runtime_viewers: {} tiles",
         active_tile_rects.len()
     );
-    let scale = Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ctx.pixels_per_point());
     let mut pass_tracker = CompositorPassTracker::new();
+    let mut pending_overlay_passes: Vec<OverlayStrokePass> = Vec::new();
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
-    let mut hovered_webview_id: Option<WebViewId> = None;
+    let mut hovered_node_key: Option<NodeKey> = None;
     if let Some(pos) = hover_pos {
         for (node_key, tile_rect) in active_tile_rects.iter().copied() {
             if !tile_rect.contains(pos) {
                 continue;
             }
-            hovered_webview_id = graph_app.get_webview_for_node(node_key);
-            if hovered_webview_id.is_some() {
-                break;
-            }
+            hovered_node_key = Some(node_key);
+            break;
         }
     }
     for (node_key, tile_rect) in active_tile_rects {
         let render_mode = render_mode_for_node_pane(tiles_tree, node_key);
-        if render_mode != TileRenderMode::CompositedTexture {
-            continue;
-        }
+        let node_webview_id = graph_app.get_webview_for_node(node_key);
+        let is_focused = focused_node_key == Some(node_key);
+        let is_hovered = hovered_node_key == Some(node_key);
 
-        if !tile_rect.width().is_finite()
-            || !tile_rect.height().is_finite()
-            || tile_rect.width() <= 0.0
-            || tile_rect.height() <= 0.0
-        {
-            CompositorAdapter::report_invalid_tile_rect(node_key);
-            continue;
-        }
+        if render_mode == TileRenderMode::CompositedTexture {
+            let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
+                log::debug!("composite: no render_context for node {:?}", node_key);
+                continue;
+            };
+            let Some((size, target_size)) = CompositorAdapter::prepare_composited_target(
+                node_key,
+                tile_rect,
+                ctx.pixels_per_point(),
+                &render_context,
+            ) else {
+                continue;
+            };
 
-        let size = Size2D::new(tile_rect.width(), tile_rect.height()) * scale;
-        let target_size = PhysicalSize::new(
-            size.width.max(1.0).round() as u32,
-            size.height.max(1.0).round() as u32,
-        );
+            let Some(webview_id) = node_webview_id else {
+                log::debug!("composite: no runtime viewer mapped for node {:?}", node_key);
+                continue;
+            };
+            let Some(webview) = window.webview_by_id(webview_id) else {
+                log::debug!(
+                    "composite: runtime viewer {:?} not found in window for node {:?}",
+                    webview_id,
+                    node_key
+                );
+                continue;
+            };
+            CompositorAdapter::reconcile_webview_target_size(&webview, size, target_size);
 
-        let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
-            log::debug!("composite: no render_context for node {:?}", node_key);
-            continue;
-        };
-
-        if render_context.size() != target_size {
             log::debug!(
-                "composite: resizing render_context from {:?} to {:?}",
-                render_context.size(),
-                target_size
-            );
-            render_context.resize(target_size);
-        }
-
-        let Some(webview_id) = graph_app.get_webview_for_node(node_key) else {
-            log::debug!("composite: no webview_id mapped for node {:?}", node_key);
-            continue;
-        };
-        let Some(webview) = window.webview_by_id(webview_id) else {
-            log::debug!(
-                "composite: webview_id {:?} not found in window for node {:?}",
+                "composite: painting runtime viewer {:?} for node {:?} at rect {:?}",
                 webview_id,
-                node_key
+                node_key,
+                tile_rect
             );
-            continue;
-        };
-        if webview.size() != size {
-            log::debug!(
-                "composite: resizing webview from {:?} to {:?}",
-                webview.size(),
-                size
-            );
-            webview.resize(target_size);
-        }
+            if !CompositorAdapter::paint_offscreen_content_pass(&render_context, target_size, || {
+                webview.paint();
+            }) {
+                continue;
+            }
 
-        log::debug!(
-            "composite: painting webview {:?} for node {:?} at rect {:?}",
-            webview_id,
-            node_key,
-            tile_rect
-        );
-        #[cfg(feature = "diagnostics")]
-        let paint_started = Instant::now();
-        #[cfg(feature = "diagnostics")]
-        crate::shell::desktop::runtime::diagnostics::emit_event(
-            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: "tile_compositor.paint",
-                byte_len: (target_size.width as usize)
-                    .saturating_mul(target_size.height as usize)
-                    .saturating_mul(4),
-            },
-        );
-        if let Err(e) = render_context.make_current() {
-            warn!("Failed to make tile rendering context current: {e:?}");
-            continue;
-        }
-        log::debug!("composite: made context current");
-        render_context.prepare_for_rendering();
-        log::debug!("composite: prepared for rendering");
-        webview.paint();
-        log::debug!("composite: webview.paint() returned");
-        render_context.present();
-        log::debug!("composite: render_context.present() returned");
-        #[cfg(feature = "diagnostics")]
-        {
-            let elapsed = paint_started.elapsed().as_micros() as u64;
-            crate::shell::desktop::runtime::diagnostics::emit_event(
-                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
-                    channel_id: "tile_compositor.paint",
-                    latency_us: elapsed,
-                },
-            );
-            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-                "tile_compositor::paint_present",
-                elapsed,
-            );
-        }
-
-        if let Some(render_to_parent) = render_context.render_to_parent_callback() {
-            log::debug!(
-                "composite: adding render_to_parent callback for webview {:?}",
-                webview_id
-            );
-            let callback = Arc::new(CallbackFn::new(move |info, painter| {
-                #[cfg(feature = "diagnostics")]
-                let started = Instant::now();
-
-                let clip = info.viewport_in_pixels();
-                let rect_in_parent = Rect::new(
-                    Point2D::new(clip.left_px, clip.from_bottom_px),
-                    Size2D::new(clip.width_px, clip.height_px),
-                );
-                log::debug!("composite: render_to_parent callback executing");
-                CompositorAdapter::run_content_callback_with_guardrails(
-                    node_key,
-                    painter.gl(),
-                    || render_to_parent(painter.gl(), rect_in_parent),
-                );
-
-                #[cfg(feature = "diagnostics")]
-                crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-                    "tile_compositor::content_pass_callback",
-                    started.elapsed().as_micros() as u64,
-                );
-            }));
-
-            CompositorAdapter::register_content_pass(ctx, node_key, tile_rect, callback);
-            pass_tracker.record_content_pass(node_key);
-        } else {
-            log::debug!(
-                "composite: no render_to_parent callback for webview {:?}",
-                webview_id
-            );
-        }
-
-        if focused_webview_id == Some(webview_id) && focus_ring_alpha > 0.0 {
-            pass_tracker.record_overlay_pass(node_key);
-            let alpha = (focus_ring_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
-            CompositorAdapter::draw_overlay_stroke(
+            if CompositorAdapter::register_content_pass_from_render_context(
                 ctx,
                 node_key,
                 tile_rect,
-                4.0,
-                Stroke::new(
-                    2.0,
-                    egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
-                ),
-            );
-        } else if hovered_webview_id == Some(webview_id) {
-            pass_tracker.record_overlay_pass(node_key);
-            CompositorAdapter::draw_overlay_stroke(
-                ctx,
+                &render_context,
+            ) {
+                log::debug!(
+                    "composite: registered content pass callback for runtime viewer {:?}",
+                    webview_id
+                );
+                pass_tracker.record_content_pass(node_key);
+            } else {
+                log::debug!(
+                    "composite: no render_to_parent callback for runtime viewer {:?}",
+                    webview_id
+                );
+            }
+        }
+
+        if is_focused && focus_ring_alpha > 0.0 {
+            pending_overlay_passes.push(focus_overlay_for_mode(
+                render_mode,
                 node_key,
                 tile_rect,
-                4.0,
-                Stroke::new(
-                    1.5,
-                    egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180),
-                ),
-            );
+                focus_ring_alpha,
+            ));
+        } else if is_hovered {
+            pending_overlay_passes.push(hover_overlay_for_mode(render_mode, node_key, tile_rect));
         }
     }
+    CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);
+
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_span_duration(
         "tile_compositor::composite_active_node_pane_webviews",
@@ -305,4 +205,87 @@ fn render_mode_for_node_pane(tiles_tree: &Tree<TileKind>, node_key: NodeKey) -> 
             _ => None,
         })
         .unwrap_or(TileRenderMode::Placeholder)
+}
+
+fn focus_overlay_for_mode(
+    render_mode: TileRenderMode,
+    node_key: NodeKey,
+    tile_rect: egui::Rect,
+    focus_ring_alpha: f32,
+) -> OverlayStrokePass {
+    let alpha = (focus_ring_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let (rect, rounding, stroke, style) = match render_mode {
+        TileRenderMode::CompositedTexture => (
+            tile_rect,
+            4.0,
+            Stroke::new(
+                2.0,
+                egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
+            ),
+            OverlayAffordanceStyle::RectStroke,
+        ),
+        TileRenderMode::NativeOverlay => (
+            tile_rect,
+            0.0,
+            Stroke::new(
+                2.0,
+                egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
+            ),
+            OverlayAffordanceStyle::ChromeOnly,
+        ),
+        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => (
+            tile_rect,
+            4.0,
+            Stroke::new(
+                2.0,
+                egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
+            ),
+            OverlayAffordanceStyle::RectStroke,
+        ),
+    };
+
+    OverlayStrokePass {
+        node_key,
+        tile_rect: rect,
+        rounding,
+        stroke,
+        style,
+        render_mode,
+    }
+}
+
+fn hover_overlay_for_mode(
+    render_mode: TileRenderMode,
+    node_key: NodeKey,
+    tile_rect: egui::Rect,
+) -> OverlayStrokePass {
+    let (rect, rounding, stroke, style) = match render_mode {
+        TileRenderMode::CompositedTexture => (
+            tile_rect,
+            4.0,
+            Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180)),
+            OverlayAffordanceStyle::RectStroke,
+        ),
+        TileRenderMode::NativeOverlay => (
+            tile_rect,
+            0.0,
+            Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180)),
+            OverlayAffordanceStyle::ChromeOnly,
+        ),
+        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => (
+            tile_rect,
+            4.0,
+            Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180)),
+            OverlayAffordanceStyle::RectStroke,
+        ),
+    };
+
+    OverlayStrokePass {
+        node_key,
+        tile_rect: rect,
+        rounding,
+        stroke,
+        style,
+        render_mode,
+    }
 }

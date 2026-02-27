@@ -8,14 +8,14 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
-    CameraCommand, ChooseWorkspacePickerMode, GraphBrowserApp, GraphIntent, HistoryManagerTab,
-    KeyboardZoomRequest, LassoMouseBinding, MemoryPressureLevel, SearchDisplayMode,
-    SelectionUpdateMode, UnsavedWorkspacePromptAction, UnsavedWorkspacePromptRequest,
+    CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryManagerTab,
+    KeyboardZoomRequest, MemoryPressureLevel, SearchDisplayMode, SelectionUpdateMode,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest,
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::domain::layout::LayoutDomainRegistry;
-use crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT;
+use crate::registries::domain::layout::canvas::{CANVAS_PROFILE_DEFAULT, CanvasLassoBinding};
 use crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT;
 use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -115,6 +115,13 @@ fn canvas_style_settings(
     profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
 ) -> SettingsStyle {
     SettingsStyle::new().with_labels_always(profile.style.labels_always)
+}
+
+fn canvas_lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
+    match binding {
+        CanvasLassoBinding::RightDrag => "Right-Drag Lasso",
+        CanvasLassoBinding::ShiftLeftDrag => "Shift+Left-Drag Lasso",
+    }
 }
 
 /// Render graph content and return resolved interaction actions.
@@ -263,14 +270,10 @@ pub fn render_graph_in_ui_collect_actions(
             }
 
             let ctrl_pressed = input.modifiers.ctrl || input.modifiers.command;
-            let should_capture = if app.workspace.scroll_zoom_requires_ctrl {
-                ctrl_pressed
-            } else {
-                true
-            };
+            let should_capture = canvas_profile.should_capture_wheel_zoom(ctrl_pressed);
 
             if should_capture {
-                app.queue_pending_wheel_zoom_delta(scroll_delta);
+                app.queue_pending_wheel_zoom_delta(view_id, scroll_delta);
                 input.smooth_scroll_delta.y = 0.0;
                 input.raw_scroll_delta.y = 0.0;
             }
@@ -329,7 +332,13 @@ pub fn render_graph_in_ui_collect_actions(
             .and_then(|idx| state.get_key(idx))
     });
     let metadata_id = response.id.with("metadata");
-    let lasso = collect_lasso_action(ui, app, !radial_open, metadata_id);
+    let lasso = collect_lasso_action(
+        ui,
+        app,
+        !radial_open,
+        metadata_id,
+        canvas_profile.interaction.lasso_binding,
+    );
 
     if ui.input(|i| i.pointer.secondary_clicked())
         && !lasso.suppress_context_menu
@@ -367,7 +376,7 @@ pub fn render_graph_in_ui_collect_actions(
             .workspace_badge_hit_rect_screen(circle_center, circle_radius)
             .is_some_and(|rect| rect.contains(pointer))
         {
-            app.request_choose_workspace_picker(target);
+            app.request_choose_frame_picker(target);
         }
     }
     draw_highlighted_edge_overlay(ui, app, response.id);
@@ -379,7 +388,17 @@ pub fn render_graph_in_ui_collect_actions(
     // Do not let a sticky radial-menu flag disable graph camera controls.
     // The radial menu renderer runs later in the frame and should own its own clicks,
     // but pan/zoom/fit must remain available for stabilization.
-    let custom_zoom = handle_custom_navigation(ui, &response, metadata_id, app, true, view_id);
+    let custom_zoom = handle_custom_navigation(
+        ui,
+        &response,
+        metadata_id,
+        app,
+        true,
+        view_id,
+        canvas_profile,
+        radial_open,
+        right_button_down,
+    );
 
     if let Some(meta) = ui
         .ctx()
@@ -492,7 +511,7 @@ fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id
         })
         .unwrap_or_else(|| "unknown".to_string());
 
-    egui::Area::new(egui::Id::new("graph_edge_hover_tooltip"))
+    egui::Area::new(widget_id.with("edge_hover_tooltip"))
         .order(egui::Order::Tooltip)
         .fixed_pos(pointer + Vec2::new(14.0, 14.0))
         .show(ui.ctx(), |ui| {
@@ -588,7 +607,7 @@ fn draw_hovered_node_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id
         })
         .unwrap_or_else(|| ui.max_rect().center());
 
-    egui::Area::new(egui::Id::new("graph_node_hover_tooltip"))
+    egui::Area::new(widget_id.with("node_hover_tooltip"))
         .order(egui::Order::Tooltip)
         .fixed_pos(anchor + egui::vec2(14.0, 14.0))
         .interactable(false)
@@ -916,38 +935,53 @@ fn handle_custom_navigation(
     app: &mut GraphBrowserApp,
     enabled: bool,
     view_id: crate::app::GraphViewId,
+    canvas_profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
+    radial_open: bool,
+    right_button_down: bool,
 ) -> Option<f32> {
     if !enabled {
         return None;
     }
 
     // Apply pending durable camera command.
-    let camera_zoom = apply_pending_camera_command(ui, app, metadata_id, view_id);
+    let camera_zoom = apply_pending_camera_command(ui, app, metadata_id, view_id, canvas_profile);
 
-    // Apply keyboard zoom — only for the currently focused graph view so that
-    // pressing +/– targets the pane the user last hovered, not all panes.
-    let is_focused = app
-        .workspace
-        .focused_view
-        .is_none_or(|focused| focused == view_id || !app.workspace.views.contains_key(&focused));
-    let keyboard_zoom = if is_focused {
-        apply_pending_keyboard_zoom_request(ui, app, metadata_id, view_id)
-    } else {
-        None
-    };
+    // Apply keyboard zoom for this pane when a pending request explicitly targets it.
+    let keyboard_zoom = apply_pending_keyboard_zoom_request(
+        ui,
+        app,
+        metadata_id,
+        view_id,
+        canvas_profile.navigation.keyboard_zoom_step,
+    );
 
     // Apply pre-intercepted wheel zoom delta.
-    let wheel_zoom = apply_pending_wheel_zoom(ui, response, metadata_id, app, view_id);
+    let wheel_zoom = apply_pending_wheel_zoom(
+        ui,
+        response,
+        metadata_id,
+        app,
+        view_id,
+        &canvas_profile.navigation,
+    );
 
     let pointer_inside = response.contains_pointer() || response.dragged();
+    let (primary_down, shift_down) = ui.input(|i| (i.pointer.primary_down(), i.modifiers.shift));
+    let lasso_primary_drag_active =
+        matches!(canvas_profile.interaction.lasso_binding, CanvasLassoBinding::ShiftLeftDrag)
+            && shift_down;
 
     // Pan with Left Mouse Button on background
     // Note: We check if we are NOT hovering a node to allow node dragging.
     // app.workspace.hovered_graph_node is updated before this function in render_graph_in_ui_collect_actions.
-    if pointer_inside
-        && app.workspace.hovered_graph_node.is_none()
-        && ui.input(|i| i.pointer.primary_down())
-    {
+    if canvas_profile.allows_background_pan(
+        app.workspace.hovered_graph_node.is_none(),
+        pointer_inside,
+        primary_down,
+        lasso_primary_drag_active,
+        radial_open,
+        right_button_down,
+    ) {
         let delta = ui.input(|i| i.pointer.delta());
         if delta != Vec2::ZERO {
             ui.ctx().data_mut(|data| {
@@ -995,14 +1029,16 @@ fn apply_pending_keyboard_zoom_request(
     app: &mut GraphBrowserApp,
     metadata_id: egui::Id,
     view_id: crate::app::GraphViewId,
+    keyboard_zoom_step: f32,
 ) -> Option<f32> {
-    let Some(request) = app.take_pending_keyboard_zoom_request() else {
+    let Some(request) = app.take_pending_keyboard_zoom_request(view_id) else {
         return None;
     };
 
+    let step = keyboard_zoom_step.max(1.01);
     let factor = match request {
-        KeyboardZoomRequest::In => 1.1,
-        KeyboardZoomRequest::Out => 1.0 / 1.1,
+        KeyboardZoomRequest::In => step,
+        KeyboardZoomRequest::Out => 1.0 / step,
         KeyboardZoomRequest::Reset => 1.0,
     };
 
@@ -1051,15 +1087,12 @@ fn apply_pending_keyboard_zoom_request(
     updated_zoom
 }
 
-const CAMERA_FIT_PADDING: f32 = 1.1;
-const CAMERA_FIT_RELAX: f32 = 0.5;
-const CAMERA_FOCUS_SELECTION_PADDING: f32 = 1.2;
-
 fn apply_pending_camera_command(
     ui: &Ui,
     app: &mut GraphBrowserApp,
     metadata_id: egui::Id,
     view_id: crate::app::GraphViewId,
+    canvas_profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
 ) -> Option<f32> {
     let Some(command) = app.pending_camera_command() else {
         return None;
@@ -1127,9 +1160,9 @@ fn apply_pending_camera_command(
             let width = (max_x - min_x).abs().max(1.0);
             let height = (max_y - min_y).abs().max(1.0);
             let padding = if matches!(command, CameraCommand::FitSelection) {
-                CAMERA_FOCUS_SELECTION_PADDING
+                canvas_profile.navigation.camera_focus_selection_padding
             } else {
-                CAMERA_FIT_PADDING
+                canvas_profile.navigation.camera_fit_padding
             };
             let padded_width = width * padding;
             let padded_height = height * padding;
@@ -1137,7 +1170,7 @@ fn apply_pending_camera_command(
             let raw_target = if matches!(command, CameraCommand::FitSelection) {
                 fit_zoom
             } else {
-                fit_zoom * CAMERA_FIT_RELAX
+                fit_zoom * canvas_profile.navigation.camera_fit_relax
             };
             let target_zoom = raw_target.clamp(zoom_min, zoom_max);
 
@@ -1174,8 +1207,9 @@ fn apply_pending_wheel_zoom(
     metadata_id: egui::Id,
     app: &mut GraphBrowserApp,
     view_id: crate::app::GraphViewId,
+    navigation_policy: &crate::registries::domain::layout::canvas::CanvasNavigationPolicy,
 ) -> Option<f32> {
-    let scroll_delta = app.pending_wheel_zoom_delta();
+    let scroll_delta = app.pending_wheel_zoom_delta(view_id);
     if scroll_delta.abs() <= f32::EPSILON {
         return None;
     }
@@ -1193,17 +1227,17 @@ fn apply_pending_wheel_zoom(
         .map(|v| v.camera.zoom_max)
         .unwrap_or(app.workspace.camera.zoom_max);
 
-    let velocity_id = egui::Id::new("graph_scroll_zoom_velocity");
+    let velocity_id = metadata_id.with("scroll_zoom_velocity");
     let mut velocity = ui
         .ctx()
         .data_mut(|d| d.get_persisted::<f32>(velocity_id))
         .unwrap_or(0.0);
 
-    let impulse = app.workspace.scroll_zoom_impulse_scale * (scroll_delta / 60.0).clamp(-1.0, 1.0);
+    let impulse = navigation_policy.wheel_zoom_impulse_scale * (scroll_delta / 60.0).clamp(-1.0, 1.0);
     velocity += impulse;
 
     let mut updated_zoom = None;
-    if velocity.abs() >= app.workspace.scroll_zoom_inertia_min_abs {
+    if velocity.abs() >= navigation_policy.wheel_zoom_inertia_min_abs {
         let factor = 1.0 + velocity;
         if factor > 0.0 {
             let graph_rect = response.rect;
@@ -1237,8 +1271,8 @@ fn apply_pending_wheel_zoom(
         app.clear_pending_wheel_zoom_delta();
     }
 
-    velocity *= app.workspace.scroll_zoom_inertia_damping;
-    if velocity.abs() < app.workspace.scroll_zoom_inertia_min_abs {
+    velocity *= navigation_policy.wheel_zoom_inertia_damping;
+    if velocity.abs() < navigation_policy.wheel_zoom_inertia_min_abs {
         velocity = 0.0;
     }
     ui.ctx()
@@ -1311,9 +1345,10 @@ fn collect_lasso_action(
     app: &GraphBrowserApp,
     enabled: bool,
     metadata_id: egui::Id,
+    lasso_binding: CanvasLassoBinding,
 ) -> LassoGestureResult {
-    let start_id = egui::Id::new("graph_lasso_start_screen");
-    let moved_id = egui::Id::new("graph_lasso_moved");
+    let start_id = metadata_id.with("lasso_start_screen");
+    let moved_id = metadata_id.with("lasso_moved");
     let threshold_px = 6.0_f32;
     if !enabled {
         ui.ctx().data_mut(|d| {
@@ -1328,13 +1363,13 @@ fn collect_lasso_action(
 
     let graph_rect = ui.max_rect();
     let (pointer_pos, pressed, down, released, ctrl, shift, alt) = ui.input(|i| {
-        let (pressed, down, released) = match app.workspace.lasso_mouse_binding {
-            LassoMouseBinding::RightDrag => (
+        let (pressed, down, released) = match lasso_binding {
+            CanvasLassoBinding::RightDrag => (
                 i.pointer.secondary_pressed(),
                 i.pointer.secondary_down(),
                 i.pointer.secondary_released(),
             ),
-            LassoMouseBinding::ShiftLeftDrag => (
+            CanvasLassoBinding::ShiftLeftDrag => (
                 i.pointer.primary_pressed() && i.modifiers.shift,
                 i.pointer.primary_down() && i.modifiers.shift,
                 i.pointer.primary_released(),
@@ -1411,11 +1446,7 @@ fn collect_lasso_action(
     }
 
     let rect = egui::Rect::from_two_pos(a, b);
-    let add_mode = ctrl
-        || (matches!(
-            app.workspace.lasso_mouse_binding,
-            LassoMouseBinding::RightDrag
-        ) && shift);
+    let add_mode = ctrl || (matches!(lasso_binding, CanvasLassoBinding::RightDrag) && shift);
     let mode = if alt {
         SelectionUpdateMode::Toggle
     } else if add_mode {
@@ -1430,10 +1461,7 @@ fn collect_lasso_action(
     let Some(state) = app.workspace.egui_state.as_ref() else {
         return LassoGestureResult {
             action: None,
-            suppress_context_menu: matches!(
-                app.workspace.lasso_mouse_binding,
-                LassoMouseBinding::RightDrag
-            ),
+            suppress_context_menu: matches!(lasso_binding, CanvasLassoBinding::RightDrag),
         };
     };
     // Build an R*-tree index in canvas (world) space and query with the
@@ -1452,10 +1480,7 @@ fn collect_lasso_action(
 
     LassoGestureResult {
         action: Some(GraphAction::LassoSelect { keys, mode }),
-        suppress_context_menu: matches!(
-            app.workspace.lasso_mouse_binding,
-            LassoMouseBinding::RightDrag
-        ) && moved,
+        suppress_context_menu: matches!(lasso_binding, CanvasLassoBinding::RightDrag) && moved,
     }
 }
 
@@ -1553,9 +1578,9 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
     for action in actions {
         match action {
             GraphAction::FocusNode(key) => {
-                intents.push(GraphIntent::OpenNodeWorkspaceRouted {
+                intents.push(GraphIntent::OpenNodeFrameRouted {
                     key,
-                    prefer_workspace: None,
+                    prefer_frame: None,
                 });
             }
             GraphAction::FocusNodeSplit(key) => {
@@ -1821,10 +1846,14 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     );
 
     // Draw controls hint
-    let lasso_hint = match app.workspace.lasso_mouse_binding {
-        LassoMouseBinding::RightDrag => "Right-Drag Lasso",
-        LassoMouseBinding::ShiftLeftDrag => "Shift+Left-Drag Lasso",
-    };
+    let layout_domain = LayoutDomainRegistry::default();
+    let layout_profile = layout_domain.resolve_profile(
+        CANVAS_PROFILE_DEFAULT,
+        WORKBENCH_SURFACE_DEFAULT,
+        VIEWER_SURFACE_DEFAULT,
+    );
+    let lasso_hint =
+        canvas_lasso_binding_label(layout_profile.canvas.profile.interaction.lasso_binding);
     let command_hint = match app.workspace.command_palette_shortcut {
         crate::app::CommandPaletteShortcut::F2 => "F2 Commands",
         crate::app::CommandPaletteShortcut::CtrlK => "Ctrl+K Commands",
@@ -1988,6 +2017,13 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
         return;
     }
 
+    let layout_domain = LayoutDomainRegistry::default();
+    let layout_profile = layout_domain.resolve_profile(
+        CANVAS_PROFILE_DEFAULT,
+        WORKBENCH_SURFACE_DEFAULT,
+        VIEWER_SURFACE_DEFAULT,
+    );
+
     let mut open = app.workspace.show_help_panel;
     Window::new("Keyboard Shortcuts")
         .open(&mut open)
@@ -1998,17 +2034,18 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                 .num_columns(2)
                 .spacing([20.0, 6.0])
                 .show(ui, |ui| {
-                    let lasso_base = match app.workspace.lasso_mouse_binding {
-                        LassoMouseBinding::RightDrag => "Right+Drag",
-                        LassoMouseBinding::ShiftLeftDrag => "Shift+LeftDrag",
+                    let lasso_binding = layout_profile.canvas.profile.interaction.lasso_binding;
+                    let lasso_base = match lasso_binding {
+                        CanvasLassoBinding::RightDrag => "Right+Drag",
+                        CanvasLassoBinding::ShiftLeftDrag => "Shift+LeftDrag",
                     };
-                    let lasso_add = match app.workspace.lasso_mouse_binding {
-                        LassoMouseBinding::RightDrag => "Right+Shift/Ctrl+Drag",
-                        LassoMouseBinding::ShiftLeftDrag => "Shift+Ctrl+LeftDrag",
+                    let lasso_add = match lasso_binding {
+                        CanvasLassoBinding::RightDrag => "Right+Shift/Ctrl+Drag",
+                        CanvasLassoBinding::ShiftLeftDrag => "Shift+Ctrl+LeftDrag",
                     };
-                    let lasso_toggle = match app.workspace.lasso_mouse_binding {
-                        LassoMouseBinding::RightDrag => "Right+Alt+Drag",
-                        LassoMouseBinding::ShiftLeftDrag => "Shift+Alt+LeftDrag",
+                    let lasso_toggle = match lasso_binding {
+                        CanvasLassoBinding::RightDrag => "Right+Alt+Drag",
+                        CanvasLassoBinding::ShiftLeftDrag => "Shift+Alt+LeftDrag",
                     };
                     let command_palette_key = match app.workspace.command_palette_shortcut {
                         crate::app::CommandPaletteShortcut::F2 => "F2",
@@ -2312,7 +2349,7 @@ fn is_user_undoable_intent(intent: &GraphIntent) -> bool {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ContextPinScope {
-    Workspace,
+    Frame,
     Pane,
 }
 
@@ -2320,30 +2357,30 @@ fn context_pin_scope_for(focused_pane_node: Option<NodeKey>) -> ContextPinScope 
     if focused_pane_node.is_some() {
         ContextPinScope::Pane
     } else {
-        ContextPinScope::Workspace
+        ContextPinScope::Frame
     }
 }
 
-fn context_pin_workspace_name(scope: ContextPinScope) -> &'static str {
+fn context_pin_frame_name(scope: ContextPinScope) -> &'static str {
     match scope {
-        ContextPinScope::Workspace => GraphBrowserApp::WORKSPACE_PIN_WORKSPACE_NAME,
+        ContextPinScope::Frame => GraphBrowserApp::WORKSPACE_PIN_WORKSPACE_NAME,
         ContextPinScope::Pane => GraphBrowserApp::WORKSPACE_PIN_PANE_NAME,
     }
 }
 
-fn saved_workspace_runtime_layout_json(
+fn saved_frame_runtime_layout_json(
     app: &GraphBrowserApp,
-    workspace_name: &str,
+    frame_name: &str,
 ) -> Option<String> {
-    let bundle = persistence_ops::load_named_workspace_bundle(app, workspace_name).ok()?;
+    let bundle = persistence_ops::load_named_frame_bundle(app, frame_name).ok()?;
     let (tree, _) =
-        persistence_ops::restore_runtime_tree_from_workspace_bundle(app, &bundle).ok()?;
+        persistence_ops::restore_runtime_tree_from_frame_bundle(app, &bundle).ok()?;
     serde_json::to_string(&tree).ok()
 }
 
 fn context_pin_label(scope: ContextPinScope) -> &'static str {
     match scope {
-        ContextPinScope::Workspace => "Pin Workspace",
+        ContextPinScope::Frame => "Pin Frame",
         ContextPinScope::Pane => "Pin Pane",
     }
 }
@@ -2415,7 +2452,7 @@ pub fn render_persistence_panel(
                 }
             });
             ui.separator();
-            ui.label("Workspaces");
+            ui.label("Frames");
             ui.horizontal(|ui| {
                 ui.label("Autosave every (sec):");
                 let autosave_interval_id =
@@ -2450,7 +2487,7 @@ pub fn render_persistence_panel(
             if app.should_prompt_unsaved_workspace_save() {
                 ui.colored_label(
                     Color32::from_rgb(255, 180, 70),
-                    "Current workspace has unsaved graph changes; save before switching.",
+                    "Current frame has unsaved graph changes; save before switching.",
                 );
             }
             let (active_count, warm_count, cold_count) = app.lifecycle_counts();
@@ -2485,9 +2522,9 @@ pub fn render_persistence_panel(
                 ),
             );
             let pin_scope = context_pin_scope_for(focused_pane_node);
-            let pin_workspace_name = context_pin_workspace_name(pin_scope);
+            let pin_frame_name = context_pin_frame_name(pin_scope);
             let pin_active = current_layout_json.is_some_and(|current| {
-                saved_workspace_runtime_layout_json(app, pin_workspace_name)
+                saved_frame_runtime_layout_json(app, pin_frame_name)
                     .as_deref()
                     .is_some_and(|saved_runtime| saved_runtime == current)
             });
@@ -2503,7 +2540,7 @@ pub fn render_persistence_panel(
                     .clicked()
                     && current_layout_json.is_some()
                 {
-                    app.request_save_workspace_snapshot_named(pin_workspace_name.to_string());
+                    app.request_save_frame_snapshot_named(pin_frame_name.to_string());
                 }
                 if ui
                     .add_enabled(has_any_saved_pin, egui::Button::new("Load Pin..."))
@@ -2512,13 +2549,13 @@ pub fn render_persistence_panel(
                     show_pin_load_picker = true;
                 }
             });
-            if ui.button("Prune Session Workspace").clicked() {
+            if ui.button("Prune Session Frame").clicked() {
                 let _ = app.clear_session_workspace_layout();
             }
             ui.separator();
             ui.label("Retention");
-            if ui.button("Prune Empty Named Workspaces").clicked() {
-                app.request_prune_empty_workspaces();
+            if ui.button("Prune Empty Named Frames").clicked() {
+                app.request_prune_empty_frames();
             }
             ui.horizontal(|ui| {
                 let keep_latest_id = ui.make_persistent_id("workspace_keep_latest_named_input");
@@ -2534,72 +2571,72 @@ pub fn render_persistence_panel(
                 if ui.button("Keep Latest N Named").clicked()
                     && let Ok(keep) = keep_latest.trim().parse::<usize>()
                 {
-                    app.request_keep_latest_named_workspaces(keep);
+                    app.request_keep_latest_named_frames(keep);
                 }
             });
-            ui.small("Reserved autosave workspaces are excluded from batch retention.");
+            ui.small("Reserved autosave frames are excluded from batch retention.");
             ui.separator();
-            let workspace_name_id = ui.make_persistent_id("workspace_name_input");
-            let mut workspace_name = ui
-                .data_mut(|d| d.get_persisted::<String>(workspace_name_id))
+            let frame_name_id = ui.make_persistent_id("frame_name_input");
+            let mut frame_name = ui
+                .data_mut(|d| d.get_persisted::<String>(frame_name_id))
                 .unwrap_or_default();
-            let workspace_name_changed = ui
+            let frame_name_changed = ui
                 .add(
-                    egui::TextEdit::singleline(&mut workspace_name)
-                        .hint_text("workspace name (e.g. research-1)"),
+                    egui::TextEdit::singleline(&mut frame_name)
+                        .hint_text("frame name (e.g. research-1)"),
                 )
                 .changed();
-            if workspace_name_changed {
-                ui.data_mut(|d| d.insert_persisted(workspace_name_id, workspace_name.clone()));
+            if frame_name_changed {
+                ui.data_mut(|d| d.insert_persisted(frame_name_id, frame_name.clone()));
             }
-            let workspace_name = workspace_name.trim().to_string();
+            let frame_name = frame_name.trim().to_string();
             ui.horizontal(|ui| {
                 if ui.button("Save Auto").clicked() {
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    app.request_save_workspace_snapshot_named(format!("workspace:auto-{now}"));
+                    app.request_save_frame_snapshot_named(format!("workspace:auto-{now}"));
                 }
                 if ui
-                    .add_enabled(!workspace_name.is_empty(), egui::Button::new("Save Named"))
+                    .add_enabled(!frame_name.is_empty(), egui::Button::new("Save Named"))
                     .clicked()
                 {
-                    app.request_save_workspace_snapshot_named(workspace_name.clone());
+                    app.request_save_frame_snapshot_named(frame_name.clone());
                 }
                 if ui
                     .add_enabled(
-                        !workspace_name.is_empty(),
+                        !frame_name.is_empty(),
                         egui::Button::new("Restore Named"),
                     )
                     .clicked()
                 {
-                    app.request_restore_workspace_snapshot_named(workspace_name.clone());
+                    app.request_restore_frame_snapshot_named(frame_name.clone());
                 }
                 if ui
                     .add_enabled(
-                        !workspace_name.is_empty(),
+                        !frame_name.is_empty(),
                         egui::Button::new("Delete Named"),
                     )
                     .clicked()
                 {
-                    if !GraphBrowserApp::is_reserved_workspace_layout_name(&workspace_name) {
-                        let _ = app.delete_workspace_layout(&workspace_name);
+                    if !GraphBrowserApp::is_reserved_workspace_layout_name(&frame_name) {
+                        let _ = app.delete_workspace_layout(&frame_name);
                     }
                 }
             });
-            let mut workspace_names = app.list_workspace_layout_names();
-            workspace_names.sort();
-            workspace_names.retain(|name| {
+            let mut frame_names = app.list_workspace_layout_names();
+            frame_names.sort();
+            frame_names.retain(|name| {
                 name != GraphBrowserApp::WORKSPACE_PIN_WORKSPACE_NAME
                     && name != GraphBrowserApp::WORKSPACE_PIN_PANE_NAME
                     && name != GraphBrowserApp::SETTINGS_TOAST_ANCHOR_NAME
             });
-            if workspace_names.is_empty() {
-                ui.small("No workspaces saved.");
+            if frame_names.is_empty() {
+                ui.small("No frames saved.");
             } else {
                 ui.small("Saved:");
-                for name in workspace_names {
+                for name in frame_names {
                     let is_reserved = GraphBrowserApp::is_reserved_workspace_layout_name(&name);
                     let label = if name == GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME {
                         "session-latest (autosave)"
@@ -2616,10 +2653,10 @@ pub fn render_persistence_panel(
                     };
                     ui.horizontal(|ui| {
                         if ui.button(label).clicked() {
-                            app.request_restore_workspace_snapshot_named(name.clone());
+                            app.request_restore_frame_snapshot_named(name.clone());
                         }
                         if ui.small_button("Load").clicked() {
-                            app.request_restore_workspace_snapshot_named(name.clone());
+                            app.request_restore_frame_snapshot_named(name.clone());
                         }
                         if ui
                             .add_enabled(
@@ -2629,9 +2666,9 @@ pub fn render_persistence_panel(
                             .clicked()
                             && let Some(key) = app.get_single_selected_node()
                         {
-                            app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+                            app.apply_intents([GraphIntent::OpenNodeFrameRouted {
                                 key,
-                                prefer_workspace: Some(name.clone()),
+                                prefer_frame: Some(name.clone()),
                             }]);
                         }
                         if ui
@@ -2729,13 +2766,13 @@ pub fn render_persistence_panel(
                     (GraphBrowserApp::WORKSPACE_PIN_PANE_NAME, "Pane Pin"),
                 ];
                 let mut any = false;
-                for (workspace_name, label) in options {
-                    let Some(_saved_layout) = app.load_workspace_layout_json(workspace_name) else {
+                for (frame_name, label) in options {
+                    let Some(_saved_layout) = app.load_workspace_layout_json(frame_name) else {
                         continue;
                     };
                     any = true;
                     let active = current_layout_json.is_some_and(|current| {
-                        saved_workspace_runtime_layout_json(app, workspace_name)
+                        saved_frame_runtime_layout_json(app, frame_name)
                             .as_deref()
                             .is_some_and(|saved_runtime| saved_runtime == current)
                     });
@@ -2746,8 +2783,8 @@ pub fn render_persistence_panel(
                             label.to_string()
                         };
                         if ui.button(text).clicked() {
-                            app.request_restore_workspace_snapshot_named(
-                                workspace_name.to_string(),
+                            app.request_restore_frame_snapshot_named(
+                                frame_name.to_string(),
                             );
                             close_picker = true;
                         }
@@ -3083,22 +3120,22 @@ pub fn render_manage_access_dialog(ctx: &egui::Context, app: &mut GraphBrowserAp
     app.workspace.show_manage_access_dialog = open;
 }
 
-pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) {
-    let Some(request) = app.choose_workspace_picker_request() else {
+pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    let Some(request) = app.choose_frame_picker_request() else {
         return;
     };
     let target = request.node;
     if app.workspace.graph.get_node(target).is_none() {
-        app.clear_choose_workspace_picker();
+        app.clear_choose_frame_picker();
         return;
     }
-    let mut selected_workspace: Option<String> = None;
+    let mut selected_frame: Option<String> = None;
     let mut close = false;
     let mut memberships = match request.mode {
-        ChooseWorkspacePickerMode::OpenNodeInWorkspace => {
-            app.sorted_workspaces_for_node_key(target)
+        ChooseFramePickerMode::OpenNodeInFrame => {
+            app.sorted_frames_for_node_key(target)
         }
-        ChooseWorkspacePickerMode::AddNodeToWorkspace => {
+        ChooseFramePickerMode::AddNodeToFrame => {
             let mut all = app
                 .list_workspace_layout_names()
                 .into_iter()
@@ -3107,7 +3144,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
             all.sort();
             all
         }
-        ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
+        ChooseFramePickerMode::AddConnectedSelectionToFrame => {
             let mut all = app
                 .list_workspace_layout_names()
                 .into_iter()
@@ -3116,7 +3153,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
             all.sort();
             all
         }
-        ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
+        ChooseFramePickerMode::AddExactSelectionToFrame => {
             let mut all = app
                 .list_workspace_layout_names()
                 .into_iter()
@@ -3130,8 +3167,8 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
         .workspace
         .graph
         .get_node(target)
-        .map(|node| format!("Choose Workspace: {}", node.title))
-        .unwrap_or_else(|| "Choose Workspace".to_string());
+        .map(|node| format!("Choose Frame: {}", node.title))
+        .unwrap_or_else(|| "Choose Frame".to_string());
     Window::new(title)
         .collapsible(false)
         .resizable(false)
@@ -3140,36 +3177,34 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
         .show(ctx, |ui| {
             if memberships.is_empty() {
                 let msg = match request.mode {
-                    ChooseWorkspacePickerMode::OpenNodeInWorkspace => {
-                        "No workspace memberships for this node."
+                    ChooseFramePickerMode::OpenNodeInFrame => "No frame memberships for this node.",
+                    ChooseFramePickerMode::AddNodeToFrame => {
+                        "No named frames available. Save one first."
                     }
-                    ChooseWorkspacePickerMode::AddNodeToWorkspace => {
-                        "No named workspaces available. Save one first."
+                    ChooseFramePickerMode::AddConnectedSelectionToFrame => {
+                        "No named frames available. Save one first."
                     }
-                    ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
-                        "No named workspaces available. Save one first."
-                    }
-                    ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
-                        "No named workspaces available. Save one first."
+                    ChooseFramePickerMode::AddExactSelectionToFrame => {
+                        "No named frames available. Save one first."
                     }
                 };
                 ui.small(msg);
             } else {
                 memberships.dedup();
                 let header = match request.mode {
-                    ChooseWorkspacePickerMode::OpenNodeInWorkspace => "Open in workspace:",
-                    ChooseWorkspacePickerMode::AddNodeToWorkspace => "Add node to workspace:",
-                    ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
-                        "Add connected nodes to workspace:"
+                    ChooseFramePickerMode::OpenNodeInFrame => "Open in frame:",
+                    ChooseFramePickerMode::AddNodeToFrame => "Add node to frame:",
+                    ChooseFramePickerMode::AddConnectedSelectionToFrame => {
+                        "Add connected nodes to frame:"
                     }
-                    ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
-                        "Add selected nodes to workspace:"
+                    ChooseFramePickerMode::AddExactSelectionToFrame => {
+                        "Add selected nodes to frame:"
                     }
                 };
                 ui.small(header);
                 for name in &memberships {
                     if ui.button(name).clicked() {
-                        selected_workspace = Some(name.clone());
+                        selected_frame = Some(name.clone());
                         close = true;
                     }
                 }
@@ -3184,18 +3219,18 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                 }
             });
         });
-    if let Some(name) = selected_workspace {
+    if let Some(name) = selected_frame {
         match request.mode {
-            ChooseWorkspacePickerMode::OpenNodeInWorkspace => {
-                app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+            ChooseFramePickerMode::OpenNodeInFrame => {
+                app.apply_intents([GraphIntent::OpenNodeFrameRouted {
                     key: target,
-                    prefer_workspace: Some(name),
+                    prefer_frame: Some(name),
                 }]);
             }
-            ChooseWorkspacePickerMode::AddNodeToWorkspace => {
-                app.request_add_node_to_workspace(target, name);
+            ChooseFramePickerMode::AddNodeToFrame => {
+                app.request_add_node_to_frame(target, name);
             }
-            ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
+            ChooseFramePickerMode::AddConnectedSelectionToFrame => {
                 let mut seed_nodes: Vec<NodeKey> = if app.workspace.selected_nodes.is_empty() {
                     vec![target]
                 } else {
@@ -3204,42 +3239,42 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                 if !seed_nodes.contains(&target) {
                     seed_nodes.push(target);
                 }
-                app.request_add_connected_to_workspace(seed_nodes, name);
+                app.request_add_connected_to_frame(seed_nodes, name);
             }
-            ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
+            ChooseFramePickerMode::AddExactSelectionToFrame => {
                 let mut nodes = app
-                    .choose_workspace_picker_exact_nodes()
+                    .choose_frame_picker_exact_nodes()
                     .map(|keys| keys.to_vec())
                     .unwrap_or_else(|| vec![target]);
                 nodes.retain(|key| app.workspace.graph.get_node(*key).is_some());
                 nodes.sort_by_key(|key| key.index());
                 nodes.dedup();
                 if !nodes.is_empty() {
-                    app.request_add_exact_nodes_to_workspace(nodes, name);
+                    app.request_add_exact_nodes_to_frame(nodes, name);
                 }
             }
         }
     }
     if close {
-        app.clear_choose_workspace_picker();
+        app.clear_choose_frame_picker();
     }
 }
 
-pub fn render_unsaved_workspace_prompt(ctx: &egui::Context, app: &mut GraphBrowserApp) {
-    let Some(request) = app.unsaved_workspace_prompt_request().cloned() else {
+pub fn render_unsaved_frame_prompt(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    let Some(request) = app.unsaved_frame_prompt_request().cloned() else {
         return;
     };
-    let mut action: Option<UnsavedWorkspacePromptAction> = None;
-    Window::new("Unsaved Workspace Changes")
+    let mut action: Option<UnsavedFramePromptAction> = None;
+    Window::new("Unsaved Frame Changes")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .default_width(380.0)
         .show(ctx, |ui| {
             match &request {
-                UnsavedWorkspacePromptRequest::WorkspaceSwitch { name, .. } => {
+                UnsavedFramePromptRequest::FrameSwitch { name, .. } => {
                     ui.label(format!(
-                        "This workspace has unsaved graph changes.\nSwitch to '{name}' without saving?"
+                        "This frame has unsaved graph changes.\nSwitch to '{name}' without saving?"
                     ));
                 },
             }
@@ -3249,16 +3284,24 @@ pub fn render_unsaved_workspace_prompt(ctx: &egui::Context, app: &mut GraphBrows
             }
             ui.horizontal(|ui| {
                 if ui.button("Proceed Without Saving").clicked() {
-                    action = Some(UnsavedWorkspacePromptAction::ProceedWithoutSaving);
+                    action = Some(UnsavedFramePromptAction::ProceedWithoutSaving);
                 }
                 if ui.button("Cancel").clicked() {
-                    action = Some(UnsavedWorkspacePromptAction::Cancel);
+                    action = Some(UnsavedFramePromptAction::Cancel);
                 }
             });
         });
     if let Some(action) = action {
-        app.set_unsaved_workspace_prompt_action(action);
+        app.set_unsaved_frame_prompt_action(action);
     }
+}
+
+pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    render_choose_frame_picker(ctx, app);
+}
+
+pub fn render_unsaved_workspace_prompt(ctx: &egui::Context, app: &mut GraphBrowserApp) {
+    render_unsaved_frame_prompt(ctx, app);
 }
 
 /// Resolve pair edge command context using precedence:

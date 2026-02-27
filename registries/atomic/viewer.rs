@@ -146,7 +146,7 @@ impl ViewerRegistry {
 
         // 2. Address-kind heuristic fallback.
         match kind {
-            // HTTP/HTTPS: use the registry's configured default (normally viewer:servo/webview).
+            // HTTP/HTTPS: use the registry's configured default (normally viewer:webview).
             crate::graph::AddressKind::Http => self.fallback_viewer_id,
             // Local files and custom schemes: plaintext is the safe fallback.
             crate::graph::AddressKind::File | crate::graph::AddressKind::Custom => {

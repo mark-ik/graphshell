@@ -147,11 +147,11 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
             node_key: None,
         },
         HierarchySample {
-            line: format!("  * Tile WebView {:?}", left),
+            line: format!("  * Tile Node Viewer {:?}", left),
             node_key: Some(left),
         },
         HierarchySample {
-            line: format!("  * Tile WebView {:?}", right),
+            line: format!("  * Tile Node Viewer {:?}", right),
             node_key: Some(right),
         },
     ];
@@ -232,11 +232,11 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
             node_key: None,
         },
         HierarchySample {
-            line: format!("  * Tile WebView {:?}", left),
+            line: format!("  * Tile Node Viewer {:?}", left),
             node_key: Some(left),
         },
         HierarchySample {
-            line: format!("  * Tile WebView {:?}", right),
+            line: format!("  * Tile Node Viewer {:?}", right),
             node_key: Some(right),
         },
     ];

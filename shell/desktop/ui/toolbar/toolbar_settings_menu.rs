@@ -1,11 +1,10 @@
 use crate::app::{
-    CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut, LassoMouseBinding,
+    CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, RadialMenuShortcut, ToastAnchorPreference,
 };
 use crate::shell::desktop::host::running_app_state::{RunningAppState, UserInterfaceCommand};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-use egui::Slider;
 
 pub(super) fn render_settings_menu(
     ui: &mut egui::Ui,
@@ -85,76 +84,7 @@ pub(super) fn render_settings_menu(
         }
     }
     ui.separator();
-    ui.label("Graph Zoom");
-    let mut zoom_impulse = graph_app.workspace.scroll_zoom_impulse_scale;
-    if ui
-        .add(
-            Slider::new(
-                &mut zoom_impulse,
-                GraphBrowserApp::MIN_SCROLL_ZOOM_IMPULSE_SCALE
-                    ..=GraphBrowserApp::MAX_SCROLL_ZOOM_IMPULSE_SCALE,
-            )
-            .text("Inertia Impulse"),
-        )
-        .changed()
-    {
-        graph_app.set_scroll_zoom_impulse_scale(zoom_impulse);
-    }
-    let mut zoom_damping = graph_app.workspace.scroll_zoom_inertia_damping;
-    if ui
-        .add(
-            Slider::new(
-                &mut zoom_damping,
-                GraphBrowserApp::MIN_SCROLL_ZOOM_INERTIA_DAMPING
-                    ..=GraphBrowserApp::MAX_SCROLL_ZOOM_INERTIA_DAMPING,
-            )
-            .text("Inertia Damping"),
-        )
-        .changed()
-    {
-        graph_app.set_scroll_zoom_inertia_damping(zoom_damping);
-    }
-    let mut zoom_min_abs = graph_app.workspace.scroll_zoom_inertia_min_abs;
-    if ui
-        .add(
-            Slider::new(
-                &mut zoom_min_abs,
-                GraphBrowserApp::MIN_SCROLL_ZOOM_INERTIA_MIN_ABS
-                    ..=GraphBrowserApp::MAX_SCROLL_ZOOM_INERTIA_MIN_ABS,
-            )
-            .text("Inertia Stop Threshold"),
-        )
-        .changed()
-    {
-        graph_app.set_scroll_zoom_inertia_min_abs(zoom_min_abs);
-    }
-    let mut zoom_requires_ctrl = graph_app.workspace.scroll_zoom_requires_ctrl;
-    if ui
-        .checkbox(&mut zoom_requires_ctrl, "Scroll Zoom Requires Ctrl")
-        .changed()
-    {
-        graph_app.set_scroll_zoom_requires_ctrl(zoom_requires_ctrl);
-    }
-    ui.separator();
     ui.label("Input");
-    ui.label(format!(
-        "Lasso: {}",
-        super::lasso_binding_label(graph_app.workspace.lasso_mouse_binding)
-    ));
-    for binding in [
-        LassoMouseBinding::RightDrag,
-        LassoMouseBinding::ShiftLeftDrag,
-    ] {
-        if ui
-            .selectable_label(
-                graph_app.workspace.lasso_mouse_binding == binding,
-                super::lasso_binding_label(binding),
-            )
-            .clicked()
-        {
-            graph_app.set_lasso_mouse_binding(binding);
-        }
-    }
     ui.label(format!(
         "Command Palette: {}",
         super::command_palette_shortcut_label(graph_app.workspace.command_palette_shortcut)

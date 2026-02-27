@@ -9,7 +9,7 @@
 
 ## Features
 
-### Graph UI: spatial representation of a browsing session.
+### Graph UI: spatial representation of a browsing session
 
 - petgraph + egui_graphs: force directed node graph UI
 - Organize web resources beyond webpages: documents, notes, files, and applets coexist in graph as nodes!
@@ -27,11 +27,20 @@
 
 ### Workbench
 
-- egui_tiles provides tiling view manager called Workbench.
-- Workbench provides persistent, instanced workspaces, with reflowable tabs, panes, and a rendering context for webviews/content
-- Clipping: DOM inspection & element extraction from workspace into graph
-- Split view: arbitrary viewport split between graph pane and workspace panes
-- Graph semantics respected by workbench: auto-grouping, node membership to multiple workspaces, node lifecycle tied to tab ifecycle
+- App scope is global for a running Graphshell session; each Workbench is a global container bound to one complete graph (`GraphId`).
+- Global chrome is two bars: an Omnibar (navigation/search/commands) and a Workbar (frame switching/management).
+- Frames are local containers of tiles inside the Workbench; a frame preserves tile arrangement (docked/split/tabbed) and last active tile context.
+- Split view: arbitrary viewport split between graph panes and content/tool panes inside frames.
+- Clipping: DOM inspection & element extraction from panes/frames into the graph.
+- Graph semantics respected by the workbench: auto-grouping, node membership metadata, and lifecycle tied to visible tile/pane state.
+
+### Graph Scope Model
+
+- Multiple views of a scoped graph (region/filter scopes) within one Workbench graph.
+- Within one Workbench (`GraphId`), different scoped panes are non-interacting by default: scope-local camera, selection, and interaction state stay isolated per pane/frame.
+- A new complete graph means a new Workbench (`GraphId` pair), not a second full graph inside the same Workbench.
+- Workbench switching (inter-workbench scope) selects between complete graphs.
+- Frames remain local containers inside one Workbench and do not cross workbench boundaries.
 
 ### Sessions
 
@@ -54,7 +63,7 @@
 ### P2P Co-op Browsing
 
 - - Make browsing a collaborative activity, where the changes one person makes to a shared graph are synchronized with the rest of the participants.
-- - Everyone uses their own workbench: interacting with tabs in a workspace is local, not shared (except for what you surface) and the lobby is the graph.
+- - Everyone uses their own workbench: interacting with tabs/tiles in frames is local, not shared (except for what you surface) and the lobby is the graph.
 - - Async: check in/check out model with diffs
 - - Live: Version-controlled, realtime edits with time synchronized web processes (to watch netflix with the homies, research, cooperatively use web-hosted applications...)
 

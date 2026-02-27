@@ -33,7 +33,7 @@ On startup (via `inventory::submit!`), Verso registers the following with the re
 | `viewer:wry` | wry (OS webview) | Overlay (native window) | Workbench tiles only |
 | `viewer:webview` | alias | → `viewer:servo` (default) | User-configurable |
 
-The `viewer:webview` alias is the default that all nodes use unless the user has set a preference. Switching it to `viewer:wry` makes all new webviews use the native OS webview. Per-node and per-workspace overrides use the specific IDs.
+The `viewer:webview` alias is the default that all nodes use unless the user has set a preference. Switching it to `viewer:wry` makes all new webviews use the native OS webview. Per-node and per-frame overrides use the specific IDs.
 
 **ProtocolRegistry entries:**
 
@@ -97,7 +97,7 @@ Verso manages a `SyncWorker` — a tokio task that:
 1. **Accepts** incoming iroh connections from trusted peers.
 2. **Computes deltas**: compares local version vectors with peer-reported vectors to determine which `SyncUnit`s to send.
 3. **Applies** received `SyncUnit`s by emitting `GraphIntent` events into the main reducer pipeline. Verso never mutates `GraphWorkspace` directly — it enqueues intents.
-4. **Persists** the trust store (peer list, last-seen version vectors, workspace access grants) in the workspace bundle (redb).
+4. **Persists** the trust store (peer list, last-seen version vectors, frame access grants) in the frame bundle (redb).
 
 **SyncUnit** is the wire format: a rkyv-serialized, zstd-compressed batch of WAL log entries since the last acknowledged version vector for a given peer. See [verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) for the full wire format and protocol.
 
@@ -107,7 +107,7 @@ Verso syncs the **semantic graph** (fjall WAL entries: nodes, edges, tags, metad
 
 - Layout state (tile tree, node positions) — these are device-local spatial preferences.
 - Renderer runtime state (active webviews, scroll positions) — ephemeral.
-- Workspace tab semantics overlay — device-local organizational state.
+- Frame tab semantics overlay — device-local organizational state.
 
 This boundary keeps sync semantically meaningful: peers share *what nodes and edges exist and what they mean*, not *how each device arranges them on screen*.
 
@@ -121,13 +121,13 @@ Verso exposes three pairing paths:
 
 Pairing emits `GraphIntent::VersePairDevice { peer_id, public_key, display_name }` which the reducer stores in the trust store.
 
-### Workspace Sharing
+### Frame Sharing
 
-A workspace can be shared with specific peers by granting them access:
+A frame can be shared with specific peers by granting them access:
 
-- `GraphIntent::VerseShareWorkspace { workspace_name, peer_ids, access_level }`.
+- `GraphIntent::VerseShareFrame { frame_name, peer_ids, access_level }`.
 - `access_level`: `ReadOnly` (receive sync, cannot send) or `ReadWrite` (bidirectional).
-- Access grants are stored in the workspace manifest (redb) and enforced by the `SyncWorker` accept loop.
+- Access grants are stored in the frame manifest (redb) and enforced by the `SyncWorker` accept loop.
 
 ---
 

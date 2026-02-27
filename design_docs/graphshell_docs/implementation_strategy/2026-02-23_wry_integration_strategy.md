@@ -73,7 +73,7 @@ Verso mod `ModManifest` additions (appended to existing Phase 2 manifest):
 | `viewer:webview` | alias | → `viewer:servo` (default) | Configurable via settings |
 
 The `viewer:webview` alias is user-configurable: switching it to `viewer:wry` makes all new webviews
-use wry by default. Per-node and per-workspace overrides use the specific IDs.
+use wry by default. Per-node and per-frame overrides use the specific IDs.
 
 ---
 
@@ -223,16 +223,16 @@ Done gate: promoting a cold node with `viewer_id = viewer:wry` creates a wry web
 workbench tile. Demoting destroys it and the tile transitions away from
 `TileRenderMode::NativeOverlay` correctly.
 
-### Step 6: Per-Node and Per-Workspace Backend Selection
+### Step 6: Per-Node and Per-Frame Backend Selection
 
-Users can set a backend preference per node or per workspace:
+Users can set a backend preference per node or per frame:
 
 - Node-level: `GraphIntent::SetNodeViewerPreference { node: NodeKey, viewer_id: ViewerId }`.
   Stored on `Node.viewer_id_override: Option<ViewerId>`. Persisted to the graph WAL (fjall) as a
   node metadata update.
-- Workspace-level: stored in `WorkspaceManifest` as `viewer_id_default: Option<ViewerId>`.
+- Frame-level: stored in `FrameManifest` as `viewer_id_default: Option<ViewerId>`.
   Falls back to the `viewer:webview` alias if absent.
-- Resolution order: node override → workspace default → `viewer:webview` alias.
+- Resolution order: node override → frame default → `viewer:webview` alias.
 
 Done gate: setting `viewer_id_override` on a node to `viewer:wry` causes the next lifecycle
 reconcile to use `WryManager` for that node. Contract test covers resolution order.
@@ -244,7 +244,7 @@ Expose backend selection in the settings UI:
 - Global default: "Default web backend" dropdown in Settings → Web → Rendering, showing `viewer:servo`
   and `viewer:wry` (changes the `viewer:webview` alias target).
 - Per-node: context menu → "Open with" → "Servo" / "wry". Dispatches `SetNodeViewerPreference`.
-- Per-workspace: workspace settings page, "Default backend for this workspace".
+- Per-frame: frame settings page, "Default backend for this frame".
 
 Done gate: changing the global default persists across restarts. Per-node override appears in node
 context menu and takes effect on next lifecycle reconcile.
@@ -320,7 +320,7 @@ settings persistence, node identity — reuses existing mechanisms.
 - `WryManager` data model (`HashMap<NodeKey, wry::WebView>`) and overlay-mode compositor dispatch
   in `TileCompositor` made concrete.
 - Lifecycle integration with `lifecycle_reconcile.rs` and Active/Warm/Cold model described.
-- Per-node (`Node.viewer_id_override`) and per-workspace (`WorkspaceManifest.viewer_id_default`)
+- Per-node (`Node.viewer_id_override`) and per-frame (`FrameManifest.viewer_id_default`)
   backend selection defined with resolution order and `GraphIntent` variant.
 - Risks: z-ordering, resize jitter, scale factor changes, stale thumbnails, feature-flag drift.
 - Thumbnail fallback for graph view aligned to existing `Node.thumbnail_data` pipeline.

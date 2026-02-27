@@ -10,21 +10,19 @@ use crate::graph::NodeKey;
 /// Resolve which node the toolbar/omnibar should target.
 ///
 /// Preference order:
-/// 1) focused tile webview mapping (if available),
+/// 1) focused tile runtime mapping (if available),
 /// 2) active tile node fallback.
 pub(crate) fn focused_toolbar_node(
-    graph_app: &GraphBrowserApp,
-    active_webview_node: Option<NodeKey>,
-    focused_webview_id: Option<WebViewId>,
+    active_runtime_node: Option<NodeKey>,
+    focused_node_key: Option<NodeKey>,
     selected_node: Option<NodeKey>,
 ) -> Option<NodeKey> {
-    focused_webview_id
-        .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
-        .or(active_webview_node)
+    focused_node_key
+        .or(active_runtime_node)
         .or(selected_node)
 }
 
-/// Resolve the explicit target webview for navigation commands.
+/// Resolve the explicit target runtime viewer for navigation commands.
 pub(crate) fn nav_target_webview_id(
     graph_app: &GraphBrowserApp,
     focused_toolbar_node: Option<NodeKey>,
@@ -37,7 +35,7 @@ mod tests {
     use super::*;
     use euclid::default::Point2D;
 
-    /// Create a unique WebViewId for testing.
+    /// Create a unique runtime viewer id for testing.
     fn test_webview_id() -> servo::WebViewId {
         thread_local! {
             static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -52,7 +50,7 @@ mod tests {
     }
 
     #[test]
-    fn test_focused_toolbar_node_prefers_focused_webview_mapping() {
+    fn test_focused_toolbar_node_prefers_focused_node_input() {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(10.0, 0.0));
@@ -61,7 +59,7 @@ mod tests {
         app.map_webview_to_node(a_id, a);
         app.map_webview_to_node(b_id, b);
 
-        let chosen = focused_toolbar_node(&app, Some(a), Some(b_id), Some(a));
+        let chosen = focused_toolbar_node(Some(a), Some(b), Some(a));
         assert_eq!(chosen, Some(b));
     }
 
@@ -72,7 +70,7 @@ mod tests {
         let a_id = test_webview_id();
         app.map_webview_to_node(a_id, a);
 
-        let chosen = focused_toolbar_node(&app, Some(a), None, None);
+        let chosen = focused_toolbar_node(Some(a), None, None);
         assert_eq!(chosen, Some(a));
     }
 
@@ -85,7 +83,7 @@ mod tests {
         let other_wv = test_webview_id();
         app.map_webview_to_node(other_wv, other);
 
-        let chosen = focused_toolbar_node(&app, None, None, Some(selected));
+        let chosen = focused_toolbar_node(None, None, Some(selected));
         assert_eq!(chosen, Some(selected));
     }
 

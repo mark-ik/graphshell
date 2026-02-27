@@ -2,8 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use servo::{LoadStatus, WebViewId};
+use servo::LoadStatus;
 
+use crate::app::GraphBrowserApp;
+use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 
 pub(crate) fn update_location_in_toolbar(
@@ -11,7 +13,8 @@ pub(crate) fn update_location_in_toolbar(
     location: &mut String,
     has_node_panes: bool,
     selected_node_url: Option<String>,
-    focused_webview_id: Option<WebViewId>,
+    focused_node_key: Option<NodeKey>,
+    graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> bool {
     if location_dirty {
@@ -28,7 +31,8 @@ pub(crate) fn update_location_in_toolbar(
         return false;
     }
 
-    let current_url_string = focused_webview_id
+    let current_url_string = focused_node_key
+        .and_then(|node_key| graph_app.get_webview_for_node(node_key))
         .and_then(|id| window.webview_by_id(id))
         .and_then(|webview| Some(webview.url()?.to_string()));
     match current_url_string {
@@ -43,10 +47,12 @@ pub(crate) fn update_location_in_toolbar(
 pub(crate) fn update_load_status(
     load_status: &mut LoadStatus,
     location_dirty: &mut bool,
-    focused_webview_id: Option<WebViewId>,
+    focused_node_key: Option<NodeKey>,
+    graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> bool {
-    let state_status = focused_webview_id
+    let state_status = focused_node_key
+        .and_then(|node_key| graph_app.get_webview_for_node(node_key))
         .and_then(|id| window.webview_by_id(id))
         .map(|webview| webview.load_status())
         .unwrap_or(LoadStatus::Complete);
@@ -62,10 +68,12 @@ pub(crate) fn update_load_status(
 
 pub(crate) fn update_status_text(
     status_text: &mut Option<String>,
-    focused_webview_id: Option<WebViewId>,
+    focused_node_key: Option<NodeKey>,
+    graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> bool {
-    let state_status = focused_webview_id
+    let state_status = focused_node_key
+        .and_then(|node_key| graph_app.get_webview_for_node(node_key))
         .and_then(|id| window.webview_by_id(id))
         .and_then(|webview| webview.status_text());
     let old_status = std::mem::replace(status_text, state_status);
@@ -75,10 +83,12 @@ pub(crate) fn update_status_text(
 pub(crate) fn update_can_go_back_and_forward(
     can_go_back: &mut bool,
     can_go_forward: &mut bool,
-    focused_webview_id: Option<WebViewId>,
+    focused_node_key: Option<NodeKey>,
+    graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> bool {
-    let (state_can_go_back, state_can_go_forward) = focused_webview_id
+    let (state_can_go_back, state_can_go_forward) = focused_node_key
+        .and_then(|node_key| graph_app.get_webview_for_node(node_key))
         .and_then(|id| window.webview_by_id(id))
         .map(|webview| (webview.can_go_back(), webview.can_go_forward()))
         .unwrap_or((false, false));

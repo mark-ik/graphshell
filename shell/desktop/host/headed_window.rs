@@ -62,7 +62,7 @@ use crate::shell::desktop::host::window::{
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
 
-pub(crate) const INITIAL_WINDOW_TITLE: &str = "Servo";
+pub(crate) const INITIAL_WINDOW_TITLE: &str = "Graphshell";
 
 pub struct HeadedWindow {
     /// The egui interface that is responsible for showing the user interface elements of
@@ -135,7 +135,7 @@ impl HeadedWindow {
 
         // Set a name so it can be pinned to taskbars in Linux.
         #[cfg(target_os = "linux")]
-        let window_attr = window_attr.with_name("org.servo.Servo", "Servo");
+        let window_attr = window_attr.with_name("org.graphshell.Graphshell", "Graphshell");
 
         #[allow(deprecated)]
         let winit_window = event_loop
@@ -231,12 +231,8 @@ impl HeadedWindow {
         &self.winit_window
     }
 
-    fn focused_webview_id(&self) -> Option<WebViewId> {
-        self.gui.borrow().focused_webview_id()
-    }
-
-    fn focused_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
-        self.focused_webview_id()
+    fn preferred_input_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
+        self.preferred_input_webview_id(window)
             .and_then(|id| window.webview_by_id(id))
     }
 
@@ -262,14 +258,14 @@ impl HeadedWindow {
         window: &EmbedderWindow,
         winit_event: KeyEvent,
     ) {
-        // First, handle servoshell key bindings that are not overridable by, or visible to, the page.
+        // First, handle Graphshell key bindings that are not overridable by, or visible to, the page.
         let keyboard_event = keyboard_event_from_winit(&winit_event, self.modifiers_state.get());
         if self.handle_intercepted_key_bindings(state.clone(), window, &keyboard_event) {
             return;
         }
 
         // Then we deliver character and keyboard events to the focused webview tile target.
-        let Some(webview) = self.focused_webview(window) else {
+        let Some(webview) = self.preferred_input_webview(window) else {
             return;
         };
 
@@ -375,7 +371,7 @@ impl HeadedWindow {
         window: &EmbedderWindow,
         key_event: &KeyboardEvent,
     ) -> bool {
-        let Some(active_webview) = self.focused_webview(window) else {
+        let Some(active_webview) = self.preferred_input_webview(window) else {
             return false;
         };
 
@@ -525,13 +521,13 @@ impl HeadedWindow {
     pub(crate) fn for_each_active_dialog(
         &self,
         window: &EmbedderWindow,
-        focused_webview_id: Option<WebViewId>,
+        focused_input_webview_id: Option<WebViewId>,
         toolbar_offset: Length<f32, DeviceIndependentPixel>,
         callback: impl Fn(&mut Dialog) -> bool,
     ) {
         // Important: this path must not borrow `self.gui`. It can be called while
         // `Gui::update` holds a mutable borrow of the same RefCell during redraw.
-        let Some(active_webview_id) = focused_webview_id else {
+        let Some(active_webview_id) = focused_input_webview_id else {
             return;
         };
         let mut dialogs = self.dialogs.borrow_mut();
@@ -646,7 +642,7 @@ impl HeadedWindow {
     ) {
         if event == WindowEvent::RedrawRequested {
             // WARNING: do not defer painting or presenting to some later tick of the event
-            // loop or servoshell may become unresponsive! (servo#30312)
+            // loop or Graphshell may become unresponsive! (servo#30312)
             let mut gui = self.gui.borrow_mut();
             // Store state Rc before calling update
             gui.set_state(state.clone());
@@ -663,7 +659,7 @@ impl HeadedWindow {
                 return true;
             }
             if self
-                .focused_webview_id()
+                .preferred_input_webview_id(&window)
                 .is_some_and(|webview_id| self.has_active_dialog_for_webview(webview_id))
             {
                 return true;
@@ -714,7 +710,7 @@ impl HeadedWindow {
                 button: MouseButton::Forward,
                 ..
             } => {
-                if let Some(webview_id) = self.gui.borrow().focused_webview_id()
+                if let Some(webview_id) = self.preferred_input_webview_id(&window)
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
                     window.activate_webview(webview_id);
@@ -728,7 +724,7 @@ impl HeadedWindow {
                 button: MouseButton::Back,
                 ..
             } => {
-                if let Some(webview_id) = self.gui.borrow().focused_webview_id()
+                if let Some(webview_id) = self.preferred_input_webview_id(&window)
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
                     window.activate_webview(webview_id);
@@ -809,7 +805,9 @@ impl HeadedWindow {
                         if let Some(webview_id) = clicked_webview {
                             // Update pane focus on click even when egui consumes the event
                             // (e.g. tab strip/workbench interactions).
-                            self.gui.borrow_mut().set_focused_webview_id(webview_id);
+                            let mut gui = self.gui.borrow_mut();
+                            let focused_node_key = gui.node_key_for_webview_id(webview_id);
+                            gui.set_focused_node_key(focused_node_key);
                             window.activate_webview(webview_id);
                         } else if self.gui.borrow().graph_at_point(point) {
                             self.gui.borrow_mut().focus_graph_surface();
@@ -840,7 +838,7 @@ impl HeadedWindow {
                     // - if a webview tile is focused and egui does not want keyboard input,
                     //   pass Tab through to Servo.
                     let gui = self.gui.borrow();
-                    let tab_target_is_webview = gui.focused_webview_id().is_some();
+                    let tab_target_is_webview = gui.has_focused_node();
                     if tab_target_is_webview && !gui.egui_wants_keyboard_input() {
                         consumed = false;
                     }
@@ -863,7 +861,7 @@ impl HeadedWindow {
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
                     if !self.gui.borrow().ui_overlay_active() {
-                        if let Some(webview_id) = self.gui.borrow().focused_webview_id() {
+                        if let Some(webview_id) = self.preferred_input_webview_id(&window) {
                             window.activate_webview(webview_id);
                         }
                         self.handle_keyboard_input(state.clone(), &window, event)
@@ -884,7 +882,9 @@ impl HeadedWindow {
                             .and_then(|point| self.gui.borrow().webview_at_point(point));
                         if Self::should_retarget_webview_focus(state) {
                             if let Some(webview_id) = pointer_target.map(|(id, _)| id) {
-                                self.gui.borrow_mut().set_focused_webview_id(webview_id);
+                                let mut gui = self.gui.borrow_mut();
+                                let focused_node_key = gui.node_key_for_webview_id(webview_id);
+                                gui.set_focused_node_key(focused_node_key);
                                 window.activate_webview(webview_id);
                             } else if let Some(point) = pointer_position
                                 && self.gui.borrow().graph_at_point(point)
@@ -978,7 +978,7 @@ impl HeadedWindow {
                 }
                 WindowEvent::Touch(touch) => {
                     if !self.gui.borrow().ui_overlay_active() {
-                        if let Some(webview_id) = self.gui.borrow().focused_webview_id()
+                        if let Some(webview_id) = self.preferred_input_webview_id(&window)
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
                             window.activate_webview(webview_id);
@@ -1011,7 +1011,7 @@ impl HeadedWindow {
                     window.schedule_close();
                 }
                 WindowEvent::ThemeChanged(theme) => {
-                    if let Some(webview) = self.focused_webview(&window) {
+                    if let Some(webview) = self.preferred_input_webview(&window) {
                         webview.notify_theme_change(match theme {
                             winit::window::Theme::Light => Theme::Light,
                             winit::window::Theme::Dark => Theme::Dark,
@@ -1019,7 +1019,7 @@ impl HeadedWindow {
                     }
                 }
                 WindowEvent::Ime(ime) => {
-                    if let Some(webview) = self.focused_webview(&window) {
+                    if let Some(webview) = self.preferred_input_webview(&window) {
                         match ime {
                             Ime::Enabled => {
                                 webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(
@@ -1078,7 +1078,9 @@ impl PlatformWindow for HeadedWindow {
 
     fn preferred_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
         if let Ok(gui) = self.gui.try_borrow() {
-            return gui.focused_tile_webview_id();
+            return gui
+                .focused_node_key()
+                .and_then(|node_key| gui.webview_id_for_node_key(node_key));
         }
 
         // Avoid nested RefCell borrows when this is queried during gui.update().
@@ -1124,7 +1126,7 @@ impl PlatformWindow for HeadedWindow {
 
     fn update_user_interface_state(&self, _: &RunningAppState, window: &EmbedderWindow) -> bool {
         let title = self
-            .focused_webview(window)
+            .preferred_input_webview(window)
             .and_then(|webview| {
                 webview
                     .page_title()
@@ -1238,7 +1240,7 @@ impl PlatformWindow for HeadedWindow {
         let size = self.winit_window.outer_size();
 
         let window_attr = winit::window::Window::default_attributes()
-            .with_title("Servo XR".to_string())
+            .with_title("Graphshell XR".to_string())
             .with_inner_size(size)
             .with_visible(false);
 
@@ -1269,7 +1271,7 @@ impl PlatformWindow for HeadedWindow {
         self.winit_window.set_maximized(true);
     }
 
-    /// Handle servoshell key bindings that may have been prevented by the page in the active webview.
+    /// Handle Graphshell key bindings that may have been prevented by the page in the active webview.
     fn notify_input_event_handled(
         &self,
         webview: &WebView,

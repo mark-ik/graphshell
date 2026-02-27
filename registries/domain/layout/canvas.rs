@@ -20,6 +20,55 @@ pub(crate) struct CanvasLayoutAlgorithmPolicy {
 pub(crate) struct CanvasNavigationPolicy {
     pub(crate) fit_to_screen_enabled: bool,
     pub(crate) zoom_and_pan_enabled: bool,
+    pub(crate) wheel_zoom_requires_ctrl: bool,
+    #[serde(default = "default_keyboard_zoom_step")]
+    pub(crate) keyboard_zoom_step: f32,
+    #[serde(default = "default_wheel_zoom_impulse_scale")]
+    pub(crate) wheel_zoom_impulse_scale: f32,
+    #[serde(default = "default_wheel_zoom_inertia_damping")]
+    pub(crate) wheel_zoom_inertia_damping: f32,
+    #[serde(default = "default_wheel_zoom_inertia_min_abs")]
+    pub(crate) wheel_zoom_inertia_min_abs: f32,
+    #[serde(default = "default_camera_fit_padding")]
+    pub(crate) camera_fit_padding: f32,
+    #[serde(default = "default_camera_fit_relax")]
+    pub(crate) camera_fit_relax: f32,
+    #[serde(default = "default_camera_focus_selection_padding")]
+    pub(crate) camera_focus_selection_padding: f32,
+}
+
+fn default_keyboard_zoom_step() -> f32 {
+    1.1
+}
+
+fn default_camera_fit_padding() -> f32 {
+    1.1
+}
+
+fn default_camera_fit_relax() -> f32 {
+    0.5
+}
+
+fn default_camera_focus_selection_padding() -> f32 {
+    1.2
+}
+
+fn default_wheel_zoom_impulse_scale() -> f32 {
+    0.012
+}
+
+fn default_wheel_zoom_inertia_damping() -> f32 {
+    0.86
+}
+
+fn default_wheel_zoom_inertia_min_abs() -> f32 {
+    0.00035
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum CanvasLassoBinding {
+    RightDrag,
+    ShiftLeftDrag,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -27,6 +76,7 @@ pub(crate) struct CanvasInteractionPolicy {
     pub(crate) dragging_enabled: bool,
     pub(crate) node_selection_enabled: bool,
     pub(crate) node_clicking_enabled: bool,
+    pub(crate) lasso_binding: CanvasLassoBinding,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -66,6 +116,32 @@ pub(crate) struct CanvasSurfaceProfile {
     /// Folded subsystem conformance declarations for this canvas surface.
     #[serde(flatten)]
     pub(crate) subsystems: SurfaceSubsystemCapabilities,
+}
+
+impl CanvasSurfaceProfile {
+    pub(crate) fn should_capture_wheel_zoom(&self, ctrl_pressed: bool) -> bool {
+        !self.navigation.wheel_zoom_requires_ctrl || ctrl_pressed
+    }
+
+    pub(crate) fn allows_background_pan(
+        &self,
+        no_hovered_node: bool,
+        pointer_inside: bool,
+        primary_down: bool,
+        lasso_primary_drag_active: bool,
+        radial_open: bool,
+        right_button_down: bool,
+    ) -> bool {
+        let is_tree_topology = self.topology.policy_id == "topology:tree";
+        pointer_inside
+            && no_hovered_node
+            && primary_down
+            && !lasso_primary_drag_active
+            && self.interaction.dragging_enabled
+            && !radial_open
+            && !right_button_down
+            && !is_tree_topology
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -147,11 +223,20 @@ impl Default for CanvasRegistry {
                 navigation: CanvasNavigationPolicy {
                     fit_to_screen_enabled: false,
                     zoom_and_pan_enabled: false,
+                    wheel_zoom_requires_ctrl: false,
+                    keyboard_zoom_step: default_keyboard_zoom_step(),
+                    camera_fit_padding: default_camera_fit_padding(),
+                    wheel_zoom_impulse_scale: default_wheel_zoom_impulse_scale(),
+                    wheel_zoom_inertia_damping: default_wheel_zoom_inertia_damping(),
+                    wheel_zoom_inertia_min_abs: default_wheel_zoom_inertia_min_abs(),
+                    camera_fit_relax: default_camera_fit_relax(),
+                    camera_focus_selection_padding: default_camera_focus_selection_padding(),
                 },
                 interaction: CanvasInteractionPolicy {
                     dragging_enabled: true,
                     node_selection_enabled: true,
                     node_clicking_enabled: true,
+                    lasso_binding: CanvasLassoBinding::RightDrag,
                 },
                 style: CanvasStylePolicy {
                     labels_always: true,
@@ -225,11 +310,20 @@ mod tests {
                 navigation: CanvasNavigationPolicy {
                     fit_to_screen_enabled: false,
                     zoom_and_pan_enabled: false,
+                    wheel_zoom_requires_ctrl: false,
+                    keyboard_zoom_step: default_keyboard_zoom_step(),
+                    camera_fit_padding: default_camera_fit_padding(),
+                    wheel_zoom_impulse_scale: default_wheel_zoom_impulse_scale(),
+                    wheel_zoom_inertia_damping: default_wheel_zoom_inertia_damping(),
+                    wheel_zoom_inertia_min_abs: default_wheel_zoom_inertia_min_abs(),
+                    camera_fit_relax: default_camera_fit_relax(),
+                    camera_focus_selection_padding: default_camera_focus_selection_padding(),
                 },
                 interaction: CanvasInteractionPolicy {
                     dragging_enabled: true,
                     node_selection_enabled: true,
                     node_clicking_enabled: true,
+                    lasso_binding: CanvasLassoBinding::RightDrag,
                 },
                 style: CanvasStylePolicy {
                     labels_always: false,
@@ -248,5 +342,87 @@ mod tests {
         assert!(perf.viewport_culling_enabled);
         assert!(perf.label_culling_enabled);
         assert_eq!(perf.edge_lod, EdgeLodPolicy::SkipLabels);
+    }
+
+    #[test]
+    fn canvas_surface_profile_allows_background_pan_when_conditions_met() {
+        let registry = CanvasRegistry::default();
+        let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
+        assert!(resolution.profile.allows_background_pan(
+            true, true, true, false, false, false,
+        ));
+    }
+
+    #[test]
+    fn canvas_surface_profile_blocks_background_pan_for_active_lasso_drag() {
+        let registry = CanvasRegistry::default();
+        let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
+        assert!(!resolution.profile.allows_background_pan(
+            true, true, true, true, false, false,
+        ));
+    }
+
+    #[test]
+    fn canvas_surface_profile_wheel_zoom_capture_without_ctrl_requirement() {
+        let registry = CanvasRegistry::default();
+        let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
+        assert!(resolution.profile.should_capture_wheel_zoom(false));
+        assert!(resolution.profile.should_capture_wheel_zoom(true));
+        assert!(resolution.profile.navigation.keyboard_zoom_step > 1.0);
+        assert!(resolution.profile.navigation.camera_fit_padding > 1.0);
+        assert!(resolution.profile.navigation.camera_fit_relax > 0.0);
+        assert!(resolution.profile.navigation.camera_focus_selection_padding > 1.0);
+        assert!(resolution.profile.navigation.wheel_zoom_impulse_scale > 0.0);
+        assert!(resolution.profile.navigation.wheel_zoom_inertia_damping > 0.0);
+        assert!(resolution.profile.navigation.wheel_zoom_inertia_min_abs > 0.0);
+    }
+
+    #[test]
+    fn canvas_surface_profile_wheel_zoom_capture_with_ctrl_requirement() {
+        let mut registry = CanvasRegistry::default();
+        registry.register(
+            "canvas:ctrl-wheel",
+            CanvasSurfaceProfile {
+                profile_id: "canvas:ctrl-wheel".to_string(),
+                topology: CanvasTopologyPolicy {
+                    policy_id: "topology:free".to_string(),
+                    directed: false,
+                    cycles_allowed: true,
+                },
+                layout_algorithm: CanvasLayoutAlgorithmPolicy {
+                    algorithm_id: "graph_layout:force_directed".to_string(),
+                },
+                navigation: CanvasNavigationPolicy {
+                    fit_to_screen_enabled: false,
+                    zoom_and_pan_enabled: false,
+                    wheel_zoom_requires_ctrl: true,
+                    keyboard_zoom_step: default_keyboard_zoom_step(),
+                    camera_fit_padding: default_camera_fit_padding(),
+                    wheel_zoom_impulse_scale: default_wheel_zoom_impulse_scale(),
+                    wheel_zoom_inertia_damping: default_wheel_zoom_inertia_damping(),
+                    wheel_zoom_inertia_min_abs: default_wheel_zoom_inertia_min_abs(),
+                    camera_fit_relax: default_camera_fit_relax(),
+                    camera_focus_selection_padding: default_camera_focus_selection_padding(),
+                },
+                interaction: CanvasInteractionPolicy {
+                    dragging_enabled: true,
+                    node_selection_enabled: true,
+                    node_clicking_enabled: true,
+                    lasso_binding: CanvasLassoBinding::RightDrag,
+                },
+                style: CanvasStylePolicy {
+                    labels_always: true,
+                },
+                performance: CanvasPerformancePolicy {
+                    viewport_culling_enabled: true,
+                    label_culling_enabled: false,
+                    edge_lod: EdgeLodPolicy::Full,
+                },
+                subsystems: SurfaceSubsystemCapabilities::full(),
+            },
+        );
+        let resolution = registry.resolve("canvas:ctrl-wheel");
+        assert!(!resolution.profile.should_capture_wheel_zoom(false));
+        assert!(resolution.profile.should_capture_wheel_zoom(true));
     }
 }

@@ -83,3 +83,11 @@ The primary UI components have been reduced through recent decomposition but som
 - **Remaining**: `app.rs` (~6.0k), `render/mod.rs` (~3.4k) are still candidates for Stage 4+ decomposition.
 - **Impact**: Recent refactoring has significantly improved UI layer modularity. Continued incremental decomposition is planned but no longer blocking.
 
+---
+
+## 9. External Pattern Note: Freenet Contract/Delegate Separation
+
+- **Observation**: Freenet's explicit split between shared/public execution and private/identity execution reinforces Graphshell's need for hard authority boundaries between graph/lifecycle runtime state and identity/secret handling.
+- **Graphshell Relevance**: Keep reducer/reconciliation authority boundaries central; avoid new direct hint shortcuts that bypass adapters in compositor/render flows.
+- **Process Discipline**: Tie normative architecture claims to executable proofs (tests/harness/snapshots) to avoid spec/implementation drift during rapid migration.
+- **Reference**: [../research/2026-02-27_freenet_takeaways_for_graphshell.md](../research/2026-02-27_freenet_takeaways_for_graphshell.md)

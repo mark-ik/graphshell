@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Contains files specific to the servoshell app for Desktop systems.
+//! Contains files specific to the Graphshell app for desktop systems.
 
 #[cfg(test)]
 mod tests;

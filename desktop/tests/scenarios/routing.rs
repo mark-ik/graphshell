@@ -3,15 +3,15 @@ use crate::app::{GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, Works
 use std::collections::{BTreeSet, HashMap};
 
 #[test]
-fn open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membership() {
+fn open_node_frame_routed_falls_back_to_current_frame_for_zero_membership() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+        .apply_intents([GraphIntent::OpenNodeFrameRouted {
             key,
-            prefer_workspace: None,
+            prefer_frame: None,
         }]);
 
     assert_eq!(harness.app.get_single_selected_node(), Some(key));
@@ -31,7 +31,7 @@ fn open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membershi
 }
 
 #[test]
-fn open_node_workspace_routed_with_preferred_workspace_requests_restore() {
+fn open_node_frame_routed_with_preferred_frame_requests_restore() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
@@ -52,9 +52,9 @@ fn open_node_workspace_routed_with_preferred_workspace_requests_restore() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+        .apply_intents([GraphIntent::OpenNodeFrameRouted {
             key,
-            prefer_workspace: Some("alpha".to_string()),
+            prefer_frame: Some("alpha".to_string()),
         }]);
 
     assert_eq!(
@@ -71,7 +71,7 @@ fn open_node_workspace_routed_with_preferred_workspace_requests_restore() {
 }
 
 #[test]
-fn remove_selected_nodes_clears_workspace_membership_entry() {
+fn remove_selected_nodes_clears_frame_membership_entry() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
@@ -93,7 +93,7 @@ fn remove_selected_nodes_clears_workspace_membership_entry() {
 }
 
 #[test]
-fn resolve_workspace_open_prefers_recent_membership() {
+fn resolve_frame_open_prefers_recent_membership() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
@@ -114,7 +114,7 @@ fn resolve_workspace_open_prefers_recent_membership() {
 
     assert_eq!(
         harness.app.resolve_workspace_open(key, None),
-        WorkspaceOpenAction::RestoreWorkspace {
+        WorkspaceOpenAction::RestoreFrame {
             name: "beta".to_string(),
             node: key,
         }
@@ -122,7 +122,7 @@ fn resolve_workspace_open_prefers_recent_membership() {
 }
 
 #[test]
-fn resolve_workspace_open_honors_preferred_workspace() {
+fn resolve_frame_open_honors_preferred_frame() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
@@ -143,7 +143,7 @@ fn resolve_workspace_open_honors_preferred_workspace() {
 
     assert_eq!(
         harness.app.resolve_workspace_open(key, Some("alpha")),
-        WorkspaceOpenAction::RestoreWorkspace {
+        WorkspaceOpenAction::RestoreFrame {
             name: "alpha".to_string(),
             node: key,
         }
@@ -151,7 +151,7 @@ fn resolve_workspace_open_honors_preferred_workspace() {
 }
 
 #[test]
-fn set_node_url_preserves_workspace_membership() {
+fn set_node_url_preserves_frame_membership() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://before.example");
     let node_id = harness

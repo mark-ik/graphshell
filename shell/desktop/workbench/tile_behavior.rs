@@ -25,6 +25,7 @@ use crate::util::truncate_with_ellipsis;
 
 use super::selection_range::inclusive_index_range;
 use super::tile_kind::TileKind;
+use super::tile_runtime;
 
 const PLAINTEXT_HEX_PREVIEW_BYTES: usize = 4096;
 
@@ -319,9 +320,9 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         GraphAction::FocusNode(key) => {
                             log::debug!("tile_behavior: FocusNode action for {:?}", key);
                             self.pending_graph_intents
-                                .push(GraphIntent::OpenNodeWorkspaceRouted {
+                                .push(GraphIntent::OpenNodeFrameRouted {
                                     key,
-                                    prefer_workspace: None,
+                                    prefer_frame: None,
                                 });
                         }
                         GraphAction::FocusNodeSplit(key) => {
@@ -416,7 +417,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
 
-                if !matches!(effective_viewer_id, "viewer:webview" | "viewer:servo") {
+                    if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id) {
                     ui.label(format!(
                         "Viewer '{}' is not yet embedded in this pane.",
                         effective_viewer_id
@@ -455,19 +456,19 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
                 if self.graph_app.get_webview_for_node(node_key).is_none() {
-                    log::debug!("tile_behavior: node {:?} has no active webview", node_key);
+                    log::debug!("tile_behavior: node {:?} has no active node viewer runtime", node_key);
                     let lifecycle_hint = match node.lifecycle {
                         NodeLifecycle::Cold => {
                             "Node is cold. Reactivate to resume browsing in this pane."
                         }
                         NodeLifecycle::Warm => {
-                            "Node is warm-cached. Reactivate to attach its cached webview."
+                            "Node is warm-cached. Reactivate to attach its cached runtime viewer."
                         }
                         NodeLifecycle::Active => {
-                            "Node is active but no runtime WebView is mapped yet."
+                            "Node is active but no runtime viewer is mapped yet."
                         }
                     };
-                    ui.label(format!("No active WebView for {}", node.url));
+                    ui.label(format!("No active runtime viewer for {}", node.url));
                     ui.small(lifecycle_hint);
                     ui.horizontal(|ui| {
                         if ui.button("Reactivate").clicked() {
@@ -484,12 +485,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         }
                     });
                 } else {
-                    // WebView is active - allocate full space for compositor to render into
+                    // Runtime viewer is active - allocate full space for compositor to render into.
                     let (rect, _response) =
                         ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
-                    // The WebView content will be painted by tile_compositor on the background layer
+                    // Node viewer content is painted by tile_compositor on the background layer.
                     log::debug!(
-                        "tile_behavior: allocated space for webview {:?} at {:?}",
+                        "tile_behavior: allocated compositor space for node viewer {:?} at {:?}",
                         node_key,
                         rect
                     );

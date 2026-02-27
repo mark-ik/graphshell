@@ -17,8 +17,8 @@ use super::dialog_panels::{self, DialogPanelsArgs};
 use super::nav_targeting;
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingConnectedOpenScope,
-    PendingNodeOpenRequest, PendingTileOpenMode, UnsavedWorkspacePromptAction,
-    UnsavedWorkspacePromptRequest,
+    PendingNodeOpenRequest, PendingTileOpenMode, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest,
 };
 use crate::graph::NodeKey;
 use crate::input;
@@ -83,15 +83,15 @@ fn ensure_node_pane_tile_id(tree: &mut Tree<TileKind>, node_key: NodeKey) -> Til
     tree.tiles.insert_tab_tile(vec![pane_id])
 }
 
-fn restore_named_workspace_snapshot(
+fn restore_named_frame_snapshot(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     name: &str,
     mut routed_open_request: Option<PendingNodeOpenRequest>,
 ) {
-    debug!("gui_frame: attempting to restore workspace '{}'", name);
-    match persistence_ops::load_named_workspace_bundle(graph_app, name).and_then(|bundle| {
-        persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle)
+    debug!("gui_frame: attempting to restore frame snapshot '{}'", name);
+    match persistence_ops::load_named_frame_bundle(graph_app, name).and_then(|bundle| {
+        persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
     }) {
         Ok((mut restored_tree, restored_nodes)) => {
             if let Ok(current_layout_json) = serde_json::to_string(tiles_tree) {
@@ -99,7 +99,7 @@ fn restore_named_workspace_snapshot(
             }
             if restored_tree.root().is_some() {
                 debug!(
-                    "workspace restore: restored '{}' with {} resolved nodes",
+                    "frame restore: restored '{}' with {} resolved nodes",
                     name,
                     restored_nodes.len()
                 );
@@ -107,7 +107,7 @@ fn restore_named_workspace_snapshot(
                     && graph_app.workspace.graph.get_node(request.key).is_some()
                 {
                     debug!(
-                        "gui_frame: opening routed node {:?} in restored workspace",
+                        "gui_frame: opening routed node {:?} in restored frame",
                         request.key
                     );
                     tile_view_ops::open_or_focus_node_pane_with_mode(
@@ -120,26 +120,26 @@ fn restore_named_workspace_snapshot(
                         LifecycleCause::Restore,
                     )]);
                 }
-                graph_app.note_workspace_activated(name, restored_nodes);
+                graph_app.note_frame_activated(name, restored_nodes);
                 if let Err(e) =
-                    persistence_ops::mark_named_workspace_bundle_activated(graph_app, name)
+                    persistence_ops::mark_named_frame_bundle_activated(graph_app, name)
                 {
-                    warn!("Failed to mark workspace bundle '{name}' activated: {e}");
+                    warn!("Failed to mark frame bundle '{name}' activated: {e}");
                 }
                 if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
-                    graph_app.mark_session_workspace_layout_json(&runtime_layout_json);
+                    graph_app.mark_session_frame_layout_json(&runtime_layout_json);
                 }
                 *tiles_tree = restored_tree;
             } else if let Some(request) = routed_open_request.take() {
                 warn!(
-                    "Workspace snapshot '{name}' is empty after restore resolution; falling back to current workspace open"
+                    "Frame snapshot '{name}' is empty after restore resolution; falling back to current frame open"
                 );
                 graph_app.select_node(request.key, false);
                 graph_app.request_open_node_tile_mode(request.key, request.mode);
             }
         }
         Err(e) => {
-            warn!("Failed to restore workspace snapshot '{name}': {e}");
+            warn!("Failed to restore frame snapshot '{name}': {e}");
             if let Some(request) = routed_open_request.take() {
                 graph_app.select_node(request.key, false);
                 graph_app.request_open_node_tile_mode(request.key, request.mode);
@@ -155,20 +155,20 @@ fn pending_tile_mode_to_tile_mode(mode: PendingTileOpenMode) -> tile_view_ops::T
     }
 }
 
-fn workspace_tree_with_single_node(node_key: NodeKey) -> Tree<TileKind> {
+fn frame_tree_with_single_node(node_key: NodeKey) -> Tree<TileKind> {
     let mut tiles = Tiles::default();
     let pane_id = tiles.insert_pane(TileKind::Node(node_key.into()));
     let root = tiles.insert_tab_tile(vec![pane_id]);
     Tree::new("graphshell_workspace_layout", root, tiles)
 }
 
-fn add_nodes_to_named_workspace_snapshot(
+fn add_nodes_to_named_frame_snapshot(
     graph_app: &mut GraphBrowserApp,
     name: &str,
     node_keys: &[NodeKey],
 ) {
     if GraphBrowserApp::is_reserved_workspace_layout_name(name) {
-        warn!("Cannot add nodes to reserved workspace '{name}'");
+        warn!("Cannot add nodes to reserved frame snapshot '{name}'");
         return;
     }
     let live_nodes: Vec<NodeKey> = node_keys
@@ -177,24 +177,24 @@ fn add_nodes_to_named_workspace_snapshot(
         .filter(|key| graph_app.workspace.graph.get_node(*key).is_some())
         .collect();
     if live_nodes.is_empty() {
-        warn!("Cannot add empty/missing node set to workspace '{name}'");
+        warn!("Cannot add empty/missing node set to frame snapshot '{name}'");
         return;
     }
 
-    let mut workspace_tree = match persistence_ops::load_named_workspace_bundle(graph_app, name) {
+    let mut workspace_tree = match persistence_ops::load_named_frame_bundle(graph_app, name) {
         Ok(bundle) => {
-            match persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle) {
+            match persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle) {
                 Ok((tree, _)) => tree,
                 Err(e) => {
-                    warn!("Failed to restore named workspace '{name}' for add-tab operation: {e}");
-                    workspace_tree_with_single_node(live_nodes[0])
+                    warn!("Failed to restore named frame snapshot '{name}' for add-tab operation: {e}");
+                    frame_tree_with_single_node(live_nodes[0])
                 }
             }
         }
-        Err(_) => workspace_tree_with_single_node(live_nodes[0]),
+        Err(_) => frame_tree_with_single_node(live_nodes[0]),
     };
     if workspace_tree.root().is_none() {
-        workspace_tree = workspace_tree_with_single_node(live_nodes[0]);
+        workspace_tree = frame_tree_with_single_node(live_nodes[0]);
     }
     for node_key in live_nodes {
         tile_view_ops::open_or_focus_node_pane_with_mode(
@@ -203,15 +203,15 @@ fn add_nodes_to_named_workspace_snapshot(
             tile_view_ops::TileOpenMode::Tab,
         );
     }
-    match persistence_ops::save_named_workspace_bundle(graph_app, name, &workspace_tree) {
+    match persistence_ops::save_named_frame_bundle(graph_app, name, &workspace_tree) {
         Ok(()) => {
-            let _ = persistence_ops::refresh_workspace_membership_cache_from_manifests(graph_app);
+            let _ = persistence_ops::refresh_frame_membership_cache_from_manifests(graph_app);
         }
-        Err(e) => warn!("Failed to save workspace snapshot '{name}' after add-tab operation: {e}"),
+        Err(e) => warn!("Failed to save frame snapshot '{name}' after add-tab operation: {e}"),
     }
 }
 
-fn connected_workspace_import_nodes(
+fn connected_frame_import_nodes(
     graph_app: &GraphBrowserApp,
     seeds: &[NodeKey],
 ) -> Vec<NodeKey> {
@@ -339,8 +339,8 @@ fn connected_targets_for_open(
     if candidates.len() > cap {
         candidates.sort_by(|(a, depth_a), (b, depth_b)| {
             graph_app
-                .workspace_recency_seq_for_node(*b)
-                .cmp(&graph_app.workspace_recency_seq_for_node(*a))
+                .frame_recency_seq_for_node(*b)
+                .cmp(&graph_app.frame_recency_seq_for_node(*a))
                 .then_with(|| depth_a.cmp(depth_b))
                 .then_with(|| a.index().cmp(&b.index()))
         });
@@ -352,8 +352,8 @@ fn connected_targets_for_open(
             .cmp(depth_b)
             .then_with(|| {
                 graph_app
-                    .workspace_recency_seq_for_node(*b)
-                    .cmp(&graph_app.workspace_recency_seq_for_node(*a))
+                    .frame_recency_seq_for_node(*b)
+                    .cmp(&graph_app.frame_recency_seq_for_node(*a))
             })
             .then_with(|| a.index().cmp(&b.index()))
     });
@@ -633,7 +633,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) focused_webview_hint: Option<WebViewId>,
+    pub(crate) focused_node_hint: Option<NodeKey>,
     pub(crate) graph_surface_focused: bool,
     pub(crate) can_go_back: bool,
     pub(crate) can_go_forward: bool,
@@ -669,7 +669,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         graph_app,
         window,
         tiles_tree,
-        focused_webview_hint,
+        focused_node_hint,
         graph_surface_focused,
         can_go_back,
         can_go_forward,
@@ -688,19 +688,14 @@ pub(crate) fn handle_toolbar_dialog_phase(
     } = args;
 
     let active_webview_node = active_node_pane_node(tiles_tree);
-    let focused_toolbar_webview = if graph_surface_focused {
+    let focused_toolbar_node_key = if graph_surface_focused {
         None
     } else {
-        tile_compositor::focused_webview_id_for_node_panes(
-            tiles_tree,
-            graph_app,
-            focused_webview_hint,
-        )
+        tile_compositor::focused_node_key_for_node_panes(tiles_tree, graph_app, focused_node_hint)
     };
     let focused_toolbar_node = nav_targeting::focused_toolbar_node(
-        graph_app,
         active_webview_node,
-        focused_toolbar_webview,
+        focused_toolbar_node_key,
         graph_app.get_single_selected_node(),
     );
     let has_node_panes = tile_runtime::has_any_node_panes(tiles_tree);
@@ -768,7 +763,7 @@ pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
 }
 
-// After lifecycle intents are applied, ensure webviews exist for Active nodes without tiles.
+// After lifecycle intents are applied, ensure runtime viewers exist for Active nodes without tiles.
 // This handles prewarm nodes (selected but not opened in tiles).
 // Visible tile nodes are handled separately in tile_render_pass.
 fn ensure_webviews_for_active_prewarm_nodes(
@@ -792,7 +787,7 @@ fn ensure_webviews_for_active_prewarm_nodes(
             .map(|(node_key, _)| node_key)
             .collect();
 
-    // Local buffer for webview creation intents.
+    // Local buffer for runtime viewer creation intents.
     let mut prewarm_intents = Vec::new();
 
     // Check if primary selected node is Active and not in a tile.
@@ -801,7 +796,10 @@ fn ensure_webviews_for_active_prewarm_nodes(
             if let Some(node) = graph_app.workspace.graph.get_node(selected_key) {
                 if node.lifecycle == NodeLifecycle::Active {
                     let default_node_pane = NodePaneState::for_node(selected_key);
-                    if tile_runtime::node_pane_hosts_webview_runtime(&default_node_pane, graph_app)
+                    if tile_runtime::node_pane_uses_composited_runtime(
+                        &default_node_pane,
+                        graph_app,
+                    )
                     {
                         crate::shell::desktop::lifecycle::webview_backpressure::ensure_webview_for_node(
                             graph_app,
@@ -871,7 +869,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
 
     apply_intents_if_any(graph_app, tiles_tree, frame_intents);
 
-    // After intents are applied, ensure webviews for Active nodes without tiles (prewarm).
+    // After intents are applied, ensure runtime viewers for Active nodes without tiles (prewarm).
     // Visible tile nodes are handled later in tile_render_pass.
     ensure_webviews_for_active_prewarm_nodes(
         graph_app,
@@ -913,9 +911,9 @@ pub(crate) struct PostRenderPhaseArgs<'a> {
     pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
     pub(crate) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub(crate) focused_webview_hint: &'a mut Option<WebViewId>,
+    pub(crate) focused_node_hint: &'a mut Option<NodeKey>,
     pub(crate) graph_surface_focused: bool,
-    pub(crate) focus_ring_webview_id: &'a mut Option<WebViewId>,
+    pub(crate) focus_ring_node_key: &'a mut Option<NodeKey>,
     pub(crate) focus_ring_started_at: &'a mut Option<Instant>,
     pub(crate) focus_ring_duration: Duration,
     pub(crate) toasts: &'a mut egui_notify::Toasts,
@@ -949,9 +947,9 @@ pub(crate) fn run_post_render_phase<FActive>(
         window_rendering_context,
         responsive_webviews,
         webview_creation_backpressure,
-        focused_webview_hint,
+        focused_node_hint,
         graph_surface_focused,
-        focus_ring_webview_id,
+        focus_ring_node_key,
         focus_ring_started_at,
         focus_ring_duration,
         toasts,
@@ -980,11 +978,8 @@ pub(crate) fn run_post_render_phase<FActive>(
     let focused_dialog_webview = if graph_surface_focused {
         None
     } else {
-        tile_compositor::focused_webview_id_for_node_panes(
-            tiles_tree,
-            graph_app,
-            *focused_webview_hint,
-        )
+        tile_compositor::focused_node_key_for_node_panes(tiles_tree, graph_app, *focused_node_hint)
+            .and_then(|node_key| graph_app.get_webview_for_node(node_key))
     };
     headed_window.for_each_active_dialog(
         window,
@@ -1014,9 +1009,9 @@ pub(crate) fn run_post_render_phase<FActive>(
             window_rendering_context,
             responsive_webviews,
             webview_creation_backpressure,
-            focused_webview_hint,
+            focused_node_hint,
             graph_surface_focused,
-            focus_ring_webview_id,
+            focus_ring_node_key,
             focus_ring_started_at,
             focus_ring_duration,
             #[cfg(feature = "diagnostics")]
@@ -1071,84 +1066,84 @@ pub(crate) fn run_post_render_phase<FActive>(
             Err(e) => toasts.error(format!("Failed to switch data directory: {e}")),
         };
     }
-    render::render_choose_workspace_picker(ctx, graph_app);
-    render::render_unsaved_workspace_prompt(ctx, graph_app);
+    render::render_choose_frame_picker(ctx, graph_app);
+    render::render_unsaved_frame_prompt(ctx, graph_app);
 
     if let Some((request, action)) = graph_app.take_unsaved_workspace_prompt_resolution() {
         match (request, action) {
             (
-                UnsavedWorkspacePromptRequest::WorkspaceSwitch { name, focus_node },
-                UnsavedWorkspacePromptAction::ProceedWithoutSaving,
+                UnsavedFramePromptRequest::FrameSwitch { name, focus_node },
+                UnsavedFramePromptAction::ProceedWithoutSaving,
             ) => {
                 let open_request = focus_node.map(|key| PendingNodeOpenRequest {
                     key,
                     mode: PendingTileOpenMode::Tab,
                 });
-                restore_named_workspace_snapshot(graph_app, tiles_tree, &name, open_request);
+                restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
             }
             (
-                UnsavedWorkspacePromptRequest::WorkspaceSwitch { .. },
-                UnsavedWorkspacePromptAction::Cancel,
+                UnsavedFramePromptRequest::FrameSwitch { .. },
+                UnsavedFramePromptAction::Cancel,
             ) => {}
         }
     }
 
-    if graph_app.take_pending_save_workspace_snapshot() {
+    if graph_app.take_pending_save_frame_snapshot() {
         match serde_json::to_string(tiles_tree) {
             Ok(layout_json) => graph_app.save_tile_layout_json(&layout_json),
-            Err(e) => warn!("Failed to serialize tile layout for workspace snapshot: {e}"),
+            Err(e) => warn!("Failed to serialize tile layout for frame snapshot: {e}"),
         }
     }
 
-    if let Some(name) = graph_app.take_pending_save_workspace_snapshot_named() {
-        match persistence_ops::save_named_workspace_bundle(graph_app, &name, tiles_tree) {
+    if let Some(name) = graph_app.take_pending_save_frame_snapshot_named() {
+        match persistence_ops::save_named_frame_bundle(graph_app, &name, tiles_tree) {
             Ok(()) => {
                 let _ =
-                    persistence_ops::refresh_workspace_membership_cache_from_manifests(graph_app);
+                    persistence_ops::refresh_frame_membership_cache_from_manifests(graph_app);
             }
-            Err(e) => warn!("Failed to serialize tile layout for workspace snapshot '{name}': {e}"),
+            Err(e) => warn!("Failed to serialize tile layout for frame snapshot '{name}': {e}"),
         }
     }
 
-    if graph_app.take_pending_prune_empty_workspaces() {
+    if graph_app.take_pending_prune_empty_frames() {
         let deleted = persistence_ops::prune_empty_named_workspaces(graph_app);
-        warn!("Pruned {deleted} empty named workspaces");
+        warn!("Pruned {deleted} empty named frame snapshots");
     }
 
-    if let Some(keep) = graph_app.take_pending_keep_latest_named_workspaces() {
+    if let Some(keep) = graph_app.take_pending_keep_latest_named_frames() {
         let deleted = persistence_ops::keep_latest_named_workspaces(graph_app, keep);
-        warn!("Removed {deleted} named workspaces beyond latest {keep}");
+        warn!("Removed {deleted} named frame snapshots beyond latest {keep}");
     }
 
-    if let Some(name) = graph_app.take_pending_restore_workspace_snapshot_named() {
-        let open_request = graph_app.take_pending_workspace_restore_open_request();
+    if let Some(name) = graph_app.take_pending_restore_frame_snapshot_named() {
+        let open_request = graph_app.take_pending_frame_restore_open_request();
         if graph_app.should_prompt_unsaved_workspace_save() {
             if graph_app.consume_unsaved_workspace_prompt_warning() {
-                warn!("Current workspace has unsaved graph changes before switching to '{name}'");
+                warn!("Current frame has unsaved graph changes before switching to '{name}'");
             }
             graph_app.request_unsaved_workspace_prompt(
-                UnsavedWorkspacePromptRequest::WorkspaceSwitch {
+                UnsavedFramePromptRequest::FrameSwitch {
                     name,
                     focus_node: open_request.map(|request| request.key),
                 },
             );
         } else {
-            restore_named_workspace_snapshot(graph_app, tiles_tree, &name, open_request);
+            restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
         }
     }
 
-    if let Some((node_key, workspace_name)) = graph_app.take_pending_add_node_to_workspace() {
-        add_nodes_to_named_workspace_snapshot(graph_app, &workspace_name, &[node_key]);
+    if let Some((node_key, frame_name)) = graph_app.take_pending_add_node_to_frame() {
+        add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &[node_key]);
     }
 
-    if let Some((seed_nodes, workspace_name)) = graph_app.take_pending_add_connected_to_workspace()
+    if let Some((seed_nodes, frame_name)) = graph_app.take_pending_add_connected_to_frame()
     {
-        let nodes = connected_workspace_import_nodes(graph_app, &seed_nodes);
-        add_nodes_to_named_workspace_snapshot(graph_app, &workspace_name, &nodes);
+        let nodes = connected_frame_import_nodes(graph_app, &seed_nodes);
+        add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &nodes);
     }
 
-    if let Some((nodes, workspace_name)) = graph_app.take_pending_add_exact_to_workspace() {
-        add_nodes_to_named_workspace_snapshot(graph_app, &workspace_name, &nodes);
+    if let Some((nodes, frame_name)) = graph_app.take_pending_add_exact_to_frame() {
+        add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &nodes);
     }
 
     if let Some(name) = graph_app.take_pending_save_graph_snapshot_named()
@@ -1176,7 +1171,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 tile_rendering_contexts.clear();
                 tile_favicon_textures.clear();
                 webview_creation_backpressure.clear();
-                *focused_webview_hint = None;
+                *focused_node_hint = None;
                 let mut tiles = Tiles::default();
                 let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
                 *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
@@ -1198,7 +1193,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 tile_rendering_contexts.clear();
                 tile_favicon_textures.clear();
                 webview_creation_backpressure.clear();
-                *focused_webview_hint = None;
+                *focused_node_hint = None;
                 let mut tiles = Tiles::default();
                 let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
                 *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
@@ -1243,7 +1238,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         ordered.push(source);
         ordered.extend(connected);
 
-        graph_app.mark_current_workspace_synthesized();
+        graph_app.mark_current_frame_synthesized();
         let tile_mode = tile_open_mode_from_pending(open_mode);
         match tile_mode {
             tile_view_ops::TileOpenMode::Tab => {
@@ -1263,34 +1258,34 @@ pub(crate) fn run_post_render_phase<FActive>(
         }
     }
 
-    if let Some(layout_json) = graph_app.take_pending_history_workspace_layout_json() {
+    if let Some(layout_json) = graph_app.take_pending_history_frame_layout_json() {
         match serde_json::from_str::<Tree<TileKind>>(&layout_json) {
             Ok(mut restored_tree) => {
                 tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
                 if restored_tree.root().is_some() {
                     *tiles_tree = restored_tree;
-                    graph_app.mark_session_workspace_layout_json(&layout_json);
+                    graph_app.mark_session_frame_layout_json(&layout_json);
                 }
             }
-            Err(e) => warn!("Failed to deserialize undo/redo workspace snapshot: {e}"),
+            Err(e) => warn!("Failed to deserialize undo/redo frame snapshot: {e}"),
         }
     }
 
     let prompt_pending = graph_app.unsaved_workspace_prompt_request().is_some();
     // Session autosave should not block on unsaved-workspace prompts. Prompting
-    // is reserved for explicit workspace-switch actions.
+    // is reserved for explicit frame-switch actions.
     if !prompt_pending {
         match serde_json::to_string(tiles_tree) {
-            Ok(layout_json) => match persistence_ops::serialize_named_workspace_bundle(
+            Ok(layout_json) => match persistence_ops::serialize_named_frame_bundle(
                 graph_app,
                 GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
                 tiles_tree,
             ) {
                 Ok(bundle_json) => graph_app
                     .save_session_workspace_layout_blob_if_changed(&bundle_json, &layout_json),
-                Err(e) => warn!("Failed to serialize session workspace bundle: {e}"),
+                Err(e) => warn!("Failed to serialize session frame bundle: {e}"),
             },
-            Err(e) => warn!("Failed to serialize session workspace layout: {e}"),
+            Err(e) => warn!("Failed to serialize session frame layout: {e}"),
         }
     }
 }

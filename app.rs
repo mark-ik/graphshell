@@ -311,7 +311,7 @@ pub struct GraphViewState {
     pub local_simulation: Option<LocalSimulation>,
     /// The rendering dimension for this view (2D or 3D sub-mode).
     ///
-    /// Persisted with the view state so that reopening a workspace restores the
+    /// Persisted with the view state so that reopening a frame restores the
     /// user's last dimension choice.  Snapshot degradation: falls back to `TwoD`
     /// if 3D rendering is unavailable on the target platform.
     #[serde(default)]
@@ -607,6 +607,12 @@ struct PendingCameraCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingKeyboardZoomCommand {
+    request: KeyboardZoomRequest,
+    target_view: GraphViewId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryPressureLevel {
     Unknown,
     Normal,
@@ -633,49 +639,61 @@ pub enum LifecycleCause {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceOpenAction {
-    /// Restore an existing workspace and focus the target node.
-    RestoreWorkspace { name: String, node: NodeKey },
-    /// No workspace membership exists: open in the current workspace context.
-    OpenInCurrentWorkspace { node: NodeKey },
+pub enum FrameOpenAction {
+    /// Restore an existing frame snapshot and focus the target node.
+    RestoreFrame { name: String, node: NodeKey },
+    /// No frame membership exists: open in the current frame context.
+    OpenInCurrentFrame { node: NodeKey },
 }
 
+pub type WorkspaceOpenAction = FrameOpenAction;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WorkspaceOpenReason {
+pub enum FrameOpenReason {
     MissingNode,
-    PreferredWorkspace,
+    PreferredFrame,
     RecentMembership,
     DeterministicMembershipFallback,
     NoMembership,
 }
 
+type WorkspaceOpenReason = FrameOpenReason;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UnsavedWorkspacePromptRequest {
-    WorkspaceSwitch {
+pub enum UnsavedFramePromptRequest {
+    FrameSwitch {
         name: String,
         focus_node: Option<NodeKey>,
     },
 }
 
+pub type UnsavedWorkspacePromptRequest = UnsavedFramePromptRequest;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnsavedWorkspacePromptAction {
+pub enum UnsavedFramePromptAction {
     ProceedWithoutSaving,
     Cancel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChooseWorkspacePickerMode {
-    OpenNodeInWorkspace,
-    AddNodeToWorkspace,
-    AddConnectedSelectionToWorkspace,
-    AddExactSelectionToWorkspace,
-}
+pub type UnsavedWorkspacePromptAction = UnsavedFramePromptAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ChooseWorkspacePickerRequest {
-    pub node: NodeKey,
-    pub mode: ChooseWorkspacePickerMode,
+pub enum ChooseFramePickerMode {
+    OpenNodeInFrame,
+    AddNodeToFrame,
+    AddConnectedSelectionToFrame,
+    AddExactSelectionToFrame,
 }
+
+pub type ChooseWorkspacePickerMode = ChooseFramePickerMode;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChooseFramePickerRequest {
+    pub node: NodeKey,
+    pub mode: ChooseFramePickerMode,
+}
+
+pub type ChooseWorkspacePickerRequest = ChooseFramePickerRequest;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToastAnchorPreference {
@@ -701,29 +719,6 @@ impl ToastAnchorPreference {
             "top-left" => Some(Self::TopLeft),
             "bottom-right" => Some(Self::BottomRight),
             "bottom-left" => Some(Self::BottomLeft),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LassoMouseBinding {
-    RightDrag,
-    ShiftLeftDrag,
-}
-
-impl LassoMouseBinding {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::RightDrag => "right-drag",
-            Self::ShiftLeftDrag => "shift-left-drag",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "right-drag" => Some(Self::RightDrag),
-            "shift-left-drag" => Some(Self::ShiftLeftDrag),
             _ => None,
         }
     }
@@ -954,6 +949,10 @@ pub enum GraphIntent {
         key: NodeKey,
         tag: String,
     },
+    OpenNodeFrameRouted {
+        key: NodeKey,
+        prefer_frame: Option<String>,
+    },
     OpenNodeWorkspaceRouted {
         key: NodeKey,
         prefer_workspace: Option<String>,
@@ -1079,7 +1078,7 @@ pub enum GraphIntent {
     ApplyRemoteLogEntries {
         entries: Vec<u8>,
     },
-    /// Trigger a manual Verse sync pass for the current workspace.
+    /// Trigger a manual Verse sync pass for the current frame.
     SyncNow,
     /// Forget a trusted peer device.
     ForgetDevice {
@@ -1233,8 +1232,6 @@ pub struct GraphWorkspace {
     pub show_manage_access_dialog: bool,
     /// Preferred toast anchor location.
     pub toast_anchor_preference: ToastAnchorPreference,
-    /// Preferred lasso activation gesture.
-    pub lasso_mouse_binding: LassoMouseBinding,
     /// Shortcut binding for command palette.
     pub command_palette_shortcut: CommandPaletteShortcut,
     /// Shortcut binding for help panel.
@@ -1249,15 +1246,6 @@ pub struct GraphWorkspace {
     pub selected_tab_nodes: HashSet<NodeKey>,
     /// Range-select anchor for workspace tab multi-selection.
     pub tab_selection_anchor: Option<NodeKey>,
-    /// Scroll zoom inertia impulse scale (higher = more responsive/floaty).
-    pub scroll_zoom_impulse_scale: f32,
-    /// Scroll zoom inertia damping factor (lower = quicker stop).
-    pub scroll_zoom_inertia_damping: f32,
-    /// Minimum absolute inertia velocity before stopping.
-    pub scroll_zoom_inertia_min_abs: f32,
-    /// Whether scroll-wheel zoom requires the Ctrl/Command modifier.
-    pub scroll_zoom_requires_ctrl: bool,
-
     /// Last hovered node in graph view (updated by graph render pass).
     pub hovered_graph_node: Option<NodeKey>,
     /// Graph search display mode (context-preserving highlight vs strict filter).
@@ -1273,16 +1261,16 @@ pub struct GraphWorkspace {
     /// Pending UI command: open a specific node in a tile mode.
     pending_open_node_request: Option<PendingNodeOpenRequest>,
 
-    /// Pending UI command: persist current workspace (tile tree) snapshot.
+    /// Pending UI command: persist current frame (tile tree) snapshot.
     pending_save_workspace_snapshot: bool,
 
-    /// Pending UI command: persist named workspace snapshot.
+    /// Pending UI command: persist named frame snapshot.
     pending_save_workspace_snapshot_named: Option<String>,
 
-    /// Pending UI command: restore named workspace snapshot.
+    /// Pending UI command: restore named frame snapshot.
     pending_restore_workspace_snapshot_named: Option<String>,
 
-    /// One-shot node open request applied after a routed workspace restore.
+    /// One-shot node open request applied after a routed frame restore.
     pending_workspace_restore_open_request: Option<PendingNodeOpenRequest>,
 
     /// Pending modal prompt context for unsaved workspace transitions.
@@ -1294,13 +1282,13 @@ pub struct GraphWorkspace {
     /// Node target and mode for "Choose Workspace..." picker window.
     pending_choose_workspace_picker_request: Option<ChooseWorkspacePickerRequest>,
 
-    /// Pending UI command: add a node tab to an existing named workspace snapshot.
+    /// Pending UI command: add a node tab to an existing named frame snapshot.
     pending_add_node_to_workspace: Option<(NodeKey, String)>,
-    /// Pending UI command: add connected nodes (from seed selection) to a named workspace snapshot.
+    /// Pending UI command: add connected nodes (from seed selection) to a named frame snapshot.
     pending_add_connected_to_workspace: Option<(Vec<NodeKey>, String)>,
     /// Pending exact node set used by workspace picker for explicit import.
     pending_choose_workspace_picker_exact_nodes: Option<Vec<NodeKey>>,
-    /// Pending UI command: add an explicit node set to a named workspace snapshot.
+    /// Pending UI command: add an explicit node set to a named frame snapshot.
     pending_add_exact_to_workspace: Option<(Vec<NodeKey>, String)>,
 
     /// Pending UI command: persist named full-graph snapshot.
@@ -1318,10 +1306,10 @@ pub struct GraphWorkspace {
     /// Pending UI command: detach focused webview pane into split layout.
     pending_detach_node_to_split: Option<NodeKey>,
 
-    /// Pending UI command: prune empty named workspaces.
+    /// Pending UI command: prune empty named frame snapshots.
     pending_prune_empty_workspaces: bool,
 
-    /// Pending UI command: keep only latest N named workspaces.
+    /// Pending UI command: keep only latest N named frame snapshots.
     pending_keep_latest_named_workspaces: Option<usize>,
 
     /// Pending clipboard copy request for node-derived values.
@@ -1331,13 +1319,15 @@ pub struct GraphWorkspace {
     pending_switch_data_dir: Option<PathBuf>,
 
     /// Pending keyboard-driven zoom command to apply against graph metadata.
-    pending_keyboard_zoom_request: Option<KeyboardZoomRequest>,
+    pending_keyboard_zoom_request: Option<PendingKeyboardZoomCommand>,
 
     /// Durable camera command retried until metadata frame is available.
     pending_camera_command: Option<PendingCameraCommand>,
 
     /// Scroll delta intercepted pre-render and consumed post-render as wheel zoom.
     pending_wheel_zoom_delta: f32,
+    /// Target graph view for pending wheel zoom delta.
+    pending_wheel_zoom_target_view: Option<GraphViewId>,
 
     /// Active graph views, keyed by ID.
     pub views: HashMap<GraphViewId, GraphViewState>,
@@ -1355,30 +1345,30 @@ pub struct GraphWorkspace {
     undo_stack: Vec<UndoRedoSnapshot>,
     /// Global redo history snapshots.
     redo_stack: Vec<UndoRedoSnapshot>,
-    /// Pending workspace layout restore emitted by undo/redo.
+    /// Pending frame layout restore emitted by undo/redo.
     pending_history_workspace_layout_json: Option<String>,
 
-    /// Hash of last persisted session workspace layout json.
+    /// Hash of last persisted session frame layout json.
     last_session_workspace_layout_hash: Option<u64>,
-    /// Last known live session workbench layout JSON (runtime `Tree<TileKind>` shape) for undo checkpoints.
+    /// Last known live session frame layout JSON (runtime `Tree<TileKind>` shape) for undo checkpoints.
     last_session_workspace_layout_json: Option<String>,
 
-    /// Minimum interval between autosaved session workspace writes.
+    /// Minimum interval between autosaved session frame writes.
     workspace_autosave_interval: Duration,
 
-    /// Number of previous autosaved session workspace revisions to keep.
+    /// Number of previous autosaved session frame revisions to keep.
     workspace_autosave_retention: u8,
 
-    /// Timestamp of last autosaved session workspace write.
+    /// Timestamp of last autosaved session frame write.
     last_workspace_autosave_at: Option<Instant>,
 
-    /// Monotonic activation counter for named workspace recency tracking.
+    /// Monotonic activation counter for named frame recency tracking.
     workspace_activation_seq: u64,
 
-    /// Per-node most-recent named workspace activation metadata keyed by stable node UUID.
+    /// Per-node most-recent named frame activation metadata keyed by stable node UUID.
     node_last_active_workspace: HashMap<Uuid, (u64, String)>,
 
-    /// UUID-keyed workspace membership index (runtime-derived from persisted layouts).
+    /// UUID-keyed frame membership index (runtime-derived from persisted layouts).
     node_workspace_membership: HashMap<Uuid, BTreeSet<String>>,
 
     /// True while current tile tree was synthesized without a named restore context.
@@ -1439,7 +1429,6 @@ impl GraphBrowserApp {
     pub const WORKSPACE_PIN_WORKSPACE_NAME: &'static str = "workspace:pin-workspace-current";
     pub const WORKSPACE_PIN_PANE_NAME: &'static str = "workspace:pin-pane-current";
     pub const SETTINGS_TOAST_ANCHOR_NAME: &'static str = "workspace:settings-toast-anchor";
-    pub const SETTINGS_LASSO_MOUSE_BINDING_NAME: &'static str = "workspace:settings-lasso-binding";
     pub const SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME: &'static str =
         "workspace:settings-command-palette-shortcut";
     pub const SETTINGS_HELP_PANEL_SHORTCUT_NAME: &'static str =
@@ -1450,14 +1439,6 @@ impl GraphBrowserApp {
         "workspace:settings-omnibar-preferred-scope";
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
         "workspace:settings-omnibar-non-at-order";
-    pub const SETTINGS_SCROLL_ZOOM_IMPULSE_SCALE_NAME: &'static str =
-        "workspace:settings-scroll-zoom-impulse-scale";
-    pub const SETTINGS_SCROLL_ZOOM_DAMPING_NAME: &'static str =
-        "workspace:settings-scroll-zoom-damping";
-    pub const SETTINGS_SCROLL_ZOOM_MIN_ABS_NAME: &'static str =
-        "workspace:settings-scroll-zoom-min-abs";
-    pub const SETTINGS_SCROLL_ZOOM_REQUIRES_CTRL_NAME: &'static str =
-        "workspace:settings-scroll-zoom-requires-ctrl";
     pub const SETTINGS_REGISTRY_LENS_ID_NAME: &'static str = "workspace:settings-registry-lens-id";
     pub const SETTINGS_REGISTRY_PHYSICS_ID_NAME: &'static str =
         "workspace:settings-registry-physics-id";
@@ -1467,15 +1448,6 @@ impl GraphBrowserApp {
         "workspace:settings-registry-theme-id";
     pub const SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX: &'static str =
         "workspace:settings-diagnostics-channel-config:";
-    pub const DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE: f32 = 0.012;
-    pub const DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING: f32 = 0.86;
-    pub const DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS: f32 = 0.00035;
-    pub const MIN_SCROLL_ZOOM_IMPULSE_SCALE: f32 = 0.001;
-    pub const MAX_SCROLL_ZOOM_IMPULSE_SCALE: f32 = 0.05;
-    pub const MIN_SCROLL_ZOOM_INERTIA_DAMPING: f32 = 0.5;
-    pub const MAX_SCROLL_ZOOM_INERTIA_DAMPING: f32 = 0.98;
-    pub const MIN_SCROLL_ZOOM_INERTIA_MIN_ABS: f32 = 0.00005;
-    pub const MAX_SCROLL_ZOOM_INERTIA_MIN_ABS: f32 = 0.005;
     pub const DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS: u64 = 60;
     pub const DEFAULT_WORKSPACE_AUTOSAVE_RETENTION: u8 = 1;
     pub const DEFAULT_ACTIVE_WEBVIEW_LIMIT: usize = 4;
@@ -1569,7 +1541,6 @@ impl GraphBrowserApp {
                 show_sync_panel: false,
                 show_manage_access_dialog: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
-                lasso_mouse_binding: LassoMouseBinding::RightDrag,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
                 radial_menu_shortcut: RadialMenuShortcut::F3,
@@ -1577,10 +1548,6 @@ impl GraphBrowserApp {
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                 selected_tab_nodes: HashSet::new(),
                 tab_selection_anchor: None,
-                scroll_zoom_impulse_scale: Self::DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE,
-                scroll_zoom_inertia_damping: Self::DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING,
-                scroll_zoom_inertia_min_abs: Self::DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS,
-                scroll_zoom_requires_ctrl: false,
                 hovered_graph_node: None,
                 search_display_mode: SearchDisplayMode::Highlight,
                 pending_node_context_target: None,
@@ -1613,6 +1580,7 @@ impl GraphBrowserApp {
                     target_view: None,
                 }),
                 pending_wheel_zoom_delta: 0.0,
+                pending_wheel_zoom_target_view: None,
                 camera: Camera::new(),
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
@@ -1768,7 +1736,6 @@ impl GraphBrowserApp {
                 show_sync_panel: false,
                 show_manage_access_dialog: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
-                lasso_mouse_binding: LassoMouseBinding::RightDrag,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
                 radial_menu_shortcut: RadialMenuShortcut::F3,
@@ -1776,10 +1743,6 @@ impl GraphBrowserApp {
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                 selected_tab_nodes: HashSet::new(),
                 tab_selection_anchor: None,
-                scroll_zoom_impulse_scale: Self::DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE,
-                scroll_zoom_inertia_damping: Self::DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING,
-                scroll_zoom_inertia_min_abs: Self::DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS,
-                scroll_zoom_requires_ctrl: false,
                 hovered_graph_node: None,
                 search_display_mode: SearchDisplayMode::Highlight,
                 pending_node_context_target: None,
@@ -1812,6 +1775,7 @@ impl GraphBrowserApp {
                     target_view: None,
                 }),
                 pending_wheel_zoom_delta: 0.0,
+                pending_wheel_zoom_target_view: None,
                 camera: Camera::new(),
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
@@ -1911,7 +1875,9 @@ impl GraphBrowserApp {
             .workspace
             .focused_view
             .filter(|id| self.workspace.views.contains_key(id));
-        self.request_camera_command_for_view(target_view, command);
+        if let Some(target_view) = target_view {
+            self.request_camera_command_for_view(Some(target_view), command);
+        }
     }
 
     pub fn request_camera_command_for_view(
@@ -1926,8 +1892,31 @@ impl GraphBrowserApp {
     }
 
     /// Consume one pending keyboard zoom request.
-    pub fn take_pending_keyboard_zoom_request(&mut self) -> Option<KeyboardZoomRequest> {
-        self.workspace.pending_keyboard_zoom_request.take()
+    pub fn take_pending_keyboard_zoom_request(
+        &mut self,
+        view_id: GraphViewId,
+    ) -> Option<KeyboardZoomRequest> {
+        let pending = self.workspace.pending_keyboard_zoom_request?;
+        if pending.target_view != view_id {
+            return None;
+        }
+        self.workspace.pending_keyboard_zoom_request = None;
+        Some(pending.request)
+    }
+
+    fn queue_keyboard_zoom_request(&mut self, request: KeyboardZoomRequest) {
+        let Some(target_view) = self
+            .workspace
+            .focused_view
+            .filter(|id| self.workspace.views.contains_key(id))
+        else {
+            return;
+        };
+
+        self.workspace.pending_keyboard_zoom_request = Some(PendingKeyboardZoomCommand {
+            request,
+            target_view,
+        });
     }
 
     /// Read pending camera command without consuming it.
@@ -1946,16 +1935,25 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command = None;
     }
 
-    pub fn queue_pending_wheel_zoom_delta(&mut self, delta: f32) {
+    pub fn queue_pending_wheel_zoom_delta(&mut self, target_view: GraphViewId, delta: f32) {
+        if self.workspace.pending_wheel_zoom_target_view != Some(target_view) {
+            self.workspace.pending_wheel_zoom_delta = 0.0;
+        }
+        self.workspace.pending_wheel_zoom_target_view = Some(target_view);
         self.workspace.pending_wheel_zoom_delta += delta;
     }
 
-    pub fn pending_wheel_zoom_delta(&self) -> f32 {
-        self.workspace.pending_wheel_zoom_delta
+    pub fn pending_wheel_zoom_delta(&self, view_id: GraphViewId) -> f32 {
+        if self.workspace.pending_wheel_zoom_target_view == Some(view_id) {
+            self.workspace.pending_wheel_zoom_delta
+        } else {
+            0.0
+        }
     }
 
     pub fn clear_pending_wheel_zoom_delta(&mut self) {
         self.workspace.pending_wheel_zoom_delta = 0.0;
+        self.workspace.pending_wheel_zoom_target_view = None;
     }
 
     /// Set whether the user is actively interacting with the graph
@@ -2010,15 +2008,15 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::RequestZoomIn => {
-                self.workspace.pending_keyboard_zoom_request = Some(KeyboardZoomRequest::In);
+                self.queue_keyboard_zoom_request(KeyboardZoomRequest::In);
                 true
             }
             GraphIntent::RequestZoomOut => {
-                self.workspace.pending_keyboard_zoom_request = Some(KeyboardZoomRequest::Out);
+                self.queue_keyboard_zoom_request(KeyboardZoomRequest::Out);
                 true
             }
             GraphIntent::RequestZoomReset => {
-                self.workspace.pending_keyboard_zoom_request = Some(KeyboardZoomRequest::Reset);
+                self.queue_keyboard_zoom_request(KeyboardZoomRequest::Reset);
                 true
             }
             GraphIntent::RequestZoomToSelected => {
@@ -2060,8 +2058,6 @@ impl GraphBrowserApp {
                     && let Some(view) = self.workspace.views.get_mut(&focused_view)
                 {
                     view.camera.current_zoom = view.camera.clamp(*zoom);
-                } else {
-                    self.workspace.camera.current_zoom = self.workspace.camera.clamp(*zoom);
                 }
                 true
             }
@@ -2283,22 +2279,41 @@ impl GraphBrowserApp {
             GraphIntent::SetNodeUrl { key, new_url } => {
                 let _ = self.update_node_url_and_log(key, new_url);
             }
-            GraphIntent::OpenNodeWorkspaceRouted {
-                key,
-                prefer_workspace,
-            } => {
-                debug!("app: applying OpenNodeWorkspaceRouted for {:?}", key);
+            GraphIntent::OpenNodeFrameRouted { key, prefer_frame } => {
+                debug!("app: applying OpenNodeFrameRouted for {:?}", key);
                 self.select_node(key, false);
-                match self.resolve_workspace_open(key, prefer_workspace.as_deref()) {
-                    WorkspaceOpenAction::RestoreWorkspace { name, .. } => {
+                match self.resolve_frame_open(key, prefer_frame.as_deref()) {
+                    FrameOpenAction::RestoreFrame { name, .. } => {
                         self.workspace.pending_workspace_restore_open_request =
                             Some(PendingNodeOpenRequest {
                                 key,
                                 mode: PendingTileOpenMode::Tab,
                             });
-                        self.request_restore_workspace_snapshot_named(name);
+                        self.request_restore_frame_snapshot_named(name);
                     }
-                    WorkspaceOpenAction::OpenInCurrentWorkspace { .. } => {
+                    FrameOpenAction::OpenInCurrentFrame { .. } => {
+                        self.workspace.current_workspace_is_synthesized = true;
+                        self.workspace.pending_workspace_restore_open_request = None;
+                        self.request_open_node_tile_mode(key, PendingTileOpenMode::Tab);
+                    }
+                }
+            }
+            GraphIntent::OpenNodeWorkspaceRouted {
+                key,
+                prefer_workspace,
+            } => {
+                debug!("app: applying OpenNodeFrameRouted for {:?}", key);
+                self.select_node(key, false);
+                match self.resolve_frame_open(key, prefer_workspace.as_deref()) {
+                    FrameOpenAction::RestoreFrame { name, .. } => {
+                        self.workspace.pending_workspace_restore_open_request =
+                            Some(PendingNodeOpenRequest {
+                                key,
+                                mode: PendingTileOpenMode::Tab,
+                            });
+                        self.request_restore_frame_snapshot_named(name);
+                    }
+                    FrameOpenAction::OpenInCurrentFrame { .. } => {
                         self.workspace.current_workspace_is_synthesized = true;
                         self.workspace.pending_workspace_restore_open_request = None;
                         self.request_open_node_tile_mode(key, PendingTileOpenMode::Tab);
@@ -2965,7 +2980,7 @@ impl GraphBrowserApp {
         if let Some(store) = &mut self.services.persistence
             && let Err(e) = store.save_workspace_layout_json(name, layout_json)
         {
-            warn!("Failed to save workspace layout '{name}': {e}");
+            warn!("Failed to save frame layout '{name}': {e}");
         }
         if !Self::is_reserved_workspace_layout_name(name) {
             self.workspace.current_workspace_is_synthesized = false;
@@ -3001,9 +3016,9 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(&first_key, latest_layout_before_overwrite);
     }
 
-    /// Persist reserved session workspace payload only when the live runtime layout changes.
+    /// Persist reserved session frame payload only when the live runtime layout changes.
     ///
-    /// `persisted_blob` is the on-disk payload (bundle JSON for unified reserved workspaces).
+    /// `persisted_blob` is the on-disk payload (bundle JSON for unified reserved frames).
     /// `layout_json_for_hash` is the live runtime `Tree<TileKind>` JSON used for change detection.
     pub fn save_session_workspace_layout_blob_if_changed(
         &mut self,
@@ -3037,6 +3052,11 @@ impl GraphBrowserApp {
         self.workspace.last_workspace_autosave_at = Some(Instant::now());
     }
 
+    /// Mark currently loaded layout as session baseline to suppress redundant writes.
+    pub fn mark_session_frame_layout_json(&mut self, layout_json: &str) {
+        self.mark_session_workspace_layout_json(layout_json);
+    }
+
     pub fn last_session_workspace_layout_json(&self) -> Option<&str> {
         self.workspace.last_session_workspace_layout_json.as_deref()
     }
@@ -3049,7 +3069,7 @@ impl GraphBrowserApp {
             .and_then(|store| store.load_workspace_layout_json(name))
     }
 
-    /// List persisted workspace layout names in stable order.
+    /// List persisted frame layout names in stable order.
     pub fn list_workspace_layout_names(&self) -> Vec<String> {
         self.services
             .persistence
@@ -3064,15 +3084,11 @@ impl GraphBrowserApp {
             || name == Self::WORKSPACE_PIN_WORKSPACE_NAME
             || name == Self::WORKSPACE_PIN_PANE_NAME
             || name == Self::SETTINGS_TOAST_ANCHOR_NAME
-            || name == Self::SETTINGS_LASSO_MOUSE_BINDING_NAME
             || name == Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME
             || name == Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME
             || name == Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
-            || name == Self::SETTINGS_SCROLL_ZOOM_IMPULSE_SCALE_NAME
-            || name == Self::SETTINGS_SCROLL_ZOOM_DAMPING_NAME
-            || name == Self::SETTINGS_SCROLL_ZOOM_MIN_ABS_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
             || name.starts_with(Self::SESSION_WORKSPACE_PREV_PREFIX)
     }
@@ -3086,18 +3102,6 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_TOAST_ANCHOR_NAME,
             self.workspace.toast_anchor_preference.as_persisted_str(),
-        );
-    }
-
-    pub fn set_lasso_mouse_binding(&mut self, binding: LassoMouseBinding) {
-        self.workspace.lasso_mouse_binding = binding;
-        self.save_lasso_mouse_binding();
-    }
-
-    fn save_lasso_mouse_binding(&mut self) {
-        self.save_workspace_layout_json(
-            Self::SETTINGS_LASSO_MOUSE_BINDING_NAME,
-            self.workspace.lasso_mouse_binding.as_persisted_str(),
         );
     }
 
@@ -3158,59 +3162,6 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME,
             self.workspace.omnibar_non_at_order.as_persisted_str(),
-        );
-    }
-
-    pub fn set_scroll_zoom_impulse_scale(&mut self, value: f32) {
-        self.workspace.scroll_zoom_impulse_scale = value.clamp(
-            Self::MIN_SCROLL_ZOOM_IMPULSE_SCALE,
-            Self::MAX_SCROLL_ZOOM_IMPULSE_SCALE,
-        );
-        self.save_scroll_zoom_impulse_scale();
-    }
-
-    fn save_scroll_zoom_impulse_scale(&mut self) {
-        self.save_workspace_layout_json(
-            Self::SETTINGS_SCROLL_ZOOM_IMPULSE_SCALE_NAME,
-            &self.workspace.scroll_zoom_impulse_scale.to_string(),
-        );
-    }
-
-    pub fn set_scroll_zoom_inertia_damping(&mut self, value: f32) {
-        self.workspace.scroll_zoom_inertia_damping = value.clamp(
-            Self::MIN_SCROLL_ZOOM_INERTIA_DAMPING,
-            Self::MAX_SCROLL_ZOOM_INERTIA_DAMPING,
-        );
-        self.save_scroll_zoom_inertia_damping();
-    }
-
-    fn save_scroll_zoom_inertia_damping(&mut self) {
-        self.save_workspace_layout_json(
-            Self::SETTINGS_SCROLL_ZOOM_DAMPING_NAME,
-            &self.workspace.scroll_zoom_inertia_damping.to_string(),
-        );
-    }
-
-    pub fn set_scroll_zoom_inertia_min_abs(&mut self, value: f32) {
-        self.workspace.scroll_zoom_inertia_min_abs = value.clamp(
-            Self::MIN_SCROLL_ZOOM_INERTIA_MIN_ABS,
-            Self::MAX_SCROLL_ZOOM_INERTIA_MIN_ABS,
-        );
-        self.save_scroll_zoom_inertia_min_abs();
-    }
-
-    fn save_scroll_zoom_inertia_min_abs(&mut self) {
-        self.save_workspace_layout_json(
-            Self::SETTINGS_SCROLL_ZOOM_MIN_ABS_NAME,
-            &self.workspace.scroll_zoom_inertia_min_abs.to_string(),
-        );
-    }
-
-    pub fn set_scroll_zoom_requires_ctrl(&mut self, required: bool) {
-        self.workspace.scroll_zoom_requires_ctrl = required;
-        self.save_workspace_layout_json(
-            Self::SETTINGS_SCROLL_ZOOM_REQUIRES_CTRL_NAME,
-            if required { "true" } else { "false" },
         );
     }
 
@@ -3313,14 +3264,6 @@ impl GraphBrowserApp {
     }
 
     fn load_additional_persisted_ui_settings(&mut self) {
-        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_LASSO_MOUSE_BINDING_NAME)
-        {
-            if let Some(binding) = LassoMouseBinding::from_persisted_str(&raw) {
-                self.workspace.lasso_mouse_binding = binding;
-            } else {
-                warn!("Ignoring invalid persisted lasso binding: '{raw}'");
-            }
-        }
         if let Some(raw) =
             self.load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME)
         {
@@ -3363,54 +3306,6 @@ impl GraphBrowserApp {
                 warn!("Ignoring invalid persisted omnibar non-@ order preset: '{raw}'");
             }
         }
-        if let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_SCROLL_ZOOM_IMPULSE_SCALE_NAME)
-        {
-            match raw.trim().parse::<f32>() {
-                Ok(value) => {
-                    self.workspace.scroll_zoom_impulse_scale = value.clamp(
-                        Self::MIN_SCROLL_ZOOM_IMPULSE_SCALE,
-                        Self::MAX_SCROLL_ZOOM_IMPULSE_SCALE,
-                    );
-                }
-                Err(_) => warn!("Ignoring invalid persisted scroll zoom impulse scale: '{raw}'"),
-            }
-        }
-        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_SCROLL_ZOOM_DAMPING_NAME)
-        {
-            match raw.trim().parse::<f32>() {
-                Ok(value) => {
-                    self.workspace.scroll_zoom_inertia_damping = value.clamp(
-                        Self::MIN_SCROLL_ZOOM_INERTIA_DAMPING,
-                        Self::MAX_SCROLL_ZOOM_INERTIA_DAMPING,
-                    );
-                }
-                Err(_) => warn!("Ignoring invalid persisted scroll zoom damping: '{raw}'"),
-            }
-        }
-        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_SCROLL_ZOOM_MIN_ABS_NAME)
-        {
-            match raw.trim().parse::<f32>() {
-                Ok(value) => {
-                    self.workspace.scroll_zoom_inertia_min_abs = value.clamp(
-                        Self::MIN_SCROLL_ZOOM_INERTIA_MIN_ABS,
-                        Self::MAX_SCROLL_ZOOM_INERTIA_MIN_ABS,
-                    );
-                }
-                Err(_) => {
-                    warn!(
-                        "Ignoring invalid persisted scroll zoom inertia minimum velocity: '{raw}'"
-                    )
-                }
-            }
-        }
-        if let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_SCROLL_ZOOM_REQUIRES_CTRL_NAME)
-        {
-            self.workspace.scroll_zoom_requires_ctrl =
-                matches!(raw.trim(), "true" | "TRUE" | "True" | "1");
-        }
-
         self.workspace.default_registry_lens_id = self
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_LENS_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
@@ -3456,7 +3351,7 @@ impl GraphBrowserApp {
         lens
     }
 
-    /// Delete a persisted workspace layout by name.
+    /// Delete a persisted frame layout by name.
     pub fn delete_workspace_layout(&mut self, name: &str) -> Result<(), String> {
         if Self::is_reserved_workspace_layout_name(name) {
             return Err(format!("Cannot delete reserved workspace '{name}'"));
@@ -3480,7 +3375,7 @@ impl GraphBrowserApp {
         Ok(())
     }
 
-    /// Delete the reserved session workspace snapshot and reset hash baseline.
+    /// Delete the reserved session frame snapshot and reset hash baseline.
     pub fn clear_session_workspace_layout(&mut self) -> Result<(), String> {
         let mut names_to_delete = vec![Self::SESSION_WORKSPACE_LAYOUT_NAME.to_string()];
         for idx in 1..=5 {
@@ -3531,7 +3426,7 @@ impl GraphBrowserApp {
         Ok(())
     }
 
-    /// Whether the current workspace has unsaved graph changes.
+    /// Whether the current frame has unsaved graph changes.
     pub fn should_prompt_unsaved_workspace_save(&self) -> bool {
         self.workspace.workspace_has_unsaved_changes
     }
@@ -3547,37 +3442,64 @@ impl GraphBrowserApp {
         true
     }
 
-    /// Queue/replace an unsaved-workspace prompt request.
-    pub fn request_unsaved_workspace_prompt(&mut self, request: UnsavedWorkspacePromptRequest) {
+    /// Queue/replace an unsaved-frame prompt request.
+    pub fn request_unsaved_frame_prompt(&mut self, request: UnsavedFramePromptRequest) {
         self.workspace.pending_unsaved_workspace_prompt = Some(request);
         self.workspace.pending_unsaved_workspace_prompt_action = None;
     }
 
+    /// Queue/replace an unsaved-workspace prompt request.
+    pub fn request_unsaved_workspace_prompt(&mut self, request: UnsavedWorkspacePromptRequest) {
+        self.request_unsaved_frame_prompt(request);
+    }
+
+    /// Inspect active unsaved-frame prompt request.
+    pub fn unsaved_frame_prompt_request(&self) -> Option<&UnsavedFramePromptRequest> {
+        self.workspace.pending_unsaved_workspace_prompt.as_ref()
+    }
+
     /// Inspect active unsaved-workspace prompt request.
     pub fn unsaved_workspace_prompt_request(&self) -> Option<&UnsavedWorkspacePromptRequest> {
-        self.workspace.pending_unsaved_workspace_prompt.as_ref()
+        self.unsaved_frame_prompt_request()
+    }
+
+    /// Capture user action from unsaved-frame prompt UI.
+    pub fn set_unsaved_frame_prompt_action(&mut self, action: UnsavedFramePromptAction) {
+        self.workspace.pending_unsaved_workspace_prompt_action = Some(action);
     }
 
     /// Capture user action from unsaved-workspace prompt UI.
     pub fn set_unsaved_workspace_prompt_action(&mut self, action: UnsavedWorkspacePromptAction) {
-        self.workspace.pending_unsaved_workspace_prompt_action = Some(action);
+        self.set_unsaved_frame_prompt_action(action);
     }
 
-    /// Resolve and clear active unsaved-workspace prompt when an action was chosen.
-    pub fn take_unsaved_workspace_prompt_resolution(
+    /// Resolve and clear active unsaved-frame prompt when an action was chosen.
+    pub fn take_unsaved_frame_prompt_resolution(
         &mut self,
-    ) -> Option<(UnsavedWorkspacePromptRequest, UnsavedWorkspacePromptAction)> {
+    ) -> Option<(UnsavedFramePromptRequest, UnsavedFramePromptAction)> {
         let action = self.workspace.pending_unsaved_workspace_prompt_action?;
         let request = self.workspace.pending_unsaved_workspace_prompt.take()?;
         self.workspace.pending_unsaved_workspace_prompt_action = None;
         Some((request, action))
     }
 
-    /// Mark the current workspace context as synthesized from runtime actions.
+    /// Resolve and clear active unsaved-workspace prompt when an action was chosen.
+    pub fn take_unsaved_workspace_prompt_resolution(
+        &mut self,
+    ) -> Option<(UnsavedWorkspacePromptRequest, UnsavedWorkspacePromptAction)> {
+        self.take_unsaved_frame_prompt_resolution()
+    }
+
+    /// Mark the current frame context as synthesized from runtime actions.
     pub fn mark_current_workspace_synthesized(&mut self) {
         self.workspace.current_workspace_is_synthesized = true;
         self.workspace.workspace_has_unsaved_changes = false;
         self.workspace.unsaved_workspace_prompt_warned = false;
+    }
+
+    /// Mark the current frame context as synthesized from runtime actions.
+    pub fn mark_current_frame_synthesized(&mut self) {
+        self.mark_current_workspace_synthesized();
     }
 
     /// Workspace-activation recency sequence for a node (higher = more recent).
@@ -3592,9 +3514,14 @@ impl GraphBrowserApp {
             .unwrap_or(0)
     }
 
-    /// Workspace memberships for a node sorted by recency (most recent first), then name.
-    pub fn sorted_workspaces_for_node_key(&self, key: NodeKey) -> Vec<String> {
-        let mut names: Vec<String> = self.workspaces_for_node_key(key).iter().cloned().collect();
+    /// Frame-activation recency sequence for a node (higher = more recent).
+    pub fn frame_recency_seq_for_node(&self, key: NodeKey) -> u64 {
+        self.workspace_recency_seq_for_node(key)
+    }
+
+    /// Frame memberships for a node sorted by recency (most recent first), then name.
+    pub fn sorted_frames_for_node_key(&self, key: NodeKey) -> Vec<String> {
+        let mut names: Vec<String> = self.frames_for_node_key(key).iter().cloned().collect();
         let Some(node) = self.workspace.graph.get_node(key) else {
             return names;
         };
@@ -3607,6 +3534,10 @@ impl GraphBrowserApp {
         names
     }
 
+    pub fn sorted_workspaces_for_node_key(&self, key: NodeKey) -> Vec<String> {
+        self.sorted_frames_for_node_key(key)
+    }
+
     /// Last activation sequence associated with a workspace name.
     pub fn workspace_recency_seq_for_name(&self, workspace_name: &str) -> u64 {
         self.workspace
@@ -3617,7 +3548,12 @@ impl GraphBrowserApp {
             .unwrap_or(0)
     }
 
-    /// Mark a named workspace as activated, updating per-node recency.
+    /// Last activation sequence associated with a frame snapshot name.
+    pub fn frame_recency_seq_for_name(&self, frame_name: &str) -> u64 {
+        self.workspace_recency_seq_for_name(frame_name)
+    }
+
+    /// Mark a named frame snapshot as activated, updating per-node recency.
     pub fn note_workspace_activated(
         &mut self,
         workspace_name: &str,
@@ -3646,6 +3582,15 @@ impl GraphBrowserApp {
         self.workspace.egui_state_dirty = true;
     }
 
+    /// Mark a named frame snapshot as activated, updating per-node recency.
+    pub fn note_frame_activated(
+        &mut self,
+        frame_name: &str,
+        nodes: impl IntoIterator<Item = NodeKey>,
+    ) {
+        self.note_workspace_activated(frame_name, nodes);
+    }
+
     /// Initialize membership index from desktop-layer workspace scan.
     pub fn init_membership_index(&mut self, index: HashMap<Uuid, BTreeSet<String>>) {
         self.workspace.node_workspace_membership = index;
@@ -3662,12 +3607,21 @@ impl GraphBrowserApp {
         self.workspace.workspace_activation_seq = activation_seq;
     }
 
+    /// Initialize UUID-keyed frame activation recency from desktop-layer manifest scan.
+    pub fn init_frame_activation_recency(
+        &mut self,
+        recency: HashMap<Uuid, (u64, String)>,
+        activation_seq: u64,
+    ) {
+        self.init_workspace_activation_recency(recency, activation_seq);
+    }
+
     fn empty_workspace_membership() -> &'static BTreeSet<String> {
         static EMPTY: OnceLock<BTreeSet<String>> = OnceLock::new();
         EMPTY.get_or_init(BTreeSet::new)
     }
 
-    /// Workspace membership set for a stable node UUID.
+    /// Frame membership set for a stable node UUID.
     pub fn membership_for_node(&self, uuid: Uuid) -> &BTreeSet<String> {
         self.workspace
             .node_workspace_membership
@@ -3675,38 +3629,43 @@ impl GraphBrowserApp {
             .unwrap_or_else(|| Self::empty_workspace_membership())
     }
 
-    /// Workspace membership set for a NodeKey in the current graph.
-    pub fn workspaces_for_node_key(&self, key: NodeKey) -> &BTreeSet<String> {
+    /// Frame membership set for a NodeKey in the current graph.
+    pub fn frames_for_node_key(&self, key: NodeKey) -> &BTreeSet<String> {
         let Some(node) = self.workspace.graph.get_node(key) else {
             return Self::empty_workspace_membership();
         };
         self.membership_for_node(node.id)
     }
 
+    /// Frame membership set for a NodeKey in the current graph.
+    pub fn workspaces_for_node_key(&self, key: NodeKey) -> &BTreeSet<String> {
+        self.frames_for_node_key(key)
+    }
+
     /// Resolve workspace-aware node-open behavior with deterministic fallback.
-    fn resolve_workspace_open_with_reason(
+    fn resolve_frame_open_with_reason(
         &self,
         node: NodeKey,
-        prefer_workspace: Option<&str>,
-    ) -> (WorkspaceOpenAction, WorkspaceOpenReason) {
+        prefer_frame: Option<&str>,
+    ) -> (FrameOpenAction, FrameOpenReason) {
         if self.workspace.graph.get_node(node).is_none() {
             return (
-                WorkspaceOpenAction::OpenInCurrentWorkspace { node },
-                WorkspaceOpenReason::MissingNode,
+                FrameOpenAction::OpenInCurrentFrame { node },
+                FrameOpenReason::MissingNode,
             );
         }
-        let memberships = self.workspaces_for_node_key(node);
+        let memberships = self.frames_for_node_key(node);
         let node_uuid = self.workspace.graph.get_node(node).map(|n| n.id);
 
-        if let Some(preferred_name) = prefer_workspace
+        if let Some(preferred_name) = prefer_frame
             && memberships.contains(preferred_name)
         {
             return (
-                WorkspaceOpenAction::RestoreWorkspace {
+                FrameOpenAction::RestoreFrame {
                     name: preferred_name.to_string(),
                     node,
                 },
-                WorkspaceOpenReason::PreferredWorkspace,
+                FrameOpenReason::PreferredFrame,
             );
         }
 
@@ -3716,93 +3675,109 @@ impl GraphBrowserApp {
                 && memberships.contains(recent_workspace)
             {
                 return (
-                    WorkspaceOpenAction::RestoreWorkspace {
+                    FrameOpenAction::RestoreFrame {
                         name: recent_workspace.clone(),
                         node,
                     },
-                    WorkspaceOpenReason::RecentMembership,
+                    FrameOpenReason::RecentMembership,
                 );
             }
             if let Some(name) = memberships.iter().next() {
                 return (
-                    WorkspaceOpenAction::RestoreWorkspace {
+                    FrameOpenAction::RestoreFrame {
                         name: name.clone(),
                         node,
                     },
-                    WorkspaceOpenReason::DeterministicMembershipFallback,
+                    FrameOpenReason::DeterministicMembershipFallback,
                 );
             }
         }
 
         (
-            WorkspaceOpenAction::OpenInCurrentWorkspace { node },
-            WorkspaceOpenReason::NoMembership,
+            FrameOpenAction::OpenInCurrentFrame { node },
+            FrameOpenReason::NoMembership,
         )
     }
 
     /// Resolve workspace-aware node-open behavior with deterministic fallback.
-    pub fn resolve_workspace_open(
+    pub fn resolve_frame_open(
         &self,
         node: NodeKey,
-        prefer_workspace: Option<&str>,
-    ) -> WorkspaceOpenAction {
+        prefer_frame: Option<&str>,
+    ) -> FrameOpenAction {
         let node_uuid = self.workspace.graph.get_node(node).map(|n| n.id);
-        let (action, reason) = self.resolve_workspace_open_with_reason(node, prefer_workspace);
+        let (action, reason) = self.resolve_frame_open_with_reason(node, prefer_frame);
         match (&action, reason) {
             // Note: These debug logs are crucial for diagnosing routing decisions.
             (
-                WorkspaceOpenAction::OpenInCurrentWorkspace { .. },
-                WorkspaceOpenReason::MissingNode,
+                FrameOpenAction::OpenInCurrentFrame { .. },
+                FrameOpenReason::MissingNode,
             ) => {
                 debug!(
-                    "workspace routing: node {:?} missing in graph; falling back to current workspace",
+                    "frame routing: node {:?} missing in graph; falling back to current frame",
                     node
                 );
             }
             (
-                WorkspaceOpenAction::RestoreWorkspace { name, .. },
-                WorkspaceOpenReason::PreferredWorkspace,
+                FrameOpenAction::RestoreFrame { name, .. },
+                FrameOpenReason::PreferredFrame,
             ) => {
                 debug!(
-                    "workspace routing: node {:?} ({:?}) using explicit preferred workspace '{}'",
+                    "frame routing: node {:?} ({:?}) using explicit preferred frame '{}'",
                     node, node_uuid, name
                 );
             }
             (
-                WorkspaceOpenAction::RestoreWorkspace { name, .. },
-                WorkspaceOpenReason::RecentMembership,
+                FrameOpenAction::RestoreFrame { name, .. },
+                FrameOpenReason::RecentMembership,
             ) => {
                 debug!(
-                    "workspace routing: node {:?} ({:?}) selected recent workspace '{}'",
+                    "frame routing: node {:?} ({:?}) selected recent frame '{}'",
                     node, node_uuid, name
                 );
             }
             (
-                WorkspaceOpenAction::RestoreWorkspace { name, .. },
-                WorkspaceOpenReason::DeterministicMembershipFallback,
+                FrameOpenAction::RestoreFrame { name, .. },
+                FrameOpenReason::DeterministicMembershipFallback,
             ) => {
                 debug!(
-                    "workspace routing: node {:?} ({:?}) selected deterministic fallback workspace '{}'",
+                    "frame routing: node {:?} ({:?}) selected deterministic fallback frame '{}'",
                     node, node_uuid, name
                 );
             }
             (
-                WorkspaceOpenAction::OpenInCurrentWorkspace { .. },
-                WorkspaceOpenReason::NoMembership,
+                FrameOpenAction::OpenInCurrentFrame { .. },
+                FrameOpenReason::NoMembership,
             ) => {
                 debug!(
-                    "workspace routing: node {:?} ({:?}) has no memberships; opening in current workspace",
+                    "frame routing: node {:?} ({:?}) has no memberships; opening in current frame",
                     node, node_uuid
                 );
             }
             _ => {
                 debug!(
-                    "workspace routing: node {:?} ({:?}) resolved {:?} via {:?}",
+                    "frame routing: node {:?} ({:?}) resolved {:?} via {:?}",
                     node, node_uuid, action, reason
                 );
             }
         }
         action
+    }
+
+    pub fn resolve_workspace_open(
+        &self,
+        node: NodeKey,
+        prefer_workspace: Option<&str>,
+    ) -> WorkspaceOpenAction {
+        self.resolve_frame_open(node, prefer_workspace)
+    }
+
+    pub fn resolve_workspace_open_with_reason(
+        &self,
+        node: NodeKey,
+        prefer_workspace: Option<&str>,
+    ) -> (WorkspaceOpenAction, WorkspaceOpenReason) {
+        self.resolve_frame_open_with_reason(node, prefer_workspace)
     }
 
     /// Persist a named full-graph snapshot.
@@ -3895,6 +3870,7 @@ impl GraphBrowserApp {
             target_view: None,
         });
         self.workspace.pending_wheel_zoom_delta = 0.0;
+        self.workspace.pending_wheel_zoom_target_view = None;
         self.workspace.node_workspace_membership.clear();
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
@@ -3962,6 +3938,7 @@ impl GraphBrowserApp {
             target_view: None,
         });
         self.workspace.pending_wheel_zoom_delta = 0.0;
+        self.workspace.pending_wheel_zoom_target_view = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
@@ -3983,7 +3960,6 @@ impl GraphBrowserApp {
         self.workspace.is_interacting = false;
         self.workspace.physics_running_before_interaction = None;
         self.workspace.toast_anchor_preference = ToastAnchorPreference::BottomRight;
-        self.workspace.lasso_mouse_binding = LassoMouseBinding::RightDrag;
         self.workspace.command_palette_shortcut = CommandPaletteShortcut::F2;
         self.workspace.help_panel_shortcut = HelpPanelShortcut::F1OrQuestion;
         self.workspace.radial_menu_shortcut = RadialMenuShortcut::F3;
@@ -3992,10 +3968,6 @@ impl GraphBrowserApp {
             OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
         self.workspace.selected_tab_nodes.clear();
         self.workspace.tab_selection_anchor = None;
-        self.workspace.scroll_zoom_impulse_scale = Self::DEFAULT_SCROLL_ZOOM_IMPULSE_SCALE;
-        self.workspace.scroll_zoom_inertia_damping = Self::DEFAULT_SCROLL_ZOOM_INERTIA_DAMPING;
-        self.workspace.scroll_zoom_inertia_min_abs = Self::DEFAULT_SCROLL_ZOOM_INERTIA_MIN_ABS;
-        self.workspace.scroll_zoom_requires_ctrl = false;
         self.load_persisted_ui_settings();
         Ok(())
     }
@@ -4262,7 +4234,7 @@ impl GraphBrowserApp {
         }
     }
 
-    /// Perform one global undo step using current workspace layout as redo checkpoint.
+    /// Perform one global undo step using current frame layout as redo checkpoint.
     pub fn perform_undo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
         let Some(prev) = self.workspace.undo_stack.pop() else {
             return false;
@@ -4280,7 +4252,7 @@ impl GraphBrowserApp {
         true
     }
 
-    /// Perform one global redo step using current workspace layout as undo checkpoint.
+    /// Perform one global redo step using current frame layout as undo checkpoint.
     pub fn perform_redo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
         let Some(next) = self.workspace.redo_stack.pop() else {
             return false;
@@ -4308,9 +4280,14 @@ impl GraphBrowserApp {
         self.workspace.redo_stack.len()
     }
 
-    /// Take pending workspace layout restore emitted by undo/redo.
+    /// Take pending frame layout restore emitted by undo/redo.
     pub fn take_pending_history_workspace_layout_json(&mut self) -> Option<String> {
         self.workspace.pending_history_workspace_layout_json.take()
+    }
+
+    /// Take pending frame layout restore emitted by undo/redo.
+    pub fn take_pending_history_frame_layout_json(&mut self) -> Option<String> {
+        self.take_pending_history_workspace_layout_json()
     }
 
     /// Current explicit node context target for command-surface actions.
@@ -4323,42 +4300,55 @@ impl GraphBrowserApp {
         self.workspace.pending_node_context_target = target;
     }
 
-    /// Request opening the "Choose Workspace..." picker for a node and mode.
-    pub fn request_choose_workspace_picker_for_mode(
+    /// Request opening the frame picker for a node and mode.
+    pub fn request_choose_frame_picker_for_mode(
         &mut self,
         key: NodeKey,
-        mode: ChooseWorkspacePickerMode,
+        mode: ChooseFramePickerMode,
     ) {
         self.workspace.pending_choose_workspace_picker_request =
-            Some(ChooseWorkspacePickerRequest { node: key, mode });
+            Some(ChooseFramePickerRequest { node: key, mode });
+    }
+
+    /// Request opening the frame picker to open a node in a frame.
+    pub fn request_choose_frame_picker(&mut self, key: NodeKey) {
+        self.request_choose_frame_picker_for_mode(
+            key,
+            ChooseFramePickerMode::OpenNodeInFrame,
+        );
     }
 
     /// Request opening the "Choose Workspace..." picker to open a node in a workspace.
     pub fn request_choose_workspace_picker(&mut self, key: NodeKey) {
-        self.request_choose_workspace_picker_for_mode(
+        self.request_choose_frame_picker(key);
+    }
+
+    /// Request opening the frame picker to add node tab membership.
+    pub fn request_add_node_to_frame_picker(&mut self, key: NodeKey) {
+        self.request_choose_frame_picker_for_mode(
             key,
-            ChooseWorkspacePickerMode::OpenNodeInWorkspace,
+            ChooseFramePickerMode::AddNodeToFrame,
         );
     }
 
-    /// Request opening the "Choose Workspace..." picker to add node tab membership.
     pub fn request_add_node_to_workspace_picker(&mut self, key: NodeKey) {
-        self.request_choose_workspace_picker_for_mode(
+        self.request_add_node_to_frame_picker(key);
+    }
+
+    /// Request opening the frame picker to add connected nodes.
+    pub fn request_add_connected_to_frame_picker(&mut self, key: NodeKey) {
+        self.request_choose_frame_picker_for_mode(
             key,
-            ChooseWorkspacePickerMode::AddNodeToWorkspace,
+            ChooseFramePickerMode::AddConnectedSelectionToFrame,
         );
     }
 
-    /// Request opening the "Choose Workspace..." picker to add connected nodes.
     pub fn request_add_connected_to_workspace_picker(&mut self, key: NodeKey) {
-        self.request_choose_workspace_picker_for_mode(
-            key,
-            ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace,
-        );
+        self.request_add_connected_to_frame_picker(key);
     }
 
-    /// Request opening the "Choose Workspace..." picker to add an exact node set.
-    pub fn request_add_exact_selection_to_workspace_picker(&mut self, mut keys: Vec<NodeKey>) {
+    /// Request opening the frame picker to add an exact node set.
+    pub fn request_add_exact_selection_to_frame_picker(&mut self, mut keys: Vec<NodeKey>) {
         keys.retain(|key| self.workspace.graph.get_node(*key).is_some());
         keys.sort_by_key(|key| key.index());
         keys.dedup();
@@ -4366,71 +4356,133 @@ impl GraphBrowserApp {
             return;
         };
         self.workspace.pending_choose_workspace_picker_exact_nodes = Some(keys);
-        self.request_choose_workspace_picker_for_mode(
+        self.request_choose_frame_picker_for_mode(
             anchor,
-            ChooseWorkspacePickerMode::AddExactSelectionToWorkspace,
+            ChooseFramePickerMode::AddExactSelectionToFrame,
         );
+    }
+
+    /// Request opening the "Choose Workspace..." picker to add an exact node set.
+    pub fn request_add_exact_selection_to_workspace_picker(&mut self, keys: Vec<NodeKey>) {
+        self.request_add_exact_selection_to_frame_picker(keys);
+    }
+
+    /// Active request for frame picker.
+    pub fn choose_frame_picker_request(&self) -> Option<ChooseFramePickerRequest> {
+        self.workspace.pending_choose_workspace_picker_request
     }
 
     /// Active request for "Choose Workspace..." picker.
     pub fn choose_workspace_picker_request(&self) -> Option<ChooseWorkspacePickerRequest> {
-        self.workspace.pending_choose_workspace_picker_request
+        self.choose_frame_picker_request()
     }
 
-    /// Close "Choose Workspace..." picker.
-    pub fn clear_choose_workspace_picker(&mut self) {
+    /// Close frame picker.
+    pub fn clear_choose_frame_picker(&mut self) {
         self.workspace.pending_choose_workspace_picker_request = None;
         self.workspace.pending_choose_workspace_picker_exact_nodes = None;
     }
 
-    /// Request adding `node` to named workspace snapshot `workspace_name`.
+    /// Close "Choose Workspace..." picker.
+    pub fn clear_choose_workspace_picker(&mut self) {
+        self.clear_choose_frame_picker();
+    }
+
+    /// Request adding `node` to named frame snapshot `frame_name`.
+    pub fn request_add_node_to_frame(
+        &mut self,
+        node: NodeKey,
+        frame_name: impl Into<String>,
+    ) {
+        self.workspace.pending_add_node_to_workspace = Some((node, frame_name.into()));
+    }
+
+    /// Request adding `node` to named frame snapshot `workspace_name`.
     pub fn request_add_node_to_workspace(
         &mut self,
         node: NodeKey,
         workspace_name: impl Into<String>,
     ) {
-        self.workspace.pending_add_node_to_workspace = Some((node, workspace_name.into()));
+        self.request_add_node_to_frame(node, workspace_name);
+    }
+
+    /// Take and clear pending add-node-to-frame request.
+    pub fn take_pending_add_node_to_frame(&mut self) -> Option<(NodeKey, String)> {
+        self.workspace.pending_add_node_to_workspace.take()
     }
 
     /// Take and clear pending add-node-to-workspace request.
     pub fn take_pending_add_node_to_workspace(&mut self) -> Option<(NodeKey, String)> {
-        self.workspace.pending_add_node_to_workspace.take()
+        self.take_pending_add_node_to_frame()
     }
 
-    /// Request adding nodes connected to `seed_nodes` into named workspace snapshot `workspace_name`.
+    /// Request adding nodes connected to `seed_nodes` into named frame snapshot `frame_name`.
+    pub fn request_add_connected_to_frame(
+        &mut self,
+        seed_nodes: Vec<NodeKey>,
+        frame_name: impl Into<String>,
+    ) {
+        self.workspace.pending_add_connected_to_workspace =
+            Some((seed_nodes, frame_name.into()));
+    }
+
+    /// Request adding nodes connected to `seed_nodes` into named frame snapshot `workspace_name`.
     pub fn request_add_connected_to_workspace(
         &mut self,
         seed_nodes: Vec<NodeKey>,
         workspace_name: impl Into<String>,
     ) {
-        self.workspace.pending_add_connected_to_workspace =
-            Some((seed_nodes, workspace_name.into()));
+        self.request_add_connected_to_frame(seed_nodes, workspace_name);
+    }
+
+    /// Take and clear pending add-connected-to-frame request.
+    pub fn take_pending_add_connected_to_frame(&mut self) -> Option<(Vec<NodeKey>, String)> {
+        self.workspace.pending_add_connected_to_workspace.take()
     }
 
     /// Take and clear pending add-connected-to-workspace request.
     pub fn take_pending_add_connected_to_workspace(&mut self) -> Option<(Vec<NodeKey>, String)> {
-        self.workspace.pending_add_connected_to_workspace.take()
+        self.take_pending_add_connected_to_frame()
     }
 
-    /// Current explicit node set associated with active choose-workspace picker flow.
-    pub fn choose_workspace_picker_exact_nodes(&self) -> Option<&[NodeKey]> {
+    /// Current explicit node set associated with active frame-picker flow.
+    pub fn choose_frame_picker_exact_nodes(&self) -> Option<&[NodeKey]> {
         self.workspace
             .pending_choose_workspace_picker_exact_nodes
             .as_deref()
     }
 
-    /// Request adding an exact node set into named workspace snapshot `workspace_name`.
+    /// Current explicit node set associated with active choose-workspace picker flow.
+    pub fn choose_workspace_picker_exact_nodes(&self) -> Option<&[NodeKey]> {
+        self.choose_frame_picker_exact_nodes()
+    }
+
+    /// Request adding an exact node set into named frame snapshot `frame_name`.
+    pub fn request_add_exact_nodes_to_frame(
+        &mut self,
+        nodes: Vec<NodeKey>,
+        frame_name: impl Into<String>,
+    ) {
+        self.workspace.pending_add_exact_to_workspace = Some((nodes, frame_name.into()));
+    }
+
+    /// Request adding an exact node set into named frame snapshot `workspace_name`.
     pub fn request_add_exact_nodes_to_workspace(
         &mut self,
         nodes: Vec<NodeKey>,
         workspace_name: impl Into<String>,
     ) {
-        self.workspace.pending_add_exact_to_workspace = Some((nodes, workspace_name.into()));
+        self.request_add_exact_nodes_to_frame(nodes, workspace_name);
+    }
+
+    /// Take and clear pending exact-add-to-frame request.
+    pub fn take_pending_add_exact_to_frame(&mut self) -> Option<(Vec<NodeKey>, String)> {
+        self.workspace.pending_add_exact_to_workspace.take()
     }
 
     /// Take and clear pending exact-add-to-workspace request.
     pub fn take_pending_add_exact_to_workspace(&mut self) -> Option<(Vec<NodeKey>, String)> {
-        self.workspace.pending_add_exact_to_workspace.take()
+        self.take_pending_add_exact_to_frame()
     }
 
     /// Request opening connected nodes for a given source node, tile mode, and scope.
@@ -4460,43 +4512,78 @@ impl GraphBrowserApp {
         self.workspace.pending_open_node_request.take()
     }
 
-    /// Request saving current workspace (tile layout) snapshot.
+    /// Request saving current frame (tile layout) snapshot.
     pub fn request_save_workspace_snapshot(&mut self) {
         self.workspace.pending_save_workspace_snapshot = true;
     }
 
-    /// Take and clear pending workspace save request.
+    /// Request saving current frame (tile layout) snapshot.
+    pub fn request_save_frame_snapshot(&mut self) {
+        self.request_save_workspace_snapshot();
+    }
+
+    /// Take and clear pending frame save request.
     pub fn take_pending_save_workspace_snapshot(&mut self) -> bool {
         std::mem::take(&mut self.workspace.pending_save_workspace_snapshot)
     }
 
-    /// Request saving a named workspace snapshot.
+    /// Take and clear pending frame save request.
+    pub fn take_pending_save_frame_snapshot(&mut self) -> bool {
+        self.take_pending_save_workspace_snapshot()
+    }
+
+    /// Request saving a named frame snapshot.
     pub fn request_save_workspace_snapshot_named(&mut self, name: impl Into<String>) {
         self.workspace.pending_save_workspace_snapshot_named = Some(name.into());
     }
 
-    /// Take and clear pending named workspace save request.
+    /// Request saving a named frame snapshot.
+    pub fn request_save_frame_snapshot_named(&mut self, name: impl Into<String>) {
+        self.request_save_workspace_snapshot_named(name);
+    }
+
+    /// Take and clear pending named frame save request.
     pub fn take_pending_save_workspace_snapshot_named(&mut self) -> Option<String> {
         self.workspace.pending_save_workspace_snapshot_named.take()
     }
 
-    /// Request restoring a named workspace snapshot.
+    /// Take and clear pending named frame save request.
+    pub fn take_pending_save_frame_snapshot_named(&mut self) -> Option<String> {
+        self.take_pending_save_workspace_snapshot_named()
+    }
+
+    /// Request restoring a named frame snapshot.
     pub fn request_restore_workspace_snapshot_named(&mut self, name: impl Into<String>) {
         self.workspace.pending_restore_workspace_snapshot_named = Some(name.into());
     }
 
-    /// Take and clear pending named workspace restore request.
+    /// Request restoring a named frame snapshot.
+    pub fn request_restore_frame_snapshot_named(&mut self, name: impl Into<String>) {
+        self.request_restore_workspace_snapshot_named(name);
+    }
+
+    /// Take and clear pending named frame restore request.
     pub fn take_pending_restore_workspace_snapshot_named(&mut self) -> Option<String> {
         self.workspace
             .pending_restore_workspace_snapshot_named
             .take()
     }
 
-    /// Take and clear one-shot open request for routed workspace restore.
+    /// Take and clear pending named frame restore request.
+    pub fn take_pending_restore_frame_snapshot_named(&mut self) -> Option<String> {
+        self.take_pending_restore_workspace_snapshot_named()
+    }
+
+    /// Take and clear one-shot open request for routed frame restore.
     pub fn take_pending_workspace_restore_open_request(
         &mut self,
     ) -> Option<PendingNodeOpenRequest> {
         self.workspace.pending_workspace_restore_open_request.take()
+    }
+
+    /// Take and clear one-shot open request for routed frame restore.
+    pub fn take_pending_frame_restore_open_request(&mut self) -> Option<PendingNodeOpenRequest> {
+        self.take_pending_workspace_restore_open_request()
     }
 
     /// Request saving a named graph snapshot.
@@ -4549,9 +4636,14 @@ impl GraphBrowserApp {
         self.workspace.pending_detach_node_to_split.take()
     }
 
-    /// Request batch prune of empty named workspaces.
+    /// Request batch prune of empty named frame snapshots.
     pub fn request_prune_empty_workspaces(&mut self) {
         self.workspace.pending_prune_empty_workspaces = true;
+    }
+
+    /// Request batch prune of empty named frame snapshots.
+    pub fn request_prune_empty_frames(&mut self) {
+        self.request_prune_empty_workspaces();
     }
 
     /// Take pending empty-workspace prune request.
@@ -4559,14 +4651,29 @@ impl GraphBrowserApp {
         std::mem::take(&mut self.workspace.pending_prune_empty_workspaces)
     }
 
-    /// Request keeping latest N named workspaces.
+    /// Take pending empty-frame prune request.
+    pub fn take_pending_prune_empty_frames(&mut self) -> bool {
+        self.take_pending_prune_empty_workspaces()
+    }
+
+    /// Request keeping latest N named frame snapshots.
     pub fn request_keep_latest_named_workspaces(&mut self, keep: usize) {
         self.workspace.pending_keep_latest_named_workspaces = Some(keep);
     }
 
-    /// Take pending keep-latest-N named workspaces request.
+    /// Request keeping latest N named frame snapshots.
+    pub fn request_keep_latest_named_frames(&mut self, keep: usize) {
+        self.request_keep_latest_named_workspaces(keep);
+    }
+
+    /// Take pending keep-latest-N named frame snapshots request.
     pub fn take_pending_keep_latest_named_workspaces(&mut self) -> Option<usize> {
         self.workspace.pending_keep_latest_named_workspaces.take()
+    }
+
+    /// Take pending keep-latest-N named frame snapshots request.
+    pub fn take_pending_keep_latest_named_frames(&mut self) -> Option<usize> {
+        self.take_pending_keep_latest_named_workspaces()
     }
 
     pub fn request_copy_node_url(&mut self, key: NodeKey) {
@@ -5354,6 +5461,7 @@ impl GraphBrowserApp {
         self.workspace.pending_keyboard_zoom_request = None;
         self.workspace.pending_camera_command = None;
         self.workspace.pending_wheel_zoom_delta = 0.0;
+        self.workspace.pending_wheel_zoom_target_view = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
@@ -5400,6 +5508,7 @@ impl GraphBrowserApp {
         self.workspace.pending_keyboard_zoom_request = None;
         self.workspace.pending_camera_command = None;
         self.workspace.pending_wheel_zoom_delta = 0.0;
+        self.workspace.pending_wheel_zoom_target_view = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
@@ -5539,6 +5648,11 @@ mod tests {
     #[test]
     fn test_request_fit_to_screen() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
 
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
@@ -5554,23 +5668,28 @@ mod tests {
     #[test]
     fn test_zoom_intents_queue_keyboard_zoom_requests() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
 
         app.apply_intents([GraphIntent::RequestZoomIn]);
         assert_eq!(
-            app.take_pending_keyboard_zoom_request(),
+            app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::In)
         );
-        assert_eq!(app.take_pending_keyboard_zoom_request(), None);
+        assert_eq!(app.take_pending_keyboard_zoom_request(view_id), None);
 
         app.apply_intents([GraphIntent::RequestZoomOut]);
         assert_eq!(
-            app.take_pending_keyboard_zoom_request(),
+            app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::Out)
         );
 
         app.apply_intents([GraphIntent::RequestZoomReset]);
         assert_eq!(
-            app.take_pending_keyboard_zoom_request(),
+            app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::Reset)
         );
     }
@@ -5578,6 +5697,11 @@ mod tests {
     #[test]
     fn test_zoom_to_selected_falls_back_to_fit_when_selection_empty() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
         assert!(app.workspace.selected_nodes.is_empty());
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
@@ -5590,6 +5714,11 @@ mod tests {
     #[test]
     fn test_zoom_to_selected_falls_back_to_fit_when_single_selected() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
         let key = app
             .workspace
             .graph
@@ -5606,6 +5735,11 @@ mod tests {
     #[test]
     fn test_zoom_to_selected_sets_pending_when_multi_selected() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
         let key_a = app
             .workspace
             .graph
@@ -5629,8 +5763,13 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_only_reducer_handles_zoom_and_selection_intents() {
+    fn test_frame_only_reducer_handles_zoom_and_selection_intents() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
         let key_a = app
             .workspace
             .graph
@@ -5642,7 +5781,7 @@ mod tests {
 
         assert!(app.apply_workspace_only_intent(&GraphIntent::RequestZoomIn));
         assert_eq!(
-            app.take_pending_keyboard_zoom_request(),
+            app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::In)
         );
 
@@ -5657,7 +5796,44 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_only_reducer_excludes_verse_side_effect_intents() {
+    fn test_pending_wheel_zoom_delta_is_scoped_to_target_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+
+        app.queue_pending_wheel_zoom_delta(view_a, 32.0);
+        assert_eq!(app.pending_wheel_zoom_delta(view_a), 32.0);
+        assert_eq!(app.pending_wheel_zoom_delta(view_b), 0.0);
+
+        app.queue_pending_wheel_zoom_delta(view_b, -12.0);
+        assert_eq!(app.pending_wheel_zoom_delta(view_a), 0.0);
+        assert_eq!(app.pending_wheel_zoom_delta(view_b), -12.0);
+    }
+
+    #[test]
+    fn test_clear_pending_wheel_zoom_delta_clears_target() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view, GraphViewState::new_with_id(view, "A"));
+
+        app.queue_pending_wheel_zoom_delta(view, 24.0);
+        assert_eq!(app.pending_wheel_zoom_delta(view), 24.0);
+
+        app.clear_pending_wheel_zoom_delta();
+        assert_eq!(app.pending_wheel_zoom_delta(view), 0.0);
+    }
+
+    #[test]
+    fn test_frame_only_reducer_excludes_verse_side_effect_intents() {
         let mut app = GraphBrowserApp::new_for_testing();
 
         assert!(!app.apply_workspace_only_intent(&GraphIntent::SyncNow));
@@ -7826,7 +8002,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_workspace_open_deterministic_fallback_without_recency_match() {
+    fn test_resolve_frame_open_deterministic_fallback_without_recency_match() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
             .workspace
@@ -7851,7 +8027,7 @@ mod tests {
         for _ in 0..5 {
             assert_eq!(
                 app.resolve_workspace_open(key, None),
-                WorkspaceOpenAction::RestoreWorkspace {
+                WorkspaceOpenAction::RestoreFrame {
                     name: "workspace-a".to_string(),
                     node: key
                 }
@@ -7860,7 +8036,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_workspace_open_reason_honors_preferred_workspace() {
+    fn test_resolve_frame_open_reason_honors_preferred_frame() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
             .workspace
@@ -7875,16 +8051,16 @@ mod tests {
         let (action, reason) = app.resolve_workspace_open_with_reason(key, Some("beta"));
         assert_eq!(
             action,
-            WorkspaceOpenAction::RestoreWorkspace {
+            WorkspaceOpenAction::RestoreFrame {
                 name: "beta".to_string(),
                 node: key
             }
         );
-        assert_eq!(reason, WorkspaceOpenReason::PreferredWorkspace);
+        assert_eq!(reason, WorkspaceOpenReason::PreferredFrame);
     }
 
     #[test]
-    fn test_resolve_workspace_open_reason_recent_membership() {
+    fn test_resolve_frame_open_reason_recent_membership() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
             .workspace
@@ -7902,7 +8078,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_workspace_open_reason_no_membership() {
+    fn test_resolve_frame_open_reason_no_membership() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
             .workspace
@@ -7927,22 +8103,6 @@ mod tests {
         assert_eq!(
             app.workspace.toast_anchor_preference,
             ToastAnchorPreference::TopLeft
-        );
-    }
-
-    #[test]
-    fn test_set_lasso_mouse_binding_persists_across_restart() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().to_path_buf();
-
-        let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        app.set_lasso_mouse_binding(LassoMouseBinding::ShiftLeftDrag);
-        drop(app);
-
-        let reopened = GraphBrowserApp::new_from_dir(path);
-        assert_eq!(
-            reopened.workspace.lasso_mouse_binding,
-            LassoMouseBinding::ShiftLeftDrag
         );
     }
 
@@ -7988,23 +8148,6 @@ mod tests {
             reopened.workspace.omnibar_non_at_order,
             OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal
         );
-    }
-
-    #[test]
-    fn test_set_scroll_zoom_settings_persist_across_restart() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().to_path_buf();
-
-        let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        app.set_scroll_zoom_impulse_scale(0.014);
-        app.set_scroll_zoom_inertia_damping(0.81);
-        app.set_scroll_zoom_inertia_min_abs(0.00042);
-        drop(app);
-
-        let reopened = GraphBrowserApp::new_from_dir(path);
-        assert!((reopened.workspace.scroll_zoom_impulse_scale - 0.014).abs() < f32::EPSILON);
-        assert!((reopened.workspace.scroll_zoom_inertia_damping - 0.81).abs() < f32::EPSILON);
-        assert!((reopened.workspace.scroll_zoom_inertia_min_abs - 0.00042).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -8248,14 +8391,15 @@ mod tests {
     }
 
     #[test]
-    fn set_zoom_falls_back_to_global_camera_when_focused_view_missing() {
+    fn set_zoom_with_missing_focused_view_is_noop() {
         let mut app = GraphBrowserApp::new_for_testing();
         let missing_view_id = GraphViewId::new();
         app.workspace.focused_view = Some(missing_view_id);
+        let before = app.workspace.camera.current_zoom;
 
         app.apply_intents([GraphIntent::SetZoom { zoom: 3.0 }]);
 
-        assert!((app.workspace.camera.current_zoom - 3.0).abs() < 0.0001);
+        assert!((app.workspace.camera.current_zoom - before).abs() < 0.0001);
     }
 
     #[test]

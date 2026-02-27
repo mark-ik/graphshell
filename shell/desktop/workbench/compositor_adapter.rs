@@ -11,9 +11,19 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::graph::NodeKey;
-use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_GL_STATE_VIOLATION;
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
+    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+};
+use dpi::PhysicalSize;
+use euclid::{Point2D, Rect, Scale, Size2D, UnknownUnit};
 use egui::{Context, Id, LayerId, PaintCallback, Rect as EguiRect, Stroke, StrokeKind};
 use egui_glow::{CallbackFn, glow};
+use log::warn;
+use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, WebView};
+use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = "tile_compositor.content_pass_registered";
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = "tile_compositor.overlay_pass_registered";
@@ -98,6 +108,38 @@ pub(crate) struct CompositorPassTracker {
     content_pass_nodes: HashSet<NodeKey>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct OverlayStrokePass {
+    pub(crate) node_key: NodeKey,
+    pub(crate) tile_rect: EguiRect,
+    pub(crate) rounding: f32,
+    pub(crate) stroke: Stroke,
+    pub(crate) style: OverlayAffordanceStyle,
+    pub(crate) render_mode: TileRenderMode,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum OverlayAffordanceStyle {
+    RectStroke,
+    ChromeOnly,
+}
+
+fn overlay_style_channel(style: OverlayAffordanceStyle) -> &'static str {
+    match style {
+        OverlayAffordanceStyle::RectStroke => CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+        OverlayAffordanceStyle::ChromeOnly => CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
+    }
+}
+
+fn overlay_mode_channel(render_mode: TileRenderMode) -> &'static str {
+    match render_mode {
+        TileRenderMode::CompositedTexture => CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+        TileRenderMode::NativeOverlay => CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+        TileRenderMode::EmbeddedEgui => CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
+        TileRenderMode::Placeholder => CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
+    }
+}
+
 impl CompositorPassTracker {
     pub(crate) fn new() -> Self {
         Self {
@@ -167,6 +209,149 @@ impl CompositorAdapter {
         });
     }
 
+    pub(crate) fn prepare_composited_target(
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        pixels_per_point: f32,
+        render_context: &OffscreenRenderingContext,
+    ) -> Option<(Size2D<f32, DevicePixel>, PhysicalSize<u32>)> {
+        if !tile_rect.width().is_finite()
+            || !tile_rect.height().is_finite()
+            || tile_rect.width() <= 0.0
+            || tile_rect.height() <= 0.0
+        {
+            Self::report_invalid_tile_rect(node_key);
+            return None;
+        }
+
+        let scale = Scale::<_, UnknownUnit, DevicePixel>::new(pixels_per_point);
+        let size = Size2D::new(tile_rect.width(), tile_rect.height()) * scale;
+        let target_size = PhysicalSize::new(
+            size.width.max(1.0).round() as u32,
+            size.height.max(1.0).round() as u32,
+        );
+
+        if render_context.size() != target_size {
+            log::debug!(
+                "composite: resizing render_context from {:?} to {:?}",
+                render_context.size(),
+                target_size
+            );
+            render_context.resize(target_size);
+        }
+
+        Some((size, target_size))
+    }
+
+    pub(crate) fn paint_offscreen_content_pass<F>(
+        render_context: &OffscreenRenderingContext,
+        target_size: PhysicalSize<u32>,
+        paint: F,
+    ) -> bool
+    where
+        F: FnOnce(),
+    {
+        #[cfg(feature = "diagnostics")]
+        let paint_started = std::time::Instant::now();
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: "tile_compositor.paint",
+                byte_len: (target_size.width as usize)
+                    .saturating_mul(target_size.height as usize)
+                    .saturating_mul(4),
+            },
+        );
+
+        if let Err(e) = render_context.make_current() {
+            warn!("Failed to make tile rendering context current: {e:?}");
+            return false;
+        }
+
+        render_context.prepare_for_rendering();
+        paint();
+        render_context.present();
+
+        #[cfg(feature = "diagnostics")]
+        {
+            let elapsed = paint_started.elapsed().as_micros() as u64;
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                    channel_id: "tile_compositor.paint",
+                    latency_us: elapsed,
+                },
+            );
+            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+                "tile_compositor::paint_present",
+                elapsed,
+            );
+        }
+
+        true
+    }
+
+    pub(crate) fn reconcile_webview_target_size(
+        webview: &WebView,
+        size: Size2D<f32, DevicePixel>,
+        target_size: PhysicalSize<u32>,
+    ) {
+        if webview.size() != size {
+            log::debug!(
+                "composite: resizing webview from {:?} to {:?}",
+                webview.size(),
+                size
+            );
+            webview.resize(target_size);
+        }
+    }
+
+    pub(crate) fn register_render_to_parent_content_pass<F>(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        render_to_parent: F,
+    ) where
+        F: Fn(&glow::Context, Rect<i32, UnknownUnit>) + Send + Sync + 'static,
+    {
+        let callback = Arc::new(CallbackFn::new(move |info, painter| {
+            #[cfg(feature = "diagnostics")]
+            let started = std::time::Instant::now();
+
+            let clip = info.viewport_in_pixels();
+            let rect_in_parent = Rect::new(
+                Point2D::new(clip.left_px, clip.from_bottom_px),
+                Size2D::new(clip.width_px, clip.height_px),
+            );
+
+            CompositorAdapter::run_content_callback_with_guardrails(node_key, painter.gl(), || {
+                render_to_parent(painter.gl(), rect_in_parent)
+            });
+
+            #[cfg(feature = "diagnostics")]
+            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+                "tile_compositor::content_pass_callback",
+                started.elapsed().as_micros() as u64,
+            );
+        }));
+
+        Self::register_content_pass(ctx, node_key, tile_rect, callback);
+    }
+
+    pub(crate) fn register_content_pass_from_render_context(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        render_context: &OffscreenRenderingContext,
+    ) -> bool {
+        let Some(render_to_parent) = render_context.render_to_parent_callback() else {
+            return false;
+        };
+
+        Self::register_render_to_parent_content_pass(ctx, node_key, tile_rect, render_to_parent);
+        true
+    }
+
     pub(crate) fn run_content_callback_with_guardrails<F>(
         _node_key: NodeKey,
         gl: &glow::Context,
@@ -215,6 +400,91 @@ impl CompositorAdapter {
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_span_duration(
             "tile_compositor::overlay_pass_draw",
+            started.elapsed().as_micros() as u64,
+        );
+    }
+
+    pub(crate) fn draw_overlay_chrome_markers(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        stroke: Stroke,
+    ) {
+        #[cfg(feature = "diagnostics")]
+        let started = std::time::Instant::now();
+
+        let painter = ctx.layer_painter(Self::overlay_layer(node_key));
+        let inset = 2.0;
+        let top = tile_rect.top() + inset;
+        let left = tile_rect.left() + inset;
+        let right = tile_rect.right() - inset;
+        let marker_len = 12.0_f32.min((tile_rect.height() - inset * 2.0).max(0.0));
+
+        painter.line_segment(
+            [egui::pos2(left, top), egui::pos2(right, top)],
+            stroke,
+        );
+        painter.line_segment(
+            [egui::pos2(left, top), egui::pos2(left, top + marker_len)],
+            stroke,
+        );
+        painter.line_segment(
+            [egui::pos2(right, top), egui::pos2(right, top + marker_len)],
+            stroke,
+        );
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+            "tile_compositor::overlay_pass_draw",
+            started.elapsed().as_micros() as u64,
+        );
+    }
+
+    pub(crate) fn execute_overlay_affordance_pass(
+        ctx: &Context,
+        pass_tracker: &CompositorPassTracker,
+        overlays: Vec<OverlayStrokePass>,
+    ) {
+        #[cfg(feature = "diagnostics")]
+        let started = std::time::Instant::now();
+
+        for overlay in overlays {
+            pass_tracker.record_overlay_pass(overlay.node_key);
+            #[cfg(feature = "diagnostics")]
+            {
+                crate::shell::desktop::runtime::diagnostics::emit_event(
+                    crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: overlay_style_channel(overlay.style),
+                        byte_len: std::mem::size_of::<NodeKey>(),
+                    },
+                );
+                crate::shell::desktop::runtime::diagnostics::emit_event(
+                    crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: overlay_mode_channel(overlay.render_mode),
+                        byte_len: std::mem::size_of::<NodeKey>(),
+                    },
+                );
+            }
+            match overlay.style {
+                OverlayAffordanceStyle::RectStroke => Self::draw_overlay_stroke(
+                    ctx,
+                    overlay.node_key,
+                    overlay.tile_rect,
+                    overlay.rounding,
+                    overlay.stroke,
+                ),
+                OverlayAffordanceStyle::ChromeOnly => Self::draw_overlay_chrome_markers(
+                    ctx,
+                    overlay.node_key,
+                    overlay.tile_rect,
+                    overlay.stroke,
+                ),
+            }
+        }
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+            "tile_compositor::overlay_affordance_pass",
             started.elapsed().as_micros() as u64,
         );
     }

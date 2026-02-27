@@ -172,7 +172,6 @@ pub(crate) fn handle_address_bar_submit_intents(
     url: &str,
     is_graph_view: bool,
     focused_node: Option<NodeKey>,
-    focused_webview: Option<WebViewId>,
     window: &EmbedderWindow,
     searchpage: &str,
 ) -> AddressBarIntentOutcome {
@@ -316,7 +315,7 @@ pub(crate) fn handle_address_bar_submit_intents(
             };
         }
 
-        if let Some(webview_id) = focused_webview
+        if let Some(webview_id) = focused_node.and_then(|node_key| app.get_webview_for_node(node_key))
             && let Some(webview) = window.webview_by_id(webview_id)
         {
             window.activate_webview(webview_id);

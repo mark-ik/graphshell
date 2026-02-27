@@ -61,7 +61,7 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub extern "C" fn android_main() {
     // FIXME(mukilan): this android_main is only present to stop
-    // the java side 'System.loadLibrary('servoshell') call from
+    // the java side 'System.loadLibrary('graphshell') call from
     // failing due to undefined reference to android_main introduced
     // by winit's android-activity crate. There is no way to disable
     // this currently.
@@ -112,10 +112,10 @@ pub extern "C" fn Java_org_servo_servoview_JNIServo_init<'local>(
         // should show up in adb logcat with a release build.
         let filters = [
             "servo",
-            "servoshell",
-            "servoshell::egl:gl_glue",
+            "graphshell",
+            "graphshell::egl:gl_glue",
             // Show redirected stdout / stderr by default
-            "servoshell::egl::log",
+            "graphshell::egl::log",
             // Show JS errors by default.
             "script::dom::bindings::error",
             // Show GL errors by default.
@@ -137,7 +137,7 @@ pub extern "C" fn Java_org_servo_servoview_JNIServo_init<'local>(
             Config::default()
                 .with_max_level(log::LevelFilter::Debug)
                 .with_filter(filter_builder.build())
-                .with_tag("servoshell"),
+                .with_tag("graphshell"),
         )
     }
 

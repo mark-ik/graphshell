@@ -248,7 +248,7 @@ pub(crate) fn detach_node_pane_to_split(tiles_tree: &mut Tree<TileKind>, node_ke
 pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
     if tile_runtime::has_any_node_panes(args.tiles_tree) {
         let node_pane_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
-        let webview_host_nodes = tile_runtime::all_node_pane_keys_hosting_webview_runtime(
+        let composited_runtime_nodes = tile_runtime::all_node_pane_keys_using_composited_runtime(
             args.tiles_tree,
             args.graph_app,
         );
@@ -264,8 +264,8 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
         for tile_id in tile_ids {
             args.tiles_tree.remove_recursively(tile_id);
         }
-        for node_key in webview_host_nodes.iter().copied() {
-            tile_runtime::release_webview_runtime_for_node_pane(
+        for node_key in composited_runtime_nodes.iter().copied() {
+            tile_runtime::release_node_runtime_for_pane(
                 args.graph_app,
                 args.window,
                 args.tile_rendering_contexts,
@@ -274,14 +274,14 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
             );
         }
         for node_key in node_pane_nodes {
-            if !webview_host_nodes.contains(&node_key) {
+            if !composited_runtime_nodes.contains(&node_key) {
                 args.tile_rendering_contexts.remove(&node_key);
             }
         }
     } else if let Some(node_key) = preferred_detail_node(args.graph_app) {
         open_or_focus_node_pane(args.tiles_tree, node_key);
         let opened_node_pane = NodePaneState::for_node(node_key);
-        if tile_runtime::node_pane_hosts_webview_runtime(&opened_node_pane, args.graph_app) {
+        if tile_runtime::node_pane_uses_composited_runtime(&opened_node_pane, args.graph_app) {
             webview_backpressure::ensure_webview_for_node(
                 args.graph_app,
                 args.window,

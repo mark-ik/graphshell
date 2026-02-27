@@ -20,7 +20,7 @@ use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
-/// Persisted pane identifier used inside workspace bundle schema.
+/// Persisted pane identifier used inside frame bundle schema.
 ///
 /// Distinct from runtime `pane_model::PaneId` (UUID-backed) and scoped only to
 /// a single serialized layout tree.
@@ -33,7 +33,7 @@ pub(crate) type PaneId = PersistedPaneId;
 pub(crate) enum PersistedPaneTile {
     Graph,
     Pane(PaneId),
-    /// Legacy read-compat for historical workspace layouts that persisted a
+    /// Legacy read-compat for historical frame layouts that persisted a
     /// diagnostics pane directly in layout tiles.
     ///
     /// This variant is deserialize-only compatibility and is never written by
@@ -44,7 +44,7 @@ pub(crate) enum PersistedPaneTile {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct WorkspaceLayout {
+pub(crate) struct FrameLayout {
     pub tree: Tree<PersistedPaneTile>,
 }
 
@@ -53,7 +53,7 @@ pub(crate) enum PaneContent {
     Graph,
     /// Node viewer pane bound to a graph node (viewer backend is resolved at
     /// runtime by `ViewerRegistry`). Serde alias preserves backward-compat
-    /// deserialization of workspaces saved before the `WebViewNode` → `NodePane`
+    /// deserialization of frame snapshots saved before the `WebViewNode` → `NodePane`
     /// terminology rename.
     #[serde(alias = "WebViewNode")]
     NodePane {
@@ -66,29 +66,34 @@ pub(crate) enum PaneContent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct WorkspaceManifest {
+pub(crate) struct FrameManifest {
     pub panes: BTreeMap<PaneId, PaneContent>,
     pub member_node_uuids: BTreeSet<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct WorkspaceMetadata {
+pub(crate) struct FrameMetadata {
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub last_activated_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct PersistedWorkspace {
+pub(crate) struct PersistedFrame {
     pub version: u32,
     pub name: String,
-    pub layout: WorkspaceLayout,
-    pub manifest: WorkspaceManifest,
-    pub metadata: WorkspaceMetadata,
+    pub layout: FrameLayout,
+    pub manifest: FrameManifest,
+    pub metadata: FrameMetadata,
 }
 
+pub(crate) type WorkspaceLayout = FrameLayout;
+pub(crate) type WorkspaceManifest = FrameManifest;
+pub(crate) type WorkspaceMetadata = FrameMetadata;
+pub(crate) type PersistedWorkspace = PersistedFrame;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum WorkspaceBundleError {
+pub(crate) enum FrameBundleError {
     MissingManifestPane {
         pane_id: PaneId,
     },
@@ -98,26 +103,26 @@ pub(crate) enum WorkspaceBundleError {
     },
 }
 
-impl std::fmt::Display for WorkspaceBundleError {
+impl std::fmt::Display for FrameBundleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingManifestPane { pane_id } => {
                 write!(
                     f,
-                    "workspace layout references missing manifest pane id {pane_id}"
+                    "frame layout references missing manifest pane id {pane_id}"
                 )
             }
             Self::MembershipMismatch { .. } => {
                 write!(
                     f,
-                    "workspace manifest declared membership does not match pane-derived membership"
+                    "frame manifest declared membership does not match pane-derived membership"
                 )
             }
         }
     }
 }
 
-impl std::error::Error for WorkspaceBundleError {}
+impl std::error::Error for FrameBundleError {}
 
 fn now_unix_ms() -> u64 {
     SystemTime::now()
@@ -126,7 +131,7 @@ fn now_unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn persisted_layout_referenced_pane_ids(layout: &WorkspaceLayout) -> BTreeSet<PaneId> {
+fn persisted_layout_referenced_pane_ids(layout: &FrameLayout) -> BTreeSet<PaneId> {
     layout
         .tree
         .tiles
@@ -138,7 +143,7 @@ fn persisted_layout_referenced_pane_ids(layout: &WorkspaceLayout) -> BTreeSet<Pa
         .collect()
 }
 
-pub(crate) fn derive_membership_from_manifest(manifest: &WorkspaceManifest) -> BTreeSet<Uuid> {
+pub(crate) fn derive_membership_from_manifest(manifest: &FrameManifest) -> BTreeSet<Uuid> {
     manifest
         .panes
         .values()
@@ -150,17 +155,17 @@ pub(crate) fn derive_membership_from_manifest(manifest: &WorkspaceManifest) -> B
         .collect()
 }
 
-pub(crate) fn validate_workspace_bundle(
+pub(crate) fn validate_frame_bundle(
     bundle: &PersistedWorkspace,
-) -> Result<(), WorkspaceBundleError> {
+) -> Result<(), FrameBundleError> {
     for pane_id in persisted_layout_referenced_pane_ids(&bundle.layout) {
         if !bundle.manifest.panes.contains_key(&pane_id) {
-            return Err(WorkspaceBundleError::MissingManifestPane { pane_id });
+            return Err(FrameBundleError::MissingManifestPane { pane_id });
         }
     }
     let derived = derive_membership_from_manifest(&bundle.manifest);
     if derived != bundle.manifest.member_node_uuids {
-        return Err(WorkspaceBundleError::MembershipMismatch {
+        return Err(FrameBundleError::MembershipMismatch {
             declared: bundle.manifest.member_node_uuids.clone(),
             derived,
         });
@@ -197,7 +202,7 @@ fn runtime_tree_to_bundle(
                     .graph
                     .get_node(state.node)
                     .ok_or_else(|| {
-                        format!("workspace contains stale node key {}", state.node.index())
+                        format!("frame snapshot contains stale node key {}", state.node.index())
                     })?;
                 let pane_id = tile_id.0;
                 panes.insert(pane_id, PaneContent::NodePane { node_uuid: node.id });
@@ -216,7 +221,7 @@ fn runtime_tree_to_bundle(
     let layout_tree: Tree<PersistedPaneTile> =
         serde_json::from_value(serde_json::to_value(serde_tree).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
-    let mut manifest = WorkspaceManifest {
+    let mut manifest = FrameManifest {
         panes,
         member_node_uuids: BTreeSet::new(),
     };
@@ -224,7 +229,7 @@ fn runtime_tree_to_bundle(
 
     let now = now_unix_ms();
     let metadata = match prior_metadata {
-        Some(prior) => WorkspaceMetadata {
+        Some(prior) => FrameMetadata {
             created_at_ms: if prior.created_at_ms == 0 {
                 now
             } else {
@@ -233,7 +238,7 @@ fn runtime_tree_to_bundle(
             updated_at_ms: now,
             last_activated_at_ms: prior.last_activated_at_ms,
         },
-        None => WorkspaceMetadata {
+        None => FrameMetadata {
             created_at_ms: now,
             updated_at_ms: now,
             last_activated_at_ms: None,
@@ -243,45 +248,45 @@ fn runtime_tree_to_bundle(
     Ok(PersistedWorkspace {
         version: 1,
         name: name.to_string(),
-        layout: WorkspaceLayout { tree: layout_tree },
+        layout: FrameLayout { tree: layout_tree },
         manifest,
         metadata,
     })
 }
 
-pub(crate) fn serialize_named_workspace_bundle(
+pub(crate) fn serialize_named_frame_bundle(
     graph_app: &GraphBrowserApp,
     name: &str,
     tree: &Tree<TileKind>,
 ) -> Result<String, String> {
-    let prior_metadata = load_named_workspace_bundle(graph_app, name)
+    let prior_metadata = load_named_frame_bundle(graph_app, name)
         .ok()
         .map(|b| b.metadata);
     let bundle = runtime_tree_to_bundle(graph_app, name, tree, prior_metadata)?;
     serde_json::to_string(&bundle).map_err(|e| e.to_string())
 }
 
-pub(crate) fn save_named_workspace_bundle(
+pub(crate) fn save_named_frame_bundle(
     graph_app: &mut GraphBrowserApp,
     name: &str,
     tree: &Tree<TileKind>,
 ) -> Result<(), String> {
-    let bundle_json = serialize_named_workspace_bundle(graph_app, name, tree)?;
+    let bundle_json = serialize_named_frame_bundle(graph_app, name, tree)?;
     graph_app.save_workspace_layout_json(name, &bundle_json);
     Ok(())
 }
 
-pub(crate) fn load_named_workspace_bundle(
+pub(crate) fn load_named_frame_bundle(
     graph_app: &GraphBrowserApp,
     name: &str,
 ) -> Result<PersistedWorkspace, String> {
     let json = graph_app
         .load_workspace_layout_json(name)
-        .ok_or_else(|| format!("workspace '{name}' not found"))?;
+        .ok_or_else(|| format!("frame snapshot '{name}' not found"))?;
     let mut bundle: PersistedWorkspace = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    if let Err(err) = validate_workspace_bundle(&bundle) {
+    if let Err(err) = validate_frame_bundle(&bundle) {
         match err {
-            WorkspaceBundleError::MembershipMismatch { .. } => {
+            FrameBundleError::MembershipMismatch { .. } => {
                 repair_manifest_membership(&mut bundle);
             }
             _ => return Err(err.to_string()),
@@ -290,14 +295,14 @@ pub(crate) fn load_named_workspace_bundle(
     Ok(bundle)
 }
 
-pub(crate) fn restore_runtime_tree_from_workspace_bundle(
+pub(crate) fn restore_runtime_tree_from_frame_bundle(
     graph_app: &GraphBrowserApp,
     bundle: &PersistedWorkspace,
 ) -> Result<(Tree<TileKind>, Vec<NodeKey>), String> {
     let mut repaired = bundle.clone();
-    if let Err(err) = validate_workspace_bundle(&repaired) {
+    if let Err(err) = validate_frame_bundle(&repaired) {
         match err {
-            WorkspaceBundleError::MembershipMismatch { .. } => {
+            FrameBundleError::MembershipMismatch { .. } => {
                 repair_manifest_membership(&mut repaired)
             }
             _ => return Err(err.to_string()),
@@ -384,7 +389,7 @@ pub(crate) fn restore_runtime_tree_from_workspace_bundle(
     Ok((runtime_tree, restored_nodes))
 }
 
-pub(crate) fn build_membership_index_from_workspace_manifests(
+pub(crate) fn build_membership_index_from_frame_manifests(
     graph_app: &GraphBrowserApp,
 ) -> HashMap<Uuid, BTreeSet<String>> {
     let mut index: HashMap<Uuid, BTreeSet<String>> = HashMap::new();
@@ -392,10 +397,10 @@ pub(crate) fn build_membership_index_from_workspace_manifests(
         if GraphBrowserApp::is_reserved_workspace_layout_name(&workspace_name) {
             continue;
         }
-        let Ok(mut bundle) = load_named_workspace_bundle(graph_app, &workspace_name) else {
+        let Ok(mut bundle) = load_named_frame_bundle(graph_app, &workspace_name) else {
             continue;
         };
-        if validate_workspace_bundle(&bundle).is_err() {
+        if validate_frame_bundle(&bundle).is_err() {
             repair_manifest_membership(&mut bundle);
         }
         for uuid in &bundle.manifest.member_node_uuids {
@@ -408,15 +413,15 @@ pub(crate) fn build_membership_index_from_workspace_manifests(
     index
 }
 
-pub(crate) fn refresh_workspace_membership_cache_from_manifests(
+pub(crate) fn refresh_frame_membership_cache_from_manifests(
     graph_app: &mut GraphBrowserApp,
 ) -> Result<(), String> {
-    let membership_index = build_membership_index_from_workspace_manifests(graph_app);
+    let membership_index = build_membership_index_from_frame_manifests(graph_app);
     graph_app.init_membership_index(membership_index);
     Ok(())
 }
 
-pub(crate) fn build_workspace_activation_recency_from_workspace_manifests(
+pub(crate) fn build_frame_activation_recency_from_frame_manifests(
     graph_app: &GraphBrowserApp,
 ) -> (HashMap<Uuid, (u64, String)>, u64) {
     let mut recency = HashMap::new();
@@ -426,10 +431,10 @@ pub(crate) fn build_workspace_activation_recency_from_workspace_manifests(
         if GraphBrowserApp::is_reserved_workspace_layout_name(&workspace_name) {
             continue;
         }
-        let Ok(mut bundle) = load_named_workspace_bundle(graph_app, &workspace_name) else {
+        let Ok(mut bundle) = load_named_frame_bundle(graph_app, &workspace_name) else {
             continue;
         };
-        if validate_workspace_bundle(&bundle).is_err() {
+        if validate_frame_bundle(&bundle).is_err() {
             repair_manifest_membership(&mut bundle);
         }
         let Some(last_activated) = bundle.metadata.last_activated_at_ms else {
@@ -449,17 +454,78 @@ pub(crate) fn build_workspace_activation_recency_from_workspace_manifests(
     (recency, activation_seq)
 }
 
-pub(crate) fn mark_named_workspace_bundle_activated(
+pub(crate) fn mark_named_frame_bundle_activated(
     graph_app: &mut GraphBrowserApp,
     name: &str,
 ) -> Result<(), String> {
-    let mut bundle = load_named_workspace_bundle(graph_app, name)?;
+    let mut bundle = load_named_frame_bundle(graph_app, name)?;
     let now = now_unix_ms();
     bundle.metadata.updated_at_ms = now;
     bundle.metadata.last_activated_at_ms = Some(now);
     let bundle_json = serde_json::to_string(&bundle).map_err(|e| e.to_string())?;
     graph_app.save_workspace_layout_json(name, &bundle_json);
     Ok(())
+}
+
+pub(crate) fn validate_workspace_bundle(
+    bundle: &PersistedWorkspace,
+) -> Result<(), FrameBundleError> {
+    validate_frame_bundle(bundle)
+}
+
+pub(crate) fn serialize_named_workspace_bundle(
+    graph_app: &GraphBrowserApp,
+    name: &str,
+    tree: &Tree<TileKind>,
+) -> Result<String, String> {
+    serialize_named_frame_bundle(graph_app, name, tree)
+}
+
+pub(crate) fn save_named_workspace_bundle(
+    graph_app: &mut GraphBrowserApp,
+    name: &str,
+    tree: &Tree<TileKind>,
+) -> Result<(), String> {
+    save_named_frame_bundle(graph_app, name, tree)
+}
+
+pub(crate) fn load_named_workspace_bundle(
+    graph_app: &GraphBrowserApp,
+    name: &str,
+) -> Result<PersistedWorkspace, String> {
+    load_named_frame_bundle(graph_app, name)
+}
+
+pub(crate) fn restore_runtime_tree_from_workspace_bundle(
+    graph_app: &GraphBrowserApp,
+    bundle: &PersistedWorkspace,
+) -> Result<(Tree<TileKind>, Vec<NodeKey>), String> {
+    restore_runtime_tree_from_frame_bundle(graph_app, bundle)
+}
+
+pub(crate) fn build_membership_index_from_workspace_manifests(
+    graph_app: &GraphBrowserApp,
+) -> HashMap<Uuid, BTreeSet<String>> {
+    build_membership_index_from_frame_manifests(graph_app)
+}
+
+pub(crate) fn refresh_workspace_membership_cache_from_manifests(
+    graph_app: &mut GraphBrowserApp,
+) -> Result<(), String> {
+    refresh_frame_membership_cache_from_manifests(graph_app)
+}
+
+pub(crate) fn build_workspace_activation_recency_from_workspace_manifests(
+    graph_app: &GraphBrowserApp,
+) -> (HashMap<Uuid, (u64, String)>, u64) {
+    build_frame_activation_recency_from_frame_manifests(graph_app)
+}
+
+pub(crate) fn mark_named_workspace_bundle_activated(
+    graph_app: &mut GraphBrowserApp,
+    name: &str,
+) -> Result<(), String> {
+    mark_named_frame_bundle_activated(graph_app, name)
 }
 
 pub(crate) fn restore_tiles_tree_from_persistence(graph_app: &GraphBrowserApp) -> Tree<TileKind> {
@@ -487,10 +553,10 @@ fn workspace_nodes_from_tree(tree: &Tree<TileKind>) -> Vec<NodeKey> {
         .collect()
 }
 
-/// Rebuild the UUID-keyed workspace membership index from persisted named workspace layouts.
+/// Rebuild the UUID-keyed frame membership index from persisted named frame layouts.
 ///
-/// Reserved autosave/session workspace keys are intentionally excluded so routing decisions
-/// operate on user-meaningful named workspaces.
+/// Reserved autosave/session frame keys are intentionally excluded so routing decisions
+/// operate on user-meaningful named frame snapshots.
 pub(crate) fn build_membership_index_from_layouts(
     graph_app: &GraphBrowserApp,
 ) -> HashMap<Uuid, BTreeSet<String>> {
@@ -504,7 +570,7 @@ pub(crate) fn build_membership_index_from_layouts(
             continue;
         };
         let Ok(mut tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json) else {
-            warn!("Skipping workspace '{workspace_name}': invalid layout json");
+            warn!("Skipping frame snapshot '{workspace_name}': invalid layout json");
             continue;
         };
         tile_runtime::prune_stale_node_pane_keys_only(&mut tree, graph_app);
@@ -554,7 +620,7 @@ pub(crate) fn switch_persistence_store(
     Ok(())
 }
 
-/// Delete named workspaces that become empty after stale-node pruning.
+/// Delete named frame snapshots that become empty after stale-node pruning.
 pub(crate) fn prune_empty_named_workspaces(graph_app: &mut GraphBrowserApp) -> usize {
     let mut names_to_delete = Vec::new();
     for workspace_name in graph_app.list_workspace_layout_names() {
@@ -565,7 +631,7 @@ pub(crate) fn prune_empty_named_workspaces(graph_app: &mut GraphBrowserApp) -> u
             continue;
         };
         let Ok(mut tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json) else {
-            warn!("Skipping workspace '{workspace_name}': invalid layout json");
+            warn!("Skipping frame snapshot '{workspace_name}': invalid layout json");
             continue;
         };
         tile_runtime::prune_stale_node_pane_keys_only(&mut tree, graph_app);
@@ -586,7 +652,7 @@ pub(crate) fn prune_empty_named_workspaces(graph_app: &mut GraphBrowserApp) -> u
     deleted
 }
 
-/// Keep only the latest N named workspaces by activation recency.
+/// Keep only the latest N named frame snapshots by activation recency.
 pub(crate) fn keep_latest_named_workspaces(graph_app: &mut GraphBrowserApp, keep: usize) -> usize {
     let mut names: Vec<String> = graph_app
         .list_workspace_layout_names()
@@ -595,8 +661,8 @@ pub(crate) fn keep_latest_named_workspaces(graph_app: &mut GraphBrowserApp, keep
         .collect();
     names.sort_by(|a, b| {
         graph_app
-            .workspace_recency_seq_for_name(b)
-            .cmp(&graph_app.workspace_recency_seq_for_name(a))
+            .frame_recency_seq_for_name(b)
+            .cmp(&graph_app.frame_recency_seq_for_name(a))
             .then_with(|| a.cmp(b))
     });
     let names_to_delete: Vec<String> = names.into_iter().skip(keep).collect();
@@ -641,7 +707,7 @@ mod tests {
             tiles.insert_tab_tile(children)
         };
         let tree = Tree::new("workspace_test", root, tiles);
-        serde_json::to_string(&tree).expect("workspace layout should serialize")
+        serde_json::to_string(&tree).expect("frame layout should serialize")
     }
 
     #[test]
@@ -721,9 +787,9 @@ mod tests {
         app.save_workspace_layout_json("workspace-old", &workspace_layout_json_with_nodes(&[node]));
         app.save_workspace_layout_json("workspace-mid", &workspace_layout_json_with_nodes(&[node]));
         app.save_workspace_layout_json("workspace-new", &workspace_layout_json_with_nodes(&[node]));
-        app.note_workspace_activated("workspace-old", [node]);
-        app.note_workspace_activated("workspace-mid", [node]);
-        app.note_workspace_activated("workspace-new", [node]);
+        app.note_frame_activated("workspace-old", [node]);
+        app.note_frame_activated("workspace-mid", [node]);
+        app.note_frame_activated("workspace-new", [node]);
 
         let deleted = keep_latest_named_workspaces(&mut app, 1);
         assert_eq!(deleted, 2);
@@ -737,14 +803,14 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_bundle_serialization_excludes_diagnostics_payload() {
+    fn test_frame_bundle_serialization_excludes_diagnostics_payload() {
         let dir = TempDir::new().unwrap();
         let app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
         let tree: Tree<TileKind> = serde_json::from_str(&workspace_layout_json_with_nodes(&[]))
-            .expect("workspace tree should deserialize");
+            .expect("frame tree should deserialize");
 
         let json = serialize_named_workspace_bundle(&app, "workspace-clean", &tree)
-            .expect("workspace bundle should serialize");
+            .expect("frame bundle should serialize");
         let value: serde_json::Value =
             serde_json::from_str(&json).expect("bundle json should parse");
         let root = value.as_object().expect("bundle should be json object");
@@ -764,7 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_bundle_serialization_uses_pane_model_terms_not_legacy_aliases() {
+    fn test_frame_bundle_serialization_uses_pane_model_terms_not_legacy_aliases() {
         let dir = TempDir::new().unwrap();
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
         let node = app.add_node_and_sync("https://schema.example".into(), Point2D::new(0.0, 0.0));
@@ -776,7 +842,7 @@ mod tests {
         let tree = Tree::new("workspace-schema-terms", root, tiles);
 
         let json = serialize_named_workspace_bundle(&app, "workspace-schema-terms", &tree)
-            .expect("workspace bundle should serialize");
+            .expect("frame bundle should serialize");
 
         assert!(json.contains("\"NodePane\""));
         assert!(!json.contains("\"WebViewNode\""));
@@ -784,7 +850,7 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_bundle_payload_stays_clean_after_restart() {
+    fn test_frame_bundle_payload_stays_clean_after_restart() {
         let dir = TempDir::new().unwrap();
         let data_dir = dir.path().to_path_buf();
         let workspace_name = "workspace-restart-clean";
@@ -800,13 +866,13 @@ mod tests {
             let tree = Tree::new("restart_bundle", root, tiles);
 
             save_named_workspace_bundle(&mut app, workspace_name, &tree)
-                .expect("save workspace bundle");
+                .expect("save frame bundle");
         }
 
         let app = GraphBrowserApp::new_from_dir(data_dir);
         let json = app
             .load_workspace_layout_json(workspace_name)
-            .expect("workspace bundle json should exist");
+            .expect("frame bundle json should exist");
         let value: serde_json::Value = serde_json::from_str(&json).expect("bundle json parse");
         let root = value.as_object().expect("bundle should be object");
 
@@ -886,7 +952,7 @@ mod tests {
 
         let canonical_json =
             serialize_named_workspace_bundle(&app, "workspace-legacy-alias", &runtime_tree)
-                .expect("canonical workspace bundle should serialize");
+                .expect("canonical frame bundle should serialize");
         let bundle_json = canonical_json.replace("\"NodePane\"", "\"WebViewNode\"");
 
         app.save_workspace_layout_json("workspace-legacy-alias", &bundle_json);

@@ -124,7 +124,7 @@ egui-widget-based and never require overlay mode.
 Selection order at node open / lifecycle promotion time:
 
 1. `Node.viewer_id_override` — explicit user choice (highest priority; persisted to WAL).
-2. Workspace `viewer_id_default` — workspace-level default (from `WorkspaceManifest`).
+2. Frame `viewer_id_default` — frame-level default (from `FrameManifest`).
 3. `ViewerRegistry::select_for(mime: Option<&str>, address_kind: AddressKind)` — highest-priority
    registered viewer where `can_render()` returns true.
 4. `viewer:servo` — fallback for all `Http` and `File(html)` addresses.
@@ -174,7 +174,7 @@ A node created with `url = "https://example.com"` has `address_kind = AddressKin
 
 - Add `fn select_for(&self, mime: Option<&str>, kind: AddressKind) -> ViewerId` to
   `ViewerRegistry` in `registries/domain/viewer.rs`.
-- Implement selection order as described above (override → workspace default → registry best →
+- Implement selection order as described above (override → frame default → registry best →
   servo fallback → plaintext fallback).
 - Update `lifecycle_reconcile.rs`: when promoting a node to Active, consult `select_for` if no
   `viewer_id_override` is set. The selected `ViewerId` is stored ephemerally (not persisted) for

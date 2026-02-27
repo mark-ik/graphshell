@@ -5,6 +5,10 @@ use std::time::SystemTime;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED,
     CHANNEL_ACTION_EXECUTE_SUCCEEDED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY, CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
+    CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
     CHANNEL_IDENTITY_KEY_UNAVAILABLE, CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED,
     CHANNEL_IDENTITY_SIGN_SUCCEEDED, CHANNEL_INPUT_BINDING_CONFLICT, CHANNEL_INPUT_BINDING_MISSING,
@@ -367,7 +371,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 27] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 33] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -502,6 +506,36 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 27] = [
         channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
 ];
 
@@ -1123,6 +1157,8 @@ mod tests {
         assert!(registry.has_channel(CHANNEL_ACTION_EXECUTE_STARTED));
         assert!(registry.has_channel(CHANNEL_IDENTITY_SIGN_STARTED));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_GL_STATE_VIOLATION));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY));
         assert!(registry.has_channel(CHANNEL_VERSE_SYNC_UNIT_SENT));
     }
 

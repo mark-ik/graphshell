@@ -82,14 +82,11 @@ pub(crate) fn submit_address_bar_intents(
         };
     }
 
-    let focused_webview_id =
-        focused_toolbar_node.and_then(|key| graph_app.get_webview_for_node(key));
     let submit_result = webview_controller::handle_address_bar_submit_intents(
         graph_app,
         location,
         is_graph_view,
         focused_toolbar_node,
-        focused_webview_id,
         window,
         searchpage,
     );

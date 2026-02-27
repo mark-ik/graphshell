@@ -31,7 +31,7 @@ mod toolbar_omnibar;
 mod toolbar_right_controls;
 #[path = "toolbar_settings_menu.rs"]
 mod toolbar_settings_menu;
-use self::toolbar_controls::{render_navigation_buttons, render_workspace_pin_controls};
+use self::toolbar_controls::{render_frame_pin_controls, render_navigation_buttons};
 use self::toolbar_location_panel::render_location_search_panel;
 use self::toolbar_omnibar::{
     apply_omnibar_match, dedupe_matches_in_order, default_search_provider_from_searchpage,
@@ -43,7 +43,7 @@ use self::toolbar_omnibar::{
 use self::toolbar_right_controls::render_toolbar_right_controls;
 use self::toolbar_settings_menu::render_settings_menu;
 use crate::app::{
-    CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut, LassoMouseBinding,
+    CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
     ToastAnchorPreference,
 };
@@ -186,13 +186,6 @@ fn toast_anchor_label(anchor: ToastAnchorPreference) -> &'static str {
     }
 }
 
-fn lasso_binding_label(binding: LassoMouseBinding) -> &'static str {
-    match binding {
-        LassoMouseBinding::RightDrag => "Right Drag (Default)",
-        LassoMouseBinding::ShiftLeftDrag => "Shift + Left Drag",
-    }
-}
-
 fn command_palette_shortcut_label(shortcut: CommandPaletteShortcut) -> &'static str {
     match shortcut {
         CommandPaletteShortcut::F2 => "F2 (Default)",
@@ -265,7 +258,7 @@ fn request_open_settings_page(
     });
 }
 
-fn workspace_pin_name_for_node(node: NodeKey, graph_app: &GraphBrowserApp) -> Option<String> {
+fn frame_pin_name_for_node(node: NodeKey, graph_app: &GraphBrowserApp) -> Option<String> {
     graph_app
         .workspace
         .graph
@@ -338,12 +331,12 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
     let mut toggle_tile_view_requested = false;
     let mut open_selected_mode_after_submit = None;
     let is_graph_view = !has_node_panes;
-    let persisted_workspace_names: HashSet<String> = graph_app
+    let persisted_frame_names: HashSet<String> = graph_app
         .list_workspace_layout_names()
         .into_iter()
         .collect();
     let focused_pane_pin_name =
-        focused_toolbar_node.and_then(|node| workspace_pin_name_for_node(node, graph_app));
+        focused_toolbar_node.and_then(|node| frame_pin_name_for_node(node, graph_app));
 
     let frame = egui::Frame::default()
         .fill(ctx.style().visuals.window_fill)
@@ -386,7 +379,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
                             omnibar_search_session,
                             frame_intents,
                             focused_pane_pin_name.as_deref(),
-                            &persisted_workspace_names,
+                            &persisted_frame_names,
                             &mut toggle_tile_view_requested,
                             &mut open_selected_mode_after_submit,
                             #[cfg(feature = "diagnostics")]

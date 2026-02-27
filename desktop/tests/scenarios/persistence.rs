@@ -10,7 +10,7 @@ use tempfile::TempDir;
 use uuid::Uuid;
 
 #[test]
-fn open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
+fn open_node_frame_routed_preserves_unsaved_prompt_state_until_restore() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     let node_id = harness
@@ -33,9 +33,9 @@ fn open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+        .apply_intents([GraphIntent::OpenNodeFrameRouted {
             key,
-            prefer_workspace: None,
+            prefer_frame: None,
         }]);
 
     assert_eq!(
@@ -46,7 +46,7 @@ fn open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
 }
 
 #[test]
-fn workspace_has_unsaved_changes_for_graph_mutations() {
+fn frame_has_unsaved_changes_for_graph_mutations() {
     let mut harness = TestRegistry::new();
     harness.app.mark_current_workspace_synthesized();
 
@@ -58,7 +58,7 @@ fn workspace_has_unsaved_changes_for_graph_mutations() {
 }
 
 #[test]
-fn workspace_modified_for_graph_mutations_even_when_not_synthesized() {
+fn frame_modified_for_graph_mutations_even_when_not_synthesized() {
     let mut harness = TestRegistry::new();
 
     assert!(!harness.app.should_prompt_unsaved_workspace_save());
@@ -88,7 +88,7 @@ fn unsaved_prompt_warning_resets_on_additional_graph_mutation() {
 }
 
 #[test]
-fn save_named_workspace_clears_unsaved_prompt_state() {
+fn save_named_frame_clears_unsaved_prompt_state() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
     app.mark_current_workspace_synthesized();
@@ -104,7 +104,7 @@ fn save_named_workspace_clears_unsaved_prompt_state() {
 }
 
 #[test]
-fn workspace_not_modified_for_non_graph_mutations() {
+fn frame_not_modified_for_non_graph_mutations() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
@@ -118,7 +118,7 @@ fn workspace_not_modified_for_non_graph_mutations() {
 }
 
 #[test]
-fn workspace_not_modified_for_set_node_position() {
+fn frame_not_modified_for_set_node_position() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
@@ -132,7 +132,7 @@ fn workspace_not_modified_for_set_node_position() {
 }
 
 #[test]
-fn workspace_has_unsaved_changes_for_set_node_pinned() {
+fn frame_has_unsaved_changes_for_set_node_pinned() {
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
@@ -146,7 +146,7 @@ fn workspace_has_unsaved_changes_for_set_node_pinned() {
 }
 
 #[test]
-fn session_workspace_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layout() {
+fn session_frame_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layout() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
     app.set_workspace_autosave_interval_secs(1)
@@ -179,7 +179,7 @@ fn session_workspace_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_l
 }
 
 #[test]
-fn session_workspace_blob_autosave_rotates_previous_latest_bundle_on_layout_change() {
+fn session_frame_blob_autosave_rotates_previous_latest_bundle_on_layout_change() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
     app.set_workspace_autosave_interval_secs(1)

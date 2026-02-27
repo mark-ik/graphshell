@@ -94,9 +94,9 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 .push(GraphIntent::UnmapWebview { webview_id });
         }
         args.tile_rendering_contexts.remove(&node_key);
-        // Workspace-aware demotion:
-        let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
-        if is_workspace_member {
+        // Frame-aware demotion:
+        let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
+        if is_frame_member {
             args.frame_intents
                 .push(lifecycle_intents::demote_node_to_warm(
                     node_key,
@@ -125,7 +125,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .collect();
     let has_node_panes = !tile_nodes.is_empty();
     // Emit lifecycle promotion intents for active tiles (intents applied after reconcile).
-    // Webview creation happens in tile_render_pass after these intents are applied.
+    // Runtime viewer creation happens in tile_render_pass after these intents are applied.
     for node_key in active_tile_nodes.iter().copied() {
         if args.graph_app.is_runtime_blocked(node_key, Instant::now()) {
             continue;
@@ -185,8 +185,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             args.frame_intents,
         );
 
-        // Webview creation moved to tile_render_pass (after intents are applied).
-        // Reconcile only emits intents, doesn't directly create webviews.
+        // Runtime viewer creation moved to tile_render_pass (after intents are applied).
+        // Reconcile only emits intents, it doesn't directly create runtime viewers.
 
         let mut protected_active_nodes = active_tile_nodes.clone();
         if let Some(node_key) = prewarm_selected_node {
@@ -207,9 +207,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                         .push(GraphIntent::UnmapWebview { webview_id });
                 }
                 args.tile_rendering_contexts.remove(&node_key);
-                let is_workspace_member =
-                    !args.graph_app.workspaces_for_node_key(node_key).is_empty();
-                if is_workspace_member {
+                let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
+                if is_frame_member {
                     args.frame_intents
                         .push(lifecycle_intents::demote_node_to_warm(
                             node_key,
@@ -228,8 +227,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .graph_app
             .take_active_webview_evictions(&protected_active_nodes)
         {
-            let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
-            if is_workspace_member {
+            let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
+            if is_frame_member {
                 args.frame_intents
                     .push(lifecycle_intents::demote_node_to_warm(
                         node_key,

@@ -19,18 +19,18 @@ pub(crate) fn collect_tile_invariant_violations(
     tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    for node_key in tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
+    for node_key in tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app)
     {
         if graph_app.workspace.graph.get_node(node_key).is_none() {
             violations.push(format!(
-                "tile/webview-host desync: tile has stale node key {}",
+                "tile/node-viewer-runtime desync: tile has stale node key {}",
                 node_key.index()
             ));
             continue;
         }
         if graph_app.get_webview_for_node(node_key).is_none() {
             violations.push(format!(
-                "tile/webview-host desync: node {} is missing webview mapping",
+                "tile/node-viewer-runtime desync: node {} is missing runtime mapping",
                 node_key.index()
             ));
         }
@@ -50,15 +50,15 @@ pub(crate) fn collect_active_tile_mapping_violations(
     tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    let node_panes_hosting_webview_runtime =
-        tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
+    let node_panes_using_composited_runtime =
+        tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app);
     for tile_id in tiles_tree.active_tiles() {
         let Some(egui_tiles::Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
         else {
             continue;
         };
         let node_key = state.node;
-        if !node_panes_hosting_webview_runtime.contains(&node_key) {
+        if !node_panes_using_composited_runtime.contains(&node_key) {
             continue;
         }
         if graph_app.workspace.graph.get_node(node_key).is_none() {
@@ -70,7 +70,7 @@ pub(crate) fn collect_active_tile_mapping_violations(
         }
         if graph_app.get_webview_for_node(node_key).is_none() {
             violations.push(format!(
-                "active tile desync: node {} is missing webview mapping",
+                "active tile desync: node {} is missing runtime mapping",
                 node_key.index()
             ));
         }
@@ -91,7 +91,7 @@ mod tests {
     use egui_tiles::Tiles;
     use euclid::Point2D;
 
-    fn tree_with_active_node_pane_hosting_webview_runtime(node_key: NodeKey) -> Tree<TileKind> {
+    fn tree_with_active_node_pane_using_composited_runtime(node_key: NodeKey) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
         let node_pane = tiles.insert_pane(TileKind::Node(node_key.into()));
@@ -108,7 +108,7 @@ mod tests {
         if let Some(webview_id) = app.get_webview_for_node(node_key) {
             let _ = app.unmap_webview(webview_id);
         }
-        let tree = tree_with_active_node_pane_hosting_webview_runtime(node_key);
+        let tree = tree_with_active_node_pane_using_composited_runtime(node_key);
         let contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>> = HashMap::new();
 
         let violations = collect_active_tile_mapping_violations(&tree, &app, &contexts);
@@ -116,7 +116,7 @@ mod tests {
         assert!(
             violations
                 .iter()
-                .any(|v| v.contains("missing webview mapping"))
+                .any(|v| v.contains("missing runtime mapping"))
         );
         assert!(
             violations
@@ -126,10 +126,9 @@ mod tests {
     }
 
     #[test]
-    fn active_tile_mapping_violations_ignore_non_active_node_panes_hosting_webview_runtime() {
+    fn active_tile_mapping_violations_ignore_non_active_node_panes_using_composited_runtime() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
-
         let mut tiles = Tiles::default();
         let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
         let node_pane = tiles.insert_pane(TileKind::Node(node_key.into()));

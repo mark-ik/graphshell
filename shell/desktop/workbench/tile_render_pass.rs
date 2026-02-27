@@ -42,9 +42,9 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub window_rendering_context: &'a Rc<WindowRenderingContext>,
     pub responsive_webviews: &'a HashSet<WebViewId>,
     pub webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub focused_webview_hint: &'a mut Option<WebViewId>,
+    pub focused_node_hint: &'a mut Option<NodeKey>,
     pub graph_surface_focused: bool,
-    pub focus_ring_webview_id: &'a mut Option<WebViewId>,
+    pub focus_ring_node_key: &'a mut Option<NodeKey>,
     pub focus_ring_started_at: &'a mut Option<Instant>,
     pub focus_ring_duration: Duration,
     #[cfg(feature = "diagnostics")]
@@ -151,9 +151,9 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         window_rendering_context,
         responsive_webviews,
         webview_creation_backpressure,
-        focused_webview_hint,
+        focused_node_hint,
         graph_surface_focused,
-        focus_ring_webview_id,
+        focus_ring_node_key,
         focus_ring_started_at,
         focus_ring_duration,
         #[cfg(feature = "diagnostics")]
@@ -219,7 +219,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         });
     }
     for node_key in pending_closed_nodes {
-        tile_runtime::release_webview_runtime_for_node_pane(
+           tile_runtime::release_node_runtime_for_pane(
             graph_app,
             window,
             tile_rendering_contexts,
@@ -229,7 +229,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     }
 
     for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
-        tile_runtime::release_webview_runtime_for_node_pane(
+           tile_runtime::release_node_runtime_for_pane(
             graph_app,
             window,
             tile_rendering_contexts,
@@ -249,7 +249,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         let mapped = graph_app.get_webview_for_node(*key);
         let has_context = tile_rendering_contexts.contains_key(key);
         log::debug!(
-            "tile_render_pass: active tile {:?} rect {:?} mapped_webview={:?} has_context={}",
+            "tile_render_pass: active tile {:?} rect {:?} mapped_runtime_viewer={:?} has_context={}",
             key,
             rect,
             mapped,
@@ -320,17 +320,17 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
     }
 
-    // Ensure webviews exist for active tiles, applying intents immediately
-    // so compositing (below) can find the webviews via get_webview_for_node.
-    let mut webview_creation_intents = Vec::new();
-    let webview_host_nodes =
-        tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
+    // Ensure runtime viewers exist for active tiles, applying intents immediately
+    // so compositing (below) can find mapped runtime viewers via get_webview_for_node.
+    let mut runtime_viewer_creation_intents = Vec::new();
+    let composited_runtime_nodes =
+        tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app);
     for (node_key, _) in active_tile_rects.iter().copied() {
-        if !webview_host_nodes.contains(&node_key) {
+        if !composited_runtime_nodes.contains(&node_key) {
             continue;
         }
         log::debug!(
-            "tile_render_pass: ensuring webview for active node {:?}",
+            "tile_render_pass: ensuring runtime viewer for active node {:?}",
             node_key
         );
         webview_backpressure::ensure_webview_for_node(
@@ -343,23 +343,23 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             node_key,
             responsive_webviews,
             webview_creation_backpressure,
-            &mut webview_creation_intents,
+            &mut runtime_viewer_creation_intents,
         );
     }
     log::debug!(
-        "tile_render_pass: {} webview creation intents",
-        webview_creation_intents.len()
+        "tile_render_pass: {} runtime viewer creation intents",
+        runtime_viewer_creation_intents.len()
     );
-    if !webview_creation_intents.is_empty() {
+    if !runtime_viewer_creation_intents.is_empty() {
         #[cfg(feature = "diagnostics")]
         let apply_started = Instant::now();
-        graph_app.apply_intents(webview_creation_intents);
+        graph_app.apply_intents(runtime_viewer_creation_intents);
         #[cfg(feature = "diagnostics")]
         diagnostics_state.record_span_duration(
             "app::apply_intents",
             apply_started.elapsed().as_micros() as u64,
         );
-        log::debug!("tile_render_pass: applied webview creation intents");
+        log::debug!("tile_render_pass: applied runtime viewer creation intents");
         for (node_key, _) in active_tile_rects.iter().copied() {
             if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
                 log::debug!(
@@ -370,15 +370,15 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             }
         }
     }
-    let focused_webview_id = if graph_surface_focused {
-        *focused_webview_hint = None;
+    let focused_node_key = if graph_surface_focused {
+        *focused_node_hint = None;
         None
     } else {
-        tile_compositor::activate_focused_webview_for_frame(
+        tile_compositor::activate_focused_node_for_frame(
             window,
             tiles_tree,
             graph_app,
-            focused_webview_hint,
+            focused_node_hint,
         );
 
         let active_tile_violations = tile_invariants::collect_active_tile_mapping_violations(
@@ -398,20 +398,20 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 },
             );
         }
-        let focused_webview_id = tile_compositor::focused_webview_id_for_node_panes(
+        let focused_node_key = tile_compositor::focused_node_key_for_node_panes(
             tiles_tree,
             graph_app,
-            *focused_webview_hint,
+            *focused_node_hint,
         );
-        *focused_webview_hint = focused_webview_id;
-        focused_webview_id
+        *focused_node_hint = focused_node_key;
+        focused_node_key
     };
-    if *focus_ring_webview_id != focused_webview_id {
-        *focus_ring_webview_id = focused_webview_id;
-        *focus_ring_started_at = focused_webview_id.map(|_| Instant::now());
+    if *focus_ring_node_key != focused_node_key {
+        *focus_ring_node_key = focused_node_key;
+        *focus_ring_started_at = focused_node_key.map(|_| Instant::now());
     }
 
-    let focus_ring_alpha = if *focus_ring_webview_id == focused_webview_id {
+    let focus_ring_alpha = if *focus_ring_node_key == focused_node_key {
         focus_ring_started_at
             .as_ref()
             .map(|started| {
@@ -436,7 +436,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         graph_app,
         tile_rendering_contexts,
         active_tile_rects,
-        focused_webview_id,
+        focused_node_key,
         focus_ring_alpha,
     );
     #[cfg(feature = "diagnostics")]
@@ -448,9 +448,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     #[cfg(feature = "diagnostics")]
     {
         let active_tiles_for_diag = tile_compositor::active_node_pane_rects(tiles_tree);
-        let focused_webview_present = focused_webview_hint
-            .as_ref()
-            .is_some_and(|id| graph_app.get_node_for_webview(*id).is_some());
+        let focused_node_present = focused_node_key.is_some();
         let tiles = active_tiles_for_diag
             .iter()
             .map(|(node_key, rect)| {
@@ -462,7 +460,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 } else if mapped_webview {
                     "missing-context"
                 } else {
-                    "unmapped-webview"
+                    "unmapped-node-viewer"
                 };
                 crate::shell::desktop::runtime::diagnostics::CompositorTileSample {
                     node_key: *node_key,
@@ -478,7 +476,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             crate::shell::desktop::runtime::diagnostics::CompositorFrameSample {
                 sequence: 0,
                 active_tile_count: active_tiles_for_diag.len(),
-                focused_webview_present,
+                focused_node_present,
                 viewport_rect: ctx.available_rect(),
                 hierarchy: tile_hierarchy_lines(tiles_tree, graph_app),
                 tiles,

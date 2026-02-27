@@ -264,13 +264,13 @@ impl RunningAppState {
                 }
                 // This is only received when start new session.
                 WebDriverCommandMsg::GetFocusedWebView(sender) => {
-                    let focused_webview = self.focused_window().and_then(|window| {
+                    let preferred_input_webview = self.focused_window().and_then(|window| {
                         let webview_id = window
                             .platform_window()
                             .preferred_input_webview_id(&window)?;
                         window.webview_by_id(webview_id).map(|webview| webview.id())
                     });
-                    if let Err(error) = sender.send(focused_webview) {
+                    if let Err(error) = sender.send(preferred_input_webview) {
                         warn!("Failed to send response of GetFocusedWebView: {error}");
                     };
                 }

@@ -69,7 +69,7 @@ pub fn render_omnibar_dropdown(
     let mut clicked_omnibar_match: Option<OmnibarMatch> = None;
     let mut clicked_omnibar_index_with_modifiers: Option<(usize, Modifiers)> = None;
     let mut bulk_open_selected = false;
-    let mut bulk_add_selected_to_workspace = false;
+    let mut bulk_add_selected_to_frame = false;
     let mut clicked_scope_prefix: Option<&'static str> = None;
 
     // Render dropdown area with match list, bulk actions, and scope shortcuts
@@ -130,8 +130,8 @@ pub fn render_omnibar_dropdown(
                             if ui.small_button("Open Selected").clicked() {
                                 bulk_open_selected = true;
                             }
-                            if ui.small_button("Add Selected To Workspace...").clicked() {
-                                bulk_add_selected_to_workspace = true;
+                            if ui.small_button("Add Selected To Frame...").clicked() {
+                                bulk_add_selected_to_frame = true;
                             }
                         });
                     }
@@ -203,8 +203,8 @@ pub fn render_omnibar_dropdown(
         *location_dirty = true;
     }
 
-    // Bulk add selected node matches to workspace picker
-    if bulk_add_selected_to_workspace && let Some(session) = omnibar_search_session.as_ref() {
+    // Bulk add selected node matches to frame picker
+    if bulk_add_selected_to_frame && let Some(session) = omnibar_search_session.as_ref() {
         let mut node_keys = Vec::new();
         let mut ordered: Vec<usize> = session.selected_indices.iter().copied().collect();
         ordered.sort_unstable();
@@ -216,7 +216,7 @@ pub fn render_omnibar_dropdown(
         node_keys.sort_by_key(|key| key.index());
         node_keys.dedup();
         if !node_keys.is_empty() {
-            graph_app.request_add_exact_selection_to_workspace_picker(node_keys);
+            graph_app.request_add_exact_selection_to_frame_picker(node_keys);
         }
     }
 
