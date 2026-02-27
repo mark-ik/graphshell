@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Graphshell: WSL quick",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "scripts/dev/smoke-matrix.sh quick"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Graphshell: Windows quick",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-File",
+        "scripts/dev/smoke-matrix.ps1",
+        "quick"
+      ],
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

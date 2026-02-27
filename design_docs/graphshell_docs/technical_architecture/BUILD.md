@@ -27,6 +27,51 @@ cargo run --release -- --headless https://example.com
 
 Controls and shortcuts live in [KEYBINDINGS.md](../design/KEYBINDINGS.md).
 
+### Managed target directories (cross-platform)
+
+You can audit/install a recommended CLI baseline with:
+
+```bash
+scripts/dev/bootstrap-dev-env.sh
+scripts/dev/bootstrap-dev-env.sh --install
+scripts/dev/bootstrap-dev-env.sh --install-pwsh
+```
+
+```powershell
+pwsh -File scripts/dev/bootstrap-dev-env.ps1
+pwsh -File scripts/dev/bootstrap-dev-env.ps1 --install
+pwsh -File scripts/dev/bootstrap-dev-env.ps1 --install-pwsh
+```
+
+To avoid mixing build artifacts between host environments, use the helper scripts in `scripts/dev/`:
+
+```bash
+# Bash (WSL/Linux/macOS)
+scripts/dev/smoke-matrix.sh status
+scripts/dev/smoke-matrix.sh quick
+scripts/dev/smoke-matrix.sh cargo build --release
+```
+
+```powershell
+# PowerShell (Windows/local VS Code)
+pwsh -File scripts/dev/smoke-matrix.ps1 status
+pwsh -File scripts/dev/smoke-matrix.ps1 quick
+pwsh -File scripts/dev/smoke-matrix.ps1 cargo build --release
+```
+
+Default output directories are selected by host lane and created on demand:
+
+- Linux/WSL: `target/linux_target`
+- Windows: `target/windows_target`
+- macOS: `target/macos_target`
+
+Optional lane controls:
+
+- `GRAPHSHELL_CARGO_LANE=linux|windows|macos` force lane selection
+- `GRAPHSHELL_LINUX_TARGET_FLAVOR=<name>` split Linux outputs when needed (for example `linux_target-ubuntu`)
+- `GRAPHSHELL_SPLIT_WSL_TARGET=1` split WSL to `linux_target-wsl`
+- `CARGO_TARGET_DIR=<path>` full manual override
+
 ---
 
 ## Prerequisites
