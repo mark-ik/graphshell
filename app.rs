@@ -860,12 +860,9 @@ pub enum GraphIntent {
     RequestZoomReset,
     RequestZoomToSelected,
     ReheatPhysics,
-    TogglePhysicsPanel,
-    ToggleHistoryManager,
     ToggleHelpPanel,
     ToggleCommandPalette,
     ToggleRadialMenu,
-    TogglePersistencePanel,
     OpenSettingsUrl {
         url: String,
     },
@@ -1208,11 +1205,6 @@ pub struct GraphWorkspace {
     /// Short post-drag decay window to preserve "weight" when physics was paused.
     drag_release_frames_remaining: u8,
 
-    /// Whether the physics config panel is open
-    pub show_physics_panel: bool,
-
-    /// Whether the History Manager panel is open.
-    pub show_history_manager: bool,
     /// Active tab in the History Manager panel.
     pub history_manager_tab: HistoryManagerTab,
 
@@ -1224,12 +1216,6 @@ pub struct GraphWorkspace {
     /// Whether the radial command UI is open.
     pub show_radial_menu: bool,
 
-    /// Whether the persistence hub panel is open.
-    pub show_persistence_panel: bool,
-    /// Whether the Sync/Verse panel is open.
-    pub show_sync_panel: bool,
-    /// Whether the Manage Access dialog is open.
-    pub show_manage_access_dialog: bool,
     /// Preferred toast anchor location.
     pub toast_anchor_preference: ToastAnchorPreference,
     /// Shortcut binding for command palette.
@@ -1531,15 +1517,10 @@ impl GraphBrowserApp {
                 next_placeholder_id,
                 is_interacting: false,
                 drag_release_frames_remaining: 0,
-                show_physics_panel: false,
-                show_history_manager: false,
                 history_manager_tab: HistoryManagerTab::Timeline,
                 show_help_panel: false,
                 show_command_palette: false,
                 show_radial_menu: false,
-                show_persistence_panel: false,
-                show_sync_panel: false,
-                show_manage_access_dialog: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
@@ -1726,15 +1707,10 @@ impl GraphBrowserApp {
                 next_placeholder_id: 0,
                 is_interacting: false,
                 drag_release_frames_remaining: 0,
-                show_physics_panel: false,
-                show_history_manager: false,
                 history_manager_tab: HistoryManagerTab::Timeline,
                 show_help_panel: false,
                 show_command_palette: false,
                 show_radial_menu: false,
-                show_persistence_panel: false,
-                show_sync_panel: false,
-                show_manage_access_dialog: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
@@ -2159,12 +2135,9 @@ impl GraphBrowserApp {
             | GraphIntent::SetNodeFavicon { .. } => {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
             }
-            GraphIntent::TogglePhysicsPanel => self.toggle_physics_panel(),
-            GraphIntent::ToggleHistoryManager => self.toggle_history_manager(),
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
             GraphIntent::ToggleCommandPalette => self.toggle_command_palette(),
             GraphIntent::ToggleRadialMenu => self.toggle_radial_menu(),
-            GraphIntent::TogglePersistencePanel => self.toggle_persistence_panel(),
             GraphIntent::Undo => {
                 let current_layout =
                     self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME);
@@ -4121,16 +4094,6 @@ impl GraphBrowserApp {
         self.workspace.physics = config;
     }
 
-    /// Toggle physics config panel visibility
-    pub fn toggle_physics_panel(&mut self) {
-        self.workspace.show_physics_panel = !self.workspace.show_physics_panel;
-    }
-
-    /// Toggle history manager panel visibility
-    pub fn toggle_history_manager(&mut self) {
-        self.workspace.show_history_manager = !self.workspace.show_history_manager;
-    }
-
     /// Toggle keyboard shortcut help panel visibility
     pub fn toggle_help_panel(&mut self) {
         self.workspace.show_help_panel = !self.workspace.show_help_panel;
@@ -4149,46 +4112,21 @@ impl GraphBrowserApp {
         }
     }
 
-    /// Toggle persistence hub visibility.
-    pub fn toggle_persistence_panel(&mut self) {
-        self.workspace.show_persistence_panel = !self.workspace.show_persistence_panel;
-    }
-
-    /// Open a `graphshell://settings/*` URL using current panel-based bridge surfaces.
+    /// Open a `graphshell://settings/*` URL.
+    ///
+    /// Settings routes are workbench-authority and should be intercepted before
+    /// reducer application (`Gui::handle_tool_pane_intents`).
     pub fn open_settings_url(&mut self, url: &str) {
         let normalized = url.trim().to_ascii_lowercase();
         if !normalized.starts_with("graphshell://settings") {
             return;
         }
 
-        self.workspace.show_physics_panel = false;
-        self.workspace.show_history_manager = false;
-        self.workspace.show_persistence_panel = false;
-        self.workspace.show_sync_panel = false;
-
-        if normalized == "graphshell://settings/history" {
-            self.workspace.show_history_manager = true;
-            return;
-        }
-
-        if normalized == "graphshell://settings/physics" {
-            self.workspace.show_physics_panel = true;
-            return;
-        }
-
-        if normalized == "graphshell://settings/persistence" {
-            self.workspace.show_persistence_panel = true;
-            return;
-        }
-
-        if normalized == "graphshell://settings/sync" {
-            self.workspace.show_sync_panel = true;
-            return;
-        }
-
-        if normalized == "graphshell://settings" {
-            self.workspace.show_history_manager = true;
-        }
+        log::warn!(
+            "OpenSettingsUrl('{}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            normalized
+        );
     }
 
     /// Return recent traversal archive entries (descending, newest first).

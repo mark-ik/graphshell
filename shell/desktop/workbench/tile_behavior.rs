@@ -107,6 +107,7 @@ pub(crate) struct PendingOpenNode {
 
 pub(crate) struct GraphshellTileBehavior<'a> {
     pub graph_app: &'a mut GraphBrowserApp,
+    pub control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     search_matches: &'a HashSet<NodeKey>,
     active_search_match: Option<NodeKey>,
@@ -123,6 +124,7 @@ pub(crate) struct GraphshellTileBehavior<'a> {
 impl<'a> GraphshellTileBehavior<'a> {
     pub fn new(
         graph_app: &'a mut GraphBrowserApp,
+        control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
         tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
         search_matches: &'a HashSet<NodeKey>,
         active_search_match: Option<NodeKey>,
@@ -133,6 +135,7 @@ impl<'a> GraphshellTileBehavior<'a> {
     ) -> Self {
         Self {
             graph_app,
+            control_panel,
             tile_favicon_textures,
             search_matches,
             active_search_match,
@@ -504,13 +507,19 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         self.diagnostics_state.render_in_pane(ui, self.graph_app);
                     }
                     ToolPaneState::HistoryManager => {
-                        Self::render_tool_pane_placeholder(ui, tool);
+                        let intents = render::render_history_manager_in_ui(ui, self.graph_app);
+                        self.pending_graph_intents.extend(intents);
                     }
                     ToolPaneState::AccessibilityInspector => {
                         Self::render_tool_pane_placeholder(ui, tool);
                     }
                     ToolPaneState::Settings => {
-                        Self::render_tool_pane_placeholder(ui, tool);
+                        let intents = render::render_settings_tool_pane_in_ui_with_control_panel(
+                            ui,
+                            self.graph_app,
+                            Some(self.control_panel),
+                        );
+                        self.pending_graph_intents.extend(intents);
                     }
                 }
             }

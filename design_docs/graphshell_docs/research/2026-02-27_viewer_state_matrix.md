@@ -15,7 +15,6 @@ During the migration, viewer IDs can appear implemented when they are only decla
 | Viewer ID | Registry default mapping | Runtime provider wiring (Verso/mod path) | Render mode mapping | Actually rendered in pane today | Notes |
 |---|---|---|---|---|---|
 | `viewer:webview` | Yes | Yes | `CompositedTexture` | Yes (composited runtime path) | Canonical default web viewer ID.
-| `viewer:servo` | Legacy alias (not default) | N/A | `CompositedTexture` | Yes (via alias compatibility) | Kept for persisted override compatibility.
 | `viewer:wry` | Declared in docs/runtime policies | Depends on mod wiring/feature flags | `NativeOverlay` | Partially platform/path-dependent | Not universally active in all runs.
 | `viewer:plaintext` | Yes | Core/default | `EmbeddedEgui` | Yes | Implemented in tile behavior text path.
 | `viewer:markdown` | Yes | Core/default | `EmbeddedEgui` | Yes | Implemented via markdown embedded render path.
@@ -30,7 +29,6 @@ During the migration, viewer IDs can appear implemented when they are only decla
 ## Current practical interpretation
 
 - Stable today: `viewer:webview`, `viewer:plaintext`, `viewer:markdown`.
-- Compatibility maintained: `viewer:servo` alias.
 - Declared but not fully pane-embedded in the active path: `viewer:pdf`, `viewer:csv`, and additional documented targets.
 - Special route: `viewer:settings` resolves into settings intents rather than a generic content pane implementation.
 

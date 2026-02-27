@@ -12,7 +12,7 @@
 
 Verso is a **native mod** — compiled into the Graphshell binary, registered at startup via `inventory::submit!`, not sandboxed. It is the single "Browser Capability" mod. It does two things:
 
-1. **Web Peer**: brings Servo (the browser engine) and the `wry` OS webview fallback into the registry as `viewer:servo` and `viewer:wry`. These are how Graphshell renders the web.
+1. **Web Peer**: brings Servo (the browser engine) and the `wry` OS webview fallback into the registry as `viewer:webview` and `viewer:wry`. These are how Graphshell renders the web.
 2. **Verse Peer**: manages Graphshell's identity, pairing, and sync participation on the Verse network. Verso is the local agent that holds the user's keys, establishes iroh connections, and exchanges `SyncUnit` deltas with trusted peers.
 
 These two roles are unified in Verso because they share the same trust infrastructure: the keypair that signs Verso's Verse sync payloads is the same identity that signs the mod's capabilities. A user who enables Verso gets both web access and Verse participation from a single, coherent module.
@@ -29,11 +29,10 @@ On startup (via `inventory::submit!`), Verso registers the following with the re
 
 | Viewer ID | Backend | Rendering mode | Usable in |
 | --------- | ------- | -------------- | --------- |
-| `viewer:servo` | Servo (libservo) | Texture (GPU surface) | Graph canvas + workbench tiles |
+| `viewer:webview` | Servo (libservo) | Texture (GPU surface) | Graph canvas + workbench tiles |
 | `viewer:wry` | wry (OS webview) | Overlay (native window) | Workbench tiles only |
-| `viewer:webview` | alias | → `viewer:servo` (default) | User-configurable |
 
-The `viewer:webview` alias is the default that all nodes use unless the user has set a preference. Switching it to `viewer:wry` makes all new webviews use the native OS webview. Per-node and per-frame overrides use the specific IDs.
+`viewer:webview` is the canonical default that all nodes use unless the user has set a preference. Switching to `viewer:wry` makes new webviews use the native OS webview. Per-node and per-frame overrides use specific IDs.
 
 **ProtocolRegistry entries:**
 
@@ -107,7 +106,7 @@ Verso syncs the **semantic graph** (fjall WAL entries: nodes, edges, tags, metad
 
 - Layout state (tile tree, node positions) — these are device-local spatial preferences.
 - Renderer runtime state (active webviews, scroll positions) — ephemeral.
-- Frame tab semantics overlay — device-local organizational state.
+- Frame tile-selector semantics overlay — device-local organizational state.
 
 This boundary keeps sync semantically meaningful: peers share *what nodes and edges exist and what they mean*, not *how each device arranges them on screen*.
 
@@ -138,9 +137,8 @@ A frame can be shared with specific peers by granting them access:
 ModManifest {
     id: "verso",
     provides: &[
-        "viewer:servo",
+        "viewer:webview",
         "viewer:wry",           // only if compiled with --features wry
-        "viewer:webview",       // alias
         "protocol:http",
         "protocol:https",
         "protocol:file",
@@ -160,7 +158,7 @@ ModManifest {
 }
 ```
 
-If Verso is not loaded (or if the `network` capability is denied), `viewer:servo`, `viewer:wry`, `protocol:http/https`, and all Verse actions are simply not registered. Graphshell degrades gracefully to the core viewer set with no web access.
+If Verso is not loaded (or if the `network` capability is denied), `viewer:webview`, `viewer:wry`, `protocol:http/https`, and all Verse actions are simply not registered. Graphshell degrades gracefully to the core viewer set with no web access.
 
 ---
 

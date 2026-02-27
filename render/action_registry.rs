@@ -154,7 +154,7 @@ impl ActionId {
             Self::EdgeRemoveUser => "Remove User Edge",
             Self::GraphFit => "Fit Graph to Screen",
             Self::GraphTogglePhysics => "Toggle Physics Simulation",
-            Self::GraphPhysicsConfig => "Toggle Physics Panel",
+            Self::GraphPhysicsConfig => "Open Physics Settings",
             Self::GraphCommandPalette => "Open Command Palette",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",

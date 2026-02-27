@@ -6,6 +6,7 @@
 
 **Related**:
 - `PLANNING_REGISTER.md` (canonical lane sequencing and issue hubs)
+- `2026-02-27_workbench_frame_tile_interaction_spec.md`
 - `2026-02-26_composited_viewer_pass_contract.md`
 - `2026-02-23_wry_integration_strategy.md`
 - `2026-02-24_universal_content_model_plan.md`
@@ -46,8 +47,8 @@ All items below must be true simultaneously.
 ### A. Interaction correctness
 
 1. Opening a node into a pane renders usable content on first activation (no blank-first-frame race).
-2. Split/merge/reflow operations preserve focus ownership and active-tab visibility.
-3. Closing a pane hands focus deterministically to the expected next pane/tab.
+2. Split/merge/reflow operations preserve focus ownership and active-tile-selector visibility.
+3. Closing a pane hands focus deterministically to the expected next pane/tile.
 4. Keyboard and pointer navigation produce the same semantic outcomes for open/close/switch.
 
 **Verification**
@@ -60,7 +61,7 @@ All items below must be true simultaneously.
    - `viewer:webview` (canonical default),
    - `viewer:plaintext`,
    - `viewer:markdown`.
-2. `viewer:servo` alias compatibility remains for persisted overrides but is not treated as canonical default.
+2. No legacy web-viewer aliases are required; `viewer:webview` is canonical.
 3. Render-mode behavior is explicit and policy-conformant:
    - composited tiles: affordance overlays visible over content,
    - native overlay tiles: affordances rendered in chrome/gutter with documented limitations,
@@ -76,6 +77,7 @@ All items below must be true simultaneously.
 1. Active/Warm/Cold transitions do not desynchronize pane state and viewer mapping.
 2. Opening from graph view to pane preserves node identity and expected viewer selection policy.
 3. Declared viewer IDs with non-operational embedded paths are surfaced as partial/deferred status, not silent fallback ambiguity.
+4. Settings routes are pane-authority: `graphshell://settings/{history,persistence,sync,physics}` resolve to tool-pane surfaces (not reducer-owned floating panels).
 
 **Verification**
 - Lifecycle reconcile tests cover promote/demote and re-open paths for baseline viewers.
@@ -83,7 +85,7 @@ All items below must be true simultaneously.
 
 ### D. Performance and degradation baseline
 
-1. Baseline interactions (open, switch tab, split, close) remain responsive under quick smoke workload.
+1. Baseline interactions (open, switch tile, split, close) remain responsive under quick smoke workload.
 2. Degradation transitions are explicit and observable (not silent failure):
    - fallback to placeholder path,
    - blocked/runtime error states surfaced in diagnostics.

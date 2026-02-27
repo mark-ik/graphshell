@@ -23,6 +23,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     ui: &mut egui::Ui,
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &mut GraphBrowserApp,
+    control_panel: &mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     search_matches: &HashSet<NodeKey>,
     active_search_match: Option<NodeKey>,
@@ -34,6 +35,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     let tab_groups_before = tile_grouping::node_pane_tab_group_memberships(tiles_tree);
     let mut behavior = GraphshellTileBehavior::new(
         graph_app,
+        control_panel,
         tile_favicon_textures,
         search_matches,
         active_search_match,

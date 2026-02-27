@@ -298,7 +298,7 @@ This inventory maps all functional areas to migration stages.
 
 ## Migration Strategy per Area
 
-1.  **Identify**: Locate existing tests in `app.rs`, `gui_tests.rs`, or `VALIDATION_TESTING.md`.
+1.  **Identify**: Locate existing tests in `app.rs`, `gui_tests.rs`, or `test_guide.md`.
 2.  **Port**: Rewrite as a scenario in `desktop/tests/scenarios/<area>.rs` using `TestHarness`.
 3.  **Verify**: Run the new scenario.
 4.  **Delete**: Remove the old test code or manual checklist item.

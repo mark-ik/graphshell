@@ -7,7 +7,7 @@
 
 ## Project Vision
 
-Graphshell is a **spatial tab manager** where webpages are nodes in a force-directed graph instead of tabs in a bar. The architecture uses three authority domains: graph/intents for semantic state, tile tree for layout and focus, and webviews for runtime rendering state reconciled from lifecycle intents.
+Graphshell is a **spatial tile manager** where webpages are nodes in a force-directed graph instead of linear browser tabs. The architecture uses three authority domains: graph/intents for semantic state, tile tree for layout and focus, and webviews for runtime rendering state reconciled from lifecycle intents.
 
 **Core Idea**: Replace linear history with spatial memory. Instead of "Back/Forward," you see where you came from and where pages link to.
 
@@ -36,14 +36,14 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 
 **Tile Tree** (`desktop/gui.rs` + `desktop/tile_runtime.rs`)
 - egui_tiles multi-pane runtime: tile tree, per-pane rendering contexts, tile layout persistence
-- Each tile pane has a tab bar showing its cluster's nodes (connected by edges)
+- Each tile pane has tile-selector affordances showing its cluster's nodes (connected by edges)
 - Tile-derived view state (legacy `View` enum retired)
-- Tab bars are projections of graph clusters; closing/eviction paths demote to `Warm` or `Cold` via lifecycle intents
+- Tile-selector rows are projections of graph clusters; closing/eviction paths demote to `Warm` or `Cold` via lifecycle intents
 
 **Physics Runtime** (`app.rs` + `render/mod.rs`) — **Implemented via egui_graphs**
 - Force-directed layout uses egui_graphs `FruchtermanReingoldState`
 - Runtime state is app-owned (`GraphBrowserApp.physics`) and bridged through `set_layout_state`/`get_layout_state` each frame
-- Physics panel controls operate directly on FR state (damping, attraction, repulsion, scale, run/pause)
+- Physics settings controls operate directly on FR state (damping, attraction, repulsion, scale, run/pause)
 - Previous custom physics module/worker path has been removed from active runtime
 
 **Rendering** (`render/mod.rs`)
@@ -51,13 +51,13 @@ Graphshell is a **spatial tab manager** where webpages are nodes in a force-dire
 - Built-in zoom/pan navigation (`SettingsNavigation`), dragging + selection (`SettingsInteraction`)
 - Event-driven: NodeDoubleClick → focus, NodeDragStart/End → physics pause, NodeMove → position sync
 - Info overlay: node/edge count, physics status, zoom level, controls hint
-- Physics config panel: live sliders for all force parameters
+- Physics settings surface: live sliders for all force parameters
 - Post-frame zoom clamp: enforces min/max bounds on egui_graphs zoom
 
 **Input** (`input/mod.rs`, 87 lines)
 - Mouse interaction delegated to egui_graphs (drag, pan, zoom, selection, double-click)
 - Keyboard shortcuts (guarded — disabled when text field has focus):
-  - `T` toggle physics, `Z` smart fit, `+`/`-`/`0` zoom controls, `P` physics panel, `N` new node
+  - `T` toggle physics, `Z` smart fit, `+`/`-`/`0` zoom controls, `P` open physics settings, `N` new node
   - `Home`/`Esc` toggle Graph/Detail view
   - `Del` remove selected, `Ctrl+Shift+Del` clear graph
 
@@ -137,7 +137,7 @@ External comparison note:
 **Why `FruchtermanReingold` layout in egui_graphs?**
 - Removes custom physics/worker complexity while keeping force-directed behavior
 - Keeps layout integration inside GraphView (single framework path)
-- Supports the existing physics panel and interaction model with fewer bespoke subsystems
+- Supports the existing physics settings interaction model with fewer bespoke subsystems
 - See [2026-02-14_physics_migration_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_physics_migration_plan.md)
 
 **Why post-frame zoom clamp?**

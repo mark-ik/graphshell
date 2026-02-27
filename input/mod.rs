@@ -12,6 +12,7 @@ use crate::app::{
     RadialMenuShortcut,
 };
 use egui::Key;
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 
 /// Keyboard actions collected from egui input events.
 ///
@@ -22,7 +23,7 @@ pub struct KeyboardActions {
     pub toggle_physics: bool,
     pub toggle_view: bool,
     pub fit_to_screen: bool,
-    pub toggle_physics_panel: bool,
+    pub open_physics_settings: bool,
     pub toggle_history_manager: bool,
     pub toggle_help_panel: bool,
     pub toggle_command_palette: bool,
@@ -89,9 +90,9 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             actions.zoom_reset = true;
         }
 
-        // P: Toggle physics config panel
+        // P: Open physics settings
         if i.key_pressed(Key::P) {
-            actions.toggle_physics_panel = true;
+            actions.open_physics_settings = true;
         }
 
         // Ctrl+H: Toggle history manager panel
@@ -256,11 +257,15 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     if actions.reheat_physics {
         intents.push(GraphIntent::ReheatPhysics);
     }
-    if actions.toggle_physics_panel {
-        intents.push(GraphIntent::TogglePhysicsPanel);
+    if actions.open_physics_settings {
+        intents.push(GraphIntent::OpenSettingsUrl {
+            url: "graphshell://settings/physics".to_string(),
+        });
     }
     if actions.toggle_history_manager {
-        intents.push(GraphIntent::ToggleHistoryManager);
+        intents.push(GraphIntent::OpenToolPane {
+            kind: ToolPaneState::HistoryManager,
+        });
     }
     if actions.toggle_help_panel {
         intents.push(GraphIntent::ToggleHelpPanel);
@@ -445,17 +450,18 @@ mod tests {
     }
 
     #[test]
-    fn test_toggle_physics_panel_action() {
-        let mut app = test_app();
-        let was_shown = app.workspace.show_physics_panel;
-
+    fn test_open_physics_settings_action() {
         let intents = intents_from_actions(&KeyboardActions {
-            toggle_physics_panel: true,
+            open_physics_settings: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
-
-        assert_ne!(app.workspace.show_physics_panel, was_shown);
+        assert!(intents.iter().any(|i| {
+            matches!(
+                i,
+                GraphIntent::OpenSettingsUrl { url }
+                    if url == "graphshell://settings/physics"
+            )
+        }));
     }
 
     #[test]

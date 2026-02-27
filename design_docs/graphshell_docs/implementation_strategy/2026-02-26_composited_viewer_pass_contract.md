@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-26
 **Status**: Architectural gap-closure note (implementation-guiding)
-**Scope**: Workbench/graph viewer composition semantics for composited web content (`viewer:servo`) and contrast with native-overlay backends (`viewer:wry`)
+**Scope**: Workbench/graph viewer composition semantics for composited web content (`viewer:webview`) and contrast with native-overlay backends (`viewer:wry`)
 **Purpose**: Define explicit pass ownership and backend render-mode behavior so UI affordances are not dependent on implicit egui layer ordering or servoshell-era callback assumptions.
 
 ## Why This Exists
@@ -31,13 +31,13 @@ Graphshell viewer backends must map to a render mode with explicit affordance po
 
 | Render mode | Example backend | Pixel ownership | Over-content Graphshell overlays? | Primary usage |
 | --- | --- | --- | --- | --- |
-| `composited` | `viewer:servo` | Graphshell-owned callback/texture composition | Yes (if pass contract is honored) | Graph canvas, workbench tiles |
+| `composited` | `viewer:webview` | Graphshell-owned callback/texture composition | Yes (if pass contract is honored) | Graph canvas, workbench tiles |
 | `native-overlay` | `viewer:wry` | OS/native view hierarchy | No | Stable pane/tile regions, detached windows |
 | `placeholder` / `thumbnail` | degraded fallback | Graphshell-owned image/UI | Yes | Graph-view fallback, unsupported/degraded states |
 
 This note defines the contract for `composited` mode.
 
-> **Opportunity — Multi-Backend Hot-Swap Per-Tile.** Because `TileRenderMode` is resolved at viewer attachment time (not baked into the tile tree), nothing prevents *runtime mode transitions*: swap a tile from `viewer:servo` to `viewer:wry` (or back) while preserving navigation state, session cookies, and scroll position. This turns the multi-backend migration from a compatibility burden into a user-facing power feature ("try this page in Wry"). See §Appendix A.2.
+> **Opportunity — Multi-Backend Hot-Swap Per-Tile.** Because `TileRenderMode` is resolved at viewer attachment time (not baked into the tile tree), nothing prevents *runtime mode transitions*: swap a tile from `viewer:webview` to `viewer:wry` (or back) while preserving navigation state, session cookies, and scroll position. This turns the multi-backend migration from a compatibility burden into a user-facing power feature ("try this page in Wry"). See §Appendix A.2.
 
 ## Composited Viewer Pass Contract
 
@@ -176,7 +176,7 @@ Current `render_path_hint` diagnostics are a useful transitional step, but the l
 3. Diagnostics fields for pass execution/order confirmation
 4. Regression coverage: focus/hover affordance visible over composited web pixels during tile rearrange
 
-> **Opportunity — Viewer Backend Telemetry Races.** For sites with both `viewer:servo` and `viewer:wry` capable, maintain *both* backends simultaneously (one visible, one shadow-rendering). Compare load times, fidelity, crash rates, and memory usage per-site. Publish the telemetry (anonymized) to Verse communities as a distributed web-compatibility dataset. This turns the dual-backend situation from a migration cost into a crowd-sourced browser-engine benchmarking tool — and gives Servo upstream actionable compatibility data. See §Appendix A.9.
+> **Opportunity — Viewer Backend Telemetry Races.** For sites with both `viewer:webview` and `viewer:wry` capable, maintain *both* backends simultaneously (one visible, one shadow-rendering). Compare load times, fidelity, crash rates, and memory usage per-site. Publish the telemetry (anonymized) to Verse communities as a distributed web-compatibility dataset. This turns the dual-backend situation from a migration cost into a crowd-sourced browser-engine benchmarking tool — and gives Servo upstream actionable compatibility data. See §Appendix A.9.
 
 ---
 ---
@@ -413,7 +413,7 @@ Cache the luminance result per tile per N frames (content doesn't change every f
 **Problem it resolves**: When both Servo and Wry are available, there's no systematic way to determine which backend is *better* for a given site. Users report anecdotal preferences; engineers guess.
 
 **Proposal**:
-1. For a configurable set of URLs (user opt-in), maintain both `viewer:servo` and `viewer:wry` backends simultaneously. One is visible; the other is shadow-rendering off-screen.
+1. For a configurable set of URLs (user opt-in), maintain both `viewer:webview` and `viewer:wry` backends simultaneously. One is visible; the other is shadow-rendering off-screen.
 2. Collect per-page telemetry: time-to-first-paint, time-to-interactive, memory usage, crash count, rendering fidelity score (via perceptual image diff if thumbnails are available).
 3. Store telemetry locally in the graph model (node-level metadata, tagged via KnowledgeRegistry).
 4. Optionally publish anonymized telemetry to Verse communities as `VerseBlob` reports — crowd-sourced web compatibility data.

@@ -15,10 +15,52 @@ use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::compositor_adapter::{
-    CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle, OverlayStrokePass,
+    CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
+    OverlayStrokePass,
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+
+#[derive(Clone, Copy)]
+enum ScheduledOverlay {
+    Focus,
+    Hover,
+}
+
+#[derive(Clone, Copy)]
+struct ScheduledPanePass {
+    node_key: NodeKey,
+    tile_rect: egui::Rect,
+    render_mode: TileRenderMode,
+    overlay: Option<ScheduledOverlay>,
+}
+
+fn schedule_active_node_pane_passes(
+    tiles_tree: &Tree<TileKind>,
+    active_tile_rects: Vec<(NodeKey, egui::Rect)>,
+    focused_node_key: Option<NodeKey>,
+    focus_ring_alpha: f32,
+    hovered_node_key: Option<NodeKey>,
+) -> Vec<ScheduledPanePass> {
+    let mut out = Vec::with_capacity(active_tile_rects.len());
+    for (node_key, tile_rect) in active_tile_rects {
+        let render_mode = render_mode_for_node_pane(tiles_tree, node_key);
+        let overlay = if focused_node_key == Some(node_key) && focus_ring_alpha > 0.0 {
+            Some(ScheduledOverlay::Focus)
+        } else if hovered_node_key == Some(node_key) {
+            Some(ScheduledOverlay::Hover)
+        } else {
+            None
+        };
+        out.push(ScheduledPanePass {
+            node_key,
+            tile_rect,
+            render_mode,
+            overlay,
+        });
+    }
+    out
+}
 
 pub(crate) fn active_node_pane_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKey, egui::Rect)> {
     let mut tile_rects = Vec::new();
@@ -101,23 +143,22 @@ pub(crate) fn composite_active_node_pane_webviews(
             break;
         }
     }
-    for (node_key, tile_rect) in active_tile_rects {
-        let render_mode = render_mode_for_node_pane(tiles_tree, node_key);
+    let scheduled_passes = schedule_active_node_pane_passes(
+        tiles_tree,
+        active_tile_rects,
+        focused_node_key,
+        focus_ring_alpha,
+        hovered_node_key,
+    );
+    for pass in scheduled_passes {
+        let node_key = pass.node_key;
+        let tile_rect = pass.tile_rect;
+        let render_mode = pass.render_mode;
         let node_webview_id = graph_app.get_webview_for_node(node_key);
-        let is_focused = focused_node_key == Some(node_key);
-        let is_hovered = hovered_node_key == Some(node_key);
 
         if render_mode == TileRenderMode::CompositedTexture {
             let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
                 log::debug!("composite: no render_context for node {:?}", node_key);
-                continue;
-            };
-            let Some((size, target_size)) = CompositorAdapter::prepare_composited_target(
-                node_key,
-                tile_rect,
-                ctx.pixels_per_point(),
-                &render_context,
-            ) else {
                 continue;
             };
 
@@ -133,48 +174,51 @@ pub(crate) fn composite_active_node_pane_webviews(
                 );
                 continue;
             };
-            CompositorAdapter::reconcile_webview_target_size(&webview, size, target_size);
-
             log::debug!(
                 "composite: painting runtime viewer {:?} for node {:?} at rect {:?}",
                 webview_id,
                 node_key,
                 tile_rect
             );
-            if !CompositorAdapter::paint_offscreen_content_pass(&render_context, target_size, || {
-                webview.paint();
-            }) {
-                continue;
-            }
-
-            if CompositorAdapter::register_content_pass_from_render_context(
+            match CompositorAdapter::compose_webview_content_pass(
                 ctx,
                 node_key,
                 tile_rect,
+                ctx.pixels_per_point(),
                 &render_context,
+                &webview,
             ) {
-                log::debug!(
-                    "composite: registered content pass callback for runtime viewer {:?}",
-                    webview_id
-                );
-                pass_tracker.record_content_pass(node_key);
-            } else {
-                log::debug!(
-                    "composite: no render_to_parent callback for runtime viewer {:?}",
-                    webview_id
-                );
+                CompositedContentPassOutcome::Registered => {
+                    log::debug!(
+                        "composite: registered content pass callback for runtime viewer {:?}",
+                        webview_id
+                    );
+                    pass_tracker.record_content_pass(node_key);
+                }
+                CompositedContentPassOutcome::MissingContentCallback => {
+                    log::debug!(
+                        "composite: no adapter content callback available for runtime viewer {:?}",
+                        webview_id
+                    );
+                }
+                CompositedContentPassOutcome::PaintFailed
+                | CompositedContentPassOutcome::InvalidTileRect => {
+                    continue;
+                }
             }
         }
 
-        if is_focused && focus_ring_alpha > 0.0 {
-            pending_overlay_passes.push(focus_overlay_for_mode(
+        match pass.overlay {
+            Some(ScheduledOverlay::Focus) => pending_overlay_passes.push(focus_overlay_for_mode(
                 render_mode,
                 node_key,
                 tile_rect,
                 focus_ring_alpha,
-            ));
-        } else if is_hovered {
-            pending_overlay_passes.push(hover_overlay_for_mode(render_mode, node_key, tile_rect));
+            )),
+            Some(ScheduledOverlay::Hover) => {
+                pending_overlay_passes.push(hover_overlay_for_mode(render_mode, node_key, tile_rect))
+            }
+            None => {}
         }
     }
     CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);

@@ -4,13 +4,13 @@
 
 /// Log an event from winit ([winit::event::Event]) at trace level.
 /// - Canonical target prefix: `graphshell<winit@`
+/// - Legacy prefix `servoshell<winit@` is deprecated and not emitted by Graphshell.
 /// - To disable tracing: RUST_LOG='graphshell<winit@=off'
 /// - To enable tracing: RUST_LOG='graphshell<winit@'
 /// - Recommended filters when tracing is enabled:
 ///   - graphshell<winit@DeviceEvent=off
-///   - graphshell<winit@MainEventsCleared=off
+///   - graphshell<winit@AboutToWait=off
 ///   - graphshell<winit@NewEvents(WaitCancelled)=off
-///   - graphshell<winit@RedrawEventsCleared=off
 ///   - graphshell<winit@RedrawRequested=off
 ///   - graphshell<winit@UserEvent(Waker)=off
 ///   - graphshell<winit@WindowEvent(AxisMotion)=off

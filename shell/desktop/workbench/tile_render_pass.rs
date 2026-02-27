@@ -47,6 +47,7 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub focus_ring_node_key: &'a mut Option<NodeKey>,
     pub focus_ring_started_at: &'a mut Option<Instant>,
     pub focus_ring_duration: Duration,
+    pub control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
     #[cfg(feature = "diagnostics")]
     pub diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 }
@@ -156,6 +157,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         focus_ring_node_key,
         focus_ring_started_at,
         focus_ring_duration,
+        control_panel,
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
     } = args;
@@ -172,6 +174,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 ui,
                 tiles_tree,
                 graph_app,
+                control_panel,
                 tile_favicon_textures,
                 graph_search_matches,
                 active_search_match,

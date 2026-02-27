@@ -22,17 +22,17 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
     *   `TileKind::Graph(GraphViewId)` — a force-directed graph canvas.
     *   `TileKind::Node(NodePaneState)` — a node viewer pane bound to a graph node and resolved viewer backend (legacy serde alias preserves old `WebView(NodeKey)` layouts).
     *   `TileKind::Tool(ToolPaneState)` — a tool/subsystem pane host (diagnostics today; history/settings/subsystem panes over time).
-*   **Tab**: A tab-bar affordance inside a **Tab Group** container used to select the active child Tile. A Tab is not a Pane; it is one UI control for addressing a Pane/Tile within a container.
+*   **Tab** (**UI affordance term**): A visual selector control for choosing an active Tile among sibling tiles. Canonical structural term is **Tile**; "tab" is presentation shorthand only.
 *   **Container**: A branch Tile that holds and arranges child Tiles. Three structural types exist:
 
     | Container type | egui_tiles type | Children visible | Resizable | Layout direction |
     |---|---|---|---|---|
     | **Tab Group** | `Container::Tabs` | One at a time (active tab) | No | Tab bar selects active child |
-    | **Split** | `Container::Linear` | All simultaneously | Yes, via drag handles | `Horizontal` (left↔right) or `Vertical` (top↔bottom) |
+    | **Split** | `Container::Linear` | All simultaneously | Yes, via drag handles | `Horizontal` (top↔bottom regions; horizontal divider) or `Vertical` (left↔right regions; vertical divider) |
     | **Grid** | `Container::Grid` | All simultaneously | Yes, rows & columns | 2D, auto or fixed column count |
 
 *   **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Every Pane is always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs.
-*   **Split**: A container that arranges children side-by-side (`Horizontal`) or stacked (`Vertical`) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal) or `Split ↕` (vertical) in tab strips.
+*   **Split**: A container that arranges children in either top/bottom regions (`Horizontal`, horizontal divider) or left/right regions (`Vertical`, vertical divider) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal arrangement label) or `Split ↕` (vertical arrangement label) in tile selector strips.
 *   **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
 *   **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.
 
@@ -47,9 +47,9 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 *   **Tile Tree**: The complete recursive structure of Tiles forming the layout. Backed by a flat `Tiles<TileKind>` hashmap keyed by `TileId`, plus a root `TileId`. Code: `egui_tiles::Tree<TileKind>`, stored as `Gui::tiles_tree`.
 *   **App Scope**: The top-most global scope for a running Graphshell process. App Scope owns workbench switching/navigation.
-*   **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It owns the Tile Tree (`Tree<TileKind>`) and global chrome surfaces (omnibar, workbar, status, toasts), and drives frame switching/render.
+*   **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It owns the Tile Tree (`Tree<TileKind>`) and global chrome surfaces (omnibar, workbar, status, toasts), tracks frame ordering, and drives frame switching/render.
 *   **Workbench Scope**: The full, unscoped graph domain of one Workbench (`GraphId`-bound).
-*   **Frame**: A local container inside the Workbench that groups tiles and preserves their arrangement/focus as a unit. Frame is the canonical runtime/UI term for window-like grouping within the Workbench.
+*   **Frame**: A persisted branch/subtree of the Workbench Tile Tree that groups tiles and preserves their arrangement/focus as a unit. Frame is the canonical runtime/UI term for top-level working contexts within one Workbench.
 *   **Frame Snapshot** (**Persistence Snapshot**, canonical storage term): A persistable snapshot of a Workbench/Frame layout plus its content manifest. Serialized as `PersistedFrame`, which contains:
     *   `FrameLayout` — the `Tree<PersistedPaneTile>` shape
     *   `FrameManifest` — the pane-to-content mapping and member node UUIDs
@@ -60,7 +60,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 *   **Graph View**: A Pane (`TileKind::Graph`) containing a force-directed canvas visualization powered by `egui_graphs`. Renders the `Graph` data model with physics simulation, node selection, and camera controls.
 *   **Pane Presentation Mode** (aka **Pane Chrome Mode**): How a Pane is presented in the tile tree UI (chrome, mobility, and locking behavior), distinct from the Pane's content.
-*   **Tiled Pane** (aka **Promoted Pane**): A Pane presented with tile/tab chrome and normal tile-tree mobility operations (split/tab/arrange/reflow).
+*   **Tiled Pane** (aka **Promoted Pane**): A Pane presented with tile-selector chrome and normal tile-tree mobility operations (split/switch/reflow).
 *   **Docked Pane**: A Pane presented with reduced chrome and position-locked behavior inside the current tile arrangement. Intended to reduce accidental reflow and focus attention on content.
 *   **Subsystem Pane**: A pane-addressable surface for a subsystem's runtime state, health, configuration, and primary operations. Subsystems are expected to have dedicated panes, but implementations may be staged. Subsystem panes are hosted as tool panes (`TileKind::Tool(ToolPaneState)`).
 *   **Tool Pane**: A non-document pane hosted under `TileKind::Tool(ToolPaneState)` (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces.
@@ -76,7 +76,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 ## Interface Components
 
 *   **Omnibar**: The primary global navigation/input bar for location, search, and command entry in the Workbench.
-*   **Workbar**: The secondary global bar that enumerates and activates Frames (frame tabs/handles) within the Workbench.
+*   **Workbar**: The secondary global bar that enumerates, creates, reorders, and activates Frames within the Workbench.
 *   **History Manager**: The canonical non-modal history surface with Timeline and Dissolved tabs, backed by traversal archive keyspaces.
 *   **Settings Pane**: A tool pane that aggregates configuration and controls across registries, subsystems, and app-level preferences. A settings pane may host subsystem-specific sections or summon dedicated subsystem panes.
 *   **Control Panel**: The async coordination/process host for background workers and intent producers within The Register. In architectural terms it is an **Aspect** (runtime coordination concern), not a UI Surface. It supervises worker lifecycles and intent ingress, but does not own or render panes/surfaces directly; subsystem UI appears through dedicated tool/subsystem panes. Code-level: `ControlPanel` (supervised by `RegistryRuntime`).
@@ -103,8 +103,10 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
     *   **UserGrouped**: Explicit connection made by the user (flag on Edge).
     *   **Traversal-Derived**: Implicit connection formed by navigation events.
 *   **Traversal**: A temporal record of a navigation event (timestamp, trigger) stored on an Edge.
-*   **Edge Traversal History**: The aggregate of all Traversal records, forming the complete navigation history of the graph. Replaces linear global history.
-*   **Intent**: A data payload describing a desired state change routed through an explicit mutation authority. The canonical graph/workspace intent type is `GraphIntent`.
+*   **Edge Traversal History**: The aggregate of all Traversal records, forming the complete navigation history of the graph.
+*   **Workbench History Stream**: The ordered stream of workbench-structure operations (tile/frame/split/reorder/open/close) within one workbench context.
+*   **Frame History**: A merged timeline over Edge Traversal History and Workbench History Stream for frame-contextual replay/inspection.
+*   **Intent**: A data payload describing a desired state change routed through an explicit mutation authority. The canonical graph/workbench intent type is `GraphIntent`.
 *   **WorkbenchIntent** (conceptual): A workbench-authority mutation request (tile-tree/pane layout operations) intercepted in the frame loop rather than applied by the graph reducer. This is an architectural routing class; it may be represented by specific `GraphIntent` variants during migration (for example `OpenToolPane`, `SplitPane`) but is not graph-reducer authority.
 *   **Direct Call** (routing): A synchronous call used only within the same module/struct ownership boundary (co-owned state, no authority crossing). Direct calls are not the mechanism for cross-registry decoupling.
 *   **Signal** (routing): A decoupled notification/event routed through The Register's signal-routing layer (`SignalBus` or equivalent). Signals are for publish/subscribe coordination where emitters must not know consumers. Signals are not direct state mutation; they may result in `Intent`s downstream.

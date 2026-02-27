@@ -20,8 +20,7 @@ pub(crate) struct TileCoordinator;
 impl TileCoordinator {
     fn render_mode_for_viewer_id(viewer_id: &str) -> TileRenderMode {
         match viewer_id {
-            // `viewer:servo` remains as a legacy compatibility alias for persisted overrides.
-            "viewer:webview" | "viewer:servo" => TileRenderMode::CompositedTexture,
+            "viewer:webview" => TileRenderMode::CompositedTexture,
             "viewer:wry" => TileRenderMode::NativeOverlay,
             "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
             | "viewer:settings" | "viewer:metadata" => TileRenderMode::EmbeddedEgui,
@@ -454,6 +453,34 @@ mod tests {
 
         assert!(!http_hosts.contains(&http_node));
         assert!(file_hosts.contains(&file_node));
+    }
+
+    #[test]
+    fn node_pane_unknown_viewer_override_falls_back_to_placeholder() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key =
+            app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(0.0, 0.0));
+        let mut tree = tree_with_node_pane(NodePaneState::with_viewer(
+            node_key,
+            ViewerId::new("viewer:unknown"),
+        ));
+
+        TileCoordinator::refresh_node_pane_render_modes(&mut tree, &app);
+
+        let mut mode_for = HashMap::new();
+        for (_, tile) in tree.tiles.iter() {
+            if let egui_tiles::Tile::Pane(TileKind::Node(state)) = tile {
+                mode_for.insert(state.node, state.render_mode);
+            }
+        }
+
+        assert_eq!(
+            mode_for.get(&node_key).copied(),
+            Some(TileRenderMode::Placeholder)
+        );
+        assert!(!TileCoordinator::viewer_id_uses_composited_runtime(
+            "viewer:unknown"
+        ));
     }
 
     #[test]

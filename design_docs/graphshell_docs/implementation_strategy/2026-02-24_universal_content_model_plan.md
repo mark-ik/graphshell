@@ -127,7 +127,7 @@ Selection order at node open / lifecycle promotion time:
 2. Frame `viewer_id_default` — frame-level default (from `FrameManifest`).
 3. `ViewerRegistry::select_for(mime: Option<&str>, address_kind: AddressKind)` — highest-priority
    registered viewer where `can_render()` returns true.
-4. `viewer:servo` — fallback for all `Http` and `File(html)` addresses.
+4. `viewer:webview` — fallback for all `Http` and `File(html)` addresses.
 5. `viewer:plaintext` — last resort; always succeeds; shows raw content.
 
 The MIME detection pipeline runs on first open:
@@ -183,7 +183,7 @@ A node created with `url = "https://example.com"` has `address_kind = AddressKin
   when that viewer is registered; falls back to `viewer:plaintext` when not registered.
 
 **Done gate**: Selection policy is tested. Lifecycle promote for a PDF node picks `viewer:pdf`
-when registered and `viewer:servo` otherwise. No regression in existing Servo webview path.
+when registered and `viewer:webview` otherwise. No regression in existing Servo webview path.
 
 ---
 
@@ -338,7 +338,7 @@ with visible playback controls. `cargo build` (without `--features audio`) compi
 This step integrates with `2026-02-20_node_badge_and_tagging_plan.md`:
 
 - **Address-kind badge**: Add a `Badge::ContentType(ViewerId)` variant. When a node's
-  viewer is not `viewer:servo` (the default), show a small icon badge indicating the content type:
+  viewer is not `viewer:webview` (the default), show a small icon badge indicating the content type:
   - `viewer:pdf` → 📄 PDF badge
   - `viewer:image` → 🖼 Image badge
   - `viewer:plaintext` → 📝 Text badge

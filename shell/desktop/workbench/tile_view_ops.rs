@@ -16,6 +16,8 @@ use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
 use crate::shell::desktop::workbench::pane_model::NodePaneState;
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
@@ -139,6 +141,44 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
 
 pub(crate) fn open_or_focus_node_pane(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
     open_or_focus_node_pane_with_mode(tiles_tree, node_key, TileOpenMode::Tab);
+}
+
+#[cfg(feature = "diagnostics")]
+pub(crate) fn open_or_focus_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneState) {
+    if tiles_tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind),
+    ) {
+        log::debug!(
+            "tile_view_ops: focused existing tool pane {:?}",
+            kind
+        );
+        return;
+    }
+
+    let tool_tile_id = tiles_tree.tiles.insert_pane(TileKind::Tool(kind.clone()));
+    let Some(root_id) = tiles_tree.root() else {
+        tiles_tree.root = Some(tool_tile_id);
+        return;
+    };
+
+    if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(root_id) {
+        tabs.add_child(tool_tile_id);
+        tabs.set_active(tool_tile_id);
+        return;
+    }
+
+    let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, tool_tile_id]);
+    tiles_tree.root = Some(tabs_root);
+    let _ = tiles_tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind),
+    );
+}
+
+#[cfg(not(feature = "diagnostics"))]
+pub(crate) fn open_or_focus_tool_pane(
+    _tiles_tree: &mut Tree<TileKind>,
+    _kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+) {
 }
 
 pub(crate) fn open_or_focus_node_pane_with_mode(

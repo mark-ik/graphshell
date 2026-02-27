@@ -73,7 +73,7 @@ one of these four rows.
 | Mechanism | When to use | Authority boundary |
 | --------- | ----------- | ------------------ |
 | **Direct call** | Same module / same struct; synchronous, co-owned state | No boundary crossing |
-| **`GraphIntent` → `apply_intents()`** | Mutation of graph/workspace data model; must be deterministic, testable, WAL-logged | Graph Reducer boundary |
+| **`GraphIntent` → `apply_intents()`** | Mutation of graph/workbench data model; must be deterministic, testable, WAL-logged | Graph Reducer boundary |
 | **`WorkbenchIntent` (frame-loop intercept)** | Mutation of tile-tree shape (`egui_tiles`); workbench authority owns layout | Workbench Mutation Authority |
 | **Signal / `SignalBus`** | Decoupled cross-registry or cross-subsystem notification; emitter must not know observer | Register-owned signal layer |
 
@@ -123,8 +123,8 @@ immediately during development.
   need to coordinate should use a Signal or delegate to `ControlPanel`, not
   call each other's internal methods.
 - **Do not accumulate workbench state in `GraphBrowserApp` workspace fields.**
-  Legacy booleans like `show_history_manager` are a bridge for the migration
-  period only; all new pane-open/close state lives in the tile tree.
+  Legacy panel booleans have been removed; pane-open/close state must live in
+  the tile tree.
 - **Do not bypass `ControlPanel` for background intent producers.** All
   background tasks that produce `GraphIntent` values must go through
   `ControlPanel`'s supervised worker model, not spawn independent threads.
@@ -191,6 +191,7 @@ Goals:
 Done gates:
 - [ ] Legacy dispatch callsites removed or wrapped behind Register APIs
 - [x] Legacy dispatch callsites removed or wrapped behind Register APIs (phase0 navigation/provider-wired runtime dispatch slice; see `#82`)
+- [x] `graphshell://settings/*` workbench routes (history/persistence/sync/physics) are pane-authority and no longer reducer-panel owned
 - [ ] `RegistryRuntime` + signal routing layer responsibilities are documented and tested
 - [ ] `ControlPanel` API surface reflects coordinator/process-host role only
 

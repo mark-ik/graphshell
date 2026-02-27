@@ -3,23 +3,23 @@
 **Purpose**: Detailed specification for how Graphshell operates as a functional web browser and universal content viewer.
 
 **Document Type**: Behavior specification (not implementation status)
-**Status**: Core browsing graph functional; delegate-driven desktop navigation, three-tier lifecycle (Active/Warm/Cold), LRU eviction, workspace routing, registry layer Phases 0–4 complete, badge/UDC tagging in progress
+**Status**: Core browsing graph functional; delegate-driven desktop navigation, three-tier lifecycle (Active/Warm/Cold), LRU eviction, frame-context routing, registry layer Phases 0–4 complete, badge/UDC tagging in progress
 **See**: [ARCHITECTURAL_OVERVIEW.md](ARCHITECTURAL_OVERVIEW.md) for actual code status
 
 ---
 
-## Design Principle: Unified Spatial Tab Manager
+## Design Principle: Unified Spatial Tile Manager
 
-Graphshell is a spatial tab manager with three authority domains:
+Graphshell is a spatial tile manager with three authority domains:
 
 - **Graph**: semantic state (node identity, lifecycle, edges, tags, viewer preference).
 - **Tile tree**: layout/focus/visibility state.
 - **Webviews / viewers**: runtime rendering instances reconciled from graph lifecycle.
 
 - **Graph view pane**: Overview and organizational control surface. Drag nodes between clusters, create edges, delete nodes — all affect the tile tree and viewers.
-- **Node viewer panes**: Focused working contexts. Each pane's tab bar shows the nodes in that pane's cluster. Closing a tab tile closes the viewer and demotes the node to `Cold` (node remains in graph unless explicitly deleted).
-- **Tool panes**: Diagnostics/history/settings and other utility surfaces using the same tile-tree focus/layout semantics (not graph lifecycle owners).
-- **Tab bars**: Per-pane projections of graph clusters. Active tabs (with viewer) are highlighted; inactive tabs (no viewer) are dimmed and reactivatable.
+- **Node viewer panes**: Focused working contexts. Each pane's tile-selector row shows the nodes in that pane's cluster. Closing a tile closes the viewer and demotes the node to `Cold` (node remains in graph unless explicitly deleted).
+- **Tool panes**: Diagnostics/history/settings (including sync + physics controls) and other utility surfaces using the same tile-tree focus/layout semantics (not graph lifecycle owners).
+- **Tile selector rows**: Per-pane projections of graph clusters. Active tiles (with viewer) are highlighted; inactive tiles (no viewer) are dimmed and reactivatable.
 
 **Key invariant**: semantic truth lives in graph/intents; tile and viewer runtime state are coordinated through explicit intent/reconciliation boundaries.
 
@@ -29,10 +29,10 @@ Graphshell is a spatial tab manager with three authority domains:
 
 ### Node Identity
 
-Each node IS a tab. Node identity is the tab itself, not its URL or content type.
+Each node is canonical graph identity and is represented through one or more tiles in frame contexts. Node identity is not its URL or content type.
 
-- **URLs are mutable**: Within-tab navigation changes the node's current URL. The node persists.
-- **Duplicate URLs allowed**: The same URL can be open in multiple tabs (multiple nodes). Each is independent.
+- **URLs are mutable**: Within-tile navigation changes the node's current URL. The node persists.
+- **Duplicate URLs allowed**: The same URL can be open in multiple tiles (multiple nodes). Each is independent.
 - **Stable ID**: Nodes are identified by a stable UUID (not URL, not petgraph NodeIndex). Persistence uses this UUID.
 - **Per-node history**: Each node has its own back/forward stack. Servo provides this via `notify_history_changed(webview, entries, index)` for web nodes.
 - **Content type**: Nodes carry `mime_hint: Option<String>` and `address_kind: AddressKind` that drive viewer selection for non-web content. See [2026-02-24_universal_content_model_plan.md](../implementation_strategy/2026-02-24_universal_content_model_plan.md).
@@ -45,7 +45,7 @@ Servo provides two distinct signals that drive the graph (no Servo modifications
 |-------------|----------------------|--------------|
 | Click link (same tab) | `notify_url_changed(webview, url)` | Update node's current URL and title. Push to history. No new node. |
 | Back/forward | `notify_url_changed(webview, url)` | Update node's URL. History index changes. No new node. |
-| Ctrl+click / middle-click / window.open | `request_create_new(parent_webview, request)` | Create new node. Create edge from parent node. Add to parent's tab container. |
+| Ctrl+click / middle-click / window.open | `request_create_new(parent_webview, request)` | Create new node. Create edge from parent node. Add to current frame context as a new tile. |
 | Title change | `notify_title_changed(webview, title)` | Update node's title. |
 | History update | `notify_history_changed(webview, entries, index)` | Store back/forward list on node (from Servo, not custom). |
 
@@ -67,20 +67,20 @@ The architecture plan identified a previous mismatch (URL-polling assumptions an
 
 **Edge Traversal Model** (planned replacement): `EdgeType` will be replaced by `EdgePayload` containing `Vec<Traversal>` records. Each traversal captures the full navigation event (from_url, to_url, timestamp, trigger). This model preserves repeat navigations, timing data, and enables commutative P2P sync. See [2026-02-20_edge_traversal_impl_plan.md](../implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) for implementation timeline.
 
-### Pane Membership and Workspaces
+### Pane Membership and Frames
 
 - **Tile tree is the authority** on which node lives in which pane.
-- **Navigation routing**: New nodes from `request_create_new` are added to the parent node's tab container.
-- **New root node** (N key, no parent): Creates a new tab container in the tile tree.
-- **Tab move** (drag between panes): Moves the tile. `UserGrouped` creation for drag-move is follow-up work; current explicit grouping trigger is split-open.
+- **Navigation routing**: New nodes from `request_create_new` are added to the parent node's tile container.
+- **New root node** (N key, no parent): Creates a new tile container in the tile tree.
+- **Tile move** (drag between panes): Moves the tile. `UserGrouped` creation for drag-move is follow-up work; current explicit grouping trigger is split-open.
 
-**Workspace routing** (implemented; polish ongoing): Opening a node predictably restores the expected workspace context. Nodes track workspace membership (UUID → set of workspace names). Routing resolver uses recency and membership index to decide whether to restore an existing workspace or open in current workspace. See [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md) and [2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](../implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md).
+**Frame-context routing** (implemented; polish ongoing): Opening a node predictably restores the expected frame/workbench context. Nodes track frame-context membership metadata and recency. Routing resolver uses recency and membership index to decide whether to restore an existing frame context or open in current frame context. See [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md), [2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](../implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md), and [2026-02-27_workbench_frame_tile_interaction_spec.md](../implementation_strategy/2026-02-27_workbench_frame_tile_interaction_spec.md).
 
 ### Node Lifecycle
 
 **Current code** implements a three-tier desired lifecycle model (see `graph/mod.rs` `NodeLifecycle` enum) with an observed runtime layer managed by reconciliation:
 
-| Desired state | Has viewer? | Shown in tab bar? | Shown in graph? | LRU eviction |
+| Desired state | Has viewer? | Shown in tile selector row? | Shown in graph? | LRU eviction |
 |-------|-------------|-------------------|-----------------|-------------|
 | **Active** | Yes (Mapped) | Yes (highlighted) | Yes (full color) | LRU cache (default: 4 slots) |
 | **Warm** | Maybe (Mapped or Unmapped; policy-controlled) | Yes (dimmed) | Yes (medium color) | LRU cache (default: 12 slots) |
@@ -91,7 +91,7 @@ A Cold node is not an empty shell — it is a fully realized graph citizen with 
 **Lifecycle transitions:**
 
 - Focus a node → `PromoteNodeToActive` intent → reconcile creates/reactivates viewer
-- Navigate away from a tab → `DemoteNodeToWarm` intent → viewer may remain mapped (policy)
+- Navigate away from an active tile → `DemoteNodeToWarm` intent → viewer may remain mapped (policy)
 - Active LRU overflow → `DemoteNodeToWarm` intent (oldest non-pinned active node)
 - Warm LRU overflow → `DemoteNodeToCold` intent → viewer destroyed, metadata retained
 - Memory pressure (warning/critical) → stronger eviction cascade (Active → Warm → Cold)
@@ -116,7 +116,7 @@ All user interactions produce intents processed at a single sync point per frame
 
 Sources of intents:
 - **Graph view**: drag-to-cluster, delete node, create edge, select
-- **Tile/tab bar**: close tab, reorder tabs, drag tab to other pane
+- **Tile selector row**: close tile, reorder tiles, drag tile to other pane/frame context
 - **Keyboard**: N (new node), Del (remove), T (tag panel), etc.
 - **Servo callbacks**: `request_create_new`, `notify_url_changed`, `notify_title_changed` → converted to GraphIntent
 
@@ -128,7 +128,7 @@ See [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21
 
 ## 2. Navigation Model
 
-### Within-Tab Navigation (Link Click)
+### Within-Tile Navigation (Link Click)
 
 **Scenario**: User is in a pane viewing node A (github.com), clicks a link to github.com/servo.
 
@@ -137,20 +137,20 @@ See [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21
 - Node A's `current_url` changes to github.com/servo
 - Node A's title updates when `notify_title_changed` fires
 - Node A's history stack gains an entry (provided by `notify_history_changed`)
-- The tab bar entry for A updates to show the new title/URL
+- The tile selector entry for A updates to show the new title/URL
 - No edge created, no new node
 
-### Open New Tab (Ctrl+Click, Middle-Click, window.open)
+### Open New Tile (Ctrl+Click, Middle-Click, window.open)
 
-**Scenario**: User Ctrl+clicks a link on node A, opening it in a new tab.
+**Scenario**: User Ctrl+clicks a link on node A, opening it in a new tile.
 
 **Behavior**: A new node is created with an edge from A. Servo's `request_create_new` fires.
 
 - New node B created with the target URL
 - Edge A → B created (type: Hyperlink)
-- B's tile added to A's tab container (same pane)
-- B becomes the active tab in that pane
-- A becomes inactive (no webview, still in tab bar)
+- B's tile is added to current frame context (same pane branch unless user routes elsewhere)
+- B becomes the active tile in that pane/frame context
+- A becomes inactive (no webview, still visible in tile selector row)
 
 ### Back/Forward Navigation
 
@@ -160,11 +160,11 @@ See [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21
 
 Servo provides the full back/forward list via `notify_history_changed(webview, entries, index)`. Graphshell stores this on the node or reads it from the WebView on demand — no need to maintain a custom history stack.
 
-### New Root Tab (N Key)
+### New Root Tile (N Key)
 
 **Scenario**: User presses N to create a blank tab.
 
-**Behavior**: New node created with `about:blank`. New tab container created in tile tree. No parent, no edge.
+**Behavior**: New node created with `about:blank`. New tile container created in tile tree. No parent, no edge.
 
 ---
 
@@ -178,14 +178,14 @@ selected by `ViewerRegistry` based on the node's `mime_hint`, `address_kind`, an
 1. `Node.viewer_id_override` — explicit user choice (persisted to WAL).
 2. Frame `viewer_id_default` — frame-level default.
 3. `ViewerRegistry::select_for(mime, address_kind)` — highest-priority matching viewer.
-4. `viewer:servo` — fallback for HTTP/S and HTML files.
+4. `viewer:webview` — fallback for HTTP/S and HTML files.
 5. `viewer:plaintext` — last resort; always succeeds.
 
 ### Viewer Types
 
 | Viewer ID | Content | Rendering mode | Notes |
 | --------- | ------- | -------------- | ----- |
-| `viewer:servo` | HTTP/S, HTML | Texture (GPU surface) | Default; graph canvas + workbench tiles |
+| `viewer:webview` | HTTP/S, HTML | Texture (GPU surface) | Default; graph canvas + workbench tiles |
 | `viewer:wry` | HTTP/S (native fallback) | Overlay (OS window) | Workbench tiles only; Windows primary |
 | `viewer:plaintext` | text/\*, JSON, TOML, YAML, Markdown | Embedded egui | Syntax highlighting via syntect; Markdown via pulldown-cmark |
 | `viewer:image` | image/\*, SVG | Embedded egui | Raster via image crate; SVG via resvg |
@@ -209,7 +209,7 @@ See [2026-02-24_universal_content_model_plan.md](../implementation_strategy/2026
 
 | AddressKind | Typical URL prefix | Default viewer |
 | ----------- | ------------------ | -------------- |
-| `Http` | `http://`, `https://` | `viewer:servo` |
+| `Http` | `http://`, `https://` | `viewer:webview` |
 | `File` | `file://`, local paths | depends on MIME |
 | `Custom` | any other scheme | registry lookup |
 
@@ -235,7 +235,7 @@ Nodes carry `tags: HashSet<String>`. Tags are user-applied attributes stored in 
 | `#pin` | Physics anchor — not displaced by simulation |
 | `#starred` | Soft bookmark; surfaces in omnibar `@b` scope |
 | `#archive` | Hidden from default graph view; reduced opacity |
-| `#resident` | Never cold-evicted regardless of workspace |
+| `#resident` | Never cold-evicted regardless of frame/workbench context |
 | `#private` | URL/title redacted in screen-sharing mode; excluded from export |
 | `#nohistory` | Navigating through this node does not push a traversal entry |
 | `#monitor` | Periodic reload + DOM hash comparison; badge pulse on change |
@@ -252,7 +252,7 @@ Node badges are visual overlays in the graph view communicating tag state at a g
 - **At rest**: up to 3 icon-only badges (16×16 px) at top-right corner; `+N` overflow chip.
 - **Hover/focus**: full orbit expansion with icon + label.
 - **Priority order**: Crashed > WorkspaceCount > Pinned > Starred > Unread > system tags > ContentType > UDC tags > user tags.
-- **ContentType badge**: when a node's viewer is not `viewer:servo`, a small content-type icon (📄 PDF, 🖼 image, 📝 text, 🎵 audio, 📁 directory) marks it as non-web content.
+- **ContentType badge**: when a node's viewer is not `viewer:webview`, a small content-type icon (📄 PDF, 🖼 image, 📝 text, 🎵 audio, 📁 directory) marks it as non-web content.
 
 See [2026-02-20_node_badge_and_tagging_plan.md](../implementation_strategy/2026-02-20_node_badge_and_tagging_plan.md).
 
@@ -270,7 +270,7 @@ See [2026-02-23_udc_semantic_tagging_plan.md](../implementation_strategy/2026-02
 
 **Current status**: Manual edge creation; bookmarks as node metadata.
 
-**Planned implementation** (Persistence Hub Plan Phase 1):
+**Implemented foundation** (Persistence/Settings architecture phases):
 
 - **Bookmarks are tags**: `Node.tags` field stores bookmark folder paths (e.g., `["bookmarks", "work", "research"]`).
 - **Settings page**: `graphshell://settings/bookmarks` provides bookmark management UI (add/remove tags, bulk import, export).
@@ -299,7 +299,7 @@ See [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementat
 
 **Omnibar** serves dual purpose: graph search + URL navigation.
 
-- **URL input** (`http://...`): Navigates the current tab (within-tab navigation).
+- **URL input** (`http://...`): Navigates the current tile (within-tile navigation).
 - **File input** (`file://...`): Opens local file or directory in current node using appropriate viewer.
 - **Text search**: Fuzzy search via `nucleo` matcher (FT6 in roadmap, now implemented).
   - Searches node titles, URLs, tags, and MIME hints.
@@ -318,20 +318,20 @@ See [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementat
 
 | Feature | Firefox | Graphshell |
 |---------|---------|-------|
-| **Primary UI** | Tab bar | Force-directed graph + tiled panes |
-| **Tab management** | Linear tab strip | Spatial graph (drag, cluster, edge) |
-| **Navigation** | Click link → same tab or new tab | Same: within-tab nav or new tab |
+| **Primary UI** | Tab bar | Force-directed graph + tiled panes + workbench frame bar |
+| **Tab management** | Linear tab strip | Spatial tile arrangement (drag, cluster, edge) |
+| **Navigation** | Click link → same tab or new tab | Same browser semantics mapped to tiles: within-tile nav or new tile |
 | **History** | Global linear history | Per-node history (from Servo) + graph edges + traversal log |
-| **Tab grouping** | Manual tab groups | Graph clusters = pane tab bars; semantic UDC clusters |
+| **Tab grouping** | Manual tab groups | Graph clusters = pane tile-selector rows; semantic UDC clusters |
 | **Bookmarks** | Folder tree | Node tags (folder paths as metadata) |
 | **Lifecycle** | Active/discarded binary | Active/Warm/Cold three-tier with LRU |
-| **Workspaces** | Window-based sessions | Named workspace snapshots with membership routing |
-| **Settings** | Preferences dialog | `graphshell://` internal pages as nodes |
+| **Frames / Workbench contexts** | Window-based sessions | Named frame/workbench snapshots with membership routing |
+| **Settings** | Preferences dialog | Pane-hosted settings tool surface (`graphshell://settings/*` routes resolve to tool panes) |
 | **Content types** | Web pages only | Web, PDF, images, SVG, text, audio, local directories |
 | **Node annotation** | None | UDC semantic tags drive physics clustering and auto-grouping |
 | **Viewer** | Browser engine | ServoRenderer (default), WryViewer (OS webview fallback), non-web renderers |
 
-**Core difference**: The graph is the organizational layer. Tab bars are projections of graph clusters. What you do in the graph is what the tile tree becomes. Nodes track workspace membership; opening a node restores expected context. Tags and semantic physics make the graph self-organize by subject.
+**Core difference**: The graph is the organizational layer. Tile selectors are projections of graph clusters. What you do in the graph is what the tile tree becomes. Nodes track frame/workbench membership context; opening a node restores expected context. Tags and semantic physics make the graph self-organize by subject.
 
 ---
 
@@ -345,9 +345,9 @@ See [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementat
 **Implementation plans:**
 - [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) — two-phase apply model, lifecycle intents
 - [2026-02-20_edge_traversal_impl_plan.md](../implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) — EdgeType → EdgePayload migration
-- [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md) — workspace membership index and routing resolver foundation
+- [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md) — frame/workbench membership index and routing resolver foundation (legacy filename retained)
 - [2026-02-20_settings_architecture_plan.md](../implementation_strategy/2026-02-20_settings_architecture_plan.md) — `graphshell://` internal URL scheme
-- [2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](../implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) — workspace/tab semantics overlay and routing polish addendum
+- [2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](../implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) — workbench tile-selector semantics overlay and routing polish addendum (legacy filename retained)
 - [2026-02-23_graph_interaction_consistency_plan.md](../implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md) — interaction/search-surface harmonization
 - [2026-02-24_universal_content_model_plan.md](../implementation_strategy/2026-02-24_universal_content_model_plan.md) — non-web viewers, MIME detection, viewer selection policy
 - [2026-02-23_wry_integration_strategy.md](../implementation_strategy/2026-02-23_wry_integration_strategy.md) — native OS webview overlay integration

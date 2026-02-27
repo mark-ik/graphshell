@@ -60,7 +60,7 @@ users do not manage them separately.
 
 Verso mod `ModManifest` additions (appended to existing Phase 2 manifest):
 
-- `provides`: add `viewer:wry` alongside existing `viewer:servo` and `viewer:webview`
+- `provides`: add `viewer:wry` alongside existing `viewer:webview`
 - `requires`: add `wry` feature gate (see Cargo.toml step below)
 - `capabilities`: no change — `network` already declared
 
@@ -68,12 +68,11 @@ Verso mod `ModManifest` additions (appended to existing Phase 2 manifest):
 
 | ID | Backend | Mode | Usable in |
 | -- | ------- | ---- | --------- |
-| `viewer:servo` | Servo | Texture | Graph canvas + workbench tiles |
+| `viewer:webview` | Servo | Texture | Graph canvas + workbench tiles |
 | `viewer:wry` | wry | Overlay | Workbench tiles only |
-| `viewer:webview` | alias | → `viewer:servo` (default) | Configurable via settings |
 
-The `viewer:webview` alias is user-configurable: switching it to `viewer:wry` makes all new webviews
-use wry by default. Per-node and per-frame overrides use the specific IDs.
+`viewer:webview` is the canonical default web viewer ID. Users can still set frame-level or
+node-level defaults/overrides to `viewer:wry`.
 
 ---
 
@@ -215,7 +214,7 @@ Wry webviews must respect the same Active/Warm/Cold lifecycle as Servo webviews:
   promotion path).
 - Cold: webview destroyed; node holds thumbnail only.
 
-In `desktop/lifecycle_reconcile.rs`, add `viewer:wry` handling alongside the existing `viewer:servo`
+In `desktop/lifecycle_reconcile.rs`, add `viewer:wry` handling alongside the existing `viewer:webview`
 path. The reconciler checks the node's `viewer_id` preference and calls the appropriate
 `WryManager` method.
 
@@ -231,8 +230,8 @@ Users can set a backend preference per node or per frame:
   Stored on `Node.viewer_id_override: Option<ViewerId>`. Persisted to the graph WAL (fjall) as a
   node metadata update.
 - Frame-level: stored in `FrameManifest` as `viewer_id_default: Option<ViewerId>`.
-  Falls back to the `viewer:webview` alias if absent.
-- Resolution order: node override → frame default → `viewer:webview` alias.
+  Falls back to canonical `viewer:webview` if absent.
+- Resolution order: node override → frame default → `viewer:webview`.
 
 Done gate: setting `viewer_id_override` on a node to `viewer:wry` causes the next lifecycle
 reconcile to use `WryManager` for that node. Contract test covers resolution order.
@@ -241,8 +240,8 @@ reconcile to use `WryManager` for that node. Contract test covers resolution ord
 
 Expose backend selection in the settings UI:
 
-- Global default: "Default web backend" dropdown in Settings → Web → Rendering, showing `viewer:servo`
-  and `viewer:wry` (changes the `viewer:webview` alias target).
+- Global default: "Default web backend" dropdown in Settings → Web → Rendering, showing `viewer:webview`
+  and `viewer:wry` (changes the default selection target for new web nodes).
 - Per-node: context menu → "Open with" → "Servo" / "wry". Dispatches `SetNodeViewerPreference`.
 - Per-frame: frame settings page, "Default backend for this frame".
 

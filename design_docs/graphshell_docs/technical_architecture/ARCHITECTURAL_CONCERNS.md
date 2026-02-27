@@ -58,7 +58,7 @@ The documentation explicitly identifies areas of duplicated state.
 
 The architecture of the UI and webview integration components makes them difficult to test in isolation, which is a potential quality risk.
 
-- **Gap**: The `DEVELOPER_GUIDE.md` notes that `desktop/gui.rs` and `desktop/webview_controller.rs` have no dedicated unit tests and are only covered by integration tests.
+- **Gap**: The `codebase_guide.md` notes that `desktop/gui.rs` and `desktop/webview_controller.rs` have no dedicated unit tests and are only covered by integration tests.
 - **Impact**: These modules contain the most complex and critical logic for integrating with Servo. A lack of unit tests makes refactoring risky and can lead to regressions. An architecture that is difficult to unit-test often indicates tight coupling between components.
 - **Status (Feb 17)**: Stale as written. Both modules now have focused unit coverage (intent conversion/order tests, lifecycle reconciliation/backpressure classifier tests, controller reconciliation tests). Remaining risk is complexity/coverage breadth, not complete absence of unit tests.
 

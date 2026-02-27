@@ -38,7 +38,7 @@ use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
-use crate::shell::desktop::workbench::pane_model::NodePaneState;
+use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_invariants;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -1014,16 +1014,14 @@ pub(crate) fn run_post_render_phase<FActive>(
             focus_ring_node_key,
             focus_ring_started_at,
             focus_ring_duration,
+            control_panel,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
         }));
     }
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
-    render::render_physics_panel(ctx, graph_app);
     render::render_help_panel(ctx, graph_app);
-    let history_manager_intents = render::render_history_manager_panel(ctx, graph_app);
-    post_render_intents.extend(history_manager_intents);
     let focused_pane_node = focused_dialog_webview
         .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
         .or_else(|| active_node_pane_node(tiles_tree));
@@ -1039,15 +1037,6 @@ pub(crate) fn run_post_render_phase<FActive>(
         graph_app.workspace.hovered_graph_node,
         focused_pane_node,
     );
-    let persistence_panel_layout_json = serde_json::to_string(tiles_tree).ok();
-    render::render_persistence_panel(
-        ctx,
-        graph_app,
-        focused_pane_node,
-        persistence_panel_layout_json.as_deref(),
-    );
-    render::render_sync_panel(ctx, graph_app, control_panel);
-    render::render_manage_access_dialog(ctx, graph_app);
     if let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
         match persistence_ops::switch_persistence_store(
             graph_app,
@@ -1066,8 +1055,11 @@ pub(crate) fn run_post_render_phase<FActive>(
             Err(e) => toasts.error(format!("Failed to switch data directory: {e}")),
         };
     }
-    render::render_choose_frame_picker(ctx, graph_app);
-    render::render_unsaved_frame_prompt(ctx, graph_app);
+    let open_settings_tool_pane = render::render_choose_frame_picker(ctx, graph_app)
+        || render::render_unsaved_frame_prompt(ctx, graph_app);
+    if open_settings_tool_pane {
+        tile_view_ops::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
+    }
 
     if let Some((request, action)) = graph_app.take_unsaved_workspace_prompt_resolution() {
         match (request, action) {

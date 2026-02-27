@@ -30,7 +30,13 @@ Default keybinds are configurable in `Settings -> Input`.
 - `F2` (default): Toggle edge command palette
 - `F3` (default): Toggle radial command menu
 - `Ctrl+F`: Graph search
-- `Ctrl+Z` / `Ctrl+Y`: Undo / Redo
+- `Ctrl+Z` / `Ctrl+Y`: Undo / Redo (workbench-structure scope)
+- `Ctrl+Z` (hold): show undo preview indicator; release `Z` while holding `Ctrl` commits one undo step; releasing chord without commit path cancels preview
+
+## History Scope Semantics
+
+- `Back` / `Forward`: traversal-driven navigation within the active tile context
+- `Undo` / `Redo`: workbench-structure edits (tile/frame/split/reorder/open/close)
 - `F1` / `?` (default): Toggle keyboard shortcut help
 
 ## Node Context Menu

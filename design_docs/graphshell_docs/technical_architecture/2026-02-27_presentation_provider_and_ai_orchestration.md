@@ -14,7 +14,7 @@
 
 Define a single integration contract that allows Graphshell to combine:
 
-1. Multiple presentation backends (`viewer:servo`, `viewer:wry`, embedded egui viewers, graph-native views),
+1. Multiple presentation backends (`viewer:webview`, `viewer:wry`, embedded egui viewers, graph-native views),
 2. Node-local facet views (document + schematic + timeline + dependency projections), and
 3. A tiered AI runtime (tiny local model + retrieval + optional larger model).
 
@@ -28,7 +28,7 @@ Graphshell should treat rendering paths as **complementary providers** behind on
 
 - `egui` / `egui_tiles`: shell orchestration, pane topology, command surfaces.
 - `egui_graphs`: semantic graph projections and schematic subgraphs.
-- `viewer:servo` / `viewer:wry`: runtime viewer providers for web-native or fallback document fidelity.
+- `viewer:webview` / `viewer:wry`: runtime viewer providers for web-native or fallback document fidelity.
 - Embedded egui viewers (text/image/pdf/audio/etc.): domain-specific providers for non-web assets.
 
 Primary design principle: choose provider per node/facet based on capabilities and policy, not hard-coded engine preference.

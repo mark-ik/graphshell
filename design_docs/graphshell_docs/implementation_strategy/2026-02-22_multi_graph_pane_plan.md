@@ -44,7 +44,7 @@ It should host a pane whose payload determines rendering and input behavior.
    - Governed by `CanvasRegistry` + `LensCompositor`.
 
 2. **Node Viewer Pane**
-   - Renders a node using the selected viewer backend (`viewer:servo`, `viewer:wry`, `viewer:plaintext`, `viewer:pdf`, etc.).
+   - Renders a node using the selected viewer backend (`viewer:webview`, `viewer:wry`, `viewer:plaintext`, `viewer:pdf`, etc.).
    - Viewer selection is delegated to `ViewerRegistry` (using node metadata + overrides).
    - Viewport behavior is governed by `ViewerSurfaceRegistry`.
 
@@ -171,7 +171,7 @@ Viewer panes host node content selected by `ViewerRegistry`.
 
 Important distinction (must remain explicit):
 
-- **Servo** (`viewer:servo`) = texture mode, embeddable in graph canvas and panes
+- **Servo** (`viewer:webview`) = texture mode, embeddable in graph canvas and panes
 - **Wry** (`viewer:wry`) = overlay mode, pane-only (stable rectangular workbench regions)
 - **Native egui viewers** (`viewer:plaintext`, `viewer:image`, `viewer:pdf`, etc.) = embedded pane renderers
 

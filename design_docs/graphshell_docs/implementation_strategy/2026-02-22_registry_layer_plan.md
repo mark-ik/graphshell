@@ -758,7 +758,7 @@ Use `pub(crate)` re-exports at old paths during migration; remove them in Step 6
 
 - Delete all `pub(crate)` re-exports added in 6.4.
 - Delete any remaining module aliases or path compatibility shims from earlier phases.
-- Update all doc cross-references (`CODEBASE_MAP.md`, `ARCHITECTURAL_OVERVIEW.md`) to canonical paths.
+- Update all doc cross-references (`codebase_guide.md`, `ARCHITECTURAL_OVERVIEW.md`) to canonical paths.
 - Run full test suite; update any harness scenario imports that still reference old paths.
 
 **Done gate**: `grep -r "use crate::desktop::" --include="*.rs"` returns only shell-internal references. Filesystem matches `{model,registries,services,mods,shell}` (crate root layout). `cargo test` passes.

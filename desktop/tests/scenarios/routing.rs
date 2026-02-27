@@ -191,10 +191,11 @@ fn set_node_url_preserves_frame_membership() {
 }
 
 #[test]
-fn open_settings_url_history_activates_history_manager_surface() {
+fn open_settings_url_history_does_not_use_legacy_history_flag() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
+    let was_running = harness.app.workspace.physics.base.is_running;
 
     harness.app.apply_intents([
         GraphIntent::SetNodeUrl {
@@ -206,16 +207,15 @@ fn open_settings_url_history_activates_history_manager_surface() {
         },
     ]);
 
-    assert!(harness.app.workspace.show_history_manager);
-    assert!(!harness.app.workspace.show_physics_panel);
-    assert!(!harness.app.workspace.show_persistence_panel);
+    assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
 }
 
 #[test]
-fn open_settings_url_physics_activates_physics_surface() {
+fn open_settings_url_physics_is_not_reducer_owned() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
+    let was_running = harness.app.workspace.physics.base.is_running;
 
     harness.app.apply_intents([
         GraphIntent::SetNodeUrl {
@@ -227,7 +227,25 @@ fn open_settings_url_physics_activates_physics_surface() {
         },
     ]);
 
-    assert!(harness.app.workspace.show_physics_panel);
-    assert!(!harness.app.workspace.show_history_manager);
-    assert!(!harness.app.workspace.show_persistence_panel);
+    assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
+}
+
+#[test]
+fn open_settings_url_persistence_does_not_use_legacy_persistence_flag() {
+    let mut harness = TestRegistry::new();
+    let node = harness.add_node("https://example.com");
+    harness.app.select_node(node, false);
+    let was_running = harness.app.workspace.physics.base.is_running;
+
+    harness.app.apply_intents([
+        GraphIntent::SetNodeUrl {
+            key: node,
+            new_url: "graphshell://settings/persistence".to_string(),
+        },
+        GraphIntent::OpenSettingsUrl {
+            url: "graphshell://settings/persistence".to_string(),
+        },
+    ]);
+
+    assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
 }

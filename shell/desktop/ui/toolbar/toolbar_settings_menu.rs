@@ -17,21 +17,15 @@ pub(super) fn render_settings_menu(
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) {
     if ui.button("Open Persistence Hub").clicked() {
-        graph_app.workspace.show_persistence_panel = true;
         frame_intents.push(GraphIntent::OpenToolPane {
             kind: ToolPaneState::Settings,
         });
         ui.close();
     }
-    if ui
-        .button(if graph_app.workspace.show_physics_panel {
-            "Hide Physics Panel"
-        } else {
-            "Show Physics Panel"
-        })
-        .clicked()
-    {
-        frame_intents.push(GraphIntent::TogglePhysicsPanel);
+    if ui.button("Open Physics Settings").clicked() {
+        frame_intents.push(GraphIntent::OpenSettingsUrl {
+            url: "graphshell://settings/physics".to_string(),
+        });
         ui.close();
     }
     if ui
@@ -45,21 +39,10 @@ pub(super) fn render_settings_menu(
         frame_intents.push(GraphIntent::ToggleHelpPanel);
         ui.close();
     }
-    if ui
-        .button(if graph_app.workspace.show_history_manager {
-            "Hide History Manager"
-        } else {
-            "Show History Manager"
-        })
-        .clicked()
-    {
-        let opening = !graph_app.workspace.show_history_manager;
-        frame_intents.push(GraphIntent::ToggleHistoryManager);
-        if opening {
-            frame_intents.push(GraphIntent::OpenToolPane {
-                kind: ToolPaneState::HistoryManager,
-            });
-        }
+    if ui.button("Open History Manager").clicked() {
+        frame_intents.push(GraphIntent::OpenToolPane {
+            kind: ToolPaneState::HistoryManager,
+        });
         ui.close();
     }
     ui.separator();

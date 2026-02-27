@@ -181,7 +181,53 @@ impl CompositorPassTracker {
 
 pub(crate) struct CompositorAdapter;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CompositedContentPassOutcome {
+    Registered,
+    InvalidTileRect,
+    PaintFailed,
+    MissingContentCallback,
+}
+
 impl CompositorAdapter {
+    /// Compose a webview into an offscreen target and register the guarded
+    /// content pass callback against the parent painter.
+    ///
+    /// This keeps callback wiring (`render_to_parent`) and guardrails localized
+    /// to the adapter boundary rather than call sites.
+    pub(crate) fn compose_webview_content_pass(
+        ctx: &Context,
+        node_key: NodeKey,
+        tile_rect: EguiRect,
+        pixels_per_point: f32,
+        render_context: &OffscreenRenderingContext,
+        webview: &WebView,
+    ) -> CompositedContentPassOutcome {
+        let Some((size, target_size)) = Self::prepare_composited_target(
+            node_key,
+            tile_rect,
+            pixels_per_point,
+            render_context,
+        ) else {
+            return CompositedContentPassOutcome::InvalidTileRect;
+        };
+
+        Self::reconcile_webview_target_size(webview, size, target_size);
+
+        if !Self::paint_offscreen_content_pass(render_context, target_size, || {
+            webview.paint();
+        }) {
+            return CompositedContentPassOutcome::PaintFailed;
+        }
+
+        if Self::register_content_pass_from_render_context(ctx, node_key, tile_rect, render_context)
+        {
+            CompositedContentPassOutcome::Registered
+        } else {
+            CompositedContentPassOutcome::MissingContentCallback
+        }
+    }
+
     pub(crate) fn content_layer(node_key: NodeKey) -> LayerId {
         LayerId::new(
             egui::Order::Middle,
@@ -306,7 +352,7 @@ impl CompositorAdapter {
         }
     }
 
-    pub(crate) fn register_render_to_parent_content_pass<F>(
+    fn register_render_to_parent_content_pass<F>(
         ctx: &Context,
         node_key: NodeKey,
         tile_rect: EguiRect,
@@ -338,7 +384,7 @@ impl CompositorAdapter {
         Self::register_content_pass(ctx, node_key, tile_rect, callback);
     }
 
-    pub(crate) fn register_content_pass_from_render_context(
+    fn register_content_pass_from_render_context(
         ctx: &Context,
         node_key: NodeKey,
         tile_rect: EguiRect,

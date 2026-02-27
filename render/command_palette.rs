@@ -12,6 +12,7 @@ use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, PendingConnectedOpenScope, PendingTileOpenMode,
 };
 use crate::graph::NodeKey;
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionId, InputMode, list_actions_for_context,
 };
@@ -250,7 +251,9 @@ pub(super) fn execute_action(
         }
         ActionId::GraphFit => intents.push(GraphIntent::RequestFitToScreen),
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
-        ActionId::GraphPhysicsConfig => intents.push(GraphIntent::TogglePhysicsPanel),
+        ActionId::GraphPhysicsConfig => intents.push(GraphIntent::OpenSettingsUrl {
+            url: "graphshell://settings/physics".to_string(),
+        }),
         ActionId::GraphCommandPalette => intents.push(GraphIntent::ToggleCommandPalette),
         ActionId::PersistUndo => intents.push(GraphIntent::Undo),
         ActionId::PersistRedo => intents.push(GraphIntent::Redo),
@@ -268,6 +271,8 @@ pub(super) fn execute_action(
             app.request_save_graph_snapshot_named(format!("radial-graph-{now}"));
         }
         ActionId::PersistRestoreLatestGraph => app.request_restore_graph_snapshot_latest(),
-        ActionId::PersistOpenHub => intents.push(GraphIntent::TogglePersistencePanel),
+        ActionId::PersistOpenHub => intents.push(GraphIntent::OpenToolPane {
+            kind: ToolPaneState::Settings,
+        }),
     }
 }
