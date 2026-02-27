@@ -4,6 +4,8 @@ This guide covers building Graphshell on Windows, macOS, and Linux.
 
 Graphshell is a standalone Rust crate. Servo is pulled as a git dependency — no local Servo checkout needed, no `mach` required.
 
+> Cargo is the canonical default build path. If a command can be done with cargo directly, prefer that first. The `scripts/dev/*` helpers are optional wrappers for convenience/lane management.
+
 ---
 
 ## Quick Start (Standalone)
@@ -27,7 +29,35 @@ cargo run --release -- --headless https://example.com
 
 Controls and shortcuts live in [KEYBINDINGS.md](../design/KEYBINDINGS.md).
 
+---
+
+## Cargo-first defaults (what "default build" means)
+
+By default, cargo uses the **debug/dev profile** unless `--release` is specified.
+
+- `cargo build` compiles with faster build times and debug symbols.
+- `cargo run` runs the debug build.
+- `cargo test` builds and runs tests in debug profile by default.
+- `cargo check` type-checks and validates without full codegen.
+
+For most contributors, this is the right day-to-day loop:
+
+```bash
+cargo check
+cargo test
+cargo run -- https://example.com
+```
+
+Use release profile when validating runtime behavior/perf characteristics:
+
+```bash
+cargo build --release
+cargo run --release -- https://example.com
+```
+
 ### Managed target directories (cross-platform)
+
+These scripts are optional. Prefer direct cargo commands first; use scripts when you want lane-safe target directory routing and convenience wrappers.
 
 You can audit/install a recommended CLI baseline with:
 
@@ -166,7 +196,27 @@ cargo test test_name --lib
 
 # With output
 cargo test test_name --lib -- --nocapture
+
+# Single integration test target
+cargo test --test <integration_test_name>
+
+# Single package target (workspace-safe habit)
+cargo test -p graphshell
+
+# Deterministic single-threaded test run (for flaky triage)
+cargo test -- --test-threads=1
+
+# Keep warnings/errors visible in debug profile checks
+cargo check
 ```
+
+### Debug-profile testing workflow (recommended default)
+
+1. `cargo check`
+2. `cargo test` (or targeted test first)
+3. `cargo run -- <url>` for local behavior checks
+
+This sequence matches how most contributors iterate quickly while preserving debuggability.
 
 ---
 
@@ -176,6 +226,7 @@ cargo test test_name --lib -- --nocapture
 cargo fmt          # Format code
 cargo clippy       # Lint
 cargo check        # Fast type-check without codegen
+cargo doc --no-deps # Build local API docs for this crate
 ```
 
 ---

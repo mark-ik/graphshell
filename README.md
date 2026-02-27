@@ -9,14 +9,16 @@
 
 ## Build and Run (Standalone)
 
+Graphshell is **cargo-first**. The default cargo workflow is the canonical build path for most contributors and CI-like local validation.
+
 ```bash
-# Build
+# Build (debug profile)
 cargo build
 
-# Run
+# Run (debug profile)
 cargo run -- https://example.com
 
-# Test
+# Test (debug profile by default)
 cargo test
 
 # Check/format/lint
@@ -25,7 +27,16 @@ cargo fmt
 cargo clippy
 ```
 
-See `design_docs/graphshell_docs/BUILD.md` for platform prerequisites and extended options.
+Use release profile only when you need runtime/perf parity:
+
+```bash
+cargo build --release
+cargo run --release -- https://example.com
+```
+
+Optional helper scripts in `scripts/dev/` are wrappers around cargo for lane-safe target directories and convenience; they are not required for normal development.
+
+See `design_docs/graphshell_docs/technical_architecture/BUILD.md` for platform prerequisites, debug testing workflows, and extended cargo usage.
 
 ## Environment Overrides
 

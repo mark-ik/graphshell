@@ -1,0 +1,88 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: graphshell
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: graphshell.exe
+            archive_ext: zip
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary_name: graphshell
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin graphshell
+
+      - name: Package archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" dist/
+          archive="graphshell-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}"
+          tar -C dist -czf "$archive" "${{ matrix.binary_name }}"
+          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+
+      - name: Package archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.binary_name }}"
+          $archive = "graphshell-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}"
+          Compress-Archive -Path "dist/${{ matrix.binary_name }}" -DestinationPath $archive -Force
+          "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**/*
+          draft: false
+          prerelease: false

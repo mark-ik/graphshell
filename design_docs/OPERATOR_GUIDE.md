@@ -2,6 +2,22 @@
 
 This is a practical, reusable playbook for day-to-day repo operations.
 
+## 0) Cargo-first default policy
+
+- Prefer direct cargo commands as the primary workflow.
+- Treat `scripts/dev/*` as optional convenience wrappers, not the default path.
+- Assume debug profile unless `--release` is explicitly needed.
+
+Default local validation loop:
+
+- `cargo check`
+- `cargo test`
+- `cargo run -- <url>`
+
+Versioning/release cadence policy:
+
+- `design_docs/graphshell_docs/implementation_strategy/VERSIONING_POLICY.md`
+
 ## 1) Safe PR review workflow
 
 1. Start clean:
@@ -43,6 +59,13 @@ On the PR branch:
 7. `git commit` (merge commit)
 8. `git push`
 
+Debug-focused test commands (common):
+
+- `cargo test`
+- `cargo test <name> --lib -- --nocapture`
+- `cargo test --test <integration_test_name>`
+- `cargo test -- --test-threads=1`
+
 ## 4) Fast conflict-resolution checklist
 
 - Keep both feature registrations when both are valid (typical in `mod.rs` files).
@@ -69,12 +92,15 @@ Helpful checks:
 ## 6) Wiki sync behavior (already configured)
 
 Workflow file:
+
 - `.github/workflows/wiki-sync.yml`
 
 Script:
+
 - `.github/scripts/sync_wiki.py`
 
 Auto-triggers on push to `main` when these paths change:
+
 - `design_docs/**`
 - `.github/scripts/sync_wiki.py`
 - `.github/workflows/wiki-sync.yml`
