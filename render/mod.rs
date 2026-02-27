@@ -138,6 +138,14 @@ pub fn render_graph_in_ui_collect_actions(
             .insert(view_id, crate::app::GraphViewState::new_with_id(view_id, "Graph View"));
     }
 
+    if app
+        .workspace
+        .focused_view
+        .is_some_and(|focused| !app.workspace.views.contains_key(&focused))
+    {
+        app.workspace.focused_view = None;
+    }
+
     let ctrl_pressed = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
     let right_button_down = ui.input(|i| i.pointer.secondary_down());
     let radial_open = app.workspace.show_radial_menu;
@@ -904,7 +912,9 @@ fn handle_custom_navigation(
 
     // Apply keyboard zoom — only for the currently focused graph view so that
     // pressing +/– targets the pane the user last hovered, not all panes.
-    let is_focused = app.workspace.focused_view.is_none_or(|focused| focused == view_id);
+    let is_focused = app.workspace.focused_view.is_none_or(|focused| {
+        focused == view_id || !app.workspace.views.contains_key(&focused)
+    });
     let keyboard_zoom = if is_focused {
         apply_pending_keyboard_zoom_request(ui, app, metadata_id, view_id)
     } else {
@@ -914,7 +924,7 @@ fn handle_custom_navigation(
     // Apply pre-intercepted wheel zoom delta.
     let wheel_zoom = apply_pending_wheel_zoom(ui, response, metadata_id, app, view_id);
 
-    let pointer_inside = response.hovered();
+    let pointer_inside = response.contains_pointer() || response.dragged();
     
     // Pan with Left Mouse Button on background
     // Note: We check if we are NOT hovering a node to allow node dragging.
