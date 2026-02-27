@@ -8,18 +8,19 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
-    CameraCommand, ChooseWorkspacePickerMode, EdgeCommand, GraphBrowserApp, GraphIntent, KeyboardZoomRequest,
-    HistoryManagerTab, LassoMouseBinding, MemoryPressureLevel, PendingConnectedOpenScope, PendingTileOpenMode,
-    SearchDisplayMode, SelectionUpdateMode, UnsavedWorkspacePromptAction,
-    UnsavedWorkspacePromptRequest,
+    CameraCommand, ChooseWorkspacePickerMode, GraphBrowserApp, GraphIntent, HistoryManagerTab,
+    KeyboardZoomRequest, LassoMouseBinding, MemoryPressureLevel, SearchDisplayMode,
+    SelectionUpdateMode, UnsavedWorkspacePromptAction, UnsavedWorkspacePromptRequest,
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
-use crate::shell::desktop::ui::persistence_ops;
 use crate::registries::domain::layout::LayoutDomainRegistry;
 use crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT;
 use crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT;
 use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UI_HISTORY_MANAGER_LIMIT;
+use crate::shell::desktop::ui::persistence_ops;
 use egui::{Color32, Key, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
@@ -36,8 +37,6 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UI_HISTORY_MANAGER_LIMIT;
 
 mod spatial_index;
 use spatial_index::NodeSpatialIndex;
@@ -67,6 +66,7 @@ pub enum GraphAction {
         keys: Vec<NodeKey>,
         mode: SelectionUpdateMode,
     },
+    ClearSelection,
     Zoom(f32),
 }
 
@@ -133,9 +133,10 @@ pub fn render_graph_in_ui_collect_actions(
     // Ensure a GraphViewState exists for this pane so per-view camera, lens,
     // and layout mode can be stored independently.
     if !app.workspace.views.contains_key(&view_id) {
-        app.workspace
-            .views
-            .insert(view_id, crate::app::GraphViewState::new_with_id(view_id, "Graph View"));
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new_with_id(view_id, "Graph View"),
+        );
     }
 
     if app
@@ -313,11 +314,12 @@ pub fn render_graph_in_ui_collect_actions(
     }
 
     // Apply semantic clustering forces if enabled (UDC Phase 2)
-    let semantic_config = app
-        .workspace
-        .views
-        .get(&view_id)
-        .map(|v| (v.lens.physics.semantic_clustering, v.lens.physics.semantic_strength));
+    let semantic_config = app.workspace.views.get(&view_id).map(|v| {
+        (
+            v.lens.physics.semantic_clustering,
+            v.lens.physics.semantic_strength,
+        )
+    });
     apply_semantic_clustering_forces(app, semantic_config);
 
     app.workspace.hovered_graph_node = app.workspace.egui_state.as_ref().and_then(|state| {
@@ -394,7 +396,15 @@ pub fn render_graph_in_ui_collect_actions(
     }
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
+    let clear_selection_on_background_click = ui.input(|i| {
+        i.pointer.primary_clicked()
+            && !i.modifiers.shift
+            && app.workspace.hovered_graph_node.is_none()
+    }) && lasso.action.is_none();
     let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
+    if clear_selection_on_background_click {
+        actions.push(GraphAction::ClearSelection);
+    }
     if let Some(lasso_action) = lasso.action {
         actions.push(lasso_action);
     }
@@ -684,7 +694,10 @@ fn viewport_culling_selection_for_canvas_rect(
         (key, pos, DEFAULT_NODE_RADIUS)
     }));
 
-    let visible: HashSet<NodeKey> = index.nodes_in_canvas_rect(canvas_rect).into_iter().collect();
+    let visible: HashSet<NodeKey> = index
+        .nodes_in_canvas_rect(canvas_rect)
+        .into_iter()
+        .collect();
     if visible.is_empty() || visible.len() >= graph.node_count() {
         return None;
     }
@@ -884,7 +897,8 @@ fn apply_search_node_visuals(
 fn hovered_adjacency_set(app: &GraphBrowserApp, hovered: Option<NodeKey>) -> HashSet<NodeKey> {
     hovered
         .map(|hover_key| {
-            app.workspace.graph
+            app.workspace
+                .graph
                 .out_neighbors(hover_key)
                 .chain(app.workspace.graph.in_neighbors(hover_key))
                 .chain(std::iter::once(hover_key))
@@ -912,9 +926,10 @@ fn handle_custom_navigation(
 
     // Apply keyboard zoom — only for the currently focused graph view so that
     // pressing +/– targets the pane the user last hovered, not all panes.
-    let is_focused = app.workspace.focused_view.is_none_or(|focused| {
-        focused == view_id || !app.workspace.views.contains_key(&focused)
-    });
+    let is_focused = app
+        .workspace
+        .focused_view
+        .is_none_or(|focused| focused == view_id || !app.workspace.views.contains_key(&focused));
     let keyboard_zoom = if is_focused {
         apply_pending_keyboard_zoom_request(ui, app, metadata_id, view_id)
     } else {
@@ -925,11 +940,14 @@ fn handle_custom_navigation(
     let wheel_zoom = apply_pending_wheel_zoom(ui, response, metadata_id, app, view_id);
 
     let pointer_inside = response.contains_pointer() || response.dragged();
-    
+
     // Pan with Left Mouse Button on background
     // Note: We check if we are NOT hovering a node to allow node dragging.
     // app.workspace.hovered_graph_node is updated before this function in render_graph_in_ui_collect_actions.
-    if pointer_inside && app.workspace.hovered_graph_node.is_none() && ui.input(|i| i.pointer.primary_down()) {
+    if pointer_inside
+        && app.workspace.hovered_graph_node.is_none()
+        && ui.input(|i| i.pointer.primary_down())
+    {
         let delta = ui.input(|i| i.pointer.delta());
         if delta != Vec2::ZERO {
             ui.ctx().data_mut(|data| {
@@ -1223,7 +1241,8 @@ fn apply_pending_wheel_zoom(
     if velocity.abs() < app.workspace.scroll_zoom_inertia_min_abs {
         velocity = 0.0;
     }
-    ui.ctx().data_mut(|d| d.insert_persisted(velocity_id, velocity));
+    ui.ctx()
+        .data_mut(|d| d.insert_persisted(velocity_id, velocity));
     if velocity != 0.0 {
         ui.ctx().request_repaint_after(Duration::from_millis(16));
     }
@@ -1392,7 +1411,11 @@ fn collect_lasso_action(
     }
 
     let rect = egui::Rect::from_two_pos(a, b);
-    let add_mode = ctrl || (matches!(app.workspace.lasso_mouse_binding, LassoMouseBinding::RightDrag) && shift);
+    let add_mode = ctrl
+        || (matches!(
+            app.workspace.lasso_mouse_binding,
+            LassoMouseBinding::RightDrag
+        ) && shift);
     let mode = if alt {
         SelectionUpdateMode::Toggle
     } else if add_mode {
@@ -1407,7 +1430,10 @@ fn collect_lasso_action(
     let Some(state) = app.workspace.egui_state.as_ref() else {
         return LassoGestureResult {
             action: None,
-            suppress_context_menu: matches!(app.workspace.lasso_mouse_binding, LassoMouseBinding::RightDrag),
+            suppress_context_menu: matches!(
+                app.workspace.lasso_mouse_binding,
+                LassoMouseBinding::RightDrag
+            ),
         };
     };
     // Build an R*-tree index in canvas (world) space and query with the
@@ -1426,8 +1452,10 @@ fn collect_lasso_action(
 
     LassoGestureResult {
         action: Some(GraphAction::LassoSelect { keys, mode }),
-        suppress_context_menu: matches!(app.workspace.lasso_mouse_binding, LassoMouseBinding::RightDrag)
-            && moved,
+        suppress_context_menu: matches!(
+            app.workspace.lasso_mouse_binding,
+            LassoMouseBinding::RightDrag
+        ) && moved,
     }
 }
 
@@ -1453,10 +1481,10 @@ fn collect_graph_actions(
                         }
                     }
                 }
-            },
+            }
             Event::NodeDragStart(_) => {
                 actions.push(GraphAction::DragStart);
-            },
+            }
             Event::NodeDragEnd(p) => {
                 // Resolve final position from egui_state
                 let idx = NodeIndex::new(p.id);
@@ -1470,7 +1498,7 @@ fn collect_graph_actions(
                         actions.push(GraphAction::DragEnd(key, pos));
                     }
                 }
-            },
+            }
             Event::NodeMove(p) => {
                 let idx = NodeIndex::new(p.id);
                 if let Some(state) = app.workspace.egui_state.as_ref() {
@@ -1481,7 +1509,7 @@ fn collect_graph_actions(
                         ));
                     }
                 }
-            },
+            }
             Event::NodeSelect(p) => {
                 if let Some(state) = app.workspace.egui_state.as_ref() {
                     let idx = NodeIndex::new(p.id);
@@ -1492,7 +1520,7 @@ fn collect_graph_actions(
                         });
                     }
                 }
-            },
+            }
             Event::NodeDeselect(p) => {
                 // When Ctrl is held, a NodeDeselect means the user Ctrl+Clicked an
                 // already-selected node to toggle it out of the multi-selection.
@@ -1508,11 +1536,11 @@ fn collect_graph_actions(
                     }
                 }
                 // Without modifier: selection clearing is handled by the next SelectNode action.
-            },
+            }
             Event::Zoom(p) => {
                 actions.push(GraphAction::Zoom(p.new_zoom));
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
@@ -1529,32 +1557,38 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
                     key,
                     prefer_workspace: None,
                 });
-            },
+            }
             GraphAction::FocusNodeSplit(key) => {
                 intents.push(GraphIntent::SelectNode {
                     key,
                     multi_select: false,
                 });
-            },
+            }
             GraphAction::DragStart => {
                 intents.push(GraphIntent::SetInteracting { interacting: true });
-            },
+            }
             GraphAction::DragEnd(key, pos) => {
                 intents.push(GraphIntent::SetInteracting { interacting: false });
                 intents.push(GraphIntent::SetNodePosition { key, position: pos });
-            },
+            }
             GraphAction::MoveNode(key, pos) => {
                 intents.push(GraphIntent::SetNodePosition { key, position: pos });
-            },
+            }
             GraphAction::SelectNode { key, multi_select } => {
                 intents.push(GraphIntent::SelectNode { key, multi_select });
-            },
+            }
             GraphAction::LassoSelect { keys, mode } => {
                 intents.push(GraphIntent::UpdateSelection { keys, mode });
-            },
+            }
+            GraphAction::ClearSelection => {
+                intents.push(GraphIntent::UpdateSelection {
+                    keys: Vec::new(),
+                    mode: SelectionUpdateMode::Replace,
+                });
+            }
             GraphAction::Zoom(new_zoom) => {
                 intents.push(GraphIntent::SetZoom { zoom: new_zoom });
-            },
+            }
         }
     }
     intents
@@ -1692,11 +1726,15 @@ fn apply_semantic_clustering_forces(
     }
 
     // Collect nodes with semantic tags
-    let tagged_nodes: Vec<(crate::graph::NodeKey, crate::registries::atomic::knowledge::CompactCode)> =
-        app.workspace.semantic_index
-            .iter()
-            .map(|(&key, code)| (key, code.clone()))
-            .collect();
+    let tagged_nodes: Vec<(
+        crate::graph::NodeKey,
+        crate::registries::atomic::knowledge::CompactCode,
+    )> = app
+        .workspace
+        .semantic_index
+        .iter()
+        .map(|(&key, code)| (key, code.clone()))
+        .collect();
 
     if tagged_nodes.len() < 2 {
         return; // Need at least 2 nodes to cluster
@@ -1932,7 +1970,10 @@ pub fn render_physics_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
             if let Some(last_avg) = app.workspace.physics.base.last_avg_displacement {
                 ui.label(format!("Last avg displacement: {:.4}", last_avg));
             }
-            ui.label(format!("Step count: {}", app.workspace.physics.base.step_count));
+            ui.label(format!(
+                "Step count: {}",
+                app.workspace.physics.base.step_count
+            ));
 
             // Apply config changes
             if config_changed {
@@ -2029,7 +2070,10 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
 }
 
 /// Render History Manager panel with Timeline and Dissolved tabs.
-pub fn render_history_manager_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) -> Vec<GraphIntent> {
+pub fn render_history_manager_panel(
+    ctx: &egui::Context,
+    app: &mut GraphBrowserApp,
+) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
     if !app.workspace.show_history_manager {
         return intents;
@@ -2070,7 +2114,8 @@ pub fn render_history_manager_panel(ctx: &egui::Context, app: &mut GraphBrowserA
                             }
                         });
                     });
-                    let entries = app.history_manager_timeline_entries(history_manager_entry_limit());
+                    let entries =
+                        app.history_manager_timeline_entries(history_manager_entry_limit());
                     render_history_manager_rows(ui, app, &entries, &mut intents);
                 }
                 HistoryManagerTab::Dissolved => {
@@ -2085,7 +2130,8 @@ pub fn render_history_manager_panel(ctx: &egui::Context, app: &mut GraphBrowserA
                             }
                         });
                     });
-                    let entries = app.history_manager_dissolved_entries(history_manager_entry_limit());
+                    let entries =
+                        app.history_manager_dissolved_entries(history_manager_entry_limit());
                     render_history_manager_rows(ui, app, &entries, &mut intents);
                 }
             }
@@ -2158,14 +2204,30 @@ fn render_history_manager_rows(
 
                 let from_label = from_key
                     .and_then(|k| app.workspace.graph.get_node(k))
-                    .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                    .map(|n| {
+                        if n.title.is_empty() {
+                            n.url.as_str()
+                        } else {
+                            n.title.as_str()
+                        }
+                    })
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("<missing:{}>", &from_node_id[..from_node_id.len().min(8)]));
+                    .unwrap_or_else(|| {
+                        format!("<missing:{}>", &from_node_id[..from_node_id.len().min(8)])
+                    });
                 let to_label = to_key
                     .and_then(|k| app.workspace.graph.get_node(k))
-                    .map(|n| if n.title.is_empty() { n.url.as_str() } else { n.title.as_str() })
+                    .map(|n| {
+                        if n.title.is_empty() {
+                            n.url.as_str()
+                        } else {
+                            n.title.as_str()
+                        }
+                    })
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("<missing:{}>", &to_node_id[..to_node_id.len().min(8)]));
+                    .unwrap_or_else(|| {
+                        format!("<missing:{}>", &to_node_id[..to_node_id.len().min(8)])
+                    });
 
                 let elapsed_ms = now_ms.saturating_sub(*timestamp_ms);
                 let time_label = if elapsed_ms < 1_000 {
@@ -2181,16 +2243,23 @@ fn render_history_manager_rows(
                 };
 
                 let trigger_label = match trigger {
-                    crate::services::persistence::types::PersistedNavigationTrigger::Back => "⬅ Back",
-                    crate::services::persistence::types::PersistedNavigationTrigger::Forward => "➡ Forward",
+                    crate::services::persistence::types::PersistedNavigationTrigger::Back => {
+                        "⬅ Back"
+                    }
+                    crate::services::persistence::types::PersistedNavigationTrigger::Forward => {
+                        "➡ Forward"
+                    }
                     crate::services::persistence::types::PersistedNavigationTrigger::Unknown => "↔",
                 };
 
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(time_label).weak().small());
                     ui.label(trigger_label);
-                    let response = ui.selectable_label(false, format!("{} → {}", from_label, to_label));
-                    if response.clicked() && let Some(key) = from_key {
+                    let response =
+                        ui.selectable_label(false, format!("{} → {}", from_label, to_label));
+                    if response.clicked()
+                        && let Some(key) = from_key
+                    {
                         intents.push(GraphIntent::SelectNode {
                             key,
                             multi_select: false,
@@ -2211,7 +2280,9 @@ fn apply_ui_intents_with_checkpoint(app: &mut GraphBrowserApp, intents: Vec<Grap
         let layout = app
             .last_session_workspace_layout_json()
             .map(str::to_string)
-            .or_else(|| app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME));
+            .or_else(|| {
+                app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
+            });
         app.capture_undo_checkpoint(layout);
     }
     app.apply_intents(intents);
@@ -2260,9 +2331,13 @@ fn context_pin_workspace_name(scope: ContextPinScope) -> &'static str {
     }
 }
 
-fn saved_workspace_runtime_layout_json(app: &GraphBrowserApp, workspace_name: &str) -> Option<String> {
+fn saved_workspace_runtime_layout_json(
+    app: &GraphBrowserApp,
+    workspace_name: &str,
+) -> Option<String> {
     let bundle = persistence_ops::load_named_workspace_bundle(app, workspace_name).ok()?;
-    let (tree, _) = persistence_ops::restore_runtime_tree_from_workspace_bundle(app, &bundle).ok()?;
+    let (tree, _) =
+        persistence_ops::restore_runtime_tree_from_workspace_bundle(app, &bundle).ok()?;
     serde_json::to_string(&tree).ok()
 }
 
@@ -2944,7 +3019,7 @@ pub fn render_sync_panel(
                 ui.small(message);
             }
         });
-    
+
     app.workspace.show_sync_panel = open;
 }
 
@@ -2952,7 +3027,7 @@ pub fn render_manage_access_dialog(ctx: &egui::Context, app: &mut GraphBrowserAp
     if !app.workspace.show_manage_access_dialog {
         return;
     }
-    
+
     let mut open = app.workspace.show_manage_access_dialog;
     Window::new("Manage Access")
         .open(&mut open)
@@ -2965,31 +3040,36 @@ pub fn render_manage_access_dialog(ctx: &egui::Context, app: &mut GraphBrowserAp
 
             ui.label("Grant or revoke workspace access for paired devices");
             ui.separator();
-            
+
             let peers = crate::mods::native::verse::get_trusted_peers();
-            
+
             if peers.is_empty() {
                 ui.label("No paired devices");
             } else {
                 for peer in &peers {
                     ui.group(|ui| {
                         ui.label(egui::RichText::new(&peer.display_name).strong());
-                        
+
                         if peer.workspace_grants.is_empty() {
                             ui.label("No workspace grants");
                         } else {
                             for grant in &peer.workspace_grants {
                                 ui.horizontal(|ui| {
                                     let access_str = match grant.access {
-                                        crate::mods::native::verse::AccessLevel::ReadOnly => "🔒 Read-Only",
-                                        crate::mods::native::verse::AccessLevel::ReadWrite => "✏️ Read-Write",
+                                        crate::mods::native::verse::AccessLevel::ReadOnly => {
+                                            "🔒 Read-Only"
+                                        }
+                                        crate::mods::native::verse::AccessLevel::ReadWrite => {
+                                            "✏️ Read-Write"
+                                        }
                                     };
                                     ui.label(format!("{}: {}", grant.workspace_id, access_str));
                                     if ui.button("Revoke").clicked() {
-                                        let intent = crate::app::GraphIntent::RevokeWorkspaceAccess {
-                                            peer_id: peer.node_id.to_string(),
-                                            workspace_id: grant.workspace_id.clone(),
-                                        };
+                                        let intent =
+                                            crate::app::GraphIntent::RevokeWorkspaceAccess {
+                                                peer_id: peer.node_id.to_string(),
+                                                workspace_id: grant.workspace_id.clone(),
+                                            };
                                         app.apply_intents(vec![intent]);
                                     }
                                 });
@@ -2999,7 +3079,7 @@ pub fn render_manage_access_dialog(ctx: &egui::Context, app: &mut GraphBrowserAp
                 }
             }
         });
-    
+
     app.workspace.show_manage_access_dialog = open;
 }
 
@@ -3017,7 +3097,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
     let mut memberships = match request.mode {
         ChooseWorkspacePickerMode::OpenNodeInWorkspace => {
             app.sorted_workspaces_for_node_key(target)
-        },
+        }
         ChooseWorkspacePickerMode::AddNodeToWorkspace => {
             let mut all = app
                 .list_workspace_layout_names()
@@ -3026,7 +3106,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                 .collect::<Vec<_>>();
             all.sort();
             all
-        },
+        }
         ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
             let mut all = app
                 .list_workspace_layout_names()
@@ -3035,7 +3115,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                 .collect::<Vec<_>>();
             all.sort();
             all
-        },
+        }
         ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
             let mut all = app
                 .list_workspace_layout_names()
@@ -3044,7 +3124,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                 .collect::<Vec<_>>();
             all.sort();
             all
-        },
+        }
     };
     let title = app
         .workspace
@@ -3062,16 +3142,16 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                 let msg = match request.mode {
                     ChooseWorkspacePickerMode::OpenNodeInWorkspace => {
                         "No workspace memberships for this node."
-                    },
+                    }
                     ChooseWorkspacePickerMode::AddNodeToWorkspace => {
                         "No named workspaces available. Save one first."
-                    },
+                    }
                     ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
                         "No named workspaces available. Save one first."
-                    },
+                    }
                     ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
                         "No named workspaces available. Save one first."
-                    },
+                    }
                 };
                 ui.small(msg);
             } else {
@@ -3081,10 +3161,10 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                     ChooseWorkspacePickerMode::AddNodeToWorkspace => "Add node to workspace:",
                     ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
                         "Add connected nodes to workspace:"
-                    },
+                    }
                     ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
                         "Add selected nodes to workspace:"
-                    },
+                    }
                 };
                 ui.small(header);
                 for name in &memberships {
@@ -3111,10 +3191,10 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                     key: target,
                     prefer_workspace: Some(name),
                 }]);
-            },
+            }
             ChooseWorkspacePickerMode::AddNodeToWorkspace => {
                 app.request_add_node_to_workspace(target, name);
-            },
+            }
             ChooseWorkspacePickerMode::AddConnectedSelectionToWorkspace => {
                 let mut seed_nodes: Vec<NodeKey> = if app.workspace.selected_nodes.is_empty() {
                     vec![target]
@@ -3125,7 +3205,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                     seed_nodes.push(target);
                 }
                 app.request_add_connected_to_workspace(seed_nodes, name);
-            },
+            }
             ChooseWorkspacePickerMode::AddExactSelectionToWorkspace => {
                 let mut nodes = app
                     .choose_workspace_picker_exact_nodes()
@@ -3137,7 +3217,7 @@ pub fn render_choose_workspace_picker(ctx: &egui::Context, app: &mut GraphBrowse
                 if !nodes.is_empty() {
                     app.request_add_exact_nodes_to_workspace(nodes, name);
                 }
-            },
+            }
         }
     }
     if close {
@@ -3302,13 +3382,17 @@ mod tests {
         let b = app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
 
         // Single-click selects a.
-        let intents =
-            intents_from_graph_actions(vec![GraphAction::SelectNode { key: a, multi_select: false }]);
+        let intents = intents_from_graph_actions(vec![GraphAction::SelectNode {
+            key: a,
+            multi_select: false,
+        }]);
         app.apply_intents(intents);
 
         // Ctrl+Click adds b without deselecting a.
-        let intents =
-            intents_from_graph_actions(vec![GraphAction::SelectNode { key: b, multi_select: true }]);
+        let intents = intents_from_graph_actions(vec![GraphAction::SelectNode {
+            key: b,
+            multi_select: true,
+        }]);
         app.apply_intents(intents);
 
         assert!(app.workspace.selected_nodes.contains(&a));
@@ -3324,8 +3408,14 @@ mod tests {
 
         // Select both nodes.
         app.apply_intents(intents_from_graph_actions(vec![
-            GraphAction::SelectNode { key: a, multi_select: false },
-            GraphAction::SelectNode { key: b, multi_select: true },
+            GraphAction::SelectNode {
+                key: a,
+                multi_select: false,
+            },
+            GraphAction::SelectNode {
+                key: b,
+                multi_select: true,
+            },
         ]));
         assert_eq!(app.workspace.selected_nodes.len(), 2);
 
@@ -3349,8 +3439,14 @@ mod tests {
 
         // Select a and b via multi-select.
         app.apply_intents(intents_from_graph_actions(vec![
-            GraphAction::SelectNode { key: a, multi_select: false },
-            GraphAction::SelectNode { key: b, multi_select: true },
+            GraphAction::SelectNode {
+                key: a,
+                multi_select: false,
+            },
+            GraphAction::SelectNode {
+                key: b,
+                multi_select: true,
+            },
         ]));
 
         // Single click c (no modifier): replaces selection with just c.
@@ -3381,6 +3477,25 @@ mod tests {
         assert!(app.workspace.selected_nodes.contains(&a));
         assert!(app.workspace.selected_nodes.contains(&b));
         assert_eq!(app.workspace.selected_nodes.primary(), Some(b));
+    }
+
+    #[test]
+    fn test_clear_selection_action_maps_to_intent() {
+        let mut app = test_app();
+        let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
+
+        app.apply_intents(intents_from_graph_actions(vec![GraphAction::LassoSelect {
+            keys: vec![a, b],
+            mode: SelectionUpdateMode::Replace,
+        }]));
+        assert_eq!(app.workspace.selected_nodes.len(), 2);
+
+        app.apply_intents(intents_from_graph_actions(vec![
+            GraphAction::ClearSelection,
+        ]));
+        assert!(app.workspace.selected_nodes.is_empty());
+        assert_eq!(app.workspace.selected_nodes.primary(), None);
     }
 
     #[test]
@@ -3427,7 +3542,10 @@ mod tests {
         let intents = intents_from_graph_actions(vec![]);
         app.apply_intents(intents);
 
-        assert_eq!(app.workspace.graph.get_node(key).unwrap().position, pos_before);
+        assert_eq!(
+            app.workspace.graph.get_node(key).unwrap().position,
+            pos_before
+        );
     }
 
     #[test]
