@@ -20,19 +20,17 @@ pub(super) fn render_workspace_pin_controls(
     if let Some(pane_pin_name) = focused_pane_pin_name {
         let pane_is_pinned = persisted_workspace_names.contains(pane_pin_name);
         let pane_pin_label = if pane_is_pinned { "P-" } else { "P+" };
-        let pane_pin_button = ui.add(super::toolbar_button(pane_pin_label)).on_hover_text(
-            if pane_is_pinned {
-                "Unpin focused pane workspace snapshot"
-            } else {
-                "Pin focused pane workspace snapshot"
-            },
-        );
+        let pane_pin_button =
+            ui.add(super::toolbar_button(pane_pin_label))
+                .on_hover_text(if pane_is_pinned {
+                    "Unpin focused pane workspace snapshot"
+                } else {
+                    "Pin focused pane workspace snapshot"
+                });
         if pane_pin_button.clicked() {
             if pane_is_pinned {
                 if let Err(e) = graph_app.delete_workspace_layout(pane_pin_name) {
-                    log::warn!(
-                        "Failed to unpin focused pane workspace '{pane_pin_name}': {e}"
-                    );
+                    log::warn!("Failed to unpin focused pane workspace '{pane_pin_name}': {e}");
                 }
             } else {
                 graph_app.request_save_workspace_snapshot_named(pane_pin_name.to_string());
@@ -49,13 +47,13 @@ pub(super) fn render_workspace_pin_controls(
 
     let space_is_pinned = persisted_workspace_names.contains(super::WORKSPACE_PIN_NAME);
     let space_pin_label = if space_is_pinned { "W-" } else { "W+" };
-    let space_pin_button = ui.add(super::toolbar_button(space_pin_label)).on_hover_text(
-        if space_is_pinned {
+    let space_pin_button = ui
+        .add(super::toolbar_button(space_pin_label))
+        .on_hover_text(if space_is_pinned {
             "Unpin current workspace snapshot"
         } else {
             "Pin current workspace snapshot"
-        },
-    );
+        });
     if space_pin_button.clicked() {
         if space_is_pinned {
             if let Err(e) = graph_app.delete_workspace_layout(super::WORKSPACE_PIN_NAME) {

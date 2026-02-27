@@ -77,8 +77,13 @@ pub fn render_omnibar_dropdown(
         && location_field.has_focus()
         && session.query == location.trim()
     {
-        session.selected_indices.retain(|idx| *idx < session.matches.len());
-        if session.anchor_index.is_some_and(|idx| idx >= session.matches.len()) {
+        session
+            .selected_indices
+            .retain(|idx| *idx < session.matches.len());
+        if session
+            .anchor_index
+            .is_some_and(|idx| idx >= session.matches.len())
+        {
             session.anchor_index = None;
         }
         let dropdown_pos = location_field.rect.left_bottom() + Vec2::new(0.0, 2.0);
@@ -244,7 +249,7 @@ pub fn render_omnibar_dropdown(
                     *location_dirty = false;
                     *open_selected_mode_after_submit = submit_result.open_mode;
                 }
-            },
+            }
             other => {
                 let shift_override_original = ui.input(|i| i.modifiers.shift);
                 apply_omnibar_match(
@@ -256,13 +261,17 @@ pub fn render_omnibar_dropdown(
                     open_selected_mode_after_submit,
                 );
                 *location_dirty = true;
-            },
+            }
         }
     }
 }
 
 /// Calculate inclusive range between two indices within array bounds.
-fn inclusive_index_range(start: usize, end: usize, len: usize) -> Option<std::ops::RangeInclusive<usize>> {
+fn inclusive_index_range(
+    start: usize,
+    end: usize,
+    len: usize,
+) -> Option<std::ops::RangeInclusive<usize>> {
     if start >= len || end >= len {
         return None;
     }

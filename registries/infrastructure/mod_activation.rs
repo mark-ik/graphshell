@@ -24,8 +24,14 @@ impl NativeModActivations {
         let mut hooks = HashMap::new();
 
         // Register activation hooks for each native mod
-        hooks.insert("verso".to_string(), crate::mods::native::verso::activate as ModActivationFn);
-        hooks.insert("verse".to_string(), crate::mods::native::verse::activate as ModActivationFn);
+        hooks.insert(
+            "verso".to_string(),
+            crate::mods::native::verso::activate as ModActivationFn,
+        );
+        hooks.insert(
+            "verse".to_string(),
+            crate::mods::native::verse::activate as ModActivationFn,
+        );
 
         Self { hooks }
     }

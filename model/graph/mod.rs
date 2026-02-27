@@ -80,7 +80,9 @@ pub(crate) fn detect_mime(url: &str, content_bytes: Option<&[u8]>) -> Option<Str
         .trim_start_matches('/');
     // Reconstruct a rooted path string for mime_guess.
     let guess_path = format!("/{path}");
-    mime_guess::from_path(&guess_path).first().map(|m| m.to_string())
+    mime_guess::from_path(&guess_path)
+        .first()
+        .map(|m| m.to_string())
 }
 
 /// Stable edge handle (petgraph EdgeIndex)
@@ -400,7 +402,10 @@ impl Graph {
         if !self.inner.contains_node(from) || !self.inner.contains_node(to) {
             return None;
         }
-        Some(self.inner.add_edge(from, to, EdgePayload::from_edge_type(edge_type)))
+        Some(
+            self.inner
+                .add_edge(from, to, EdgePayload::from_edge_type(edge_type)),
+        )
     }
 
     /// Replay helper: add node only if UUID is not already present.
@@ -522,7 +527,12 @@ impl Graph {
 
     /// Remove all directed edges from `from` to `to` with the given type.
     /// Returns how many edges were removed.
-    pub(crate) fn remove_edges(&mut self, from: NodeKey, to: NodeKey, edge_type: EdgeType) -> usize {
+    pub(crate) fn remove_edges(
+        &mut self,
+        from: NodeKey,
+        to: NodeKey,
+        edge_type: EdgeType,
+    ) -> usize {
         let edge_ids: Vec<EdgeKey> = self
             .inner
             .edge_references()
@@ -568,7 +578,12 @@ impl Graph {
     }
 
     /// Append a traversal event to an existing edge, or create an edge carrying the traversal.
-    pub(crate) fn push_traversal(&mut self, from: NodeKey, to: NodeKey, traversal: Traversal) -> bool {
+    pub(crate) fn push_traversal(
+        &mut self,
+        from: NodeKey,
+        to: NodeKey,
+        traversal: Traversal,
+    ) -> bool {
         if from == to || !self.inner.contains_node(from) || !self.inner.contains_node(to) {
             return false;
         }
@@ -1502,8 +1517,10 @@ mod tests {
     #[test]
     fn node_created_with_http_url_has_no_mime_hint_by_default() {
         let mut graph = Graph::new();
-        let key =
-            graph.add_node("https://example.com/page".to_string(), Point2D::new(0.0, 0.0));
+        let key = graph.add_node(
+            "https://example.com/page".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
         let node = graph.get_node(key).unwrap();
         // Plain HTTP URLs without a recognisable extension yield no MIME hint.
         assert!(node.mime_hint.is_none());
@@ -1550,7 +1567,10 @@ mod tests {
 
     #[test]
     fn address_kind_from_url_http() {
-        assert_eq!(address_kind_from_url("http://example.com"), AddressKind::Http);
+        assert_eq!(
+            address_kind_from_url("http://example.com"),
+            AddressKind::Http
+        );
         assert_eq!(
             address_kind_from_url("https://example.com"),
             AddressKind::Http
@@ -1571,7 +1591,10 @@ mod tests {
             address_kind_from_url("gemini://gemini.circumlunar.space/"),
             AddressKind::Custom
         );
-        assert_eq!(address_kind_from_url("ftp://files.example.com/"), AddressKind::Custom);
+        assert_eq!(
+            address_kind_from_url("ftp://files.example.com/"),
+            AddressKind::Custom
+        );
     }
 
     #[test]

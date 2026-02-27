@@ -18,8 +18,7 @@ pub(super) fn handle_location_submit(
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
 ) {
-    let should_submit_now = *location_submitted
-        || ui.input(|i| i.key_pressed(Key::Enter));
+    let should_submit_now = *location_submitted || ui.input(|i| i.key_pressed(Key::Enter));
     if !should_submit_now {
         return;
     }

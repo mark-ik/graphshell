@@ -73,14 +73,14 @@ pub(crate) fn request_pending_thumbnail_captures(
                         Err(error) => {
                             warn!("Could not encode thumbnail PNG for {id:?}: {error}");
                             None
-                        },
+                        }
                     };
                     (png_bytes, width, height)
-                },
+                }
                 Err(error) => {
                     warn!("Could not capture thumbnail for {id:?}: {error:?}");
                     (None, 0, 0)
-                },
+                }
             };
             let _ = sender.send(ThumbnailCaptureResult {
                 webview_id: id,

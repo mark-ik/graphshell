@@ -24,8 +24,8 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::{GraphIntent, MemoryPressureLevel};
+use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
-use crate::mods::native::verse::{self, SyncWorker, SyncCommand};
 
 /// Capacity of the intent channel — limits flooding from async producers.
 const INTENT_CHANNEL_CAPACITY: usize = 256;
@@ -84,7 +84,8 @@ pub(crate) struct ControlPanel {
     /// Optional sync worker command channel.
     sync_command_tx: Option<mpsc::Sender<SyncCommand>>,
     /// Sync worker discovery-result stream.
-    discovery_result_rx: Option<mpsc::UnboundedReceiver<Result<Vec<verse::DiscoveredPeer>, String>>>,
+    discovery_result_rx:
+        Option<mpsc::UnboundedReceiver<Result<Vec<verse::DiscoveredPeer>, String>>>,
     /// Shared cancellation token — `cancel()` stops all supervised workers.
     cancel: CancellationToken,
     /// Supervised background worker tasks.
@@ -221,7 +222,10 @@ impl ControlPanel {
     /// Safe to call from an async context (e.g. the main app shutdown path).
     /// After this returns the `JoinSet` is empty and the channel is drained.
     pub(crate) async fn shutdown(&mut self) {
-        log::debug!("control_panel: shutdown requested — cancelling {} workers", self.workers.len());
+        log::debug!(
+            "control_panel: shutdown requested — cancelling {} workers",
+            self.workers.len()
+        );
         self.cancel.cancel();
         while self.workers.join_next().await.is_some() {}
         log::debug!("control_panel: all workers joined");
@@ -425,31 +429,52 @@ mod tests {
 
     #[tokio::test]
     async fn mod_loader_emits_activated_intent_on_success() {
-        let mut panel = ControlPanel::new();
-        panel.spawn_mod_loader();
+        let (tx, mut rx) = mpsc::channel(4);
+        tokio::spawn(async move {
+            mod_loader_worker_with_manifests(
+                tx,
+                vec![
+                    crate::registries::infrastructure::mod_loader::ModManifest::new(
+                        "mod:test",
+                        "Test",
+                        crate::registries::infrastructure::mod_loader::ModType::Native,
+                        vec!["viewer:test".to_string()],
+                        vec![],
+                        vec![],
+                    ),
+                ],
+            )
+            .await;
+        });
 
-        let received = tokio::time::timeout(Duration::from_secs(2), panel.intent_rx.recv())
+        let received = tokio::time::timeout(Duration::from_secs(2), rx.recv())
             .await
             .expect("mod loader should emit an intent")
             .expect("channel should remain open");
 
-        assert!(matches!(received.intent, GraphIntent::ModActivated { .. }));
+        assert!(
+            matches!(received.intent, GraphIntent::ModActivated { mod_id } if mod_id == "mod:test")
+        );
     }
 
     #[tokio::test]
     async fn mod_loader_emits_failed_intent_on_load_error() {
         let (tx, mut rx) = mpsc::channel(4);
         tokio::spawn(async move {
-            mod_loader_worker_with_manifests(tx, vec![
-                crate::registries::infrastructure::mod_loader::ModManifest::new(
-                    "mod:broken",
-                    "Broken",
-                    crate::registries::infrastructure::mod_loader::ModType::Native,
-                    vec!["viewer:broken".to_string()],
-                    vec!["ProtocolRegistry".to_string()],
-                    vec![],
-                ),
-            ]).await;
+            mod_loader_worker_with_manifests(
+                tx,
+                vec![
+                    crate::registries::infrastructure::mod_loader::ModManifest::new(
+                        "mod:broken",
+                        "Broken",
+                        crate::registries::infrastructure::mod_loader::ModType::Native,
+                        vec!["viewer:broken".to_string()],
+                        vec!["ProtocolRegistry".to_string()],
+                        vec![],
+                    ),
+                ],
+            )
+            .await;
         });
 
         let received = tokio::time::timeout(Duration::from_secs(2), rx.recv())
@@ -457,7 +482,9 @@ mod tests {
             .expect("worker should emit an intent")
             .expect("channel should remain open");
 
-        assert!(matches!(received.intent, GraphIntent::ModLoadFailed { mod_id, .. } if mod_id == "mod:bootstrap"));
+        assert!(
+            matches!(received.intent, GraphIntent::ModLoadFailed { mod_id, .. } if mod_id == "mod:bootstrap")
+        );
     }
 
     #[tokio::test]
@@ -492,7 +519,10 @@ mod tests {
             .recv()
             .await
             .expect("command should be received by test channel");
-        assert!(matches!(command, SyncCommand::DiscoverNearby { timeout_secs: 2 }));
+        assert!(matches!(
+            command,
+            SyncCommand::DiscoverNearby { timeout_secs: 2 }
+        ));
     }
 
     async fn mod_loader_worker_with_manifests(

@@ -2,8 +2,8 @@ use super::super::harness::TestRegistry;
 use crate::app::GraphBrowserApp;
 use crate::app::GraphIntent;
 use crate::app::ToastAnchorPreference;
-use crate::services::persistence::types::LogEntry;
 use crate::services::persistence::GraphStore;
+use crate::services::persistence::types::LogEntry;
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -25,14 +25,18 @@ fn open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore() {
     index.insert(node_id, BTreeSet::from(["workspace-alpha".to_string()]));
     harness.app.init_membership_index(index);
     harness.app.mark_current_workspace_synthesized();
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness
+        .app
+        .apply_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 
-    harness.app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
-        key,
-        prefer_workspace: None,
-    }]);
+    harness
+        .app
+        .apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+            key,
+            prefer_workspace: None,
+        }]);
 
     assert_eq!(
         harness.app.take_pending_restore_workspace_snapshot_named(),
@@ -46,7 +50,9 @@ fn workspace_has_unsaved_changes_for_graph_mutations() {
     let mut harness = TestRegistry::new();
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness
+        .app
+        .apply_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 }
@@ -56,7 +62,9 @@ fn workspace_modified_for_graph_mutations_even_when_not_synthesized() {
     let mut harness = TestRegistry::new();
 
     assert!(!harness.app.should_prompt_unsaved_workspace_save());
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness
+        .app
+        .apply_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 }
@@ -65,12 +73,16 @@ fn workspace_modified_for_graph_mutations_even_when_not_synthesized() {
 fn unsaved_prompt_warning_resets_on_additional_graph_mutation() {
     let mut harness = TestRegistry::new();
     harness.app.mark_current_workspace_synthesized();
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness
+        .app
+        .apply_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.consume_unsaved_workspace_prompt_warning());
     assert!(!harness.app.consume_unsaved_workspace_prompt_warning());
 
-    harness.app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    harness
+        .app
+        .apply_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.consume_unsaved_workspace_prompt_warning());
 }
@@ -232,14 +244,34 @@ fn switch_persistence_dir_reloads_graph_state() {
     }
 
     let mut app = GraphBrowserApp::new_from_dir(path_a);
-    assert!(app.workspace.graph.get_node_by_url("https://from-a.com").is_some());
-    assert!(app.workspace.graph.get_node_by_url("https://from-b.com").is_none());
+    assert!(
+        app.workspace
+            .graph
+            .get_node_by_url("https://from-a.com")
+            .is_some()
+    );
+    assert!(
+        app.workspace
+            .graph
+            .get_node_by_url("https://from-b.com")
+            .is_none()
+    );
 
     app.switch_persistence_dir(path_b)
         .expect("switching persistence dir should succeed");
 
-    assert!(app.workspace.graph.get_node_by_url("https://from-a.com").is_none());
-    assert!(app.workspace.graph.get_node_by_url("https://from-b.com").is_some());
+    assert!(
+        app.workspace
+            .graph
+            .get_node_by_url("https://from-a.com")
+            .is_none()
+    );
+    assert!(
+        app.workspace
+            .graph
+            .get_node_by_url("https://from-b.com")
+            .is_some()
+    );
     assert!(app.workspace.selected_nodes.is_empty());
 
     let new_placeholder = app.create_new_node_near_center();

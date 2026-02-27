@@ -151,7 +151,7 @@ impl ViewerRegistry {
             // Local files and custom schemes: plaintext is the safe fallback.
             crate::graph::AddressKind::File | crate::graph::AddressKind::Custom => {
                 "viewer:plaintext"
-            },
+            }
         }
     }
 
@@ -244,11 +244,32 @@ impl ViewerHandler for PlaintextViewerHandler {
         }
         // No MIME hint — check the URI extension.
         matches!(
-            extract_extension(&descriptor.uri).map(|e| e.to_ascii_lowercase()).as_deref(),
+            extract_extension(&descriptor.uri)
+                .map(|e| e.to_ascii_lowercase())
+                .as_deref(),
             Some(
-                "txt" | "md" | "rs" | "py" | "js" | "ts" | "json" | "toml" | "yaml" | "yml"
-                    | "html" | "css" | "sh" | "bash" | "zsh" | "fish" | "csv" | "xml" | "log"
-                    | "ini" | "cfg" | "conf"
+                "txt"
+                    | "md"
+                    | "rs"
+                    | "py"
+                    | "js"
+                    | "ts"
+                    | "json"
+                    | "toml"
+                    | "yaml"
+                    | "yml"
+                    | "html"
+                    | "css"
+                    | "sh"
+                    | "bash"
+                    | "zsh"
+                    | "fish"
+                    | "csv"
+                    | "xml"
+                    | "log"
+                    | "ini"
+                    | "cfg"
+                    | "conf"
             )
         )
     }
@@ -286,10 +307,7 @@ mod tests {
         assert_eq!(fallback.viewer_id, "viewer:metadata");
         assert!(fallback.fallback_used);
 
-        assert_eq!(
-            fallback.capabilities.history.level,
-            ConformanceLevel::Full
-        );
+        assert_eq!(fallback.capabilities.history.level, ConformanceLevel::Full);
     }
 
     #[test]
@@ -299,9 +317,7 @@ mod tests {
         registry.register_capabilities(
             "viewer:plaintext",
             ViewerSubsystemCapabilities {
-                accessibility: AccessibilityCapabilities::partial(
-                    "access bridge disabled in test",
-                ),
+                accessibility: AccessibilityCapabilities::partial("access bridge disabled in test"),
                 security: SecurityCapabilities::full(),
                 storage: StorageCapabilities::full(),
                 history: HistoryCapabilities::full(),

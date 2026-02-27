@@ -108,7 +108,7 @@ fn fetch_provider_search_suggestions(
         Ok(body) => body,
         Err(OutboundFetchError::HttpStatus(status)) => {
             return Err(ProviderSuggestionError::HttpStatus(status));
-        },
+        }
         Err(
             OutboundFetchError::Network
             | OutboundFetchError::InvalidUrl
@@ -124,11 +124,11 @@ fn provider_suggest_url(provider: SearchProviderKind, query: &str) -> String {
     match provider {
         SearchProviderKind::DuckDuckGo => {
             format!("https://duckduckgo.com/ac/?q={encoded}&type=list")
-        },
+        }
         SearchProviderKind::Bing => format!("https://api.bing.com/osjson.aspx?query={encoded}"),
         SearchProviderKind::Google => {
             format!("https://suggestqueries.google.com/complete/search?client=firefox&q={encoded}")
-        },
+        }
     }
 }
 
@@ -245,7 +245,7 @@ pub(super) fn non_at_primary_matches_for_scope(
     match scope {
         OmnibarPreferredScope::Auto => {
             non_at_contextual_matches(graph_app, tiles_tree, query, has_node_panes)
-        },
+        }
         OmnibarPreferredScope::LocalTabs => omnibar_matches_for_query(
             graph_app,
             tiles_tree,
@@ -255,7 +255,7 @@ pub(super) fn non_at_primary_matches_for_scope(
         ),
         OmnibarPreferredScope::ConnectedNodes => {
             connected_nodes_matches_for_query(graph_app, query, &HashSet::new())
-        },
+        }
         OmnibarPreferredScope::ProviderDefault => Vec::new(),
         OmnibarPreferredScope::GlobalNodes => omnibar_matches_for_query(
             graph_app,
@@ -297,13 +297,14 @@ pub(super) fn non_at_matches_for_settings(
     match graph_app.workspace.omnibar_non_at_order {
         OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal => {
             if primary_matches.is_empty()
-                || graph_app.workspace.omnibar_preferred_scope == OmnibarPreferredScope::ProviderDefault
+                || graph_app.workspace.omnibar_preferred_scope
+                    == OmnibarPreferredScope::ProviderDefault
             {
                 (primary_matches, true)
             } else {
                 (primary_matches, false)
             }
-        },
+        }
         OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => (Vec::new(), true),
     }
 }
@@ -353,7 +354,8 @@ fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
         if GraphBrowserApp::is_reserved_workspace_layout_name(&workspace_name) {
             continue;
         }
-        let Ok(bundle) = persistence_ops::load_named_workspace_bundle(graph_app, &workspace_name) else {
+        let Ok(bundle) = persistence_ops::load_named_workspace_bundle(graph_app, &workspace_name)
+        else {
             continue;
         };
         if let Ok((tree, _)) =
@@ -509,7 +511,7 @@ pub(super) fn omnibar_match_signifier(
             } else {
                 "graph node"
             }
-        },
+        }
         OmnibarMatch::NodeUrl(_) => "historical",
         OmnibarMatch::SearchQuery { provider, .. } => match provider {
             SearchProviderKind::DuckDuckGo => "duckduckgo suggestion",
@@ -544,7 +546,7 @@ pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch)
                 .map(|n| n.title.clone())
                 .unwrap_or_else(|| to.index().to_string());
             format!("{from_label} -> {to_label}")
-        },
+        }
     }
 }
 
@@ -593,7 +595,7 @@ pub(super) fn apply_omnibar_match(
                     *open_selected_mode_after_submit = Some(ToolbarOpenMode::Tab);
                 }
             }
-        },
+        }
         OmnibarMatch::NodeUrl(url) => {
             frame_intents.push(GraphIntent::ClearHighlightedEdge);
             if let Some((key, _)) = graph_app.workspace.graph.get_node_by_url(&url) {
@@ -622,8 +624,8 @@ pub(super) fn apply_omnibar_match(
                     });
                 }
             }
-        },
-        OmnibarMatch::SearchQuery { .. } => {},
+        }
+        OmnibarMatch::SearchQuery { .. } => {}
         OmnibarMatch::Edge { from, to } => {
             frame_intents.push(GraphIntent::SetHighlightedEdge { from, to });
             frame_intents.push(GraphIntent::SelectNode {
@@ -634,7 +636,7 @@ pub(super) fn apply_omnibar_match(
                 key: to,
                 multi_select: true,
             });
-        },
+        }
     }
 }
 
@@ -670,8 +672,12 @@ pub(super) fn omnibar_matches_for_query(
         .nodes()
         .map(|(_, node)| node.url.clone())
         .collect();
-    let mut mapped_edge_keys_seen: HashSet<(NodeKey, NodeKey)> =
-        graph_app.workspace.graph.edges().map(|e| (e.from, e.to)).collect();
+    let mut mapped_edge_keys_seen: HashSet<(NodeKey, NodeKey)> = graph_app
+        .workspace
+        .graph
+        .edges()
+        .map(|e| (e.from, e.to))
+        .collect();
 
     if let Some(snapshot) = graph_app.peek_latest_graph_snapshot() {
         for (_, node) in snapshot.nodes() {
@@ -769,7 +775,8 @@ pub(super) fn omnibar_matches_for_query(
         }
     }
 
-    let local_tab_candidates = tab_candidates_for_keys(&graph_app.workspace.graph, &local_tab_nodes);
+    let local_tab_candidates =
+        tab_candidates_for_keys(&graph_app.workspace.graph, &local_tab_nodes);
     let all_tab_keys: HashSet<NodeKey> = local_tab_nodes
         .iter()
         .copied()
@@ -878,7 +885,7 @@ pub(super) fn omnibar_matches_for_query(
             });
             out.extend(remaining_nodes);
             dedupe_matches_in_order(out)
-        },
+        }
     }
 }
 
@@ -886,8 +893,8 @@ pub(super) fn omnibar_matches_for_query(
 mod tests {
     use super::*;
     use crate::app::{GraphBrowserApp, GraphViewId};
-    use crate::shell::desktop::workbench::tile_kind::TileKind;
     use crate::graph::EdgeType;
+    use crate::shell::desktop::workbench::tile_kind::TileKind;
     use egui_tiles::Tree;
     use euclid::default::Point2D;
     use tempfile::TempDir;
@@ -1190,8 +1197,12 @@ mod tests {
         let tab_leaf = workspace_tiles.insert_pane(TileKind::Node(tab_key.into()));
         let tabs_root = workspace_tiles.insert_tab_tile(vec![tab_leaf]);
         let workspace_tree = Tree::new("saved_workspace", tabs_root, workspace_tiles);
-        persistence_ops::save_named_workspace_bundle(&mut app, "workspace:saved-tabs", &workspace_tree)
-            .expect("save workspace bundle");
+        persistence_ops::save_named_workspace_bundle(
+            &mut app,
+            "workspace:saved-tabs",
+            &workspace_tree,
+        )
+        .expect("save workspace bundle");
 
         let mut current_tiles = egui_tiles::Tiles::default();
         let current_root = current_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
@@ -1227,8 +1238,12 @@ mod tests {
         let saved_leaf = workspace_tiles.insert_pane(TileKind::Node(saved_tab.into()));
         let saved_root = workspace_tiles.insert_tab_tile(vec![saved_leaf]);
         let workspace_tree = Tree::new("saved_workspace", saved_root, workspace_tiles);
-        persistence_ops::save_named_workspace_bundle(&mut app, "workspace:saved-alpha", &workspace_tree)
-            .expect("save workspace bundle");
+        persistence_ops::save_named_workspace_bundle(
+            &mut app,
+            "workspace:saved-alpha",
+            &workspace_tree,
+        )
+        .expect("save workspace bundle");
 
         let matches =
             omnibar_matches_for_query(&app, &current_tree, OmnibarSearchMode::Mixed, "alpha", true);

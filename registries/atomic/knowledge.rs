@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
-use parking_lot::Mutex;
-use nucleo::{Config, Matcher, pattern::{CaseMatching, Normalization, Pattern}};
 use egui::Color32;
+use nucleo::{
+    Config, Matcher,
+    pattern::{CaseMatching, Normalization, Pattern},
+};
+use parking_lot::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KnowledgeProvider {
@@ -274,9 +277,7 @@ impl KnowledgeRegistry {
         let trimmed = tag.trim();
         match Self::provider_for_tag(trimmed) {
             KnowledgeProvider::Udc => {
-                let code = trimmed
-                    .strip_prefix("udc:")
-                    .unwrap_or(trimmed);
+                let code = trimmed.strip_prefix("udc:").unwrap_or(trimmed);
                 Self::parse_udc_code(code)
             }
             KnowledgeProvider::Schema | KnowledgeProvider::Unknown => None,
@@ -345,7 +346,9 @@ mod tests {
     #[test]
     fn parse_accepts_plain_udc_codes() {
         let registry = KnowledgeRegistry::default();
-        let code = registry.parse("519.6").expect("plain UDC code should parse");
+        let code = registry
+            .parse("519.6")
+            .expect("plain UDC code should parse");
         assert_eq!(code.0, vec![5, 1, 9, 6]);
     }
 
@@ -393,10 +396,18 @@ mod tests {
         assert!(cs_results.iter().any(|entry| entry.code.starts_with("004")));
 
         let physics_results = registry.search("quantum");
-        assert!(physics_results.iter().any(|entry| entry.code.starts_with("539")));
+        assert!(
+            physics_results
+                .iter()
+                .any(|entry| entry.code.starts_with("539"))
+        );
 
         let medicine_results = registry.search("surgery");
-        assert!(medicine_results.iter().any(|entry| entry.code.starts_with("617")));
+        assert!(
+            medicine_results
+                .iter()
+                .any(|entry| entry.code.starts_with("617"))
+        );
 
         let lit_results = registry.search("literature");
         assert!(lit_results.iter().any(|entry| entry.code.starts_with("82")));

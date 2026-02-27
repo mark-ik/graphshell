@@ -60,10 +60,7 @@ impl ModManifest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModDependencyError {
     DuplicateModId(String),
-    MissingRequirement {
-        mod_id: String,
-        requirement: String,
-    },
+    MissingRequirement { mod_id: String, requirement: String },
     DependencyCycle(Vec<String>),
 }
 
@@ -259,7 +256,7 @@ impl ModRegistry {
     /// Resolve dependencies and compute load order.
     /// Returns error if dependencies are missing or cyclic.
     pub(crate) fn resolve_dependencies(&mut self) -> Result<(), ModDependencyError> {
-        use crate::shell::desktop::runtime::diagnostics::{emit_event, DiagnosticEvent};
+        use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
         use crate::shell::desktop::runtime::registries::CHANNEL_MOD_DEPENDENCY_MISSING;
 
         let manifests_vec: Vec<_> = self
@@ -275,7 +272,11 @@ impl ModRegistry {
             }
             Err(err) => {
                 // Emit diagnostics for missing dependencies
-                if let ModDependencyError::MissingRequirement { mod_id, requirement } = &err {
+                if let ModDependencyError::MissingRequirement {
+                    mod_id,
+                    requirement,
+                } = &err
+                {
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_MOD_DEPENDENCY_MISSING,
                         byte_len: mod_id.len() + requirement.len(),
@@ -289,9 +290,9 @@ impl ModRegistry {
     /// Load all mods in dependency order.
     /// Emits lifecycle diagnostics for each mod.
     pub(crate) fn load_all(&mut self) -> Vec<String> {
-        use crate::shell::desktop::runtime::diagnostics::{emit_event, DiagnosticEvent};
+        use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
         use crate::shell::desktop::runtime::registries::{
-            CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED, CHANNEL_MOD_LOAD_FAILED,
+            CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED,
         };
 
         let mut loaded = Vec::new();
@@ -322,7 +323,8 @@ impl ModRegistry {
                     self.status.insert(mod_id.clone(), ModStatus::Active);
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_MOD_LOAD_SUCCEEDED,
-                        byte_len: mod_id.len() + manifest.provides.iter().map(|s| s.len()).sum::<usize>(),
+                        byte_len: mod_id.len()
+                            + manifest.provides.iter().map(|s| s.len()).sum::<usize>(),
                     });
                     loaded.push(mod_id.clone());
                 }
@@ -410,10 +412,7 @@ fn verso_manifest() -> ModManifest {
             "protocol:data".to_string(),
             "viewer:webview".to_string(),
         ],
-        vec![
-            "ProtocolRegistry".to_string(),
-            "ViewerRegistry".to_string(),
-        ],
+        vec!["ProtocolRegistry".to_string(), "ViewerRegistry".to_string()],
         vec![ModCapability::Network],
     )
 }
@@ -569,7 +568,10 @@ mod tests {
 
         let ordered = resolve_mod_load_order(&[verso.clone(), viewer.clone(), protocol.clone()])
             .expect("dependency order should resolve");
-        let ids = ordered.iter().map(|entry| entry.mod_id.as_str()).collect::<Vec<_>>();
+        let ids = ordered
+            .iter()
+            .map(|entry| entry.mod_id.as_str())
+            .collect::<Vec<_>>();
         assert_eq!(ids.len(), 3);
         let protocol_idx = ids.iter().position(|id| *id == "mod:protocol").unwrap();
         let viewer_idx = ids.iter().position(|id| *id == "mod:viewer").unwrap();
@@ -581,7 +583,8 @@ mod tests {
     #[test]
     fn fails_on_missing_requirement() {
         let manifest = test_manifest("mod:x", &["x"], &["ProtocolRegistry"]);
-        let error = resolve_mod_load_order(&[manifest]).expect_err("should fail missing requirement");
+        let error =
+            resolve_mod_load_order(&[manifest]).expect_err("should fail missing requirement");
         assert!(matches!(
             error,
             ModDependencyError::MissingRequirement { mod_id, requirement }
@@ -603,29 +606,40 @@ mod tests {
         assert!(registry.get_manifest("mod:core-protocol").is_some());
         assert!(registry.get_manifest("mod:core-viewer").is_some());
         assert!(registry.get_manifest("mod:verso").is_some());
-        
+
         // All should be in Discovered state initially
-        assert_eq!(registry.get_status("mod:core-protocol"), Some(ModStatus::Discovered));
-        assert_eq!(registry.get_status("mod:core-viewer"), Some(ModStatus::Discovered));
-        assert_eq!(registry.get_status("mod:verso"), Some(ModStatus::Discovered));
+        assert_eq!(
+            registry.get_status("mod:core-protocol"),
+            Some(ModStatus::Discovered)
+        );
+        assert_eq!(
+            registry.get_status("mod:core-viewer"),
+            Some(ModStatus::Discovered)
+        );
+        assert_eq!(
+            registry.get_status("mod:verso"),
+            Some(ModStatus::Discovered)
+        );
     }
 
     #[test]
     fn mod_registry_resolves_dependencies() {
         let mut registry = ModRegistry::new();
-        
-        registry.resolve_dependencies().expect("should resolve dependencies");
-        
+
+        registry
+            .resolve_dependencies()
+            .expect("should resolve dependencies");
+
         // Load order should have core mods before verso
         let load_order = registry.list_mods();
         let protocol_idx = load_order.iter().position(|id| id == "mod:core-protocol");
         let viewer_idx = load_order.iter().position(|id| id == "mod:core-viewer");
         let verso_idx = load_order.iter().position(|id| id == "mod:verso");
-        
+
         assert!(protocol_idx.is_some());
         assert!(viewer_idx.is_some());
         assert!(verso_idx.is_some());
-        
+
         // Verso should load after its dependencies
         assert!(protocol_idx.unwrap() < verso_idx.unwrap());
         assert!(viewer_idx.unwrap() < verso_idx.unwrap());
@@ -634,36 +648,39 @@ mod tests {
     #[test]
     fn mod_registry_loads_mods_in_order() {
         let mut registry = ModRegistry::new();
-        
+
         registry.resolve_dependencies().expect("should resolve");
         let loaded = registry.load_all();
-        
+
         // All mods should load successfully
         assert!(loaded.contains(&"mod:core-protocol".to_string()));
         assert!(loaded.contains(&"mod:core-viewer".to_string()));
         assert!(loaded.contains(&"mod:verso".to_string()));
-        
+
         // Check status transitions to Active
-        assert_eq!(registry.get_status("mod:core-protocol"), Some(ModStatus::Active));
+        assert_eq!(
+            registry.get_status("mod:core-protocol"),
+            Some(ModStatus::Active)
+        );
         assert_eq!(registry.get_status("mod:verso"), Some(ModStatus::Active));
     }
 
     #[test]
     fn mod_registry_checks_capability_availability() {
         let mut registry = ModRegistry::new();
-        
+
         registry.resolve_dependencies().expect("should resolve");
         registry.load_all();
-        
+
         // Verso provides these capabilities
         assert!(registry.is_capability_available("protocol:http"));
         assert!(registry.is_capability_available("protocol:https"));
         assert!(registry.is_capability_available("viewer:webview"));
-        
+
         // Core provides these
         assert!(registry.is_capability_available("ProtocolRegistry"));
         assert!(registry.is_capability_available("ViewerRegistry"));
-        
+
         // This doesn't exist
         assert!(!registry.is_capability_available("protocol:ipfs"));
     }

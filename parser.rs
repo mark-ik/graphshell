@@ -13,7 +13,7 @@ pub fn parse_url_or_filename(cwd: &Path, input: &str) -> Result<ServoUrl, ()> {
         Ok(url) => Ok(url),
         Err(url::ParseError::RelativeUrlWithoutBase) => {
             url::Url::from_file_path(&*cwd.join(input)).map(ServoUrl::from_url)
-        },
+        }
         Err(_) => Err(()),
     }
 }
@@ -41,8 +41,8 @@ pub fn get_default_url(
         match (url.scheme(), url.host(), url.to_file_path()) {
             ("file", None, Ok(ref path)) if exists(path) => {
                 new_url = cmdline_url;
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 

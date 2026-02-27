@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::{env, fs, panic};
 use log::warn;
+use std::{env, fs, panic};
 
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -11,10 +11,10 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_VERSE_INIT_MODE, CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
 };
 
-use crate::shell::desktop::host::app::App;
-use crate::shell::desktop::host::event_loop::AppEventLoop;
 use crate::panic_hook;
 use crate::prefs::{ArgumentParsingResult, parse_command_line_arguments};
+use crate::shell::desktop::host::app::App;
+use crate::shell::desktop::host::event_loop::AppEventLoop;
 
 pub fn main() {
     crate::crash_handler::install();
@@ -61,13 +61,13 @@ pub fn main() {
         ArgumentParsingResult::ContentProcess(token) => return servo::run_content_process(token),
         ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
             (opts, preferences, app_preferences)
-        },
+        }
         ArgumentParsingResult::Exit => {
             std::process::exit(0);
-        },
+        }
         ArgumentParsingResult::ErrorParsing => {
             std::process::exit(1);
-        },
+        }
     };
 
     crate::init_tracing(app_preferences.tracing_filter.as_deref());
@@ -184,7 +184,8 @@ fn emit_startup_env_snapshot() {
 }
 
 fn maybe_enable_wsl_software_rendering_fallback(headless: bool) {
-    if headless || !running_on_wsl() || env_flag_enabled("GRAPHSHELL_DISABLE_WSL_SOFTWARE_FALLBACK") {
+    if headless || !running_on_wsl() || env_flag_enabled("GRAPHSHELL_DISABLE_WSL_SOFTWARE_FALLBACK")
+    {
         return;
     }
 
@@ -217,7 +218,12 @@ fn set_env_if_unset(key: &str, value: &str) -> bool {
 
 fn env_flag_enabled(key: &str) -> bool {
     env::var(key)
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 

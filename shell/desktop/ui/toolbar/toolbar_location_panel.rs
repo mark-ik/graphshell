@@ -1,5 +1,5 @@
-use super::*;
 use super::toolbar_location_dropdown;
+use super::*;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_location_search_panel(
@@ -78,7 +78,8 @@ pub(super) fn render_location_search_panel(
                             anchor_index: None,
                             provider_rx: None,
                             provider_debounce_deadline: Some(
-                                Instant::now() + Duration::from_millis(OMNIBAR_PROVIDER_DEBOUNCE_MS),
+                                Instant::now()
+                                    + Duration::from_millis(OMNIBAR_PROVIDER_DEBOUNCE_MS),
                             ),
                             provider_status: ProviderSuggestionStatus::Loading,
                         });
@@ -122,8 +123,12 @@ pub(super) fn render_location_search_panel(
             let provider =
                 default_search_provider_from_searchpage(&state.app_preferences.searchpage)
                     .unwrap_or(SearchProviderKind::DuckDuckGo);
-            let (initial_matches, should_fetch_provider) =
-                non_at_matches_for_settings(graph_app, tiles_tree, trimmed_location, has_node_panes);
+            let (initial_matches, should_fetch_provider) = non_at_matches_for_settings(
+                graph_app,
+                tiles_tree,
+                trimmed_location,
+                has_node_panes,
+            );
             let initial_status = if should_fetch_provider {
                 ProviderSuggestionStatus::Loading
             } else {
@@ -159,8 +164,9 @@ pub(super) fn render_location_search_panel(
                 "",
                 has_node_panes,
             );
-            let provider = default_search_provider_from_searchpage(&state.app_preferences.searchpage)
-                .unwrap_or(SearchProviderKind::DuckDuckGo);
+            let provider =
+                default_search_provider_from_searchpage(&state.app_preferences.searchpage)
+                    .unwrap_or(SearchProviderKind::DuckDuckGo);
             *omnibar_search_session = Some(OmnibarSearchSession {
                 kind: OmnibarSessionKind::SearchProvider(provider),
                 query: String::new(),
@@ -197,13 +203,13 @@ pub(super) fn render_location_search_panel(
                 Ok(outcome) => fetched_outcome = Some(outcome),
                 Err(crossbeam_channel::TryRecvError::Empty) => {
                     ctx.request_repaint_after(Duration::from_millis(75));
-                },
+                }
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
                     fetched_outcome = Some(ProviderSuggestionFetchOutcome {
                         matches: Vec::new(),
                         status: ProviderSuggestionStatus::Failed(ProviderSuggestionError::Network),
                     });
-                },
+                }
             }
         }
         if session.provider_debounce_deadline.is_some() {
@@ -230,7 +236,7 @@ pub(super) fn render_location_search_panel(
                 match graph_app.workspace.omnibar_non_at_order {
                     OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal => {
                         session.matches.extend(outcome.matches);
-                    },
+                    }
                     OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => {
                         if outcome.matches.is_empty() {
                             session.matches = primary_matches;
@@ -238,7 +244,7 @@ pub(super) fn render_location_search_panel(
                             session.matches = outcome.matches;
                             session.matches.extend(primary_matches);
                         }
-                    },
+                    }
                 }
             } else {
                 session.matches.extend(outcome.matches);
@@ -253,14 +259,13 @@ pub(super) fn render_location_search_panel(
                 );
             }
             if !session.matches.is_empty()
-                && !matches!(
-                    session.provider_status,
-                    ProviderSuggestionStatus::Failed(_)
-                )
+                && !matches!(session.provider_status, ProviderSuggestionStatus::Failed(_))
             {
                 session.provider_status = ProviderSuggestionStatus::Ready;
             }
-            session.active_index = session.active_index.min(session.matches.len().saturating_sub(1));
+            session.active_index = session
+                .active_index
+                .min(session.matches.len().saturating_sub(1));
         }
     }
 

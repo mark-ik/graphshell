@@ -21,8 +21,10 @@ use super::tile_view_ops::{self, TileOpenMode};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
-use crate::shell::desktop::lifecycle::webview_backpressure::{self, WebviewCreationBackpressureState};
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::webview_backpressure::{
+    self, WebviewCreationBackpressureState,
+};
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
@@ -77,15 +79,15 @@ fn tile_hierarchy_lines(
             Tile::Pane(TileKind::Graph(_)) => ("Graph".to_string(), None),
             Tile::Pane(TileKind::Node(state)) => {
                 let mapped = graph_app.get_webview_for_node(state.node).is_some();
-                (format!("Node {:?} mapped={}", state.node, mapped), Some(state.node))
+                (
+                    format!("Node {:?} mapped={}", state.node, mapped),
+                    Some(state.node),
+                )
             }
             #[cfg(feature = "diagnostics")]
             Tile::Pane(TileKind::Tool(_)) => ("Tool".to_string(), None),
             Tile::Container(Container::Tabs(tabs)) => {
-                (
-                    format!("Tab Group ({} tabs)", tabs.children.len()),
-                    None,
-                )
+                (format!("Tab Group ({} tabs)", tabs.children.len()), None)
             }
             Tile::Container(Container::Linear(linear)) => {
                 use egui_tiles::LinearDir;
@@ -93,14 +95,19 @@ fn tile_hierarchy_lines(
                     LinearDir::Horizontal => "Split ↔",
                     LinearDir::Vertical => "Split ↕",
                 };
-                (format!("{} ({} panes)", dir_label, linear.children.len()), None)
+                (
+                    format!("{} ({} panes)", dir_label, linear.children.len()),
+                    None,
+                )
             }
             Tile::Container(other) => (format!("Panel Group ({:?})", other.kind()), None),
         };
-        out.push(crate::shell::desktop::runtime::diagnostics::HierarchySample {
-            line: format!("{}{} {:?} {}", indent, marker, tile_id, label),
-            node_key,
-        });
+        out.push(
+            crate::shell::desktop::runtime::diagnostics::HierarchySample {
+                line: format!("{}{} {:?} {}", indent, marker, tile_id, label),
+                node_key,
+            },
+        );
 
         match tile {
             Tile::Container(Container::Tabs(tabs)) => {
@@ -234,13 +241,22 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
 
     let active_tile_rects = tile_compositor::active_node_pane_rects(tiles_tree);
-    log::debug!("tile_render_pass: {} active tile rects", active_tile_rects.len());
+    log::debug!(
+        "tile_render_pass: {} active tile rects",
+        active_tile_rects.len()
+    );
     for (key, rect) in active_tile_rects.iter() {
         let mapped = graph_app.get_webview_for_node(*key);
         let has_context = tile_rendering_contexts.contains_key(key);
-        log::debug!("tile_render_pass: active tile {:?} rect {:?} mapped_webview={:?} has_context={}", key, rect, mapped, has_context);
+        log::debug!(
+            "tile_render_pass: active tile {:?} rect {:?} mapped_webview={:?} has_context={}",
+            key,
+            rect,
+            mapped,
+            has_context
+        );
     }
-    
+
     let all_tile_nodes = tile_runtime::all_node_pane_keys(tiles_tree);
     log::debug!("tile_render_pass: {} all tile nodes", all_tile_nodes.len());
     for node_key in all_tile_nodes.iter().copied() {
@@ -248,26 +264,44 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         // Debug: find why node might be inactive
         let tile_id = tiles_tree.tiles.iter().find_map(|(id, tile)| {
             if let egui_tiles::Tile::Pane(TileKind::Node(state)) = tile {
-                if state.node == node_key { Some(*id) } else { None }
+                if state.node == node_key {
+                    Some(*id)
+                } else {
+                    None
+                }
             } else {
                 None
             }
         });
         if let Some(tid) = tile_id {
-             let parent = tiles_tree.tiles.parent_of(tid);
-             let is_visible = tiles_tree.is_visible(tid);
-             log::debug!("tile_render_pass: node {:?} -> tile {:?} parent={:?} visible={}", node_key, tid, parent, is_visible);
-             if let Some(pid) = parent {
-                 if let Some(egui_tiles::Tile::Container(container)) = tiles_tree.tiles.get(pid) {
-                     log::debug!("tile_render_pass: parent {:?} is {:?}", pid, container.kind());
-                     if let egui_tiles::Container::Tabs(tabs) = container {
-                         log::debug!("tile_render_pass: parent tabs active={:?} children={:?}", tabs.active, tabs.children);
-                     }
-                 }
-             }
+            let parent = tiles_tree.tiles.parent_of(tid);
+            let is_visible = tiles_tree.is_visible(tid);
+            log::debug!(
+                "tile_render_pass: node {:?} -> tile {:?} parent={:?} visible={}",
+                node_key,
+                tid,
+                parent,
+                is_visible
+            );
+            if let Some(pid) = parent {
+                if let Some(egui_tiles::Tile::Container(container)) = tiles_tree.tiles.get(pid) {
+                    log::debug!(
+                        "tile_render_pass: parent {:?} is {:?}",
+                        pid,
+                        container.kind()
+                    );
+                    if let egui_tiles::Container::Tabs(tabs) = container {
+                        log::debug!(
+                            "tile_render_pass: parent tabs active={:?} children={:?}",
+                            tabs.active,
+                            tabs.children
+                        );
+                    }
+                }
+            }
         }
     }
-    
+
     let active_tiles = tiles_tree.active_tiles();
     log::debug!("tile_render_pass: {} egui active_tiles", active_tiles.len());
     for tile_id in active_tiles.iter().copied() {
@@ -279,18 +313,26 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             Some(egui_tiles::Tile::Container(_)) => "Container",
             None => "Missing",
         };
-        log::debug!("tile_render_pass: active tile {:?} kind {}", tile_id, tile_label);
+        log::debug!(
+            "tile_render_pass: active tile {:?} kind {}",
+            tile_id,
+            tile_label
+        );
     }
-    
+
     // Ensure webviews exist for active tiles, applying intents immediately
     // so compositing (below) can find the webviews via get_webview_for_node.
     let mut webview_creation_intents = Vec::new();
-    let webview_host_nodes = tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
+    let webview_host_nodes =
+        tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app);
     for (node_key, _) in active_tile_rects.iter().copied() {
         if !webview_host_nodes.contains(&node_key) {
             continue;
         }
-        log::debug!("tile_render_pass: ensuring webview for active node {:?}", node_key);
+        log::debug!(
+            "tile_render_pass: ensuring webview for active node {:?}",
+            node_key
+        );
         webview_backpressure::ensure_webview_for_node(
             graph_app,
             window,
@@ -304,7 +346,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             &mut webview_creation_intents,
         );
     }
-    log::debug!("tile_render_pass: {} webview creation intents", webview_creation_intents.len());
+    log::debug!(
+        "tile_render_pass: {} webview creation intents",
+        webview_creation_intents.len()
+    );
     if !webview_creation_intents.is_empty() {
         #[cfg(feature = "diagnostics")]
         let apply_started = Instant::now();
@@ -316,9 +361,13 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
         log::debug!("tile_render_pass: applied webview creation intents");
         for (node_key, _) in active_tile_rects.iter().copied() {
-             if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
-                 log::debug!("tile_render_pass: node {:?} NOW mapped to {:?}", node_key, wv_id);
-             }
+            if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
+                log::debug!(
+                    "tile_render_pass: node {:?} NOW mapped to {:?}",
+                    node_key,
+                    wv_id
+                );
+            }
         }
     }
     let focused_webview_id = if graph_surface_focused {
@@ -342,10 +391,12 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 log::warn!("tile_render_pass: {}", violation);
             }
             #[cfg(feature = "diagnostics")]
-            crate::shell::desktop::runtime::diagnostics::emit_event(crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: "tile_render_pass.active_tile_violation",
-                byte_len: active_tile_violations.len(),
-            });
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: "tile_render_pass.active_tile_violation",
+                    byte_len: active_tile_violations.len(),
+                },
+            );
         }
         let focused_webview_id = tile_compositor::focused_webview_id_for_node_panes(
             tiles_tree,
@@ -423,14 +474,16 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 }
             })
             .collect();
-        diagnostics_state.push_frame(crate::shell::desktop::runtime::diagnostics::CompositorFrameSample {
-            sequence: 0,
-            active_tile_count: active_tiles_for_diag.len(),
-            focused_webview_present,
-            viewport_rect: ctx.available_rect(),
-            hierarchy: tile_hierarchy_lines(tiles_tree, graph_app),
-            tiles,
-        });
+        diagnostics_state.push_frame(
+            crate::shell::desktop::runtime::diagnostics::CompositorFrameSample {
+                sequence: 0,
+                active_tile_count: active_tiles_for_diag.len(),
+                focused_webview_present,
+                viewport_rect: ctx.available_rect(),
+                hierarchy: tile_hierarchy_lines(tiles_tree, graph_app),
+                tiles,
+            },
+        );
 
         if let Some(hovered_node) = diagnostics_state.highlighted_tile_node()
             && let Some((_, hovered_rect)) = active_tiles_for_diag

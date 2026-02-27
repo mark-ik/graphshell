@@ -14,25 +14,7 @@ use servo::{DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, Window
 use winit::window::Window;
 
 use super::dialog_panels::{self, DialogPanelsArgs};
-use crate::shell::desktop::host::headed_window::HeadedWindow;
-use crate::shell::desktop::lifecycle::lifecycle_intents;
-use crate::shell::desktop::lifecycle::lifecycle_reconcile::{self, RuntimeReconcileArgs};
-use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use super::nav_targeting;
-use crate::shell::desktop::ui::persistence_ops;
-use crate::shell::desktop::runtime::diagnostics;
-use crate::shell::desktop::ui::thumbnail_pipeline;
-use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
-use crate::shell::desktop::workbench::tile_compositor;
-use crate::shell::desktop::workbench::tile_invariants;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::workbench::pane_model::NodePaneState;
-use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
-use crate::shell::desktop::workbench::tile_runtime;
-use crate::shell::desktop::workbench::tile_view_ops;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::{self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput};
-use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
-use crate::shell::desktop::lifecycle::webview_controller;
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingConnectedOpenScope,
     PendingNodeOpenRequest, PendingTileOpenMode, UnsavedWorkspacePromptAction,
@@ -41,8 +23,28 @@ use crate::app::{
 use crate::graph::NodeKey;
 use crate::input;
 use crate::render;
+use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::lifecycle::lifecycle_reconcile::{self, RuntimeReconcileArgs};
+use crate::shell::desktop::lifecycle::semantic_event_pipeline;
+use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use crate::shell::desktop::lifecycle::webview_controller;
+use crate::shell::desktop::runtime::diagnostics;
+use crate::shell::desktop::ui::persistence_ops;
+use crate::shell::desktop::ui::thumbnail_pipeline;
+use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::{
+    self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
+};
+use crate::shell::desktop::workbench::pane_model::NodePaneState;
+use crate::shell::desktop::workbench::tile_compositor;
+use crate::shell::desktop::workbench::tile_invariants;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
+use crate::shell::desktop::workbench::tile_runtime;
+use crate::shell::desktop::workbench::tile_view_ops;
 
 fn tile_open_mode_from_pending(
     mode: crate::app::PendingTileOpenMode,
@@ -51,7 +53,7 @@ fn tile_open_mode_from_pending(
         crate::app::PendingTileOpenMode::Tab => tile_view_ops::TileOpenMode::Tab,
         crate::app::PendingTileOpenMode::SplitHorizontal => {
             tile_view_ops::TileOpenMode::SplitHorizontal
-        },
+        }
     }
 }
 
@@ -88,57 +90,61 @@ fn restore_named_workspace_snapshot(
     mut routed_open_request: Option<PendingNodeOpenRequest>,
 ) {
     debug!("gui_frame: attempting to restore workspace '{}'", name);
-    match persistence_ops::load_named_workspace_bundle(graph_app, name)
-        .and_then(|bundle| persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle))
-    {
+    match persistence_ops::load_named_workspace_bundle(graph_app, name).and_then(|bundle| {
+        persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle)
+    }) {
         Ok((mut restored_tree, restored_nodes)) => {
-                if let Ok(current_layout_json) = serde_json::to_string(tiles_tree) {
-                    graph_app.capture_undo_checkpoint(Some(current_layout_json));
-                }
-                if restored_tree.root().is_some() {
+            if let Ok(current_layout_json) = serde_json::to_string(tiles_tree) {
+                graph_app.capture_undo_checkpoint(Some(current_layout_json));
+            }
+            if restored_tree.root().is_some() {
+                debug!(
+                    "workspace restore: restored '{}' with {} resolved nodes",
+                    name,
+                    restored_nodes.len()
+                );
+                if let Some(request) = routed_open_request.take()
+                    && graph_app.workspace.graph.get_node(request.key).is_some()
+                {
                     debug!(
-                        "workspace restore: restored '{}' with {} resolved nodes",
-                        name,
-                        restored_nodes.len()
+                        "gui_frame: opening routed node {:?} in restored workspace",
+                        request.key
                     );
-                    if let Some(request) = routed_open_request.take()
-                        && graph_app.workspace.graph.get_node(request.key).is_some()
-                    {
-                        debug!("gui_frame: opening routed node {:?} in restored workspace", request.key);
-                        tile_view_ops::open_or_focus_node_pane_with_mode(
-                            &mut restored_tree,
-                            request.key,
-                            pending_tile_mode_to_tile_mode(request.mode),
-                        );
-                        graph_app.apply_intents([lifecycle_intents::promote_node_to_active(
-                            request.key,
-                            LifecycleCause::Restore,
-                        )]);
-                    }
-                    graph_app.note_workspace_activated(name, restored_nodes);
-                    if let Err(e) = persistence_ops::mark_named_workspace_bundle_activated(graph_app, name)
-                    {
-                        warn!("Failed to mark workspace bundle '{name}' activated: {e}");
-                    }
-                    if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
-                        graph_app.mark_session_workspace_layout_json(&runtime_layout_json);
-                    }
-                    *tiles_tree = restored_tree;
-                } else if let Some(request) = routed_open_request.take() {
-                    warn!(
-                        "Workspace snapshot '{name}' is empty after restore resolution; falling back to current workspace open"
+                    tile_view_ops::open_or_focus_node_pane_with_mode(
+                        &mut restored_tree,
+                        request.key,
+                        pending_tile_mode_to_tile_mode(request.mode),
                     );
-                    graph_app.select_node(request.key, false);
-                    graph_app.request_open_node_tile_mode(request.key, request.mode);
+                    graph_app.apply_intents([lifecycle_intents::promote_node_to_active(
+                        request.key,
+                        LifecycleCause::Restore,
+                    )]);
                 }
-        },
+                graph_app.note_workspace_activated(name, restored_nodes);
+                if let Err(e) =
+                    persistence_ops::mark_named_workspace_bundle_activated(graph_app, name)
+                {
+                    warn!("Failed to mark workspace bundle '{name}' activated: {e}");
+                }
+                if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
+                    graph_app.mark_session_workspace_layout_json(&runtime_layout_json);
+                }
+                *tiles_tree = restored_tree;
+            } else if let Some(request) = routed_open_request.take() {
+                warn!(
+                    "Workspace snapshot '{name}' is empty after restore resolution; falling back to current workspace open"
+                );
+                graph_app.select_node(request.key, false);
+                graph_app.request_open_node_tile_mode(request.key, request.mode);
+            }
+        }
         Err(e) => {
             warn!("Failed to restore workspace snapshot '{name}': {e}");
             if let Some(request) = routed_open_request.take() {
                 graph_app.select_node(request.key, false);
                 graph_app.request_open_node_tile_mode(request.key, request.mode);
             }
-        },
+        }
     }
 }
 
@@ -176,13 +182,15 @@ fn add_nodes_to_named_workspace_snapshot(
     }
 
     let mut workspace_tree = match persistence_ops::load_named_workspace_bundle(graph_app, name) {
-        Ok(bundle) => match persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle) {
-            Ok((tree, _)) => tree,
-            Err(e) => {
-                warn!("Failed to restore named workspace '{name}' for add-tab operation: {e}");
-                workspace_tree_with_single_node(live_nodes[0])
+        Ok(bundle) => {
+            match persistence_ops::restore_runtime_tree_from_workspace_bundle(graph_app, &bundle) {
+                Ok((tree, _)) => tree,
+                Err(e) => {
+                    warn!("Failed to restore named workspace '{name}' for add-tab operation: {e}");
+                    workspace_tree_with_single_node(live_nodes[0])
+                }
             }
-        },
+        }
         Err(_) => workspace_tree_with_single_node(live_nodes[0]),
     };
     if workspace_tree.root().is_none() {
@@ -316,7 +324,7 @@ fn connected_candidates_with_depth(
             }
 
             out
-        },
+        }
     }
 }
 
@@ -641,7 +649,8 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     #[cfg(feature = "diagnostics")]
-    pub(crate) diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
+    pub(crate) diagnostics_state:
+        &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 }
 
 pub(crate) struct ToolbarDialogPhaseOutput {
@@ -777,7 +786,7 @@ fn ensure_webviews_for_active_prewarm_nodes(
     use crate::shell::desktop::workbench::tile_compositor;
 
     // Find nodes that are Active but don't have visible tiles (prewarm candidates).
-    let tile_nodes: std::collections::HashSet<NodeKey> = 
+    let tile_nodes: std::collections::HashSet<NodeKey> =
         tile_compositor::active_node_pane_rects(tiles_tree)
             .into_iter()
             .map(|(node_key, _)| node_key)
@@ -1076,11 +1085,11 @@ pub(crate) fn run_post_render_phase<FActive>(
                     mode: PendingTileOpenMode::Tab,
                 });
                 restore_named_workspace_snapshot(graph_app, tiles_tree, &name, open_request);
-            },
+            }
             (
                 UnsavedWorkspacePromptRequest::WorkspaceSwitch { .. },
                 UnsavedWorkspacePromptAction::Cancel,
-            ) => {},
+            ) => {}
         }
     }
 
@@ -1094,7 +1103,8 @@ pub(crate) fn run_post_render_phase<FActive>(
     if let Some(name) = graph_app.take_pending_save_workspace_snapshot_named() {
         match persistence_ops::save_named_workspace_bundle(graph_app, &name, tiles_tree) {
             Ok(()) => {
-                let _ = persistence_ops::refresh_workspace_membership_cache_from_manifests(graph_app);
+                let _ =
+                    persistence_ops::refresh_workspace_membership_cache_from_manifests(graph_app);
             }
             Err(e) => warn!("Failed to serialize tile layout for workspace snapshot '{name}': {e}"),
         }
@@ -1170,7 +1180,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 let mut tiles = Tiles::default();
                 let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
                 *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
-            },
+            }
             Err(e) => warn!("Failed to load named graph snapshot '{name}': {e}"),
         }
     }
@@ -1192,7 +1202,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 let mut tiles = Tiles::default();
                 let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
                 *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
-            },
+            }
             Err(e) => warn!("Failed to load autosaved latest graph snapshot: {e}"),
         }
     }
@@ -1244,12 +1254,12 @@ pub(crate) fn run_post_render_phase<FActive>(
                         tile_view_ops::TileOpenMode::Tab,
                     );
                 }
-            },
+            }
             tile_view_ops::TileOpenMode::SplitHorizontal => {
                 // One-shot connected-open uses a compact 2-up / 2x2 split policy (max 4),
                 // with overflow grouped into tabs below the split area.
                 apply_connected_split_layout(tiles_tree, &ordered);
-            },
+            }
         }
     }
 
@@ -1261,7 +1271,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                     *tiles_tree = restored_tree;
                     graph_app.mark_session_workspace_layout_json(&layout_json);
                 }
-            },
+            }
             Err(e) => warn!("Failed to deserialize undo/redo workspace snapshot: {e}"),
         }
     }
@@ -1276,9 +1286,8 @@ pub(crate) fn run_post_render_phase<FActive>(
                 GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
                 tiles_tree,
             ) {
-                Ok(bundle_json) => {
-                    graph_app.save_session_workspace_layout_blob_if_changed(&bundle_json, &layout_json)
-                }
+                Ok(bundle_json) => graph_app
+                    .save_session_workspace_layout_blob_if_changed(&bundle_json, &layout_json),
                 Err(e) => warn!("Failed to serialize session workspace bundle: {e}"),
             },
             Err(e) => warn!("Failed to serialize session workspace layout: {e}"),

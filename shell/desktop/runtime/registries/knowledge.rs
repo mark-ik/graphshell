@@ -1,10 +1,8 @@
 use crate::app::GraphBrowserApp;
 
-pub(crate) use crate::registries::atomic::knowledge::{
-    KnowledgeRegistry,
-};
 #[cfg(test)]
 use crate::registries::atomic::knowledge::CompactCode;
+pub(crate) use crate::registries::atomic::knowledge::KnowledgeRegistry;
 
 /// Reconciliation function: updates the app's semantic index based on node tags.
 /// This respects the "Data vs System" split: App owns Data, Registry owns Logic.

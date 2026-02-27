@@ -46,19 +46,21 @@ use {
     objc2_foundation::MainThreadMarker,
 };
 
-use crate::shell::desktop::host::geometry::{winit_position_to_euclid_point, winit_size_to_euclid_size};
-use crate::shell::desktop::host::keyutils::{CMD_OR_ALT, keyboard_event_from_winit};
-use crate::shell::desktop::host::keyutils::CMD_OR_CONTROL;
 use crate::prefs::AppPreferences;
-use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
+use crate::shell::desktop::host::geometry::{
+    winit_position_to_euclid_point, winit_size_to_euclid_size,
+};
+use crate::shell::desktop::host::keyutils::CMD_OR_CONTROL;
+use crate::shell::desktop::host::keyutils::{CMD_OR_ALT, keyboard_event_from_winit};
+use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::host::window::{
+    EmbedderWindow, EmbedderWindowId, LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE,
+    PlatformWindow,
+};
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
-use crate::shell::desktop::host::window::{
-    LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE, PlatformWindow, EmbedderWindow,
-    EmbedderWindowId,
-};
 
 pub(crate) const INITIAL_WINDOW_TITLE: &str = "Servo";
 
@@ -213,9 +215,7 @@ impl HeadedWindow {
             xr_window_poses: RefCell::new(vec![]),
             modifiers_state: Cell::new(ModifiersState::empty()),
             window_rendering_context,
-            touch_event_simulator: app_preferences
-                .simulate_touch_events
-                .then(Default::default),
+            touch_event_simulator: app_preferences.simulate_touch_events.then(Default::default),
             pending_keyboard_events: Default::default(),
             rendering_context,
             last_title: RefCell::new(String::from(INITIAL_WINDOW_TITLE)),
@@ -605,7 +605,7 @@ impl HeadedWindow {
             Cursor::None => {
                 self.winit_window.set_cursor_visible(false);
                 return;
-            },
+            }
         };
         self.winit_window.set_cursor(winit_cursor);
         self.winit_window.set_cursor_visible(true);
@@ -702,13 +702,13 @@ impl HeadedWindow {
                 // Request a winit redraw event, so we can recomposite, update and paint
                 // the GUI, and present the new frame.
                 self.winit_window.request_redraw();
-            },
+            }
             WindowEvent::CloseRequested => {
                 window.schedule_close();
                 consumed = true;
-            },
+            }
             WindowEvent::CursorMoved { position, .. }
-                if !forward_mouse_event_to_egui(Some(position)) => {},
+                if !forward_mouse_event_to_egui(Some(position)) => {}
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Forward,
@@ -722,7 +722,7 @@ impl HeadedWindow {
                     window.set_needs_update();
                 }
                 consumed = true;
-            },
+            }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Back,
@@ -736,12 +736,12 @@ impl HeadedWindow {
                     window.set_needs_update();
                 }
                 consumed = true;
-            },
+            }
             WindowEvent::MouseWheel { .. } | WindowEvent::MouseInput { .. }
                 if !forward_mouse_event_to_egui(None) =>
             {
                 self.gui.borrow().surrender_focus();
-            },
+            }
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -775,7 +775,7 @@ impl HeadedWindow {
                     }
                     consumed = response.consumed;
                 }
-            },
+            }
             ref event => {
                 let response = self
                     .gui
@@ -845,7 +845,7 @@ impl HeadedWindow {
                         consumed = false;
                     }
                 }
-            },
+            }
         }
 
         if !consumed {
@@ -868,10 +868,10 @@ impl HeadedWindow {
                         }
                         self.handle_keyboard_input(state.clone(), &window, event)
                     }
-                },
+                }
                 WindowEvent::ModifiersChanged(modifiers) => {
                     self.modifiers_state.set(modifiers.state())
-                },
+                }
                 WindowEvent::MouseInput { state, button, .. } => {
                     if !self.gui.borrow().ui_overlay_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
@@ -899,7 +899,7 @@ impl HeadedWindow {
                             self.handle_mouse_button_event(&webview, button, state);
                         }
                     }
-                },
+                }
                 WindowEvent::CursorMoved { position, .. } => {
                     let point = winit_position_to_euclid_point(position).to_f32()
                         / self.hidpi_scale_factor();
@@ -919,7 +919,7 @@ impl HeadedWindow {
                             );
                         }
                     }
-                },
+                }
                 WindowEvent::CursorLeft { .. } => {
                     if !self.gui.borrow().ui_overlay_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
@@ -939,7 +939,7 @@ impl HeadedWindow {
                             }
                         }
                     }
-                },
+                }
                 WindowEvent::MouseWheel { delta, .. } => {
                     if !self.gui.borrow().ui_overlay_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
@@ -959,7 +959,7 @@ impl HeadedWindow {
                                 ),
                                 MouseScrollDelta::PixelDelta(delta) => {
                                     (delta.x, delta.y, WheelMode::DeltaPixel)
-                                },
+                                }
                             };
 
                             let delta = WheelDelta {
@@ -975,7 +975,7 @@ impl HeadedWindow {
                             )));
                         }
                     }
-                },
+                }
                 WindowEvent::Touch(touch) => {
                     if !self.gui.borrow().ui_overlay_active() {
                         if let Some(webview_id) = self.gui.borrow().focused_webview_id()
@@ -990,7 +990,7 @@ impl HeadedWindow {
                             )));
                         }
                     }
-                },
+                }
                 WindowEvent::PinchGesture { delta, .. } => {
                     if !self.gui.borrow().ui_overlay_active() {
                         let pointer_target = self
@@ -1006,10 +1006,10 @@ impl HeadedWindow {
                             );
                         }
                     }
-                },
+                }
                 WindowEvent::CloseRequested => {
                     window.schedule_close();
-                },
+                }
                 WindowEvent::ThemeChanged(theme) => {
                     if let Some(webview) = self.focused_webview(&window) {
                         webview.notify_theme_change(match theme {
@@ -1017,7 +1017,7 @@ impl HeadedWindow {
                             winit::window::Theme::Dark => Theme::Dark,
                         });
                     }
-                },
+                }
                 WindowEvent::Ime(ime) => {
                     if let Some(webview) = self.focused_webview(&window) {
                         match ime {
@@ -1028,7 +1028,7 @@ impl HeadedWindow {
                                         data: String::new(),
                                     },
                                 )));
-                            },
+                            }
                             Ime::Preedit(text, _) => {
                                 webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(
                                     servo::CompositionEvent {
@@ -1036,7 +1036,7 @@ impl HeadedWindow {
                                         data: text,
                                     },
                                 )));
-                            },
+                            }
                             Ime::Commit(text) => {
                                 webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(
                                     servo::CompositionEvent {
@@ -1044,14 +1044,14 @@ impl HeadedWindow {
                                         data: text,
                                     },
                                 )));
-                            },
+                            }
                             Ime::Disabled => {
                                 webview.notify_input_event(InputEvent::Ime(ImeEvent::Dismissed));
-                            },
+                            }
                         }
                     }
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
     }
@@ -1315,28 +1315,28 @@ impl PlatformWindow for HeadedWindow {
                     webview_id,
                     Dialog::new_select_element_dialog(prompt, offset),
                 );
-            },
+            }
             EmbedderControl::ColorPicker(color_picker) => {
                 let offset = self.gui.borrow().toolbar_height();
                 self.add_dialog(
                     webview_id,
                     Dialog::new_color_picker_dialog(color_picker, offset),
                 );
-            },
+            }
             EmbedderControl::InputMethod(input_method_control) => {
                 self.visible_input_methods.borrow_mut().push(control_id);
                 self.show_ime(input_method_control);
-            },
+            }
             EmbedderControl::FilePicker(file_picker) => {
                 self.add_dialog(webview_id, Dialog::new_file_dialog(file_picker));
-            },
+            }
             EmbedderControl::SimpleDialog(simple_dialog) => {
                 self.add_dialog(webview_id, Dialog::new_simple_dialog(simple_dialog));
-            },
+            }
             EmbedderControl::ContextMenu(prompt) => {
                 let offset = self.gui.borrow().toolbar_height();
                 self.add_dialog(webview_id, Dialog::new_context_menu(prompt, offset));
-            },
+            }
         }
     }
 

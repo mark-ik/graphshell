@@ -133,16 +133,16 @@ pub(crate) fn graph_intents_and_responsive_from_events(
                 responsive_webviews.insert(*child_webview_id);
                 created_child_webviews.push(*child_webview_id);
                 create_events.push(event);
-            },
+            }
             GraphSemanticEventKind::UrlChanged { webview_id, .. }
             | GraphSemanticEventKind::HistoryChanged { webview_id, .. }
             | GraphSemanticEventKind::PageTitleChanged { webview_id, .. } => {
                 responsive_webviews.insert(*webview_id);
                 other_events.push(event);
-            },
+            }
             GraphSemanticEventKind::WebViewCrashed { .. } => {
                 other_events.push(event);
-            },
+            }
         }
     }
 
@@ -391,7 +391,8 @@ mod tests {
             }),
         ];
 
-        let (intents, created_children, responsive) = graph_intents_and_responsive_from_events(events);
+        let (intents, created_children, responsive) =
+            graph_intents_and_responsive_from_events(events);
         let intent_kinds = intents
             .iter()
             .map(|intent| match intent {
@@ -403,11 +404,7 @@ mod tests {
                 _ => "other",
             })
             .collect::<Vec<_>>();
-        let trace = (
-            intent_kinds,
-            created_children.len(),
-            responsive.len(),
-        );
+        let trace = (intent_kinds, created_children.len(), responsive.len());
 
         insta::assert_debug_snapshot!(trace);
     }
@@ -420,7 +417,8 @@ mod tests {
             new_url: "https://trace.example".to_string(),
         })];
 
-        let (intents, created_children, responsive) = graph_intents_and_responsive_from_events(events);
+        let (intents, created_children, responsive) =
+            graph_intents_and_responsive_from_events(events);
         tracing::info!(
             "semantic_pipeline ingest_events={} emitted_intents={} created_children={} responsive_webviews={}",
             1,

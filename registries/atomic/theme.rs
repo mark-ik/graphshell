@@ -28,8 +28,7 @@ pub(crate) struct ThemeRegistry {
 
 impl ThemeRegistry {
     pub(crate) fn register(&mut self, theme_id: &str, theme: ThemeData) {
-        self.themes
-            .insert(theme_id.to_ascii_lowercase(), theme);
+        self.themes.insert(theme_id.to_ascii_lowercase(), theme);
     }
 
     pub(crate) fn register_core_seed_defaults(&mut self) {

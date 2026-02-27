@@ -120,7 +120,10 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             && !i.modifiers.shift
             && !i.modifiers.alt
             && !i.modifiers.command
-            && !matches!(graph_app.workspace.radial_menu_shortcut, RadialMenuShortcut::R)
+            && !matches!(
+                graph_app.workspace.radial_menu_shortcut,
+                RadialMenuShortcut::R
+            )
         {
             actions.reheat_physics = true;
         }
@@ -162,12 +165,12 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
                 if i.key_pressed(Key::F1) || i.key_pressed(Key::Questionmark) {
                     actions.toggle_help_panel = true;
                 }
-            },
+            }
             HelpPanelShortcut::H => {
                 if i.key_pressed(Key::H) {
                     actions.toggle_help_panel = true;
                 }
-            },
+            }
         }
 
         // Toggle edge command palette.
@@ -176,12 +179,12 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
                 if i.key_pressed(Key::F2) {
                     actions.toggle_command_palette = true;
                 }
-            },
+            }
             CommandPaletteShortcut::CtrlK => {
                 if i.modifiers.ctrl && i.key_pressed(Key::K) {
                     actions.toggle_command_palette = true;
                 }
-            },
+            }
         }
 
         // Toggle radial command menu.
@@ -190,12 +193,12 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
                 if i.key_pressed(Key::F3) {
                     actions.toggle_radial_menu = true;
                 }
-            },
+            }
             RadialMenuShortcut::R => {
                 if i.key_pressed(Key::R) {
                     actions.toggle_radial_menu = true;
                 }
-            },
+            }
         }
 
         // Ctrl+Shift+Delete: Clear entire graph

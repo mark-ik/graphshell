@@ -24,7 +24,7 @@ mod tests;
 pub(crate) mod sync_worker;
 
 // Re-exports for ControlPanel integration
-pub use sync_worker::{SyncWorker, SyncCommand};
+pub use sync_worker::{SyncCommand, SyncWorker};
 
 /// The ALPN protocol identifier for Graphshell sync
 const SYNC_ALPN: &[u8] = b"graphshell-sync/1";
@@ -73,7 +73,9 @@ pub(crate) fn activate() -> Result<(), String> {
 /// Register Verse protocol handlers into the provider registry.
 /// Phase 5 will implement `protocol:verse` handler for P2P sync.
 /// For now this is a stub (Phase 2.4 integration point).
-pub(crate) fn register_protocol_handlers(providers: &mut crate::registries::atomic::ProtocolHandlerProviders) {
+pub(crate) fn register_protocol_handlers(
+    providers: &mut crate::registries::atomic::ProtocolHandlerProviders,
+) {
     // TODO: Phase 5.1 — Register protocol:verse handler
     let _ = providers; // Suppress unused warning
     log::debug!("verse: protocol handler registration stub (Phase 5 implementation pending)");
@@ -246,19 +248,19 @@ mod option_system_time_serde {
 pub trait P2PIdentityExt {
     /// Get our NodeId (public key)
     fn p2p_node_id(&self) -> iroh::NodeId;
-    
+
     /// Sign a sync payload with our private key
     fn sign_sync_payload(&self, payload: &[u8]) -> Vec<u8>;
-    
+
     /// Verify a peer's signature on a payload
     fn verify_peer_signature(&self, peer: iroh::NodeId, payload: &[u8], sig: &[u8]) -> bool;
-    
+
     /// Get all trusted peers
     fn get_trusted_peers(&self) -> Vec<TrustedPeer>;
-    
+
     /// Add or update a trusted peer
     fn trust_peer(&mut self, peer: TrustedPeer);
-    
+
     /// Revoke trust for a peer (remove from trust store)
     fn revoke_peer(&mut self, node_id: iroh::NodeId);
 }
@@ -303,7 +305,9 @@ pub(crate) fn init() -> Result<(), VerseInitError> {
             identity,
             trusted_peers: std::sync::Arc::new(std::sync::RwLock::new(trusted_peers)),
             mdns_daemon,
-            sync_logs: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            sync_logs: std::sync::Arc::new(
+                std::sync::RwLock::new(std::collections::HashMap::new()),
+            ),
         })
         .map_err(|_| VerseInitError::AlreadyInitialized)?;
 
@@ -334,7 +338,8 @@ fn load_or_generate_identity() -> Result<P2PIdentitySecret, VerseInitError> {
     match entry.get_password() {
         Ok(json_str) => {
             // Deserialize existing identity
-            serde_json::from_str(&json_str).map_err(|e| VerseInitError::IdentityCorrupt(e.to_string()))
+            serde_json::from_str(&json_str)
+                .map_err(|e| VerseInitError::IdentityCorrupt(e.to_string()))
         }
         Err(keyring::Error::NoEntry) => {
             // Generate new identity
@@ -347,8 +352,8 @@ fn load_or_generate_identity() -> Result<P2PIdentitySecret, VerseInitError> {
             };
 
             // Store in keychain
-            let json_str =
-                serde_json::to_string(&identity).map_err(|e| VerseInitError::IdentitySerialize(e.to_string()))?;
+            let json_str = serde_json::to_string(&identity)
+                .map_err(|e| VerseInitError::IdentitySerialize(e.to_string()))?;
             entry
                 .set_password(&json_str)
                 .map_err(|e| VerseInitError::KeychainAccess(e.to_string()))?;
@@ -370,7 +375,9 @@ fn get_device_name() -> String {
 }
 
 /// Create iroh endpoint with our secret key
-async fn create_iroh_endpoint(secret_key: &iroh::SecretKey) -> Result<iroh::Endpoint, VerseInitError> {
+async fn create_iroh_endpoint(
+    secret_key: &iroh::SecretKey,
+) -> Result<iroh::Endpoint, VerseInitError> {
     // Create endpoint builder
     let endpoint = iroh::Endpoint::builder()
         .secret_key(secret_key.clone())
@@ -389,7 +396,7 @@ fn load_trust_store() -> Result<Vec<TrustedPeer>, std::io::Error> {
     // TODO: Integrate with user_registries.json once RegistryRuntime persistence is wired
     // For now, store in a dedicated file
     let trust_store_path = get_trust_store_path()?;
-    
+
     if !trust_store_path.exists() {
         return Ok(Vec::new());
     }
@@ -397,14 +404,14 @@ fn load_trust_store() -> Result<Vec<TrustedPeer>, std::io::Error> {
     let content = std::fs::read_to_string(&trust_store_path)?;
     let peers: Vec<TrustedPeer> = serde_json::from_str(&content)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    
+
     Ok(peers)
 }
 
 /// Save trust store to disk
 fn save_trust_store(peers: &[TrustedPeer]) -> Result<(), std::io::Error> {
     let trust_store_path = get_trust_store_path()?;
-    
+
     // Ensure parent directory exists
     if let Some(parent) = trust_store_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -412,7 +419,7 @@ fn save_trust_store(peers: &[TrustedPeer]) -> Result<(), std::io::Error> {
 
     let content = serde_json::to_string_pretty(peers)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    
+
     std::fs::write(&trust_store_path, content)?;
     Ok(())
 }
@@ -421,8 +428,10 @@ fn save_trust_store(peers: &[TrustedPeer]) -> Result<(), std::io::Error> {
 fn get_trust_store_path() -> Result<std::path::PathBuf, std::io::Error> {
     let config_dir = dirs::config_dir()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "config dir not found"))?;
-    
-    Ok(config_dir.join("graphshell").join("verse_trusted_peers.json"))
+
+    Ok(config_dir
+        .join("graphshell")
+        .join("verse_trusted_peers.json"))
 }
 
 // ===== P2P Cryptographic Operations =====
@@ -448,26 +457,26 @@ pub(crate) fn verify_peer_signature(peer: iroh::NodeId, payload: &[u8], sig: &[u
     if sig.len() != 64 {
         return false;
     }
-    
+
     let mut sig_array = [0u8; 64];
     sig_array.copy_from_slice(sig);
-    
+
     // Use ed25519_dalek directly for verification (v2.x API)
-    use ed25519_dalek::{Verifier, VerifyingKey, Signature};
-    
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
     let public_key_bytes = peer.as_bytes();
     if public_key_bytes.len() != 32 {
         return false;
     }
-    
+
     let Ok(verifying_key) = VerifyingKey::from_bytes(public_key_bytes) else {
         return false;
     };
-    
+
     let Ok(signature) = Signature::try_from(&sig_array[..]) else {
         return false;
     };
-    
+
     verifying_key.verify(payload, &signature).is_ok()
 }
 
@@ -490,10 +499,8 @@ mod version_vector_serde {
     where
         S: Serializer,
     {
-        let string_map: HashMap<String, u64> = map
-            .iter()
-            .map(|(k, v)| (k.to_string(), *v))
-            .collect();
+        let string_map: HashMap<String, u64> =
+            map.iter().map(|(k, v)| (k.to_string(), *v)).collect();
         string_map.serialize(serializer)
     }
 
@@ -532,9 +539,10 @@ impl VersionVector {
 
     /// True if self has strictly seen more from every peer than other
     pub fn dominates(&self, other: &VersionVector) -> bool {
-        other.clocks.iter().all(|(peer, &seq)| {
-            self.clocks.get(peer).copied().unwrap_or(0) >= seq
-        })
+        other
+            .clocks
+            .iter()
+            .all(|(peer, &seq)| self.clocks.get(peer).copied().unwrap_or(0) >= seq)
     }
 
     /// Increment sequence number for a peer
@@ -601,7 +609,8 @@ impl SyncLog {
                 let last = self.last_write_title.get(node_id).copied().unwrap_or(0);
                 let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
                 if intent.authored_at_secs >= last && intent.authored_at_secs >= tombstone {
-                    self.last_write_title.insert(node_id.clone(), intent.authored_at_secs);
+                    self.last_write_title
+                        .insert(node_id.clone(), intent.authored_at_secs);
                     true
                 } else {
                     if last > 0 {
@@ -621,7 +630,8 @@ impl SyncLog {
                 let last = self.last_write_url.get(node_id).copied().unwrap_or(0);
                 let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
                 if intent.authored_at_secs >= last && intent.authored_at_secs >= tombstone {
-                    self.last_write_url.insert(node_id.clone(), intent.authored_at_secs);
+                    self.last_write_url
+                        .insert(node_id.clone(), intent.authored_at_secs);
                     true
                 } else {
                     if last > 0 {
@@ -640,7 +650,8 @@ impl SyncLog {
             LogEntry::RemoveNode { node_id } => {
                 let tombstone = self.tombstones.get(node_id).copied().unwrap_or(0);
                 if intent.authored_at_secs >= tombstone {
-                    self.tombstones.insert(node_id.clone(), intent.authored_at_secs);
+                    self.tombstones
+                        .insert(node_id.clone(), intent.authored_at_secs);
                     true
                 } else {
                     false
@@ -695,40 +706,40 @@ impl SyncLog {
     /// Encrypt bytes with AES-256-GCM
     pub fn encrypt(plaintext: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, String> {
         use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
-        
-        let cipher = Aes256Gcm::new_from_slice(key)
-            .map_err(|e| format!("cipher init failed: {}", e))?;
-        
+
+        let cipher =
+            Aes256Gcm::new_from_slice(key).map_err(|e| format!("cipher init failed: {}", e))?;
+
         // Generate random 96-bit nonce
         let nonce_bytes: [u8; 12] = rand::random();
         let nonce = Nonce::from_slice(&nonce_bytes);
-        
+
         let ciphertext = cipher
             .encrypt(nonce, plaintext)
             .map_err(|e| format!("encryption failed: {}", e))?;
-        
+
         // Prepend nonce to ciphertext (nonce is not secret, just needs to be unique)
         let mut result = nonce_bytes.to_vec();
         result.extend_from_slice(&ciphertext);
-        
+
         Ok(result)
     }
 
     /// Decrypt bytes with AES-256-GCM
     pub fn decrypt(ciphertext_with_nonce: &[u8], key: &[u8; 32]) -> Result<Vec<u8>, String> {
         use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
-        
+
         if ciphertext_with_nonce.len() < 12 {
             return Err("ciphertext too short".to_string());
         }
-        
-        let cipher = Aes256Gcm::new_from_slice(key)
-            .map_err(|e| format!("cipher init failed: {}", e))?;
-        
+
+        let cipher =
+            Aes256Gcm::new_from_slice(key).map_err(|e| format!("cipher init failed: {}", e))?;
+
         // Extract nonce (first 12 bytes)
         let nonce = Nonce::from_slice(&ciphertext_with_nonce[0..12]);
         let ciphertext = &ciphertext_with_nonce[12..];
-        
+
         cipher
             .decrypt(nonce, ciphertext)
             .map_err(|e| format!("decryption failed: {}", e))
@@ -737,55 +748,53 @@ impl SyncLog {
     /// Save to disk (encrypted with a key derived from our secret key)
     pub fn save_encrypted(&self, secret_key: &iroh::SecretKey) -> Result<(), String> {
         let plaintext = self.to_bytes();
-        
+
         // Derive encryption key from secret key (HKDF would be better, but for now just hash it)
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(secret_key.to_bytes());
         hasher.update(b"synclog-encryption-key-v1");
         let key: [u8; 32] = hasher.finalize().into();
-        
+
         let encrypted = Self::encrypt(&plaintext, &key)?;
-        
+
         let path = get_sync_log_path(&self.workspace_id)?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("create dir failed: {}", e))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("create dir failed: {}", e))?;
         }
-        
-        std::fs::write(&path, encrypted)
-            .map_err(|e| format!("write failed: {}", e))
+
+        std::fs::write(&path, encrypted).map_err(|e| format!("write failed: {}", e))
     }
 
     /// Load from disk (decrypted with key derived from our secret key)
-    pub fn load_encrypted(workspace_id: String, secret_key: &iroh::SecretKey) -> Result<Self, String> {
+    pub fn load_encrypted(
+        workspace_id: String,
+        secret_key: &iroh::SecretKey,
+    ) -> Result<Self, String> {
         let path = get_sync_log_path(&workspace_id)?;
-        
-        let encrypted = std::fs::read(&path)
-            .map_err(|e| format!("read failed: {}", e))?;
-        
+
+        let encrypted = std::fs::read(&path).map_err(|e| format!("read failed: {}", e))?;
+
         // Derive same encryption key
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(secret_key.to_bytes());
         hasher.update(b"synclog-encryption-key-v1");
         let key: [u8; 32] = hasher.finalize().into();
-        
+
         let plaintext = Self::decrypt(&encrypted, &key)?;
         Self::from_bytes(&plaintext)
     }
 }
 
 fn get_sync_log_path(workspace_id: &str) -> Result<std::path::PathBuf, String> {
-    let config_dir = dirs::config_dir()
-        .ok_or_else(|| "config dir not found".to_string())?;
-    
+    let config_dir = dirs::config_dir().ok_or_else(|| "config dir not found".to_string())?;
+
     Ok(config_dir
         .join("graphshell")
         .join("verse_sync_logs")
         .join(format!("{}.bin", workspace_id)))
 }
-
 
 /// Get our NodeId (public key derived from secret key)
 pub(crate) fn node_id() -> iroh::NodeId {
@@ -882,7 +891,8 @@ pub(crate) fn sync_worker_resources() -> Result<SyncWorkerResources, String> {
 }
 
 /// Shared handle to the sync log map.
-pub(crate) fn sync_logs_handle() -> std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SyncLog>>> {
+pub(crate) fn sync_logs_handle()
+-> std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SyncLog>>> {
     let state = get_verse_state();
     state.sync_logs.clone()
 }
@@ -897,11 +907,11 @@ pub(crate) fn trust_peer(peer: TrustedPeer) {
         .trusted_peers
         .write()
         .expect("trust store lock poisoned");
-    
+
     // Remove existing peer with same NodeId (update case)
     peers.retain(|p| p.node_id != peer.node_id);
     peers.push(peer);
-    
+
     // Persist to disk
     if let Err(e) = save_trust_store(&peers) {
         log::error!("Failed to save trust store: {}", e);
@@ -918,9 +928,9 @@ pub(crate) fn revoke_peer(node_id: iroh::NodeId) {
         .trusted_peers
         .write()
         .expect("trust store lock poisoned");
-    
+
     peers.retain(|p| p.node_id != node_id);
-    
+
     // Persist to disk
     if let Err(e) = save_trust_store(&peers) {
         log::error!("Failed to save trust store: {}", e);
@@ -928,7 +938,11 @@ pub(crate) fn revoke_peer(node_id: iroh::NodeId) {
 }
 
 /// Grant workspace access for a peer
-pub(crate) fn grant_workspace_access(node_id: iroh::NodeId, workspace_id: String, access: AccessLevel) {
+pub(crate) fn grant_workspace_access(
+    node_id: iroh::NodeId,
+    workspace_id: String,
+    access: AccessLevel,
+) {
     let Some(state) = VERSE_STATE.get() else {
         log::warn!("grant_workspace_access called before Verse initialization");
         return;
@@ -937,10 +951,14 @@ pub(crate) fn grant_workspace_access(node_id: iroh::NodeId, workspace_id: String
         .trusted_peers
         .write()
         .expect("trust store lock poisoned");
-    
+
     if let Some(peer) = peers.iter_mut().find(|p| p.node_id == node_id) {
         // Update or insert grant
-        if let Some(grant) = peer.workspace_grants.iter_mut().find(|g| g.workspace_id == workspace_id) {
+        if let Some(grant) = peer
+            .workspace_grants
+            .iter_mut()
+            .find(|g| g.workspace_id == workspace_id)
+        {
             grant.access = access;
         } else {
             peer.workspace_grants.push(WorkspaceGrant {
@@ -948,7 +966,7 @@ pub(crate) fn grant_workspace_access(node_id: iroh::NodeId, workspace_id: String
                 access,
             });
         }
-        
+
         // Persist to disk
         if let Err(e) = save_trust_store(&peers) {
             log::error!("Failed to save trust store: {}", e);
@@ -968,10 +986,11 @@ pub(crate) fn revoke_workspace_access(node_id: iroh::NodeId, workspace_id: Strin
         .trusted_peers
         .write()
         .expect("trust store lock poisoned");
-    
+
     if let Some(peer) = peers.iter_mut().find(|p| p.node_id == node_id) {
-        peer.workspace_grants.retain(|g| g.workspace_id != workspace_id);
-        
+        peer.workspace_grants
+            .retain(|g| g.workspace_id != workspace_id);
+
         // Persist to disk
         if let Err(e) = save_trust_store(&peers) {
             log::error!("Failed to save trust store: {}", e);
@@ -1010,38 +1029,33 @@ impl std::error::Error for VerseInitError {}
 /// BIP-39 word list (subset for 6-word pairing codes)
 /// Full list has 2048 words (11 bits per word). We use first 256 words (8 bits per word).
 pub(crate) const PAIRING_WORDLIST: &[&str] = &[
-    "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",
-    "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid",
-    "acoustic", "acquire", "across", "act", "action", "actor", "actress", "actual",
-    "adapt", "add", "addict", "address", "adjust", "admit", "adult", "advance",
-    "advice", "aerobic", "affair", "afford", "afraid", "again", "age", "agent",
-    "agree", "ahead", "aim", "air", "airport", "aisle", "alarm", "album",
-    "alcohol", "alert", "alien", "all", "alley", "allow", "almost", "alone",
-    "alpha", "already", "also", "alter", "always", "amateur", "amazing", "among",
-    "amount", "amused", "analyst", "anchor", "ancient", "anger", "angle", "angry",
-    "animal", "ankle", "announce", "annual", "another", "answer", "antenna", "antique",
-    "anxiety", "any", "apart", "apology", "appear", "apple", "approve", "april",
-    "arch", "arctic", "area", "arena", "argue", "arm", "armed", "armor",
-    "army", "around", "arrange", "arrest", "arrive", "arrow", "art", "artefact",
-    "artist", "artwork", "ask", "aspect", "assault", "asset", "assist", "assume",
-    "asthma", "athlete", "atom", "attack", "attend", "attitude", "attract", "auction",
-    "audit", "august", "aunt", "author", "auto", "autumn", "average", "avocado",
-    "avoid", "awake", "aware", "away", "awesome", "awful", "awkward", "axis",
-    "baby", "bachelor", "bacon", "badge", "bag", "balance", "balcony", "ball",
-    "bamboo", "banana", "banner", "bar", "barely", "bargain", "barrel", "base",
-    "basic", "basket", "battle", "beach", "bean", "beauty", "because", "become",
-    "beef", "before", "begin", "behave", "behind", "believe", "below", "belt",
-    "bench", "benefit", "best", "betray", "better", "between", "beyond", "bicycle",
-    "bid", "bike", "bind", "biology", "bird", "birth", "bitter", "black",
-    "blade", "blame", "blanket", "blast", "bleak", "bless", "blind", "blood",
-    "blossom", "blouse", "blue", "blur", "blush", "board", "boat", "body",
-    "boil", "bomb", "bone", "bonus", "book", "boost", "border", "boring",
-    "borrow", "boss", "bottom", "bounce", "box", "boy", "bracket", "brain",
-    "brand", "brass", "brave", "bread", "breeze", "brick", "bridge", "brief",
-    "bright", "bring", "brisk", "broccoli", "broken", "bronze", "broom", "brother",
-    "brown", "brush", "bubble", "buddy", "budget", "buffalo", "build", "bulb",
-    "bulk", "bullet", "bundle", "bunker", "burden", "burger", "burst", "bus",
-    "business", "busy", "butter", "buyer", "buzz", "cabbage", "cabin", "cable",
+    "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd",
+    "abuse", "access", "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire",
+    "across", "act", "action", "actor", "actress", "actual", "adapt", "add", "addict", "address",
+    "adjust", "admit", "adult", "advance", "advice", "aerobic", "affair", "afford", "afraid",
+    "again", "age", "agent", "agree", "ahead", "aim", "air", "airport", "aisle", "alarm", "album",
+    "alcohol", "alert", "alien", "all", "alley", "allow", "almost", "alone", "alpha", "already",
+    "also", "alter", "always", "amateur", "amazing", "among", "amount", "amused", "analyst",
+    "anchor", "ancient", "anger", "angle", "angry", "animal", "ankle", "announce", "annual",
+    "another", "answer", "antenna", "antique", "anxiety", "any", "apart", "apology", "appear",
+    "apple", "approve", "april", "arch", "arctic", "area", "arena", "argue", "arm", "armed",
+    "armor", "army", "around", "arrange", "arrest", "arrive", "arrow", "art", "artefact", "artist",
+    "artwork", "ask", "aspect", "assault", "asset", "assist", "assume", "asthma", "athlete",
+    "atom", "attack", "attend", "attitude", "attract", "auction", "audit", "august", "aunt",
+    "author", "auto", "autumn", "average", "avocado", "avoid", "awake", "aware", "away", "awesome",
+    "awful", "awkward", "axis", "baby", "bachelor", "bacon", "badge", "bag", "balance", "balcony",
+    "ball", "bamboo", "banana", "banner", "bar", "barely", "bargain", "barrel", "base", "basic",
+    "basket", "battle", "beach", "bean", "beauty", "because", "become", "beef", "before", "begin",
+    "behave", "behind", "believe", "below", "belt", "bench", "benefit", "best", "betray", "better",
+    "between", "beyond", "bicycle", "bid", "bike", "bind", "biology", "bird", "birth", "bitter",
+    "black", "blade", "blame", "blanket", "blast", "bleak", "bless", "blind", "blood", "blossom",
+    "blouse", "blue", "blur", "blush", "board", "boat", "body", "boil", "bomb", "bone", "bonus",
+    "book", "boost", "border", "boring", "borrow", "boss", "bottom", "bounce", "box", "boy",
+    "bracket", "brain", "brand", "brass", "brave", "bread", "breeze", "brick", "bridge", "brief",
+    "bright", "bring", "brisk", "broccoli", "broken", "bronze", "broom", "brother", "brown",
+    "brush", "bubble", "buddy", "budget", "buffalo", "build", "bulb", "bulk", "bullet", "bundle",
+    "bunker", "burden", "burger", "burst", "bus", "business", "busy", "butter", "buyer", "buzz",
+    "cabbage", "cabin", "cable",
 ];
 
 /// Pairing code that expires after 5 minutes
@@ -1064,14 +1078,14 @@ pub fn generate_pairing_code() -> Result<PairingCode, String> {
         });
         return Err("Verse is not initialized yet".to_string());
     };
-    
+
     // Get NodeId directly (NodeAddr requires async, but NodeId is synchronous)
     let node_id = state.endpoint.node_id();
-    
+
     // Keep the 6-word mnemonic prefix for usability, and append a full NodeId suffix
     // so decode can reconstruct the exact peer identity.
     let node_id_bytes = node_id.as_bytes();
-    
+
     // Take first 6 bytes and encode as 6 words (8 bits per word)
     let mut words = Vec::with_capacity(6);
     for i in 0..6 {
@@ -1079,15 +1093,15 @@ pub fn generate_pairing_code() -> Result<PairingCode, String> {
         let word_idx = byte_val as usize % 256;
         words.push(PAIRING_WORDLIST[word_idx]);
     }
-    
+
     let mnemonic = words.join("-");
     let phrase = format!("{}:{}", mnemonic, node_id);
     let expires_at = std::time::SystemTime::now() + std::time::Duration::from_secs(5 * 60);
-    
+
     // Note: For Step 5.3, we create a minimal NodeAddr with just the NodeId
     // Step 5.4 will include full relay and direct addresses
     let node_addr = iroh::NodeAddr::new(node_id);
-    
+
     Ok(PairingCode {
         phrase,
         node_addr,
@@ -1105,7 +1119,7 @@ pub fn decode_pairing_code(phrase: &str) -> Result<iroh::NodeId, String> {
     if words.len() != 6 {
         return Err(format!("expected 6 words, got {}", words.len()));
     }
-    
+
     for word in words {
         let _word_idx = PAIRING_WORDLIST
             .iter()
@@ -1121,16 +1135,16 @@ pub fn decode_pairing_code(phrase: &str) -> Result<iroh::NodeId, String> {
 /// Generate a QR code for the pairing phrase (returns ASCII art for terminal display)
 pub(crate) fn generate_qr_code_ascii(phrase: &str) -> Result<String, String> {
     use qrcode::{QrCode, render::unicode};
-    
-    let code = QrCode::new(phrase.as_bytes())
-        .map_err(|e| format!("QR generation failed: {}", e))?;
-    
+
+    let code =
+        QrCode::new(phrase.as_bytes()).map_err(|e| format!("QR generation failed: {}", e))?;
+
     let string = code
         .render::<unicode::Dense1x2>()
         .dark_color(unicode::Dense1x2::Light)
         .light_color(unicode::Dense1x2::Dark)
         .build();
-    
+
     Ok(string)
 }
 
@@ -1138,18 +1152,18 @@ pub(crate) fn generate_qr_code_ascii(phrase: &str) -> Result<String, String> {
 #[cfg(test)]
 pub(crate) fn generate_qr_code_png(phrase: &str) -> Result<Vec<u8>, String> {
     use qrcode::{QrCode, render::svg};
-    
+
     // Generate SVG (we'll convert to PNG in the UI layer if needed)
-    let code = QrCode::new(phrase.as_bytes())
-        .map_err(|e| format!("QR generation failed: {}", e))?;
-    
+    let code =
+        QrCode::new(phrase.as_bytes()).map_err(|e| format!("QR generation failed: {}", e))?;
+
     let svg_string = code
         .render()
         .min_dimensions(200, 200)
         .dark_color(svg::Color("#000000"))
         .light_color(svg::Color("#ffffff"))
         .build();
-    
+
     // For now, return SVG as bytes (UI can render directly)
     Ok(svg_string.into_bytes())
 }
@@ -1157,24 +1171,27 @@ pub(crate) fn generate_qr_code_png(phrase: &str) -> Result<Vec<u8>, String> {
 // ===== mDNS Advertisement & Discovery (Step 5.3) =====
 
 /// Start advertising our device via mDNS on the local network
-fn start_mdns_advertisement(endpoint: &iroh::Endpoint, device_name: &str) -> Option<mdns_sd::ServiceDaemon> {
+fn start_mdns_advertisement(
+    endpoint: &iroh::Endpoint,
+    device_name: &str,
+) -> Option<mdns_sd::ServiceDaemon> {
     match mdns_sd::ServiceDaemon::new() {
         Ok(daemon) => {
             let node_id = endpoint.node_id();
-            
+
             // Service type: _graphshell-sync._udp.local
             let service_type = "_graphshell-sync._udp.local.";
-            
+
             // Instance name: device name
             let instance_name = sanitize_service_name(device_name);
-            
+
             // TXT records: node_id (as hex string)
             let mut properties = std::collections::HashMap::new();
             properties.insert("node_id".to_string(), node_id.to_string());
-            
+
             // Note: We'll add relay URL in Step 5.4 when we handle full NodeAddr encoding
             // For Step 5.3, just advertise NodeId for local network discovery
-            
+
             // Note: Port 0 because iroh uses QUIC with Magic Sockets (not a fixed TCP/UDP port)
             let service_info = mdns_sd::ServiceInfo::new(
                 service_type,
@@ -1184,7 +1201,7 @@ fn start_mdns_advertisement(endpoint: &iroh::Endpoint, device_name: &str) -> Opt
                 0,  // Port 0 (iroh handles connectivity)
                 Some(properties),
             );
-            
+
             if let Ok(service_info) = service_info {
                 if let Err(e) = daemon.register(service_info) {
                     log::warn!("mDNS registration failed: {}", e);
@@ -1198,7 +1215,10 @@ fn start_mdns_advertisement(endpoint: &iroh::Endpoint, device_name: &str) -> Opt
             }
         }
         Err(e) => {
-            log::warn!("mDNS daemon creation failed: {} - local discovery disabled", e);
+            log::warn!(
+                "mDNS daemon creation failed: {} - local discovery disabled",
+                e
+            );
             None
         }
     }
@@ -1207,7 +1227,13 @@ fn start_mdns_advertisement(endpoint: &iroh::Endpoint, device_name: &str) -> Opt
 /// Sanitize device name for mDNS service name (alphanumeric + hyphens only)
 pub(crate) fn sanitize_service_name(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -1225,16 +1251,17 @@ pub struct DiscoveredPeer {
 /// Browse for nearby devices on the local network (blocking for up to timeout_secs)
 #[allow(dead_code)]
 pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, String> {
-    let daemon = mdns_sd::ServiceDaemon::new()
-        .map_err(|e| format!("mDNS daemon creation failed: {}", e))?;
-    
+    let daemon =
+        mdns_sd::ServiceDaemon::new().map_err(|e| format!("mDNS daemon creation failed: {}", e))?;
+
     let service_type = "_graphshell-sync._udp.local.";
-    let receiver = daemon.browse(service_type)
+    let receiver = daemon
+        .browse(service_type)
         .map_err(|e| format!("mDNS browse failed: {}", e))?;
-    
+
     let mut discovered = Vec::new();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
-    
+
     while std::time::Instant::now() < deadline {
         match receiver.recv_timeout(std::time::Duration::from_secs(1)) {
             Ok(event) => {
@@ -1242,9 +1269,10 @@ pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, S
                     // Extract node_id from TXT records
                     if let Some(node_id_str) = info.get_property_val_str("node_id") {
                         if let Ok(node_id) = node_id_str.parse::<iroh::NodeId>() {
-                            let relay_url = info.get_property_val_str("relay")
+                            let relay_url = info
+                                .get_property_val_str("relay")
                                 .and_then(|s| s.parse::<url::Url>().ok());
-                            
+
                             discovered.push(DiscoveredPeer {
                                 device_name: info.get_fullname().to_string(),
                                 node_id,
@@ -1254,11 +1282,13 @@ pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, S
                     }
                 }
             }
-            Err(e) if e.to_string().contains("timeout") || e.to_string().contains("Timeout") => continue,
+            Err(e) if e.to_string().contains("timeout") || e.to_string().contains("Timeout") => {
+                continue;
+            }
             Err(_) => break, // Disconnected or other error
         }
     }
-    
+
     Ok(discovered)
 }
 

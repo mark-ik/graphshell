@@ -9,11 +9,11 @@ use egui_tiles::{Tile, Tree};
 use servo::{OffscreenRenderingContext, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::graph::{NodeKey, NodeLifecycle};
+use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::graph::{NodeKey, NodeLifecycle};
-use crate::shell::desktop::host::window::EmbedderWindow;
 
 pub(crate) struct TileCoordinator;
 
@@ -43,7 +43,10 @@ impl TileCoordinator {
         )
     }
 
-    fn resolve_node_pane_render_mode(state: &NodePaneState, graph_app: &GraphBrowserApp) -> TileRenderMode {
+    fn resolve_node_pane_render_mode(
+        state: &NodePaneState,
+        graph_app: &GraphBrowserApp,
+    ) -> TileRenderMode {
         Self::node_pane_effective_viewer_id(state, graph_app)
             .map(Self::render_mode_for_viewer_id)
             .unwrap_or(TileRenderMode::Placeholder)
@@ -74,7 +77,10 @@ impl TileCoordinator {
             .collect()
     }
 
-    fn should_preserve_runtime_webview(node_exists: bool, mapped_webview: Option<WebViewId>) -> bool {
+    fn should_preserve_runtime_webview(
+        node_exists: bool,
+        mapped_webview: Option<WebViewId>,
+    ) -> bool {
         node_exists && mapped_webview.is_some()
     }
 
@@ -215,7 +221,8 @@ impl TileCoordinator {
 
         if Self::should_preserve_runtime_webview(node_exists, mapped_webview) {
             let lifecycle = graph_app
-                .workspace.graph
+                .workspace
+                .graph
                 .get_node(node_key)
                 .map(|node| node.lifecycle)
                 .unwrap_or(NodeLifecycle::Cold);
@@ -338,12 +345,12 @@ mod tests {
     use std::collections::HashMap;
 
     use super::TileCoordinator;
-    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
-    use egui_tiles::{Tiles, Tree};
-    use euclid::Point2D;
     use crate::app::GraphBrowserApp;
     use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode, ViewerId};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+    use egui_tiles::{Tiles, Tree};
+    use euclid::Point2D;
 
     fn test_webview_id() -> servo::WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -357,14 +364,22 @@ mod tests {
     #[test]
     fn preserve_runtime_webview_when_node_exists_and_mapped() {
         let webview_id = test_webview_id();
-        assert!(TileCoordinator::should_preserve_runtime_webview(true, Some(webview_id)));
+        assert!(TileCoordinator::should_preserve_runtime_webview(
+            true,
+            Some(webview_id)
+        ));
     }
 
     #[test]
     fn do_not_preserve_runtime_webview_when_node_missing_or_unmapped() {
         let webview_id = test_webview_id();
-        assert!(!TileCoordinator::should_preserve_runtime_webview(false, Some(webview_id)));
-        assert!(!TileCoordinator::should_preserve_runtime_webview(true, None));
+        assert!(!TileCoordinator::should_preserve_runtime_webview(
+            false,
+            Some(webview_id)
+        ));
+        assert!(!TileCoordinator::should_preserve_runtime_webview(
+            true, None
+        ));
     }
 
     fn tree_with_node_pane(state: NodePaneState) -> Tree<TileKind> {
@@ -387,7 +402,8 @@ mod tests {
     #[test]
     fn node_pane_webview_runtime_hosting_uses_registry_selection_for_file_nodes() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node_key = app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(0.0, 0.0));
+        let node_key =
+            app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
         let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
@@ -397,7 +413,8 @@ mod tests {
     #[test]
     fn node_pane_webview_runtime_hosting_uses_fallback_for_custom_schemes() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node_key = app.add_node_and_sync("gemini://example.test".into(), Point2D::new(0.0, 0.0));
+        let node_key =
+            app.add_node_and_sync("gemini://example.test".into(), Point2D::new(0.0, 0.0));
         let tree = tree_with_node_pane(NodePaneState::for_node(node_key));
 
         let hosts = TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&tree, &app);
@@ -407,13 +424,19 @@ mod tests {
     #[test]
     fn node_pane_webview_runtime_hosting_preserves_explicit_viewer_override_precedence() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let http_node = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
-        let file_node = app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(10.0, 0.0));
+        let http_node =
+            app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
+        let file_node =
+            app.add_node_and_sync("file:///tmp/report.pdf".into(), Point2D::new(10.0, 0.0));
 
-        let http_plaintext_tree =
-            tree_with_node_pane(NodePaneState::with_viewer(http_node, ViewerId::new("viewer:plaintext")));
-        let file_webview_tree =
-            tree_with_node_pane(NodePaneState::with_viewer(file_node, ViewerId::new("viewer:webview")));
+        let http_plaintext_tree = tree_with_node_pane(NodePaneState::with_viewer(
+            http_node,
+            ViewerId::new("viewer:plaintext"),
+        ));
+        let file_webview_tree = tree_with_node_pane(NodePaneState::with_viewer(
+            file_node,
+            ViewerId::new("viewer:webview"),
+        ));
 
         let http_hosts =
             TileCoordinator::all_node_pane_keys_hosting_webview_runtime(&http_plaintext_tree, &app);
@@ -427,8 +450,10 @@ mod tests {
     #[test]
     fn hosting_webview_runtime_is_subset_of_all_node_panes() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let webview_node = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
-        let plaintext_node = app.add_node_and_sync("file:///tmp/readme.txt".into(), Point2D::new(10.0, 0.0));
+        let webview_node =
+            app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
+        let plaintext_node =
+            app.add_node_and_sync("file:///tmp/readme.txt".into(), Point2D::new(10.0, 0.0));
 
         let mut tiles = Tiles::default();
         let a = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(webview_node)));

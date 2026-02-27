@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         #[cfg(windows)]
         {
             let mut res = winresource::WindowsResource::new();
-                res.set_icon("resources/servo.ico");
+            res.set_icon("resources/servo.ico");
             res.set_manifest_file("platform/windows/servo.exe.manifest");
             res.compile().unwrap();
         }
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 error
             );
             println!("cargo:rustc-env=GIT_SHA=nogit");
-        },
+        }
     }
 
     // On MacOS, all dylib dependencies are shipped along with the binary

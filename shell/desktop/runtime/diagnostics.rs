@@ -13,12 +13,12 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use serde_json::{Value, json};
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::graph::NodeKey;
+use crate::registries::atomic::diagnostics as diagnostics_registry;
+use crate::services::persistence::GraphStore;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
 };
-use crate::graph::NodeKey;
-use crate::services::persistence::GraphStore;
-use crate::registries::atomic::diagnostics as diagnostics_registry;
 
 static GLOBAL_DIAGNOSTICS_TX: OnceLock<Sender<DiagnosticEvent>> = OnceLock::new();
 
@@ -60,43 +60,45 @@ pub(crate) fn emit_event(event: DiagnosticEvent) {
                 emit_event_with_sender(tx, payload);
             }
         }
-        return;
     }
 
-    if let Some(tx) = GLOBAL_DIAGNOSTICS_TX.get() {
-        emit_event_with_sender(tx, event);
+    #[cfg(not(test))]
+    {
+        if let Some(tx) = GLOBAL_DIAGNOSTICS_TX.get() {
+            emit_event_with_sender(tx, event);
+        }
     }
 }
 
 fn emit_event_with_sender(tx: &Sender<DiagnosticEvent>, event: DiagnosticEvent) {
-        let mut derived_events = Vec::new();
-        let mut should_emit = true;
+    let mut derived_events = Vec::new();
+    let mut should_emit = true;
 
-        match &event {
-            DiagnosticEvent::MessageSent { channel_id, .. }
-            | DiagnosticEvent::MessageReceived { channel_id, .. } => {
-                let (allowed, violations) = diagnostics_registry::should_emit_and_observe(channel_id);
-                should_emit = allowed;
-                for violation in violations {
-                    derived_events.push(DiagnosticEvent::MessageSent {
-                        channel_id: CHANNEL_INVARIANT_TIMEOUT,
-                        byte_len: violation
-                            .invariant_id
-                            .len()
-                            .saturating_add(violation.start_channel.len()),
-                    });
-                }
-            },
-            _ => {},
+    match &event {
+        DiagnosticEvent::MessageSent { channel_id, .. }
+        | DiagnosticEvent::MessageReceived { channel_id, .. } => {
+            let (allowed, violations) = diagnostics_registry::should_emit_and_observe(channel_id);
+            should_emit = allowed;
+            for violation in violations {
+                derived_events.push(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_INVARIANT_TIMEOUT,
+                    byte_len: violation
+                        .invariant_id
+                        .len()
+                        .saturating_add(violation.start_channel.len()),
+                });
+            }
         }
+        _ => {}
+    }
 
-        if should_emit {
-            let _ = tx.send(event);
-        }
+    if should_emit {
+        let _ = tx.send(event);
+    }
 
-        for derived in derived_events {
-            let _ = tx.send(derived);
-        }
+    for derived in derived_events {
+        let _ = tx.send(derived);
+    }
 }
 
 pub(crate) fn emit_span_duration(name: &'static str, duration_us: u64) {
@@ -107,13 +109,13 @@ pub(crate) fn emit_span_duration(name: &'static str, duration_us: u64) {
     });
 }
 
-fn config_changed_payload_len(channel_id: &str, config: &diagnostics_registry::ChannelConfig) -> usize {
+fn config_changed_payload_len(
+    channel_id: &str,
+    config: &diagnostics_registry::ChannelConfig,
+) -> usize {
     format!(
         "{}|{}|{:.2}|{}",
-        channel_id,
-        config.enabled,
-        config.sample_rate,
-        config.retention_count
+        channel_id, config.enabled, config.sample_rate, config.retention_count
     )
     .len()
 }
@@ -368,7 +370,9 @@ impl DiagnosticsState {
         if intents.is_empty() {
             return;
         }
-        let _ = self.event_tx.send(DiagnosticEvent::IntentBatch(intents.to_vec()));
+        let _ = self
+            .event_tx
+            .send(DiagnosticEvent::IntentBatch(intents.to_vec()));
     }
 
     pub(crate) fn record_span_duration(&self, name: &'static str, duration_us: u64) {
@@ -444,26 +448,26 @@ impl DiagnosticsState {
                             .or_insert(0) += 1;
                     }
                 }
-                self.diagnostic_graph.last_span_duration_us.insert(*name, *us);
+                self.diagnostic_graph
+                    .last_span_duration_us
+                    .insert(*name, *us);
             }
-            DiagnosticEvent::Span { name, phase, .. } => {
-                match phase {
-                    SpanPhase::Enter => {
-                        *self
-                            .diagnostic_graph
-                            .span_enter_counts
-                            .entry(*name)
-                            .or_insert(0) += 1;
-                    }
-                    SpanPhase::Exit => {
-                        *self
-                            .diagnostic_graph
-                            .span_exit_counts
-                            .entry(*name)
-                            .or_insert(0) += 1;
-                    }
+            DiagnosticEvent::Span { name, phase, .. } => match phase {
+                SpanPhase::Enter => {
+                    *self
+                        .diagnostic_graph
+                        .span_enter_counts
+                        .entry(*name)
+                        .or_insert(0) += 1;
                 }
-            }
+                SpanPhase::Exit => {
+                    *self
+                        .diagnostic_graph
+                        .span_exit_counts
+                        .entry(*name)
+                        .or_insert(0) += 1;
+                }
+            },
             DiagnosticEvent::MessageSent {
                 channel_id,
                 byte_len,
@@ -571,8 +575,12 @@ impl DiagnosticsState {
 
     fn export_dir() -> Result<PathBuf, String> {
         let dir = GraphStore::default_data_dir().join("diagnostics_exports");
-        fs::create_dir_all(&dir)
-            .map_err(|e| format!("failed to create diagnostics export dir {}: {e}", dir.display()))?;
+        fs::create_dir_all(&dir).map_err(|e| {
+            format!(
+                "failed to create diagnostics export dir {}: {e}",
+                dir.display()
+            )
+        })?;
         Ok(dir)
     }
 
@@ -675,16 +683,22 @@ impl DiagnosticsState {
 
     #[cfg(test)]
     pub(crate) fn emit_message_sent_for_tests(&self, channel_id: &'static str, byte_len: usize) {
-        let _ = self
-            .event_tx
-            .send(DiagnosticEvent::MessageSent { channel_id, byte_len });
+        let _ = self.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id,
+            byte_len,
+        });
     }
 
     #[cfg(test)]
-    pub(crate) fn emit_message_received_for_tests(&self, channel_id: &'static str, latency_us: u64) {
-        let _ = self
-            .event_tx
-            .send(DiagnosticEvent::MessageReceived { channel_id, latency_us });
+    pub(crate) fn emit_message_received_for_tests(
+        &self,
+        channel_id: &'static str,
+        latency_us: u64,
+    ) {
+        let _ = self.event_tx.send(DiagnosticEvent::MessageReceived {
+            channel_id,
+            latency_us,
+        });
     }
 
     fn engine_svg(&self) -> String {
@@ -732,7 +746,11 @@ impl DiagnosticsState {
             semantic,
             self.edge_metric(&CHANNELS_SERVO_TO_SEMANTIC),
         );
-        draw_edge(semantic, intents, self.edge_metric(&CHANNELS_SEMANTIC_TO_INTENTS));
+        draw_edge(
+            semantic,
+            intents,
+            self.edge_metric(&CHANNELS_SEMANTIC_TO_INTENTS),
+        );
         draw_edge(
             intents,
             render_pass,
@@ -793,10 +811,7 @@ impl DiagnosticsState {
 
     pub(crate) fn export_snapshot_svg(&self) -> Result<PathBuf, String> {
         let dir = Self::export_dir()?;
-        let path = dir.join(format!(
-            "diagnostics-{}.svg",
-            Self::export_timestamp_secs()
-        ));
+        let path = dir.join(format!("diagnostics-{}.svg", Self::export_timestamp_secs()));
         fs::write(&path, self.engine_svg())
             .map_err(|e| format!("failed to write diagnostics SVG {}: {e}", path.display()))?;
         Ok(path)
@@ -820,31 +835,32 @@ impl DiagnosticsState {
         let compositor = egui::pos2(rect.right() - 100.0, rect.top() + 85.0);
         let backpressure = egui::pos2(rect.right() - 100.0, rect.bottom() - 85.0);
 
-        let draw_edge = |from: egui::Pos2, to: egui::Pos2, metric: EdgeMetric, p: &egui::Painter| {
-            let t = (metric.count as f32).ln_1p().clamp(0.0, 4.0);
-            let width = 1.0 + t;
-            let color = if metric.bottleneck {
-                egui::Color32::from_rgb(255, 100, 100)
-            } else if metric.count > 0 {
-                egui::Color32::from_rgb(80, 240, 200)
-            } else {
-                egui::Color32::from_rgb(60, 80, 90)
+        let draw_edge =
+            |from: egui::Pos2, to: egui::Pos2, metric: EdgeMetric, p: &egui::Painter| {
+                let t = (metric.count as f32).ln_1p().clamp(0.0, 4.0);
+                let width = 1.0 + t;
+                let color = if metric.bottleneck {
+                    egui::Color32::from_rgb(255, 100, 100)
+                } else if metric.count > 0 {
+                    egui::Color32::from_rgb(80, 240, 200)
+                } else {
+                    egui::Color32::from_rgb(60, 80, 90)
+                };
+                p.line_segment([from, to], egui::Stroke::new(width, color));
+                let mid = egui::pos2((from.x + to.x) * 0.5, (from.y + to.y) * 0.5 - 8.0);
+                p.text(
+                    mid,
+                    egui::Align2::CENTER_CENTER,
+                    format!(
+                        "{} | {} {:.1}ms",
+                        metric.count,
+                        self.latency_percentile.label(),
+                        metric.percentile_latency_us as f64 / 1000.0
+                    ),
+                    egui::FontId::monospace(11.0),
+                    color,
+                );
             };
-            p.line_segment([from, to], egui::Stroke::new(width, color));
-            let mid = egui::pos2((from.x + to.x) * 0.5, (from.y + to.y) * 0.5 - 8.0);
-            p.text(
-                mid,
-                egui::Align2::CENTER_CENTER,
-                format!(
-                    "{} | {} {:.1}ms",
-                    metric.count,
-                    self.latency_percentile.label(),
-                    metric.percentile_latency_us as f64 / 1000.0
-                ),
-                egui::FontId::monospace(11.0),
-                color,
-            );
-        };
 
         draw_edge(
             servo_runtime,
@@ -923,7 +939,11 @@ impl DiagnosticsState {
 
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.active_tab, DiagnosticsTab::Engine, "Engine");
-            ui.selectable_value(&mut self.active_tab, DiagnosticsTab::Compositor, "Compositor");
+            ui.selectable_value(
+                &mut self.active_tab,
+                DiagnosticsTab::Compositor,
+                "Compositor",
+            );
             ui.selectable_value(&mut self.active_tab, DiagnosticsTab::Intents, "Intents");
         });
         ui.separator();
@@ -1062,39 +1082,47 @@ impl DiagnosticsState {
                     .collect();
                 channels.sort_by(|a, b| b.1.cmp(&a.1));
                 ui.label("Hot channels");
-                let percentile_header = format!("{} Latency", self.latency_percentile.label().to_uppercase());
-                egui::Grid::new("diag_hot_channels").num_columns(4).show(ui, |ui| {
-                    ui.strong("Channel");
-                    ui.strong("Count");
-                    ui.strong("Avg Latency");
-                    ui.strong(percentile_header);
-                    ui.end_row();
-                    for (channel, count, avg_us, percentile_us) in channels.into_iter().take(8) {
-                        let is_bottleneck = percentile_us >= self.bottleneck_latency_us;
-                        if is_bottleneck {
-                            ui.colored_label(egui::Color32::from_rgb(255, 120, 120), channel);
-                        } else {
-                            ui.monospace(channel);
-                        }
-                        ui.monospace(format!("{count}"));
-                        let latency_label = format!("{:.1}ms", avg_us as f64 / 1000.0);
-                        if is_bottleneck {
-                            ui.colored_label(egui::Color32::from_rgb(255, 120, 120), latency_label);
-                        } else {
-                            ui.monospace(latency_label);
-                        }
-                        let p95_latency_label = format!("{:.1}ms", percentile_us as f64 / 1000.0);
-                        if is_bottleneck {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(255, 120, 120),
-                                p95_latency_label,
-                            );
-                        } else {
-                            ui.monospace(p95_latency_label);
-                        }
+                let percentile_header =
+                    format!("{} Latency", self.latency_percentile.label().to_uppercase());
+                egui::Grid::new("diag_hot_channels")
+                    .num_columns(4)
+                    .show(ui, |ui| {
+                        ui.strong("Channel");
+                        ui.strong("Count");
+                        ui.strong("Avg Latency");
+                        ui.strong(percentile_header);
                         ui.end_row();
-                    }
-                });
+                        for (channel, count, avg_us, percentile_us) in channels.into_iter().take(8)
+                        {
+                            let is_bottleneck = percentile_us >= self.bottleneck_latency_us;
+                            if is_bottleneck {
+                                ui.colored_label(egui::Color32::from_rgb(255, 120, 120), channel);
+                            } else {
+                                ui.monospace(channel);
+                            }
+                            ui.monospace(format!("{count}"));
+                            let latency_label = format!("{:.1}ms", avg_us as f64 / 1000.0);
+                            if is_bottleneck {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(255, 120, 120),
+                                    latency_label,
+                                );
+                            } else {
+                                ui.monospace(latency_label);
+                            }
+                            let p95_latency_label =
+                                format!("{:.1}ms", percentile_us as f64 / 1000.0);
+                            if is_bottleneck {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(255, 120, 120),
+                                    p95_latency_label,
+                                );
+                            } else {
+                                ui.monospace(p95_latency_label);
+                            }
+                            ui.end_row();
+                        }
+                    });
                 ui.separator();
 
                 let mut channel_configs = diagnostics_registry::list_channel_configs_snapshot();
@@ -1158,16 +1186,18 @@ impl DiagnosticsState {
                             });
                     });
 
-                egui::Grid::new("diag_span_table").num_columns(2).show(ui, |ui| {
-                    ui.strong("Span");
-                    ui.strong("Last us");
-                    ui.end_row();
-                    for (name, us) in &self.diagnostic_graph.last_span_duration_us {
-                        ui.monospace(*name);
-                        ui.monospace(format!("{us}"));
+                egui::Grid::new("diag_span_table")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.strong("Span");
+                        ui.strong("Last us");
                         ui.end_row();
-                    }
-                });
+                        for (name, us) in &self.diagnostic_graph.last_span_duration_us {
+                            ui.monospace(*name);
+                            ui.monospace(format!("{us}"));
+                            ui.end_row();
+                        }
+                    });
             }
             DiagnosticsTab::Compositor => {
                 let Some(last) = self.compositor_state.frames.back() else {
@@ -1201,22 +1231,25 @@ impl DiagnosticsState {
                 ui.separator();
                 ui.label("Active tile hierarchy");
                 egui::Frame::group(ui.style()).show(ui, |ui| {
-                    egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
-                        for item in &last.hierarchy {
-                            let selected = self.pinned_node_key == item.node_key && item.node_key.is_some();
-                            let resp = ui.selectable_label(selected, &item.line);
-                            if resp.clicked() {
-                                if self.pinned_node_key == item.node_key {
-                                    self.pinned_node_key = None;
-                                } else {
-                                    self.pinned_node_key = item.node_key;
-                                }
-                                if let Some(node_key) = item.node_key {
-                                    self.pending_focus_node = Some(node_key);
+                    egui::ScrollArea::vertical()
+                        .max_height(160.0)
+                        .show(ui, |ui| {
+                            for item in &last.hierarchy {
+                                let selected = self.pinned_node_key == item.node_key
+                                    && item.node_key.is_some();
+                                let resp = ui.selectable_label(selected, &item.line);
+                                if resp.clicked() {
+                                    if self.pinned_node_key == item.node_key {
+                                        self.pinned_node_key = None;
+                                    } else {
+                                        self.pinned_node_key = item.node_key;
+                                    }
+                                    if let Some(node_key) = item.node_key {
+                                        self.pending_focus_node = Some(node_key);
+                                    }
                                 }
                             }
-                        }
-                    });
+                        });
                 });
                 ui.separator();
                 ui.label("Minimap (tiles vs viewport)");
@@ -1233,10 +1266,14 @@ impl DiagnosticsState {
                 let viewport_w = viewport.width().max(1.0);
                 let viewport_h = viewport.height().max(1.0);
                 for tile in &last.tiles {
-                    let rel_min_x = ((tile.rect.min.x - viewport.min.x) / viewport_w).clamp(0.0, 1.0);
-                    let rel_max_x = ((tile.rect.max.x - viewport.min.x) / viewport_w).clamp(0.0, 1.0);
-                    let rel_min_y = ((tile.rect.min.y - viewport.min.y) / viewport_h).clamp(0.0, 1.0);
-                    let rel_max_y = ((tile.rect.max.y - viewport.min.y) / viewport_h).clamp(0.0, 1.0);
+                    let rel_min_x =
+                        ((tile.rect.min.x - viewport.min.x) / viewport_w).clamp(0.0, 1.0);
+                    let rel_max_x =
+                        ((tile.rect.max.x - viewport.min.x) / viewport_w).clamp(0.0, 1.0);
+                    let rel_min_y =
+                        ((tile.rect.min.y - viewport.min.y) / viewport_h).clamp(0.0, 1.0);
+                    let rel_max_y =
+                        ((tile.rect.max.y - viewport.min.y) / viewport_h).clamp(0.0, 1.0);
                     let r = egui::Rect::from_min_max(
                         egui::pos2(
                             minimap_rect.left() + minimap_rect.width() * rel_min_x,
@@ -1279,7 +1316,8 @@ impl DiagnosticsState {
                                     .map(|n| n.url.clone())
                                     .unwrap_or_else(|| "<missing>".to_string());
                                 let selected = self.pinned_node_key == Some(tile.node_key);
-                                let hover = ui.selectable_label(selected, format!("{:?}", tile.node_key));
+                                let hover =
+                                    ui.selectable_label(selected, format!("{:?}", tile.node_key));
                                 if hover.hovered() {
                                     self.hovered_node_key = Some(tile.node_key);
                                 }
@@ -1320,7 +1358,8 @@ impl DiagnosticsState {
                                     LifecycleCause::UserSelect | LifecycleCause::Restore => {
                                         egui::Color32::from_rgb(80, 170, 255)
                                     }
-                                    LifecycleCause::ActiveTileVisible | LifecycleCause::SelectedPrewarm => {
+                                    LifecycleCause::ActiveTileVisible
+                                    | LifecycleCause::SelectedPrewarm => {
                                         egui::Color32::from_rgb(90, 200, 120)
                                     }
                                     LifecycleCause::ActiveLruEviction
@@ -1463,7 +1502,10 @@ mod tests {
         let expected_len = config_changed_payload_len(channel_id, &config);
 
         match event {
-            DiagnosticEvent::MessageSent { channel_id, byte_len } => {
+            DiagnosticEvent::MessageSent {
+                channel_id,
+                byte_len,
+            } => {
                 assert_eq!(channel_id, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED);
                 assert_eq!(byte_len, expected_len);
                 assert!(byte_len > 0);
@@ -1472,123 +1514,129 @@ mod tests {
         }
     }
 
-        #[test]
-        fn snapshot_json_contains_core_sections() {
-            let mut state = DiagnosticsState::new();
-            let node_key = NodeKey::new(1);
-            state.push_frame(CompositorFrameSample {
-                sequence: 7,
-                active_tile_count: 1,
-                focused_webview_present: true,
-                viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 80.0)),
-                hierarchy: vec![HierarchySample {
-                    line: "* TileId(1) WebView NodeKey(1)".to_string(),
-                    node_key: Some(node_key),
-                }],
-                tiles: vec![CompositorTileSample {
-                    node_key,
-                    rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(50.0, 40.0)),
-                    mapped_webview: true,
-                    has_context: true,
-                    paint_callback_registered: true,
-                    render_path_hint: "composited",
-                }],
-            });
-            state.record_intents(&[GraphIntent::ToggleHelpPanel]);
+    #[test]
+    fn snapshot_json_contains_core_sections() {
+        let mut state = DiagnosticsState::new();
+        let node_key = NodeKey::new(1);
+        state.push_frame(CompositorFrameSample {
+            sequence: 7,
+            active_tile_count: 1,
+            focused_webview_present: true,
+            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 80.0)),
+            hierarchy: vec![HierarchySample {
+                line: "* TileId(1) WebView NodeKey(1)".to_string(),
+                node_key: Some(node_key),
+            }],
+            tiles: vec![CompositorTileSample {
+                node_key,
+                rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(50.0, 40.0)),
+                mapped_webview: true,
+                has_context: true,
+                paint_callback_registered: true,
+                render_path_hint: "composited",
+            }],
+        });
+        state.record_intents(&[GraphIntent::ToggleHelpPanel]);
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: "snapshot.test.channel",
+            byte_len: 9,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageReceived {
+            channel_id: "snapshot.test.channel",
+            latency_us: 2_500,
+        });
+        state.last_drain_at = Instant::now() - state.drain_interval;
+        state.tick_drain();
+
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(snapshot["version"].as_u64(), Some(1));
+        assert!(snapshot["channels"].is_object());
+        assert!(snapshot["spans"].is_object());
+        assert!(snapshot["compositor_frames"].is_array());
+        assert!(snapshot["recent_intents"].is_array());
+        assert_eq!(
+            snapshot["compositor_frames"][0]["sequence"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["recent_intents"].as_array().map(|v| v.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn snapshot_json_channel_counts_match_aggregates() {
+        let mut state = DiagnosticsState::new();
+        let channel = "parity.channel";
+
+        for _ in 0..3 {
             let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
-                channel_id: "snapshot.test.channel",
-                byte_len: 9,
-            });
-            let _ = state.event_tx.send(DiagnosticEvent::MessageReceived {
-                channel_id: "snapshot.test.channel",
-                latency_us: 2_500,
-            });
-            state.last_drain_at = Instant::now() - state.drain_interval;
-            state.tick_drain();
-
-            let snapshot = state.snapshot_json_value();
-            assert_eq!(snapshot["version"].as_u64(), Some(1));
-            assert!(snapshot["channels"].is_object());
-            assert!(snapshot["spans"].is_object());
-            assert!(snapshot["compositor_frames"].is_array());
-            assert!(snapshot["recent_intents"].is_array());
-            assert_eq!(snapshot["compositor_frames"][0]["sequence"].as_u64(), Some(1));
-            assert_eq!(snapshot["recent_intents"].as_array().map(|v| v.len()), Some(1));
-        }
-
-        #[test]
-        fn snapshot_json_channel_counts_match_aggregates() {
-            let mut state = DiagnosticsState::new();
-            let channel = "parity.channel";
-
-            for _ in 0..3 {
-                let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
-                    channel_id: channel,
-                    byte_len: 11,
-                });
-            }
-            let _ = state.event_tx.send(DiagnosticEvent::MessageReceived {
                 channel_id: channel,
-                latency_us: 7_000,
+                byte_len: 11,
             });
-            let _ = state.event_tx.send(DiagnosticEvent::MessageReceived {
-                channel_id: channel,
-                latency_us: 13_000,
-            });
-            state.last_drain_at = Instant::now() - state.drain_interval;
-            state.tick_drain();
-
-            let snapshot = state.snapshot_json_value();
-            let json_count = snapshot["channels"]["message_counts"][channel]
-                .as_u64()
-                .unwrap_or(0);
-            let json_bytes = snapshot["channels"]["message_bytes_sent"][channel]
-                .as_u64()
-                .unwrap_or(0);
-            let json_latency_sum = snapshot["channels"]["message_latency_us"][channel]
-                .as_u64()
-                .unwrap_or(0);
-            let json_latency_samples = snapshot["channels"]["message_latency_samples"][channel]
-                .as_u64()
-                .unwrap_or(0);
-
-            assert_eq!(
-                json_count,
-                state
-                    .diagnostic_graph
-                    .message_counts
-                    .get(channel)
-                    .copied()
-                    .unwrap_or(0)
-            );
-            assert_eq!(
-                json_bytes,
-                state
-                    .diagnostic_graph
-                    .message_bytes_sent
-                    .get(channel)
-                    .copied()
-                    .unwrap_or(0)
-            );
-            assert_eq!(
-                json_latency_sum,
-                state
-                    .diagnostic_graph
-                    .message_latency_us
-                    .get(channel)
-                    .copied()
-                    .unwrap_or(0)
-            );
-            assert_eq!(
-                json_latency_samples,
-                state
-                    .diagnostic_graph
-                    .message_latency_samples
-                    .get(channel)
-                    .copied()
-                    .unwrap_or(0)
-            );
         }
+        let _ = state.event_tx.send(DiagnosticEvent::MessageReceived {
+            channel_id: channel,
+            latency_us: 7_000,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageReceived {
+            channel_id: channel,
+            latency_us: 13_000,
+        });
+        state.last_drain_at = Instant::now() - state.drain_interval;
+        state.tick_drain();
+
+        let snapshot = state.snapshot_json_value();
+        let json_count = snapshot["channels"]["message_counts"][channel]
+            .as_u64()
+            .unwrap_or(0);
+        let json_bytes = snapshot["channels"]["message_bytes_sent"][channel]
+            .as_u64()
+            .unwrap_or(0);
+        let json_latency_sum = snapshot["channels"]["message_latency_us"][channel]
+            .as_u64()
+            .unwrap_or(0);
+        let json_latency_samples = snapshot["channels"]["message_latency_samples"][channel]
+            .as_u64()
+            .unwrap_or(0);
+
+        assert_eq!(
+            json_count,
+            state
+                .diagnostic_graph
+                .message_counts
+                .get(channel)
+                .copied()
+                .unwrap_or(0)
+        );
+        assert_eq!(
+            json_bytes,
+            state
+                .diagnostic_graph
+                .message_bytes_sent
+                .get(channel)
+                .copied()
+                .unwrap_or(0)
+        );
+        assert_eq!(
+            json_latency_sum,
+            state
+                .diagnostic_graph
+                .message_latency_us
+                .get(channel)
+                .copied()
+                .unwrap_or(0)
+        );
+        assert_eq!(
+            json_latency_samples,
+            state
+                .diagnostic_graph
+                .message_latency_samples
+                .get(channel)
+                .copied()
+                .unwrap_or(0)
+        );
+    }
 
     #[test]
     fn diagnostics_json_snapshot_shape_is_stable() {
@@ -1606,11 +1654,11 @@ mod tests {
             tiles: vec![CompositorTileSample {
                 node_key,
                 rect: egui::Rect::from_min_max(egui::pos2(4.0, 6.0), egui::pos2(80.0, 70.0)),
-                    mapped_webview: true,
-                    has_context: true,
-                    paint_callback_registered: true,
-                    render_path_hint: "composited",
-                }],
+                mapped_webview: true,
+                has_context: true,
+                paint_callback_registered: true,
+                render_path_hint: "composited",
+            }],
         });
         let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
             channel_id: "snapshot.shape",
@@ -1645,28 +1693,28 @@ mod tests {
             "first_frame_sequence": json["compositor_frames"][0]["sequence"],
         });
         insta::assert_debug_snapshot!(shape, @r###"
-                Object {
-                    "top_level_keys": Array [
-                        String("version"),
-                        String("generated_at_unix_secs"),
-                        String("event_ring_len"),
-                        String("channels"),
-                        String("spans"),
-                        String("compositor_frames"),
-                        String("recent_intents"),
-                    ],
-                    "channel_keys": Array [
-                        String("message_counts"),
-                        String("message_bytes_sent"),
-                        String("message_latency_us"),
-                        String("message_latency_samples"),
-                        String("message_latency_recent_us"),
-                    ],
-                    "frame_count": Number(1),
-                    "intent_count": Number(1),
-                    "generated_at_unix_secs": String("[unix-secs]"),
-                "first_frame_sequence": String("[sequence]"),
-            }
+Object {
+    "top_level_keys": Array [
+        String("version"),
+        String("generated_at_unix_secs"),
+        String("event_ring_len"),
+        String("channels"),
+        String("spans"),
+        String("compositor_frames"),
+        String("recent_intents"),
+    ],
+    "channel_keys": Array [
+        String("message_counts"),
+        String("message_bytes_sent"),
+        String("message_latency_us"),
+        String("message_latency_samples"),
+        String("message_latency_recent_us"),
+    ],
+    "frame_count": Number(1),
+    "intent_count": Number(1),
+    "generated_at_unix_secs": String("[unix-secs]"),
+    "first_frame_sequence": String("[sequence]"),
+}
         "###);
     }
 
@@ -1689,6 +1737,7 @@ mod tests {
                 render_path_hint: "composited",
             }],
         });
+        state.force_drain_for_tests();
         let snapshot = state.snapshot_json_value();
         assert_eq!(
             snapshot["compositor_frames"][0]["tiles"][0]["render_path_hint"].as_str(),
@@ -1701,25 +1750,25 @@ mod tests {
         let mut state = DiagnosticsState::new();
         let channel = CHANNELS_SEMANTIC_TO_INTENTS[0];
         state.diagnostic_graph.message_counts.insert(channel, 12);
-        state
-            .diagnostic_graph
-            .message_latency_recent_us
-            .insert(channel, VecDeque::from(vec![1000_u64, 2000, 3000, 4000, 5000]));
+        state.diagnostic_graph.message_latency_recent_us.insert(
+            channel,
+            VecDeque::from(vec![1000_u64, 2000, 3000, 4000, 5000]),
+        );
         state.latency_percentile = LatencyPercentile::P95;
         state.bottleneck_latency_us = 4_000;
 
-                let svg = state.engine_svg();
-                let shape = serde_json::json!({
-                        "starts_with_svg": svg.starts_with("<svg"),
-                    "contains_servo_runtime": svg.contains("Servo Runtime"),
-                        "contains_semantic": svg.contains("Semantic Ingress"),
-                        "contains_intent_pipeline": svg.contains("Intent Pipeline"),
-                        "contains_render_pass": svg.contains("Render Pass"),
-                        "contains_percentile_label": svg.contains(state.latency_percentile.label()),
-                        "line_count": svg.matches("<line ").count(),
-                        "text_count": svg.matches("<text ").count(),
-                });
-                insta::assert_debug_snapshot!(shape, @r###"
+        let svg = state.engine_svg();
+        let shape = serde_json::json!({
+                "starts_with_svg": svg.starts_with("<svg"),
+            "contains_servo_runtime": svg.contains("Servo Runtime"),
+                "contains_semantic": svg.contains("Semantic Ingress"),
+                "contains_intent_pipeline": svg.contains("Intent Pipeline"),
+                "contains_render_pass": svg.contains("Render Pass"),
+                "contains_percentile_label": svg.contains(state.latency_percentile.label()),
+                "line_count": svg.matches("<line ").count(),
+                "text_count": svg.matches("<text ").count(),
+        });
+        insta::assert_debug_snapshot!(shape, @r###"
                 Object {
                     "starts_with_svg": Bool(true),
                     "contains_servo_runtime": Bool(true),

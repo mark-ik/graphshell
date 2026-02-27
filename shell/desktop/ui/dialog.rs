@@ -75,7 +75,7 @@ impl Dialog {
                 toolbar_offset: offset,
                 ..
             } => *offset = toolbar_offset,
-            _ => {},
+            _ => {}
         }
     }
 
@@ -198,11 +198,11 @@ impl Dialog {
                                 let paths = std::slice::from_ref(path);
                                 picker.select(paths);
                                 DialogAction::Submit
-                            },
+                            }
                             DialogState::PickedMultiple(paths) => {
                                 picker.select(paths);
                                 DialogAction::Submit
-                            },
+                            }
                             DialogState::Cancelled | DialogState::Closed => DialogAction::Dismiss,
                         }
                     })
@@ -213,16 +213,16 @@ impl Dialog {
                         if let Some(picker) = maybe_picker.take() {
                             picker.dismiss();
                         }
-                    },
+                    }
                     DialogAction::Submit => {
                         if let Some(picker) = maybe_picker.take() {
                             picker.submit();
                         }
-                    },
-                    DialogAction::Continue => {},
+                    }
+                    DialogAction::Continue => {}
                 }
                 matches!(action, DialogAction::Continue)
-            },
+            }
             Dialog::Alert(maybe_alert_dialog) => {
                 let Some(alert_dialog) = maybe_alert_dialog else {
                     return false;
@@ -250,7 +250,7 @@ impl Dialog {
                     }
                 }
                 is_open
-            },
+            }
             Dialog::Confirm(maybe_confirm_dialog) => {
                 let Some(confirm_dialog) = maybe_confirm_dialog else {
                     return false;
@@ -283,16 +283,16 @@ impl Dialog {
                             confirm_dialog.dismiss();
                         }
                         false
-                    },
+                    }
                     DialogAction::Submit => {
                         if let Some(confirm_dialog) = maybe_confirm_dialog.take() {
                             confirm_dialog.confirm();
                         }
                         false
-                    },
+                    }
                     DialogAction::Continue => true,
                 }
-            },
+            }
             Dialog::Prompt(maybe_prompt_dialog) => {
                 let Some(prompt_dialog) = maybe_prompt_dialog else {
                     return false;
@@ -327,16 +327,16 @@ impl Dialog {
                             prompt_dialog.dismiss();
                         }
                         false
-                    },
+                    }
                     DialogAction::Submit => {
                         if let Some(prompt_dialog) = maybe_prompt_dialog.take() {
                             prompt_dialog.confirm();
                         }
                         false
-                    },
+                    }
                     DialogAction::Continue => true,
                 }
-            },
+            }
             Dialog::Authentication {
                 username,
                 password,
@@ -392,7 +392,7 @@ impl Dialog {
                     );
                 });
                 is_open
-            },
+            }
             Dialog::Permission { message, request } => {
                 let mut is_open = true;
                 let modal = Modal::new("permission".into());
@@ -422,7 +422,7 @@ impl Dialog {
                     );
                 });
                 is_open
-            },
+            }
             Dialog::SelectDevice {
                 devices,
                 selected_device_index,
@@ -474,7 +474,7 @@ impl Dialog {
                     );
                 });
                 is_open
-            },
+            }
             Dialog::SelectElement {
                 maybe_prompt,
                 toolbar_offset,
@@ -550,7 +550,7 @@ impl Dialog {
                                             &mut is_open,
                                             false,
                                         );
-                                    },
+                                    }
                                     SelectElementOptionOrOptgroup::Optgroup { label, options } => {
                                         ui.label(RichText::new(label).strong());
 
@@ -563,7 +563,7 @@ impl Dialog {
                                                 true,
                                             );
                                         }
-                                    },
+                                    }
                                 }
                             }
                         });
@@ -584,7 +584,7 @@ impl Dialog {
                 }
 
                 is_open
-            },
+            }
             Dialog::ColorPicker {
                 current_color,
                 maybe_prompt,
@@ -639,7 +639,7 @@ impl Dialog {
                 }
 
                 is_open
-            },
+            }
             Dialog::ContextMenu {
                 menu,
                 toolbar_offset,
@@ -671,7 +671,7 @@ impl Dialog {
                                                 ),
                                                 false => {
                                                     (ui.visuals().weak_text_color(), Sense::empty())
-                                                },
+                                                }
                                             };
 
                                             ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
@@ -693,10 +693,10 @@ impl Dialog {
                                                 selected_action = Some(*action);
                                                 ui.close();
                                             }
-                                        },
+                                        }
                                         ContextMenuItem::Separator => {
                                             ui.separator();
-                                        },
+                                        }
                                     }
                                 }
                             })
@@ -717,7 +717,7 @@ impl Dialog {
                     ctx.request_repaint();
                 }
                 is_open
-            },
+            }
         }
     }
 
@@ -725,10 +725,10 @@ impl Dialog {
         match self {
             Dialog::SelectElement { maybe_prompt, .. } => {
                 maybe_prompt.as_ref().map(|element| element.id())
-            },
+            }
             Dialog::ColorPicker { maybe_prompt, .. } => {
                 maybe_prompt.as_ref().map(|element| element.id())
-            },
+            }
             _ => None,
         }
     }

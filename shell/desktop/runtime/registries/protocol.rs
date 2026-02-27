@@ -37,7 +37,9 @@ impl scaffold::ProtocolHandler for RegistrySchemeHandler {
     }
 
     fn resolve(&self, _uri: &str) -> scaffold::ProtocolResult {
-        scaffold::ProtocolResult::Error("Phase0 registry handler does not fetch content".to_string())
+        scaffold::ProtocolResult::Error(
+            "Phase0 registry handler does not fetch content".to_string(),
+        )
     }
 
     fn capabilities(&self) -> scaffold::ProtocolCapabilities {
@@ -112,7 +114,15 @@ impl ProtocolRegistry {
 impl Default for ProtocolRegistry {
     fn default() -> Self {
         let mut registry = Self::new("https");
-        for scheme in ["http", "https", "file", "about", "resource", "data", "graphshell"] {
+        for scheme in [
+            "http",
+            "https",
+            "file",
+            "about",
+            "resource",
+            "data",
+            "graphshell",
+        ] {
             registry.register_scheme(scheme);
         }
         registry
@@ -130,7 +140,10 @@ fn infer_mime_hint(uri: &str, scheme: &str) -> Option<String> {
 
     let no_fragment = uri.split('#').next().unwrap_or(uri);
     let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
-    let path = no_query.split_once(':').map(|(_, tail)| tail).unwrap_or(no_query);
+    let path = no_query
+        .split_once(':')
+        .map(|(_, tail)| tail)
+        .unwrap_or(no_query);
     let trimmed = path.trim_start_matches('/');
 
     if trimmed.is_empty() {
@@ -176,8 +189,10 @@ mod tests {
     #[test]
     fn protocol_resolution_returns_cancelled_outcome_when_control_cancelled() {
         let registry = ProtocolRegistry::default();
-        let outcome =
-            registry.resolve_with_control("https://example.com/path", ProtocolResolveControl::cancelled());
+        let outcome = registry.resolve_with_control(
+            "https://example.com/path",
+            ProtocolResolveControl::cancelled(),
+        );
 
         assert_eq!(outcome, ProtocolResolveOutcome::Cancelled);
     }
@@ -186,8 +201,10 @@ mod tests {
     fn protocol_resolution_with_active_control_matches_standard_resolution() {
         let registry = ProtocolRegistry::default();
         let baseline = registry.resolve("https://example.com/path/readme.md");
-        let outcome =
-            registry.resolve_with_control("https://example.com/path/readme.md", ProtocolResolveControl::default());
+        let outcome = registry.resolve_with_control(
+            "https://example.com/path/readme.md",
+            ProtocolResolveControl::default(),
+        );
 
         assert_eq!(outcome, ProtocolResolveOutcome::Resolved(baseline));
     }
@@ -204,7 +221,10 @@ mod tests {
     fn protocol_resolution_infers_file_extension_mime_hint() {
         let registry = ProtocolRegistry::default();
         let resolution = registry.resolve("https://example.com/path/report.pdf");
-        assert_eq!(resolution.inferred_mime_hint.as_deref(), Some("application/pdf"));
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("application/pdf")
+        );
         assert!(resolution.supported);
     }
 

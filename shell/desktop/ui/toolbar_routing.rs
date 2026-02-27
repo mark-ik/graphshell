@@ -3,15 +3,15 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::graph::NodeKey;
+use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::input::{
     INPUT_BINDING_TOOLBAR_NAV_BACK, INPUT_BINDING_TOOLBAR_NAV_FORWARD,
     INPUT_BINDING_TOOLBAR_NAV_RELOAD,
 };
-use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::ui::nav_targeting;
-use crate::graph::NodeKey;
-use crate::shell::desktop::host::window::EmbedderWindow;
 
 pub(crate) enum ToolbarNavAction {
     Back,
@@ -55,10 +55,10 @@ pub(crate) fn run_nav_action(
     match action {
         ToolbarNavAction::Back => {
             let _ = webview.go_back(1);
-        },
+        }
         ToolbarNavAction::Forward => {
             let _ = webview.go_forward(1);
-        },
+        }
         ToolbarNavAction::Reload => webview.reload(),
     }
     window.set_needs_update();

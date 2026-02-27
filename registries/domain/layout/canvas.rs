@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use super::{
-    SurfaceSubsystemCapabilities,
-};
+use super::SurfaceSubsystemCapabilities;
 
 pub(crate) const CANVAS_PROFILE_DEFAULT: &str = "canvas:default";
 

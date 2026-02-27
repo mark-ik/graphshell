@@ -10,11 +10,9 @@
 //! This mod is optional; the app functions as an offline graph organizer
 //! without it (core seed mode).
 
+use crate::registries::atomic::{ProtocolHandlerProviders, ViewerHandlerProviders};
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
-};
-use crate::registries::atomic::{
-    ProtocolHandlerProviders, ViewerHandlerProviders,
 };
 
 /// Verso mod manifest - registered at compile time via inventory
@@ -29,10 +27,7 @@ pub(crate) fn verso_manifest() -> ModManifest {
             "protocol:data".to_string(),
             "viewer:webview".to_string(),
         ],
-        vec![
-            "ViewerRegistry".to_string(),
-            "ProtocolRegistry".to_string(),
-        ],
+        vec!["ViewerRegistry".to_string(), "ProtocolRegistry".to_string()],
         vec![ModCapability::Network],
     )
 }
@@ -102,21 +97,19 @@ mod tests {
         assert!(manifest.provides.contains(&"protocol:http".to_string()));
         assert!(manifest.provides.contains(&"protocol:https".to_string()));
         assert!(manifest.provides.contains(&"viewer:webview".to_string()));
-        assert!(manifest
-            .capabilities
-            .contains(&ModCapability::Network));
+        assert!(manifest.capabilities.contains(&ModCapability::Network));
     }
 
     #[test]
     fn verso_protocol_handlers_register_http_https() {
         use crate::registries::atomic::protocol::ProtocolContractRegistry;
-        
+
         let mut providers = ProtocolHandlerProviders::new();
         register_protocol_handlers(&mut providers);
-        
+
         let mut registry = ProtocolContractRegistry::core_seed();
         providers.apply_all(&mut registry);
-        
+
         assert!(registry.has_scheme("http"));
         assert!(registry.has_scheme("https"));
         assert!(registry.has_scheme("data"));
@@ -125,13 +118,13 @@ mod tests {
     #[test]
     fn verso_viewer_handlers_register_html_webview() {
         use crate::registries::atomic::viewer::ViewerRegistry;
-        
+
         let mut providers = ViewerHandlerProviders::new();
         register_viewer_handlers(&mut providers);
-        
+
         let mut registry = ViewerRegistry::core_seed();
         providers.apply_all(&mut registry);
-        
+
         // Core seed includes metadata, but Verso adds webview support
         let html_selection = registry.select_for_uri("example.com/page.html", Some("text/html"));
         assert_eq!(html_selection.viewer_id, "viewer:webview");

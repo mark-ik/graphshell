@@ -1,9 +1,9 @@
 use crate::app::{GraphBrowserApp, GraphIntent};
-use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
 use egui::{WidgetInfo, WidgetType};
 use egui_tiles::Tree;
 use std::collections::HashSet;
@@ -116,22 +116,35 @@ pub(super) fn render_toolbar_right_controls(
 /// Render a simple sync status indicator showing Verse P2P status
 fn render_sync_status_indicator(ui: &mut egui::Ui) {
     use crate::mods::verse;
-    
+
     // Check if Verse is available
     let (status_char, status_color, tooltip) = if !verse::is_initialized() {
         // Verse not available - show gray dot
-        ("○", egui::Color32::from_rgb(128, 128, 128), 
-         "Sync: Not available".to_string())
+        (
+            "○",
+            egui::Color32::from_rgb(128, 128, 128),
+            "Sync: Not available".to_string(),
+        )
     } else {
         let peers = verse::get_trusted_peers();
         if !peers.is_empty() {
             // Has peers - show green dot
-            ("●", egui::Color32::from_rgb(0, 200, 0), 
-             format!("Sync: Connected ({} peer{})", peers.len(), if peers.len() == 1 { "" } else { "s" }))
+            (
+                "●",
+                egui::Color32::from_rgb(0, 200, 0),
+                format!(
+                    "Sync: Connected ({} peer{})",
+                    peers.len(),
+                    if peers.len() == 1 { "" } else { "s" }
+                ),
+            )
         } else {
             // No peers - show yellow dot
-            ("○", egui::Color32::from_rgb(200, 200, 0), 
-             "Sync: Ready (no peers)".to_string())
+            (
+                "○",
+                egui::Color32::from_rgb(200, 200, 0),
+                "Sync: Ready (no peers)".to_string(),
+            )
         }
     };
 

@@ -24,46 +24,42 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
-#[cfg(feature = "diagnostics")]
-use crate::shell::desktop::runtime::diagnostics;
 use super::graph_search_flow::{self, GraphSearchFlowArgs};
 use super::graph_search_ui::{self, GraphSearchUiArgs};
 use super::gui_frame::{self, PreFrameIngestArgs, ToolbarDialogPhaseArgs};
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
-use crate::shell::desktop::lifecycle::lifecycle_intents;
-#[cfg(test)]
-use crate::shell::desktop::lifecycle::semantic_event_pipeline;
-use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
-use crate::shell::desktop::workbench::tile_compositor;
-#[cfg(test)]
-use crate::shell::desktop::workbench::tile_grouping;
-#[cfg(test)]
-use crate::shell::desktop::workbench::tile_invariants;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::workbench::tile_runtime;
-use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode, ToggleTileViewArgs};
-use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
-use crate::shell::desktop::runtime::control_panel::ControlPanel;
-use crate::shell::desktop::runtime::registries::{RegistryRuntime, knowledge};
-use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
-use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::app::{
-    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause,
-    PendingTileOpenMode, SearchDisplayMode, ToastAnchorPreference,
+    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, GraphViewId,
+    LifecycleCause, PendingTileOpenMode, SearchDisplayMode, ToastAnchorPreference,
 };
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UI_CLIPBOARD_COPY_FAILED;
+use crate::graph::NodeKey;
+use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::headed_window;
-use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
-use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 #[cfg(test)]
 use crate::shell::desktop::host::window::GraphSemanticEvent;
+use crate::shell::desktop::lifecycle::lifecycle_intents;
+#[cfg(test)]
+use crate::shell::desktop::lifecycle::semantic_event_pipeline;
+use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
+use crate::shell::desktop::lifecycle::webview_status_sync;
+use crate::shell::desktop::runtime::control_panel::ControlPanel;
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::runtime::diagnostics;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UI_CLIPBOARD_COPY_FAILED;
+use crate::shell::desktop::runtime::registries::{RegistryRuntime, knowledge};
+use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
+use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
+use crate::shell::desktop::workbench::tile_compositor;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_runtime;
+use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode, ToggleTileViewArgs};
 
 struct ToolbarState {
     location: String,
@@ -303,8 +299,8 @@ impl Gui {
             options.fallback_theme = egui::Theme::Light;
         });
 
-        let initial_data_dir =
-            graph_data_dir.unwrap_or_else(crate::services::persistence::GraphStore::default_data_dir);
+        let initial_data_dir = graph_data_dir
+            .unwrap_or_else(crate::services::persistence::GraphStore::default_data_dir);
         let mut graph_app = GraphBrowserApp::new_from_dir(initial_data_dir.clone());
         if let Some(snapshot_secs) = graph_snapshot_interval_secs
             && let Err(e) = graph_app.set_snapshot_interval_secs(snapshot_secs)
@@ -327,11 +323,15 @@ impl Gui {
             persistence_ops::build_membership_index_from_workspace_manifests(&graph_app);
         graph_app.init_membership_index(membership_index);
         let (workspace_recency, workspace_activation_seq) =
-            persistence_ops::build_workspace_activation_recency_from_workspace_manifests(&graph_app);
+            persistence_ops::build_workspace_activation_recency_from_workspace_manifests(
+                &graph_app,
+            );
         graph_app.init_workspace_activation_recency(workspace_recency, workspace_activation_seq);
         let (thumbnail_capture_tx, thumbnail_capture_rx) = channel();
-        let initial_search_filter_mode =
-            matches!(graph_app.workspace.search_display_mode, SearchDisplayMode::Filter);
+        let initial_search_filter_mode = matches!(
+            graph_app.workspace.search_display_mode,
+            SearchDisplayMode::Filter
+        );
 
         // Create tokio runtime for background workers
         let tokio_runtime = tokio::runtime::Runtime::new()
@@ -366,7 +366,9 @@ impl Gui {
                 can_go_forward: false,
             },
             toasts: egui_notify::Toasts::default()
-                .with_anchor(Self::toast_anchor(graph_app.workspace.toast_anchor_preference))
+                .with_anchor(Self::toast_anchor(
+                    graph_app.workspace.toast_anchor_preference,
+                ))
                 .with_margin(egui::vec2(12.0, 12.0)),
             clipboard: Clipboard::new().ok(),
             favicon_textures: Default::default(),
@@ -457,8 +459,8 @@ impl Gui {
                 | WindowEvent::Touch(_)
                 | WindowEvent::PinchGesture { .. } => {
                     response.consumed = true;
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 
@@ -477,8 +479,7 @@ impl Gui {
     ) -> Option<(WebViewId, Point2D<f32, DeviceIndependentPixel>)> {
         let cursor = pos2(point.x, point.y);
         for tile_id in self.tiles_tree.active_tiles() {
-            let Some(Tile::Pane(TileKind::Node(state))) = self.tiles_tree.tiles.get(tile_id)
-            else {
+            let Some(Tile::Pane(TileKind::Node(state))) = self.tiles_tree.tiles.get(tile_id) else {
                 continue;
             };
             let Some(rect) = self.tiles_tree.tiles.rect(tile_id) else {
@@ -527,11 +528,7 @@ impl Gui {
 
     #[allow(dead_code)]
     pub(crate) fn active_tile_webview_id(&self) -> Option<WebViewId> {
-        tile_compositor::focused_webview_id_for_node_panes(
-            &self.tiles_tree,
-            &self.graph_app,
-            None,
-        )
+        tile_compositor::focused_webview_id_for_node_panes(&self.tiles_tree, &self.graph_app, None)
     }
 
     pub(crate) fn set_focused_webview_id(&mut self, webview_id: WebViewId) {
@@ -657,7 +654,9 @@ impl Gui {
 
         let winit_window = headed_window.winit_window();
         *toasts = std::mem::take(toasts)
-            .with_anchor(Self::toast_anchor(graph_app.workspace.toast_anchor_preference))
+            .with_anchor(Self::toast_anchor(
+                graph_app.workspace.toast_anchor_preference,
+            ))
             .with_margin(egui::vec2(12.0, 12.0));
         context.run(winit_window, |ctx| {
             graph_app.tick_frame();
@@ -975,8 +974,7 @@ impl Gui {
         winit_window: &Window,
         state: &RunningAppState,
         graph_app: &mut GraphBrowserApp,
-        #[cfg(feature = "diagnostics")]
-        diagnostics_state: &mut diagnostics::DiagnosticsState,
+        #[cfg(feature = "diagnostics")] diagnostics_state: &mut diagnostics::DiagnosticsState,
         window: &EmbedderWindow,
         tiles_tree: &mut Tree<TileKind>,
         focused_webview_hint: Option<WebViewId>,
@@ -1065,7 +1063,7 @@ impl Gui {
                     } else {
                         node.title.clone()
                     }
-                },
+                }
             };
             if value.trim().is_empty() {
                 toasts.warning("Nothing to copy");
@@ -1086,10 +1084,10 @@ impl Gui {
                 Ok(()) => match kind {
                     ClipboardCopyKind::Url => {
                         toasts.success("Copied URL");
-                    },
+                    }
                     ClipboardCopyKind::Title => {
                         toasts.success("Copied title");
-                    },
+                    }
                 },
                 Err(e) => {
                     emit_event(DiagnosticEvent::MessageSent {
@@ -1097,7 +1095,7 @@ impl Gui {
                         byte_len: e.to_string().len(),
                     });
                     toasts.error(format!("Copy failed: {e}"));
-                },
+                }
             }
         }
     }
@@ -1143,9 +1141,9 @@ impl Gui {
         tiles_tree: &mut Tree<TileKind>,
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
     ) {
-        if tiles_tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind)
-        }) {
+        if tiles_tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind),
+        ) {
             return;
         }
 
@@ -1163,11 +1161,13 @@ impl Gui {
             return;
         }
 
-        let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, tool_tile_id]);
+        let tabs_root = tiles_tree
+            .tiles
+            .insert_tab_tile(vec![root_id, tool_tile_id]);
         tiles_tree.root = Some(tabs_root);
-        let _ = tiles_tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind)
-        });
+        let _ = tiles_tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind),
+        );
     }
 
     #[cfg(not(feature = "diagnostics"))]
@@ -1230,10 +1230,14 @@ impl Gui {
                         crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(kind) => {
                             Self::open_or_focus_tool_pane(tiles_tree, kind);
                         }
-                        crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state) => {
+                        crate::shell::desktop::workbench::pane_model::PaneViewState::Node(
+                            state,
+                        ) => {
                             tile_view_ops::open_or_focus_node_pane(tiles_tree, state.node);
                         }
-                        crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref) => {
+                        crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(
+                            graph_ref,
+                        ) => {
                             tile_view_ops::open_or_focus_graph_pane(
                                 tiles_tree,
                                 graph_ref.graph_view_id,
@@ -1295,7 +1299,10 @@ impl Gui {
         frame_intents: &mut Vec<GraphIntent>,
     ) {
         if let Some(open_request) = graph_app.take_pending_open_node_request() {
-            log::debug!("gui: handle_pending_open_node_after_intents taking request for {:?}", open_request.key);
+            log::debug!(
+                "gui: handle_pending_open_node_after_intents taking request for {:?}",
+                open_request.key
+            );
             *open_node_tile_after_intents = Some(Self::open_mode_from_pending(open_request.mode));
             graph_app.select_node(open_request.key, false);
         }
@@ -1317,7 +1324,11 @@ impl Gui {
                     Tile::Pane(TileKind::Node(state)) if state.node == node_key
                 )
             });
-            log::debug!("gui: calling open_or_focus_node_pane_with_mode for {:?} mode {:?}", node_key, open_mode);
+            log::debug!(
+                "gui: calling open_or_focus_node_pane_with_mode for {:?} mode {:?}",
+                node_key,
+                open_mode
+            );
             tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, node_key, open_mode);
             if open_mode == TileOpenMode::Tab
                 && !node_already_in_workspace
@@ -1443,17 +1454,17 @@ impl Gui {
             egui_winit::accesskit_winit::WindowEvent::InitialTreeRequested => {
                 self.context.egui_ctx.enable_accesskit();
                 true
-            },
+            }
             egui_winit::accesskit_winit::WindowEvent::ActionRequested(req) => {
                 self.context
                     .egui_winit
                     .on_accesskit_action_request(req.clone());
                 true
-            },
+            }
             egui_winit::accesskit_winit::WindowEvent::AccessibilityDeactivated => {
                 self.context.egui_ctx.disable_accesskit();
                 false
-            },
+            }
         }
     }
 
@@ -1479,7 +1490,8 @@ impl Gui {
         // Store the most recent update per WebView; it will be injected into
         // egui's accessibility tree at the start of the next frame inside
         // the context.run() callback.
-        self.pending_webview_a11y_updates.insert(webview_id, tree_update);
+        self.pending_webview_a11y_updates
+            .insert(webview_id, tree_update);
     }
 
     fn webview_accessibility_anchor_id(webview_id: WebViewId) -> egui::Id {
@@ -1527,9 +1539,7 @@ impl Gui {
         )
     }
 
-    fn convert_webview_accessibility_role(
-        role: accesskit::Role,
-    ) -> (egui::accesskit::Role, bool) {
+    fn convert_webview_accessibility_role(role: accesskit::Role) -> (egui::accesskit::Role, bool) {
         let mapped = match format!("{role:?}").as_str() {
             "Document" => egui::accesskit::Role::Document,
             "Paragraph" => egui::accesskit::Role::Paragraph,
@@ -1652,27 +1662,23 @@ impl Gui {
             if plan.dropped_node_count > 0 {
                 warn!(
                     "WebView accessibility injection dropped {} reserved node(s) for {:?}",
-                    plan.dropped_node_count,
-                    webview_id
+                    plan.dropped_node_count, webview_id
                 );
             }
 
             if plan.conversion_fallback_count > 0 {
                 warn!(
                     "WebView accessibility injection used degraded role conversion fallback for {} node(s) in {:?}",
-                    plan.conversion_fallback_count,
-                    webview_id
+                    plan.conversion_fallback_count, webview_id
                 );
             }
         }
     }
 }
 
-
 #[cfg(test)]
 #[path = "gui_tests.rs"]
 mod gui_tests;
-
 
 #[cfg(test)]
 fn graph_intents_from_semantic_events(events: Vec<GraphSemanticEvent>) -> Vec<GraphIntent> {
@@ -1918,10 +1924,7 @@ mod tool_pane_routing_tests {
             .tiles
             .iter()
             .filter(|(_, tile)| {
-                matches!(
-                    tile,
-                    Tile::Pane(TileKind::Tool(ToolPaneState::Diagnostics))
-                )
+                matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Diagnostics)))
             })
             .count();
         assert_eq!(diagnostics_count, 1);
@@ -1963,7 +1966,10 @@ mod tool_pane_routing_tests {
         let mut tree = Tree::new("tool_tabs", tabs_root, tiles);
 
         let _ = tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::HistoryManager)))
+            matches!(
+                tile,
+                Tile::Pane(TileKind::Tool(ToolPaneState::HistoryManager))
+            )
         });
 
         Gui::open_or_focus_diagnostics_tool_pane(&mut tree);
@@ -1994,7 +2000,12 @@ mod graph_split_intent_tests {
     fn active_graph_count(tree: &Tree<TileKind>) -> usize {
         tree.active_tiles()
             .into_iter()
-            .filter(|tile_id| matches!(tree.tiles.get(*tile_id), Some(Tile::Pane(TileKind::Graph(_)))))
+            .filter(|tile_id| {
+                matches!(
+                    tree.tiles.get(*tile_id),
+                    Some(Tile::Pane(TileKind::Graph(_)))
+                )
+            })
             .count()
     }
 
@@ -2012,7 +2023,10 @@ mod graph_split_intent_tests {
 
         Gui::handle_tool_pane_intents(&mut tree, &mut intents);
 
-        assert!(intents.is_empty(), "split intent should be consumed by workbench authority");
+        assert!(
+            intents.is_empty(),
+            "split intent should be consumed by workbench authority"
+        );
 
         let graph_views: Vec<GraphViewId> = tree
             .tiles
@@ -2023,10 +2037,17 @@ mod graph_split_intent_tests {
             })
             .collect();
 
-        assert_eq!(graph_views.len(), 2, "split should produce a second graph pane");
+        assert_eq!(
+            graph_views.len(),
+            2,
+            "split should produce a second graph pane"
+        );
         assert!(graph_views.contains(&initial_view));
         assert!(graph_views.iter().any(|view_id| *view_id != initial_view));
-        assert!(active_graph_count(&tree) >= 1, "a graph pane should remain active");
+        assert!(
+            active_graph_count(&tree) >= 1,
+            "a graph pane should remain active"
+        );
     }
 }
 

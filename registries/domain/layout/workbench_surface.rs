@@ -147,6 +147,9 @@ mod tests {
             serde_json::from_str(&json).expect("resolution should deserialize");
 
         assert_eq!(restored.resolved_id, WORKBENCH_SURFACE_DEFAULT);
-        assert_eq!(restored.profile.subsystems.accessibility.level, ConformanceLevel::Full);
+        assert_eq!(
+            restored.profile.subsystems.accessibility.level,
+            ConformanceLevel::Full
+        );
     }
 }

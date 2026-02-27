@@ -10,10 +10,10 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use egui::{Context, Id, LayerId, PaintCallback, Rect as EguiRect, Stroke, StrokeKind};
-use egui_glow::{CallbackFn, glow};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_GL_STATE_VIOLATION;
+use egui::{Context, Id, LayerId, PaintCallback, Rect as EguiRect, Stroke, StrokeKind};
+use egui_glow::{CallbackFn, glow};
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = "tile_compositor.content_pass_registered";
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = "tile_compositor.overlay_pass_registered";
@@ -141,11 +141,17 @@ pub(crate) struct CompositorAdapter;
 
 impl CompositorAdapter {
     pub(crate) fn content_layer(node_key: NodeKey) -> LayerId {
-        LayerId::new(egui::Order::Middle, Id::new(("graphshell_webview", node_key)))
+        LayerId::new(
+            egui::Order::Middle,
+            Id::new(("graphshell_webview", node_key)),
+        )
     }
 
     pub(crate) fn overlay_layer(node_key: NodeKey) -> LayerId {
-        LayerId::new(egui::Order::Foreground, Id::new(("graphshell_overlay", node_key)))
+        LayerId::new(
+            egui::Order::Foreground,
+            Id::new(("graphshell_overlay", node_key)),
+        )
     }
 
     pub(crate) fn register_content_pass(
@@ -180,7 +186,8 @@ impl CompositorAdapter {
             crate::shell::desktop::runtime::diagnostics::emit_event(
                 crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
                     channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
-                    byte_len: std::mem::size_of::<NodeKey>() + std::mem::size_of::<GlStateSnapshot>(),
+                    byte_len: std::mem::size_of::<NodeKey>()
+                        + std::mem::size_of::<GlStateSnapshot>(),
                 },
             );
         }
@@ -202,12 +209,8 @@ impl CompositorAdapter {
         #[cfg(feature = "diagnostics")]
         let started = std::time::Instant::now();
 
-        ctx.layer_painter(Self::overlay_layer(node_key)).rect_stroke(
-            tile_rect.shrink(1.0),
-            rounding,
-            stroke,
-            StrokeKind::Inside,
-        );
+        ctx.layer_painter(Self::overlay_layer(node_key))
+            .rect_stroke(tile_rect.shrink(1.0), rounding, stroke, StrokeKind::Inside);
 
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_span_duration(
@@ -233,9 +236,7 @@ mod tests {
 
     use crate::graph::NodeKey;
 
-    use super::{
-        CompositorPassTracker, GlStateSnapshot, gl_state_violated, run_guarded_callback,
-    };
+    use super::{CompositorPassTracker, GlStateSnapshot, gl_state_violated, run_guarded_callback};
 
     #[test]
     fn pass_scheduler_runs_content_before_overlay() {

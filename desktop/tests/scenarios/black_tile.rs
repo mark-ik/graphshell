@@ -13,8 +13,14 @@ fn webview_tile_snapshot_reports_mapping_and_context_health() {
     let snapshot = harness.snapshot();
     let tile = TestRegistry::tile_for_node(&snapshot, node).expect("tile should exist in snapshot");
 
-    assert_eq!(tile.get("mapped_webview").and_then(|v| v.as_bool()), Some(true));
-    assert_eq!(tile.get("has_context").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(
+        tile.get("mapped_webview").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        tile.get("has_context").and_then(|v| v.as_bool()),
+        Some(true)
+    );
     let width = tile
         .get("rect")
         .and_then(|r| r.get("max"))
@@ -43,6 +49,12 @@ fn engine_snapshot_exposes_servo_runtime_channels() {
     let snapshot = harness.snapshot();
     let channels = TestRegistry::all_channels(&snapshot);
 
-    assert!(channels.get("servo.delegate.url_changed").copied().unwrap_or(0) > 0);
+    assert!(
+        channels
+            .get("servo.delegate.url_changed")
+            .copied()
+            .unwrap_or(0)
+            > 0
+    );
     assert!(channels.get("servo.event_loop.spin").copied().unwrap_or(0) > 0);
 }

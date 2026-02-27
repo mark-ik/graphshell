@@ -79,7 +79,10 @@ fn verse_access_control_ro_peer_without_mutations_is_allowed() {
         false,
     );
 
-    assert!(allowed, "ReadOnly peer without mutations should be allowed to receive");
+    assert!(
+        allowed,
+        "ReadOnly peer without mutations should be allowed to receive"
+    );
 
     let snapshot = harness.snapshot();
     assert_eq!(

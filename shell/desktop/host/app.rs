@@ -20,17 +20,17 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::WindowId;
 
 use super::event_loop::AppEvent;
+use crate::parser::get_default_url;
+use crate::prefs::AppPreferences;
 use crate::shell::desktop::host::event_loop::AppEventLoop;
 use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::headless_window::HeadlessWindow;
-use crate::shell::desktop::runtime::protocols;
-use crate::shell::desktop::runtime::tracing::trace_winit_event;
-use crate::parser::get_default_url;
-use crate::prefs::AppPreferences;
-use crate::shell::desktop::host::running_app_state::RunningAppState;
 #[cfg(feature = "gamepad")]
 use crate::shell::desktop::host::running_app_state::AppGamepadProvider;
-use crate::shell::desktop::host::window::{PlatformWindow, EmbedderWindowId};
+use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::host::window::{EmbedderWindowId, PlatformWindow};
+use crate::shell::desktop::runtime::protocols;
+use crate::shell::desktop::runtime::tracing::trace_winit_event;
 
 pub(crate) enum AppState {
     Initializing,
@@ -94,12 +94,13 @@ impl App {
         let platform_window = self.create_platform_window(url, active_event_loop);
 
         #[cfg(feature = "webxr")]
-        let servo_builder =
-            servo_builder.webxr_registry(crate::shell::desktop::host::webxr::XrDiscoveryWebXrRegistry::new_boxed(
+        let servo_builder = servo_builder.webxr_registry(
+            crate::shell::desktop::host::webxr::XrDiscoveryWebXrRegistry::new_boxed(
                 platform_window.clone(),
                 active_event_loop,
                 &self.preferences,
-            ));
+            ),
+        );
 
         let servo = servo_builder.build();
         servo.setup_logging();
@@ -136,10 +137,7 @@ impl App {
         url: Url,
         active_event_loop: Option<&ActiveEventLoop>,
     ) -> Rc<dyn PlatformWindow> {
-        assert_eq!(
-            self.app_preferences.headless,
-            active_event_loop.is_none()
-        );
+        assert_eq!(self.app_preferences.headless, active_event_loop.is_none());
 
         let Some(active_event_loop) = active_event_loop else {
             return HeadlessWindow::new(&self.app_preferences);

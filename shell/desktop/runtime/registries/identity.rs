@@ -35,10 +35,8 @@ impl IdentityRegistry {
     }
 
     pub(crate) fn register_persona(&mut self, identity_id: &str, key_material: &str) {
-        self.keys.insert(
-            identity_id.to_ascii_lowercase(),
-            key_material.to_string(),
-        );
+        self.keys
+            .insert(identity_id.to_ascii_lowercase(), key_material.to_string());
     }
 
     pub(crate) fn resolve(&self, identity_id: &str) -> IdentityResolution {
@@ -128,7 +126,12 @@ mod tests {
         assert!(result.succeeded);
         assert!(result.resolution.matched);
         assert_eq!(result.resolution.resolved_id, IDENTITY_ID_DEFAULT);
-        assert!(result.signature.as_deref().is_some_and(|sig| sig.starts_with("sig:")));
+        assert!(
+            result
+                .signature
+                .as_deref()
+                .is_some_and(|sig| sig.starts_with("sig:"))
+        );
     }
 
     #[test]

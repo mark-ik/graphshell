@@ -19,9 +19,7 @@ pub(crate) fn demote_node_to_cold(key: NodeKey, cause: LifecycleCause) -> GraphI
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        LifecycleCause, demote_node_to_cold, demote_node_to_warm, promote_node_to_active,
-    };
+    use super::{LifecycleCause, demote_node_to_cold, demote_node_to_warm, promote_node_to_active};
     use crate::app::GraphIntent;
     use crate::graph::NodeKey;
 

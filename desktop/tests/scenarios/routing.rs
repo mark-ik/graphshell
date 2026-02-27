@@ -1,7 +1,5 @@
 use super::super::harness::TestRegistry;
-use crate::app::{
-    GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkspaceOpenAction,
-};
+use crate::app::{GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkspaceOpenAction};
 use std::collections::{BTreeSet, HashMap};
 
 #[test]
@@ -9,10 +7,12 @@ fn open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membershi
     let mut harness = TestRegistry::new();
     let key = harness.add_node("https://example.com");
 
-    harness.app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
-        key,
-        prefer_workspace: None,
-    }]);
+    harness
+        .app
+        .apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+            key,
+            prefer_workspace: None,
+        }]);
 
     assert_eq!(harness.app.get_single_selected_node(), Some(key));
     assert_eq!(
@@ -50,10 +50,12 @@ fn open_node_workspace_routed_with_preferred_workspace_requests_restore() {
     harness.app.init_membership_index(index);
     harness.app.note_workspace_activated("beta", [key]);
 
-    harness.app.apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
-        key,
-        prefer_workspace: Some("alpha".to_string()),
-    }]);
+    harness
+        .app
+        .apply_intents([GraphIntent::OpenNodeWorkspaceRouted {
+            key,
+            prefer_workspace: Some("alpha".to_string()),
+        }]);
 
     assert_eq!(
         harness.app.take_pending_restore_workspace_snapshot_named(),
@@ -184,10 +186,7 @@ fn set_node_url_preserves_workspace_membership() {
     );
     assert_eq!(
         harness.app.membership_for_node(node_id),
-        &BTreeSet::from([
-            "workspace-alpha".to_string(),
-            "workspace-beta".to_string()
-        ])
+        &BTreeSet::from(["workspace-alpha".to_string(), "workspace-beta".to_string()])
     );
 }
 

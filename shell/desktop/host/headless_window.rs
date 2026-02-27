@@ -21,7 +21,9 @@ use servo::{
 use winit::dpi::PhysicalSize;
 
 use crate::prefs::AppPreferences;
-use crate::shell::desktop::host::window::{MIN_WINDOW_INNER_SIZE, PlatformWindow, EmbedderWindow, EmbedderWindowId};
+use crate::shell::desktop::host::window::{
+    EmbedderWindow, EmbedderWindowId, MIN_WINDOW_INNER_SIZE, PlatformWindow,
+};
 
 pub struct HeadlessWindow {
     id: EmbedderWindowId,

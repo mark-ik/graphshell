@@ -12,13 +12,13 @@ use servo::{OffscreenRenderingContext, RenderingContext, WebViewId, WindowRender
 use url::Url;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeBlockReason};
-use crate::shell::desktop::lifecycle::lifecycle_intents;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_MOD_LOAD_FAILED;
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::infrastructure::mod_loader;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_MOD_LOAD_FAILED;
 
 // Pragmatic Phase A backpressure:
 // Servo webview creation is not fallible in the embedder API, so we infer failure
@@ -114,9 +114,10 @@ pub(crate) fn ensure_webview_for_node(
 ) {
     #[cfg(feature = "diagnostics")]
     let ensure_started = Instant::now();
-    let (Some(node), Some(running_state)) =
-        (graph_app.workspace.graph.get_node(node_key), app_state.as_ref())
-    else {
+    let (Some(node), Some(running_state)) = (
+        graph_app.workspace.graph.get_node(node_key),
+        app_state.as_ref(),
+    ) else {
         webview_creation_backpressure.remove(&node_key);
         return;
     };
@@ -282,8 +283,8 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                         key: node_key,
                         cause: LifecycleCause::Restore,
                     });
-                },
-                WebviewCreationProbeOutcome::Pending => {},
+                }
+                WebviewCreationProbeOutcome::Pending => {}
                 WebviewCreationProbeOutcome::TimedOut => {
                     #[cfg(feature = "diagnostics")]
                     crate::shell::desktop::runtime::diagnostics::emit_event(
@@ -313,7 +314,7 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                         });
                         state.retry_count = 0;
                     }
-                },
+                }
             }
         }
     }

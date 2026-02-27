@@ -38,7 +38,8 @@ impl ProtocolContractRegistry {
     }
 
     pub(crate) fn register_scheme(&mut self, scheme: &str, handler_id: &'static str) {
-        self.handlers.insert(scheme.to_ascii_lowercase(), handler_id);
+        self.handlers
+            .insert(scheme.to_ascii_lowercase(), handler_id);
     }
 
     pub(crate) fn has_scheme(&self, scheme: &str) -> bool {

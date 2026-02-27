@@ -1,7 +1,7 @@
 use super::super::harness::TestRegistry;
 use crate::mods::native::verse::{SyncLog, SyncedIntent};
-use crate::services::persistence::types::LogEntry;
 use crate::registries::atomic::diagnostics;
+use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::registries;
 
 // Helper to generate a deterministic test NodeId without network I/O
@@ -31,11 +31,17 @@ fn two_instance_node_sync() {
         sequence: 1,
     };
 
-    assert!(log_a.record_intent(add_node.clone()), "peer A should record intent");
+    assert!(
+        log_a.record_intent(add_node.clone()),
+        "peer A should record intent"
+    );
 
     // Peer B receives the delta from peer A
     let should_apply = log_b.should_apply(&add_node);
-    assert!(should_apply, "node add should be applicable on peer B (no tombstone)");
+    assert!(
+        should_apply,
+        "node add should be applicable on peer B (no tombstone)"
+    );
 
     let recorded = log_b.record_intent(add_node);
     assert!(recorded, "peer B should record the new intent");
@@ -72,7 +78,10 @@ fn rename_conflict_resolves_deterministically_with_lww() {
         authored_at_secs: 200,
         sequence: 1,
     };
-    assert!(log_a.should_apply(&intent_newer), "newer write should be accepted");
+    assert!(
+        log_a.should_apply(&intent_newer),
+        "newer write should be accepted"
+    );
     log_a.record_intent(intent_newer);
 
     // Peer B's conflicting title update arrives at t=150 (older — should lose)
@@ -89,7 +98,10 @@ fn rename_conflict_resolves_deterministically_with_lww() {
     };
 
     let applied = log_a.should_apply(&intent_older);
-    assert!(!applied, "LWW: older write (t=150) should be rejected when t=200 is already recorded");
+    assert!(
+        !applied,
+        "LWW: older write (t=150) should be rejected when t=200 is already recorded"
+    );
 
     // Verify the LWW winner is still the t=200 title
     assert_eq!(
@@ -101,11 +113,13 @@ fn rename_conflict_resolves_deterministically_with_lww() {
     // Conflict diagnostics must have been emitted
     let snapshot = harness.snapshot();
     assert!(
-        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_DETECTED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_DETECTED)
+            > 0,
         "verse.sync.conflict_detected channel should be emitted on LWW conflict"
     );
     assert!(
-        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED) > 0,
+        TestRegistry::channel_count(&snapshot, registries::CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED)
+            > 0,
         "verse.sync.conflict_resolved channel should be emitted after LWW resolution"
     );
 }

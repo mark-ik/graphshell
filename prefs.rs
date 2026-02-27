@@ -238,7 +238,7 @@ impl fmt::Display for ParseResolutionError {
             ParseResolutionError::InvalidFormat => write!(f, "invalid resolution format"),
             ParseResolutionError::ZeroDimension => {
                 write!(f, "width and height must be greater than 0")
-            },
+            }
             ParseResolutionError::ParseError(e) => write!(f, "{e}"),
         }
     }
@@ -651,7 +651,7 @@ fn parse_arguments_helper(args_without_binary: Args) -> ArgumentParsingResult {
             } else {
                 ArgumentParsingResult::ErrorParsing
             };
-        },
+        }
     };
 
     // If this is the content process, we'll receive the real options over IPC. So fill in some dummy options for now.
@@ -782,9 +782,9 @@ fn apply_env_overrides(app_preferences: &mut AppPreferences) {
         let trimmed = value.trim();
         match trimmed.parse::<u64>() {
             Ok(parsed) => app_preferences.graph_snapshot_interval_secs = Some(parsed),
-            Err(err) => warn!(
-                "GRAPHSHELL_GRAPH_SNAPSHOT_INTERVAL_SECS invalid ('{trimmed}'): {err}"
-            ),
+            Err(err) => {
+                warn!("GRAPHSHELL_GRAPH_SNAPSHOT_INTERVAL_SECS invalid ('{trimmed}'): {err}")
+            }
         }
     }
 
@@ -819,14 +819,14 @@ fn test_parse_pref(arg: &str) -> Preferences {
     match parse_command_line_arguments(args.as_slice()) {
         ArgumentParsingResult::ContentProcess(..) => {
             unreachable!("No preferences for content process")
-        },
+        }
         ArgumentParsingResult::ChromeProcess(_, preferences, _) => preferences,
         ArgumentParsingResult::Exit => {
             panic!("we supplied a --pref argument above which should be parsed")
-        },
+        }
         ArgumentParsingResult::ErrorParsing => {
             unreachable!("we supplied a --pref argument above which should be parsed")
-        },
+        }
     }
 }
 
@@ -883,13 +883,13 @@ fn test_parse(arg: &str) -> (Opts, Preferences, AppPreferences) {
     match parse_command_line_arguments(args_split.as_slice()) {
         ArgumentParsingResult::ContentProcess(..) => {
             unreachable!("No preferences for content process")
-        },
+        }
         ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
             (opts, preferences, app_preferences)
-        },
+        }
         ArgumentParsingResult::Exit | ArgumentParsingResult::ErrorParsing => {
             unreachable!("We always have valid preference in our test cases")
-        },
+        }
     }
 }
 

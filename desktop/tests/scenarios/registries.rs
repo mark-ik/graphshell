@@ -10,11 +10,8 @@ fn phase0_registry_normalization_emits_protocol_and_viewer_success_channels() {
     let mut harness = TestRegistry::new();
     let parsed = ServoUrl::parse("https://example.com/readme.md").expect("url should parse");
 
-    let decision = registries::phase0_decide_navigation_for_tests(
-        &harness.diagnostics,
-        parsed,
-        None,
-    );
+    let decision =
+        registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
     let rewritten = decision.normalized_url;
     assert_eq!(rewritten.scheme(), "https");
 
@@ -42,11 +39,8 @@ fn phase0_registry_normalization_emits_fallback_channels_for_unknown_scheme_and_
     let mut harness = TestRegistry::new();
     let parsed = ServoUrl::parse("foo://example.com/archive.unknown").expect("url should parse");
 
-    let decision = registries::phase0_decide_navigation_for_tests(
-        &harness.diagnostics,
-        parsed,
-        None,
-    );
+    let decision =
+        registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
     let rewritten = decision.normalized_url;
     assert_eq!(rewritten.scheme(), "https");
 
@@ -120,9 +114,13 @@ fn phase0_registry_decision_uses_protocol_inferred_mime_hint_when_available() {
     let mut harness = TestRegistry::new();
     let parsed = ServoUrl::parse("data:text/csv,foo,bar").expect("url should parse");
 
-    let decision = registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
+    let decision =
+        registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
 
-    assert_eq!(decision.protocol.inferred_mime_hint.as_deref(), Some("text/csv"));
+    assert_eq!(
+        decision.protocol.inferred_mime_hint.as_deref(),
+        Some("text/csv")
+    );
     assert_eq!(decision.viewer.viewer_id, "viewer:csv");
     assert_eq!(decision.viewer.matched_by, "mime");
 
@@ -146,7 +144,8 @@ fn phase0_registry_decision_selects_settings_viewer_for_graphshell_settings_url(
     let mut harness = TestRegistry::new();
     let parsed = ServoUrl::parse("graphshell://settings/history").expect("url should parse");
 
-    let decision = registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
+    let decision =
+        registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
 
     assert_eq!(decision.normalized_url.scheme(), "graphshell");
     assert_eq!(decision.viewer.viewer_id, "viewer:settings");
@@ -241,11 +240,12 @@ fn phase2_action_registry_graph_submit_emits_action_channels() {
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
     app.workspace.selected_nodes.select(key, false);
 
-    let (open_selected_tile, intents) = registries::phase2_execute_graph_view_submit_action_for_tests(
-        &harness.diagnostics,
-        &app,
-        "https://next.com",
-    );
+    let (open_selected_tile, intents) =
+        registries::phase2_execute_graph_view_submit_action_for_tests(
+            &harness.diagnostics,
+            &app,
+            "https://next.com",
+        );
     assert!(open_selected_tile);
     assert!(matches!(
         intents.first(),
@@ -278,12 +278,13 @@ fn phase2_action_registry_detail_submit_emits_action_channels() {
         .graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
 
-    let (open_selected_tile, intents) = registries::phase2_execute_detail_view_submit_action_for_tests(
-        &harness.diagnostics,
-        &app,
-        "https://detail-next.com",
-        Some(key),
-    );
+    let (open_selected_tile, intents) =
+        registries::phase2_execute_detail_view_submit_action_for_tests(
+            &harness.diagnostics,
+            &app,
+            "https://detail-next.com",
+            Some(key),
+        );
     assert!(!open_selected_tile);
     assert!(matches!(
         intents.first(),
@@ -311,7 +312,8 @@ fn phase2_action_registry_detail_submit_emits_action_channels() {
 fn phase2_input_registry_toolbar_submit_binding_emits_resolved_channel() {
     let mut harness = TestRegistry::new();
 
-    let resolved = registries::phase2_resolve_toolbar_submit_binding_for_tests(&harness.diagnostics);
+    let resolved =
+        registries::phase2_resolve_toolbar_submit_binding_for_tests(&harness.diagnostics);
     assert!(resolved);
 
     let snapshot = harness.snapshot();
@@ -425,7 +427,8 @@ fn phase2_lens_component_id_resolution_emits_component_fallback_channels() {
     lens.layout_id = Some("layout:unknown".to_string());
     lens.theme_id = Some("theme:unknown".to_string());
 
-    let normalized = registries::phase2_resolve_lens_components_for_tests(&harness.diagnostics, &lens);
+    let normalized =
+        registries::phase2_resolve_lens_components_for_tests(&harness.diagnostics, &lens);
     assert_eq!(
         normalized.physics_id.as_deref(),
         Some(registries::physics::PHYSICS_ID_DEFAULT)
@@ -475,7 +478,11 @@ fn phase3_identity_registry_sign_success_emits_identity_channels() {
         "identity:default",
         b"payload",
     );
-    assert!(signature.as_deref().is_some_and(|sig| sig.starts_with("sig:")));
+    assert!(
+        signature
+            .as_deref()
+            .is_some_and(|sig| sig.starts_with("sig:"))
+    );
 
     let snapshot = harness.snapshot();
     assert!(

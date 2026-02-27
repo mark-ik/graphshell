@@ -35,7 +35,7 @@ pub(crate) fn update_location_in_toolbar(
         Some(new_location) if new_location != *location => {
             *location = new_location;
             true
-        },
+        }
         _ => false,
     }
 }

@@ -9,9 +9,9 @@ use egui_tiles::Tree;
 use servo::OffscreenRenderingContext;
 
 use crate::app::GraphBrowserApp;
+use crate::graph::NodeKey;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
-use crate::graph::NodeKey;
 
 pub(crate) fn collect_tile_invariant_violations(
     tiles_tree: &Tree<TileKind>,
@@ -19,7 +19,8 @@ pub(crate) fn collect_tile_invariant_violations(
     tile_rendering_contexts: &HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
 ) -> Vec<String> {
     let mut violations = Vec::new();
-    for node_key in tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app) {
+    for node_key in tile_runtime::all_node_pane_keys_hosting_webview_runtime(tiles_tree, graph_app)
+    {
         if graph_app.workspace.graph.get_node(node_key).is_none() {
             violations.push(format!(
                 "tile/webview-host desync: tile has stale node key {}",

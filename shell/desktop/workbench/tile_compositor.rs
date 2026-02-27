@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
-use std::sync::Arc;
 
 use dpi::PhysicalSize;
 use egui::Stroke;
@@ -19,11 +19,13 @@ use servo::{
 };
 
 use crate::app::GraphBrowserApp;
-use crate::shell::desktop::workbench::compositor_adapter::{CompositorAdapter, CompositorPassTracker};
-use crate::shell::desktop::workbench::pane_model::TileRenderMode;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::workbench::compositor_adapter::{
+    CompositorAdapter, CompositorPassTracker,
+};
+use crate::shell::desktop::workbench::pane_model::TileRenderMode;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 pub(crate) fn active_node_pane_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKey, egui::Rect)> {
     let mut tile_rects = Vec::new();
@@ -55,8 +57,7 @@ pub(crate) fn focused_webview_id_for_node_panes(
         }
     }
 
-    active_node_pane_key(tiles_tree)
-        .and_then(|node_key| graph_app.get_webview_for_node(node_key))
+    active_node_pane_key(tiles_tree).and_then(|node_key| graph_app.get_webview_for_node(node_key))
 }
 
 pub(crate) fn webview_for_frame_activation(
@@ -96,7 +97,10 @@ pub(crate) fn composite_active_node_pane_webviews(
 ) {
     #[cfg(feature = "diagnostics")]
     let composite_started = Instant::now();
-    log::debug!("composite_active_node_pane_webviews: {} tiles", active_tile_rects.len());
+    log::debug!(
+        "composite_active_node_pane_webviews: {} tiles",
+        active_tile_rects.len()
+    );
     let scale = Scale::<_, DeviceIndependentPixel, DevicePixel>::new(ctx.pixels_per_point());
     let mut pass_tracker = CompositorPassTracker::new();
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
@@ -139,7 +143,11 @@ pub(crate) fn composite_active_node_pane_webviews(
         };
 
         if render_context.size() != target_size {
-            log::debug!("composite: resizing render_context from {:?} to {:?}", render_context.size(), target_size);
+            log::debug!(
+                "composite: resizing render_context from {:?} to {:?}",
+                render_context.size(),
+                target_size
+            );
             render_context.resize(target_size);
         }
 
@@ -148,24 +156,39 @@ pub(crate) fn composite_active_node_pane_webviews(
             continue;
         };
         let Some(webview) = window.webview_by_id(webview_id) else {
-            log::debug!("composite: webview_id {:?} not found in window for node {:?}", webview_id, node_key);
+            log::debug!(
+                "composite: webview_id {:?} not found in window for node {:?}",
+                webview_id,
+                node_key
+            );
             continue;
         };
         if webview.size() != size {
-            log::debug!("composite: resizing webview from {:?} to {:?}", webview.size(), size);
+            log::debug!(
+                "composite: resizing webview from {:?} to {:?}",
+                webview.size(),
+                size
+            );
             webview.resize(target_size);
         }
 
-        log::debug!("composite: painting webview {:?} for node {:?} at rect {:?}", webview_id, node_key, tile_rect);
+        log::debug!(
+            "composite: painting webview {:?} for node {:?} at rect {:?}",
+            webview_id,
+            node_key,
+            tile_rect
+        );
         #[cfg(feature = "diagnostics")]
         let paint_started = Instant::now();
         #[cfg(feature = "diagnostics")]
-        crate::shell::desktop::runtime::diagnostics::emit_event(crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-            channel_id: "tile_compositor.paint",
-            byte_len: (target_size.width as usize)
-                .saturating_mul(target_size.height as usize)
-                .saturating_mul(4),
-        });
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: "tile_compositor.paint",
+                byte_len: (target_size.width as usize)
+                    .saturating_mul(target_size.height as usize)
+                    .saturating_mul(4),
+            },
+        );
         if let Err(e) = render_context.make_current() {
             warn!("Failed to make tile rendering context current: {e:?}");
             continue;
@@ -180,15 +203,23 @@ pub(crate) fn composite_active_node_pane_webviews(
         #[cfg(feature = "diagnostics")]
         {
             let elapsed = paint_started.elapsed().as_micros() as u64;
-            crate::shell::desktop::runtime::diagnostics::emit_event(crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
-                channel_id: "tile_compositor.paint",
-                latency_us: elapsed,
-            });
-            crate::shell::desktop::runtime::diagnostics::emit_span_duration("tile_compositor::paint_present", elapsed);
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageReceived {
+                    channel_id: "tile_compositor.paint",
+                    latency_us: elapsed,
+                },
+            );
+            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+                "tile_compositor::paint_present",
+                elapsed,
+            );
         }
 
         if let Some(render_to_parent) = render_context.render_to_parent_callback() {
-            log::debug!("composite: adding render_to_parent callback for webview {:?}", webview_id);
+            log::debug!(
+                "composite: adding render_to_parent callback for webview {:?}",
+                webview_id
+            );
             let callback = Arc::new(CallbackFn::new(move |info, painter| {
                 #[cfg(feature = "diagnostics")]
                 let started = Instant::now();
@@ -212,15 +243,13 @@ pub(crate) fn composite_active_node_pane_webviews(
                 );
             }));
 
-            CompositorAdapter::register_content_pass(
-                ctx,
-                node_key,
-                tile_rect,
-                callback,
-            );
+            CompositorAdapter::register_content_pass(ctx, node_key, tile_rect, callback);
             pass_tracker.record_content_pass(node_key);
         } else {
-            log::debug!("composite: no render_to_parent callback for webview {:?}", webview_id);
+            log::debug!(
+                "composite: no render_to_parent callback for webview {:?}",
+                webview_id
+            );
         }
 
         if focused_webview_id == Some(webview_id) && focus_ring_alpha > 0.0 {

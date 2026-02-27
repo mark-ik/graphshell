@@ -1,20 +1,29 @@
 pub(crate) mod action;
 pub(crate) mod identity;
 pub(crate) mod input;
+pub(crate) mod knowledge;
 pub(crate) mod lens;
 pub(crate) mod physics;
 pub(crate) mod protocol;
-pub(crate) mod knowledge;
 
 use std::sync::OnceLock;
 
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::app::{GraphBrowserApp, GraphIntent};
-use crate::registries::atomic::diagnostics;
-use crate::registries::atomic::protocol::ProtocolContractRegistry;
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
+use crate::registries::atomic::diagnostics;
+use crate::registries::atomic::layout::LayoutRegistry;
+use crate::registries::atomic::protocol::ProtocolContractRegistry;
+use crate::registries::atomic::theme::ThemeRegistry;
+use crate::registries::atomic::viewer::{ViewerRegistry, ViewerSelection};
+use crate::registries::domain::layout::ConformanceLevel;
+use crate::registries::domain::layout::LayoutDomainRegistry;
+use crate::registries::domain::layout::viewer_surface::{
+    VIEWER_SURFACE_DEFAULT, ViewerSurfaceResolution,
+};
+use crate::registries::domain::presentation::PresentationDomainRegistry;
 use crate::registries::infrastructure::ModRegistry;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use action::{
     ACTION_DETAIL_VIEW_SUBMIT, ACTION_GRAPH_VIEW_SUBMIT, ACTION_OMNIBOX_NODE_SEARCH,
     ACTION_VERSE_FORGET_DEVICE, ACTION_VERSE_PAIR_DEVICE, ACTION_VERSE_SHARE_WORKSPACE,
@@ -22,38 +31,25 @@ use action::{
 };
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
-use input::{InputRegistry, INPUT_BINDING_TOOLBAR_SUBMIT};
-use crate::registries::atomic::layout::LayoutRegistry;
+use input::{INPUT_BINDING_TOOLBAR_SUBMIT, InputRegistry};
+use knowledge::KnowledgeRegistry;
 use lens::LensRegistry;
 use physics::PhysicsRegistry;
-use servo::ServoUrl;
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
 };
-use knowledge::KnowledgeRegistry;
-use crate::registries::atomic::theme::ThemeRegistry;
-use crate::registries::atomic::viewer::{
-    ViewerRegistry, ViewerSelection,
-};
-use crate::registries::domain::layout::ConformanceLevel;
-use crate::registries::domain::presentation::PresentationDomainRegistry;
-use crate::registries::domain::layout::viewer_surface::{
-    VIEWER_SURFACE_DEFAULT, ViewerSurfaceResolution,
-};
-use crate::registries::domain::layout::LayoutDomainRegistry;
+use servo::ServoUrl;
 
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_STARTED: &str = "registry.protocol.resolve_started";
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED: &str = "registry.protocol.resolve_succeeded";
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FAILED: &str = "registry.protocol.resolve_failed";
-pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED: &str =
-    "registry.protocol.fallback_used";
+pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED: &str = "registry.protocol.fallback_used";
 pub(crate) const CHANNEL_VIEWER_SELECT_STARTED: &str = "registry.viewer.select_started";
 pub(crate) const CHANNEL_VIEWER_SELECT_SUCCEEDED: &str = "registry.viewer.select_succeeded";
 pub(crate) const CHANNEL_VIEWER_FALLBACK_USED: &str = "registry.viewer.fallback_used";
 pub(crate) const CHANNEL_VIEWER_CAPABILITY_PARTIAL: &str = "registry.viewer.capability_partial";
 pub(crate) const CHANNEL_VIEWER_CAPABILITY_NONE: &str = "registry.viewer.capability_none";
-pub(crate) const CHANNEL_SURFACE_CONFORMANCE_PARTIAL: &str =
-    "registry.surface.conformance_partial";
+pub(crate) const CHANNEL_SURFACE_CONFORMANCE_PARTIAL: &str = "registry.surface.conformance_partial";
 pub(crate) const CHANNEL_SURFACE_CONFORMANCE_NONE: &str = "registry.surface.conformance_none";
 pub(crate) const CHANNEL_ACTION_EXECUTE_STARTED: &str = "registry.action.execute_started";
 pub(crate) const CHANNEL_ACTION_EXECUTE_SUCCEEDED: &str = "registry.action.execute_succeeded";
@@ -79,8 +75,7 @@ pub(crate) const CHANNEL_IDENTITY_SIGN_FAILED: &str = "registry.identity.sign_fa
 pub(crate) const CHANNEL_IDENTITY_KEY_UNAVAILABLE: &str = "registry.identity.key_unavailable";
 pub(crate) const CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED: &str =
     "registry.diagnostics.channel_registered";
-pub(crate) const CHANNEL_DIAGNOSTICS_CONFIG_CHANGED: &str =
-    "registry.diagnostics.config_changed";
+pub(crate) const CHANNEL_DIAGNOSTICS_CONFIG_CHANGED: &str = "registry.diagnostics.config_changed";
 pub(crate) const CHANNEL_INVARIANT_TIMEOUT: &str = "registry.invariant.timeout";
 pub(crate) const CHANNEL_MOD_LOAD_STARTED: &str = "registry.mod.load_started";
 pub(crate) const CHANNEL_MOD_LOAD_SUCCEEDED: &str = "registry.mod.load_succeeded";
@@ -91,16 +86,13 @@ pub(crate) const CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED: &str =
     "startup.persistence.open_started";
 pub(crate) const CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED: &str =
     "startup.persistence.open_succeeded";
-pub(crate) const CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED: &str =
-    "startup.persistence.open_failed";
+pub(crate) const CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED: &str = "startup.persistence.open_failed";
 pub(crate) const CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT: &str =
     "startup.persistence.open_timeout";
-pub(crate) const CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED: &str =
-    "persistence.recover.succeeded";
+pub(crate) const CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED: &str = "persistence.recover.succeeded";
 pub(crate) const CHANNEL_PERSISTENCE_RECOVER_FAILED: &str = "persistence.recover.failed";
 pub(crate) const CHANNEL_STARTUP_VERSE_INIT_MODE: &str = "startup.verse.init_mode";
-pub(crate) const CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED: &str =
-    "startup.verse.init_succeeded";
+pub(crate) const CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED: &str = "startup.verse.init_succeeded";
 pub(crate) const CHANNEL_STARTUP_VERSE_INIT_FAILED: &str = "startup.verse.init_failed";
 pub(crate) const CHANNEL_UI_HISTORY_MANAGER_LIMIT: &str = "ui.history_manager.limit_applied";
 pub(crate) const CHANNEL_UI_CLIPBOARD_COPY_FAILED: &str = "ui.clipboard.copy_failed";
@@ -229,7 +221,10 @@ impl RegistryRuntime {
         // Discover and resolve mod dependencies
         let mut mod_registry = ModRegistry::new();
         if let Err(e) = mod_registry.resolve_dependencies() {
-            log::error!("Failed to resolve mod dependencies: {:?}. Using core seed only.", e);
+            log::error!(
+                "Failed to resolve mod dependencies: {:?}. Using core seed only.",
+                e
+            );
         }
         let _loaded_mods = mod_registry.load_all();
 
@@ -329,7 +324,6 @@ impl RegistryRuntime {
 
         Some((protocol, viewer))
     }
-
 }
 
 pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
@@ -434,7 +428,9 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         lens_id: Some(resolution.resolved_id),
         physics_id: Some(physics_resolution.resolved_id),
         layout_id: Some(layout_resolution.resolved_id),
-        theme_id: theme_resolution.as_ref().map(|resolved| resolved.resolved_id.clone()),
+        theme_id: theme_resolution
+            .as_ref()
+            .map(|resolved| resolved.resolved_id.clone()),
         physics: physics_resolution.profile,
         layout: layout_resolution.layout,
         theme: theme_resolution.map(|resolved| resolved.theme_id),
@@ -442,8 +438,11 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
     }
 }
 
-pub(crate) fn phase2_resolve_lens_components(lens: &crate::app::LensConfig) -> crate::app::LensConfig {
-    let has_component_ids = lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
+pub(crate) fn phase2_resolve_lens_components(
+    lens: &crate::app::LensConfig,
+) -> crate::app::LensConfig {
+    let has_component_ids =
+        lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
     if !has_component_ids {
         return lens.clone();
     }
@@ -490,9 +489,9 @@ pub(crate) fn phase2_resolve_lens_components(lens: &crate::app::LensConfig) -> c
     if let Some(theme_id) = lens.theme_id.as_deref() {
         let theme_resolution = presentation_domain
             .resolve_profile(
-                lens.physics_id
-                    .as_deref()
-                    .unwrap_or(crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT),
+                lens.physics_id.as_deref().unwrap_or(
+                    crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT,
+                ),
                 theme_id,
             )
             .theme;
@@ -609,15 +608,13 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
         byte_len: query.len(),
     });
 
-    let execution = runtime()
-        .action
-        .execute(
-            ACTION_OMNIBOX_NODE_SEARCH,
-            app,
-            ActionPayload::OmniboxNodeSearch {
-                query: query.to_string(),
-            },
-        );
+    let execution = runtime().action.execute(
+        ACTION_OMNIBOX_NODE_SEARCH,
+        app,
+        ActionPayload::OmniboxNodeSearch {
+            query: query.to_string(),
+        },
+    );
 
     log::debug!(
         "registry action '{}' executed for omnibox query '{}'; succeeded={} intents={}",
@@ -641,9 +638,10 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
 
 pub(crate) fn phase5_execute_verse_sync_now_action(app: &GraphBrowserApp) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = runtime()
-        .action
-        .execute(ACTION_VERSE_SYNC_NOW, app, ActionPayload::VerseSyncNow);
+    let execution =
+        runtime()
+            .action
+            .execute(ACTION_VERSE_SYNC_NOW, app, ActionPayload::VerseSyncNow);
     execution.intents
 }
 
@@ -778,7 +776,9 @@ pub(crate) fn phase3_sign_identity_payload_for_tests(
         identity_id.len().saturating_add(payload.len()),
     );
 
-    let result = RegistryRuntime::default().identity.sign(identity_id, payload);
+    let result = RegistryRuntime::default()
+        .identity
+        .sign(identity_id, payload);
     diagnostics_state.emit_message_received_for_tests(
         if result.succeeded {
             CHANNEL_IDENTITY_SIGN_SUCCEEDED
@@ -893,7 +893,9 @@ pub(crate) fn phase2_resolve_lens_for_tests(
         lens_id: Some(resolution.resolved_id),
         physics_id: Some(physics_resolution.resolved_id),
         layout_id: Some(layout_resolution.resolved_id),
-        theme_id: theme_resolution.as_ref().map(|resolved| resolved.resolved_id.clone()),
+        theme_id: theme_resolution
+            .as_ref()
+            .map(|resolved| resolved.resolved_id.clone()),
         physics: physics_resolution.profile,
         layout: layout_resolution.layout,
         theme: theme_resolution.map(|resolved| resolved.theme_id),
@@ -906,7 +908,8 @@ pub(crate) fn phase2_resolve_lens_components_for_tests(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     lens: &crate::app::LensConfig,
 ) -> crate::app::LensConfig {
-    let has_component_ids = lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
+    let has_component_ids =
+        lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
     if !has_component_ids {
         return lens.clone();
     }
@@ -955,9 +958,9 @@ pub(crate) fn phase2_resolve_lens_components_for_tests(
     if let Some(theme_id) = lens.theme_id.as_deref() {
         let theme_resolution = presentation_domain
             .resolve_profile(
-                lens.physics_id
-                    .as_deref()
-                    .unwrap_or(crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT),
+                lens.physics_id.as_deref().unwrap_or(
+                    crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT,
+                ),
                 theme_id,
             )
             .theme;
@@ -1012,15 +1015,13 @@ pub(crate) fn phase2_execute_graph_view_submit_action(
         byte_len: input.len(),
     });
 
-    let execution = runtime()
-        .action
-        .execute(
-            ACTION_GRAPH_VIEW_SUBMIT,
-            app,
-            ActionPayload::GraphViewSubmit {
-                input: input.to_string(),
-            },
-        );
+    let execution = runtime().action.execute(
+        ACTION_GRAPH_VIEW_SUBMIT,
+        app,
+        ActionPayload::GraphViewSubmit {
+            input: input.to_string(),
+        },
+    );
 
     log::debug!(
         "registry action '{}' executed for graph-view submit '{}'; succeeded={} intents={}",
@@ -1096,10 +1097,7 @@ fn phase0_observe_navigation_url_with_control(
     runtime().observe_navigation_url_with_control(uri, mime_hint, control)
 }
 
-fn apply_phase0_protocol_policy(
-    parsed_url: ServoUrl,
-    resolution: &ProtocolResolution,
-) -> ServoUrl {
+fn apply_phase0_protocol_policy(parsed_url: ServoUrl, resolution: &ProtocolResolution) -> ServoUrl {
     if resolution.supported || !resolution.fallback_used || resolution.matched_scheme.is_empty() {
         return parsed_url;
     }
@@ -1137,9 +1135,7 @@ pub(crate) fn phase0_decide_navigation_with_control(
     })
 }
 
-pub(crate) fn phase3_resolve_viewer_surface_profile(
-    _viewer_id: &str,
-) -> ViewerSurfaceResolution {
+pub(crate) fn phase3_resolve_viewer_surface_profile(_viewer_id: &str) -> ViewerSurfaceResolution {
     let layout_domain = LayoutDomainRegistry::default();
     let profile_resolution = layout_domain.resolve_profile(
         crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT,
@@ -1149,7 +1145,12 @@ pub(crate) fn phase3_resolve_viewer_surface_profile(
 
     let resolution = profile_resolution.viewer_surface;
     emit_surface_conformance_diagnostics(
-        profile_resolution.canvas.profile.subsystems.accessibility.level,
+        profile_resolution
+            .canvas
+            .profile
+            .subsystems
+            .accessibility
+            .level,
         profile_resolution.canvas.profile.subsystems.security.level,
         profile_resolution.canvas.profile.subsystems.storage.level,
         profile_resolution.canvas.profile.subsystems.history.level,
@@ -1255,7 +1256,8 @@ fn phase0_observe_navigation_url_for_tests_with_control(
         }
     }
     if viewer.fallback_used {
-        diagnostics_state.emit_message_sent_for_tests(CHANNEL_VIEWER_FALLBACK_USED, viewer.viewer_id.len());
+        diagnostics_state
+            .emit_message_sent_for_tests(CHANNEL_VIEWER_FALLBACK_USED, viewer.viewer_id.len());
     }
 
     Some((protocol, viewer))
@@ -1284,15 +1286,13 @@ pub(crate) fn phase2_execute_omnibox_node_search_action_for_tests(
 ) -> Vec<GraphIntent> {
     diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, query.len());
 
-    let execution = RegistryRuntime::default()
-        .action
-        .execute(
-            ACTION_OMNIBOX_NODE_SEARCH,
-            app,
-            ActionPayload::OmniboxNodeSearch {
-                query: query.to_string(),
-            },
-        );
+    let execution = RegistryRuntime::default().action.execute(
+        ACTION_OMNIBOX_NODE_SEARCH,
+        app,
+        ActionPayload::OmniboxNodeSearch {
+            query: query.to_string(),
+        },
+    );
 
     log::debug!(
         "registry action '{}' executed in test flow; succeeded={} intents={}",
@@ -1321,15 +1321,13 @@ pub(crate) fn phase2_execute_graph_view_submit_action_for_tests(
 ) -> (bool, Vec<GraphIntent>) {
     diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, input.len());
 
-    let execution = RegistryRuntime::default()
-        .action
-        .execute(
-            ACTION_GRAPH_VIEW_SUBMIT,
-            app,
-            ActionPayload::GraphViewSubmit {
-                input: input.to_string(),
-            },
-        );
+    let execution = RegistryRuntime::default().action.execute(
+        ACTION_GRAPH_VIEW_SUBMIT,
+        app,
+        ActionPayload::GraphViewSubmit {
+            input: input.to_string(),
+        },
+    );
 
     diagnostics_state.emit_message_received_for_tests(
         if execution.succeeded {
@@ -1351,7 +1349,8 @@ pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
     normalized_url: &str,
     focused_node: Option<crate::graph::NodeKey>,
 ) -> (bool, Vec<GraphIntent>) {
-    diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, normalized_url.len());
+    diagnostics_state
+        .emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, normalized_url.len());
 
     let execution = RegistryRuntime::default().action.execute(
         ACTION_DETAIL_VIEW_SUBMIT,
@@ -1385,12 +1384,13 @@ pub(crate) fn phase0_decide_navigation_for_tests_with_control(
     mime_hint: Option<&str>,
     control: ProtocolResolveControl,
 ) -> Option<Phase0NavigationDecision> {
-    let (protocol_resolution, viewer_selection) = phase0_observe_navigation_url_for_tests_with_control(
-        diagnostics_state,
-        parsed_url.as_str(),
-        mime_hint,
-        control,
-    )?;
+    let (protocol_resolution, viewer_selection) =
+        phase0_observe_navigation_url_for_tests_with_control(
+            diagnostics_state,
+            parsed_url.as_str(),
+            mime_hint,
+            control,
+        )?;
     if viewer_selection.viewer_id != "viewer:webview" {
         log::debug!(
             "registry viewer '{}' selected for {}; keeping webview path in Phase 0",
@@ -1421,8 +1421,8 @@ pub(crate) fn phase5_check_verse_workspace_sync_access_for_tests(
     workspace_id: &str,
     has_mutating_intents: bool,
 ) -> bool {
-    use crate::mods::native::verse::sync_worker::resolve_peer_grant;
     use crate::mods::native::verse::AccessLevel;
+    use crate::mods::native::verse::sync_worker::resolve_peer_grant;
 
     let access = resolve_peer_grant(peers, peer_id, workspace_id);
 
@@ -1687,7 +1687,9 @@ mod tests {
         let invariants = diagnostics::list_invariants_snapshot();
         for invariant_id in expected_ids {
             assert!(
-                invariants.iter().any(|entry| entry.invariant_id == *invariant_id),
+                invariants
+                    .iter()
+                    .any(|entry| entry.invariant_id == *invariant_id),
                 "missing required phase5 invariant: {invariant_id}"
             );
         }
@@ -1696,7 +1698,11 @@ mod tests {
     #[test]
     fn phase3_identity_registry_signs_default_payload() {
         let signature = phase3_sign_identity_payload("identity:default", b"payload");
-        assert!(signature.as_deref().is_some_and(|sig| sig.starts_with("sig:")));
+        assert!(
+            signature
+                .as_deref()
+                .is_some_and(|sig| sig.starts_with("sig:"))
+        );
     }
 
     #[test]
@@ -1713,9 +1719,13 @@ mod tests {
 
     #[test]
     fn phase2_lens_registry_resolves_default_lens_id() {
-        let lens = phase2_resolve_lens(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT);
+        let lens =
+            phase2_resolve_lens(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT);
         assert_eq!(lens.name, "Default");
-        assert_eq!(lens.lens_id.as_deref(), Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT));
+        assert_eq!(
+            lens.lens_id.as_deref(),
+            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT)
+        );
         assert_eq!(
             lens.physics_id.as_deref(),
             Some(crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT)
@@ -1734,7 +1744,10 @@ mod tests {
     fn phase2_lens_registry_falls_back_for_unknown_lens_id() {
         let lens = phase2_resolve_lens("lens:unknown");
         assert_eq!(lens.name, "Default");
-        assert_eq!(lens.lens_id.as_deref(), Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT));
+        assert_eq!(
+            lens.lens_id.as_deref(),
+            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT)
+        );
     }
 
     #[test]
@@ -1763,10 +1776,10 @@ mod tests {
     #[test]
     fn phase2_action_registry_omnibox_search_selects_node() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .workspace
-            .graph
-            .add_node("https://example.com".into(), euclid::default::Point2D::new(0.0, 0.0));
+        let key = app.workspace.graph.add_node(
+            "https://example.com".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
         if let Some(node) = app.workspace.graph.get_node_mut(key) {
             node.title = "Example Handle".into();
         }
@@ -1782,10 +1795,10 @@ mod tests {
     #[test]
     fn phase2_action_registry_graph_submit_updates_selected_node() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .workspace
-            .graph
-            .add_node("https://start.com".into(), euclid::default::Point2D::new(0.0, 0.0));
+        let key = app.workspace.graph.add_node(
+            "https://start.com".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
         app.workspace.selected_nodes.select(key, false);
 
         let (open_selected_tile, intents) =
@@ -1801,10 +1814,10 @@ mod tests {
     #[test]
     fn phase2_action_registry_detail_submit_updates_focused_node() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .workspace
-            .graph
-            .add_node("https://start.com".into(), euclid::default::Point2D::new(0.0, 0.0));
+        let key = app.workspace.graph.add_node(
+            "https://start.com".into(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
 
         let (open_selected_tile, intents) =
             phase2_execute_detail_view_submit_action(&app, "https://detail-next.com", Some(key));
@@ -1863,13 +1876,10 @@ mod tests {
     #[test]
     fn phase0_normalization_rewrites_unknown_scheme_to_protocol_fallback() {
         let parsed = ServoUrl::parse("foo://example.com/path").expect("url should parse");
-        let rewritten = phase0_decide_navigation_with_control(
-            parsed,
-            None,
-            ProtocolResolveControl::default(),
-        )
-        .expect("default protocol resolve control should not cancel")
-        .normalized_url;
+        let rewritten =
+            phase0_decide_navigation_with_control(parsed, None, ProtocolResolveControl::default())
+                .expect("default protocol resolve control should not cancel")
+                .normalized_url;
 
         assert_eq!(rewritten.scheme(), "https");
         assert_eq!(rewritten.host_str(), Some("example.com"));
@@ -1894,18 +1904,14 @@ mod tests {
     fn phase0_decision_uses_protocol_inferred_mime_hint_when_explicit_hint_missing() {
         let parsed =
             ServoUrl::parse("https://example.com/download/no_extension").expect("url should parse");
-        let decision = phase0_decide_navigation_with_control(
-            parsed,
-            None,
-            ProtocolResolveControl::default(),
-        )
-        .expect("default protocol resolve control should not cancel");
+        let decision =
+            phase0_decide_navigation_with_control(parsed, None, ProtocolResolveControl::default())
+                .expect("default protocol resolve control should not cancel");
 
         assert_eq!(decision.protocol.inferred_mime_hint.as_deref(), None);
         assert_eq!(decision.viewer.viewer_id, "viewer:webview");
 
-        let data_uri =
-            ServoUrl::parse("data:text/csv,foo,bar").expect("data URI should parse");
+        let data_uri = ServoUrl::parse("data:text/csv,foo,bar").expect("data URI should parse");
         let data_decision = phase0_decide_navigation_with_control(
             data_uri,
             None,
@@ -1931,8 +1937,12 @@ mod tests {
         )
         .expect("default protocol resolve control should not cancel");
 
-        assert_eq!(decision.viewer.viewer_id, "viewer:pdf");
+        assert_eq!(
+            decision.protocol.inferred_mime_hint.as_deref(),
+            Some("text/csv")
+        );
         assert_eq!(decision.viewer.matched_by, "mime");
+        assert_ne!(decision.viewer.viewer_id, "viewer:csv");
     }
 
     #[test]

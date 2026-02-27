@@ -5,8 +5,8 @@
 use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use servo::Servo;
 
@@ -158,6 +158,9 @@ mod tests {
 
         super::EmbedderCore::sort_graph_events(&mut events);
 
-        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), vec![2, 5, 9]);
+        assert_eq!(
+            events.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            vec![2, 5, 9]
+        );
     }
 }

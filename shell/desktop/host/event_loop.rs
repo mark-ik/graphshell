@@ -73,9 +73,7 @@ impl AppEventLoop {
 
     pub fn create_event_loop_waker(&self) -> Box<dyn EventLoopWaker> {
         match self {
-            AppEventLoop::Winit(event_loop) => {
-                Box::new(HeadedEventLoopWaker::new(event_loop))
-            },
+            AppEventLoop::Winit(event_loop) => Box::new(HeadedEventLoopWaker::new(event_loop)),
             AppEventLoop::Headless(data) => Box::new(HeadlessEventLoopWaker(data.clone())),
         }
     }
@@ -88,7 +86,7 @@ impl AppEventLoop {
                     error!("{msg}");
                     msg
                 })?;
-            },
+            }
             AppEventLoop::Headless(event_loop) => event_loop.run_app(app),
         }
         Ok(())

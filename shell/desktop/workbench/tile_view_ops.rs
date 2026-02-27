@@ -9,13 +9,15 @@ use egui_tiles::{Container, Tile, Tree};
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId};
-use crate::shell::desktop::lifecycle::webview_backpressure::{self, WebviewCreationBackpressureState};
-use crate::shell::desktop::workbench::pane_model::NodePaneState;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::workbench::tile_runtime;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::webview_backpressure::{
+    self, WebviewCreationBackpressureState,
+};
+use crate::shell::desktop::workbench::pane_model::NodePaneState;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_runtime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TileOpenMode {
@@ -53,10 +55,7 @@ pub(crate) fn active_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<GraphV
     last_active_graph
 }
 
-pub(crate) fn open_or_focus_graph_pane(
-    tiles_tree: &mut Tree<TileKind>,
-    view_id: GraphViewId,
-) {
+pub(crate) fn open_or_focus_graph_pane(tiles_tree: &mut Tree<TileKind>, view_id: GraphViewId) {
     open_or_focus_graph_pane_with_mode(tiles_tree, view_id, TileOpenMode::Tab);
 }
 
@@ -155,11 +154,16 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
     if tiles_tree.make_active(
         |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
     ) {
-        log::debug!("tile_view_ops: focused existing node pane for node {:?}", node_key);
+        log::debug!(
+            "tile_view_ops: focused existing node pane for node {:?}",
+            node_key
+        );
         return;
     }
 
-    let node_pane_tile_id = tiles_tree.tiles.insert_pane(TileKind::Node(node_key.into()));
+    let node_pane_tile_id = tiles_tree
+        .tiles
+        .insert_pane(TileKind::Node(node_key.into()));
     let split_leaf_tile_id = tiles_tree.tiles.insert_tab_tile(vec![node_pane_tile_id]);
     log::debug!(
         "tile_view_ops: inserted node pane {:?} (split leaf {:?}) for node {:?}",
@@ -172,10 +176,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             TileOpenMode::Tab => node_pane_tile_id,
             TileOpenMode::SplitHorizontal => split_leaf_tile_id,
         });
-        log::debug!(
-            "tile_view_ops: no root, set root to {:?}",
-            tiles_tree.root
-        );
+        log::debug!("tile_view_ops: no root, set root to {:?}", tiles_tree.root);
         return;
     };
 
@@ -195,7 +196,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             tiles_tree.make_active(
                 |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
             );
-        },
+        }
         TileOpenMode::SplitHorizontal => {
             // Never split directly against a raw leaf pane: wrap it in tabs first.
             let split_lhs_id = if matches!(
@@ -225,7 +226,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             tiles_tree.make_active(
                 |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
             );
-        },
+        }
     }
 }
 
@@ -247,8 +248,10 @@ pub(crate) fn detach_node_pane_to_split(tiles_tree: &mut Tree<TileKind>, node_ke
 pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
     if tile_runtime::has_any_node_panes(args.tiles_tree) {
         let node_pane_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
-        let webview_host_nodes =
-            tile_runtime::all_node_pane_keys_hosting_webview_runtime(args.tiles_tree, args.graph_app);
+        let webview_host_nodes = tile_runtime::all_node_pane_keys_hosting_webview_runtime(
+            args.tiles_tree,
+            args.graph_app,
+        );
         let tile_ids: Vec<_> = args
             .tiles_tree
             .tiles

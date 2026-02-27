@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
-use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::graph::NodeKey;
 use crate::services::search::fuzzy_match_node_keys;
+use crate::shell::desktop::lifecycle::lifecycle_intents;
 use euclid::default::Point2D;
 
 pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "action.omnibox_node_search";
@@ -18,8 +18,12 @@ pub(crate) const ACTION_VERSE_FORGET_DEVICE: &str = "action.verse.forget_device"
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActionPayload {
-    OmniboxNodeSearch { query: String },
-    GraphViewSubmit { input: String },
+    OmniboxNodeSearch {
+        query: String,
+    },
+    GraphViewSubmit {
+        input: String,
+    },
     DetailViewSubmit {
         normalized_url: String,
         focused_node: Option<NodeKey>,
@@ -62,7 +66,8 @@ pub(crate) struct ActionRegistry {
 
 impl ActionRegistry {
     pub(crate) fn register(&mut self, action_id: &str, handler: ActionHandler) {
-        self.handlers.insert(action_id.to_ascii_lowercase(), handler);
+        self.handlers
+            .insert(action_id.to_ascii_lowercase(), handler);
     }
 
     pub(crate) fn execute(
@@ -95,19 +100,31 @@ impl Default for ActionRegistry {
         };
         registry.register(ACTION_DETAIL_VIEW_SUBMIT, execute_detail_view_submit_action);
         registry.register(ACTION_GRAPH_VIEW_SUBMIT, execute_graph_view_submit_action);
-        registry.register(ACTION_OMNIBOX_NODE_SEARCH, execute_omnibox_node_search_action);
-        
+        registry.register(
+            ACTION_OMNIBOX_NODE_SEARCH,
+            execute_omnibox_node_search_action,
+        );
+
         // Verse sync actions (Step 5.3)
         registry.register(ACTION_VERSE_PAIR_DEVICE, execute_verse_pair_device_action);
         registry.register(ACTION_VERSE_SYNC_NOW, execute_verse_sync_now_action);
-        registry.register(ACTION_VERSE_SHARE_WORKSPACE, execute_verse_share_workspace_action);
-        registry.register(ACTION_VERSE_FORGET_DEVICE, execute_verse_forget_device_action);
-        
+        registry.register(
+            ACTION_VERSE_SHARE_WORKSPACE,
+            execute_verse_share_workspace_action,
+        );
+        registry.register(
+            ACTION_VERSE_FORGET_DEVICE,
+            execute_verse_forget_device_action,
+        );
+
         registry
     }
 }
 
-fn execute_graph_view_submit_action(app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+fn execute_graph_view_submit_action(
+    app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> Vec<GraphIntent> {
     let ActionPayload::GraphViewSubmit { input } = payload else {
         return Vec::new();
     };
@@ -131,7 +148,10 @@ fn execute_graph_view_submit_action(app: &GraphBrowserApp, payload: &ActionPaylo
     }
 }
 
-fn execute_detail_view_submit_action(app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+fn execute_detail_view_submit_action(
+    app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> Vec<GraphIntent> {
     let ActionPayload::DetailViewSubmit {
         normalized_url,
         focused_node,
@@ -181,7 +201,10 @@ fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>)
     Point2D::new(base.x + radius * angle.cos(), base.y + radius * angle.sin())
 }
 
-fn execute_omnibox_node_search_action(app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+fn execute_omnibox_node_search_action(
+    app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> Vec<GraphIntent> {
     let ActionPayload::OmniboxNodeSearch { query } = payload else {
         return Vec::new();
     };
@@ -198,11 +221,14 @@ fn execute_omnibox_node_search_action(app: &GraphBrowserApp, payload: &ActionPay
 
 // ===== Verse Sync Action Handlers (Step 5.3) =====
 
-fn execute_verse_pair_device_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+fn execute_verse_pair_device_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> Vec<GraphIntent> {
     let ActionPayload::VersePairDevice { mode } = payload else {
         return Vec::new();
     };
-    
+
     // For Step 5.3: Generate pairing code or initiate connection
     // The actual UI dialog is handled by the GUI layer (Step 5.3 UI implementation)
     // This action just triggers the pairing state machine
@@ -215,14 +241,16 @@ fn execute_verse_pair_device_action(_app: &GraphBrowserApp, payload: &ActionPayl
         PairingMode::EnterCode { code } => {
             match crate::mods::native::verse::decode_pairing_code(code) {
                 Ok(node_id) => {
-                    crate::mods::native::verse::trust_peer(crate::mods::native::verse::TrustedPeer {
-                        node_id,
-                        display_name: format!("Paired {}", &node_id.to_string()[..8]),
-                        role: crate::mods::native::verse::PeerRole::Friend,
-                        added_at: std::time::SystemTime::now(),
-                        last_seen: Some(std::time::SystemTime::now()),
-                        workspace_grants: Vec::new(),
-                    });
+                    crate::mods::native::verse::trust_peer(
+                        crate::mods::native::verse::TrustedPeer {
+                            node_id,
+                            display_name: format!("Paired {}", &node_id.to_string()[..8]),
+                            role: crate::mods::native::verse::PeerRole::Friend,
+                            added_at: std::time::SystemTime::now(),
+                            last_seen: Some(std::time::SystemTime::now()),
+                            workspace_grants: Vec::new(),
+                        },
+                    );
                     log::info!("Pairing completed with code-derived peer {}", node_id);
                 }
                 Err(error) => {
@@ -234,14 +262,16 @@ fn execute_verse_pair_device_action(_app: &GraphBrowserApp, payload: &ActionPayl
         PairingMode::LocalPeer { node_id } => {
             match node_id.parse::<iroh::NodeId>() {
                 Ok(parsed_node_id) => {
-                    crate::mods::native::verse::trust_peer(crate::mods::native::verse::TrustedPeer {
-                        node_id: parsed_node_id,
-                        display_name: format!("Local {}", &parsed_node_id.to_string()[..8]),
-                        role: crate::mods::native::verse::PeerRole::Friend,
-                        added_at: std::time::SystemTime::now(),
-                        last_seen: Some(std::time::SystemTime::now()),
-                        workspace_grants: Vec::new(),
-                    });
+                    crate::mods::native::verse::trust_peer(
+                        crate::mods::native::verse::TrustedPeer {
+                            node_id: parsed_node_id,
+                            display_name: format!("Local {}", &parsed_node_id.to_string()[..8]),
+                            role: crate::mods::native::verse::PeerRole::Friend,
+                            added_at: std::time::SystemTime::now(),
+                            last_seen: Some(std::time::SystemTime::now()),
+                            workspace_grants: Vec::new(),
+                        },
+                    );
                     log::info!("Paired with discovered local peer: {}", parsed_node_id);
                 }
                 Err(error) => {
@@ -253,11 +283,17 @@ fn execute_verse_pair_device_action(_app: &GraphBrowserApp, payload: &ActionPayl
     }
 }
 
-fn execute_verse_sync_now_action(_app: &GraphBrowserApp, _payload: &ActionPayload) -> Vec<GraphIntent> {
+fn execute_verse_sync_now_action(
+    _app: &GraphBrowserApp,
+    _payload: &ActionPayload,
+) -> Vec<GraphIntent> {
     vec![GraphIntent::SyncNow]
 }
 
-fn execute_verse_share_workspace_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+fn execute_verse_share_workspace_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> Vec<GraphIntent> {
     let ActionPayload::VerseShareWorkspace { workspace_id } = payload else {
         return Vec::new();
     };
@@ -274,7 +310,10 @@ fn execute_verse_share_workspace_action(_app: &GraphBrowserApp, payload: &Action
     Vec::new()
 }
 
-fn execute_verse_forget_device_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> Vec<GraphIntent> {
+fn execute_verse_forget_device_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> Vec<GraphIntent> {
     let ActionPayload::VerseForgetDevice { node_id } = payload else {
         return Vec::new();
     };

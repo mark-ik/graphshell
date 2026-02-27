@@ -22,8 +22,10 @@ pub(crate) struct InputRegistry {
 
 impl InputRegistry {
     pub(crate) fn register_binding(&mut self, binding_id: &str, action_id: &str) {
-        self.bindings
-            .insert(binding_id.to_ascii_lowercase(), action_id.to_ascii_lowercase());
+        self.bindings.insert(
+            binding_id.to_ascii_lowercase(),
+            action_id.to_ascii_lowercase(),
+        );
     }
 
     pub(crate) fn resolve(&self, binding_id: &str) -> InputBindingResolution {
@@ -44,7 +46,10 @@ impl Default for InputRegistry {
         };
         registry.register_binding(INPUT_BINDING_TOOLBAR_SUBMIT, ACTION_TOOLBAR_SUBMIT);
         registry.register_binding(INPUT_BINDING_TOOLBAR_NAV_BACK, ACTION_TOOLBAR_NAV_BACK);
-        registry.register_binding(INPUT_BINDING_TOOLBAR_NAV_FORWARD, ACTION_TOOLBAR_NAV_FORWARD);
+        registry.register_binding(
+            INPUT_BINDING_TOOLBAR_NAV_FORWARD,
+            ACTION_TOOLBAR_NAV_FORWARD,
+        );
         registry.register_binding(INPUT_BINDING_TOOLBAR_NAV_RELOAD, ACTION_TOOLBAR_NAV_RELOAD);
         registry
     }
@@ -82,7 +87,10 @@ mod tests {
 
         let forward = registry.resolve(INPUT_BINDING_TOOLBAR_NAV_FORWARD);
         assert!(forward.matched);
-        assert_eq!(forward.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_FORWARD));
+        assert_eq!(
+            forward.action_id.as_deref(),
+            Some(ACTION_TOOLBAR_NAV_FORWARD)
+        );
 
         let reload = registry.resolve(INPUT_BINDING_TOOLBAR_NAV_RELOAD);
         assert!(reload.matched);

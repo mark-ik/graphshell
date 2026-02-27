@@ -11,14 +11,16 @@ use servo::{OffscreenRenderingContext, WebViewId};
 use sysinfo::System;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, MemoryPressureLevel};
+use crate::graph::{NodeKey, NodeLifecycle};
+use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
-use crate::shell::desktop::lifecycle::webview_backpressure::{self, WebviewCreationBackpressureState};
+use crate::shell::desktop::lifecycle::webview_backpressure::{
+    self, WebviewCreationBackpressureState,
+};
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
-use crate::graph::{NodeKey, NodeLifecycle};
-use crate::shell::desktop::host::window::EmbedderWindow;
 
 pub(crate) struct RuntimeReconcileArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
@@ -88,21 +90,24 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     for node_key in args.graph_app.take_warm_cache_evictions() {
         if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
             args.window.close_webview(webview_id);
-            args.frame_intents.push(GraphIntent::UnmapWebview { webview_id });
+            args.frame_intents
+                .push(GraphIntent::UnmapWebview { webview_id });
         }
         args.tile_rendering_contexts.remove(&node_key);
         // Workspace-aware demotion:
         let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
         if is_workspace_member {
-            args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
-                node_key,
-                LifecycleCause::WarmLruEviction,
-            ));
+            args.frame_intents
+                .push(lifecycle_intents::demote_node_to_warm(
+                    node_key,
+                    LifecycleCause::WarmLruEviction,
+                ));
         } else {
-            args.frame_intents.push(lifecycle_intents::demote_node_to_cold(
-                node_key,
-                LifecycleCause::NodeRemoval,
-            ));
+            args.frame_intents
+                .push(lifecycle_intents::demote_node_to_cold(
+                    node_key,
+                    LifecycleCause::NodeRemoval,
+                ));
         }
     }
     args.tile_favicon_textures
@@ -133,10 +138,11 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false);
         if should_promote && !args.graph_app.is_crash_blocked(node_key) {
-            args.frame_intents.push(lifecycle_intents::promote_node_to_active(
-                node_key,
-                LifecycleCause::ActiveTileVisible,
-            ));
+            args.frame_intents
+                .push(lifecycle_intents::promote_node_to_active(
+                    node_key,
+                    LifecycleCause::ActiveTileVisible,
+                ));
         }
     }
     let prewarm_selected_node = args
@@ -155,10 +161,11 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false)
     {
-        args.frame_intents.push(lifecycle_intents::promote_node_to_active(
-            node_key,
-            LifecycleCause::SelectedPrewarm,
-        ));
+        args.frame_intents
+            .push(lifecycle_intents::promote_node_to_active(
+                node_key,
+                LifecycleCause::SelectedPrewarm,
+            ));
     }
 
     if has_node_panes {
@@ -196,20 +203,24 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             {
                 if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
                     args.window.close_webview(webview_id);
-                    args.frame_intents.push(GraphIntent::UnmapWebview { webview_id });
+                    args.frame_intents
+                        .push(GraphIntent::UnmapWebview { webview_id });
                 }
                 args.tile_rendering_contexts.remove(&node_key);
-                let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
+                let is_workspace_member =
+                    !args.graph_app.workspaces_for_node_key(node_key).is_empty();
                 if is_workspace_member {
-                    args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
-                        node_key,
-                        LifecycleCause::MemoryPressureWarning,
-                    ));
+                    args.frame_intents
+                        .push(lifecycle_intents::demote_node_to_warm(
+                            node_key,
+                            LifecycleCause::MemoryPressureWarning,
+                        ));
                 } else {
-                    args.frame_intents.push(lifecycle_intents::demote_node_to_cold(
-                        node_key,
-                        LifecycleCause::MemoryPressureCritical,
-                    ));
+                    args.frame_intents
+                        .push(lifecycle_intents::demote_node_to_cold(
+                            node_key,
+                            LifecycleCause::MemoryPressureCritical,
+                        ));
                 }
             }
         }
@@ -219,15 +230,17 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         {
             let is_workspace_member = !args.graph_app.workspaces_for_node_key(node_key).is_empty();
             if is_workspace_member {
-                args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
-                    node_key,
-                    LifecycleCause::ActiveLruEviction,
-                ));
+                args.frame_intents
+                    .push(lifecycle_intents::demote_node_to_warm(
+                        node_key,
+                        LifecycleCause::ActiveLruEviction,
+                    ));
             } else {
-                args.frame_intents.push(lifecycle_intents::demote_node_to_cold(
-                    node_key,
-                    LifecycleCause::ActiveLruEviction,
-                ));
+                args.frame_intents
+                    .push(lifecycle_intents::demote_node_to_cold(
+                        node_key,
+                        LifecycleCause::ActiveLruEviction,
+                    ));
             }
         }
     } else {

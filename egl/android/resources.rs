@@ -16,23 +16,19 @@ impl ResourceReaderInstance {
 impl ResourceReaderMethods for ResourceReaderInstance {
     fn read(&self, res: Resource) -> Vec<u8> {
         Vec::from(match res {
-            Resource::HstsPreloadList => {
-                &include_bytes!("../../resources/hsts_preload.fstmap")[..]
-            },
+            Resource::HstsPreloadList => &include_bytes!("../../resources/hsts_preload.fstmap")[..],
             Resource::BadCertHTML => &include_bytes!("../../resources/badcert.html")[..],
             Resource::NetErrorHTML => &include_bytes!("../../resources/neterror.html")[..],
             Resource::BrokenImageIcon => &include_bytes!("../../resources/rippy.png")[..],
             Resource::DomainList => &include_bytes!("../../resources/public_domains.txt")[..],
             Resource::BluetoothBlocklist => {
                 &include_bytes!("../../resources/gatt_blocklist.txt")[..]
-            },
+            }
             Resource::CrashHTML => &include_bytes!("../../resources/crash.html")[..],
             Resource::DirectoryListingHTML => {
                 &include_bytes!("../../resources/directory-listing.html")[..]
-            },
-            Resource::AboutMemoryHTML => {
-                &include_bytes!("../../resources/about-memory.html")[..]
-            },
+            }
+            Resource::AboutMemoryHTML => &include_bytes!("../../resources/about-memory.html")[..],
             Resource::DebuggerJS => &include_bytes!("../../resources/debugger.js")[..],
         })
     }

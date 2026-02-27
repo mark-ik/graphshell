@@ -108,7 +108,9 @@ impl GraphPaneRef {
 /// Carries which node to display and an optional explicit viewer backend override.
 /// Canonical viewer selection (based on `mime_hint`, `address_kind`, user policy)
 /// is delegated to `ViewerRegistry`; `viewer_id_override` is an explicit user/intent override only.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) enum TileRenderMode {
     /// Viewer renders to a Graphshell-owned composited texture (e.g. Servo).
     CompositedTexture,
@@ -185,13 +187,11 @@ impl From<NodePaneStateCompat> for NodePaneState {
                 node,
                 viewer_id_override,
                 render_mode,
-            } => {
-                Self {
-                    node,
-                    viewer_id_override,
-                    render_mode,
-                }
-            }
+            } => Self {
+                node,
+                viewer_id_override,
+                render_mode,
+            },
         }
     }
 }
@@ -335,7 +335,10 @@ mod tests {
     fn tool_pane_titles_are_stable_per_variant() {
         assert_eq!(ToolPaneState::Diagnostics.title(), "Diagnostics");
         assert_eq!(ToolPaneState::HistoryManager.title(), "History");
-        assert_eq!(ToolPaneState::AccessibilityInspector.title(), "Accessibility");
+        assert_eq!(
+            ToolPaneState::AccessibilityInspector.title(),
+            "Accessibility"
+        );
         assert_eq!(ToolPaneState::Settings.title(), "Settings");
     }
 

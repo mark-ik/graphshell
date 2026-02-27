@@ -3,35 +3,32 @@ use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED, CHANNEL_ACTION_EXECUTE_SUCCEEDED,
-    CHANNEL_IDENTITY_KEY_UNAVAILABLE, CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED,
-    CHANNEL_IDENTITY_SIGN_SUCCEEDED,
+    CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED,
+    CHANNEL_ACTION_EXECUTE_SUCCEEDED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
     CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
-    CHANNEL_INPUT_BINDING_CONFLICT, CHANNEL_INPUT_BINDING_MISSING, CHANNEL_INPUT_BINDING_RESOLVED,
-    CHANNEL_INVARIANT_TIMEOUT,
-    CHANNEL_LAYOUT_FALLBACK_USED, CHANNEL_LAYOUT_LOOKUP_FAILED, CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
-    CHANNEL_LENS_FALLBACK_USED, CHANNEL_LENS_RESOLVE_FAILED, CHANNEL_LENS_RESOLVE_SUCCEEDED,
-    CHANNEL_MOD_DEPENDENCY_MISSING, CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED,
-    CHANNEL_MOD_LOAD_SUCCEEDED,
+    CHANNEL_IDENTITY_KEY_UNAVAILABLE, CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED,
+    CHANNEL_IDENTITY_SIGN_SUCCEEDED, CHANNEL_INPUT_BINDING_CONFLICT, CHANNEL_INPUT_BINDING_MISSING,
+    CHANNEL_INPUT_BINDING_RESOLVED, CHANNEL_INVARIANT_TIMEOUT, CHANNEL_LAYOUT_FALLBACK_USED,
+    CHANNEL_LAYOUT_LOOKUP_FAILED, CHANNEL_LAYOUT_LOOKUP_SUCCEEDED, CHANNEL_LENS_FALLBACK_USED,
+    CHANNEL_LENS_RESOLVE_FAILED, CHANNEL_LENS_RESOLVE_SUCCEEDED, CHANNEL_MOD_DEPENDENCY_MISSING,
+    CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED,
+    CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
     CHANNEL_PHYSICS_FALLBACK_USED, CHANNEL_PHYSICS_LOOKUP_FAILED, CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
     CHANNEL_PROTOCOL_RESOLVE_FAILED, CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
-    CHANNEL_THEME_FALLBACK_USED, CHANNEL_THEME_LOOKUP_FAILED, CHANNEL_THEME_LOOKUP_SUCCEEDED,
-    CHANNEL_SURFACE_CONFORMANCE_NONE, CHANNEL_SURFACE_CONFORMANCE_PARTIAL,
-    CHANNEL_VIEWER_CAPABILITY_NONE, CHANNEL_VIEWER_CAPABILITY_PARTIAL,
-    CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
     CHANNEL_STARTUP_CONFIG_SNAPSHOT, CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
-    CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT, CHANNEL_PERSISTENCE_RECOVER_FAILED,
-    CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED, CHANNEL_STARTUP_VERSE_INIT_FAILED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT, CHANNEL_STARTUP_VERSE_INIT_FAILED,
     CHANNEL_STARTUP_VERSE_INIT_MODE, CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
-    CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UI_CLIPBOARD_COPY_FAILED,
-    CHANNEL_VERSE_PREINIT_CALL, CHANNEL_VERSE_SYNC_ACCESS_DENIED,
-    CHANNEL_VERSE_SYNC_CONNECTION_REJECTED, CHANNEL_VERSE_SYNC_IDENTITY_GENERATED,
-    CHANNEL_VERSE_SYNC_INTENT_APPLIED, CHANNEL_VERSE_SYNC_UNIT_RECEIVED,
-    CHANNEL_VERSE_SYNC_UNIT_SENT,
-    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
-    CHANNEL_VERSE_SYNC_CONFLICT_DETECTED, CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
+    CHANNEL_SURFACE_CONFORMANCE_NONE, CHANNEL_SURFACE_CONFORMANCE_PARTIAL,
+    CHANNEL_THEME_FALLBACK_USED, CHANNEL_THEME_LOOKUP_FAILED, CHANNEL_THEME_LOOKUP_SUCCEEDED,
+    CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_VERSE_PREINIT_CALL,
+    CHANNEL_VERSE_SYNC_ACCESS_DENIED, CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
+    CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED, CHANNEL_VERSE_SYNC_CONNECTION_REJECTED,
+    CHANNEL_VERSE_SYNC_IDENTITY_GENERATED, CHANNEL_VERSE_SYNC_INTENT_APPLIED,
+    CHANNEL_VERSE_SYNC_UNIT_RECEIVED, CHANNEL_VERSE_SYNC_UNIT_SENT, CHANNEL_VIEWER_CAPABILITY_NONE,
+    CHANNEL_VIEWER_CAPABILITY_PARTIAL, CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED,
+    CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
 
 /// Severity tier for diagnostic channel prioritization in the diagnostics pane.
@@ -551,8 +548,7 @@ const PHASE5_CHANNELS: [DiagnosticChannelDescriptor; 8] = [
     },
 ];
 
-const INVARIANT_VERSE_SYNC_RECEIVED_COMPLETES: &str =
-    "invariant.verse.sync.received_completes";
+const INVARIANT_VERSE_SYNC_RECEIVED_COMPLETES: &str = "invariant.verse.sync.received_completes";
 const INVARIANT_VERSE_SYNC_SENT_COMPLETES: &str = "invariant.verse.sync.sent_completes";
 const PHASE5_INVARIANT_IDS: [&str; 2] = [
     INVARIANT_VERSE_SYNC_RECEIVED_COMPLETES,
@@ -647,13 +643,16 @@ impl DiagnosticsRegistry {
     }
 
     pub(crate) fn set_config(&mut self, channel_id: &str, config: ChannelConfig) {
-        self.configs
-            .insert(normalize_channel_id(channel_id), normalize_channel_config(config));
+        self.configs.insert(
+            normalize_channel_id(channel_id),
+            normalize_channel_config(config),
+        );
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn has_channel(&self, channel_id: &str) -> bool {
-        self.channels.contains_key(&normalize_channel_id(channel_id))
+        self.channels
+            .contains_key(&normalize_channel_id(channel_id))
     }
 
     pub(crate) fn list_channel_configs(&self) -> Vec<(RuntimeChannelDescriptor, ChannelConfig)> {
@@ -695,17 +694,19 @@ impl DiagnosticsRegistry {
                             existing_schema_version: existing.schema_version,
                             requested_schema_version: normalized_descriptor.schema_version,
                         });
-                    },
+                    }
                     ChannelRegistrationPolicy::KeepExisting => return Ok(false),
-                    ChannelRegistrationPolicy::ReplaceExisting => {},
+                    ChannelRegistrationPolicy::ReplaceExisting => {}
                 }
             } else if !matches!(policy, ChannelRegistrationPolicy::ReplaceExisting) {
                 return Ok(false);
             }
         }
 
-        self.channels
-            .insert(normalized_descriptor.channel_id.clone(), normalized_descriptor.clone());
+        self.channels.insert(
+            normalized_descriptor.channel_id.clone(),
+            normalized_descriptor.clone(),
+        );
         self.configs
             .entry(normalized_descriptor.channel_id)
             .or_default();
@@ -856,7 +857,10 @@ impl DiagnosticsRegistry {
                     });
             }
 
-            if invariant.terminal_channels.iter().any(|entry| entry == &normalized)
+            if invariant
+                .terminal_channels
+                .iter()
+                .any(|entry| entry == &normalized)
                 && let Some(queue) = self.pending_invariants.get_mut(&invariant.invariant_id)
             {
                 let _ = queue.pop_front();
@@ -975,7 +979,7 @@ fn validate_runtime_channel_ownership(
                     reason: format!("mod channels must use namespace '{expected_prefix}*'"),
                 });
             }
-        },
+        }
         DiagnosticsChannelSource::Verse => {
             if !descriptor.channel_id.starts_with("verse.") {
                 return Err(ChannelRegistrationError::InvalidOwnership {
@@ -983,8 +987,8 @@ fn validate_runtime_channel_ownership(
                     reason: "verse channels must use namespace 'verse.*'".to_string(),
                 });
             }
-        },
-        _ => {},
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -1005,7 +1009,9 @@ fn global_registry() -> &'static Mutex<DiagnosticsRegistry> {
 pub(crate) fn should_emit_and_observe(
     channel_id: &str,
 ) -> (bool, Vec<DiagnosticsInvariantViolation>) {
-    let mut registry = global_registry().lock().expect("diagnostics registry lock poisoned");
+    let mut registry = global_registry()
+        .lock()
+        .expect("diagnostics registry lock poisoned");
     let should_emit = registry.should_emit_channel(channel_id);
     let violations = registry.observe_channel_event(channel_id, current_unix_ms());
     (should_emit, violations)
@@ -1047,7 +1053,9 @@ pub(crate) fn get_channel_config_global(channel_id: &str) -> ChannelConfig {
 }
 
 pub(crate) fn apply_persisted_channel_configs(configs: Vec<(String, ChannelConfig)>) {
-    let mut registry = global_registry().lock().expect("diagnostics registry lock poisoned");
+    let mut registry = global_registry()
+        .lock()
+        .expect("diagnostics registry lock poisoned");
     for (channel_id, config) in configs {
         registry.set_config(&channel_id, config);
     }
@@ -1064,7 +1072,13 @@ pub(crate) fn register_mod_channel_global(
     global_registry()
         .lock()
         .expect("diagnostics registry lock poisoned")
-        .register_mod_channel(mod_id, channel_id, schema_version, description, capabilities)
+        .register_mod_channel(
+            mod_id,
+            channel_id,
+            schema_version,
+            description,
+            capabilities,
+        )
 }
 
 #[allow(dead_code)]
@@ -1078,7 +1092,13 @@ pub(crate) fn register_verse_channel_global(
     global_registry()
         .lock()
         .expect("diagnostics registry lock poisoned")
-        .register_verse_channel(peer_id, channel_id, schema_version, description, capabilities)
+        .register_verse_channel(
+            peer_id,
+            channel_id,
+            schema_version,
+            description,
+            capabilities,
+        )
 }
 
 #[allow(dead_code)]
@@ -1159,7 +1179,10 @@ mod tests {
             ChannelRegistrationPolicy::RejectConflict,
         );
 
-        assert!(matches!(result, Err(ChannelRegistrationError::Conflict { .. })));
+        assert!(matches!(
+            result,
+            Err(ChannelRegistrationError::Conflict { .. })
+        ));
     }
 
     #[test]

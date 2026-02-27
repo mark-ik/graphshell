@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::registries::atomic::layout::LAYOUT_ID_DEFAULT;
 use super::physics::PHYSICS_ID_DEFAULT;
+use crate::registries::atomic::layout::LAYOUT_ID_DEFAULT;
 use crate::registries::atomic::theme::THEME_ID_DEFAULT;
 
 pub(crate) const LENS_ID_DEFAULT: &str = "lens:default";
@@ -31,8 +31,7 @@ pub(crate) struct LensRegistry {
 
 impl LensRegistry {
     pub(crate) fn register(&mut self, lens_id: &str, definition: LensDefinition) {
-        self.lenses
-            .insert(lens_id.to_ascii_lowercase(), definition);
+        self.lenses.insert(lens_id.to_ascii_lowercase(), definition);
     }
 
     pub(crate) fn resolve(&self, lens_id: &str) -> LensResolution {

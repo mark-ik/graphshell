@@ -35,15 +35,24 @@ pub(crate) struct AccessibilityCapabilities {
 
 impl AccessibilityCapabilities {
     pub(crate) fn full() -> Self {
-        Self { level: ConformanceLevel::Full, reason: None }
+        Self {
+            level: ConformanceLevel::Full,
+            reason: None,
+        }
     }
 
     pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::Partial, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::Partial,
+            reason: Some(reason.into()),
+        }
     }
 
     pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::None, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::None,
+            reason: Some(reason.into()),
+        }
     }
 }
 
@@ -62,15 +71,24 @@ pub(crate) struct SecurityCapabilities {
 
 impl SecurityCapabilities {
     pub(crate) fn full() -> Self {
-        Self { level: ConformanceLevel::Full, reason: None }
+        Self {
+            level: ConformanceLevel::Full,
+            reason: None,
+        }
     }
 
     pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::Partial, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::Partial,
+            reason: Some(reason.into()),
+        }
     }
 
     pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::None, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::None,
+            reason: Some(reason.into()),
+        }
     }
 }
 
@@ -88,15 +106,24 @@ pub(crate) struct StorageCapabilities {
 
 impl StorageCapabilities {
     pub(crate) fn full() -> Self {
-        Self { level: ConformanceLevel::Full, reason: None }
+        Self {
+            level: ConformanceLevel::Full,
+            reason: None,
+        }
     }
 
     pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::Partial, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::Partial,
+            reason: Some(reason.into()),
+        }
     }
 
     pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::None, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::None,
+            reason: Some(reason.into()),
+        }
     }
 }
 
@@ -113,15 +140,24 @@ pub(crate) struct HistoryCapabilities {
 
 impl HistoryCapabilities {
     pub(crate) fn full() -> Self {
-        Self { level: ConformanceLevel::Full, reason: None }
+        Self {
+            level: ConformanceLevel::Full,
+            reason: None,
+        }
     }
 
     pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::Partial, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::Partial,
+            reason: Some(reason.into()),
+        }
     }
 
     pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self { level: ConformanceLevel::None, reason: Some(reason.into()) }
+        Self {
+            level: ConformanceLevel::None,
+            reason: Some(reason.into()),
+        }
     }
 }
 
@@ -275,7 +311,12 @@ mod tests {
             ConformanceLevel::Full
         );
         assert_eq!(
-            resolution.viewer_surface.profile.subsystems.accessibility.level,
+            resolution
+                .viewer_surface
+                .profile
+                .subsystems
+                .accessibility
+                .level,
             ConformanceLevel::Full
         );
         assert_eq!(
@@ -291,11 +332,21 @@ mod tests {
             ConformanceLevel::Full
         );
         assert_eq!(
-            resolution.workbench_surface.profile.subsystems.storage.level,
+            resolution
+                .workbench_surface
+                .profile
+                .subsystems
+                .storage
+                .level,
             ConformanceLevel::Full
         );
         assert_eq!(
-            resolution.workbench_surface.profile.subsystems.history.level,
+            resolution
+                .workbench_surface
+                .profile
+                .subsystems
+                .history
+                .level,
             ConformanceLevel::Full
         );
         assert_eq!(

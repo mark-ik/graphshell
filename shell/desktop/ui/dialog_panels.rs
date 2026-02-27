@@ -10,10 +10,10 @@ use servo::{OffscreenRenderingContext, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
+use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
-use crate::shell::desktop::host::window::EmbedderWindow;
 
 pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) ctx: &'a egui::Context,

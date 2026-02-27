@@ -253,10 +253,10 @@ fn init_app(
         match parse_command_line_arguments(args.as_slice()) {
             ArgumentParsingResult::ContentProcess(..) => {
                 unreachable!("OHOS does not have support for multiprocess yet.")
-            },
+            }
             ArgumentParsingResult::ChromeProcess(opts, preferences, app_preferences) => {
                 (opts, preferences, app_preferences)
-            },
+            }
             ArgumentParsingResult::Exit => std::process::exit(0),
             ArgumentParsingResult::ErrorParsing => std::process::exit(1),
         };
@@ -384,7 +384,7 @@ impl ServoAction {
         match self {
             WakeUp => {
                 servo.spin_event_loop();
-            },
+            }
             LoadUrl(url) => servo.load_uri(url.as_str()),
             GoBack => servo.go_back(),
             GoForward => servo.go_forward(),
@@ -402,23 +402,23 @@ impl ServoAction {
                     servo.key_down(Key::Named(NamedKey::Delete));
                     servo.key_up(Key::Named(NamedKey::Delete));
                 }
-            },
+            }
             ImeDeleteBackward(len) => {
                 for _ in 0..*len {
                     servo.key_down(Key::Named(NamedKey::Backspace));
                     servo.key_up(Key::Named(NamedKey::Backspace));
                 }
-            },
+            }
             ImeSendEnter => {
                 servo.key_down(Key::Named(NamedKey::Enter));
                 servo.key_up(Key::Named(NamedKey::Enter));
-            },
+            }
             Vsync => {
                 servo.notify_vsync();
-            },
+            }
             Resize { width, height } => {
                 servo.resize(Rect::new(Point2D::origin(), Size2D::new(*width, *height)))
-            },
+            }
             FocusWebview(arkts_id) => {
                 if let Some(native_webview_components) =
                     NATIVE_WEBVIEWS.lock().unwrap().get(*arkts_id as usize)
@@ -446,7 +446,7 @@ impl ServoAction {
                 } else {
                     error!("Could not find webview to activate");
                 }
-            },
+            }
             CreatePlatformWindow(xcomponent, native_window) => {
                 let (window_handle, viewport_rect) =
                     get_raw_window_handle(xcomponent.0, native_window.0);
@@ -472,7 +472,7 @@ impl ServoAction {
                         xcomponent: xcomponent.clone(),
                         window: native_window.clone(),
                     });
-            },
+            }
             NewWebview(xcomponent, window) => {
                 servo.pause_painting();
                 let webview =
@@ -496,7 +496,7 @@ impl ServoAction {
                 SET_URL_BAR_CB
                     .get()
                     .map(|f| f.call(url, ThreadsafeFunctionCallMode::Blocking));
-            },
+            }
         };
     }
 }
@@ -680,7 +680,7 @@ extern "C" fn on_dispatch_touch_event_cb(component: *mut OH_NativeXComponent, wi
                 touch_event.type_
             );
             TouchEventType::Unknown
-        },
+        }
     };
     if let Err(e) = call(ServoAction::TouchEvent {
         kind,
@@ -717,10 +717,10 @@ extern "C" fn on_dispatch_key_event(xc: *mut OH_NativeXComponent, _window: *mut 
     match action {
         OH_NativeXComponent_KeyAction::OH_NATIVEXCOMPONENT_KEY_ACTION_UP => {
             call(ServoAction::KeyUp(key)).expect("Call failed")
-        },
+        }
         OH_NativeXComponent_KeyAction::OH_NATIVEXCOMPONENT_KEY_ACTION_DOWN => {
             call(ServoAction::KeyDown(key)).expect("Call failed")
-        },
+        }
         _ => error!("Unknown key action {:?}", action),
     }
 }
@@ -810,7 +810,7 @@ pub fn set_log_filter(filter: Option<&str>) {
         Result::Err(err) => {
             error!("Failed to parse log filter: {err}");
             return;
-        },
+        }
     };
     let filter = filter.build();
     (*LOGGER).set_filter(filter);
@@ -979,7 +979,7 @@ fn convert_ime_options(input_method_type: InputMethodType, multiline: bool) -> O
             } else {
                 IME_TextInputType::IME_TEXT_INPUT_TYPE_TEXT
             }
-        },
+        }
         InputMethodType::Time => input_fallback,
         InputMethodType::Url => IME_TextInputType::IME_TEXT_INPUT_TYPE_URL,
         InputMethodType::Week => input_fallback,
@@ -1098,7 +1098,7 @@ impl HostTrait for HostCallbacks {
                     // Queue could be full.
                     error!("show_alert failed with {status}");
                 }
-            },
+            }
             None => error!("PROMPT_TOAST not set. Dropping message {message}"),
         }
     }
@@ -1133,7 +1133,7 @@ impl HostTrait for HostCallbacks {
                 if status != napi_ohos::Status::Ok {
                     error!("on_url_changed failed with {status}");
                 }
-            },
+            }
             None => error!("`on_url_changed` called without a registered callback"),
         }
     }
@@ -1163,7 +1163,7 @@ impl HostTrait for HostCallbacks {
                     Err(ref e) => {
                         error!("Could not show keyboard because of {e:?}");
                         None
-                    },
+                    }
                     Ok(proxy) => Some(proxy),
                 };
         }

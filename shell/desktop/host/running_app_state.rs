@@ -5,14 +5,17 @@
 //! Shared state and methods for desktop and EGL implementations.
 
 use std::cell::{Cell, Ref, RefCell};
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::ops::Deref;
 use std::rc::Rc;
-#[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+#[cfg(all(
+    feature = "diagnostics",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
 use std::time::Instant;
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use euclid::Rect;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 #[cfg(all(
@@ -22,29 +25,32 @@ use image::{DynamicImage, ImageFormat, RgbaImage};
 use libc::c_char;
 use log::{error, info, warn};
 use servo::{
-    pref, AllowOrDenyRequest, AuthenticationRequest, CSSPixel, ConsoleLogLevel,
-    CreateNewWebViewRequest, DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId,
-    EventLoopWaker, GenericSender, InputEvent, InputEventId, InputEventResult, JSValue, LoadStatus,
+    AllowOrDenyRequest, AuthenticationRequest, CSSPixel, ConsoleLogLevel, CreateNewWebViewRequest,
+    DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId, EventLoopWaker,
+    GenericSender, InputEvent, InputEventId, InputEventResult, JSValue, LoadStatus,
     MediaSessionEvent, PermissionRequest, PrefValue, Preferences, ScreenshotCaptureError, Servo,
     ServoDelegate, ServoError, TraversalId, UserContentManager, WebDriverCommandMsg,
     WebDriverJSResult, WebDriverLoadStatus, WebDriverScriptCommand, WebDriverSenders, WebView,
-    WebViewDelegate, WebViewId,
+    WebViewDelegate, WebViewId, pref,
 };
 use url::Url;
 
+use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
 use crate::shell::desktop::host::embedder::EmbedderCore;
-#[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
-use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent, SpanPhase};
 #[cfg(all(
     feature = "gamepad",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 pub(crate) use crate::shell::desktop::host::gamepad::AppGamepadProvider;
-use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
-use crate::webdriver::WebDriverEmbedderControls;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, GraphSemanticEvent, PlatformWindow, WebViewCreationContext,
 };
+#[cfg(all(
+    feature = "diagnostics",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent, SpanPhase};
+use crate::webdriver::WebDriverEmbedderControls;
 
 #[cfg(all(
     any(coverage, llvm_pgo),
@@ -236,10 +242,7 @@ mod tests {
             );
             assert!(
                 !source.contains(concat!("apply", "_intents")),
-                concat!(
-                    "Servo callbacks must not call the reducer ",
-                    "directly"
-                )
+                concat!("Servo callbacks must not call the reducer ", "directly")
             );
         }
     }
@@ -410,11 +413,17 @@ impl RunningAppState {
     }
 
     pub(crate) fn take_pending_graph_events(&self) -> Vec<GraphSemanticEvent> {
-        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        #[cfg(all(
+            feature = "diagnostics",
+            not(any(target_os = "android", target_env = "ohos"))
+        ))]
         let started = Instant::now();
         let events = self.embedder_core.drain_window_graph_events();
-        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
-            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+        #[cfg(all(
+            feature = "diagnostics",
+            not(any(target_os = "android", target_env = "ohos"))
+        ))]
+        crate::shell::desktop::runtime::diagnostics::emit_span_duration(
             "running_app_state::take_pending_graph_events",
             started.elapsed().as_micros() as u64,
         );
@@ -448,9 +457,15 @@ impl RunningAppState {
             self.handle_gamepad_events();
         }
 
-        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        #[cfg(all(
+            feature = "diagnostics",
+            not(any(target_os = "android", target_env = "ohos"))
+        ))]
         let servo_spin_started = Instant::now();
-        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        #[cfg(all(
+            feature = "diagnostics",
+            not(any(target_os = "android", target_env = "ohos"))
+        ))]
         diagnostics::emit_event(DiagnosticEvent::Span {
             name: "servo.spin_event_loop",
             phase: SpanPhase::Enter,
@@ -459,7 +474,10 @@ impl RunningAppState {
 
         self.embedder_core.servo().spin_event_loop();
 
-        #[cfg(all(feature = "diagnostics", not(any(target_os = "android", target_env = "ohos"))))]
+        #[cfg(all(
+            feature = "diagnostics",
+            not(any(target_os = "android", target_env = "ohos"))
+        ))]
         {
             let elapsed = servo_spin_started.elapsed().as_micros() as u64;
             diagnostics::emit_event(DiagnosticEvent::MessageReceived {

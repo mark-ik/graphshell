@@ -13,13 +13,13 @@ use std::collections::HashSet;
 use servo::WebViewId;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
-use crate::shell::desktop::lifecycle::lifecycle_intents;
-use crate::shell::desktop::runtime::registries;
 use crate::graph::NodeKey;
 use crate::parser::location_bar_input_to_url;
 #[cfg(any(test, not(feature = "diagnostics")))]
 use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::runtime::registries;
 #[cfg(any(test, not(feature = "diagnostics")))]
 use euclid::default::Point2D;
 
@@ -115,7 +115,10 @@ fn intents_for_omnibox_node_search(app: &GraphBrowserApp, query: &str) -> (bool,
     if query.is_empty() {
         return (false, Vec::new());
     }
-    if let Some(key) = fuzzy_match_node_keys(&app.workspace.graph, query).first().copied() {
+    if let Some(key) = fuzzy_match_node_keys(&app.workspace.graph, query)
+        .first()
+        .copied()
+    {
         return (
             true,
             vec![GraphIntent::SelectNode {
@@ -187,7 +190,8 @@ pub(crate) fn handle_address_bar_submit_intents(
     }
 
     if is_graph_view {
-        let (normalized_input, settings_intent) = match location_bar_input_to_url(input, searchpage) {
+        let (normalized_input, settings_intent) = match location_bar_input_to_url(input, searchpage)
+        {
             Some(parsed_url) => {
                 let decision = registries::phase0_decide_navigation_with_control(
                     parsed_url,
@@ -210,7 +214,7 @@ pub(crate) fn handle_address_bar_submit_intents(
                         decision.normalized_url.as_str(),
                     ),
                 )
-            },
+            }
             None => (input.to_string(), None),
         };
         let (open_selected_tile, mut intents) =
@@ -262,13 +266,20 @@ pub(crate) fn handle_address_bar_submit_intents(
                 decision.normalized_url,
                 selected_viewer_id,
                 viewer_surface,
-                settings_intent_for_viewer(decision.viewer.viewer_id, normalized_url_string.as_str()),
+                settings_intent_for_viewer(
+                    decision.viewer.viewer_id,
+                    normalized_url_string.as_str(),
+                ),
             )
         };
 
         if let Some(settings_intent) = settings_intent {
             let (open_selected_tile, mut intents) =
-                registries::phase2_execute_detail_view_submit_action(app, parsed_url.as_str(), focused_node);
+                registries::phase2_execute_detail_view_submit_action(
+                    app,
+                    parsed_url.as_str(),
+                    focused_node,
+                );
             intents.push(settings_intent);
             return AddressBarIntentOutcome {
                 outcome: AddressBarSubmitOutcome {
@@ -290,11 +301,12 @@ pub(crate) fn handle_address_bar_submit_intents(
                 viewer_surface.profile.zoom_step
             );
 
-            let (open_selected_tile, intents) = registries::phase2_execute_detail_view_submit_action(
-                app,
-                parsed_url.as_str(),
-                focused_node,
-            );
+            let (open_selected_tile, intents) =
+                registries::phase2_execute_detail_view_submit_action(
+                    app,
+                    parsed_url.as_str(),
+                    focused_node,
+                );
             return AddressBarIntentOutcome {
                 outcome: AddressBarSubmitOutcome {
                     mark_clean: true,
@@ -322,12 +334,11 @@ pub(crate) fn handle_address_bar_submit_intents(
         // No focused live webview in detail mode:
         // if we still have a focused node/pane target, update/reactivate it;
         // otherwise create a new node as a fallback.
-        let (open_selected_tile, intents) =
-            registries::phase2_execute_detail_view_submit_action(
-                app,
-                parsed_url.as_str(),
-                focused_node,
-            );
+        let (open_selected_tile, intents) = registries::phase2_execute_detail_view_submit_action(
+            app,
+            parsed_url.as_str(),
+            focused_node,
+        );
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
                 mark_clean: true,
@@ -522,8 +533,7 @@ mod tests {
     #[cfg(feature = "diagnostics")]
     #[test]
     fn protocol_policy_keeps_supported_scheme_unchanged() {
-        let parsed =
-            servo::ServoUrl::parse("https://example.com/path").expect("url should parse");
+        let parsed = servo::ServoUrl::parse("https://example.com/path").expect("url should parse");
         let rewritten = crate::shell::desktop::runtime::registries::phase0_decide_navigation_with_control(
             parsed.clone(),
             None,

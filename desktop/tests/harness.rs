@@ -6,12 +6,12 @@ use euclid::Point2D;
 use serde_json::Value;
 
 use crate::app::{GraphBrowserApp, GraphViewId};
+use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{
     CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample,
 };
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
-use crate::graph::NodeKey;
 
 pub(crate) struct TestRegistry {
     pub(crate) app: GraphBrowserApp,
@@ -68,6 +68,13 @@ impl TestRegistry {
             mapped_webview,
             has_context,
             paint_callback_registered: mapped_webview && has_context,
+            render_path_hint: if mapped_webview && has_context {
+                "composited"
+            } else if mapped_webview {
+                "missing-context"
+            } else {
+                "unmapped-webview"
+            },
         }];
 
         self.step_with_frame_sample(1, mapped_webview, rect, hierarchy, tiles);

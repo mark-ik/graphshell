@@ -141,7 +141,10 @@ pub(super) fn render_settings_menu(
         "Lasso: {}",
         super::lasso_binding_label(graph_app.workspace.lasso_mouse_binding)
     ));
-    for binding in [LassoMouseBinding::RightDrag, LassoMouseBinding::ShiftLeftDrag] {
+    for binding in [
+        LassoMouseBinding::RightDrag,
+        LassoMouseBinding::ShiftLeftDrag,
+    ] {
         if ui
             .selectable_label(
                 graph_app.workspace.lasso_mouse_binding == binding,
@@ -246,7 +249,11 @@ pub(super) fn render_settings_menu(
         ui.close();
     }
     if ui.button("Open Experimental Preferences").clicked() {
-        super::request_open_settings_page(graph_app, frame_intents, "servo:experimental-preferences");
+        super::request_open_settings_page(
+            graph_app,
+            frame_intents,
+            "servo:experimental-preferences",
+        );
         ui.close();
     }
     let mut experimental_preferences_enabled = state.experimental_preferences_enabled();

@@ -19,39 +19,39 @@ use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::tile_grouping;
 #[path = "toolbar_controls.rs"]
 mod toolbar_controls;
-#[path = "toolbar_omnibar.rs"]
-mod toolbar_omnibar;
+#[path = "toolbar_location_dropdown.rs"]
+mod toolbar_location_dropdown;
 #[path = "toolbar_location_panel.rs"]
 mod toolbar_location_panel;
 #[path = "toolbar_location_submit.rs"]
 mod toolbar_location_submit;
-#[path = "toolbar_location_dropdown.rs"]
-mod toolbar_location_dropdown;
+#[path = "toolbar_omnibar.rs"]
+mod toolbar_omnibar;
 #[path = "toolbar_right_controls.rs"]
 mod toolbar_right_controls;
 #[path = "toolbar_settings_menu.rs"]
 mod toolbar_settings_menu;
 use self::toolbar_controls::{render_navigation_buttons, render_workspace_pin_controls};
 use self::toolbar_location_panel::render_location_search_panel;
-use self::toolbar_right_controls::render_toolbar_right_controls;
-use self::toolbar_settings_menu::render_settings_menu;
 use self::toolbar_omnibar::{
     apply_omnibar_match, dedupe_matches_in_order, default_search_provider_from_searchpage,
-    graph_center_for_new_node, non_at_primary_matches_for_scope, omnibar_match_label,
-    omnibar_match_signifier, omnibar_matches_for_query, non_at_global_fallback_matches,
-    non_at_matches_for_settings, parse_omnibar_search_query, parse_provider_search_query,
+    graph_center_for_new_node, non_at_global_fallback_matches, non_at_matches_for_settings,
+    non_at_primary_matches_for_scope, omnibar_match_label, omnibar_match_signifier,
+    omnibar_matches_for_query, parse_omnibar_search_query, parse_provider_search_query,
     searchpage_template_for_provider, spawn_provider_suggestion_request,
 };
+use self::toolbar_right_controls::render_toolbar_right_controls;
+use self::toolbar_settings_menu::render_settings_menu;
 use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut, LassoMouseBinding,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, PendingTileOpenMode, RadialMenuShortcut,
     ToastAnchorPreference,
 };
-use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::graph::NodeKey;
-use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
+use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 const WORKSPACE_PIN_NAME: &str = "workspace:pin:space";
 const OMNIBAR_DROPDOWN_MAX_ROWS: usize = 8;
@@ -229,10 +229,10 @@ fn omnibar_non_at_order_label(order: OmnibarNonAtOrderPreset) -> &'static str {
     match order {
         OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal => {
             "Contextual -> Provider -> Global (Default)"
-        },
+        }
         OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => {
             "Provider -> Contextual -> Global"
-        },
+        }
     }
 }
 
@@ -243,13 +243,13 @@ fn provider_status_label(status: ProviderSuggestionStatus) -> Option<String> {
         ProviderSuggestionStatus::Ready => None,
         ProviderSuggestionStatus::Failed(ProviderSuggestionError::Network) => {
             Some("Suggestions unavailable: network error".to_string())
-        },
+        }
         ProviderSuggestionStatus::Failed(ProviderSuggestionError::HttpStatus(code)) => {
             Some(format!("Suggestions unavailable: provider http {code}"))
-        },
+        }
         ProviderSuggestionStatus::Failed(ProviderSuggestionError::Parse) => {
             Some("Suggestions unavailable: response parse error".to_string())
-        },
+        }
     }
 }
 
@@ -267,8 +267,8 @@ fn request_open_settings_page(
 
 fn workspace_pin_name_for_node(node: NodeKey, graph_app: &GraphBrowserApp) -> Option<String> {
     graph_app
-    .workspace
-    .graph
+        .workspace
+        .graph
         .get_node(node)
         .map(|n| format!("workspace:pin:pane:{}", n.id))
 }
@@ -279,7 +279,13 @@ fn render_fullscreen_origin_strip(
     focused_toolbar_node: Option<NodeKey>,
 ) {
     let fullscreen_url = focused_toolbar_node
-        .and_then(|key| graph_app.workspace.graph.get_node(key).map(|node| node.url.clone()))
+        .and_then(|key| {
+            graph_app
+                .workspace
+                .graph
+                .get_node(key)
+                .map(|node| node.url.clone())
+        })
         .unwrap_or_else(|| "about:blank".to_string());
     let frame = egui::Frame::default()
         .fill(egui::Color32::from_rgba_unmultiplied(20, 20, 25, 220))

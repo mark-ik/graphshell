@@ -2,6 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+#![allow(
+    dead_code,
+    reason = "Lane-scoped scaffolding is intentionally staged before full runtime wiring."
+)]
+
 use cfg_if::cfg_if;
 
 #[cfg(test)]
@@ -9,12 +14,12 @@ mod test;
 
 // Graph browser core modules
 mod app;
-mod model;
 mod graph;
 mod input;
+mod model;
+mod render;
 mod services;
 mod shell;
-mod render;
 mod util;
 
 #[cfg(not(target_os = "android"))]
@@ -26,15 +31,15 @@ pub(crate) mod desktop;
 #[cfg(any(target_os = "android", target_env = "ohos"))]
 mod egl;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
+mod mods;
+#[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod panic_hook;
 mod parser;
 mod prefs;
-#[cfg(not(target_os = "android"))]
-mod resources;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod registries;
-#[cfg(not(any(target_os = "android", target_env = "ohos")))]
-mod mods;
+#[cfg(not(target_os = "android"))]
+mod resources;
 mod webdriver;
 
 pub mod platform {

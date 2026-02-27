@@ -615,7 +615,9 @@ impl GraphEdgeShape {
         };
         match self.style {
             GraphEdgeVisualStyle::Hyperlink => (Color32::from_gray(160), 1.4 + traversal_bonus),
-            GraphEdgeVisualStyle::History => (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus),
+            GraphEdgeVisualStyle::History => {
+                (Color32::from_rgb(120, 180, 210), 1.8 + traversal_bonus)
+            }
             GraphEdgeVisualStyle::UserGrouped => (Color32::from_rgb(236, 171, 64), 3.0),
         }
     }
@@ -797,7 +799,9 @@ fn aggregate_logical_pair_traversals(
         ab_count,
         ba_count,
         total_count,
-        dominant_cue: GraphEdgeShape::dominant_direction_from_counts(ab_count, ba_count, true, 0.60),
+        dominant_cue: GraphEdgeShape::dominant_direction_from_counts(
+            ab_count, ba_count, true, 0.60,
+        ),
     };
     (style, aggregate)
 }
@@ -806,7 +810,7 @@ fn restyle_edge_shape(shape: Shape, color: Color32, width: f32) -> Shape {
     match shape {
         Shape::LineSegment { points, stroke: _ } => {
             Shape::line_segment(points, Stroke::new(width, color))
-        },
+        }
         Shape::CubicBezier(cubic) => Shape::CubicBezier(CubicBezierShape {
             stroke: Stroke::new(width, color).into(),
             fill: Color32::TRANSPARENT,
@@ -843,7 +847,13 @@ impl EguiGraphState {
     ) -> Self {
         let mut egui_graph: EguiGraph = to_graph_custom(
             &graph.inner,
-            |node: &mut egui_graphs::Node<Node, EdgePayload, Directed, DefaultIx, GraphNodeShape>| {
+            |node: &mut egui_graphs::Node<
+                Node,
+                EdgePayload,
+                Directed,
+                DefaultIx,
+                GraphNodeShape,
+            >| {
                 // Extract all data from payload before any mutations
                 let position = node.payload().position;
                 let title = node.payload().title.clone();
@@ -1273,12 +1283,7 @@ mod tests {
     #[test]
     fn test_label_tier_domain_empty_title_uses_fallback() {
         // empty title in domain tier falls back to fallback text
-        let label = GraphNodeShape::label_text_for_zoom_value(
-            "",
-            "not-a-valid-url",
-            "fb",
-            1.0,
-        );
+        let label = GraphNodeShape::label_text_for_zoom_value("", "not-a-valid-url", "fb", 1.0);
         assert_eq!(label.as_deref(), Some("fb"));
     }
 
@@ -1297,12 +1302,8 @@ mod tests {
     #[test]
     fn test_label_tier_full_empty_title_uses_url() {
         // empty title in full tier falls back to URL
-        let label = GraphNodeShape::label_text_for_zoom_value(
-            "",
-            "https://example.com",
-            "fallback",
-            2.0,
-        );
+        let label =
+            GraphNodeShape::label_text_for_zoom_value("", "https://example.com", "fallback", 2.0);
         assert_eq!(label.as_deref(), Some("https://example.com"));
     }
 
@@ -1441,4 +1442,3 @@ mod tests {
         assert_ne!(cold_color, crashed_color);
     }
 }
-

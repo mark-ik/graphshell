@@ -25,7 +25,11 @@ fn test_capture_undo_checkpoint_pushes_and_clears_redo() {
     let _node_c = harness.add_node("https://example.com/c");
     harness.app.capture_undo_checkpoint(None);
     assert_eq!(harness.app.undo_stack_len(), 2);
-    assert_eq!(harness.app.redo_stack_len(), 0, "redo stack should be cleared after capture");
+    assert_eq!(
+        harness.app.redo_stack_len(),
+        0,
+        "redo stack should be cleared after capture"
+    );
 }
 
 #[test]

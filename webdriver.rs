@@ -60,13 +60,13 @@ impl WebDriverEmbedderControls {
         match embedder_controls.get(&webview_id)?.last()? {
             EmbedderControl::SimpleDialog(SimpleDialog::Alert(..)) => {
                 Some(WebDriverUserPrompt::Alert)
-            },
+            }
             EmbedderControl::SimpleDialog(SimpleDialog::Confirm(..)) => {
                 Some(WebDriverUserPrompt::Confirm)
-            },
+            }
             EmbedderControl::SimpleDialog(SimpleDialog::Prompt(..)) => {
                 Some(WebDriverUserPrompt::Prompt)
-            },
+            }
             EmbedderControl::FilePicker { .. } => Some(WebDriverUserPrompt::File),
             EmbedderControl::SelectElement { .. } => Some(WebDriverUserPrompt::Default),
             _ => None,
@@ -141,20 +141,20 @@ impl RunningAppState {
                 WebDriverCommandMsg::ResetAllCookies(sender) => {
                     self.servo().site_data_manager().clear_cookies();
                     let _ = sender.send(());
-                },
+                }
                 WebDriverCommandMsg::Shutdown => {
                     self.schedule_exit();
-                },
+                }
                 WebDriverCommandMsg::IsWebViewOpen(webview_id, sender) => {
                     let context = self.webview_by_id(webview_id);
 
                     if let Err(error) = sender.send(context.is_some()) {
                         warn!("Failed to send response of IsWebViewOpen: {error}");
                     }
-                },
+                }
                 WebDriverCommandMsg::IsBrowsingContextOpen(..) => {
                     self.servo().execute_webdriver_command(msg);
-                },
+                }
                 WebDriverCommandMsg::NewWindow(type_hint, response_sender, load_status_sender) => {
                     let url = Url::parse("about:blank").unwrap();
                     let new_webview = match (type_hint, create_platform_window) {
@@ -175,7 +175,7 @@ impl RunningAppState {
                             webview_id
                                 .and_then(|id| window.webview_by_id(id))
                                 .expect("Should have at last one WebView in new window")
-                        },
+                        }
                         _ => self
                             .windows()
                             .values()
@@ -190,22 +190,22 @@ impl RunningAppState {
                     if let Some(load_status_sender) = load_status_sender {
                         self.set_load_status_sender(new_webview.id(), load_status_sender);
                     }
-                },
+                }
                 WebDriverCommandMsg::CloseWebView(webview_id, response_sender) => {
                     self.window_for_webview_id(webview_id)
                         .close_webview(webview_id);
                     if let Err(error) = response_sender.send(()) {
                         warn!("Failed to send response of CloseWebView: {error}");
                     }
-                },
+                }
                 WebDriverCommandMsg::FocusWebView(webview_id) => {
                     let window = self.window_for_webview_id(webview_id);
                     window.activate_webview(webview_id);
                     self.focus_window(window);
-                },
+                }
                 WebDriverCommandMsg::FocusBrowsingContext(..) => {
                     self.servo().execute_webdriver_command(msg);
-                },
+                }
                 WebDriverCommandMsg::GetAllWebViews(response_sender) => {
                     let webviews = self
                         .windows()
@@ -215,13 +215,13 @@ impl RunningAppState {
                     if let Err(error) = response_sender.send(webviews) {
                         warn!("Failed to send response of GetAllWebViews: {error}");
                     }
-                },
+                }
                 WebDriverCommandMsg::GetWindowRect(webview_id, response_sender) => {
                     let platform_window = self.platform_window_for_webview_id(webview_id);
                     if let Err(error) = response_sender.send(platform_window.window_rect()) {
                         warn!("Failed to send response of GetWindowSize: {error}");
                     }
-                },
+                }
                 WebDriverCommandMsg::MaximizeWebView(webview_id, response_sender) => {
                     let Some(webview) = self.webview_by_id(webview_id) else {
                         continue;
@@ -232,7 +232,7 @@ impl RunningAppState {
                     if let Err(error) = response_sender.send(platform_window.window_rect()) {
                         warn!("Failed to send response of GetWindowSize: {error}");
                     }
-                },
+                }
                 WebDriverCommandMsg::SetWindowRect(webview_id, requested_rect, size_sender) => {
                     let Some(webview) = self.webview_by_id(webview_id) else {
                         continue;
@@ -253,7 +253,7 @@ impl RunningAppState {
                     if let Err(error) = size_sender.send(platform_window.window_rect()) {
                         warn!("Failed to send window size: {error}");
                     }
-                },
+                }
                 WebDriverCommandMsg::GetViewportSize(webview_id, response_sender) => {
                     let platform_window = self.platform_window_for_webview_id(webview_id);
                     let size = platform_window.rendering_context().size2d().to_f32()
@@ -261,7 +261,7 @@ impl RunningAppState {
                     if let Err(error) = response_sender.send(size) {
                         warn!("Failed to send response of GetViewportSize: {error}");
                     }
-                },
+                }
                 // This is only received when start new session.
                 WebDriverCommandMsg::GetFocusedWebView(sender) => {
                     let focused_webview = self.focused_window().and_then(|window| {
@@ -273,35 +273,35 @@ impl RunningAppState {
                     if let Err(error) = sender.send(focused_webview) {
                         warn!("Failed to send response of GetFocusedWebView: {error}");
                     };
-                },
+                }
                 WebDriverCommandMsg::LoadUrl(webview_id, url, load_status_sender) => {
                     self.handle_webdriver_load_url(webview_id, url, load_status_sender);
-                },
+                }
                 WebDriverCommandMsg::Refresh(webview_id, load_status_sender) => {
                     if let Some(webview) = self.webview_by_id(webview_id) {
                         self.set_load_status_sender(webview_id, load_status_sender);
                         webview.reload();
                     }
-                },
+                }
                 WebDriverCommandMsg::GoBack(webview_id, load_status_sender) => {
                     if let Some(webview) = self.webview_by_id(webview_id) {
                         let traversal_id = webview.go_back(1);
                         self.set_pending_traversal(traversal_id, load_status_sender);
                     }
-                },
+                }
                 WebDriverCommandMsg::GoForward(webview_id, load_status_sender) => {
                     if let Some(webview) = self.webview_by_id(webview_id) {
                         let traversal_id = webview.go_forward(1);
                         self.set_pending_traversal(traversal_id, load_status_sender);
                     }
-                },
+                }
                 WebDriverCommandMsg::InputEvent(webview_id, input_event, response_sender) => {
                     self.handle_webdriver_input_event(webview_id, input_event, response_sender);
-                },
+                }
                 WebDriverCommandMsg::ScriptCommand(_, ref webdriver_script_command) => {
                     self.handle_webdriver_script_command(webdriver_script_command);
                     self.servo().execute_webdriver_command(msg);
-                },
+                }
                 WebDriverCommandMsg::CurrentUserPrompt(webview_id, response_sender) => {
                     let current_dialog = self
                         .webdriver_embedder_controls
@@ -309,14 +309,14 @@ impl RunningAppState {
                     if let Err(error) = response_sender.send(current_dialog) {
                         warn!("Failed to send response of CurrentUserPrompt: {error}");
                     };
-                },
+                }
                 WebDriverCommandMsg::HandleUserPrompt(webview_id, action, response_sender) => {
                     let controls = &self.webdriver_embedder_controls;
                     let result = controls.respond_to_active_simple_dialog(webview_id, action);
                     if let Err(error) = response_sender.send(result) {
                         warn!("Failed to send response of HandleUserPrompt: {error}");
                     };
-                },
+                }
                 WebDriverCommandMsg::GetAlertText(webview_id, response_sender) => {
                     let response = match self
                         .webdriver_embedder_controls
@@ -329,14 +329,14 @@ impl RunningAppState {
                     if let Err(error) = response_sender.send(response) {
                         warn!("Failed to send response of GetAlertText: {error}");
                     };
-                },
+                }
                 WebDriverCommandMsg::SendAlertText(webview_id, text) => {
                     self.webdriver_embedder_controls
                         .set_prompt_value_of_newest_dialog(webview_id, text);
-                },
+                }
                 WebDriverCommandMsg::TakeScreenshot(webview_id, rect, result_sender) => {
                     self.handle_webdriver_screenshot(webview_id, rect, result_sender);
-                },
+                }
             };
         }
     }

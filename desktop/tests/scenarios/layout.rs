@@ -96,7 +96,8 @@ fn healthy_layout_path_keeps_active_tile_violation_channel_zero() {
     harness.step_with_tile_sample(node, true, true, rect);
 
     let snapshot = harness.snapshot();
-    let violations = TestRegistry::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
+    let violations =
+        TestRegistry::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
 
     assert_eq!(
         violations, 0,
@@ -117,7 +118,8 @@ fn unhealthy_layout_signal_is_observable_via_active_tile_violation_channel() {
         .emit_message_sent_for_tests("tile_render_pass.active_tile_violation", 1);
 
     let snapshot = harness.snapshot();
-    let violations = TestRegistry::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
+    let violations =
+        TestRegistry::channel_count(&snapshot, "tile_render_pass.active_tile_violation");
 
     assert!(
         violations > 0,
@@ -160,6 +162,7 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
             mapped_webview: true,
             has_context: true,
             paint_callback_registered: true,
+            render_path_hint: "composited",
         },
         CompositorTileSample {
             node_key: right,
@@ -167,6 +170,7 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
             mapped_webview: true,
             has_context: true,
             paint_callback_registered: true,
+            render_path_hint: "composited",
         },
     ];
 
@@ -177,7 +181,9 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
         .get("compositor_frames")
         .and_then(|v| v.as_array())
         .expect("snapshot should contain compositor_frames");
-    let last = frames.last().expect("at least one compositor frame expected");
+    let last = frames
+        .last()
+        .expect("at least one compositor frame expected");
     let sampled_tiles = last
         .get("tiles")
         .and_then(|v| v.as_array())
@@ -241,6 +247,7 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
             mapped_webview: true,
             has_context: true,
             paint_callback_registered: true,
+            render_path_hint: "composited",
         },
         CompositorTileSample {
             node_key: right,
@@ -248,6 +255,7 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
             mapped_webview: true,
             has_context: true,
             paint_callback_registered: true,
+            render_path_hint: "composited",
         },
     ];
 
@@ -258,7 +266,9 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
         .get("compositor_frames")
         .and_then(|v| v.as_array())
         .expect("snapshot should contain compositor_frames");
-    let last = frames.last().expect("at least one compositor frame expected");
+    let last = frames
+        .last()
+        .expect("at least one compositor frame expected");
     let hierarchy_lines = last
         .get("hierarchy")
         .and_then(|v| v.as_array())
@@ -268,7 +278,9 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
         .collect::<Vec<_>>();
 
     assert!(
-        hierarchy_lines.iter().any(|line| line.contains("Split Horizontal")),
+        hierarchy_lines
+            .iter()
+            .any(|line| line.contains("Split Horizontal")),
         "hierarchy should include split container"
     );
     assert!(

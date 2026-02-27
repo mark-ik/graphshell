@@ -7,7 +7,17 @@
 use rkyv::{Archive, Deserialize, Serialize};
 
 /// Address type hint for persistence (mirrors `AddressKind` in the graph model).
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedAddressKind {
     Http,
@@ -57,7 +67,17 @@ pub struct PersistedNode {
 }
 
 /// Edge type for persistence.
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedEdgeType {
     Hyperlink,
@@ -66,7 +86,17 @@ pub enum PersistedEdgeType {
 }
 
 /// Persisted traversal trigger classification (v1 scope).
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedNavigationTrigger {
     Unknown,
@@ -297,7 +327,7 @@ mod tests {
                 assert_eq!(url.as_str(), "https://example.com");
                 assert_eq!(*position_x, 50.0);
                 assert_eq!(*position_y, 75.0);
-            },
+            }
             _ => panic!("Expected AddNode variant"),
         }
     }
@@ -315,7 +345,7 @@ mod tests {
             ArchivedLogEntry::UpdateNodeUrl { node_id, new_url } => {
                 assert!(!node_id.as_str().is_empty());
                 assert_eq!(new_url.as_str(), "https://new.com");
-            },
+            }
             _ => panic!("Expected UpdateNodeUrl variant"),
         }
     }
@@ -339,7 +369,7 @@ mod tests {
                 assert!(!from_node_id.as_str().is_empty());
                 assert!(!to_node_id.as_str().is_empty());
                 assert_eq!(*edge_type, ArchivedPersistedEdgeType::UserGrouped);
-            },
+            }
             _ => panic!("Expected RemoveEdge variant"),
         }
     }
@@ -366,7 +396,7 @@ mod tests {
                 assert!(!to_node_id.as_str().is_empty());
                 assert_eq!(*timestamp_ms, 1234);
                 assert_eq!(*trigger, ArchivedPersistedNavigationTrigger::Back);
-            },
+            }
             _ => panic!("Expected AppendTraversal variant"),
         }
     }
@@ -383,10 +413,13 @@ mod tests {
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
         let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
         match archived {
-            ArchivedLogEntry::UpdateNodeMimeHint { node_id: id, mime_hint } => {
+            ArchivedLogEntry::UpdateNodeMimeHint {
+                node_id: id,
+                mime_hint,
+            } => {
                 assert_eq!(id.as_str(), node_id);
                 assert_eq!(mime_hint.as_ref().unwrap().as_str(), "application/pdf");
-            },
+            }
             _ => panic!("Expected UpdateNodeMimeHint variant"),
         }
 
@@ -400,7 +433,7 @@ mod tests {
         match archived {
             ArchivedLogEntry::UpdateNodeMimeHint { mime_hint, .. } => {
                 assert!(mime_hint.is_none());
-            },
+            }
             _ => panic!("Expected UpdateNodeMimeHint variant"),
         }
     }
@@ -408,9 +441,18 @@ mod tests {
     #[test]
     fn test_log_entry_update_node_address_kind_roundtrip() {
         for (kind, expected) in [
-            (PersistedAddressKind::Http, ArchivedPersistedAddressKind::Http),
-            (PersistedAddressKind::File, ArchivedPersistedAddressKind::File),
-            (PersistedAddressKind::Custom, ArchivedPersistedAddressKind::Custom),
+            (
+                PersistedAddressKind::Http,
+                ArchivedPersistedAddressKind::Http,
+            ),
+            (
+                PersistedAddressKind::File,
+                ArchivedPersistedAddressKind::File,
+            ),
+            (
+                PersistedAddressKind::Custom,
+                ArchivedPersistedAddressKind::Custom,
+            ),
         ] {
             let entry = LogEntry::UpdateNodeAddressKind {
                 node_id: Uuid::new_v4().to_string(),
@@ -419,9 +461,12 @@ mod tests {
             let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&entry).unwrap();
             let archived = rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&bytes).unwrap();
             match archived {
-                ArchivedLogEntry::UpdateNodeAddressKind { kind: archived_kind, .. } => {
+                ArchivedLogEntry::UpdateNodeAddressKind {
+                    kind: archived_kind,
+                    ..
+                } => {
                     assert_eq!(*archived_kind, expected);
-                },
+                }
                 _ => panic!("Expected UpdateNodeAddressKind variant"),
             }
         }

@@ -21,9 +21,7 @@ fn create_user_grouped_edge_from_primary_selection_creates_grouped_edge() {
         .graph
         .edges()
         .filter(|edge| {
-            edge.edge_type == EdgeType::UserGrouped
-                && edge.from == source
-                && edge.to == destination
+            edge.edge_type == EdgeType::UserGrouped && edge.from == source && edge.to == destination
         })
         .count();
 

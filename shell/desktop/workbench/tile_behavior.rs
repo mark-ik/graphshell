@@ -5,11 +5,13 @@
 //! Initial egui_tiles behavior wiring.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 
 use egui::{Color32, Id, Response, Sense, Stroke, TextStyle, Ui, Vec2, WidgetText, vec2};
-use egui_tiles::{Behavior, Container, SimplificationOptions, TabState, Tile, TileId, Tiles, UiResponse};
+use egui_tiles::{
+    Behavior, Container, SimplificationOptions, TabState, Tile, TileId, Tiles, UiResponse,
+};
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, SearchDisplayMode};
 use crate::graph::{NodeKey, NodeLifecycle};
@@ -176,7 +178,9 @@ impl<'a> GraphshellTileBehavior<'a> {
         let title = kind.title();
         ui.heading(title);
         ui.separator();
-        ui.label(format!("{title} tool pane is not yet rendered in the workbench."));
+        ui.label(format!(
+            "{title} tool pane is not yet rendered in the workbench."
+        ));
     }
 
     fn favicon_texture_id(&mut self, ui: &Ui, node_key: NodeKey) -> Option<egui::TextureId> {
@@ -237,7 +241,11 @@ impl<'a> GraphshellTileBehavior<'a> {
         Some(handle.id())
     }
 
-    fn should_detach_tab_on_drag_stop(ui: &Ui, tab_rect: egui::Rect, detach_band_margin: f32) -> bool {
+    fn should_detach_tab_on_drag_stop(
+        ui: &Ui,
+        tab_rect: egui::Rect,
+        detach_band_margin: f32,
+    ) -> bool {
         // Treat release clearly outside the tab strip band as "detach tab to split".
         // Horizontal motion within the tab strip should keep normal tab reorder/group behavior.
         let Some(pointer) = ui.ctx().pointer_interact_pos() else {
@@ -247,7 +255,10 @@ impl<'a> GraphshellTileBehavior<'a> {
             || pointer.y > tab_rect.bottom() + detach_band_margin
     }
 
-    fn tab_group_node_order_for_tile(tiles: &Tiles<TileKind>, tile_id: TileId) -> Option<Vec<NodeKey>> {
+    fn tab_group_node_order_for_tile(
+        tiles: &Tiles<TileKind>,
+        tile_id: TileId,
+    ) -> Option<Vec<NodeKey>> {
         for (_, tile) in tiles.iter() {
             let Tile::Container(Container::Tabs(tabs)) = tile else {
                 continue;
@@ -312,7 +323,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                     key,
                                     prefer_workspace: None,
                                 });
-                        },
+                        }
                         GraphAction::FocusNodeSplit(key) => {
                             if let Some(primary) = self.graph_app.workspace.selected_nodes.primary()
                                 && primary != key
@@ -328,15 +339,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 key,
                                 multi_select: multi_select_modifier,
                             });
-                            log::debug!(
-                                "tile_behavior: enqueue pending open node {:?} split",
-                                key
-                            );
+                            log::debug!("tile_behavior: enqueue pending open node {:?} split", key);
                             self.pending_open_nodes.push(PendingOpenNode {
                                 key,
                                 mode: PendingOpenMode::SplitHorizontal,
                             });
-                        },
+                        }
                         other => passthrough_actions.push(other),
                     }
                 }
@@ -354,7 +362,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     pane_rect,
                     &mut self.pending_graph_intents,
                 );
-            },
+            }
             TileKind::Node(state) => {
                 let node_key = state.node;
                 let Some(node) = self.graph_app.workspace.graph.get_node(node_key) else {
@@ -409,7 +417,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 }
 
                 if !matches!(effective_viewer_id, "viewer:webview" | "viewer:servo") {
-                    ui.label(format!("Viewer '{}' is not yet embedded in this pane.", effective_viewer_id));
+                    ui.label(format!(
+                        "Viewer '{}' is not yet embedded in this pane.",
+                        effective_viewer_id
+                    ));
                     ui.small(format!("URL: {}", node.url));
                     return UiResponse::None;
                 }
@@ -422,11 +433,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     );
                     ui.horizontal(|ui| {
                         if ui.button("Reload").clicked() {
-                            self.pending_graph_intents
-                                .push(lifecycle_intents::promote_node_to_active(
+                            self.pending_graph_intents.push(
+                                lifecycle_intents::promote_node_to_active(
                                     node_key,
                                     LifecycleCause::UserSelect,
-                                ));
+                                ),
+                            );
                         }
                         if ui.button("Close Tile").clicked() {
                             self.pending_closed_nodes.push(node_key);
@@ -447,13 +459,13 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     let lifecycle_hint = match node.lifecycle {
                         NodeLifecycle::Cold => {
                             "Node is cold. Reactivate to resume browsing in this pane."
-                        },
+                        }
                         NodeLifecycle::Warm => {
                             "Node is warm-cached. Reactivate to attach its cached webview."
-                        },
+                        }
                         NodeLifecycle::Active => {
                             "Node is active but no runtime WebView is mapped yet."
-                        },
+                        }
                     };
                     ui.label(format!("No active WebView for {}", node.url));
                     ui.small(lifecycle_hint);
@@ -463,19 +475,18 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 key: node_key,
                                 multi_select: false,
                             });
-                            self.pending_graph_intents
-                                .push(lifecycle_intents::promote_node_to_active(
+                            self.pending_graph_intents.push(
+                                lifecycle_intents::promote_node_to_active(
                                     node_key,
                                     LifecycleCause::UserSelect,
-                                ));
+                                ),
+                            );
                         }
                     });
                 } else {
                     // WebView is active - allocate full space for compositor to render into
-                    let (rect, _response) = ui.allocate_exact_size(
-                        ui.available_size(),
-                        egui::Sense::hover(),
-                    );
+                    let (rect, _response) =
+                        ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
                     // The WebView content will be painted by tile_compositor on the background layer
                     log::debug!(
                         "tile_behavior: allocated space for webview {:?} at {:?}",
@@ -483,7 +494,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         rect
                     );
                 }
-            },
+            }
             #[cfg(feature = "diagnostics")]
             TileKind::Tool(tool) => {
                 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
@@ -517,7 +528,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 .unwrap_or_else(|| "Graph".into()),
             TileKind::Node(state) => self
                 .graph_app
-                .workspace.graph
+                .workspace
+                .graph
                 .get_node(state.node)
                 .map(|n| n.title.clone().into())
                 .unwrap_or_else(|| format!("Node {:?}", state.node).into()),
@@ -558,7 +570,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             Some(Tile::Pane(TileKind::Node(state))) => {
                 let title = self
                     .graph_app
-                    .workspace.graph
+                    .workspace
+                    .graph
                     .get_node(state.node)
                     .map(|n| n.title.clone())
                     .unwrap_or_else(|| format!("Node {:?}", state.node));
@@ -568,11 +581,9 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 );
                 let favicon = self.favicon_texture_id(ui, state.node);
                 (title, favicon)
-            },
-            #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Tool(tool))) => {
-                (tool.title().to_string(), None)
             }
+            #[cfg(feature = "diagnostics")]
+            Some(Tile::Pane(TileKind::Tool(tool))) => (tool.title().to_string(), None),
             Some(Tile::Container(Container::Linear(linear))) => {
                 let label = match linear.dir {
                     egui_tiles::LinearDir::Horizontal => {
@@ -622,8 +633,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             let node_key = state.node;
             let modifiers = ui.input(|i| i.modifiers);
             if modifiers.shift {
-                let ordered_nodes =
-                    Self::tab_group_node_order_for_tile(tiles, tile_id).unwrap_or_else(|| vec![node_key]);
+                let ordered_nodes = Self::tab_group_node_order_for_tile(tiles, tile_id)
+                    .unwrap_or_else(|| vec![node_key]);
                 let target_index = ordered_nodes
                     .iter()
                     .position(|key| *key == node_key)
@@ -762,7 +773,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
             let node_key = state.node;
             self.pending_closed_nodes.push(node_key);
-            self.graph_app.workspace.selected_tab_nodes.remove(&node_key);
+            self.graph_app
+                .workspace
+                .selected_tab_nodes
+                .remove(&node_key);
             if self.graph_app.workspace.tab_selection_anchor == Some(node_key) {
                 self.graph_app.workspace.tab_selection_anchor = None;
             }
@@ -789,29 +803,28 @@ fn render_graph_pane_overlay(
     let Some(view) = app.workspace.views.get(&view_id) else {
         return;
     };
-    let lens_name = view.lens.lens_id.clone().unwrap_or_else(|| view.lens.name.clone());
-    let current_lens_id = view
+    let lens_name = view
         .lens
         .lens_id
         .clone()
-        .unwrap_or_else(|| crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string());
+        .unwrap_or_else(|| view.lens.name.clone());
+    let current_lens_id = view.lens.lens_id.clone().unwrap_or_else(|| {
+        crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string()
+    });
     let base_lens = view.lens.clone();
     let layout_mode = view.layout_mode;
 
     // Overlay anchored to top-right of the pane, with a small margin.
     let overlay_width = 150.0;
-    let overlay_pos = egui::pos2(
-        pane_rect.max.x - overlay_width - 4.0,
-        pane_rect.min.y + 4.0,
-    );
+    let overlay_pos = egui::pos2(pane_rect.max.x - overlay_width - 4.0, pane_rect.min.y + 4.0);
 
     egui::Area::new(egui::Id::new("graph_pane_overlay").with(view_id))
         .fixed_pos(overlay_pos)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(egui::Color32::from_rgba_unmultiplied(20, 24, 30, 180))
-                .rounding(egui::Rounding::same(4))
+                .corner_radius(egui::CornerRadius::same(4))
                 .inner_margin(egui::Margin::same(4))
                 .show(ui, |ui| {
                     ui.set_width(overlay_width - 8.0);

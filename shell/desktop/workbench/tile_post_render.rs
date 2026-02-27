@@ -6,11 +6,11 @@ use std::collections::{HashMap, HashSet};
 
 use egui_tiles::Tree;
 
-use crate::app::{GraphBrowserApp, GraphIntent};
 use super::tile_behavior::{GraphshellTileBehavior, PendingOpenNode};
 use super::tile_grouping;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
+use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 
 pub(crate) struct TileRenderOutputs {
