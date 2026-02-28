@@ -34,8 +34,7 @@ use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
 use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingTileOpenMode,
-    SearchDisplayMode, ToastAnchorPreference,
+    GraphBrowserApp, GraphIntent, GraphViewId, SearchDisplayMode, ToastAnchorPreference,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -44,7 +43,6 @@ use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 #[cfg(test)]
 use crate::shell::desktop::host::window::GraphSemanticEvent;
-use crate::shell::desktop::lifecycle::lifecycle_intents;
 #[cfg(test)]
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
@@ -208,13 +206,6 @@ impl Gui {
             ToastAnchorPreference::TopLeft => egui_notify::Anchor::TopLeft,
             ToastAnchorPreference::BottomRight => egui_notify::Anchor::BottomRight,
             ToastAnchorPreference::BottomLeft => egui_notify::Anchor::BottomLeft,
-        }
-    }
-
-    fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode {
-        match mode {
-            PendingTileOpenMode::Tab => TileOpenMode::Tab,
-            PendingTileOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
         }
     }
 
@@ -780,7 +771,7 @@ impl Gui {
 
             // Phase 1: apply semantic/UI intents before lifecycle reconciliation.
             gui_frame::apply_intents_if_any(graph_app, tiles_tree, &mut frame_intents);
-            Self::handle_pending_open_node_after_intents(
+            gui_orchestration::handle_pending_open_node_after_intents(
                 graph_app,
                 tiles_tree,
                 &mut open_node_tile_after_intents,
@@ -1141,66 +1132,6 @@ impl Gui {
             }
         }
         *frame_intents = remaining;
-    }
-
-    fn handle_pending_open_node_after_intents(
-        graph_app: &mut GraphBrowserApp,
-        tiles_tree: &mut Tree<TileKind>,
-        open_node_tile_after_intents: &mut Option<TileOpenMode>,
-        frame_intents: &mut Vec<GraphIntent>,
-    ) {
-        if let Some(open_request) = graph_app.take_pending_open_node_request() {
-            log::debug!(
-                "gui: handle_pending_open_node_after_intents taking request for {:?}",
-                open_request.key
-            );
-            *open_node_tile_after_intents = Some(Self::open_mode_from_pending(open_request.mode));
-            graph_app.select_node(open_request.key, false);
-        }
-
-        if let Some(open_mode) = *open_node_tile_after_intents
-            && let Some(node_key) = graph_app.get_single_selected_node()
-        {
-            if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-                graph_app.capture_undo_checkpoint(Some(layout_json));
-            }
-            let anchor_before_open = if open_mode == TileOpenMode::Tab {
-                gui_frame::active_node_pane_node(tiles_tree)
-            } else {
-                None
-            };
-            let node_already_in_workspace = tiles_tree.tiles.iter().any(|(_, tile)| {
-                matches!(
-                    tile,
-                    Tile::Pane(TileKind::Node(state)) if state.node == node_key
-                )
-            });
-            log::debug!(
-                "gui: calling open_or_focus_node_pane_with_mode for {:?} mode {:?}",
-                node_key,
-                open_mode
-            );
-            tile_view_ops::open_or_focus_node_pane_with_mode(
-                tiles_tree,
-                graph_app,
-                node_key,
-                open_mode,
-            );
-            if open_mode == TileOpenMode::Tab
-                && !node_already_in_workspace
-                && let Some(anchor) = anchor_before_open
-                && anchor != node_key
-            {
-                frame_intents.push(GraphIntent::CreateUserGroupedEdge {
-                    from: anchor,
-                    to: node_key,
-                });
-            }
-            frame_intents.push(lifecycle_intents::promote_node_to_active(
-                node_key,
-                LifecycleCause::UserSelect,
-            ));
-        }
     }
 
     fn has_active_node_pane(&self) -> bool {

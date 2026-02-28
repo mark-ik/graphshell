@@ -7,11 +7,15 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use arboard::Clipboard;
 
-use crate::app::{ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, SearchDisplayMode};
+use crate::app::{
+    ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, LifecycleCause,
+    PendingTileOpenMode, SearchDisplayMode,
+};
 use crate::graph::NodeKey;
 use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UI_CLIPBOARD_COPY_FAILED;
 use crate::shell::desktop::ui::graph_search_flow::{self, GraphSearchFlowArgs};
@@ -170,6 +174,13 @@ pub(crate) fn open_mode_from_toolbar(mode: ToolbarOpenMode) -> TileOpenMode {
     }
 }
 
+pub(crate) fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode {
+    match mode {
+        PendingTileOpenMode::Tab => TileOpenMode::Tab,
+        PendingTileOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_toolbar_phase(
     ctx: &egui::Context,
@@ -298,5 +309,65 @@ pub(crate) fn handle_pending_clipboard_copy_requests(
                 toasts.error(format!("Copy failed: {e}"));
             }
         }
+    }
+}
+
+pub(crate) fn handle_pending_open_node_after_intents(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    open_node_tile_after_intents: &mut Option<TileOpenMode>,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    if let Some(open_request) = graph_app.take_pending_open_node_request() {
+        log::debug!(
+            "gui: handle_pending_open_node_after_intents taking request for {:?}",
+            open_request.key
+        );
+        *open_node_tile_after_intents = Some(open_mode_from_pending(open_request.mode));
+        graph_app.select_node(open_request.key, false);
+    }
+
+    if let Some(open_mode) = *open_node_tile_after_intents
+        && let Some(node_key) = graph_app.get_single_selected_node()
+    {
+        if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
+            graph_app.capture_undo_checkpoint(Some(layout_json));
+        }
+        let anchor_before_open = if open_mode == TileOpenMode::Tab {
+            gui_frame::active_node_pane_node(tiles_tree)
+        } else {
+            None
+        };
+        let node_already_in_workspace = tiles_tree.tiles.iter().any(|(_, tile)| {
+            matches!(
+                tile,
+                egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == node_key
+            )
+        });
+        log::debug!(
+            "gui: calling open_or_focus_node_pane_with_mode for {:?} mode {:?}",
+            node_key,
+            open_mode
+        );
+        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane_with_mode(
+            tiles_tree,
+            graph_app,
+            node_key,
+            open_mode,
+        );
+        if open_mode == TileOpenMode::Tab
+            && !node_already_in_workspace
+            && let Some(anchor) = anchor_before_open
+            && anchor != node_key
+        {
+            frame_intents.push(GraphIntent::CreateUserGroupedEdge {
+                from: anchor,
+                to: node_key,
+            });
+        }
+        frame_intents.push(lifecycle_intents::promote_node_to_active(
+            node_key,
+            LifecycleCause::UserSelect,
+        ));
     }
 }
