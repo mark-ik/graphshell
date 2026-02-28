@@ -1560,7 +1560,14 @@ impl Gui {
         webview_id: WebViewId,
         node_id: accesskit::NodeId,
     ) -> egui::Id {
-        egui::Id::new(("webview_accessibility_node", webview_id, node_id.0))
+        egui::Id::new(Self::webview_accessibility_node_id_key(webview_id, node_id))
+    }
+
+    fn webview_accessibility_node_id_key(
+        webview_id: WebViewId,
+        node_id: accesskit::NodeId,
+    ) -> (&'static str, WebViewId, u64) {
+        ("webview_accessibility_node", webview_id, node_id.0)
     }
 
     fn is_reserved_webview_accessibility_node_id(node_id: accesskit::NodeId) -> bool {
