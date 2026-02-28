@@ -1445,11 +1445,11 @@ impl Gui {
     }
 
     fn selected_node_url(graph_app: &GraphBrowserApp, key: NodeKey) -> Option<String> {
-        graph_app
-            .workspace
-            .graph
-            .get_node(key)
-            .map(|node| node.url.clone())
+        Self::node_url_in_workspace_graph(&graph_app.workspace.graph, key)
+    }
+
+    fn node_url_in_workspace_graph(graph: &crate::graph::Graph, key: NodeKey) -> Option<String> {
+        graph.get_node(key).map(|node| node.url.clone())
     }
 
     /// Returns true if a redraw is required after handling the provided event.
