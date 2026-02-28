@@ -1168,6 +1168,14 @@ fn handle_pending_frame_save_and_prune(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) {
+    handle_pending_frame_save_layout_actions(graph_app, tiles_tree);
+    handle_pending_frame_prune_retention_actions(graph_app);
+}
+
+fn handle_pending_frame_save_layout_actions(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
     if graph_app.take_pending_save_frame_snapshot() {
         match serde_json::to_string(tiles_tree) {
             Ok(layout_json) => graph_app.save_tile_layout_json(&layout_json),
@@ -1184,7 +1192,9 @@ fn handle_pending_frame_save_and_prune(
             Err(e) => warn!("Failed to serialize tile layout for frame snapshot '{name}': {e}"),
         }
     }
+}
 
+fn handle_pending_frame_prune_retention_actions(graph_app: &mut GraphBrowserApp) {
     if graph_app.take_pending_prune_empty_frames() {
         let deleted = persistence_ops::prune_empty_named_workspaces(graph_app);
         warn!("Pruned {deleted} empty named frame snapshots");
