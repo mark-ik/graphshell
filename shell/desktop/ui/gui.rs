@@ -1293,7 +1293,7 @@ impl Gui {
         window: &EmbedderWindow,
         focused_node_key: Option<NodeKey>,
     ) -> bool {
-        if self.is_omnibar_node_search_query_active() {
+        if self.should_skip_toolbar_location_sync() {
             // Preserve active omnibar node-search query text while cycling matches.
             return false;
         }
@@ -1363,6 +1363,10 @@ impl Gui {
 
     fn is_omnibar_node_search_query_active(&self) -> bool {
         self.toolbar_state.location.trim_start().starts_with('@')
+    }
+
+    fn should_skip_toolbar_location_sync(&self) -> bool {
+        self.is_omnibar_node_search_query_active()
     }
 
     fn has_any_node_panes(&self) -> bool {
