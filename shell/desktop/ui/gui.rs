@@ -138,6 +138,41 @@ struct SemanticLifecyclePhaseArgs<'a> {
     frame_intents: &'a mut Vec<GraphIntent>,
 }
 
+struct SemanticAndPostRenderPhaseArgs<'a> {
+    ctx: &'a egui::Context,
+    graph_app: &'a mut GraphBrowserApp,
+    window: &'a EmbedderWindow,
+    headed_window: &'a headed_window::HeadedWindow,
+    tiles_tree: &'a mut Tree<TileKind>,
+    toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
+    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    favicon_textures:
+        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    app_state: &'a Option<Rc<RunningAppState>>,
+    rendering_context: &'a Rc<OffscreenRenderingContext>,
+    window_rendering_context: &'a Rc<WindowRenderingContext>,
+    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &'a mut Option<NodeKey>,
+    graph_surface_focused: &'a mut bool,
+    focus_ring_node_key: &'a mut Option<NodeKey>,
+    focus_ring_started_at: &'a mut Option<std::time::Instant>,
+    focus_ring_duration: &'a mut Duration,
+    graph_search_query: &'a mut String,
+    graph_search_matches: &'a mut Vec<NodeKey>,
+    graph_search_active_match_index: &'a mut Option<usize>,
+    graph_search_filter_mode: &'a mut bool,
+    toasts: &'a mut egui_notify::Toasts,
+    registry_runtime: &'a RegistryRuntime,
+    control_panel: &'a mut ControlPanel,
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: &'a mut diagnostics::DiagnosticsState,
+    responsive_webviews: &'a HashSet<WebViewId>,
+    pending_open_child_webviews: Vec<WebViewId>,
+    open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
+    frame_intents: &'a mut Vec<GraphIntent>,
+}
+
 struct WebViewA11yNodePlan {
     node_id: accesskit::NodeId,
     role: egui::accesskit::Role,
@@ -750,7 +785,7 @@ impl Gui {
                 },
             );
 
-            Self::run_semantic_and_post_render_phases(
+            Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
                 ctx,
                 graph_app,
                 window,
@@ -778,11 +813,11 @@ impl Gui {
                 control_panel,
                 #[cfg(feature = "diagnostics")]
                 diagnostics_state,
-                &pre_frame.responsive_webviews,
-                pre_frame.pending_open_child_webviews,
-                &mut open_node_tile_after_intents,
-                &mut frame_intents,
-            );
+                responsive_webviews: &pre_frame.responsive_webviews,
+                pending_open_child_webviews: pre_frame.pending_open_child_webviews,
+                open_node_tile_after_intents: &mut open_node_tile_after_intents,
+                frame_intents: &mut frame_intents,
+            });
             Self::finalize_update_frame(ctx, graph_app, clipboard, toasts);
         });
 
@@ -969,39 +1004,41 @@ impl Gui {
     ) {
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn run_semantic_and_post_render_phases(
-        ctx: &egui::Context,
-        graph_app: &mut GraphBrowserApp,
-        window: &EmbedderWindow,
-        headed_window: &headed_window::HeadedWindow,
-        tiles_tree: &mut Tree<TileKind>,
-        toolbar_height: &mut Length<f32, DeviceIndependentPixel>,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-        app_state: &Option<Rc<RunningAppState>>,
-        rendering_context: &Rc<OffscreenRenderingContext>,
-        window_rendering_context: &Rc<WindowRenderingContext>,
-        webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-        focused_node_hint: &mut Option<NodeKey>,
-        graph_surface_focused: &mut bool,
-        focus_ring_node_key: &mut Option<NodeKey>,
-        focus_ring_started_at: &mut Option<std::time::Instant>,
-        focus_ring_duration: &mut Duration,
-        graph_search_query: &mut String,
-        graph_search_matches: &mut Vec<NodeKey>,
-        graph_search_active_match_index: &mut Option<usize>,
-        graph_search_filter_mode: &mut bool,
-        toasts: &mut egui_notify::Toasts,
-        registry_runtime: &RegistryRuntime,
-        control_panel: &mut ControlPanel,
-        #[cfg(feature = "diagnostics")] diagnostics_state: &mut diagnostics::DiagnosticsState,
-        responsive_webviews: &HashSet<WebViewId>,
-        pending_open_child_webviews: Vec<WebViewId>,
-        open_node_tile_after_intents: &mut Option<TileOpenMode>,
-        frame_intents: &mut Vec<GraphIntent>,
-    ) {
+    fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPhaseArgs<'_>) {
+        let SemanticAndPostRenderPhaseArgs {
+            ctx,
+            graph_app,
+            window,
+            headed_window,
+            tiles_tree,
+            toolbar_height,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            favicon_textures,
+            app_state,
+            rendering_context,
+            window_rendering_context,
+            webview_creation_backpressure,
+            focused_node_hint,
+            graph_surface_focused,
+            focus_ring_node_key,
+            focus_ring_started_at,
+            focus_ring_duration,
+            graph_search_query,
+            graph_search_matches,
+            graph_search_active_match_index,
+            graph_search_filter_mode,
+            toasts,
+            registry_runtime,
+            control_panel,
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state,
+            responsive_webviews,
+            pending_open_child_webviews,
+            open_node_tile_after_intents,
+            frame_intents,
+        } = args;
+
         Self::run_semantic_lifecycle_phase(SemanticLifecyclePhaseArgs {
             graph_app,
             tiles_tree,
