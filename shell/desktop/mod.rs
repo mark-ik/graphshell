@@ -7,3 +7,6 @@ pub(crate) mod lifecycle;
 pub(crate) mod runtime;
 pub(crate) mod ui;
 pub(crate) mod workbench;
+
+#[cfg(test)]
+mod tests;
