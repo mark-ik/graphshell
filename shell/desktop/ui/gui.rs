@@ -939,7 +939,7 @@ impl Gui {
             graph_search_active_match_index,
             toolbar_state,
             frame_intents,
-            Self::active_node_pane_node(tiles_tree).is_some(),
+            Self::tree_has_active_node_pane(tiles_tree),
         );
 
         gui_orchestration::run_keyboard_phase(
@@ -1230,12 +1230,7 @@ impl Gui {
     fn open_or_focus_diagnostics_tool_pane(_tiles_tree: &mut Tree<TileKind>) {}
 
     fn has_active_node_pane(&self) -> bool {
-        self.tiles_tree.active_tiles().into_iter().any(|tile_id| {
-            matches!(
-                self.tiles_tree.tiles.get(tile_id),
-                Some(Tile::Pane(TileKind::Node(_)))
-            )
-        })
+        Self::tree_has_active_node_pane(&self.tiles_tree)
     }
 
     fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<crate::graph::NodeKey> {
@@ -1245,6 +1240,10 @@ impl Gui {
                 _ => None,
             }
         })
+    }
+
+    fn tree_has_active_node_pane(tiles_tree: &Tree<TileKind>) -> bool {
+        Self::active_node_pane_node(tiles_tree).is_some()
     }
 
     /// Paint the GUI, as of the last update.
