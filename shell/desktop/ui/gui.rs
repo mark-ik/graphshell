@@ -1517,9 +1517,13 @@ impl Gui {
             "TextInput" => egui::accesskit::Role::TextInput,
             "StaticText" => egui::accesskit::Role::Label,
             "Unknown" => egui::accesskit::Role::Unknown,
-            _ => return (egui::accesskit::Role::GenericContainer, true),
+            _ => return Self::fallback_webview_accessibility_role(),
         };
         (mapped, false)
+    }
+
+    fn fallback_webview_accessibility_role() -> (egui::accesskit::Role, bool) {
+        (egui::accesskit::Role::GenericContainer, true)
     }
 
     fn build_webview_a11y_graft_plan(
