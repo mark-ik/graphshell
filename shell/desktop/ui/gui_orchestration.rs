@@ -5,11 +5,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::app::{GraphBrowserApp, GraphIntent, SearchDisplayMode};
+use arboard::Clipboard;
+
+use crate::app::{ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, SearchDisplayMode};
 use crate::graph::NodeKey;
 use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UI_CLIPBOARD_COPY_FAILED;
 use crate::shell::desktop::ui::graph_search_flow::{self, GraphSearchFlowArgs};
 use crate::shell::desktop::ui::gui_frame::ToolbarDialogPhaseArgs;
 use crate::shell::desktop::ui::gui_state::ToolbarState;
@@ -240,4 +244,59 @@ pub(crate) fn run_toolbar_phase(
     }
 
     (toolbar_output.toolbar_visible, is_graph_view)
+}
+
+pub(crate) fn handle_pending_clipboard_copy_requests(
+    graph_app: &mut GraphBrowserApp,
+    clipboard: &mut Option<Clipboard>,
+    toasts: &mut egui_notify::Toasts,
+) {
+    while let Some(ClipboardCopyRequest { key, kind }) = graph_app.take_pending_clipboard_copy() {
+        let Some(node) = graph_app.workspace.graph.get_node(key) else {
+            toasts.error("Copy failed: node no longer exists");
+            continue;
+        };
+        let value = match kind {
+            ClipboardCopyKind::Url => node.url.clone(),
+            ClipboardCopyKind::Title => {
+                if node.title.is_empty() {
+                    node.url.clone()
+                } else {
+                    node.title.clone()
+                }
+            }
+        };
+        if value.trim().is_empty() {
+            toasts.warning("Nothing to copy");
+            continue;
+        }
+        if clipboard.is_none() {
+            *clipboard = Clipboard::new().ok();
+        }
+        let Some(cb) = clipboard.as_mut() else {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
+                byte_len: "clipboard unavailable".len(),
+            });
+            toasts.error("Clipboard unavailable");
+            continue;
+        };
+        match cb.set_text(value) {
+            Ok(()) => match kind {
+                ClipboardCopyKind::Url => {
+                    toasts.success("Copied URL");
+                }
+                ClipboardCopyKind::Title => {
+                    toasts.success("Copied title");
+                }
+            },
+            Err(e) => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
+                    byte_len: e.to_string().len(),
+                });
+                toasts.error(format!("Copy failed: {e}"));
+            }
+        }
+    }
 }
