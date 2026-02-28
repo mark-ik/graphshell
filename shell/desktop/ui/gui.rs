@@ -1492,7 +1492,28 @@ impl Gui {
         tree_update: &accesskit::TreeUpdate,
     ) -> WebViewA11yGraftPlan {
         let allowed_node_ids = Self::collect_allowed_webview_a11y_node_ids(tree_update);
+        let (nodes, conversion_fallback_count) =
+            Self::build_webview_a11y_node_plans(tree_update, &allowed_node_ids);
 
+        let root_node_id = Self::select_webview_a11y_root_node_id(
+            &allowed_node_ids,
+            tree_update.focus,
+            &nodes,
+        );
+
+        WebViewA11yGraftPlan {
+            anchor_label: Self::webview_accessibility_label(webview_id, tree_update),
+            root_node_id,
+            dropped_node_count: tree_update.nodes.len().saturating_sub(nodes.len()),
+            conversion_fallback_count,
+            nodes,
+        }
+    }
+
+    fn build_webview_a11y_node_plans(
+        tree_update: &accesskit::TreeUpdate,
+        allowed_node_ids: &HashSet<accesskit::NodeId>,
+    ) -> (Vec<WebViewA11yNodePlan>, usize) {
         let mut nodes = Vec::with_capacity(allowed_node_ids.len());
         let mut conversion_fallback_count = 0;
         for (node_id, node) in &tree_update.nodes {
@@ -1513,19 +1534,7 @@ impl Gui {
             });
         }
 
-        let root_node_id = Self::select_webview_a11y_root_node_id(
-            &allowed_node_ids,
-            tree_update.focus,
-            &nodes,
-        );
-
-        WebViewA11yGraftPlan {
-            anchor_label: Self::webview_accessibility_label(webview_id, tree_update),
-            root_node_id,
-            dropped_node_count: tree_update.nodes.len().saturating_sub(nodes.len()),
-            conversion_fallback_count,
-            nodes,
-        }
+        (nodes, conversion_fallback_count)
     }
 
     fn collect_allowed_webview_a11y_node_ids(
