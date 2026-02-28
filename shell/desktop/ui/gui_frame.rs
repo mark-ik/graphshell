@@ -1154,9 +1154,7 @@ fn handle_pending_named_frame_snapshot_restore_request(
     if let Some(name) = graph_app.take_pending_restore_frame_snapshot_named() {
         let open_request = graph_app.take_pending_frame_restore_open_request();
         if graph_app.should_prompt_unsaved_workspace_save() {
-            if graph_app.consume_unsaved_workspace_prompt_warning() {
-                warn!("Current frame has unsaved graph changes before switching to '{name}'");
-            }
+            warn_unsaved_changes_before_frame_switch(graph_app, &name);
             graph_app.request_unsaved_workspace_prompt(
                 UnsavedFramePromptRequest::FrameSwitch {
                     name,
@@ -1166,6 +1164,12 @@ fn handle_pending_named_frame_snapshot_restore_request(
         } else {
             restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
         }
+    }
+}
+
+fn warn_unsaved_changes_before_frame_switch(graph_app: &mut GraphBrowserApp, name: &str) {
+    if graph_app.consume_unsaved_workspace_prompt_warning() {
+        warn!("Current frame has unsaved graph changes before switching to '{name}'");
     }
 }
 
