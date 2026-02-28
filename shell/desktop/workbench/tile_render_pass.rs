@@ -238,6 +238,13 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
     }
     for node_key in pending_closed_nodes {
+           if *focused_node_hint == Some(node_key) {
+            log::debug!(
+                "tile_render_pass: clearing focused_node_hint for closed node {:?}",
+                node_key
+            );
+            *focused_node_hint = None;
+        }
            log::debug!("tile_render_pass: releasing runtime for closed node {:?}", node_key);
            tile_runtime::release_node_runtime_for_pane(
             graph_app,
@@ -249,6 +256,13 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     }
 
     for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
+           if *focused_node_hint == Some(node_key) {
+            log::debug!(
+                "tile_render_pass: clearing focused_node_hint for unmapped node {:?}",
+                node_key
+            );
+            *focused_node_hint = None;
+        }
            log::debug!(
             "tile_render_pass: releasing mapped runtime without tile for node {:?}",
             node_key
