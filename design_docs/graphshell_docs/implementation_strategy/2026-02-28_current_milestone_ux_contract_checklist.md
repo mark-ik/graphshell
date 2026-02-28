@@ -9,13 +9,13 @@
 - `2026-02-28_ux_contract_register.md`
 - `2026-02-28_ux_issue_domain_map.md`
 - `2026-02-27_ux_baseline_done_definition.md`
-- `2026-02-27_workbench_frame_tile_interaction_spec.md`
-- `2026-02-28_graph_node_edge_interaction_spec.md`
-- `2026-02-28_command_surface_interaction_spec.md`
-- `2026-02-28_focus_and_region_navigation_spec.md`
-- `2026-02-28_viewer_presentation_and_fallback_spec.md`
-- `2026-02-28_settings_and_control_surfaces_spec.md`
-- `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
+- `workbench/workbench_frame_tile_interaction_spec.md`
+- `canvas/graph_node_edge_interaction_spec.md`
+- `aspect_command/command_surface_interaction_spec.md`
+- `subsystem_focus/focus_and_region_navigation_spec.md`
+- `viewer/viewer_presentation_and_fallback_spec.md`
+- `aspect_control/settings_and_control_surfaces_spec.md`
+- `aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
 
 ---
 
@@ -192,3 +192,5 @@ Before declaring this milestone complete, ask:
 6. Are selection and degraded rendering states explicit enough to trust?
 
 If the answer to any of these is “not really,” the milestone is not done.
+
+

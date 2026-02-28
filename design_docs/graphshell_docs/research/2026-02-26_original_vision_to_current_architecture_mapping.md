@@ -174,7 +174,7 @@ Use this note as a quick check during planning:
 
 - `design_docs/graphshell_docs/implementation_strategy/PLANNING_REGISTER.md`
 - `design_docs/graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md`
-- `design_docs/graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md`
+- `design_docs/graphshell_docs/implementation_strategy/viewer/2026-02-24_universal_content_model_plan.md`
 - `design_docs/graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md`
 - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_control_ui_ux_plan.md`
 - `design_docs/graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md`

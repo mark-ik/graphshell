@@ -35,7 +35,7 @@ Each node is canonical graph identity and is represented through one or more til
 - **Duplicate URLs allowed**: The same URL can be open in multiple tiles (multiple nodes). Each is independent.
 - **Stable ID**: Nodes are identified by a stable UUID (not URL, not petgraph NodeIndex). Persistence uses this UUID.
 - **Per-node history**: Each node has its own back/forward stack. Servo provides this via `notify_history_changed(webview, entries, index)` for web nodes.
-- **Content type**: Nodes carry `mime_hint: Option<String>` and `address_kind: AddressKind` that drive viewer selection for non-web content. See [2026-02-24_universal_content_model_plan.md](../implementation_strategy/2026-02-24_universal_content_model_plan.md).
+- **Content type**: Nodes carry `mime_hint: Option<String>` and `address_kind: AddressKind` that drive viewer selection for non-web content. See [2026-02-24_universal_content_model_plan.md](../implementation_strategy/viewer/2026-02-24_universal_content_model_plan.md).
 
 ### Servo Signals (Web Nodes)
 
@@ -53,7 +53,7 @@ Servo provides two distinct signals that drive the graph (no Servo modifications
 
 ## Research Conclusions (2026-02-15 / updated 2026-02-24)
 
-The architecture plan identified a previous mismatch (URL-polling assumptions and fragmented routing). For desktop tile flow, this has been addressed: navigation semantics are delegate-driven, structural node creation is not polling-driven, and mutations route through intent/reconciliation boundaries. Remaining deferred scope is EGL/WebDriver explicit-target parity. See [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) and [2026-02-20_embedder_decomposition_plan.md](../implementation_strategy/2026-02-20_embedder_decomposition_plan.md).
+The architecture plan identified a previous mismatch (URL-polling assumptions and fragmented routing). For desktop tile flow, this has been addressed: navigation semantics are delegate-driven, structural node creation is not polling-driven, and mutations route through intent/reconciliation boundaries. Remaining deferred scope is EGL/WebDriver explicit-target parity. See [2026-02-21_lifecycle_intent_model.md](../implementation_strategy/2026-02-21_lifecycle_intent_model.md) and [2026-02-20_embedder_decomposition_plan.md](../implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md).
 
 ### Edge Types
 
@@ -74,7 +74,7 @@ The architecture plan identified a previous mismatch (URL-polling assumptions an
 - **New root node** (N key, no parent): Creates a new tile container in the tile tree.
 - **Tile move** (drag between panes): Moves the tile. `UserGrouped` creation for drag-move is follow-up work; current explicit grouping trigger is split-open.
 
-**Frame-context routing** (implemented; polish ongoing): Opening a node predictably restores the expected frame/workbench context. Nodes track frame-context membership metadata and recency. Routing resolver uses recency and membership index to decide whether to restore an existing frame context or open in current frame context. See [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md), [2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](../implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md), and [2026-02-27_workbench_frame_tile_interaction_spec.md](../implementation_strategy/2026-02-27_workbench_frame_tile_interaction_spec.md).
+**Frame-context routing** (implemented; polish ongoing): Opening a node predictably restores the expected frame/workbench context. Nodes track frame-context membership metadata and recency. Routing resolver uses recency and membership index to decide whether to restore an existing frame context or open in current frame context. See [2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](../implementation_strategy/workbench/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) and [workbench_frame_tile_interaction_spec.md](../implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md).
 
 ### Node Lifecycle
 
@@ -201,7 +201,7 @@ the app surface — workbench tiles only, cannot be placed on a moving graph nod
 currently displayed in the graph canvas, render the node's last thumbnail instead of a live
 viewer. The user must open the node in a workbench pane to interact with it.
 
-See [2026-02-24_universal_content_model_plan.md](../implementation_strategy/2026-02-24_universal_content_model_plan.md) and [2026-02-23_wry_integration_strategy.md](../implementation_strategy/2026-02-23_wry_integration_strategy.md).
+See [2026-02-24_universal_content_model_plan.md](../implementation_strategy/viewer/2026-02-24_universal_content_model_plan.md) and [2026-02-23_wry_integration_strategy.md](../implementation_strategy/2026-02-23_wry_integration_strategy.md).
 
 ### Address Kind
 
@@ -349,7 +349,8 @@ See [2026-02-22_workbench_workspace_manifest_persistence_plan.md](../implementat
 - [2026-02-20_settings_architecture_plan.md](../implementation_strategy/2026-02-20_settings_architecture_plan.md) — `graphshell://` internal URL scheme
 - [2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](../implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) — workbench tile-selector semantics overlay and routing polish addendum (legacy filename retained)
 - [2026-02-23_graph_interaction_consistency_plan.md](../implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md) — interaction/search-surface harmonization
-- [2026-02-24_universal_content_model_plan.md](../implementation_strategy/2026-02-24_universal_content_model_plan.md) — non-web viewers, MIME detection, viewer selection policy
+- [2026-02-24_universal_content_model_plan.md](../implementation_strategy/viewer/2026-02-24_universal_content_model_plan.md) — non-web viewers, MIME detection, viewer selection policy
 - [2026-02-23_wry_integration_strategy.md](../implementation_strategy/2026-02-23_wry_integration_strategy.md) — native OS webview overlay integration
 - [2026-02-20_node_badge_and_tagging_plan.md](../implementation_strategy/2026-02-20_node_badge_and_tagging_plan.md) — badge system and tag assignment UI
 - [2026-02-23_udc_semantic_tagging_plan.md](../implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md) — UDC semantic tagging and semantic physics
+

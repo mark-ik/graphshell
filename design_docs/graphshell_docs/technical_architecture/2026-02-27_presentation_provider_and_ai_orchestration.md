@@ -5,7 +5,7 @@
 **Related**:
 - `GRAPHSHELL_AS_BROWSER.md`
 - `2026-02-18_universal_node_content_model.md`
-- `../implementation_strategy/2026-02-24_universal_content_model_plan.md`
+- `../implementation_strategy/viewer/2026-02-24_universal_content_model_plan.md`
 - `../implementation_strategy/2026-02-22_registry_layer_plan.md`
 
 ---

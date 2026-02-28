@@ -3,6 +3,13 @@
 **Status**: Active / Canonical (revised 2026-02-26)
 **Purpose**: Single source for execution priorities, issue-ready backlog stubs, and implementation guidance.
 
+## Canonical Companion Docs
+
+- [2026-02-27_ux_baseline_done_definition.md](2026-02-27_ux_baseline_done_definition.md) - UX baseline gate for “usable application” readiness.
+- [2026-02-28_current_milestone_ux_contract_checklist.md](2026-02-28_current_milestone_ux_contract_checklist.md) - Current milestone execution filter for the UX contract family.
+- [2026-02-28_ux_contract_register.md](2026-02-28_ux_contract_register.md) - Cross-spec UX ownership map and contract register.
+- [2026-02-28_ux_issue_domain_map.md](2026-02-28_ux_issue_domain_map.md) - Active issue mapping to the UX contract family.
+
 ## Contents
 
 0. Surface Composition Architecture (2026-02-26 Gap Analysis & Remediation)
@@ -165,7 +172,7 @@ This section maps the servoshell-inherited code that the Surface Composition Con
 | `lane:viewer-platform` (`#92`) | The `TileRenderMode` enum is a viewer-platform concern; it makes the texture-vs-overlay-vs-embedded distinction runtime-authoritative. | Add render mode enum child issue under `#92` |
 | `lane:spec-code-parity` (`#99`) | The overlay affordance policy is a spec/code parity concern — the Wry strategy doc describes z-order constraints but no formal policy exists. | Add affordance policy doc slice under `#99` |
 | `2026-02-23_wry_integration_strategy.md` | The `overlay_tiles: HashSet<TileId>` tracking proposed there is superseded by `TileRenderMode` on `NodePaneState`. The `Viewer` trait contract (`render_embedded` / `sync_overlay` / `is_overlay_mode`) is fully compatible; `TileRenderMode` is the runtime-resolved outcome of those trait queries. | Update Wry strategy to reference `TileRenderMode` when compositor adapter lands |
-| `2026-02-20_embedder_decomposition_plan.md` | Stage 3 (`EmbedderCore` isolation) is complete. The `CompositorAdapter` wraps the rendering paths that `EmbedderCore` exposes; it does not re-entangle embedder coupling. | No conflict; `CompositorAdapter` is a clean consumer of `EmbedderCore` APIs |
+| `aspect_render/aspect_render/2026-02-20_embedder_decomposition_plan.md` | Stage 3 (`EmbedderCore` isolation) is complete. The `CompositorAdapter` wraps the rendering paths that `EmbedderCore` exposes; it does not re-entangle embedder coupling. | No conflict; `CompositorAdapter` is a clean consumer of `EmbedderCore` APIs |
 | `SYSTEM_REGISTER.md` (routing rules) | The Surface Composition Contract does not introduce new routing mechanisms. Pass ordering is a render-pipeline concern (direct call within the same module/frame), not a Signal or Intent. | No Signal/Intent routing changes needed |
 | `SUBSYSTEM_DIAGNOSTICS.md` | The compositor adapter should emit diagnostics events for GL state save/restore, callback duration, and pass ordering. The existing `tile_compositor.paint` channel is reusable. | Extend diagnostics channel coverage when adapter lands |
 
@@ -362,7 +369,7 @@ _Source file before consolidation: `2026-02-24_immediate_priorities.md`_
 - `2026-02-24_performance_tuning_plan.md`
 - `2026-02-24_control_ui_ux_plan.md`
 - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-24_spatial_accessibility_plan.md` → superseded by `SUBSYSTEM_ACCESSIBILITY.md`
-- `2026-02-24_universal_content_model_plan.md`
+- `viewer/2026-02-24_universal_content_model_plan.md`
 - `2026-02-23_wry_integration_strategy.md`
 - `2026-02-20_edge_traversal_impl_plan.md`
 - `2026-02-18_graph_ux_research_report.md`
@@ -444,15 +451,31 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
   - Rule: run as a single focused PR, do not overlap with quick refactors in the same hotspots
 2. **lane:roadmap (docs/planning, merge-safe default lane)**
   - Queue reconciled (2026-02-26): `#11`, `#12`, `#13`, `#14`, `#18` closed as completed adoption/planning slices.
-  - Remaining open roadmap queue item: `#19` (`2D↔3D` hotswitch; still deferred/blocked).
-  - Active docs-only execution guide for blocked-state parallel work: `design_docs/graphshell_docs/implementation_strategy/2026-02-27_roadmap_lane_19_readiness_plan.md`.
+  - Remaining open roadmap queue item: `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch; still deferred/blocked).
+  - Active docs-only execution guide for blocked-state parallel work: `design_docs/graphshell_docs/implementation_strategy/canvas/2026-02-27_roadmap_lane_19_readiness_plan.md`.
   - Low conflict risk with runtime/render hot files; preferred background lane while bugfix lane is idle
 
   **Roadmap lane quick status (checklist style)**
-  - `#19` remains **blocked** until prerequisites in `2026-02-27_roadmap_lane_19_readiness_plan.md` are closed.
+  - `#19` remains **blocked** until prerequisites in `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` are closed.
   - While blocked, roadmap work stays **docs-only** and confined to `design_docs/**`.
-  - Next roadmap slices are `R1`..`R4` from the readiness plan (issue-shaping + acceptance-contract alignment, no runtime code).
+  - `R1` checklist is tracked below; `R2` acceptance contract draft: `design_docs/graphshell_docs/implementation_strategy/canvas/2026-02-27_viewdimension_acceptance_contract.md`.
+  - `R3` terminology alignment is complete in `design_docs/TERMINOLOGY.md` (`ViewDimension`, `ThreeDMode`, `ZSource`, `Derived Z Positions`, `Dimension Degradation Rule`).
+  - `R4` issue-stack seeding is complete at docs level in `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` (`R4.1`..`R4.4` templates).
   - Move `#19` to implementation-ready only after explicit evidence links exist for each prerequisite closure.
+
+  **`#19` prerequisite readiness checklist (R1)**
+
+  | Prerequisite | Owner lane / tracker | Status (`open` / `partial` / `closed`) | Current evidence links | Closure criteria (for `closed`) |
+  | --- | --- | --- | --- | --- |
+  | Stabilization closure on camera/input/focus | `lane:stabilization` / `#88` | `partial` | Latest stabilization half-slice landed in commit `22b61f07fb2121d41dfd5ffc06149c6460cf51f6`; active bug register below still contains unresolved repro items. | Linked issue/PR evidence confirms camera controls, focus ownership, and lasso regressions are closed with targeted tests/diagnostics and no active repro remains in the bug register. |
+  | Surface composition pass contract + overlay affordance policy closure | `lane:stabilization` / `#88`; `lane:spec-code-parity` / `#99` | `open` | Gap analysis and architectural contract are documented in `§0` of this register; no closure receipt yet proving full pass-contract rollout. | Compositor pass contract + overlay policy issue stack is linked with closure evidence showing Pass 3 ordering invariants and per-render-mode affordance behavior validated. |
+  | Runtime-authoritative tile render mode behavior | `lane:viewer-platform` / `#92` | `partial` | Runtime render-mode projection and diagnostics-path hint plumbing were landed in recent work touching `tile_runtime.rs` + `tile_render_pass.rs`; full lane closure evidence not yet linked. | Linked issue/PR evidence confirms `TileRenderMode` is authoritative end-to-end (attach-time resolution, render dispatch, diagnostics projection) with acceptance tests and no known regressions. |
+  | Persistence + degradation guarantees for dimension state | `lane:roadmap` (spec) then implementation lanes | `partial` | Blocker and requirements are defined in `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md`; acceptance contract drafted in `canvas/2026-02-27_viewdimension_acceptance_contract.md`; terminology alignment is complete in `design_docs/TERMINOLOGY.md` (`ViewDimension`, `ThreeDMode`, `ZSource`, `Derived Z Positions`, `Dimension Degradation Rule`); issue templates are seeded in readiness plan `R4.1`..`R4.4`. | Canonical docs align on persisted `ViewDimension` ownership and deterministic `TwoD` fallback semantics; linked implementation/test issues exist for restore/degradation behavior. |
+
+  **Evidence-link rule for readiness transitions**
+  - `open` → `partial`: add at least one concrete issue/PR/commit link showing active progress.
+  - `partial` → `closed`: add closure proof links (tests/diagnostics/receipts) and verify closure criteria text is satisfied.
+  - `#19` remains blocked until all four prerequisite rows are `closed`.
 
 3. **lane:runtime-followon (new tickets required)**
   - `SYSTEM_REGISTER.md` SR2 (signal routing contract) before SR3 (`SignalBus`/equivalent fabric)
@@ -513,7 +536,7 @@ Issue-ready intake stubs from the latest user report:
   - Hub: `#90` (Servoshell inheritance retirement tracker)
   - Scope: `gui.rs`/`gui_frame.rs` decomposition, `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
   - Important child slice: composited webview callback pass contract + GL state isolation (`tile_compositor.rs`) to fix Servo-path overlay affordance failures that are not Wry/native-overlay limitations
-  - Primary guide: `design_docs/graphshell_docs/implementation_strategy/2026-02-20_embedder_decomposition_plan.md`
+  - Primary guide: `design_docs/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md`
   - Rule: pair mechanical moves with invariants/tests; avoid mixing with feature work in the same PR
 
 ### Incubation Lanes (Parallel / Non-blocking)
@@ -568,9 +591,9 @@ This supersedes the earlier registry-closure-heavy priority table. The queue aud
 | --- | --- | --- | --- | --- | --- |
 | 1 | **`lane:stabilization` (`#88`)** | User-visible regressions block trust and currently prevent normal graph interaction, masking deeper architecture mistakes. | Restore graph camera controls (pan/wheel/zoom/fit), close tab/pane focus/render activation regressions, finish lasso correctness follow-ons, and keep focus-affordance/compositor regressions isolated with tests/diagnostics. | `render/mod.rs`, `app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs`, `shell/desktop/workbench/tile_compositor.rs`, `shell/desktop/workbench/*`; `SUBSYSTEM_DIAGNOSTICS.md` | Repros are tracked, fixed, and covered by targeted tests/receipts; normal graph interaction works reliably in default and split-pane contexts. |
 | 2 | **`lane:control-ui-settings` (`#89`)** | Control surfaces and settings IA are now clearly specified by user needs, but the runtime UI still exposes transitional/legacy command surfaces. | Unify F2 + contextual command surfaces, retire/rename `Edge Commands`, define contextual category/disabled-state policy, radial readability pass, omnibar focus retention, theme mode toggle, settings scaffold replacing placeholder pane. | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs`, `render/mod.rs`, `shell/desktop/ui/toolbar/*`, `shell/desktop/workbench/tile_behavior.rs` | Command surfaces share one dispatch/context model across UI contexts; settings pane supports theme mode and is no longer placeholder-only for core settings paths. |
-| 3 | **`lane:embedder-debt` (`#90`)** | Servoshell inheritance debt is the main source of host/UI focus/compositor friction and still leaks legacy behavior into user-facing flows. | Decompose `gui.rs`/`gui_frame.rs`, reduce `RunningAppState` coupling, narrow host/UI boundaries, fix legacy webview context-menu/new-tab bypass paths, retire misleading servoshell-era assumptions/comments. | `2026-02-20_embedder_decomposition_plan.md`, `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `shell/desktop/host/*`, `shell/desktop/lifecycle/webview_controller.rs` | One stage of decomposition lands with tests/receipts; legacy webview path bypasses are either bridged or retired; hotspot surface area is reduced. |
+| 3 | **`lane:embedder-debt` (`#90`)** | Servoshell inheritance debt is the main source of host/UI focus/compositor friction and still leaks legacy behavior into user-facing flows. | Decompose `gui.rs`/`gui_frame.rs`, reduce `RunningAppState` coupling, narrow host/UI boundaries, fix legacy webview context-menu/new-tab bypass paths, retire misleading servoshell-era assumptions/comments. | `aspect_render/aspect_render/2026-02-20_embedder_decomposition_plan.md`, `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `shell/desktop/host/*`, `shell/desktop/lifecycle/webview_controller.rs` | One stage of decomposition lands with tests/receipts; legacy webview path bypasses are either bridged or retired; hotspot surface area is reduced. |
 | 4 | **`lane:runtime-followon` (`#91`)** | `SYSTEM_REGISTER.md` remaining gaps are now mostly SR2/SR3 signal routing contract/fabric + observability. | Open child issues for SR2/SR3; implement typed signal envelope/facade, routing diagnostics, misroute observability, fabric/backpressure policy. | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md`, `shell/desktop/runtime/control_panel.rs`, `shell/desktop/runtime/registries/mod.rs` | SR2/SR3 child issues are landed or explicitly ticketed with done gates; signal routing boundary is testable and observable. |
-| 5 | **`lane:viewer-platform` (`#92`)** | Viewer selection/capability scaffolding is ahead of actual embedded viewers; Wry remains design-only; **`TileRenderMode` enum** (§0.3.3) needed for compositor pass dispatch and overlay policy. | Replace non-web viewer placeholders (`settings`/`pdf`/`csv` first), implement Wry feature gate + manager/viewer foundation, align Verso manifest/spec claims, **add `TileRenderMode` to `NodePaneState` with ViewerRegistry-driven resolution**. | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `GRAPHSHELL_AS_BROWSER.md`, `mods/native/verso/mod.rs`, `Cargo.toml`, `shell/desktop/workbench/tile_behavior.rs`, `shell/desktop/workbench/tile_kind.rs` | At least one non-web native viewer is embedded; `viewer:wry` foundation exists behind feature gate or spec/docs are explicitly downgraded; `TileRenderMode` is set on every `NodePaneState` at viewer attachment time. |
+| 5 | **`lane:viewer-platform` (`#92`)** | Viewer selection/capability scaffolding is ahead of actual embedded viewers; Wry remains design-only; **`TileRenderMode` enum** (§0.3.3) needed for compositor pass dispatch and overlay policy. | Replace non-web viewer placeholders (`settings`/`pdf`/`csv` first), implement Wry feature gate + manager/viewer foundation, align Verso manifest/spec claims, **add `TileRenderMode` to `NodePaneState` with ViewerRegistry-driven resolution**. | `viewer/2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `GRAPHSHELL_AS_BROWSER.md`, `mods/native/verso/mod.rs`, `Cargo.toml`, `shell/desktop/workbench/tile_behavior.rs`, `shell/desktop/workbench/tile_kind.rs` | At least one non-web native viewer is embedded; `viewer:wry` foundation exists behind feature gate or spec/docs are explicitly downgraded; `TileRenderMode` is set on every `NodePaneState` at viewer attachment time. |
 | 6 | **`lane:accessibility` (`#95`)** | Accessibility is a project-level requirement; phase-1 bridge work exists but Graph Reader/Inspector paths remain incomplete. | Finish bridge diagnostics/health surfacing, implement Graph Reader scaffolds, replace Accessibility Inspector placeholder pane, add focus/nav regression tests. | `SUBSYSTEM_ACCESSIBILITY.md`, `shell/desktop/workbench/tile_behavior.rs`, `shell/desktop/ui/gui.rs` | Accessibility Inspector is functional, bridge invariants/tests are green, and Graph Reader phase entry point exists. |
 | 7 | **`lane:diagnostics` (`#94`)** | Diagnostics remains the leverage multiplier for every other lane and still lacks analyzer/test harness execution surfaces. | Implement `AnalyzerRegistry` scaffold, in-pane `TestHarness`, expanded invariants, better violation/health views, orphan-channel surfacing. | `SUBSYSTEM_DIAGNOSTICS.md`, `shell/desktop/runtime/diagnostics/*`, diagnostics pane code paths | Analyzer/TestHarness scaffolds exist and can be run in-pane (feature-gated if needed). |
 | 8 | **`lane:subsystem-hardening` (`#96`)** | Storage/history/security are documented but still missing closure slices that protect integrity and trust. | Add `persistence.*` / `history.*` / `security.identity.*` diagnostics, degradation wiring, traversal/archive correctness tests, grant matrix denial-path coverage. | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md`, persistence/history/security runtime code | Subsystem health summaries and critical integrity/denial-path tests are in CI or documented as explicit follow-ons. |
@@ -593,16 +616,16 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
 | `lane:stabilization` (`#88`) | User-visible regressions, control responsiveness, focus affordances, camera/lasso correctness | Active when regressions exist | `render/mod.rs`, `app.rs`, `gui.rs`, `input/mod.rs`, `tile_compositor.rs` | Preempts other lanes while an active repro exists. |
-| `lane:roadmap` | Remaining docs/planning follow-on `#19` (`2D↔3D` hotswitch, blocked) | Active merge-safe default (docs-only execution) | `PLANNING_REGISTER.md`, `2026-02-27_roadmap_lane_19_readiness_plan.md` | Use readiness plan `R1`..`R4` to advance issue-shaping without touching runtime hotspots. |
+| `lane:roadmap` | Remaining docs/planning follow-on `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch, blocked) | Active merge-safe default (docs-only execution) | `PLANNING_REGISTER.md`, `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` | Use readiness plan `R1`..`R4` to advance issue-shaping without touching runtime hotspots. |
 | `lane:control-ui-settings` (`#89`) | Command surfaces + settings IA/surface execution | Active planning / queued (high priority) | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs` | User report now provides concrete issue-ready slices (palette/context unification, theme toggle, omnibar/radial polish). |
-| `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority, active child slices) | `2026-02-20_embedder_decomposition_plan.md`, `gui.rs`, `gui_frame.rs`, `host/*` | Includes compositor callback pass contract and legacy webview context-menu/new-tab path retirement/bridging. |
+| `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority, active child slices) | `aspect_render/aspect_render/2026-02-20_embedder_decomposition_plan.md`, `gui.rs`, `gui_frame.rs`, `host/*` | Includes compositor callback pass contract and legacy webview context-menu/new-tab path retirement/bridging. |
 | `lane:runtime-followon` (`#91`) | SR2/SR3 signal routing contract/fabric + observability | Prospective (ticket first) | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md` | Requires fresh child issues; do not reuse queue-cleanup issues. |
 
 ### B. Core Platform / Architecture Completion Lanes
 
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
-| `lane:viewer-platform` (`#92`) | Universal content execution + real embedded viewers + Wry foundation | Prospective | `2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `tile_behavior.rs`, `mods/native/verso/mod.rs`, `Cargo.toml` | Closes spec/code drift around viewer support and `viewer:wry`. |
+| `lane:viewer-platform` (`#92`) | Universal content execution + real embedded viewers + Wry foundation | Prospective | `viewer/2026-02-24_universal_content_model_plan.md`, `2026-02-23_wry_integration_strategy.md`, `tile_behavior.rs`, `mods/native/verso/mod.rs`, `Cargo.toml` | Closes spec/code drift around viewer support and `viewer:wry`. |
 | `lane:diagnostics` (`#94`) | AnalyzerRegistry, in-pane TestHarness, invariant/health surfacing | Prospective | `SUBSYSTEM_DIAGNOSTICS.md`, diagnostics runtime/pane code | Leverage multiplier for all other lanes. |
 | `lane:subsystem-hardening` (`#96`) | Storage/history/security closure slices | Prospective | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md` | Can be split into sublanes once issue volume grows. |
 | `lane:test-infra` (`#97`) | T1/T2 scaling, `test-utils`, scenario binary, CI split | Prospective | `2026-02-26_test_infrastructure_improvement_plan.md`, `mod_loader.rs`, `Cargo.toml` | Prefer infra-only PRs to reduce merge risk. |

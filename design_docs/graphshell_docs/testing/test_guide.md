@@ -6,7 +6,7 @@
 
 **Related**:
 - `../implementation_strategy/2026-02-27_ux_baseline_done_definition.md`
-- `../implementation_strategy/2026-02-27_workbench_frame_tile_interaction_spec.md`
+- `../implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md`
 - `../../OPERATOR_GUIDE.md`
 
 ---
@@ -80,3 +80,4 @@ When manual validation is required, capture:
 - follow-up issue reference if failed.
 
 Keep long-form historical validation logs in archive checkpoints; keep this file as the active testing entry point.
+

@@ -59,9 +59,15 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 ### Pane Types
 
 *   **Graph View**: A Pane (`TileKind::Graph`) containing a force-directed canvas visualization powered by `egui_graphs`. Renders the `Graph` data model with physics simulation, node selection, and camera controls.
+*   **GraphViewId**: A stable identifier for a specific Graph View pane instance. `GraphViewId` is the canonical identity for per-view camera state, `ViewDimension`, Lens assignment, and `LocalSimulation` (for Divergent layout views). Generated at pane creation; persists across reorder, split, and move operations.
+*   **GraphLayoutMode**: The layout participation mode for a Graph View pane. `Canonical` — participates in the shared workspace graph layout (shared node positions, one physics simulation). `Divergent` — has its own `LocalSimulation` with independent node positions; activated explicitly by the user.
+*   **LocalSimulation**: An independent physics simulation instance owned by a `Divergent` Graph View. Does not affect Canonical pane node positions.
 *   **Pane Presentation Mode** (aka **Pane Chrome Mode**): How a Pane is presented in the tile tree UI (chrome, mobility, and locking behavior), distinct from the Pane's content.
 *   **Tiled Pane** (aka **Promoted Pane**): A Pane presented with tile-selector chrome and normal tile-tree mobility operations (split/switch/reflow).
 *   **Docked Pane**: A Pane presented with reduced chrome and position-locked behavior inside the current tile arrangement. Intended to reduce accidental reflow and focus attention on content.
+*   **PaneLock**: The reflow lock state of a Pane, independent of `PanePresentationMode`. `Unlocked` (default) — all user-initiated reflow operations permitted. `PositionLocked` — cannot be moved or reordered; can be closed. Docked panes are implicitly position-locked from the user's perspective. `FullyLocked` — cannot be moved, reordered, or closed by the user; reserved for system-owned panes.
+*   **FrameTabSemantics**: An optional semantic overlay on top of the `egui_tiles` structural tree. Persists semantic tab group membership so that meaning is not lost when `egui_tiles` simplification restructures the tree. Serialized with rkyv into the frame bundle. This is frame state, not WAL data.
+*   **TabGroupMetadata**: A record within `FrameTabSemantics` for one semantic tab group. Contains `group_id` (`TabGroupId`), ordered `pane_ids`, and `active_pane_id` (repaired to `None` if the previously active pane is removed from the group).
 *   **Subsystem Pane**: A pane-addressable surface for a subsystem's runtime state, health, configuration, and primary operations. Subsystems are expected to have dedicated panes, but implementations may be staged. Subsystem panes are hosted as tool panes (`TileKind::Tool(ToolPaneState)`).
 *   **Tool Pane**: A non-document pane hosted under `TileKind::Tool(ToolPaneState)` (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces.
 *   **Diagnostic Inspector**: A subsystem pane (currently the primary `ToolPaneState` implementation) for visualizing system internals (Engine, Compositor, Intents, and future subsystem health views).
@@ -85,6 +91,14 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **The Register**: See *Registry Architecture* section below for the canonical definition (this interface-components mention is intentionally a cross-reference only to avoid duplicate-definition drift).
 *   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View/Frame pane. Camera state is per-view runtime state, not a global layout concern.
 
+## View Dimension Terms
+
+*   **ViewDimension**: The per-Graph-View dimension mode state. Canonical values are `TwoD` and `ThreeD { mode, z_source }`. `ViewDimension` is persisted as part of Graph View state.
+*   **ThreeDMode**: The 3D interaction/render sub-mode for a `ViewDimension::ThreeD` Graph View. Canonical values are `TwoPointFive`, `Isometric`, and `Standard`.
+*   **ZSource**: The policy for deriving per-node `z` placement when a Graph View is in `ThreeD` mode. `ZSource` configuration is persisted through `ViewDimension`; derived per-node `z` positions are runtime data.
+*   **Derived Z Positions**: Ephemeral per-node `z` values computed from `ZSource` and node metadata during 2D→3D transitions. Derived `z` values are never persisted independently.
+*   **Dimension Degradation Rule**: If persisted `ThreeD` state is restored where 3D rendering is unavailable, Graphshell deterministically degrades that view to `TwoD` while preserving `(x, y)` positions.
+
 ## Camera Commands
 
 *   **Camera Fit**: Fits the viewport to the bounding box of all nodes with a relaxed zoom factor. Triggered by `C` key or on startup with an existing graph.
@@ -99,10 +113,11 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Scope Isolation**: Distinct graph scopes rendered in separate panes/frames within the same Workbench (`GraphId`) are interaction-isolated by default; selection, camera, gestures, and scope-local interactions do not implicitly affect sibling scopes unless an explicit bridge/sync rule is enabled.
 *   **Inter-Workbench Scope**: App-level scope used to switch between workbenches (and therefore between complete graphs/`GraphId`s).
 *   **Node**: A unit of content (webpage, note, file) identified by a stable UUID.
-*   **Edge**: A relationship between two nodes.
-    *   **UserGrouped**: Explicit connection made by the user (flag on Edge).
-    *   **Traversal-Derived**: Implicit connection formed by navigation events.
-*   **Traversal**: A temporal record of a navigation event (timestamp, trigger) stored on an Edge.
+*   **Edge**: A relationship between two nodes, represented as `EdgePayload`.
+*   **EdgePayload**: The canonical edge data type. Contains `kind: EdgeKind` and `traversals: Vec<Traversal>`. Replaces the deprecated `EdgeType`.
+*   **EdgeKind**: The structural classification of an edge. `UserGrouped` — explicit connection created by the user. `TraversalDerived` — implicit connection created by a navigation event.
+*   **Traversal**: A temporal record of a navigation event (timestamp, `NavigationTrigger`, direction) stored on an edge's `traversals` list. Repeated traversals are recorded; the full list is the history of all navigation over that edge.
+*   **NavigationTrigger**: The cause of a `Traversal`. Canonical values: `LinkClick`, `BackButton`, `ForwardButton`, `AddressBarEntry`, `Programmatic`, `Unknown`.
 *   **Edge Traversal History**: The aggregate of all Traversal records, forming the complete navigation history of the graph.
 *   **Workbench History Stream**: The ordered stream of workbench-structure operations (tile/frame/split/reorder/open/close) within one workbench context.
 *   **Frame History**: A merged timeline over Edge Traversal History and Workbench History Stream for frame-contextual replay/inspection.
@@ -112,17 +127,29 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Signal** (routing): A decoupled notification/event routed through The Register's signal-routing layer (`SignalBus` or equivalent). Signals are for publish/subscribe coordination where emitters must not know consumers. Signals are not direct state mutation; they may result in `Intent`s downstream.
 *   **Session**: A period of application activity, persisted via a specific write-ahead log (WAL). A temporal/persistence concept only — not to be confused with WorkbenchProfile.
 *   **Tag**: A user-applied string attribute on a Node (e.g., `#starred`, `#pin`, `udc:51`) used for organization and system behavior.
+*   **AddressKind**: The structural classification of a node's address, used as the primary viewer-selection dispatch axis. Canonical values: `Http`, `File`, `Data`, `GraphshellClip`, `Directory`, `Unknown`. Set at node creation from the address string; does not change unless the node's address changes.
+*   **Clip Node**: A graph node with `address_kind = GraphshellClip` and `tag = #clip`. Stores user-clipped content (selected text, image, or full-page extraction) at a `graphshell://clip/<uuid>` address. Created only via the `ClipContent` intent. Rendered by `ClipViewer`.
+*   **mime_hint**: An optional `MimeType` field on a Node providing a content-type hint for viewer selection. Set at node creation from HTTP `Content-Type` header, user input, or MIME detection. Overridable by the detection pipeline if a higher-confidence result is found. Stored in the graph data model, not on `NodePaneState`.
 
 ## Visual System
 
 *   **Badge**: A visual indicator on a Node or Tab representing a Tag or system state (e.g., Crashed, Unread).
 *   **Overlay Affordance Policy**: Per-`TileRenderMode` rules for rendering focus/hover/selection/diagnostic affordances relative to content. `CompositedTexture` renders affordances over content in the compositor pipeline; `NativeOverlay` renders affordances in tile chrome/gutter regions.
+*   **MagneticZone**: A named, workspace-scoped node cluster defined by explicit membership. Nodes in a zone experience a soft-bias force toward the zone centroid during physics simulation. Zones have exclusive membership (one node belongs to at most one zone). Zone data is stored in the graph persistence layer alongside node data.
+*   **LensPhysicsBindingPreference**: The policy controlling whether applying a Lens automatically switches the physics profile for a view. `Always` — auto-switch. `Ask` — prompt the user. `Never` — never auto-switch. Stored per-view in `GraphViewId` state.
+*   **SemanticGravity**: An `ExtraForce` implementation that applies attractive forces between nodes sharing UDC semantic proximity. Registered by the `KnowledgeRegistry` when semantic tagging is active. Uses centroid optimization for O(N) computation.
+*   **LOD** (Level of Detail): The rendering detail level applied to nodes and edges based on canvas zoom. Graphshell defines four LOD levels by zoom threshold: Point (< 0.25), Compact (0.25–0.6), Standard (0.6–1.5), Detail (≥ 1.5). Thresholds are defined in `CanvasStylePolicy`.
+*   **WryRenderMode**: The render mode for a `WryViewer` instance. `NativeOverlay` — a native child window owns the content region (always available). `CompositedTexture` — renders to an offscreen texture composited into egui (platform-dependent; unavailable on Linux). Maps directly to `TileRenderMode`.
+*   **FilePermissionGuard**: The access-control gate for non-web viewer filesystem access. All file-based viewer reads go through `FilePermissionGuard`, which validates the node's address against the workspace's permitted path set. Enforces the no-direct-filesystem-access invariant for non-Servo viewers.
 
 ## Runtime Lifecycle
+
+Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombstone`. `Active`, `Warm`, and `Cold` are operational states; `Tombstone` is a deletion-with-preservation state.
 
 *   **Active**: Node has a live webview and is rendering.
 *   **Warm**: Node has a live webview but is hidden/cached (optional optimization).
 *   **Cold**: Node has no webview; represented by metadata/snapshot only.
+*   **Tombstone**: Node has been deleted but is structurally preserved in the graph data model. A tombstoned node retains its `NodeKey`, spatial position, edges, and a deletion timestamp. Tombstones are filtered out of default graph queries; they are visible only when tombstone display is explicitly enabled. Permanent removal requires an explicit garbage-collection action. Restoration transitions a tombstone back to `Cold`.
 
 ## Registry Architecture
 
@@ -154,7 +181,12 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
     *   `Domain` answers what class of behavior is being resolved (layout/presentation/input) and in what order.
     *   `Aspect` is the synthesized runtime system oriented to a task family using registry/domain capabilities (may be headless or UI-backed).
     *   `Surface` is the UI presentation through which users interact with or observe a domain/aspect/subsystem.
-    *   `Subsystem` is a cross-cutting guarantee framework (diagnostics, accessibility, security, storage, history) applied across domains/aspects/surfaces.
+    *   `Subsystem` is a cross-cutting guarantee framework (diagnostics, accessibility, focus, security, storage, history) applied across domains/aspects/surfaces.
+*   **Doc folder conventions** — implementation_strategy sub-folders use the following category prefixes:
+    *   `subsystem_*` — a cross-cutting guarantee subsystem (diagnostics, accessibility, focus, security, storage, history, mods).
+    *   `canvas/`, `workbench/`, `viewer/` — Layout Domain feature areas (no prefix; canonical registry names are sufficient).
+    *   `aspect_*` — an Aspect (command, control, input, render).
+    Plans and specs for prospective or unimplemented features stay in their category folder; removal requires explicit deferral or abandonment note, not just absence of implementation.
 *   **Semantic gap principle**: On each architecture change, ask: "Is there a semantic gap that maps cleanly to technical, architectural, or design concerns and should become an explicit registry/domain boundary?"
 *   **Mod-first principle**: Registries define contracts. Mods populate them. The application must be fully functional as an offline graph organizer with only core seeds (no mods loaded).
 *   **SignalBus**: The planned (or equivalent) inter-registry event bus abstraction owned by The Register. Carries typed signals between registries without direct coupling. Registries subscribe to signal types; emitters do not know their consumers. This term may refer to the architectural role even while implementation remains transitional (for example direct fanout or facade-based routing before a dedicated bus type exists).
@@ -179,14 +211,16 @@ A **Subsystem** is a concern that spans multiple registries and components, wher
 3. **Diagnostics** — Runtime channels, health metrics, and invariant violations emitted through the diagnostics system.
 4. **Validation** — Unit/integration/scenario tests + CI gates that enforce contract compliance over time.
 
-Graphshell defines five cross-cutting runtime subsystems. For space-limited UI labels, the canonical short labels are: `diagnostics`, `accessibility`, `security`, `storage`, `history`.
+Graphshell defines seven cross-cutting runtime subsystems. For space-limited UI labels, the canonical short labels are: `diagnostics`, `accessibility`, `focus`, `security`, `storage`, `history`, `mods`.
 
 *   **Diagnostics Subsystem**: Runtime observability infrastructure. The reference subsystem — channel schema, invariant watchdogs, analyzers, and the diagnostic inspector pane. The subsystem comprises three registries: **ChannelRegistry** (rename of `DiagnosticsRegistry`) — declarative schema layer: channel IDs, ownership, invariant contracts, severity, sampling config, no behavior; **AnalyzerRegistry** (planned) — continuous stream processors that consume the live event stream and produce derived signals (health scores, alert conditions, pane sections), ships ungated; **TestHarness** (planned, `diagnostics_tests` feature) — in-pane runner with named `TestSuite` structs, background execution, and panic isolation via `catch_unwind`.
 *   **TestRegistry**: The `cargo test` fixture struct in `desktop/tests/harness.rs`. An app factory and assertion surface: constructs a fresh `GraphBrowserApp` + `DiagnosticsState` + tile tree for each test, and provides snapshot/channel-count helpers for observability-driven scenario assertions. Compiled only under `#[cfg(test)]` or `feature = "test-utils"`.
 *   **Accessibility Subsystem** (`accessibility`): Guarantees that all surfaces remain navigable, comprehensible, and operable across input and assistive modalities (keyboard, screen reader / AccessKit, mouse, gamepad, touch, future speech/audio interaction). This subsystem is broader than the AccessKit bridge implementation alone.
+*   **Focus Subsystem** (`focus`): Guarantees that keyboard focus, pointer focus, and accessibility focus are routed correctly across all surfaces; that focus transfers between panes are deterministic and observable; that no surface becomes a focus black hole; and that focus state is consistently exposed to AccessKit. The focus subsystem is the runtime authority on which surface owns input at any moment.
 *   **Security & Access Control Subsystem**: Ensures identity integrity, trust boundaries, grant enforcement, and cryptographic correctness across local operations and Verse sync.
 *   **Storage Subsystem** (`storage`; long form: **Persistence & Data Integrity Subsystem**): Ensures committed state survives restart, serialization round-trips are lossless, data portability remains intact, and single-write-path boundaries remain inviolable.
 *   **History Subsystem** (`history`; long form: **Traversal & Temporal Integrity Subsystem**): Ensures traversal capture correctness, timeline/history integrity, replay/preview isolation, and temporal restoration semantics (including "return to present") remain correct as history features evolve.
+*   **Mods Subsystem** (`mods`; long form: **Mod Lifecycle Integrity Subsystem**): Guarantees that mod loading, activation, sandboxing, and unloading cannot silently corrupt registry state or violate capability grants. Owns manifest validation, activation sequencing, WASM sandbox enforcement, mod health diagnostics, and the core seed invariant (the app must remain functional with zero mods loaded). Native mods (`inventory::submit!`) and WASM mods (`extism`) share the same manifest format and activation pipeline.
 
 ### Surface Capability Declarations (Folded Approach)
 
@@ -255,7 +289,7 @@ Each subsystem defines its own descriptor type (e.g., `AccessibilityCapabilities
 ## Legacy / Deprecated Terms
 
 *   *Context Menu*: Replaced by **Command Palette** (context-aware).
-*   *EdgeType*: Replaced by **EdgePayload** (containing Traversals).
+*   *EdgeType*: Replaced by **EdgePayload** (`kind: EdgeKind` + `traversals: Vec<Traversal>`). The old `EdgeType` variants map to `EdgeKind::UserGrouped` and `EdgeKind::TraversalDerived`.
 *   *Navigation History Panel / Traversal History Panel*: Replaced by **History Manager** as the single history UI surface.
 *   *View Enum*: Replaced by **Workbench** tile state.
 *   *Servoshell*: The upstream project Graphshell forked from.

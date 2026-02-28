@@ -7,13 +7,13 @@
 **Relates to**:
 
 - `2026-02-27_ux_baseline_done_definition.md`
-- `2026-02-27_workbench_frame_tile_interaction_spec.md`
-- `2026-02-28_graph_node_edge_interaction_spec.md`
-- `2026-02-28_command_surface_interaction_spec.md`
-- `2026-02-28_focus_and_region_navigation_spec.md`
-- `2026-02-28_viewer_presentation_and_fallback_spec.md`
-- `2026-02-28_settings_and_control_surfaces_spec.md`
-- `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
+- `workbench/workbench_frame_tile_interaction_spec.md`
+- `canvas/graph_node_edge_interaction_spec.md`
+- `aspect_command/command_surface_interaction_spec.md`
+- `subsystem_focus/focus_and_region_navigation_spec.md`
+- `viewer/viewer_presentation_and_fallback_spec.md`
+- `aspect_control/settings_and_control_surfaces_spec.md`
+- `aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
 - `../research/2026-02-27_egui_stack_assessment.md`
 - `2026-02-24_control_ui_ux_plan.md`
 
@@ -46,12 +46,12 @@ Graphshell should keep a small canonical UX spec family rather than proliferatin
 
 The current canonical set is:
 
-1. `2026-02-27_workbench_frame_tile_interaction_spec.md`
-2. `2026-02-28_graph_node_edge_interaction_spec.md`
-3. `2026-02-28_command_surface_interaction_spec.md`
-4. `2026-02-28_focus_and_region_navigation_spec.md`
-5. `2026-02-28_viewer_presentation_and_fallback_spec.md`
-6. `2026-02-28_settings_and_control_surfaces_spec.md`
+1. `workbench/workbench_frame_tile_interaction_spec.md`
+2. `canvas/graph_node_edge_interaction_spec.md`
+3. `aspect_command/command_surface_interaction_spec.md`
+4. `subsystem_focus/focus_and_region_navigation_spec.md`
+5. `viewer/viewer_presentation_and_fallback_spec.md`
+6. `aspect_control/settings_and_control_surfaces_spec.md`
 
 This register is the meta-layer over that family.
 
@@ -260,7 +260,7 @@ This domain also includes:
 
 **Related spec**
 
-- `2026-02-28_graph_node_edge_interaction_spec.md`
+- `canvas/graph_node_edge_interaction_spec.md`
 
 ### 6.2 Workbench / Frame / Tile
 
@@ -295,7 +295,7 @@ This domain also includes:
 
 **Related spec**
 
-- `2026-02-27_workbench_frame_tile_interaction_spec.md`
+- `workbench/workbench_frame_tile_interaction_spec.md`
 
 ### 6.3 Content Opening and Routing
 
@@ -352,7 +352,7 @@ This domain also includes:
 
 **Related spec**
 
-- `2026-02-28_command_surface_interaction_spec.md`
+- `aspect_command/command_surface_interaction_spec.md`
 
 ### 6.5 Viewer Presentation and Fallback
 
@@ -384,7 +384,7 @@ This domain also includes:
 
 **Related spec**
 
-- `2026-02-28_viewer_presentation_and_fallback_spec.md`
+- `viewer/viewer_presentation_and_fallback_spec.md`
 
 ### 6.6 Settings and Control Surfaces
 
@@ -416,7 +416,7 @@ This domain also includes:
 
 **Related spec**
 
-- `2026-02-28_settings_and_control_surfaces_spec.md`
+- `aspect_control/settings_and_control_surfaces_spec.md`
 
 ### 6.7 Focus and Region Navigation
 
@@ -443,7 +443,7 @@ This domain also includes:
 
 **Related spec**
 
-- `2026-02-28_focus_and_region_navigation_spec.md`
+- `subsystem_focus/focus_and_region_navigation_spec.md`
 
 ---
 
@@ -502,3 +502,5 @@ To make this register actionable, Graphshell should maintain:
 3. A short list of top-priority contract slices for the current milestone
 
 The companion issue map is the operational view; this register is the stable model.
+
+

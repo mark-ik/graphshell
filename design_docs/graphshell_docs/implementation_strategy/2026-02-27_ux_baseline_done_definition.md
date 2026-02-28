@@ -6,10 +6,10 @@
 
 **Related**:
 - `PLANNING_REGISTER.md` (canonical lane sequencing and issue hubs)
-- `2026-02-27_workbench_frame_tile_interaction_spec.md`
+- `workbench_frame_tile_interaction_spec.md`
 - `2026-02-26_composited_viewer_pass_contract.md`
 - `2026-02-23_wry_integration_strategy.md`
-- `2026-02-24_universal_content_model_plan.md`
+- `viewer/2026-02-24_universal_content_model_plan.md`
 - `../research/2026-02-27_viewer_state_matrix.md`
 - `../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
 
@@ -233,3 +233,4 @@ Only after this gate should AI-facing roadmap items move above maintenance prior
    - Snapshot-backed diagnostics output checks
 
 These slices keep baseline closure small, parallel-safe, and measurable.
+

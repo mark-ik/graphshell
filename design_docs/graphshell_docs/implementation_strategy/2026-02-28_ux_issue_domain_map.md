@@ -229,3 +229,4 @@ When opening or refining an issue:
 4. use the UX Contract Slice issue template for new behavior work
 
 This keeps UX planning honest and prevents architecture work from masquerading as UX closure.
+

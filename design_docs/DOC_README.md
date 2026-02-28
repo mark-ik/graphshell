@@ -39,7 +39,7 @@ It serves three goals:
 
 # Design Docs Index
 
-Last updated: February 27, 2026
+Last updated: February 28, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -77,29 +77,27 @@ Project status source: [../README.md](../README.md)
 ### Graphshell Implementation Strategy
 
 - [graphshell_docs/implementation_strategy/PLANNING_REGISTER.md](graphshell_docs/implementation_strategy/PLANNING_REGISTER.md) - **Canonical execution register**: active lane sequencing, stabilization bug register, issue-seeding guidance, and subsystem/lane prioritization.
-- [graphshell_docs/implementation_strategy/2026-02-26_composited_viewer_pass_contract.md](graphshell_docs/implementation_strategy/2026-02-26_composited_viewer_pass_contract.md) - **Canonical surface-composition contract** for composited viewers, render-mode policy, and Appendix A foundation/debt analysis.
 - [graphshell_docs/implementation_strategy/2026-02-27_ux_baseline_done_definition.md](graphshell_docs/implementation_strategy/2026-02-27_ux_baseline_done_definition.md) - UX baseline definition-of-done gate before AI-priority expansion; includes lane/issue mapping and dependency leverage plan using current Cargo stack.
-- [graphshell_docs/implementation_strategy/2026-02-27_workbench_frame_tile_interaction_spec.md](graphshell_docs/implementation_strategy/2026-02-27_workbench_frame_tile_interaction_spec.md) - Canonical interaction contract for the workbench/frame/tile model, node-open routing, dual history streams, and undo-preview semantics.
-- [graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md](graphshell_docs/implementation_strategy/2026-02-11_bookmarks_history_import_plan.md) - Bookmark/history import plan.
-- [graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md](graphshell_docs/implementation_strategy/2026-02-11_clipping_dom_extraction_plan.md) - DOM clipping plan.
-- [graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md](graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md) - Edge traversal migration plan.
-- [graphshell_docs/implementation_strategy/2026-02-20_embedder_decomposition_plan.md](graphshell_docs/implementation_strategy/2026-02-20_embedder_decomposition_plan.md) - Embedder decomposition plan.
-- [graphshell_docs/implementation_strategy/2026-02-20_node_badge_and_tagging_plan.md](graphshell_docs/implementation_strategy/2026-02-20_node_badge_and_tagging_plan.md) - Badge/tagging plan.
-- [graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md](graphshell_docs/implementation_strategy/2026-02-20_settings_architecture_plan.md) - Settings architecture plan.
-- [graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md](graphshell_docs/implementation_strategy/2026-02-21_control_plane_async_scaling.md) - Async control-plane scaling plan.
-- [graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md](graphshell_docs/implementation_strategy/2026-02-21_lifecycle_intent_model.md) - Lifecycle intent model.
-- [graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md](graphshell_docs/implementation_strategy/2026-02-22_multi_graph_pane_plan.md) - Multi-graph pane architecture and workflow plan.
-- [graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_workspace_manifest_persistence_plan.md) - Workbench frame/arrangement manifest persistence plan (legacy filename retained).
-- [graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md](graphshell_docs/implementation_strategy/2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md) - Workbench tile-selector semantics overlay/promotion plan (legacy filename retained; includes absorbed frame-routing polish addendum).
-- [graphshell_docs/implementation_strategy/2026-02-22_test_harness_consolidation_plan.md](graphshell_docs/implementation_strategy/2026-02-22_test_harness_consolidation_plan.md) - Unified testing harness and validation consolidation plan.
-- [graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md](graphshell_docs/implementation_strategy/2026-02-22_registry_layer_plan.md) - **Canonical registry architecture**: Two-Pillar design (Graph/Workbench), atomic/domain registry catalog, phase plan (Phases 0–1 complete), mod system, core seed floor, topology target. Supersedes `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md`.
-- [graphshell_docs/implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md](graphshell_docs/implementation_strategy/2026-02-23_graph_interaction_consistency_plan.md) - Graph interaction consistency and behavior harmonization plan (includes absorbed secondary input-surface polish scope).
-- [graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md](graphshell_docs/implementation_strategy/2026-02-23_udc_semantic_tagging_plan.md) - UDC semantic tagging and layout plan.
-- [graphshell_docs/implementation_strategy/2026-02-23_wry_integration_strategy.md](graphshell_docs/implementation_strategy/2026-02-23_wry_integration_strategy.md) - WRY integration strategy and platform boundary plan.
-- [graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md](graphshell_docs/implementation_strategy/2026-02-24_layout_behaviors_plan.md) - Behavioral layout/creative physics plan.
-- [graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md](graphshell_docs/implementation_strategy/2026-02-24_performance_tuning_plan.md) - Performance scaling and frame-budget plan.
-- [graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md](graphshell_docs/implementation_strategy/2026-02-24_universal_content_model_plan.md) - Universal node content model implementation plan: non-web renderers (PDF, image, text, audio, SVG, directory), MIME detection pipeline, ViewerRegistry selection policy, security/sandboxing model, crate selection with license analysis.
-- [graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md](graphshell_docs/implementation_strategy/SYSTEM_REGISTER.md) - Canonical register-runtime/control-panel/signal-routing architecture and routing rules.
+- [graphshell_docs/implementation_strategy/2026-02-28_current_milestone_ux_contract_checklist.md](graphshell_docs/implementation_strategy/2026-02-28_current_milestone_ux_contract_checklist.md) - Current milestone execution filter for the UX contract set.
+- [graphshell_docs/implementation_strategy/2026-02-28_ux_contract_register.md](graphshell_docs/implementation_strategy/2026-02-28_ux_contract_register.md) - Cross-spec UX ownership register and contract map.
+- [graphshell_docs/implementation_strategy/2026-02-28_ux_issue_domain_map.md](graphshell_docs/implementation_strategy/2026-02-28_ux_issue_domain_map.md) - Current issue mapping to the canonical UX domains/spec family.
+- [graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md](graphshell_docs/implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md) - Canonical interaction contract for the workbench/frame/tile model.
+- [graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md](graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md) - Canonical interaction contract for graph, node, edge, and camera semantics.
+- [graphshell_docs/implementation_strategy/aspect_command/command_surface_interaction_spec.md](graphshell_docs/implementation_strategy/aspect_command/command_surface_interaction_spec.md) - Canonical interaction contract for command surfaces and unified action invocation.
+- [graphshell_docs/implementation_strategy/subsystem_focus/focus_and_region_navigation_spec.md](graphshell_docs/implementation_strategy/subsystem_focus/focus_and_region_navigation_spec.md) - Canonical focus authority and region navigation contract.
+- [graphshell_docs/implementation_strategy/viewer/viewer_presentation_and_fallback_spec.md](graphshell_docs/implementation_strategy/viewer/viewer_presentation_and_fallback_spec.md) - Canonical viewer presentation, fallback, and degraded-state contract.
+- [graphshell_docs/implementation_strategy/aspect_control/settings_and_control_surfaces_spec.md](graphshell_docs/implementation_strategy/aspect_control/settings_and_control_surfaces_spec.md) - Canonical settings/history/control-surface contract.
+- [graphshell_docs/implementation_strategy/system/system_architecture_spec.md](graphshell_docs/implementation_strategy/system/system_architecture_spec.md) - Top-level system architecture and layer decomposition.
+- [graphshell_docs/implementation_strategy/system/register_layer_spec.md](graphshell_docs/implementation_strategy/system/register_layer_spec.md) - Register layer as a system component.
+- [graphshell_docs/implementation_strategy/system/registry_runtime_spec.md](graphshell_docs/implementation_strategy/system/registry_runtime_spec.md) - `RegistryRuntime` composition-root contract.
+- [graphshell_docs/implementation_strategy/system/control_panel_spec.md](graphshell_docs/implementation_strategy/system/control_panel_spec.md) - `ControlPanel` async coordination contract.
+- [graphshell_docs/implementation_strategy/system/signal_bus_spec.md](graphshell_docs/implementation_strategy/system/signal_bus_spec.md) - `SignalBus` / signal-routing contract.
+- [graphshell_docs/implementation_strategy/system/register/SYSTEM_REGISTER.md](graphshell_docs/implementation_strategy/system/register/SYSTEM_REGISTER.md) - Register hub/index and historical implementation guide.
+- [graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md](graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md) - Registry spec family starts here; protocol resolution and handler floor.
+- [graphshell_docs/implementation_strategy/workbench/](graphshell_docs/implementation_strategy/workbench/) - Workbench specs and workbench-specific plans.
+- [graphshell_docs/implementation_strategy/canvas/](graphshell_docs/implementation_strategy/canvas/) - Graph/canvas specs and graph-specific plans.
+- [graphshell_docs/implementation_strategy/viewer/](graphshell_docs/implementation_strategy/viewer/) - Viewer specs and viewer/backend plans.
+- [graphshell_docs/implementation_strategy/system/](graphshell_docs/implementation_strategy/system/) - System-level specs, registry architecture, and register component docs.
 
 ### Graphshell Design
 

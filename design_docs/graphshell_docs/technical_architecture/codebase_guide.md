@@ -7,7 +7,7 @@
 **See also**:
 - `ARCHITECTURAL_OVERVIEW.md`
 - `GRAPHSHELL_AS_BROWSER.md`
-- `../implementation_strategy/2026-02-27_workbench_frame_tile_interaction_spec.md`
+- `../implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md`
 
 ---
 
@@ -87,3 +87,4 @@ Graphshell runtime behavior is split across three boundaries:
 - Keep tile/frame structure mutations in workbench-authority paths.
 - Keep render-order fixes aligned with composited pass contract.
 - Prefer updating active strategy docs when behavior contracts change.
+
