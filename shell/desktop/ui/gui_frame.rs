@@ -1504,18 +1504,26 @@ fn open_connected_nodes_by_mode(
     let tile_mode = tile_open_mode_from_pending(open_mode);
     match tile_mode {
         tile_view_ops::TileOpenMode::Tab => {
-            for node in ordered {
-                tile_view_ops::open_or_focus_node_pane_with_mode(
-                    tiles_tree,
-                    graph_app,
-                    *node,
-                    tile_view_ops::TileOpenMode::Tab,
-                );
-            }
+            open_connected_nodes_as_tabs(graph_app, tiles_tree, ordered);
         }
         tile_view_ops::TileOpenMode::SplitHorizontal => {
             apply_connected_split_layout(tiles_tree, ordered);
         }
+    }
+}
+
+fn open_connected_nodes_as_tabs(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    ordered: &[NodeKey],
+) {
+    for node in ordered {
+        tile_view_ops::open_or_focus_node_pane_with_mode(
+            tiles_tree,
+            graph_app,
+            *node,
+            tile_view_ops::TileOpenMode::Tab,
+        );
     }
 }
 
