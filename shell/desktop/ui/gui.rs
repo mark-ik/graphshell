@@ -187,6 +187,48 @@ struct PreFrameAndIntentInitArgs<'a> {
     control_panel: &'a mut ControlPanel,
 }
 
+struct ExecuteUpdateFrameArgs<'a> {
+    ctx: &'a egui::Context,
+    winit_window: &'a Window,
+    state: &'a RunningAppState,
+    window: &'a EmbedderWindow,
+    headed_window: &'a headed_window::HeadedWindow,
+    graph_app: &'a mut GraphBrowserApp,
+    pending_webview_a11y_updates: &'a mut HashMap<WebViewId, accesskit::TreeUpdate>,
+    tiles_tree: &'a mut Tree<TileKind>,
+    toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
+    toolbar_state: &'a mut ToolbarState,
+    toasts: &'a mut egui_notify::Toasts,
+    clipboard: &'a mut Option<Clipboard>,
+    favicon_textures:
+        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
+    thumbnail_capture_rx: &'a Receiver<ThumbnailCaptureResult>,
+    thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
+    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    app_state: &'a Option<Rc<RunningAppState>>,
+    graph_search_open: &'a mut bool,
+    graph_search_query: &'a mut String,
+    graph_search_filter_mode: &'a mut bool,
+    graph_search_matches: &'a mut Vec<NodeKey>,
+    graph_search_active_match_index: &'a mut Option<usize>,
+    focused_node_hint: &'a mut Option<NodeKey>,
+    graph_surface_focused: &'a mut bool,
+    focus_ring_node_key: &'a mut Option<NodeKey>,
+    focus_ring_started_at: &'a mut Option<std::time::Instant>,
+    focus_ring_duration: &'a mut Duration,
+    omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
+    command_palette_toggle_requested: &'a mut bool,
+    rendering_context: &'a Rc<OffscreenRenderingContext>,
+    window_rendering_context: &'a Rc<WindowRenderingContext>,
+    registry_runtime: &'a RegistryRuntime,
+    control_panel: &'a mut ControlPanel,
+    #[cfg(feature = "diagnostics")]
+    diagnostics_state: &'a mut diagnostics::DiagnosticsState,
+}
+
 struct WebViewA11yNodePlan {
     node_id: accesskit::NodeId,
     role: egui::accesskit::Role,
@@ -717,101 +759,181 @@ impl Gui {
         let winit_window = headed_window.winit_window();
         Self::configure_frame_toasts(toasts, graph_app.workspace.toast_anchor_preference);
         context.run(winit_window, |ctx| {
-            Self::run_update_frame_prelude(
+            Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
+                winit_window,
+                state,
+                window,
+                headed_window,
                 graph_app,
                 pending_webview_a11y_updates,
                 tiles_tree,
-            );
-            let (pre_frame, mut frame_intents) = Self::run_pre_frame_and_initialize_intents(
-                PreFrameAndIntentInitArgs {
-                    ctx,
-                    graph_app,
-                    state,
-                    window,
-                    favicon_textures,
-                    thumbnail_capture_tx,
-                    thumbnail_capture_rx,
-                    thumbnail_capture_in_flight,
-                    command_palette_toggle_requested,
-                    control_panel,
-                },
-            );
+                toolbar_height,
+                toolbar_state,
+                toasts,
+                clipboard,
+                favicon_textures,
+                tile_rendering_contexts,
+                tile_favicon_textures,
+                thumbnail_capture_tx,
+                thumbnail_capture_rx,
+                thumbnail_capture_in_flight,
+                webview_creation_backpressure,
+                app_state,
+                graph_search_open,
+                graph_search_query,
+                graph_search_filter_mode,
+                graph_search_matches,
+                graph_search_active_match_index,
+                focused_node_hint,
+                graph_surface_focused,
+                focus_ring_node_key,
+                focus_ring_started_at,
+                focus_ring_duration,
+                omnibar_search_session,
+                command_palette_toggle_requested,
+                rendering_context,
+                window_rendering_context,
+                registry_runtime,
+                control_panel,
+                #[cfg(feature = "diagnostics")]
+                diagnostics_state,
+            });
+        });
 
-            let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
+        GuiUpdateOutput
+    }
 
-            let mut graph_search_output = Self::run_graph_search_and_keyboard_phases(
-                GraphSearchAndKeyboardPhaseArgs {
-                    ctx,
-                    graph_app,
-                    window,
-                    tiles_tree,
-                    graph_search_open,
-                    graph_search_query,
-                    graph_search_filter_mode,
-                    graph_search_matches,
-                    graph_search_active_match_index,
-                    toolbar_state,
-                    tile_rendering_contexts,
-                    tile_favicon_textures,
-                    favicon_textures,
-                    app_state,
-                    rendering_context,
-                    window_rendering_context,
-                    responsive_webviews: &pre_frame.responsive_webviews,
-                    webview_creation_backpressure,
-                    frame_intents: &mut frame_intents,
-                },
-            );
+    fn execute_update_frame(args: ExecuteUpdateFrameArgs<'_>) {
+        let ExecuteUpdateFrameArgs {
+            ctx,
+            winit_window,
+            state,
+            window,
+            headed_window,
+            graph_app,
+            pending_webview_a11y_updates,
+            tiles_tree,
+            toolbar_height,
+            toolbar_state,
+            toasts,
+            clipboard,
+            favicon_textures,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            thumbnail_capture_tx,
+            thumbnail_capture_rx,
+            thumbnail_capture_in_flight,
+            webview_creation_backpressure,
+            app_state,
+            graph_search_open,
+            graph_search_query,
+            graph_search_filter_mode,
+            graph_search_matches,
+            graph_search_active_match_index,
+            focused_node_hint,
+            graph_surface_focused,
+            focus_ring_node_key,
+            focus_ring_started_at,
+            focus_ring_duration,
+            omnibar_search_session,
+            command_palette_toggle_requested,
+            rendering_context,
+            window_rendering_context,
+            registry_runtime,
+            control_panel,
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state,
+        } = args;
 
-            Self::run_toolbar_and_graph_search_window_phases(
-                ToolbarAndGraphSearchWindowPhaseArgs {
-                    ctx,
-                    winit_window,
-                    state,
-                    graph_app,
-                    #[cfg(feature = "diagnostics")]
-                    diagnostics_state,
-                    window,
-                    tiles_tree,
-                    focused_node_hint: *focused_node_hint,
-                    graph_surface_focused: *graph_surface_focused,
-                    toolbar_state,
-                    omnibar_search_session,
-                    toasts,
-                    tile_rendering_contexts,
-                    tile_favicon_textures,
-                    favicon_textures,
-                    app_state,
-                    rendering_context,
-                    window_rendering_context,
-                    responsive_webviews: &pre_frame.responsive_webviews,
-                    webview_creation_backpressure,
-                    graph_search_open,
-                    graph_search_query,
-                    graph_search_filter_mode,
-                    graph_search_matches,
-                    graph_search_active_match_index,
-                    graph_search_output: &mut graph_search_output,
-                    frame_intents: &mut frame_intents,
-                    open_node_tile_after_intents: &mut open_node_tile_after_intents,
-                },
-            );
+        Self::run_update_frame_prelude(ctx, graph_app, pending_webview_a11y_updates, tiles_tree);
+        let (pre_frame, mut frame_intents) = Self::run_pre_frame_and_initialize_intents(
+            PreFrameAndIntentInitArgs {
+                ctx,
+                graph_app,
+                state,
+                window,
+                favicon_textures,
+                thumbnail_capture_tx,
+                thumbnail_capture_rx,
+                thumbnail_capture_in_flight,
+                command_palette_toggle_requested,
+                control_panel,
+            },
+        );
 
-            Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
+        let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
+
+        let mut graph_search_output = Self::run_graph_search_and_keyboard_phases(
+            GraphSearchAndKeyboardPhaseArgs {
                 ctx,
                 graph_app,
                 window,
-                headed_window,
                 tiles_tree,
-                toolbar_height,
+                graph_search_open,
+                graph_search_query,
+                graph_search_filter_mode,
+                graph_search_matches,
+                graph_search_active_match_index,
+                toolbar_state,
                 tile_rendering_contexts,
                 tile_favicon_textures,
                 favicon_textures,
                 app_state,
                 rendering_context,
                 window_rendering_context,
+                responsive_webviews: &pre_frame.responsive_webviews,
                 webview_creation_backpressure,
+                frame_intents: &mut frame_intents,
+            },
+        );
+
+        Self::run_toolbar_and_graph_search_window_phases(ToolbarAndGraphSearchWindowPhaseArgs {
+            ctx,
+            winit_window,
+            state,
+            graph_app,
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state,
+            window,
+            tiles_tree,
+            focused_node_hint: *focused_node_hint,
+            graph_surface_focused: *graph_surface_focused,
+            toolbar_state,
+            omnibar_search_session,
+            toasts,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            favicon_textures,
+            app_state,
+            rendering_context,
+            window_rendering_context,
+            responsive_webviews: &pre_frame.responsive_webviews,
+            webview_creation_backpressure,
+            graph_search_open,
+            graph_search_query,
+            graph_search_filter_mode,
+            graph_search_matches,
+            graph_search_active_match_index,
+            graph_search_output: &mut graph_search_output,
+            frame_intents: &mut frame_intents,
+            open_node_tile_after_intents: &mut open_node_tile_after_intents,
+        });
+
+        Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
+            ctx,
+            graph_app,
+            window,
+            headed_window,
+            tiles_tree,
+            toolbar_height,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            favicon_textures,
+            app_state,
+            rendering_context,
+            window_rendering_context,
+            webview_creation_backpressure,
                 focused_node_hint,
                 graph_surface_focused,
                 focus_ring_node_key,
@@ -831,10 +953,7 @@ impl Gui {
                 open_node_tile_after_intents: &mut open_node_tile_after_intents,
                 frame_intents: &mut frame_intents,
             });
-            Self::finalize_update_frame(ctx, graph_app, clipboard, toasts);
-        });
-
-        GuiUpdateOutput
+        Self::finalize_update_frame(ctx, graph_app, clipboard, toasts);
     }
 
     fn run_update_frame_prelude(
