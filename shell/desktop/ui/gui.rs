@@ -1560,7 +1560,16 @@ impl Gui {
     }
 
     fn is_reserved_webview_accessibility_node_id(node_id: accesskit::NodeId) -> bool {
-        node_id.0 == 0 || node_id.0 == u64::MAX
+        Self::is_webview_accessibility_root_node_id_value(node_id.0)
+            || Self::is_webview_accessibility_max_node_id_value(node_id.0)
+    }
+
+    fn is_webview_accessibility_root_node_id_value(node_id_value: u64) -> bool {
+        node_id_value == 0
+    }
+
+    fn is_webview_accessibility_max_node_id_value(node_id_value: u64) -> bool {
+        node_id_value == u64::MAX
     }
 
     fn webview_accessibility_label(
