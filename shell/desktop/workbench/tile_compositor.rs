@@ -388,6 +388,12 @@ mod tests {
     use super::*;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use egui_tiles::Tiles;
+    use std::panic::AssertUnwindSafe;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+
+    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
+    use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
 
     fn test_webview_id() -> servo::WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -440,5 +446,41 @@ mod tests {
 
         assert_eq!(primary, Some(a));
         assert_eq!(fallback, Some(b));
+    }
+
+    #[test]
+    fn deferred_focus_activation_emits_diagnostics_channel() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let primary = NodeKey::new(7);
+        let fallback = NodeKey::new(8);
+        let tree = tree_with_two_active_nodes(primary, fallback);
+        app.map_webview_to_node(test_webview_id(), fallback);
+
+        let mut diagnostics = DiagnosticsState::new();
+        let prefs = crate::prefs::AppPreferences::default();
+        let window = crate::shell::desktop::host::window::EmbedderWindow::new(
+            crate::shell::desktop::host::headless_window::HeadlessWindow::new(&prefs),
+            Arc::new(AtomicU64::new(0)),
+        );
+
+        let mut focused_hint = Some(primary);
+        let _ = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            activate_focused_node_for_frame(&window, &tree, &app, &mut focused_hint)
+        }));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_count = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert!(
+            channel_count > 0,
+            "expected deferred focus activation channel to be emitted"
+        );
+        assert_eq!(focused_hint, Some(primary));
     }
 }
