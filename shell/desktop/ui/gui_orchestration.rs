@@ -703,50 +703,123 @@ pub(crate) fn handle_tool_pane_intents(
 ) {
     let mut remaining = Vec::with_capacity(frame_intents.len());
     for intent in frame_intents.drain(..) {
-        if let Some(other) = handle_single_tool_pane_intent(graph_app, tiles_tree, intent) {
-            remaining.push(other);
+        match classify_workbench_authority_intent(intent) {
+            Ok(workbench_intent) => {
+                if let Some(unhandled) = dispatch_workbench_authority_intent(
+                    graph_app,
+                    tiles_tree,
+                    workbench_intent,
+                ) {
+                    remaining.push(unhandled);
+                }
+            }
+            Err(other) => remaining.push(other),
         }
     }
     *frame_intents = remaining;
 }
 
-fn handle_single_tool_pane_intent(
+enum WorkbenchAuthorityIntent {
+    OpenToolPane {
+        kind: ToolPaneState,
+    },
+    CloseToolPane {
+        kind: ToolPaneState,
+        restore_previous_focus: bool,
+    },
+    OpenSettingsUrl {
+        url: String,
+    },
+    OpenNodeInPane {
+        node: NodeKey,
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+    },
+    SetPaneView {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        view: crate::shell::desktop::workbench::pane_model::PaneViewState,
+    },
+    SplitPane {
+        source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
+    },
+}
+
+fn classify_workbench_authority_intent(
+    intent: GraphIntent,
+) -> Result<WorkbenchAuthorityIntent, GraphIntent> {
+    match intent {
+        GraphIntent::OpenToolPane { kind } => Ok(WorkbenchAuthorityIntent::OpenToolPane { kind }),
+        GraphIntent::CloseToolPane {
+            kind,
+            restore_previous_focus,
+        } => Ok(WorkbenchAuthorityIntent::CloseToolPane {
+            kind,
+            restore_previous_focus,
+        }),
+        GraphIntent::OpenSettingsUrl { url } => {
+            Ok(WorkbenchAuthorityIntent::OpenSettingsUrl { url })
+        }
+        GraphIntent::OpenNodeInPane { node, pane } => {
+            Ok(WorkbenchAuthorityIntent::OpenNodeInPane { node, pane })
+        }
+        GraphIntent::SetPaneView { pane, view } => {
+            Ok(WorkbenchAuthorityIntent::SetPaneView { pane, view })
+        }
+        GraphIntent::SplitPane {
+            source_pane,
+            direction,
+        } => Ok(WorkbenchAuthorityIntent::SplitPane {
+            source_pane,
+            direction,
+        }),
+        other => Err(other),
+    }
+}
+
+fn dispatch_workbench_authority_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
-    intent: GraphIntent,
+    intent: WorkbenchAuthorityIntent,
 ) -> Option<GraphIntent> {
     match intent {
-        GraphIntent::OpenToolPane { kind } => {
+        WorkbenchAuthorityIntent::OpenToolPane { kind } => {
             handle_open_tool_pane_intent(graph_app, tiles_tree, kind);
             None
         }
-        GraphIntent::CloseToolPane {
+        WorkbenchAuthorityIntent::CloseToolPane {
             kind,
             restore_previous_focus,
         } => {
             handle_close_tool_pane_intent(graph_app, tiles_tree, kind, restore_previous_focus);
             None
         }
-        GraphIntent::OpenSettingsUrl { url } => {
-            handle_open_settings_url_intent(graph_app, tiles_tree, url)
+        WorkbenchAuthorityIntent::OpenSettingsUrl { url } => {
+            dispatch_open_settings_url_workbench_intent(graph_app, tiles_tree, url)
         }
-        GraphIntent::OpenNodeInPane { node, pane } => {
+        WorkbenchAuthorityIntent::OpenNodeInPane { node, pane } => {
             handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
             None
         }
-        GraphIntent::SetPaneView { pane, view } => {
+        WorkbenchAuthorityIntent::SetPaneView { pane, view } => {
             handle_set_pane_view_intent(graph_app, tiles_tree, pane, view);
             None
         }
-        GraphIntent::SplitPane {
+        WorkbenchAuthorityIntent::SplitPane {
             source_pane,
             direction,
         } => {
             handle_split_pane_intent(tiles_tree, source_pane, direction);
             None
         }
-        other => Some(other),
     }
+}
+
+fn dispatch_open_settings_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_settings_url_intent(graph_app, tiles_tree, url)
 }
 
 fn maybe_capture_tool_surface_return_target(
