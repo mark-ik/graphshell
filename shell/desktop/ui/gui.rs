@@ -1461,20 +1461,11 @@ impl Gui {
             return Self::format_embedded_web_content_label(label);
         }
 
-        if let Some((_, first_labeled)) = tree_update
-            .nodes
-            .iter()
-            .find(|(_, node)| node.label().is_some_and(|label| !label.trim().is_empty()))
-            && let Some(label) = first_labeled.label()
-        {
+        if let Some(label) = Self::first_nonempty_webview_accessibility_label(tree_update) {
             return Self::format_embedded_web_content_label(label);
         }
 
-        format!(
-            "Embedded web content (webview {:?}, {} accessibility node update(s))",
-            webview_id,
-            tree_update.nodes.len()
-        )
+        Self::format_webview_accessibility_fallback_label(webview_id, tree_update.nodes.len())
     }
 
     fn focused_webview_accessibility_label(tree_update: &accesskit::TreeUpdate) -> Option<&str> {
@@ -1488,6 +1479,28 @@ impl Gui {
 
     fn format_embedded_web_content_label(label: &str) -> String {
         format!("Embedded web content: {label}")
+    }
+
+    fn first_nonempty_webview_accessibility_label(
+        tree_update: &accesskit::TreeUpdate,
+    ) -> Option<&str> {
+        tree_update
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                node.label()
+                    .filter(|label| !label.trim().is_empty())
+            })
+    }
+
+    fn format_webview_accessibility_fallback_label(
+        webview_id: WebViewId,
+        node_count: usize,
+    ) -> String {
+        format!(
+            "Embedded web content (webview {:?}, {} accessibility node update(s))",
+            webview_id, node_count
+        )
     }
 
     fn convert_webview_accessibility_role(role: accesskit::Role) -> (egui::accesskit::Role, bool) {
