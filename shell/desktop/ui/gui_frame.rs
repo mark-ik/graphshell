@@ -1089,53 +1089,15 @@ fn run_post_render_pending_actions(
 ) {
     handle_pending_frame_snapshot_actions(graph_app, tiles_tree);
 
-    if let Some(name) = graph_app.take_pending_save_graph_snapshot_named()
-        && let Err(e) = graph_app.save_named_graph_snapshot(&name)
-    {
-        warn!("Failed to save named graph snapshot '{name}': {e}");
-    }
-
-    if let Some(name) = graph_app.take_pending_delete_graph_snapshot_named()
-        && let Err(e) = graph_app.delete_named_graph_snapshot(&name)
-    {
-        warn!("Failed to delete named graph snapshot '{name}': {e}");
-    }
-
-    if let Some(name) = graph_app.take_pending_restore_graph_snapshot_named() {
-        restore_graph_snapshot_and_reset_workspace(
-            graph_app,
-            window,
-            tiles_tree,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            webview_creation_backpressure,
-            focused_node_hint,
-            |graph_app| {
-                graph_app
-                    .load_named_graph_snapshot(&name)
-                    .map_err(|e| e.to_string())
-            },
-            |e| warn!("Failed to load named graph snapshot '{name}': {e}"),
-        );
-    }
-
-    if graph_app.take_pending_restore_graph_snapshot_latest() {
-        restore_graph_snapshot_and_reset_workspace(
-            graph_app,
-            window,
-            tiles_tree,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            webview_creation_backpressure,
-            focused_node_hint,
-            |graph_app| {
-                graph_app
-                    .load_latest_graph_snapshot()
-                    .map_err(|e| e.to_string())
-            },
-            |e| warn!("Failed to load autosaved latest graph snapshot: {e}"),
-        );
-    }
+    handle_pending_graph_snapshot_actions(
+        graph_app,
+        window,
+        tiles_tree,
+        tile_rendering_contexts,
+        tile_favicon_textures,
+        webview_creation_backpressure,
+        focused_node_hint,
+    );
 
     if let Some(node_key) = graph_app.take_pending_detach_node_to_split() {
         if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
@@ -1228,6 +1190,64 @@ fn handle_pending_frame_snapshot_actions(
 
     if let Some((nodes, frame_name)) = graph_app.take_pending_add_exact_to_frame() {
         add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &nodes);
+    }
+}
+
+fn handle_pending_graph_snapshot_actions(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+) {
+    if let Some(name) = graph_app.take_pending_save_graph_snapshot_named()
+        && let Err(e) = graph_app.save_named_graph_snapshot(&name)
+    {
+        warn!("Failed to save named graph snapshot '{name}': {e}");
+    }
+
+    if let Some(name) = graph_app.take_pending_delete_graph_snapshot_named()
+        && let Err(e) = graph_app.delete_named_graph_snapshot(&name)
+    {
+        warn!("Failed to delete named graph snapshot '{name}': {e}");
+    }
+
+    if let Some(name) = graph_app.take_pending_restore_graph_snapshot_named() {
+        restore_graph_snapshot_and_reset_workspace(
+            graph_app,
+            window,
+            tiles_tree,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            webview_creation_backpressure,
+            focused_node_hint,
+            |graph_app| {
+                graph_app
+                    .load_named_graph_snapshot(&name)
+                    .map_err(|e| e.to_string())
+            },
+            |e| warn!("Failed to load named graph snapshot '{name}': {e}"),
+        );
+    }
+
+    if graph_app.take_pending_restore_graph_snapshot_latest() {
+        restore_graph_snapshot_and_reset_workspace(
+            graph_app,
+            window,
+            tiles_tree,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            webview_creation_backpressure,
+            focused_node_hint,
+            |graph_app| {
+                graph_app
+                    .load_latest_graph_snapshot()
+                    .map_err(|e| e.to_string())
+            },
+            |e| warn!("Failed to load autosaved latest graph snapshot: {e}"),
+        );
     }
 }
 
