@@ -1620,10 +1620,19 @@ fn handle_pending_history_frame_restore(
 ) {
     if let Some(layout_json) = graph_app.take_pending_history_frame_layout_json() {
         if let Some(restored_tree) = deserialize_history_frame_layout(graph_app, &layout_json) {
-            *tiles_tree = restored_tree;
-            graph_app.mark_session_frame_layout_json(&layout_json);
+            apply_restored_history_frame_layout(graph_app, tiles_tree, restored_tree, &layout_json);
         }
     }
+}
+
+fn apply_restored_history_frame_layout(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    restored_tree: Tree<TileKind>,
+    layout_json: &str,
+) {
+    *tiles_tree = restored_tree;
+    graph_app.mark_session_frame_layout_json(layout_json);
 }
 
 fn deserialize_history_frame_layout(
