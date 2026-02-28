@@ -1501,10 +1501,27 @@ impl Gui {
             &nodes,
         );
 
+        Self::compose_webview_a11y_graft_plan(
+            webview_id,
+            tree_update,
+            nodes,
+            root_node_id,
+            conversion_fallback_count,
+        )
+    }
+
+    fn compose_webview_a11y_graft_plan(
+        webview_id: WebViewId,
+        tree_update: &accesskit::TreeUpdate,
+        nodes: Vec<WebViewA11yNodePlan>,
+        root_node_id: Option<accesskit::NodeId>,
+        conversion_fallback_count: usize,
+    ) -> WebViewA11yGraftPlan {
+        let dropped_node_count = tree_update.nodes.len().saturating_sub(nodes.len());
         WebViewA11yGraftPlan {
             anchor_label: Self::webview_accessibility_label(webview_id, tree_update),
             root_node_id,
-            dropped_node_count: tree_update.nodes.len().saturating_sub(nodes.len()),
+            dropped_node_count,
             conversion_fallback_count,
             nodes,
         }
