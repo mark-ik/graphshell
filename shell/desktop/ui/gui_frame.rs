@@ -1389,19 +1389,47 @@ fn autosave_session_workspace_layout_if_allowed(
 ) {
     let prompt_pending = graph_app.unsaved_workspace_prompt_request().is_some();
     if !prompt_pending {
-        match serde_json::to_string(tiles_tree) {
-            Ok(layout_json) => match persistence_ops::serialize_named_frame_bundle(
-                graph_app,
-                GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
-                tiles_tree,
-            ) {
-                Ok(bundle_json) => graph_app
-                    .save_session_workspace_layout_blob_if_changed(&bundle_json, &layout_json),
-                Err(e) => warn!("Failed to serialize session frame bundle: {e}"),
-            },
-            Err(e) => warn!("Failed to serialize session frame layout: {e}"),
+        if let Some((bundle_json, layout_json)) =
+            build_session_workspace_layout_payload(graph_app, tiles_tree)
+        {
+            persist_session_workspace_layout_blob_if_changed(graph_app, &bundle_json, &layout_json);
         }
     }
+}
+
+fn build_session_workspace_layout_payload(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<(String, String)> {
+    let layout_json = match serde_json::to_string(tiles_tree) {
+        Ok(layout_json) => layout_json,
+        Err(e) => {
+            warn!("Failed to serialize session frame layout: {e}");
+            return None;
+        }
+    };
+
+    let bundle_json = match persistence_ops::serialize_named_frame_bundle(
+        graph_app,
+        GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
+        tiles_tree,
+    ) {
+        Ok(bundle_json) => bundle_json,
+        Err(e) => {
+            warn!("Failed to serialize session frame bundle: {e}");
+            return None;
+        }
+    };
+
+    Some((bundle_json, layout_json))
+}
+
+fn persist_session_workspace_layout_blob_if_changed(
+    graph_app: &mut GraphBrowserApp,
+    bundle_json: &str,
+    layout_json: &str,
+) {
+    graph_app.save_session_workspace_layout_blob_if_changed(bundle_json, layout_json);
 }
 
 #[allow(clippy::too_many_arguments)]
