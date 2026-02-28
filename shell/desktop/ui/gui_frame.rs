@@ -1099,12 +1099,7 @@ fn run_post_render_pending_actions(
         focused_node_hint,
     );
 
-    if let Some(node_key) = graph_app.take_pending_detach_node_to_split() {
-        if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-            graph_app.capture_undo_checkpoint(Some(layout_json));
-        }
-        tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, node_key);
-    }
+    handle_pending_detach_node_to_split(graph_app, tiles_tree);
 
     handle_pending_open_connected_from(graph_app, tiles_tree);
 
@@ -1301,6 +1296,18 @@ fn handle_pending_open_connected_from(
                 apply_connected_split_layout(tiles_tree, &ordered);
             }
         }
+    }
+}
+
+fn handle_pending_detach_node_to_split(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) {
+    if let Some(node_key) = graph_app.take_pending_detach_node_to_split() {
+        if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
+            graph_app.capture_undo_checkpoint(Some(layout_json));
+        }
+        tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, node_key);
     }
 }
 
