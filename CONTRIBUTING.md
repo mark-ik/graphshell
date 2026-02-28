@@ -70,3 +70,40 @@ List:
 
 This makes review and merge sequencing much easier.
 
+### 8. Coordinator file policy (`gui.rs`, `gui_frame.rs`, `gui_orchestration.rs`)
+
+These files are **coordinators**. Their job is sequencing and boundary routing, not long-term feature logic ownership.
+
+Policy:
+- Keep coordinator functions orchestration-focused; move business logic, branching semantics, and domain transforms into owned modules/helpers.
+- Preserve authority boundaries explicitly:
+	- Graph model mutations via reducer/intents.
+	- Workbench/tile mutations via workbench authority paths.
+- Do not duplicate routing predicates (focus return target, settings/tool routing, clipboard outcome policy, etc.).
+	- If policy is needed in more than one branch, centralize it in one helper.
+- Prefer typed phase inputs/outputs over growing ad-hoc parameter threading.
+- If a coordinator change introduces additional branch nesting, extract in the same PR unless there is a clear reason not to.
+
+PR gate heuristics for coordinator files:
+- Any touched coordinator function should remain small enough to scan in one screen (~40 lines target).
+- Any function exceeding ~3 branch points should either be reduced or justified in the PR description.
+- Tests should live with behavioral owners, not coordinator wrappers, unless the coordinator boundary itself is under test.
+
+### 9. PR checklist (required when touching coordinator files)
+
+Copy into your PR description and answer every item:
+
+```markdown
+## Coordinator File Checklist
+
+- [ ] This PR keeps `gui.rs` / `gui_frame.rs` / `gui_orchestration.rs` orchestration-only.
+- [ ] New behavior logic was moved to owned helpers/modules (or explicitly justified if not).
+- [ ] Graph reducer vs workbench authority boundaries remain explicit and unchanged.
+- [ ] No duplicated routing predicates were introduced (settings/focus/clipboard/open-mode policies).
+- [ ] Any added branch nesting in coordinator code was reduced via extraction in this PR.
+- [ ] I ran `cargo check` after the coordinator edits.
+- [ ] I listed which coordinator functions were touched and why extraction was or was not needed.
+```
+
+If any box is unchecked, explain why in the PR body before requesting review.
+

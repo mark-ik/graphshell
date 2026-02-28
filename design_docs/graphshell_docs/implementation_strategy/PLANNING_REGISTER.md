@@ -537,6 +537,7 @@ Issue-ready intake stubs from the latest user report:
   - Scope: `gui.rs`/`gui_frame.rs` decomposition, `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
   - Important child slice: composited webview callback pass contract + GL state isolation (`tile_compositor.rs`) to fix Servo-path overlay affordance failures that are not Wry/native-overlay limitations
   - Primary guide: `design_docs/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md`
+  - Coordinator policy: treat `gui.rs` / `gui_frame.rs` / `gui_orchestration.rs` as orchestration façades with explicit authority boundaries; enforce via `CONTRIBUTING.md` coordinator checklist when these files are touched
   - Rule: pair mechanical moves with invariants/tests; avoid mixing with feature work in the same PR
 
 ### Incubation Lanes (Parallel / Non-blocking)
