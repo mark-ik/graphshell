@@ -1445,7 +1445,7 @@ fn handle_pending_open_connected_from(
 
 fn take_valid_pending_open_connected_from(
     graph_app: &mut GraphBrowserApp,
-) -> Option<(NodeKey, PendingTileOpenMode, ConnectedOpenScope)> {
+) -> Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)> {
     if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
         && graph_app.workspace.graph.get_node(source).is_some()
     {
