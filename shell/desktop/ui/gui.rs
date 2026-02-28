@@ -1490,10 +1490,15 @@ impl Gui {
         &mut self,
         req: &egui::accesskit::ActionRequest,
     ) -> bool {
-        self.context
-            .egui_winit
-            .on_accesskit_action_request(req.clone());
+        Self::forward_accesskit_action_request(&mut self.context.egui_winit, req);
         true
+    }
+
+    fn forward_accesskit_action_request(
+        egui_winit: &mut egui_winit::State,
+        req: &egui::accesskit::ActionRequest,
+    ) {
+        egui_winit.on_accesskit_action_request(req.clone());
     }
 
     fn handle_accesskit_deactivated(&mut self) -> bool {
