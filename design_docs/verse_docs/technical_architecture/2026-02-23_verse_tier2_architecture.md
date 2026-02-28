@@ -192,9 +192,48 @@ Community members receive blob
 Validate signature + check against local moderation rules
    ↓
 Apply intents to local graph + add blob to DHT
-   ↓
+  ↓
 (If RebroadcastLevel::Full) rebroadcast to GossipSub
 ```
+
+### 4.4 Federated Adaptation Layer (FLora)
+
+Tier 2 communities may optionally operate a **federated LoRA (FLora)** pipeline alongside graph and index exchange. In this model, a community maintains one or more domain-specific LoRA adapters that members can use as portable knowledge overlays for local AI tooling.
+
+**Core properties:**
+- Raw training data remains local to the contributor.
+- Contributors run a local mini-adapter pass and publish only weight deltas, candidate LoRA checkpoints, and evaluation metadata.
+- A community treasury (for example, Filecoin-backed stake) funds rewards for accepted updates.
+- Access to the resulting adapters can be open, contribution-gated, reputation-gated, or private to a closed membership list.
+
+```rust
+struct FloraSubmission {
+    community_id: CommunityId,
+    adapter_id: AdapterId,
+    contributor: PeerId,
+    parent_checkpoint: Hash256,
+    weight_delta_blob: Hash256,
+    evaluation: EvaluationReceipt,
+    signature: Signature,
+}
+
+struct FloraCheckpoint {
+    adapter_id: AdapterId,
+    checkpoint_hash: Hash256,
+    parent: Option<Hash256>,
+    merged_from: Vec<Hash256>,
+    policy: MergePolicy,
+}
+```
+
+**Operational flow:**
+1. A community defines an adapter domain and stakes treasury funds behind it.
+2. Contributors train locally on the data they control and publish a `FloraSubmission`.
+3. Moderators, stakers, or trusted reviewers evaluate the candidate in a confirmation buffer.
+4. Accepted submissions become a new checkpoint or are merged into a curated checkpoint line.
+5. Community members fetch approved checkpoints and mount them in their own AI stack.
+
+This gives a Verse community a portable "skill chip" that can evolve over time without forcing members to disclose their raw private corpora.
 
 ---
 

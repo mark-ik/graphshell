@@ -77,6 +77,8 @@
 - - Encryption: even if you have no interest in sharing your data, you should be able to encrypt it for guaranteed privacy. No trackers
 - Integration with IPFS allows persistent, decentralized hosting of public graphs, indices (searchable, mutually composable layers for collections of graphs)
 - Storage-backed fungible token: token issuance rates tied to amount of storage provided (calculated and issued at time thresholds) and host reputation (uptime + recent activity + peers/seeders).
+- Federated LoRA ("FLora") communities: a verse can stake Filecoin to fund a domain-specific adapter, contributors keep source data local and submit only adapter weight updates from a mini-adapter, and members can plug the verse's accumulated LoRA into their own AI as a portable community skill layer.
+- FLora distribution can be open, contribution-gated, reputation-gated, or private/self-hosted, with moderation buffers so admins, stakers, or trusted contributors can review updates before they are merged.
 
 ### Peer roles
 
@@ -91,6 +93,7 @@
 - Provide attestations, black/whitelists, and integrity checks of reports, graphs, and indices, leveraging reputation.
 - Stake fungible tokens to make a channel (verse) of organized, persistent graphs, indices (a custom search portal!), and applets, addressed by tag in IPFS.
 - Participate in channel governance by staking your tokens to the verse’s stake, growing the pot the verse can offer to user contributers and incentivizing communal governance.
+- Contribute local data to a verse's FLora adapter pipeline and earn from the verse stake when your adapter weight updates are accepted.
 - - Semantic browsing suggestions, the equivalent of desire paths for browsing, communally sourced.
 - - Voluntary or compensated sharing/forking of user graphs, reminiscent of git.
 - - Scrape-resistant network topology requiring permission and potentially compensation for access.

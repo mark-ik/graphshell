@@ -147,6 +147,9 @@ M1 foundation is complete. Current active work is M2 architecture and UX stabili
 
 The second half of the project: pooling browsing data into a decentralized, permissions-based peer network.
 
+- Community-owned domain adapters ("federated LoRA" / FLora): a verse can stake to fund a topic-specific adapter, contributors keep raw data local and submit adapter weight updates from relevant data, and members can load that verse's accumulated LoRA as a portable knowledge layer for their own AI.
+- Verse communities can gate model access by contribution, reputation, or moderation policy, including review buffers before submitted updates are merged into the shared adapter.
+
 ### P2P Co-op Browsing
 
 - Collaborative browsing where changes to a shared graph synchronize across participants

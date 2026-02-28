@@ -113,6 +113,7 @@ Tier 2 extends the bilateral model to larger groups of peers who share knowledge
 - **Community model**: communities form around shared knowledge domains (a topic, a workspace template, a research group). Membership is opt-in. A community has rebroadcast levels (Core → Extended → Public) governing who relays content.
 - **Federated search**: community members share sharded tantivy index segments as `VerseBlob`s. Searching a community means querying peers' indexes, not a central server.
 - **Proof of Access**: a lightweight economic layer where peers earn reputation (or credits) by storing and serving `VerseBlob`s for others. Deferred to post-Tier-1 research.
+- **Federated adaptation (FLora)**: communities can also maintain shared domain-specific LoRA adapters, where contributors keep raw data local and publish adapter weight updates or checkpoints, letting members load community-trained knowledge into their own AI tooling.
 
 Tier 2 validation begins Q3 2026 after Tier 1 is proven in production. Tier 2 is additive — it does not change Tier 1's bilateral sync model.
 
@@ -155,6 +156,7 @@ A Graphshell user can participate in the Verse at any level:
 | Tier 1 (workspace sharing) | Verso + iroh | Share specific workspaces in read-only or read-write mode |
 | Tier 2 (community) | Verso + libp2p | Participate in topic communities; share index segments; search across community |
 | Tier 2 (storage contributor) | Verso + libp2p + storage quota | Earn reputation by hosting blobs for the community |
+| Tier 2 (FLora contributor) | Verso + libp2p + local model runtime | Submit local adapter weight updates to community LoRA pipelines; consume approved domain adapters |
 
 Participation is always opt-in and can be revoked. Revoking access to a workspace removes the peer from the trust store and stops syncing; it does not delete data already on the peer's device.
 
