@@ -1646,14 +1646,30 @@ fn restore_graph_snapshot_and_reset_workspace(
     apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
     match restore(graph_app) {
         Ok(()) => {
-            tile_rendering_contexts.clear();
-            tile_favicon_textures.clear();
-            webview_creation_backpressure.clear();
-            *focused_node_hint = None;
-            let mut tiles = Tiles::default();
-            let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
-            *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
+            reset_graph_workspace_after_snapshot_restore(
+                tiles_tree,
+                tile_rendering_contexts,
+                tile_favicon_textures,
+                webview_creation_backpressure,
+                focused_node_hint,
+            );
         }
         Err(e) => on_error(e.as_str()),
     }
+}
+
+fn reset_graph_workspace_after_snapshot_restore(
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+) {
+    tile_rendering_contexts.clear();
+    tile_favicon_textures.clear();
+    webview_creation_backpressure.clear();
+    *focused_node_hint = None;
+    let mut tiles = Tiles::default();
+    let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+    *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
 }
