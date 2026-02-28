@@ -1610,18 +1610,7 @@ impl Gui {
             let plan = Self::build_webview_a11y_graft_plan(webview_id, &tree_update);
             let anchor_id = Self::webview_accessibility_anchor_id(webview_id);
 
-            for node in &plan.nodes {
-                let node_id = Self::webview_accessibility_node_id(webview_id, node.node_id);
-                let role = node.role;
-                let label = node.label.clone();
-
-                ctx.accesskit_node_builder(node_id, |builder| {
-                    builder.set_role(role);
-                    if let Some(label) = &label {
-                        builder.set_label(label.clone());
-                    }
-                });
-            }
+            Self::inject_webview_a11y_plan_nodes(ctx, webview_id, &plan.nodes);
 
             ctx.accesskit_node_builder(anchor_id, |builder| {
                 builder.set_role(egui::accesskit::Role::Document);
@@ -1653,6 +1642,25 @@ impl Gui {
                     plan.conversion_fallback_count, webview_id
                 );
             }
+        }
+    }
+
+    fn inject_webview_a11y_plan_nodes(
+        ctx: &egui::Context,
+        webview_id: WebViewId,
+        nodes: &[WebViewA11yNodePlan],
+    ) {
+        for node in nodes {
+            let node_id = Self::webview_accessibility_node_id(webview_id, node.node_id);
+            let role = node.role;
+            let label = node.label.clone();
+
+            ctx.accesskit_node_builder(node_id, |builder| {
+                builder.set_role(role);
+                if let Some(label) = &label {
+                    builder.set_label(label.clone());
+                }
+            });
         }
     }
 }
