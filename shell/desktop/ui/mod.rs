@@ -7,6 +7,7 @@ pub(crate) mod dialog_panels;
 pub(crate) mod graph_search_flow;
 pub(crate) mod graph_search_ui;
 pub(crate) mod gui;
+pub(crate) mod gui_orchestration;
 pub(crate) mod gui_frame;
 pub(crate) mod gui_state;
 pub(crate) mod nav_targeting;

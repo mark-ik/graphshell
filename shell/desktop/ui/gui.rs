@@ -26,7 +26,8 @@ use winit::window::Window;
 
 use super::graph_search_flow::{self, GraphSearchFlowArgs};
 use super::graph_search_ui::{self, GraphSearchUiArgs};
-use super::gui_frame::{self, PreFrameIngestArgs, ToolbarDialogPhaseArgs};
+use super::gui_orchestration;
+use super::gui_frame::{self, ToolbarDialogPhaseArgs};
 use super::gui_state::{
     GuiRuntimeState, ToolbarState, apply_graph_surface_focus_state, apply_node_focus_state,
 };
@@ -71,12 +72,6 @@ pub(crate) struct GuiUpdateInput<'a> {
 }
 
 pub(crate) struct GuiUpdateOutput;
-
-struct PreFramePhaseOutput {
-    frame_intents: Vec<GraphIntent>,
-    pending_open_child_webviews: Vec<WebViewId>,
-    responsive_webviews: HashSet<WebViewId>,
-}
 
 struct WebViewA11yNodePlan {
     node_id: accesskit::NodeId,
@@ -662,7 +657,7 @@ impl Gui {
                     Self::open_or_focus_diagnostics_tool_pane(tiles_tree);
                 }
             }
-            let pre_frame = Self::run_pre_frame_phase(
+            let pre_frame = gui_orchestration::run_pre_frame_phase(
                 ctx,
                 graph_app,
                 state,
@@ -870,43 +865,6 @@ impl Gui {
         GuiUpdateOutput
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn run_pre_frame_phase(
-        ctx: &egui::Context,
-        graph_app: &mut GraphBrowserApp,
-        state: &RunningAppState,
-        window: &EmbedderWindow,
-        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-        thumbnail_capture_tx: &Sender<ThumbnailCaptureResult>,
-        thumbnail_capture_rx: &Receiver<ThumbnailCaptureResult>,
-        thumbnail_capture_in_flight: &mut HashSet<WebViewId>,
-        command_palette_toggle_requested: &mut bool,
-    ) -> PreFramePhaseOutput {
-        let mut frame_intents = Vec::new();
-        if *command_palette_toggle_requested {
-            *command_palette_toggle_requested = false;
-            frame_intents.push(GraphIntent::ToggleCommandPalette);
-        }
-
-        let pre_frame = gui_frame::ingest_pre_frame(
-            PreFrameIngestArgs {
-                ctx,
-                graph_app,
-                app_state: state,
-                window,
-                favicon_textures,
-                thumbnail_capture_tx,
-                thumbnail_capture_rx,
-                thumbnail_capture_in_flight,
-            },
-            &mut frame_intents,
-        );
-        PreFramePhaseOutput {
-            frame_intents,
-            pending_open_child_webviews: pre_frame.pending_open_child_webviews,
-            responsive_webviews: pre_frame.responsive_webviews,
-        }
-    }
     #[allow(clippy::too_many_arguments)]
     fn run_graph_search_phase(
         ctx: &egui::Context,
