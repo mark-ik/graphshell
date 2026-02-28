@@ -1419,13 +1419,18 @@ fn restore_pending_named_graph_snapshot(
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
-        |graph_app| {
-            graph_app
-                .load_named_graph_snapshot(name)
-                .map_err(|e| e.to_string())
-        },
+        |graph_app| load_named_graph_snapshot_result(graph_app, name),
         |e| warn!("Failed to load named graph snapshot '{name}': {e}"),
     );
+}
+
+fn load_named_graph_snapshot_result(
+    graph_app: &mut GraphBrowserApp,
+    name: &str,
+) -> Result<(), String> {
+    graph_app
+        .load_named_graph_snapshot(name)
+        .map_err(|e| e.to_string())
 }
 
 fn handle_pending_latest_graph_snapshot_restore(
