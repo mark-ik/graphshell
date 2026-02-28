@@ -1057,6 +1057,7 @@ impl Gui {
         });
 
         knowledge::reconcile_semantics(graph_app, &registry_runtime.knowledge);
+        let search_query_active = Self::is_graph_search_query_active(graph_search_query);
 
         gui_frame::run_post_render_phase(
             gui_frame::PostRenderPhaseArgs {
@@ -1072,7 +1073,7 @@ impl Gui {
                 graph_search_matches,
                 graph_search_active_match_index: *graph_search_active_match_index,
                 graph_search_filter_mode: *graph_search_filter_mode,
-                search_query_active: !graph_search_query.trim().is_empty(),
+                search_query_active,
                 app_state,
                 rendering_context,
                 window_rendering_context,
@@ -1090,6 +1091,10 @@ impl Gui {
             },
             |matches, active_index| gui_orchestration::active_graph_search_match(matches, active_index),
         );
+    }
+
+    fn is_graph_search_query_active(query: &str) -> bool {
+        !query.trim().is_empty()
     }
 
     fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>) {
