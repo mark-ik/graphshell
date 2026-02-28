@@ -1510,11 +1510,7 @@ impl Gui {
                 conversion_fallback_count += 1;
             }
 
-            let label = node
-                .label()
-                .map(str::trim)
-                .filter(|label| !label.is_empty())
-                .map(str::to_owned);
+            let label = Self::normalized_webview_a11y_node_label(node);
             nodes.push(WebViewA11yNodePlan {
                 node_id: *node_id,
                 role,
@@ -1535,6 +1531,13 @@ impl Gui {
             conversion_fallback_count,
             nodes,
         }
+    }
+
+    fn normalized_webview_a11y_node_label(node: &accesskit::Node) -> Option<String> {
+        node.label()
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+            .map(str::to_owned)
     }
 
     fn select_webview_a11y_root_node_id(
