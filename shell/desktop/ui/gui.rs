@@ -1241,12 +1241,20 @@ impl Gui {
     }
 
     fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<crate::graph::NodeKey> {
-        tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
-            match tiles_tree.tiles.get(tile_id) {
-                Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
-                _ => None,
-            }
-        })
+        tiles_tree
+            .active_tiles()
+            .into_iter()
+            .find_map(|tile_id| Self::active_node_key_for_tile_id(tiles_tree, tile_id))
+    }
+
+    fn active_node_key_for_tile_id(
+        tiles_tree: &Tree<TileKind>,
+        tile_id: TileId,
+    ) -> Option<crate::graph::NodeKey> {
+        match tiles_tree.tiles.get(tile_id) {
+            Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
+            _ => None,
+        }
     }
 
     fn tree_has_active_node_pane(tiles_tree: &Tree<TileKind>) -> bool {
