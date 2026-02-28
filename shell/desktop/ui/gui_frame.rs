@@ -116,10 +116,11 @@ fn restore_named_frame_snapshot(
                         request.key,
                         pending_tile_mode_to_tile_mode(request.mode),
                     );
-                    graph_app.apply_intents([lifecycle_intents::promote_node_to_active(
+                    let mut restore_intents = vec![lifecycle_intents::promote_node_to_active(
                         request.key,
                         LifecycleCause::Restore,
-                    )]);
+                    )];
+                    apply_intents_if_any(graph_app, &restored_tree, &mut restore_intents);
                 }
                 graph_app.note_frame_activated(name, restored_nodes);
                 if let Err(e) =
@@ -823,7 +824,7 @@ fn ensure_webviews_for_active_prewarm_nodes(
 
     // Apply prewarm intents immediately (shouldn't include user-undoable intents).
     if !prewarm_intents.is_empty() {
-        graph_app.apply_intents(prewarm_intents);
+        apply_intents_if_any(graph_app, tiles_tree, &mut prewarm_intents);
     }
 }
 
@@ -1057,6 +1058,8 @@ pub(crate) fn run_post_render_phase<FActive>(
             Err(e) => toasts.error(format!("Failed to switch data directory: {e}")),
         };
     }
+    apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
+
     let open_settings_tool_pane = render::render_choose_frame_picker(ctx, graph_app)
         || render::render_unsaved_frame_prompt(ctx, graph_app);
     if open_settings_tool_pane {
@@ -1156,10 +1159,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
             graph_app.capture_undo_checkpoint(Some(layout_json));
         }
-        let close_intents = webview_controller::close_all_webviews(graph_app, window);
-        if !close_intents.is_empty() {
-            graph_app.apply_intents(close_intents);
-        }
+        let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
+        apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
         match graph_app.load_named_graph_snapshot(&name) {
             Ok(()) => {
                 tile_rendering_contexts.clear();
@@ -1178,10 +1179,8 @@ pub(crate) fn run_post_render_phase<FActive>(
         if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
             graph_app.capture_undo_checkpoint(Some(layout_json));
         }
-        let close_intents = webview_controller::close_all_webviews(graph_app, window);
-        if !close_intents.is_empty() {
-            graph_app.apply_intents(close_intents);
-        }
+        let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
+        apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
         match graph_app.load_latest_graph_snapshot() {
             Ok(()) => {
                 tile_rendering_contexts.clear();
@@ -1226,7 +1225,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 LifecycleCause::ActiveTileVisible,
             ));
         }
-        graph_app.apply_intents(intents);
+        apply_intents_if_any(graph_app, tiles_tree, &mut intents);
 
         let mut ordered = Vec::with_capacity(connected.len() + 1);
         ordered.push(source);
