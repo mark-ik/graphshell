@@ -1544,7 +1544,7 @@ fn collect_lasso_action(
     let canvas_min = meta.screen_to_canvas_pos(rect.min);
     let canvas_max = meta.screen_to_canvas_pos(rect.max);
     let canvas_rect = egui::Rect::from_min_max(canvas_min, canvas_max);
-    let keys = index.nodes_in_canvas_rect(canvas_rect);
+    let keys = index.nodes_with_center_in_canvas_rect(canvas_rect);
 
     LassoGestureResult {
         action: Some(GraphAction::LassoSelect { keys, mode }),

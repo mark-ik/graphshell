@@ -16,6 +16,7 @@ use crate::graph::NodeKey;
 /// A graph node entry stored in the R*-tree.
 struct IndexedNode {
     envelope: AABB<[f32; 2]>,
+    center: Pos2,
     key: NodeKey,
 }
 
@@ -46,6 +47,7 @@ impl NodeSpatialIndex {
                     [pos.x - radius, pos.y - radius],
                     [pos.x + radius, pos.y + radius],
                 ),
+                center: pos,
                 key,
             })
             .collect();
@@ -59,6 +61,28 @@ impl NodeSpatialIndex {
         let aabb = AABB::from_corners([rect.min.x, rect.min.y], [rect.max.x, rect.max.y]);
         self.tree
             .locate_in_envelope_intersecting(&aabb)
+            .map(|n| n.key)
+            .collect()
+    }
+
+    /// Return node keys whose **center point** falls inside `rect`.
+    ///
+    /// Uses inclusive comparisons with a tiny epsilon to avoid float-boundary
+    /// misses for lasso drags that align exactly to node centers.
+    pub fn nodes_with_center_in_canvas_rect(&self, rect: egui::Rect) -> Vec<NodeKey> {
+        const EDGE_EPSILON: f32 = 1e-3;
+        let expanded = rect.expand(EDGE_EPSILON);
+        let aabb = AABB::from_corners([expanded.min.x, expanded.min.y], [expanded.max.x, expanded.max.y]);
+        self.tree
+            .locate_in_envelope_intersecting(&aabb)
+            .filter(|n| {
+                let x = n.center.x;
+                let y = n.center.y;
+                x >= expanded.min.x
+                    && x <= expanded.max.x
+                    && y >= expanded.min.y
+                    && y <= expanded.max.y
+            })
             .map(|n| n.key)
             .collect()
     }
@@ -106,6 +130,24 @@ mod tests {
         let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0));
         let found = index.nodes_in_canvas_rect(rect);
         assert_eq!(found, vec![make_key(0)]);
+    }
+
+    #[test]
+    fn test_nodes_with_center_in_canvas_rect_includes_boundary_center() {
+        let index =
+            NodeSpatialIndex::build([(make_key(0), Pos2::new(100.0, 50.0), 12.0)].into_iter());
+        let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0));
+        let found = index.nodes_with_center_in_canvas_rect(rect);
+        assert_eq!(found, vec![make_key(0)]);
+    }
+
+    #[test]
+    fn test_nodes_with_center_in_canvas_rect_excludes_radius_only_overlap() {
+        let index =
+            NodeSpatialIndex::build([(make_key(0), Pos2::new(110.0, 50.0), 12.0)].into_iter());
+        let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0));
+        let found = index.nodes_with_center_in_canvas_rect(rect);
+        assert!(found.is_empty());
     }
 
     #[test]
