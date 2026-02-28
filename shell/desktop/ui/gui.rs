@@ -1071,57 +1071,23 @@ impl Gui {
 
     /// Updates the location field from the given [`RunningAppState`], unless the user has started
     /// editing it without clicking Go, returning true iff it has changed (needing an egui update).
-    fn update_location_in_toolbar(&mut self, window: &EmbedderWindow) -> bool {
-        if self.toolbar_state.location.trim_start().starts_with('@') {
+    fn update_location_in_toolbar(
+        &mut self,
+        window: &EmbedderWindow,
+        focused_node_key: Option<NodeKey>,
+    ) -> bool {
+        if self.is_omnibar_node_search_query_active() {
             // Preserve active omnibar node-search query text while cycling matches.
             return false;
         }
-        let has_node_panes = tile_runtime::has_any_node_panes(&self.tiles_tree);
-        let selected_node_url = self.graph_app.get_single_selected_node().and_then(|key| {
-            self.graph_app
-                .workspace
-                .graph
-                .get_node(key)
-                .map(|node| node.url.clone())
-        });
-        let focused_node_key = self.focused_node_key();
+
+        let has_node_panes = self.has_any_node_panes();
+        let selected_node_url = self.selected_node_url_for_toolbar();
         webview_status_sync::update_location_in_toolbar(
             self.toolbar_state.location_dirty,
             &mut self.toolbar_state.location,
             has_node_panes,
             selected_node_url,
-            focused_node_key,
-            &self.graph_app,
-            window,
-        )
-    }
-
-    fn update_load_status(&mut self, window: &EmbedderWindow) -> bool {
-        let focused_node_key = self.focused_node_key();
-        webview_status_sync::update_load_status(
-            &mut self.toolbar_state.load_status,
-            &mut self.toolbar_state.location_dirty,
-            focused_node_key,
-            &self.graph_app,
-            window,
-        )
-    }
-
-    fn update_status_text(&mut self, window: &EmbedderWindow) -> bool {
-        let focused_node_key = self.focused_node_key();
-        webview_status_sync::update_status_text(
-            &mut self.toolbar_state.status_text,
-            focused_node_key,
-            &self.graph_app,
-            window,
-        )
-    }
-
-    fn update_can_go_back_and_forward(&mut self, window: &EmbedderWindow) -> bool {
-        let focused_node_key = self.focused_node_key();
-        webview_status_sync::update_can_go_back_and_forward(
-            &mut self.toolbar_state.can_go_back,
-            &mut self.toolbar_state.can_go_forward,
             focused_node_key,
             &self.graph_app,
             window,
@@ -1139,10 +1105,48 @@ impl Gui {
     }
 
     fn collect_webview_update_flags(&mut self, window: &EmbedderWindow) -> bool {
-        self.update_load_status(window)
-            | self.update_location_in_toolbar(window)
-            | self.update_status_text(window)
-            | self.update_can_go_back_and_forward(window)
+        let focused_node_key = self.focused_node_key();
+        let load_status_changed = webview_status_sync::update_load_status(
+            &mut self.toolbar_state.load_status,
+            &mut self.toolbar_state.location_dirty,
+            focused_node_key,
+            &self.graph_app,
+            window,
+        );
+        let location_changed = self.update_location_in_toolbar(window, focused_node_key);
+        let status_text_changed = webview_status_sync::update_status_text(
+            &mut self.toolbar_state.status_text,
+            focused_node_key,
+            &self.graph_app,
+            window,
+        );
+        let nav_state_changed = webview_status_sync::update_can_go_back_and_forward(
+            &mut self.toolbar_state.can_go_back,
+            &mut self.toolbar_state.can_go_forward,
+            focused_node_key,
+            &self.graph_app,
+            window,
+        );
+
+        load_status_changed | location_changed | status_text_changed | nav_state_changed
+    }
+
+    fn is_omnibar_node_search_query_active(&self) -> bool {
+        self.toolbar_state.location.trim_start().starts_with('@')
+    }
+
+    fn has_any_node_panes(&self) -> bool {
+        tile_runtime::has_any_node_panes(&self.tiles_tree)
+    }
+
+    fn selected_node_url_for_toolbar(&self) -> Option<String> {
+        self.graph_app.get_single_selected_node().and_then(|key| {
+            self.graph_app
+                .workspace
+                .graph
+                .get_node(key)
+                .map(|node| node.url.clone())
+        })
     }
 
     /// Returns true if a redraw is required after handling the provided event.
