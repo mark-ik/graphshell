@@ -1761,13 +1761,19 @@ impl Gui {
         ctx: &egui::Context,
         pending: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
     ) {
-        if pending.is_empty() {
+        if Self::has_no_pending_webview_a11y_updates(pending) {
             return;
         }
 
         for (webview_id, tree_update) in pending.drain() {
             Self::inject_single_webview_a11y_update(ctx, webview_id, &tree_update);
         }
+    }
+
+    fn has_no_pending_webview_a11y_updates(
+        pending: &HashMap<WebViewId, accesskit::TreeUpdate>,
+    ) -> bool {
+        pending.is_empty()
     }
 
     fn inject_single_webview_a11y_update(
