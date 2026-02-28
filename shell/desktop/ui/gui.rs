@@ -1432,7 +1432,11 @@ impl Gui {
     }
 
     fn has_any_node_panes(&self) -> bool {
-        tile_runtime::has_any_node_panes(&self.tiles_tree)
+        Self::tree_has_any_node_panes(&self.tiles_tree)
+    }
+
+    fn tree_has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
+        tile_runtime::has_any_node_panes(tiles_tree)
     }
 
     fn selected_node_url_for_toolbar(&self) -> Option<String> {
