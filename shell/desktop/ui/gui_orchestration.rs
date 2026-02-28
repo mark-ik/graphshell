@@ -523,10 +523,18 @@ pub(crate) fn handle_pending_open_node_after_intents(
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    apply_pending_open_node_request_selection(graph_app, open_node_tile_after_intents);
+    let request_node_key =
+        apply_pending_open_node_request_selection(graph_app, open_node_tile_after_intents);
+
+    log::debug!(
+        "gui: pending open node phase mode={:?} request_node={:?} selected={:?}",
+        open_node_tile_after_intents,
+        request_node_key,
+        graph_app.get_single_selected_node()
+    );
 
     if let Some(open_mode) = *open_node_tile_after_intents
-        && let Some(node_key) = graph_app.get_single_selected_node()
+        && let Some(node_key) = request_node_key.or_else(|| graph_app.get_single_selected_node())
     {
         execute_pending_open_node_after_intents(
             graph_app,
@@ -535,13 +543,20 @@ pub(crate) fn handle_pending_open_node_after_intents(
             node_key,
             open_mode,
         );
+
+        log::debug!(
+            "gui: executed pending open node {:?} mode {:?}; active_tiles={}",
+            node_key,
+            open_mode,
+            tiles_tree.active_tiles().len()
+        );
     }
 }
 
 fn apply_pending_open_node_request_selection(
     graph_app: &mut GraphBrowserApp,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
-) {
+) -> Option<NodeKey> {
     if let Some(open_request) = graph_app.take_pending_open_node_request() {
         log::debug!(
             "gui: handle_pending_open_node_after_intents taking request for {:?}",
@@ -549,7 +564,10 @@ fn apply_pending_open_node_request_selection(
         );
         *open_node_tile_after_intents = Some(open_mode_from_pending(open_request.mode));
         graph_app.select_node(open_request.key, false);
+        return Some(open_request.key);
     }
+
+    None
 }
 
 fn execute_pending_open_node_after_intents(

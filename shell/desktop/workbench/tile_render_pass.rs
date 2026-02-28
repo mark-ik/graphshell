@@ -212,6 +212,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
 
     #[cfg(feature = "diagnostics")]
     if let Some(node_key) = diagnostics_state.take_pending_focus_node() {
+        log::debug!(
+            "tile_render_pass: diagnostics requested pending focus for node {:?}",
+            node_key
+        );
         tile_view_ops::open_or_focus_node_pane_with_mode(
             tiles_tree,
             graph_app,
@@ -227,7 +231,14 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             cause: crate::app::LifecycleCause::UserSelect,
         });
     }
+    if !pending_closed_nodes.is_empty() {
+        log::debug!(
+            "tile_render_pass: processing {} pending closed nodes",
+            pending_closed_nodes.len()
+        );
+    }
     for node_key in pending_closed_nodes {
+           log::debug!("tile_render_pass: releasing runtime for closed node {:?}", node_key);
            tile_runtime::release_node_runtime_for_pane(
             graph_app,
             window,
@@ -238,6 +249,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     }
 
     for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
+           log::debug!(
+            "tile_render_pass: releasing mapped runtime without tile for node {:?}",
+            node_key
+        );
            tile_runtime::release_node_runtime_for_pane(
             graph_app,
             window,
@@ -251,6 +266,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     if repaired_active_tile {
         log::debug!("tile_render_pass: repaired empty active tile selection");
     }
+    log::debug!(
+        "tile_render_pass: active tile count after handoff {}",
+        tiles_tree.active_tiles().len()
+    );
 
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
 
