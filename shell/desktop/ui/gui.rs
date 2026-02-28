@@ -1300,13 +1300,33 @@ impl Gui {
 
         let has_node_panes = self.has_any_node_panes();
         let selected_node_url = self.selected_node_url_for_toolbar();
-        webview_status_sync::update_location_in_toolbar(
+        Self::apply_toolbar_location_update(
+            &self.graph_app,
             self.toolbar_state.location_dirty,
             &mut self.toolbar_state.location,
             has_node_panes,
             selected_node_url,
             focused_node_key,
-            &self.graph_app,
+            window,
+        )
+    }
+
+    fn apply_toolbar_location_update(
+        graph_app: &GraphBrowserApp,
+        location_dirty: bool,
+        location: &mut String,
+        has_node_panes: bool,
+        selected_node_url: Option<String>,
+        focused_node_key: Option<NodeKey>,
+        window: &EmbedderWindow,
+    ) -> bool {
+        webview_status_sync::update_location_in_toolbar(
+            location_dirty,
+            location,
+            has_node_panes,
+            selected_node_url,
+            focused_node_key,
+            graph_app,
             window,
         )
     }
