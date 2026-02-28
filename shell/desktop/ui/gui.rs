@@ -1197,12 +1197,15 @@ impl Gui {
 
     fn ensure_tiles_tree_root(&mut self) {
         if self.tiles_tree.root().is_none() {
-            let graph_tile_id = self
-                .tiles_tree
-                .tiles
-                .insert_pane(TileKind::Graph(GraphViewId::default()));
+            let graph_tile_id = Self::insert_default_graph_tile(&mut self.tiles_tree);
             self.tiles_tree.root = Some(graph_tile_id);
         }
+    }
+
+    fn insert_default_graph_tile(tiles_tree: &mut Tree<TileKind>) -> TileId {
+        tiles_tree
+            .tiles
+            .insert_pane(TileKind::Graph(GraphViewId::default()))
     }
 
     #[cfg(feature = "diagnostics")]
