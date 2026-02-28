@@ -1208,11 +1208,18 @@ fn refresh_frame_membership_cache(graph_app: &mut GraphBrowserApp) {
 }
 
 fn handle_pending_frame_prune_retention_actions(graph_app: &mut GraphBrowserApp) {
+    handle_pending_prune_empty_frames(graph_app);
+    handle_pending_keep_latest_named_frames(graph_app);
+}
+
+fn handle_pending_prune_empty_frames(graph_app: &mut GraphBrowserApp) {
     if graph_app.take_pending_prune_empty_frames() {
         let deleted = persistence_ops::prune_empty_named_workspaces(graph_app);
         warn!("Pruned {deleted} empty named frame snapshots");
     }
+}
 
+fn handle_pending_keep_latest_named_frames(graph_app: &mut GraphBrowserApp) {
     if let Some(keep) = graph_app.take_pending_keep_latest_named_frames() {
         let deleted = persistence_ops::keep_latest_named_workspaces(graph_app, keep);
         warn!("Removed {deleted} named frame snapshots beyond latest {keep}");
