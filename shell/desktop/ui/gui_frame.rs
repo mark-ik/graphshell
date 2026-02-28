@@ -1177,9 +1177,8 @@ fn handle_pending_frame_save_layout_actions(
     tiles_tree: &Tree<TileKind>,
 ) {
     if graph_app.take_pending_save_frame_snapshot() {
-        match serde_json::to_string(tiles_tree) {
-            Ok(layout_json) => graph_app.save_tile_layout_json(&layout_json),
-            Err(e) => warn!("Failed to serialize tile layout for frame snapshot: {e}"),
+        if let Some(layout_json) = serialize_tiles_tree_layout_json(tiles_tree, "frame snapshot") {
+            graph_app.save_tile_layout_json(&layout_json);
         }
     }
 
@@ -1538,13 +1537,7 @@ fn build_session_workspace_layout_payload(
     graph_app: &GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) -> Option<(String, String)> {
-    let layout_json = match serde_json::to_string(tiles_tree) {
-        Ok(layout_json) => layout_json,
-        Err(e) => {
-            warn!("Failed to serialize session frame layout: {e}");
-            return None;
-        }
-    };
+    let layout_json = serialize_tiles_tree_layout_json(tiles_tree, "session frame layout")?;
 
     let bundle_json = match persistence_ops::serialize_named_frame_bundle(
         graph_app,
@@ -1559,6 +1552,16 @@ fn build_session_workspace_layout_payload(
     };
 
     Some((bundle_json, layout_json))
+}
+
+fn serialize_tiles_tree_layout_json(tiles_tree: &Tree<TileKind>, context: &str) -> Option<String> {
+    match serde_json::to_string(tiles_tree) {
+        Ok(layout_json) => Some(layout_json),
+        Err(e) => {
+            warn!("Failed to serialize tile layout for {context}: {e}");
+            None
+        }
+    }
 }
 
 fn persist_session_workspace_layout_blob_if_changed(
