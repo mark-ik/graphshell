@@ -124,11 +124,21 @@ Project status source: [../README.md](../README.md)
 ### Verse Technical Architecture
 
 - [verse_docs/technical_architecture/VERSE_AS_NETWORK.md](verse_docs/technical_architecture/VERSE_AS_NETWORK.md) - The Verse network: Tier 1 bilateral iroh sync, Tier 2 community swarms (research), knowledge asset pipeline, participation levels, wire format, conflict resolution, network architecture diagrams.
+- [verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md](verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md) - Long-horizon Tier 2 architecture: dual transport, VerseBlob, FLora, Proof of Access, crawler economy, and open research questions.
 
 ### Verse Implementation Strategy
 
 - [verse_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md](verse_docs/implementation_strategy/2026-02-22_verse_implementation_strategy.md) - Verse implementation strategy and phase framing.
 - [verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) - **Canonical Verse Tier 1 sync plan** (iroh transport, sync units, pairing/sync phases, deterministic sync-logic simulator matrix).
+- [verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md](verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md) - Post-Phase-5 collaborative presence plan: ghost cursors, remote selection, follow mode, and presence stream policy.
+- [verse_docs/implementation_strategy/self_hosted_model_spec.md](verse_docs/implementation_strategy/self_hosted_model_spec.md) - Self-hosted model spec: capability contracts, model/engram classification, cooperative multi-model execution, mini-adapter flow, and UI-facing behavior contracts.
+- [verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md](verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md) - STM/LTM, MemoryExtractor/MemoryIngestor, engram storage, and intelligence memory plumbing.
+- [verse_docs/implementation_strategy/engram_spec.md](verse_docs/implementation_strategy/engram_spec.md) - Canonical `Engram` / `TransferProfile` schema: envelope, memory classes, validation classes, redaction, trust, and FLora submission rules.
+- [verse_docs/implementation_strategy/verseblob_content_addressing_spec.md](verse_docs/implementation_strategy/verseblob_content_addressing_spec.md) - Canonical `VerseBlob` schema and content-addressing policy: CID defaults, attachment model, retrieval rules, and safety limits.
+- [verse_docs/implementation_strategy/flora_submission_checkpoint_spec.md](verse_docs/implementation_strategy/flora_submission_checkpoint_spec.md) - Canonical FLora flow: engram submission manifests, review, checkpoints, reward hooks, and anti-abuse policy.
+- [verse_docs/implementation_strategy/proof_of_access_ledger_spec.md](verse_docs/implementation_strategy/proof_of_access_ledger_spec.md) - Canonical receipt and accounting model: off-chain ledger, reputation, epoch settlement, and optional payout channels.
+- [verse_docs/implementation_strategy/community_governance_spec.md](verse_docs/implementation_strategy/community_governance_spec.md) - Canonical community policy model: roles, quorum, treasury controls, moderation, and appeals.
+- [verse_docs/implementation_strategy/self_hosted_verse_node_spec.md](verse_docs/implementation_strategy/self_hosted_verse_node_spec.md) - Canonical private-by-default Verse node model: service surfaces, transport boundaries, quotas, and budget controls.
 - [verse_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.1_COMPLETE.md) - Phase 5 Step 5.1 completion record.
 - [verse_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.2_COMPLETE.md) - Phase 5 Step 5.2 completion record.
 - [verse_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md](verse_docs/implementation_strategy/PHASE5_STEP5.3_COMPLETE.md) - Phase 5 Step 5.3 completion record.

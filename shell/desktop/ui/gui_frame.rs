@@ -1160,7 +1160,14 @@ fn handle_pending_frame_save_prune_and_import(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) {
+    handle_pending_frame_save_and_prune(graph_app, tiles_tree);
+    handle_pending_frame_import_actions(graph_app);
+}
 
+fn handle_pending_frame_save_and_prune(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
     if graph_app.take_pending_save_frame_snapshot() {
         match serde_json::to_string(tiles_tree) {
             Ok(layout_json) => graph_app.save_tile_layout_json(&layout_json),
@@ -1187,7 +1194,9 @@ fn handle_pending_frame_save_prune_and_import(
         let deleted = persistence_ops::keep_latest_named_workspaces(graph_app, keep);
         warn!("Removed {deleted} named frame snapshots beyond latest {keep}");
     }
+}
 
+fn handle_pending_frame_import_actions(graph_app: &mut GraphBrowserApp) {
     if let Some((node_key, frame_name)) = graph_app.take_pending_add_node_to_frame() {
         add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &[node_key]);
     }

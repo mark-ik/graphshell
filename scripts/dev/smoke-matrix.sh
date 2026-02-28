@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-TARGET_TEST="${TARGET_TEST:-node_pane_webview_runtime_hosting_uses_registry_selection_for_http_nodes}"
+TARGET_TEST="${TARGET_TEST:-graph_split_intent_tests}"
 
 detect_host_lane() {
   if [[ -n "${GRAPHSHELL_CARGO_LANE:-}" ]]; then
@@ -93,7 +93,7 @@ Usage: scripts/dev/smoke-matrix.sh <command>
 
 Commands:
   status   Print platform/runtime summary
-  quick    Run non-GUI validation: cargo check + one targeted test
+  quick    Run non-GUI validation: cargo check --locked + one targeted lib test
   run      Start graphshell (applies WSL software GL fallback automatically)
   cargo    Run an arbitrary cargo subcommand with managed target dir
 
@@ -126,8 +126,8 @@ case "$cmd" in
     ;;
   quick)
     prepare_cargo_target_dir
-    cargo check -q
-    cargo test -q "$TARGET_TEST"
+    cargo check --locked
+    cargo test --locked --lib "$TARGET_TEST"
     ;;
   run)
     prepare_cargo_target_dir

@@ -4,7 +4,7 @@
 **Status**: Proposed (design-ready)
 **Scope**: Intelligence memory management architecture for Graphshell/Verse, including short-term memory (STM), long-term memory (LTM), engram memory storage, ectoplasm streams, and extractor/ingestor workflows.
 **Related**:
-- `design_docs/verse_docs/implementation_strategy/2026-02-26_model_slots_adapters_udc_personalization_plan.md`
+- `design_docs/verse_docs/implementation_strategy/self_hosted_model_spec.md`
 - `design_docs/verse_docs/research/2026-02-24_local_intelligence_research.md`
 - `design_docs/TERMINOLOGY.md`
 
@@ -12,8 +12,8 @@
 
 ## 1. Why This Is a Separate Plan
 
-The model-slots/adapters plan defines:
-- slot contracts
+The self-hosted model spec defines:
+- capability contracts
 - capability declarations
 - conformance/evaluation
 - adapter compatibility/portability
@@ -22,7 +22,7 @@ The model-slots/adapters plan defines:
 This document defines a **different but related system**: memory management and transfer plumbing.
 
 This separation keeps responsibilities clear:
-- **Model slots plan** = what models can do, how they are evaluated, and how features bind to them
+- **Self-hosted model spec** = what models can do, how they are evaluated, and how features bind to them
 - **Memory architecture plan** = how intelligence memories are stored, indexed, promoted, streamed, imported, and exported
 
 ---
@@ -390,7 +390,7 @@ Every imported/promoted memory should support trust/confidence markers such as:
 
 ---
 
-## 13. Scope Split with the Model Slots Plan
+## 13. Scope Split with the Self-Hosted Model Spec
 
 To keep the design set maintainable:
 
@@ -401,8 +401,8 @@ This document owns:
 - ectoplasm runtime streaming concepts
 - memory indexing/retrieval patterns
 
-The model slots plan owns:
-- slot definitions
+The self-hosted model spec owns:
+- capability contracts
 - capability declarations
 - conformance thresholds
 - adapter compatibility/portability rules
@@ -410,8 +410,8 @@ The model slots plan owns:
 - engram bundle composition semantics
 
 Cross-link policy:
-- memory architecture may store and transport model-slot artifacts
-- model-slot systems should reference this document for persistence/ingest/export mechanics
+- memory architecture may store and transport model-runtime artifacts
+- model systems should reference this document for persistence/ingest/export mechanics
 
 ---
 
@@ -477,4 +477,4 @@ This plan defines a dedicated intelligence memory architecture for Graphshell/Ve
 - **Promotion/Hydration** flows between working memory and durable memory
 - **Ectoplasm** as an optional runtime signal stream that can be observed and transformed, but is not the same as persisted memory
 
-It complements (rather than replaces) the model slots/adapters plan by providing the persistence and transfer mechanics that make engrams, archetypes, and evidence-backed customization practical.
+It complements (rather than replaces) the self-hosted model spec by providing the persistence and transfer mechanics that make engrams, archetypes, and evidence-backed customization practical.

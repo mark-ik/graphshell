@@ -6,7 +6,7 @@ $RootDir = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 Set-Location $RootDir
 
 if (-not $env:TARGET_TEST -or [string]::IsNullOrWhiteSpace($env:TARGET_TEST)) {
-    $env:TARGET_TEST = 'node_pane_webview_runtime_hosting_uses_registry_selection_for_http_nodes'
+    $env:TARGET_TEST = 'graph_split_intent_tests'
 }
 
 function Test-IsWsl {
@@ -85,7 +85,7 @@ Usage: scripts/dev/smoke-matrix.ps1 <command> [args...]
 
 Commands:
   status   Print platform/runtime summary
-  quick    Run non-GUI validation: cargo check + one targeted test
+    quick    Run non-GUI validation: cargo check --locked + one targeted lib test
   run      Start graphshell (applies WSL software GL fallback automatically)
   cargo    Run an arbitrary cargo subcommand with managed target dir
 
@@ -119,8 +119,8 @@ switch ($Command) {
     }
     'quick' {
         Set-CargoTargetDir
-        cargo check -q
-        cargo test -q $env:TARGET_TEST
+        cargo check --locked
+        cargo test --locked --lib $env:TARGET_TEST
     }
     'run' {
         Set-CargoTargetDir

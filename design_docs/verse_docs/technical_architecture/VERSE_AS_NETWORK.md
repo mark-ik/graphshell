@@ -3,7 +3,7 @@
 **Purpose**: Specification for the Verse network — what it is, what it does, and how Graphshell participates in it through the Verso peer agent.
 
 **Document Type**: Network and protocol specification (not implementation status)
-**Status**: Tier 1 (bilateral iroh sync) in Phase 5 implementation; Tier 2 (community swarms, federated search, Proof of Access) is long-horizon research (Q3 2026+)
+**Status**: Tier 1 (bilateral iroh sync) in Phase 5 implementation; Tier 2 (community swarms, federated search, Proof of Access, FLora/engram exchange) is long-horizon research (Q3 2026+)
 **See**: [VERSO_AS_PEER.md](../../graphshell_docs/technical_architecture/VERSO_AS_PEER.md) for how Graphshell's Verso mod participates; [2026-02-23_verse_tier1_sync_plan.md](../implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) for the Tier 1 implementation plan; [2026-02-23_verse_tier2_architecture.md](2026-02-23_verse_tier2_architecture.md) for the long-horizon swarm architecture
 
 ---
@@ -14,10 +14,17 @@ The Verse is a **decentralized, peer-to-peer knowledge network** that Graphshell
 
 The Verse is not a server. It is not a platform. It is a set of protocols and data formats that Graphshell peers speak to each other. Every user running Graphshell with Verso enabled is a Verse peer.
 
+Each local Verse instance is best understood as a **private-by-default, self-hosted portal**: a sovereign node that can keep data and model customizations private, or selectively participate in consensual storage, indexing, and adaptation economies.
+
 **The Verse has two tiers:**
 
 - **Tier 1** — Bilateral sync: two trusted peers synchronize their graph state directly over iroh (QUIC-based, NAT-traversing transport). This is the Phase 5 deliverable. It works offline-first; peers sync when they connect.
 - **Tier 2** — Community swarms: larger groups of peers form communities around shared knowledge domains, exchanging curated index segments and content-addressed blobs via libp2p GossipSub. This is long-horizon research.
+
+In the long-horizon Tier 2 framing, that local Verse node can also act as:
+- a wallet-adjacent treasury manager for stake-backed storage and bounty budgets
+- a host for persistent graphs, applets, feeds, forums, and access points to shared web processes
+- a private engram library and FLora contributor/consumer
 
 This document describes both tiers as a conceptual whole. For implementation, read the tier-specific documents.
 
@@ -113,7 +120,7 @@ Tier 2 extends the bilateral model to larger groups of peers who share knowledge
 - **Community model**: communities form around shared knowledge domains (a topic, a workspace template, a research group). Membership is opt-in. A community has rebroadcast levels (Core → Extended → Public) governing who relays content.
 - **Federated search**: community members share sharded tantivy index segments as `VerseBlob`s. Searching a community means querying peers' indexes, not a central server.
 - **Proof of Access**: a lightweight economic layer where peers earn reputation (or credits) by storing and serving `VerseBlob`s for others. Deferred to post-Tier-1 research.
-- **Federated adaptation (FLora)**: communities can also maintain shared domain-specific LoRA adapters, where contributors keep raw data local and publish adapter weight updates or checkpoints, letting members load community-trained knowledge into their own AI tooling.
+- **Federated adaptation (FLora)**: communities can also maintain shared domain-specific LoRA adapters, where contributors keep raw data local and publish engram payloads containing adapter memories plus contextual metadata, letting members load community-trained knowledge into their own AI tooling.
 
 Tier 2 validation begins Q3 2026 after Tier 1 is proven in production. Tier 2 is additive — it does not change Tier 1's bilateral sync model.
 
@@ -156,7 +163,8 @@ A Graphshell user can participate in the Verse at any level:
 | Tier 1 (workspace sharing) | Verso + iroh | Share specific workspaces in read-only or read-write mode |
 | Tier 2 (community) | Verso + libp2p | Participate in topic communities; share index segments; search across community |
 | Tier 2 (storage contributor) | Verso + libp2p + storage quota | Earn reputation by hosting blobs for the community |
-| Tier 2 (FLora contributor) | Verso + libp2p + local model runtime | Submit local adapter weight updates to community LoRA pipelines; consume approved domain adapters |
+| Tier 2 (FLora contributor) | Verso + libp2p + local model runtime | Submit local engrams with adapter memories to community FLora pipelines; consume approved domain adapters |
+| Tier 2 (self-hosted verse operator) | Verso + libp2p + local storage/treasury policy | Run a private-by-default verse node, set storage and bounty policy, and selectively expose services or communities |
 
 Participation is always opt-in and can be revoked. Revoking access to a workspace removes the peer from the trust store and stops syncing; it does not delete data already on the peer's device.
 
@@ -203,6 +211,12 @@ Both transport layers share the same Ed25519 identity (the same keypair derives 
 
 **Tier 2 research:**
 - [2026-02-23_verse_tier2_architecture.md](2026-02-23_verse_tier2_architecture.md) — dual transport, VerseBlob, community swarms, federated search, Proof of Access, research roadmap
+- [../implementation_strategy/engram_spec.md](../implementation_strategy/engram_spec.md) — canonical `Engram` / `TransferProfile` schema for local exchange and FLora submissions
+- [../implementation_strategy/verseblob_content_addressing_spec.md](../implementation_strategy/verseblob_content_addressing_spec.md) — canonical `VerseBlob` envelope, CID rules, transport split, and retrieval policy
+- [../implementation_strategy/flora_submission_checkpoint_spec.md](../implementation_strategy/flora_submission_checkpoint_spec.md) — FLora submission, review, checkpoint, and reward hook specification
+- [../implementation_strategy/proof_of_access_ledger_spec.md](../implementation_strategy/proof_of_access_ledger_spec.md) — receipt, reputation, epoch accounting, and optional payout model
+- [../implementation_strategy/community_governance_spec.md](../implementation_strategy/community_governance_spec.md) — governance roles, quorum, moderation, treasury, and dispute rules
+- [../implementation_strategy/self_hosted_verse_node_spec.md](../implementation_strategy/self_hosted_verse_node_spec.md) — private-by-default local Verse node operating model and service guardrails
 
 **Graphshell context:**
 - [GRAPHSHELL_AS_BROWSER.md](../../graphshell_docs/technical_architecture/GRAPHSHELL_AS_BROWSER.md) — browser model; how knowledge is created and organized before it enters the Verse

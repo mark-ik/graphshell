@@ -122,6 +122,8 @@ enum PresenceEvent {
 
 Presence events are multiplexed on a separate QUIC stream within the same iroh connection used for data sync. The `SyncWorker` opens a `presence` substream on connection establishment (after authentication in Step 5.3). If the peer's Graphshell version does not support presence, the substream open is a no-op (capability negotiation via stream ID convention).
 
+This is the required default: presence must remain on a separate substream so transient cursor and viewport traffic cannot backpressure semantic sync.
+
 ---
 
 ## 4. Diagnostics Channels
@@ -245,17 +247,20 @@ struct PeerPresenceState {
 }
 ```
 
+### 7.4 Operational Safety Defaults
+
+Presence should follow lightweight realtime-collaboration best practices:
+- sender-side rate limiting remains mandatory
+- receiver-side rate limiting is also mandatory as a trust boundary (drop and diagnose anything above policy)
+- stale presence state should expire automatically without explicit disconnect
+- no presence event should ever be persisted, replayed, or included in `SyncUnit`
+- unsupported presence versions should fail closed (ignore the stream, do not attempt fallback parsing)
+
 ---
 
 ## 8. Open Questions
 
-1. **Presence substream multiplexing**: Should presence use a dedicated QUIC stream or be interleaved with `SyncUnit` frames using a message-type discriminant? (Recommendation: separate stream with a well-known stream ID so presence backpressure does not stall data sync.)
-
-2. **Cursor rate limiting enforcement**: Should rate limiting be enforced sender-side only (trust-based) or receiver-side with drop policy? (Recommendation: sender-side by default; receiver-side drop if `cursor_received` rate exceeds 25 Hz from a single peer as a DOS guard.)
-
-3. **Presence and workspace read-only access**: Should `ReadOnly` peers be allowed to emit `CursorMoved` and `SelectionChanged`? (Recommendation: yes — presence is independent of mutation access; a `ReadOnly` collaborator should still be visible.)
-
-4. **Avatar color collision**: Two peers with similar `NodeId` prefix bytes could receive the same hue. Accept with documentation, or add a minimum angular distance check across active peers? (Recommendation: defer until observed in practice.)
+1. **Avatar color collision**: Two peers with similar `NodeId` prefix bytes could receive the same hue. Accept with documentation, or add a minimum angular distance check across active peers? (Recommendation: accept in v1; if collisions become common, add local hue separation without changing the deterministic base seed.)
 
 ---
 

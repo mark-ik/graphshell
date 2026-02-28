@@ -544,7 +544,7 @@ Issue-ready intake stubs from the latest user report:
 - `lane:verse-intelligence`
   - Hub: `#93` (Model slots + memory architecture implementation tracker)
   - Open a hub + child issue stack for the two design-ready plans (currently no implementation lane):
-  - `design_docs/verse_docs/implementation_strategy/2026-02-26_model_slots_adapters_udc_personalization_plan.md`
+  - `design_docs/verse_docs/implementation_strategy/self_hosted_model_spec.md`
   - `design_docs/verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md`
   - First executable slices should be schemas/contracts + storage/index scaffolds (not model training)
 
@@ -660,7 +660,7 @@ These are mostly sourced from the forgotten-concepts table and adopted strategy 
 
 | Lane | Scope | Status | Primary Docs | Notes |
 | --- | --- | --- | --- | --- |
-| `lane:verse-intelligence` (`#93`) | Hub lane for model slots + adapters + conformance + portability + archetypes | Design-ready / issue hub open | `2026-02-26_model_slots_adapters_udc_personalization_plan.md` | Start with schemas/contracts + slot binding + diagnostics, not training. |
+| `lane:verse-intelligence` (`#93`) | Hub lane for self-hosted model contracts + adapters + conformance + portability + archetypes | Design-ready / issue hub open | `self_hosted_model_spec.md` | Start with schemas/contracts + runtime contract binding + diagnostics, not training. |
 | `lane:intelligence-memory` | STM/LTM + engram memories + extractor/ingestor + ectoplasm interfaces | Design-ready / issue hub missing | `2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md` | May be tracked as a child lane under `lane:verse-intelligence`. |
 | `lane:model-index-verse` | Requirements/benchmarks/community reports evidence registry for model selection/diets | Conceptual / partially documented | model slots plan (Model Index sections), local intelligence research | Evidence substrate for archetypes and conformance decisions. |
 | `lane:adapter-portability` | LoRA extraction/import/export, portability classes, reverse-LoRA tooling integration | Design-ready / issue hub missing | model slots plan (`TransferProfile`, portability classes) | Likely late-phase child lane after schemas + evals exist. |

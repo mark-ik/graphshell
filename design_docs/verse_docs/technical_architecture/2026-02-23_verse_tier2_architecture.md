@@ -7,6 +7,26 @@
 
 ---
 
+## 0. Canonical Tier 2 Framing
+
+Tier 2 treats each local Verse instance as a **private-by-default, self-hosted portal** into community storage, data, and adaptation economies.
+
+In this framing:
+- Graphshell helps the user collect, curate, and classify data locally.
+- A local mini-adapter pipeline converts local data into private model customizations first.
+- The canonical transferable payload is an **Engram** (a `TransferProfile` plus optional memories), not a bare LoRA file.
+- FLora is the community adaptation economy built around these engram payloads, with LoRA memories as the main trainable component.
+- Communities may optionally use stake-backed budgets (for example, Filecoin-funded treasuries) to pay bounties for accepted engram submissions, storage service, indexing, or moderation work.
+- The local Verse node can remain private, selectively join libp2p communities, or host its own self-curated/private verse with custom policy.
+
+This means the same local node can act as:
+- a sovereign private memory and model-customization environment
+- a storage provider and wallet-adjacent treasury manager
+- a host for persistent graphs, applets, feeds, forums, and access points to shared web processes
+- a bridge between private iroh-based bilateral sync and broader libp2p community participation
+
+---
+
 ## 1. The Dual-Transport Model
 
 Tier 1 uses **iroh** for bilateral, session-oriented sync between trusted peers. Tier 2 adds **libp2p** for community-scale swarms with content addressing, DHT discovery, and open participation.
@@ -100,6 +120,8 @@ enum BlobPayload {
     IntentDelta(Vec<SyncedIntent>),
     /// A tantivy index segment (node titles + full-text search)
     IndexSegment(Vec<u8>),
+    /// A packaged engram / transfer profile for model adaptation or evaluation
+    Engram(TransferProfile),
     /// Arbitrary binary (attached media, WARC archives, etc.)
     Opaque {
         format: String,
@@ -200,11 +222,14 @@ Apply intents to local graph + add blob to DHT
 
 Tier 2 communities may optionally operate a **federated LoRA (FLora)** pipeline alongside graph and index exchange. In this model, a community maintains one or more domain-specific LoRA adapters that members can use as portable knowledge overlays for local AI tooling.
 
+The canonical submission object is an **Engram payload**. A LoRA delta/checkpoint is the primary trainable memory inside that payload, but the surrounding engram fields carry the context needed to rank, merge, gate, and trust the contribution.
+
 **Core properties:**
 - Raw training data remains local to the contributor.
-- Contributors run a local mini-adapter pass and publish only weight deltas, candidate LoRA checkpoints, and evaluation metadata.
+- Contributors run a local mini-adapter pass and publish an engram bundle that may include adapter weights, dataset lineage summaries, UDC characterization, evaluation receipts, and compatibility metadata.
 - A community treasury (for example, Filecoin-backed stake) funds rewards for accepted updates.
 - Access to the resulting adapters can be open, contribution-gated, reputation-gated, or private to a closed membership list.
+- Engram submissions may be sparse. A verse may accept partial engrams and score them according to which memories are present and which policies it enforces.
 
 ```rust
 struct FloraSubmission {
@@ -212,8 +237,10 @@ struct FloraSubmission {
     adapter_id: AdapterId,
     contributor: PeerId,
     parent_checkpoint: Hash256,
-    weight_delta_blob: Hash256,
-    evaluation: EvaluationReceipt,
+    engram_blob: Hash256, // TransferProfile + attached EngramMemory items
+    adapter_memory_ref: Option<Hash256>,
+    evaluation: Option<EvaluationReceipt>,
+    udc_profile: Vec<String>,
     signature: Signature,
 }
 
@@ -222,6 +249,7 @@ struct FloraCheckpoint {
     checkpoint_hash: Hash256,
     parent: Option<Hash256>,
     merged_from: Vec<Hash256>,
+    source_engrams: Vec<Hash256>,
     policy: MergePolicy,
 }
 ```
@@ -229,7 +257,7 @@ struct FloraCheckpoint {
 **Operational flow:**
 1. A community defines an adapter domain and stakes treasury funds behind it.
 2. Contributors train locally on the data they control and publish a `FloraSubmission`.
-3. Moderators, stakers, or trusted reviewers evaluate the candidate in a confirmation buffer.
+3. Moderators, stakers, or trusted reviewers evaluate the engram in a confirmation buffer, using its metadata as weighting/context for acceptance, payout, and merge policy.
 4. Accepted submissions become a new checkpoint or are merged into a curated checkpoint line.
 5. Community members fetch approved checkpoints and mount them in their own AI stack.
 
