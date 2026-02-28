@@ -42,6 +42,42 @@ fn settings_history_url_intent_is_consumed_by_orchestration_authority() {
     assert!(intents.is_empty());
 }
 
+#[test]
+fn unknown_settings_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = "graphshell://settings/not-a-real-route".to_string();
+    let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenSettingsUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenSettingsUrl intent, got {other:?}"),
+    }
+}
+
+#[test]
+fn non_workbench_intent_is_preserved_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![GraphIntent::ToggleCommandPalette];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    assert!(matches!(intents[0], GraphIntent::ToggleCommandPalette));
+}
+
 #[cfg(feature = "diagnostics")]
 #[test]
 fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
