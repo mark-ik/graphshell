@@ -1280,44 +1280,65 @@ fn handle_pending_open_connected_from(
             graph_app.capture_undo_checkpoint(Some(layout_json));
         }
         let connected = connected_targets_for_open(graph_app, source, scope);
+        let ordered = ordered_connected_open_nodes(source, connected);
 
-        let mut intents = Vec::with_capacity(connected.len() + 2);
-        intents.push(GraphIntent::SelectNode {
-            key: source,
-            multi_select: false,
-        });
+        apply_connected_open_selection_intents(graph_app, tiles_tree, source, &ordered);
+        open_connected_nodes_by_mode(graph_app, tiles_tree, open_mode, &ordered);
+    }
+}
+
+fn ordered_connected_open_nodes(source: NodeKey, connected: Vec<NodeKey>) -> Vec<NodeKey> {
+    let mut ordered = Vec::with_capacity(connected.len() + 1);
+    ordered.push(source);
+    ordered.extend(connected);
+    ordered
+}
+
+fn apply_connected_open_selection_intents(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    source: NodeKey,
+    ordered: &[NodeKey],
+) {
+    let mut intents = Vec::with_capacity(ordered.len() + 1);
+    intents.push(GraphIntent::SelectNode {
+        key: source,
+        multi_select: false,
+    });
+    intents.push(lifecycle_intents::promote_node_to_active(
+        source,
+        LifecycleCause::UserSelect,
+    ));
+    for node in ordered.iter().skip(1) {
         intents.push(lifecycle_intents::promote_node_to_active(
-            source,
-            LifecycleCause::UserSelect,
+            *node,
+            LifecycleCause::ActiveTileVisible,
         ));
-        for node in &connected {
-            intents.push(lifecycle_intents::promote_node_to_active(
-                *node,
-                LifecycleCause::ActiveTileVisible,
-            ));
+    }
+    apply_intents_if_any(graph_app, tiles_tree, &mut intents);
+}
+
+fn open_connected_nodes_by_mode(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    open_mode: PendingTileOpenMode,
+    ordered: &[NodeKey],
+) {
+    graph_app.mark_current_frame_synthesized();
+    let tile_mode = tile_open_mode_from_pending(open_mode);
+    match tile_mode {
+        tile_view_ops::TileOpenMode::Tab => {
+            for node in ordered {
+                tile_view_ops::open_or_focus_node_pane_with_mode(
+                    tiles_tree,
+                    graph_app,
+                    *node,
+                    tile_view_ops::TileOpenMode::Tab,
+                );
+            }
         }
-        apply_intents_if_any(graph_app, tiles_tree, &mut intents);
-
-        let mut ordered = Vec::with_capacity(connected.len() + 1);
-        ordered.push(source);
-        ordered.extend(connected);
-
-        graph_app.mark_current_frame_synthesized();
-        let tile_mode = tile_open_mode_from_pending(open_mode);
-        match tile_mode {
-            tile_view_ops::TileOpenMode::Tab => {
-                for node in ordered {
-                    tile_view_ops::open_or_focus_node_pane_with_mode(
-                        tiles_tree,
-                        graph_app,
-                        node,
-                        tile_view_ops::TileOpenMode::Tab,
-                    );
-                }
-            }
-            tile_view_ops::TileOpenMode::SplitHorizontal => {
-                apply_connected_split_layout(tiles_tree, &ordered);
-            }
+        tile_view_ops::TileOpenMode::SplitHorizontal => {
+            apply_connected_split_layout(tiles_tree, ordered);
         }
     }
 }
