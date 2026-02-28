@@ -1511,12 +1511,16 @@ fn take_valid_pending_open_connected_from(
     graph_app: &mut GraphBrowserApp,
 ) -> Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)> {
     if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
-        && graph_app.workspace.graph.get_node(source).is_some()
+        && is_valid_connected_open_source(graph_app, source)
     {
         return Some((source, open_mode, scope));
     }
 
     None
+}
+
+fn is_valid_connected_open_source(graph_app: &GraphBrowserApp, source: NodeKey) -> bool {
+    graph_app.workspace.graph.get_node(source).is_some()
 }
 
 fn ordered_connected_open_nodes(source: NodeKey, connected: Vec<NodeKey>) -> Vec<NodeKey> {
