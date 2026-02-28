@@ -229,6 +229,25 @@ struct ExecuteUpdateFrameArgs<'a> {
     diagnostics_state: &'a mut diagnostics::DiagnosticsState,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum UpdateFrameStage {
+    Prelude,
+    PreFrameInit,
+    GraphSearchAndKeyboard,
+    ToolbarAndGraphSearchWindow,
+    SemanticAndPostRender,
+    Finalize,
+}
+
+const UPDATE_FRAME_STAGE_SEQUENCE: [UpdateFrameStage; 6] = [
+    UpdateFrameStage::Prelude,
+    UpdateFrameStage::PreFrameInit,
+    UpdateFrameStage::GraphSearchAndKeyboard,
+    UpdateFrameStage::ToolbarAndGraphSearchWindow,
+    UpdateFrameStage::SemanticAndPostRender,
+    UpdateFrameStage::Finalize,
+];
+
 struct WebViewA11yNodePlan {
     node_id: accesskit::NodeId,
     role: egui::accesskit::Role,
@@ -805,6 +824,9 @@ impl Gui {
     }
 
     fn execute_update_frame(args: ExecuteUpdateFrameArgs<'_>) {
+        debug_assert!(
+            Self::is_canonical_update_frame_stage_sequence(&UPDATE_FRAME_STAGE_SEQUENCE)
+        );
         let ExecuteUpdateFrameArgs {
             ctx,
             winit_window,
@@ -954,6 +976,15 @@ impl Gui {
                 frame_intents: &mut frame_intents,
             });
         Self::finalize_update_frame(ctx, graph_app, clipboard, toasts);
+    }
+
+    fn is_canonical_update_frame_stage_sequence(sequence: &[UpdateFrameStage]) -> bool {
+        sequence == UPDATE_FRAME_STAGE_SEQUENCE
+    }
+
+    #[cfg(test)]
+    fn update_frame_stage_sequence() -> &'static [UpdateFrameStage] {
+        &UPDATE_FRAME_STAGE_SEQUENCE
     }
 
     fn run_update_frame_prelude(
