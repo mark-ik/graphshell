@@ -1198,7 +1198,7 @@ impl Gui {
     fn ensure_tiles_tree_root(&mut self) {
         if self.tiles_tree.root().is_none() {
             let graph_tile_id = Self::insert_default_graph_tile(&mut self.tiles_tree);
-            self.tiles_tree.root = Some(graph_tile_id);
+            Self::set_tiles_tree_root(&mut self.tiles_tree, graph_tile_id);
         }
     }
 
@@ -1206,6 +1206,10 @@ impl Gui {
         tiles_tree
             .tiles
             .insert_pane(TileKind::Graph(GraphViewId::default()))
+    }
+
+    fn set_tiles_tree_root(tiles_tree: &mut Tree<TileKind>, root_tile_id: TileId) {
+        tiles_tree.root = Some(root_tile_id);
     }
 
     #[cfg(feature = "diagnostics")]
