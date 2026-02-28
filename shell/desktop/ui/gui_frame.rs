@@ -1197,15 +1197,25 @@ fn handle_pending_frame_save_and_prune(
 }
 
 fn handle_pending_frame_import_actions(graph_app: &mut GraphBrowserApp) {
+    handle_pending_add_node_to_frame(graph_app);
+    handle_pending_add_connected_to_frame(graph_app);
+    handle_pending_add_exact_to_frame(graph_app);
+}
+
+fn handle_pending_add_node_to_frame(graph_app: &mut GraphBrowserApp) {
     if let Some((node_key, frame_name)) = graph_app.take_pending_add_node_to_frame() {
         add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &[node_key]);
     }
+}
 
+fn handle_pending_add_connected_to_frame(graph_app: &mut GraphBrowserApp) {
     if let Some((seed_nodes, frame_name)) = graph_app.take_pending_add_connected_to_frame() {
         let nodes = connected_frame_import_nodes(graph_app, &seed_nodes);
         add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &nodes);
     }
+}
 
+fn handle_pending_add_exact_to_frame(graph_app: &mut GraphBrowserApp) {
     if let Some((nodes, frame_name)) = graph_app.take_pending_add_exact_to_frame() {
         add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &nodes);
     }
