@@ -1357,7 +1357,7 @@ fn handle_pending_named_and_latest_graph_snapshot_restore(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
-    handle_pending_named_graph_snapshot_restore(
+    call_pending_named_graph_snapshot_restore(
         graph_app,
         window,
         tiles_tree,
@@ -1367,6 +1367,48 @@ fn handle_pending_named_and_latest_graph_snapshot_restore(
         focused_node_hint,
     );
 
+    call_pending_latest_graph_snapshot_restore(
+        graph_app,
+        window,
+        tiles_tree,
+        tile_rendering_contexts,
+        tile_favicon_textures,
+        webview_creation_backpressure,
+        focused_node_hint,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn call_pending_named_graph_snapshot_restore(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+) {
+    handle_pending_named_graph_snapshot_restore(
+        graph_app,
+        window,
+        tiles_tree,
+        tile_rendering_contexts,
+        tile_favicon_textures,
+        webview_creation_backpressure,
+        focused_node_hint,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn call_pending_latest_graph_snapshot_restore(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+) {
     handle_pending_latest_graph_snapshot_restore(
         graph_app,
         window,
