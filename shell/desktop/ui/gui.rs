@@ -1398,12 +1398,16 @@ impl Gui {
     }
 
     pub(crate) fn set_zoom_factor(&self, factor: f32) {
-        let clamped = if factor.is_finite() {
+        let clamped = Self::clamp_zoom_factor(factor);
+        self.context.egui_ctx.set_zoom_factor(clamped);
+    }
+
+    fn clamp_zoom_factor(factor: f32) -> f32 {
+        if factor.is_finite() {
             factor.clamp(0.25, 4.0)
         } else {
             1.0
-        };
-        self.context.egui_ctx.set_zoom_factor(clamped);
+        }
     }
 
     #[cfg(feature = "diagnostics")]
