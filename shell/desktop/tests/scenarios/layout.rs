@@ -1,5 +1,8 @@
 use super::super::harness::TestRegistry;
 use crate::shell::desktop::runtime::diagnostics::{CompositorTileSample, HierarchySample};
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_view_ops;
+use egui_tiles::Tile;
 
 #[test]
 fn compositor_frames_capture_sequence_and_active_tile_count_transitions() {
@@ -294,5 +297,38 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
             .iter()
             .any(|line| line.contains(&right.index().to_string())),
         "hierarchy should include right tile node"
+    );
+}
+
+#[test]
+fn pane_close_handoff_restores_graph_pane_focus_deterministically() {
+    let mut harness = TestRegistry::new();
+    let node_a = harness.add_node("https://example.com/a");
+    let node_b = harness.add_node("https://example.com/b");
+    harness.open_node_tab(node_a);
+    harness.open_node_tab(node_b);
+
+    let node_tile_ids: Vec<_> = harness
+        .tiles_tree
+        .tiles
+        .iter()
+        .filter_map(|(tile_id, tile)| match tile {
+            Tile::Pane(TileKind::Node(_)) => Some(*tile_id),
+            _ => None,
+        })
+        .collect();
+
+    assert!(node_tile_ids.len() >= 2, "expected at least two node panes");
+
+    for tile_id in node_tile_ids {
+        harness.tiles_tree.remove_recursively(tile_id);
+    }
+
+    let _ = tile_view_ops::ensure_active_tile(&mut harness.tiles_tree);
+
+    let active_graph = tile_view_ops::active_graph_view_id(&harness.tiles_tree);
+    assert!(
+        active_graph.is_some(),
+        "graph pane should hold focus after node pane closures"
     );
 }

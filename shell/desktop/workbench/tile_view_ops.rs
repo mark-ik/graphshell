@@ -58,7 +58,22 @@ pub(crate) fn active_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<GraphV
 }
 
 pub(crate) fn ensure_active_tile(tiles_tree: &mut Tree<TileKind>) -> bool {
-    if !tiles_tree.active_tiles().is_empty() {
+    let mut has_active_pane = tiles_tree.active_tiles().into_iter().any(|tile_id| {
+        matches!(
+            tiles_tree.tiles.get(tile_id),
+            Some(Tile::Pane(TileKind::Graph(_))) | Some(Tile::Pane(TileKind::Node(_)))
+        )
+    });
+
+    #[cfg(feature = "diagnostics")]
+    {
+        has_active_pane = has_active_pane
+            || tiles_tree.active_tiles().into_iter().any(
+                |tile_id| matches!(tiles_tree.tiles.get(tile_id), Some(Tile::Pane(TileKind::Tool(_)))),
+            );
+    }
+
+    if has_active_pane {
         return false;
     }
 
@@ -500,6 +515,22 @@ mod tests {
         let mut tree = Tree::new("ensure_active_tile", root, tiles);
 
         assert!(!ensure_active_tile(&mut tree));
+        assert_eq!(active_graph_view(&tree), Some(graph_a));
+    }
+
+    #[test]
+    fn ensure_active_tile_recovers_after_active_node_tile_is_removed() {
+        let graph_a = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_a));
+        let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(5).into()));
+        let root = tiles.insert_tab_tile(vec![graph_tile, node_tile]);
+        let mut tree = Tree::new("ensure_active_tile_after_node_close", root, tiles);
+
+        let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_))));
+        tree.remove_recursively(node_tile);
+
+        assert!(ensure_active_tile(&mut tree));
         assert_eq!(active_graph_view(&tree), Some(graph_a));
     }
 }
