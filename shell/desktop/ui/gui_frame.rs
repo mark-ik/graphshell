@@ -1408,9 +1408,7 @@ fn handle_pending_open_connected_from(
     if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
         && graph_app.workspace.graph.get_node(source).is_some()
     {
-        if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-            graph_app.capture_undo_checkpoint(Some(layout_json));
-        }
+        capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
         let connected = connected_targets_for_open(graph_app, source, scope);
         let ordered = ordered_connected_open_nodes(source, connected);
 
@@ -1480,10 +1478,17 @@ fn handle_pending_detach_node_to_split(
     tiles_tree: &mut Tree<TileKind>,
 ) {
     if let Some(node_key) = graph_app.take_pending_detach_node_to_split() {
-        if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-            graph_app.capture_undo_checkpoint(Some(layout_json));
-        }
+        capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
         tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, node_key);
+    }
+}
+
+fn capture_undo_checkpoint_from_tiles_tree(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
+    if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
+        graph_app.capture_undo_checkpoint(Some(layout_json));
     }
 }
 
