@@ -1087,9 +1087,7 @@ fn run_post_render_pending_actions(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
-    handle_pending_frame_snapshot_actions(graph_app, tiles_tree);
-
-    handle_pending_graph_snapshot_actions(
+    let mut pipeline = PendingPostRenderActionPipeline {
         graph_app,
         window,
         tiles_tree,
@@ -1097,14 +1095,47 @@ fn run_post_render_pending_actions(
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
+    };
+    run_pending_post_render_action_pipeline(&mut pipeline);
+}
+
+struct PendingPostRenderActionPipeline<'a> {
+    graph_app: &'a mut GraphBrowserApp,
+    window: &'a EmbedderWindow,
+    tiles_tree: &'a mut Tree<TileKind>,
+    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &'a mut Option<NodeKey>,
+}
+
+fn run_pending_post_render_action_pipeline(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
+    run_pending_frame_snapshot_stage(pipeline);
+    run_pending_graph_snapshot_stage(pipeline);
+    run_pending_workspace_layout_stage(pipeline);
+}
+
+fn run_pending_frame_snapshot_stage(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
+    handle_pending_frame_snapshot_actions(pipeline.graph_app, pipeline.tiles_tree);
+}
+
+fn run_pending_graph_snapshot_stage(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
+    handle_pending_graph_snapshot_actions(
+        pipeline.graph_app,
+        pipeline.window,
+        pipeline.tiles_tree,
+        pipeline.tile_rendering_contexts,
+        pipeline.tile_favicon_textures,
+        pipeline.webview_creation_backpressure,
+        pipeline.focused_node_hint,
     );
+}
 
-    handle_pending_detach_node_to_split(graph_app, tiles_tree);
-
-    handle_pending_open_connected_from(graph_app, tiles_tree);
-
-    handle_pending_history_frame_restore(graph_app, tiles_tree);
-    autosave_session_workspace_layout_if_allowed(graph_app, tiles_tree);
+fn run_pending_workspace_layout_stage(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
+    handle_pending_detach_node_to_split(pipeline.graph_app, pipeline.tiles_tree);
+    handle_pending_open_connected_from(pipeline.graph_app, pipeline.tiles_tree);
+    handle_pending_history_frame_restore(pipeline.graph_app, pipeline.tiles_tree);
+    autosave_session_workspace_layout_if_allowed(pipeline.graph_app, pipeline.tiles_tree);
 }
 
 fn handle_pending_frame_snapshot_actions(
