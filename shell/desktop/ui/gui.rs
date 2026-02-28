@@ -1505,22 +1505,31 @@ impl Gui {
 
     fn convert_webview_accessibility_role(role: accesskit::Role) -> (egui::accesskit::Role, bool) {
         let role_name = Self::webview_accessibility_role_name(role);
-        let mapped = match role_name.as_str() {
-            "Document" => egui::accesskit::Role::Document,
-            "Paragraph" => egui::accesskit::Role::Paragraph,
-            "Label" => egui::accesskit::Role::Label,
-            "Link" => egui::accesskit::Role::Link,
-            "List" => egui::accesskit::Role::List,
-            "ListItem" => egui::accesskit::Role::ListItem,
-            "Heading" => egui::accesskit::Role::Heading,
-            "Image" => egui::accesskit::Role::Image,
-            "Button" => egui::accesskit::Role::Button,
-            "TextInput" => egui::accesskit::Role::TextInput,
-            "StaticText" => egui::accesskit::Role::Label,
-            "Unknown" => egui::accesskit::Role::Unknown,
-            _ => return Self::fallback_webview_accessibility_role(),
-        };
-        (mapped, false)
+        if let Some(mapped) = Self::map_known_webview_accessibility_role_name(role_name.as_str()) {
+            (mapped, false)
+        } else {
+            Self::fallback_webview_accessibility_role()
+        }
+    }
+
+    fn map_known_webview_accessibility_role_name(
+        role_name: &str,
+    ) -> Option<egui::accesskit::Role> {
+        match role_name {
+            "Document" => Some(egui::accesskit::Role::Document),
+            "Paragraph" => Some(egui::accesskit::Role::Paragraph),
+            "Label" => Some(egui::accesskit::Role::Label),
+            "Link" => Some(egui::accesskit::Role::Link),
+            "List" => Some(egui::accesskit::Role::List),
+            "ListItem" => Some(egui::accesskit::Role::ListItem),
+            "Heading" => Some(egui::accesskit::Role::Heading),
+            "Image" => Some(egui::accesskit::Role::Image),
+            "Button" => Some(egui::accesskit::Role::Button),
+            "TextInput" => Some(egui::accesskit::Role::TextInput),
+            "StaticText" => Some(egui::accesskit::Role::Label),
+            "Unknown" => Some(egui::accesskit::Role::Unknown),
+            _ => None,
+        }
     }
 
     fn webview_accessibility_role_name(role: accesskit::Role) -> String {
