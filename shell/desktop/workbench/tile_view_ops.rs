@@ -57,6 +57,27 @@ pub(crate) fn active_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<GraphV
     last_active_graph
 }
 
+pub(crate) fn ensure_active_tile(tiles_tree: &mut Tree<TileKind>) -> bool {
+    if !tiles_tree.active_tiles().is_empty() {
+        return false;
+    }
+
+    if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_)))) {
+        return true;
+    }
+
+    if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_)))) {
+        return true;
+    }
+
+    #[cfg(feature = "diagnostics")]
+    if tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_)))) {
+        return true;
+    }
+
+    false
+}
+
 pub(crate) fn open_or_focus_graph_pane(tiles_tree: &mut Tree<TileKind>, view_id: GraphViewId) {
     open_or_focus_graph_pane_with_mode(tiles_tree, view_id, TileOpenMode::Tab);
 }
@@ -423,5 +444,18 @@ mod tests {
             .tiles
             .iter()
             .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == graph_b)));
+    }
+
+    #[test]
+    fn ensure_active_tile_is_noop_when_tree_already_has_active_tile() {
+        let graph_a = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_a));
+        let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(2).into()));
+        let root = tiles.insert_tab_tile(vec![graph_tile, node_tile]);
+        let mut tree = Tree::new("ensure_active_tile", root, tiles);
+
+        assert!(!ensure_active_tile(&mut tree));
+        assert_eq!(active_graph_view(&tree), Some(graph_a));
     }
 }

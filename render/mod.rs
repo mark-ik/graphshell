@@ -77,15 +77,12 @@ pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
 fn canvas_navigation_settings(
     profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
 ) -> SettingsNavigation {
-    let zoom_enabled = if profile.layout_algorithm.algorithm_id == "graph_layout:tree" {
-        false
-    } else {
-        profile.navigation.zoom_and_pan_enabled
-    };
-
     SettingsNavigation::new()
         .with_fit_to_screen_enabled(profile.navigation.fit_to_screen_enabled)
-        .with_zoom_and_pan_enabled(zoom_enabled)
+        // Keep egui_graphs navigation disabled so camera movement is owned by
+        // `handle_custom_navigation` only. This avoids duplicate pan/zoom paths
+        // fighting each other under active pointer drag.
+        .with_zoom_and_pan_enabled(false)
 }
 
 fn canvas_interaction_settings(

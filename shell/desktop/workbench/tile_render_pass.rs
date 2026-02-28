@@ -241,6 +241,11 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
     }
 
+    let repaired_active_tile = tile_view_ops::ensure_active_tile(tiles_tree);
+    if repaired_active_tile {
+        log::debug!("tile_render_pass: repaired empty active tile selection");
+    }
+
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
 
     let active_tile_rects = tile_compositor::active_node_pane_rects(tiles_tree);

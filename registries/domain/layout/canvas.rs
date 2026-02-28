@@ -221,8 +221,8 @@ impl Default for CanvasRegistry {
                     algorithm_id: "graph_layout:force_directed".to_string(),
                 },
                 navigation: CanvasNavigationPolicy {
-                    fit_to_screen_enabled: false,
-                    zoom_and_pan_enabled: false,
+                    fit_to_screen_enabled: true,
+                    zoom_and_pan_enabled: true,
                     wheel_zoom_requires_ctrl: false,
                     keyboard_zoom_step: default_keyboard_zoom_step(),
                     camera_fit_padding: default_camera_fit_padding(),
@@ -269,7 +269,7 @@ mod tests {
             resolution.profile.layout_algorithm.algorithm_id,
             "graph_layout:force_directed"
         );
-        assert!(!resolution.profile.navigation.zoom_and_pan_enabled);
+        assert!(resolution.profile.navigation.zoom_and_pan_enabled);
         assert!(resolution.profile.performance.viewport_culling_enabled);
     }
 

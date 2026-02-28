@@ -1846,14 +1846,38 @@ impl GraphBrowserApp {
         self.request_camera_command(CameraCommand::Fit);
     }
 
-    pub fn request_camera_command(&mut self, command: CameraCommand) {
-        let target_view = self
+    fn resolve_camera_target_view(&self) -> Option<GraphViewId> {
+        let focused = self
             .workspace
             .focused_view
             .filter(|id| self.workspace.views.contains_key(id));
-        if let Some(target_view) = target_view {
-            self.request_camera_command_for_view(Some(target_view), command);
+        if focused.is_some() {
+            return focused;
         }
+
+        let mut rendered_views = self
+            .workspace
+            .graph_view_frames
+            .keys()
+            .copied()
+            .filter(|id| self.workspace.views.contains_key(id));
+        let rendered_first = rendered_views.next();
+        if let Some(rendered_only) = rendered_first
+            && rendered_views.next().is_none()
+        {
+            return Some(rendered_only);
+        }
+
+        if self.workspace.views.len() == 1 {
+            return self.workspace.views.keys().next().copied();
+        }
+
+        None
+    }
+
+    pub fn request_camera_command(&mut self, command: CameraCommand) {
+        let target_view = self.resolve_camera_target_view();
+        self.request_camera_command_for_view(target_view, command);
     }
 
     pub fn request_camera_command_for_view(
@@ -1881,10 +1905,7 @@ impl GraphBrowserApp {
     }
 
     fn queue_keyboard_zoom_request(&mut self, request: KeyboardZoomRequest) {
-        let Some(target_view) = self
-            .workspace
-            .focused_view
-            .filter(|id| self.workspace.views.contains_key(id))
+        let Some(target_view) = self.resolve_camera_target_view()
         else {
             return;
         };
@@ -5604,6 +5625,24 @@ mod tests {
     }
 
     #[test]
+    fn test_request_fit_to_screen_falls_back_to_single_view_when_unfocused() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "OnlyView"));
+        app.workspace.focused_view = None;
+
+        app.clear_pending_camera_command();
+        assert!(app.pending_camera_command().is_none());
+
+        app.request_fit_to_screen();
+
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+        assert_eq!(app.pending_camera_command_target(), Some(view_id));
+    }
+
+    #[test]
     fn test_zoom_intents_queue_keyboard_zoom_requests() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
@@ -5629,6 +5668,73 @@ mod tests {
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::Reset)
+        );
+    }
+
+    #[test]
+    fn test_zoom_intent_targets_single_view_without_focus() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "OnlyView"));
+        app.workspace.focused_view = None;
+
+        app.apply_intents([GraphIntent::RequestZoomIn]);
+
+        assert_eq!(
+            app.take_pending_keyboard_zoom_request(view_id),
+            Some(KeyboardZoomRequest::In)
+        );
+    }
+
+    #[test]
+    fn test_zoom_intent_without_focus_and_multiple_views_is_noop() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+        app.workspace.focused_view = None;
+
+        app.apply_intents([GraphIntent::RequestZoomIn]);
+
+        assert_eq!(app.take_pending_keyboard_zoom_request(view_a), None);
+        assert_eq!(app.take_pending_keyboard_zoom_request(view_b), None);
+    }
+
+    #[test]
+    fn test_zoom_intent_without_focus_targets_single_rendered_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+        app.workspace.focused_view = None;
+        app.workspace.graph_view_frames.clear();
+        app.workspace.graph_view_frames.insert(
+            view_b,
+            GraphViewFrame {
+                zoom: 1.0,
+                pan_x: 0.0,
+                pan_y: 0.0,
+            },
+        );
+
+        app.apply_intents([GraphIntent::RequestZoomIn]);
+
+        assert_eq!(app.take_pending_keyboard_zoom_request(view_a), None);
+        assert_eq!(
+            app.take_pending_keyboard_zoom_request(view_b),
+            Some(KeyboardZoomRequest::In)
         );
     }
 
