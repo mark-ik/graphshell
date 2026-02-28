@@ -1449,7 +1449,11 @@ impl Gui {
     }
 
     fn node_url_in_workspace_graph(graph: &crate::graph::Graph, key: NodeKey) -> Option<String> {
-        graph.get_node(key).map(|node| node.url.clone())
+        graph.get_node(key).map(|node| Self::clone_node_url(&node.url))
+    }
+
+    fn clone_node_url(url: &str) -> String {
+        url.to_owned()
     }
 
     /// Returns true if a redraw is required after handling the provided event.
