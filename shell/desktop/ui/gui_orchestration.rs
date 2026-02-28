@@ -759,3 +759,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
         frame_intents,
     );
 }
+
+#[cfg(test)]
+#[path = "gui_orchestration_tests.rs"]
+mod gui_orchestration_tests;
