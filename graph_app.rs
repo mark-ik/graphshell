@@ -1952,6 +1952,21 @@ impl GraphBrowserApp {
         Some(pending.request)
     }
 
+    /// Re-queue a keyboard zoom request for a specific view.
+    ///
+    /// Used by render-path deferral when per-view metadata is not yet available
+    /// in the current frame.
+    pub fn restore_pending_keyboard_zoom_request(
+        &mut self,
+        target_view: GraphViewId,
+        request: KeyboardZoomRequest,
+    ) {
+        self.workspace.pending_keyboard_zoom_request = Some(PendingKeyboardZoomCommand {
+            request,
+            target_view,
+        });
+    }
+
     fn queue_keyboard_zoom_request(&mut self, request: KeyboardZoomRequest) {
         let Some(target_view) = self.resolve_camera_target_view()
         else {
@@ -5821,6 +5836,27 @@ mod tests {
 
         app.apply_intents([GraphIntent::RequestZoomIn]);
 
+        assert_eq!(
+            app.take_pending_keyboard_zoom_request(view_id),
+            Some(KeyboardZoomRequest::In)
+        );
+    }
+
+    #[test]
+    fn test_restore_pending_keyboard_zoom_request_requeues_for_retry() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "RetryView"));
+        app.workspace.focused_view = Some(view_id);
+
+        app.apply_intents([GraphIntent::RequestZoomIn]);
+        let consumed = app.take_pending_keyboard_zoom_request(view_id);
+        assert_eq!(consumed, Some(KeyboardZoomRequest::In));
+        assert_eq!(app.take_pending_keyboard_zoom_request(view_id), None);
+
+        app.restore_pending_keyboard_zoom_request(view_id, KeyboardZoomRequest::In);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::In)

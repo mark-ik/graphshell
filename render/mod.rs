@@ -1107,6 +1107,7 @@ fn apply_pending_keyboard_zoom_request(
             channel_id: "runtime.ui.graph.keyboard_zoom_blocked_no_metadata",
             latency_us: 0,
         });
+        app.restore_pending_keyboard_zoom_request(view_id, request);
     }
 
     // Keep zoom in sync on the appropriate camera.
