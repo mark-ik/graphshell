@@ -1433,9 +1433,7 @@ fn handle_pending_open_connected_from(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) {
-    if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
-        && graph_app.workspace.graph.get_node(source).is_some()
-    {
+    if let Some((source, open_mode, scope)) = take_valid_pending_open_connected_from(graph_app) {
         capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
         let connected = connected_targets_for_open(graph_app, source, scope);
         let ordered = ordered_connected_open_nodes(source, connected);
@@ -1443,6 +1441,18 @@ fn handle_pending_open_connected_from(
         apply_connected_open_selection_intents(graph_app, tiles_tree, source, &ordered);
         open_connected_nodes_by_mode(graph_app, tiles_tree, open_mode, &ordered);
     }
+}
+
+fn take_valid_pending_open_connected_from(
+    graph_app: &mut GraphBrowserApp,
+) -> Option<(NodeKey, PendingTileOpenMode, ConnectedOpenScope)> {
+    if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
+        && graph_app.workspace.graph.get_node(source).is_some()
+    {
+        return Some((source, open_mode, scope));
+    }
+
+    None
 }
 
 fn ordered_connected_open_nodes(source: NodeKey, connected: Vec<NodeKey>) -> Vec<NodeKey> {
