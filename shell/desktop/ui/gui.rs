@@ -32,9 +32,9 @@ use super::gui_state::{
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
-use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphViewId, SearchDisplayMode, ToastAnchorPreference,
-};
+use crate::app::{GraphBrowserApp, GraphViewId, SearchDisplayMode, ToastAnchorPreference};
+#[cfg(test)]
+use crate::app::GraphIntent;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::headed_window;
@@ -800,33 +800,6 @@ impl Gui {
     #[cfg(not(feature = "diagnostics"))]
     fn open_or_focus_diagnostics_tool_pane(_tiles_tree: &mut Tree<TileKind>) {}
 
-    /// Intercept workbench-authority intents before they reach `apply_intents()`.
-    ///
-    /// ## Two-authority model
-    ///
-    /// The architecture has two distinct mutation authorities:
-    ///
-    /// - **Graph Reducer** (`apply_intents` in `app.rs`): authoritative for the graph
-    ///   data model, node/edge lifecycle, WAL journal, and traversal history.
-    ///   Always synchronous, always logged, always testable.
-    ///
-    /// - **Workbench Authority** (this function + `tile_view_ops.rs`): authoritative
-    ///   for tile-tree shape mutations (`egui_tiles` splits, tabs, pane open/close/
-    ///   focus). The tile tree is a layout construct — not graph state — and must
-    ///   not flow through the graph reducer or the WAL.
-    ///
-    /// Intents tagged as workbench-authority (`OpenToolPane`, `SplitPane`,
-    /// `SetPaneView`, `OpenNodeInPane`, tool-surface toggles/settings URLs) must
-    /// be drained here, before `apply_intents` is called. Any that leak through
-    /// will produce a `log::warn!` in the reducer.
-    fn handle_tool_pane_intents(
-        graph_app: &mut GraphBrowserApp,
-        tiles_tree: &mut Tree<TileKind>,
-        frame_intents: &mut Vec<GraphIntent>,
-    ) {
-        gui_orchestration::handle_tool_pane_intents(graph_app, tiles_tree, frame_intents);
-    }
-
     fn has_active_node_pane(&self) -> bool {
         self.tiles_tree.active_tiles().into_iter().any(|tile_id| {
             matches!(
@@ -1434,7 +1407,7 @@ mod tool_pane_routing_tests {
 
 #[cfg(test)]
 mod graph_split_intent_tests {
-    use super::Gui;
+    use super::gui_orchestration;
     use crate::shell::desktop::ui::gui_state::{
         GuiRuntimeState, apply_graph_surface_focus_state, apply_node_focus_state,
     };
@@ -1491,7 +1464,7 @@ mod graph_split_intent_tests {
             direction: SplitDirection::Horizontal,
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -1531,7 +1504,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/history".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -1550,7 +1523,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/physics".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -1569,7 +1542,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/persistence".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -1588,7 +1561,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/sync".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -1607,7 +1580,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(intents.is_empty());
         assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 1);
@@ -1633,7 +1606,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/sync".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(intents.is_empty());
         assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 1);
@@ -1655,7 +1628,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/history".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(intents.is_empty());
         assert_eq!(tool_pane_count(&tree, ToolPaneState::HistoryManager), 1);
@@ -1674,14 +1647,14 @@ mod graph_split_intent_tests {
         let mut open_intents = vec![GraphIntent::OpenSettingsUrl {
             url: "graphshell://settings/general".to_string(),
         }];
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
         assert!(open_intents.is_empty());
 
         let mut close_intents = vec![GraphIntent::CloseToolPane {
             kind: ToolPaneState::Settings,
             restore_previous_focus: true,
         }];
-        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+        gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
 
         assert!(close_intents.is_empty());
         assert!(active_graph_count(&tree) >= 1);

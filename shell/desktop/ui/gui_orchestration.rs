@@ -164,7 +164,7 @@ pub(crate) fn active_graph_search_match(
     matches.get(idx).copied()
 }
 
-pub(crate) fn refresh_graph_search_matches(
+fn refresh_graph_search_matches(
     graph_app: &GraphBrowserApp,
     query: &str,
     matches: &mut Vec<NodeKey>,
@@ -200,14 +200,14 @@ fn step_graph_search_active_match(
     *active_index = Some(next);
 }
 
-pub(crate) fn open_mode_from_toolbar(mode: ToolbarOpenMode) -> TileOpenMode {
+fn open_mode_from_toolbar(mode: ToolbarOpenMode) -> TileOpenMode {
     match mode {
         ToolbarOpenMode::Tab => TileOpenMode::Tab,
         ToolbarOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
     }
 }
 
-pub(crate) fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode {
+fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode {
     match mode {
         PendingTileOpenMode::Tab => TileOpenMode::Tab,
         PendingTileOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
@@ -475,7 +475,7 @@ pub(crate) fn handle_pending_open_node_after_intents(
     }
 }
 
-pub(crate) fn active_tool_surface_return_target(
+fn active_tool_surface_return_target(
     tiles_tree: &Tree<TileKind>,
 ) -> Option<ToolSurfaceReturnTarget> {
     for tile_id in tiles_tree.active_tiles() {
@@ -496,7 +496,7 @@ pub(crate) fn active_tool_surface_return_target(
     None
 }
 
-pub(crate) fn focus_tool_surface_return_target(
+fn focus_tool_surface_return_target(
     tiles_tree: &mut Tree<TileKind>,
     target: ToolSurfaceReturnTarget,
 ) -> bool {
