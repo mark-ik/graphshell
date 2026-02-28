@@ -1251,7 +1251,12 @@ impl Gui {
         tiles_tree: &Tree<TileKind>,
         tile_id: TileId,
     ) -> Option<crate::graph::NodeKey> {
-        match tiles_tree.tiles.get(tile_id) {
+        let tile = tiles_tree.tiles.get(tile_id);
+        Self::node_key_from_node_pane_tile(tile)
+    }
+
+    fn node_key_from_node_pane_tile(tile: Option<&Tile<TileKind>>) -> Option<crate::graph::NodeKey> {
+        match tile {
             Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
             _ => None,
         }
