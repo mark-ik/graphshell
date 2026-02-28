@@ -1363,8 +1363,8 @@ impl Gui {
             graph_app,
             window,
         );
-        let status_text_changed = webview_status_sync::update_status_text(
-            &mut toolbar_state.status_text,
+        let status_text_changed = Self::sync_toolbar_status_text(
+            toolbar_state,
             focused_node_key,
             graph_app,
             window,
@@ -1389,6 +1389,20 @@ impl Gui {
         webview_status_sync::update_load_status(
             &mut toolbar_state.load_status,
             &mut toolbar_state.location_dirty,
+            focused_node_key,
+            graph_app,
+            window,
+        )
+    }
+
+    fn sync_toolbar_status_text(
+        toolbar_state: &mut ToolbarState,
+        focused_node_key: Option<NodeKey>,
+        graph_app: &GraphBrowserApp,
+        window: &EmbedderWindow,
+    ) -> bool {
+        webview_status_sync::update_status_text(
+            &mut toolbar_state.status_text,
             focused_node_key,
             graph_app,
             window,
