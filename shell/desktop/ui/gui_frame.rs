@@ -1109,10 +1109,34 @@ struct PendingPostRenderActionPipeline<'a> {
     focused_node_hint: &'a mut Option<NodeKey>,
 }
 
+#[derive(Copy, Clone)]
+enum PendingPostRenderStage {
+    FrameSnapshot,
+    GraphSnapshot,
+    WorkspaceLayout,
+}
+
+const PENDING_POST_RENDER_STAGE_SEQUENCE: [PendingPostRenderStage; 3] = [
+    PendingPostRenderStage::FrameSnapshot,
+    PendingPostRenderStage::GraphSnapshot,
+    PendingPostRenderStage::WorkspaceLayout,
+];
+
 fn run_pending_post_render_action_pipeline(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
-    run_pending_frame_snapshot_stage(pipeline);
-    run_pending_graph_snapshot_stage(pipeline);
-    run_pending_workspace_layout_stage(pipeline);
+    for stage in PENDING_POST_RENDER_STAGE_SEQUENCE {
+        run_pending_post_render_stage(pipeline, stage);
+    }
+}
+
+fn run_pending_post_render_stage(
+    pipeline: &mut PendingPostRenderActionPipeline<'_>,
+    stage: PendingPostRenderStage,
+) {
+    match stage {
+        PendingPostRenderStage::FrameSnapshot => run_pending_frame_snapshot_stage(pipeline),
+        PendingPostRenderStage::GraphSnapshot => run_pending_graph_snapshot_stage(pipeline),
+        PendingPostRenderStage::WorkspaceLayout => run_pending_workspace_layout_stage(pipeline),
+    }
 }
 
 fn run_pending_frame_snapshot_stage(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
