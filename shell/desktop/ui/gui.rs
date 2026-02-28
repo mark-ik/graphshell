@@ -1607,14 +1607,21 @@ impl Gui {
         }
 
         for (webview_id, tree_update) in pending.drain() {
-            let plan = Self::build_webview_a11y_graft_plan(webview_id, &tree_update);
-            let anchor_id = Self::webview_accessibility_anchor_id(webview_id);
-
-            Self::inject_webview_a11y_plan_nodes(ctx, webview_id, &plan.nodes);
-
-            Self::inject_webview_a11y_anchor_node(ctx, anchor_id, &plan.anchor_label);
-            Self::warn_webview_a11y_plan_degradation(webview_id, &plan);
+            Self::inject_single_webview_a11y_update(ctx, webview_id, &tree_update);
         }
+    }
+
+    fn inject_single_webview_a11y_update(
+        ctx: &egui::Context,
+        webview_id: WebViewId,
+        tree_update: &accesskit::TreeUpdate,
+    ) {
+        let plan = Self::build_webview_a11y_graft_plan(webview_id, tree_update);
+        let anchor_id = Self::webview_accessibility_anchor_id(webview_id);
+
+        Self::inject_webview_a11y_plan_nodes(ctx, webview_id, &plan.nodes);
+        Self::inject_webview_a11y_anchor_node(ctx, anchor_id, &plan.anchor_label);
+        Self::warn_webview_a11y_plan_degradation(webview_id, &plan);
     }
 
     fn warn_webview_a11y_plan_degradation(webview_id: WebViewId, plan: &WebViewA11yGraftPlan) {
