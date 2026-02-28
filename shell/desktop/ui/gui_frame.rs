@@ -1639,11 +1639,8 @@ fn restore_graph_snapshot_and_reset_workspace(
     restore: impl FnOnce(&mut GraphBrowserApp) -> Result<(), String>,
     on_error: impl FnOnce(&str),
 ) {
-    if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-        graph_app.capture_undo_checkpoint(Some(layout_json));
-    }
-    let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
-    apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
+    capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
+    close_all_webviews_and_apply_intents(graph_app, window, tiles_tree);
     match restore(graph_app) {
         Ok(()) => {
             reset_graph_workspace_after_snapshot_restore(
@@ -1656,6 +1653,15 @@ fn restore_graph_snapshot_and_reset_workspace(
         }
         Err(e) => on_error(e.as_str()),
     }
+}
+
+fn close_all_webviews_and_apply_intents(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+) {
+    let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
+    apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
 }
 
 fn reset_graph_workspace_after_snapshot_restore(
