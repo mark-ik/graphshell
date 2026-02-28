@@ -1612,10 +1612,7 @@ impl Gui {
 
             Self::inject_webview_a11y_plan_nodes(ctx, webview_id, &plan.nodes);
 
-            ctx.accesskit_node_builder(anchor_id, |builder| {
-                builder.set_role(egui::accesskit::Role::Document);
-                builder.set_label(plan.anchor_label.clone());
-            });
+            Self::inject_webview_a11y_anchor_node(ctx, anchor_id, &plan.anchor_label);
 
             if plan.nodes.is_empty() {
                 warn!(
@@ -1643,6 +1640,17 @@ impl Gui {
                 );
             }
         }
+    }
+
+    fn inject_webview_a11y_anchor_node(
+        ctx: &egui::Context,
+        anchor_id: egui::Id,
+        anchor_label: &str,
+    ) {
+        ctx.accesskit_node_builder(anchor_id, |builder| {
+            builder.set_role(egui::accesskit::Role::Document);
+            builder.set_label(anchor_label.to_owned());
+        });
     }
 
     fn inject_webview_a11y_plan_nodes(
