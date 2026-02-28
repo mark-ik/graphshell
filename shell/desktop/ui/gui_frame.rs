@@ -1189,12 +1189,31 @@ fn handle_pending_frame_save_layout_actions(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) {
+    handle_pending_save_frame_snapshot(graph_app, tiles_tree);
+
+    if let Some(name) = graph_app.take_pending_save_frame_snapshot_named() {
+        match persistence_ops::save_named_frame_bundle(graph_app, &name, tiles_tree) {
+            Ok(()) => refresh_frame_membership_cache(graph_app),
+            Err(e) => warn!("Failed to serialize tile layout for frame snapshot '{name}': {e}"),
+        }
+    }
+}
+
+fn handle_pending_save_frame_snapshot(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
     if graph_app.take_pending_save_frame_snapshot() {
         if let Some(layout_json) = serialize_tiles_tree_layout_json(tiles_tree, "frame snapshot") {
             graph_app.save_tile_layout_json(&layout_json);
         }
     }
+}
 
+fn handle_pending_save_frame_snapshot_named(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
     if let Some(name) = graph_app.take_pending_save_frame_snapshot_named() {
         match persistence_ops::save_named_frame_bundle(graph_app, &name, tiles_tree) {
             Ok(()) => refresh_frame_membership_cache(graph_app),
