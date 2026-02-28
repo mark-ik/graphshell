@@ -55,7 +55,7 @@ use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
-use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode, ToggleTileViewArgs};
+use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 
 pub(crate) struct GuiUpdateInput<'a> {
     pub(crate) state: &'a RunningAppState,
@@ -358,20 +358,6 @@ impl Gui {
         persistence_ops::parse_data_dir_input(raw)
     }
 
-    fn reset_runtime_webview_state(
-        tiles_tree: &mut Tree<TileKind>,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    ) {
-        tile_runtime::reset_runtime_webview_state(
-            tiles_tree,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            favicon_textures,
-        );
-    }
-
     pub(crate) fn is_graph_view(&self) -> bool {
         !self.has_active_node_pane()
     }
@@ -666,54 +652,21 @@ impl Gui {
                 Self::active_node_pane_node(tiles_tree).is_some(),
             );
 
-            gui_frame::handle_keyboard_phase(
-                gui_frame::KeyboardPhaseArgs {
-                    ctx,
-                    graph_app,
-                    window,
-                    tiles_tree,
-                    tile_rendering_contexts,
-                    tile_favicon_textures,
-                    favicon_textures,
-                    app_state,
-                    rendering_context,
-                    window_rendering_context,
-                    responsive_webviews: &pre_frame.responsive_webviews,
-                    webview_creation_backpressure,
-                    suppress_toggle_view: graph_search_output.suppress_toggle_view,
-                },
+            gui_orchestration::run_keyboard_phase(
+                ctx,
+                graph_app,
+                window,
+                tiles_tree,
+                tile_rendering_contexts,
+                tile_favicon_textures,
+                favicon_textures,
+                app_state,
+                rendering_context,
+                window_rendering_context,
+                &pre_frame.responsive_webviews,
+                webview_creation_backpressure,
+                graph_search_output.suppress_toggle_view,
                 &mut frame_intents,
-                |tiles_tree,
-                 graph_app,
-                 window,
-                 app_state,
-                 rendering_context,
-                 window_rendering_context,
-                 tile_rendering_contexts,
-                 responsive_webviews,
-                 webview_creation_backpressure,
-                 frame_intents| {
-                    Self::toggle_tile_view(
-                        tiles_tree,
-                        graph_app,
-                        window,
-                        app_state,
-                        rendering_context,
-                        window_rendering_context,
-                        tile_rendering_contexts,
-                        responsive_webviews,
-                        webview_creation_backpressure,
-                        frame_intents,
-                    );
-                },
-                |tiles_tree, tile_rendering_contexts, tile_favicon_textures, favicon_textures| {
-                    Self::reset_runtime_webview_state(
-                        tiles_tree,
-                        tile_rendering_contexts,
-                        tile_favicon_textures,
-                        favicon_textures,
-                    );
-                },
             );
 
             let (toolbar_visible, is_graph_view) = gui_orchestration::run_toolbar_phase(
@@ -858,32 +811,6 @@ impl Gui {
                 .insert_pane(TileKind::Graph(GraphViewId::default()));
             self.tiles_tree.root = Some(graph_tile_id);
         }
-    }
-
-    fn toggle_tile_view(
-        tiles_tree: &mut Tree<TileKind>,
-        graph_app: &mut GraphBrowserApp,
-        window: &EmbedderWindow,
-        app_state: &Option<Rc<RunningAppState>>,
-        base_rendering_context: &Rc<OffscreenRenderingContext>,
-        window_rendering_context: &Rc<WindowRenderingContext>,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        responsive_webviews: &HashSet<WebViewId>,
-        webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-        lifecycle_intents: &mut Vec<GraphIntent>,
-    ) {
-        tile_view_ops::toggle_tile_view(ToggleTileViewArgs {
-            tiles_tree,
-            graph_app,
-            window,
-            app_state,
-            base_rendering_context,
-            window_rendering_context,
-            tile_rendering_contexts,
-            responsive_webviews,
-            webview_creation_backpressure,
-            lifecycle_intents,
-        });
     }
 
     #[cfg(feature = "diagnostics")]

@@ -182,6 +182,76 @@ pub(crate) fn open_mode_from_pending(mode: PendingTileOpenMode) -> TileOpenMode 
 }
 
 #[allow(clippy::too_many_arguments)]
+pub(crate) fn run_keyboard_phase(
+    ctx: &egui::Context,
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    app_state: &Option<Rc<RunningAppState>>,
+    rendering_context: &Rc<OffscreenRenderingContext>,
+    window_rendering_context: &Rc<WindowRenderingContext>,
+    responsive_webviews: &HashSet<WebViewId>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    suppress_toggle_view: bool,
+    frame_intents: &mut Vec<GraphIntent>,
+) {
+    gui_frame::handle_keyboard_phase(
+        gui_frame::KeyboardPhaseArgs {
+            ctx,
+            graph_app,
+            window,
+            tiles_tree,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            favicon_textures,
+            app_state,
+            rendering_context,
+            window_rendering_context,
+            responsive_webviews,
+            webview_creation_backpressure,
+            suppress_toggle_view,
+        },
+        frame_intents,
+        |tiles_tree,
+         graph_app,
+         window,
+         app_state,
+         rendering_context,
+         window_rendering_context,
+         tile_rendering_contexts,
+         responsive_webviews,
+         webview_creation_backpressure,
+         frame_intents| {
+            crate::shell::desktop::workbench::tile_view_ops::toggle_tile_view(
+                ToggleTileViewArgs {
+                    tiles_tree,
+                    graph_app,
+                    window,
+                    app_state,
+                    base_rendering_context: rendering_context,
+                    window_rendering_context,
+                    tile_rendering_contexts,
+                    responsive_webviews,
+                    webview_creation_backpressure,
+                    lifecycle_intents: frame_intents,
+                },
+            );
+        },
+        |tiles_tree, tile_rendering_contexts, tile_favicon_textures, favicon_textures| {
+            crate::shell::desktop::workbench::tile_runtime::reset_runtime_webview_state(
+                tiles_tree,
+                tile_rendering_contexts,
+                tile_favicon_textures,
+                favicon_textures,
+            );
+        },
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_toolbar_phase(
     ctx: &egui::Context,
     winit_window: &Window,
