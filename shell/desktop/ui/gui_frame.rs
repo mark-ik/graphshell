@@ -1197,6 +1197,19 @@ fn handle_pending_graph_snapshot_actions(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
+    handle_pending_graph_snapshot_save_delete(graph_app);
+    handle_pending_graph_snapshot_restore(
+        graph_app,
+        window,
+        tiles_tree,
+        tile_rendering_contexts,
+        tile_favicon_textures,
+        webview_creation_backpressure,
+        focused_node_hint,
+    );
+}
+
+fn handle_pending_graph_snapshot_save_delete(graph_app: &mut GraphBrowserApp) {
     if let Some(name) = graph_app.take_pending_save_graph_snapshot_named()
         && let Err(e) = graph_app.save_named_graph_snapshot(&name)
     {
@@ -1208,7 +1221,17 @@ fn handle_pending_graph_snapshot_actions(
     {
         warn!("Failed to delete named graph snapshot '{name}': {e}");
     }
+}
 
+fn handle_pending_graph_snapshot_restore(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+) {
     if let Some(name) = graph_app.take_pending_restore_graph_snapshot_named() {
         restore_graph_snapshot_and_reset_workspace(
             graph_app,
