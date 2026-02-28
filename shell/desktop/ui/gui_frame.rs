@@ -1155,12 +1155,7 @@ fn handle_pending_named_frame_snapshot_restore_request(
         let open_request = graph_app.take_pending_frame_restore_open_request();
         if graph_app.should_prompt_unsaved_workspace_save() {
             warn_unsaved_changes_before_frame_switch(graph_app, &name);
-            graph_app.request_unsaved_workspace_prompt(
-                UnsavedFramePromptRequest::FrameSwitch {
-                    name,
-                    focus_node: open_request.map(|request| request.key),
-                },
-            );
+            request_unsaved_workspace_frame_switch_prompt(graph_app, name, open_request);
         } else {
             restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
         }
@@ -1171,6 +1166,17 @@ fn warn_unsaved_changes_before_frame_switch(graph_app: &mut GraphBrowserApp, nam
     if graph_app.consume_unsaved_workspace_prompt_warning() {
         warn!("Current frame has unsaved graph changes before switching to '{name}'");
     }
+}
+
+fn request_unsaved_workspace_frame_switch_prompt(
+    graph_app: &mut GraphBrowserApp,
+    name: String,
+    open_request: Option<PendingNodeOpenRequest>,
+) {
+    graph_app.request_unsaved_workspace_prompt(UnsavedFramePromptRequest::FrameSwitch {
+        name,
+        focus_node: open_request.map(|request| request.key),
+    });
 }
 
 fn handle_pending_frame_save_prune_and_import(
