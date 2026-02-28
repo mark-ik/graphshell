@@ -24,7 +24,6 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
-use super::graph_search_ui::{self, GraphSearchUiArgs};
 use super::gui_orchestration;
 use super::gui_frame;
 use super::gui_state::{
@@ -207,10 +206,6 @@ impl Gui {
             ToastAnchorPreference::BottomRight => egui_notify::Anchor::BottomRight,
             ToastAnchorPreference::BottomLeft => egui_notify::Anchor::BottomLeft,
         }
-    }
-
-    fn default_open_mode_for_layout(_tiles_tree: &Tree<TileKind>) -> TileOpenMode {
-        TileOpenMode::Tab
     }
 
     pub(crate) fn new(
@@ -696,66 +691,34 @@ impl Gui {
                 &mut open_node_tile_after_intents,
             );
 
-            if toolbar_visible && *graph_search_open && is_graph_view {
-                graph_search_ui::render_graph_search_window(
-                    GraphSearchUiArgs {
-                        ctx,
-                        graph_app,
-                        graph_search_query,
-                        graph_search_filter_mode,
-                        graph_search_matches,
-                        graph_search_active_match_index,
-                        focus_graph_search_field: &mut graph_search_output.focus_graph_search_field,
-                    },
-                    |graph_app, query, matches, active_index| {
-                        gui_orchestration::refresh_graph_search_matches(
-                            graph_app,
-                            query,
-                            matches,
-                            active_index,
-                        );
-                    },
-                );
-            }
+            gui_orchestration::run_graph_search_window_phase(
+                ctx,
+                graph_app,
+                toolbar_visible,
+                *graph_search_open,
+                is_graph_view,
+                graph_search_query,
+                graph_search_filter_mode,
+                graph_search_matches,
+                graph_search_active_match_index,
+                &mut graph_search_output,
+            );
 
-            // Workbench-layer pane intents (P6) mutate tile state directly and should
-            // not flow through GraphBrowserApp's semantic reducer.
-            Self::handle_tool_pane_intents(graph_app, tiles_tree, &mut frame_intents);
-
-            // Phase 1: apply semantic/UI intents before lifecycle reconciliation.
-            gui_frame::apply_intents_if_any(graph_app, tiles_tree, &mut frame_intents);
-            gui_orchestration::handle_pending_open_node_after_intents(
+            // Phase 1: semantic intent authority and lifecycle reconciliation.
+            gui_orchestration::run_semantic_lifecycle_phase(
                 graph_app,
                 tiles_tree,
-                &mut open_node_tile_after_intents,
-                &mut frame_intents,
-            );
-            gui_frame::open_pending_child_webviews_for_tiles(
-                graph_app,
+                window,
+                app_state,
+                rendering_context,
+                window_rendering_context,
+                tile_rendering_contexts,
+                tile_favicon_textures,
+                favicon_textures,
+                &pre_frame.responsive_webviews,
                 pre_frame.pending_open_child_webviews,
-                |node_key| {
-                    tile_view_ops::open_or_focus_node_pane_with_mode(
-                        tiles_tree,
-                        graph_app,
-                        node_key,
-                        Self::default_open_mode_for_layout(tiles_tree),
-                    );
-                },
-            );
-            gui_frame::run_lifecycle_reconcile_and_apply(
-                gui_frame::LifecycleReconcilePhaseArgs {
-                    graph_app,
-                    tiles_tree,
-                    window,
-                    app_state,
-                    rendering_context,
-                    window_rendering_context,
-                    tile_rendering_contexts,
-                    tile_favicon_textures,
-                    favicon_textures,
-                    responsive_webviews: &pre_frame.responsive_webviews,
-                    webview_creation_backpressure,
-                },
+                webview_creation_backpressure,
+                &mut open_node_tile_after_intents,
                 &mut frame_intents,
             );
 
@@ -837,55 +800,6 @@ impl Gui {
     #[cfg(not(feature = "diagnostics"))]
     fn open_or_focus_diagnostics_tool_pane(_tiles_tree: &mut Tree<TileKind>) {}
 
-    fn active_tool_surface_return_target(
-        tiles_tree: &Tree<TileKind>,
-    ) -> Option<crate::app::ToolSurfaceReturnTarget> {
-        for tile_id in tiles_tree.active_tiles() {
-            match tiles_tree.tiles.get(tile_id) {
-                Some(Tile::Pane(TileKind::Graph(view_id))) => {
-                    return Some(crate::app::ToolSurfaceReturnTarget::Graph(*view_id));
-                }
-                Some(Tile::Pane(TileKind::Node(state))) => {
-                    return Some(crate::app::ToolSurfaceReturnTarget::Node(state.node));
-                }
-                #[cfg(feature = "diagnostics")]
-                Some(Tile::Pane(TileKind::Tool(kind))) => {
-                    return Some(crate::app::ToolSurfaceReturnTarget::Tool(kind.clone()));
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    fn focus_tool_surface_return_target(
-        tiles_tree: &mut Tree<TileKind>,
-        target: crate::app::ToolSurfaceReturnTarget,
-    ) -> bool {
-        match target {
-            crate::app::ToolSurfaceReturnTarget::Graph(view_id) => tiles_tree
-                .make_active(|_, tile| {
-                    matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == view_id)
-                }),
-            crate::app::ToolSurfaceReturnTarget::Node(node_key) => tiles_tree
-                .make_active(|_, tile| {
-                    matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
-                }),
-            crate::app::ToolSurfaceReturnTarget::Tool(kind) => {
-                #[cfg(feature = "diagnostics")]
-                {
-                    tiles_tree.make_active(|_, tile| {
-                        matches!(tile, Tile::Pane(TileKind::Tool(existing)) if *existing == kind)
-                    })
-                }
-                #[cfg(not(feature = "diagnostics"))]
-                {
-                    false
-                }
-            }
-        }
-    }
-
     /// Intercept workbench-authority intents before they reach `apply_intents()`.
     ///
     /// ## Two-authority model
@@ -910,155 +824,7 @@ impl Gui {
         tiles_tree: &mut Tree<TileKind>,
         frame_intents: &mut Vec<GraphIntent>,
     ) {
-        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-
-        let mut remaining = Vec::with_capacity(frame_intents.len());
-        for intent in frame_intents.drain(..) {
-            match intent {
-                GraphIntent::OpenToolPane { kind } => {
-                    if matches!(
-                        kind,
-                        ToolPaneState::Settings | ToolPaneState::HistoryManager
-                    ) {
-                        let active_is_control_surface = matches!(
-                            Self::active_tool_surface_return_target(tiles_tree),
-                            Some(crate::app::ToolSurfaceReturnTarget::Tool(
-                                ToolPaneState::Settings
-                            ))
-                                | Some(crate::app::ToolSurfaceReturnTarget::Tool(
-                                    ToolPaneState::HistoryManager
-                                ))
-                        );
-                        if !active_is_control_surface {
-                            graph_app.set_pending_tool_surface_return_target(
-                                Self::active_tool_surface_return_target(tiles_tree),
-                            );
-                        }
-                    }
-                    Self::open_or_focus_tool_pane(tiles_tree, kind);
-                }
-                GraphIntent::CloseToolPane {
-                    kind,
-                    restore_previous_focus,
-                } => {
-                    #[cfg(feature = "diagnostics")]
-                    {
-                        let closed = tile_view_ops::close_tool_pane(tiles_tree, kind.clone());
-                        if closed && restore_previous_focus {
-                            if let Some(target) = graph_app.take_pending_tool_surface_return_target()
-                            {
-                                let restored =
-                                    Self::focus_tool_surface_return_target(tiles_tree, target);
-                                if !restored {
-                                    let _ = tile_view_ops::ensure_active_tile(tiles_tree);
-                                }
-                            } else {
-                                let _ = tile_view_ops::ensure_active_tile(tiles_tree);
-                            }
-                        }
-                    }
-                }
-                GraphIntent::OpenSettingsUrl { url } => {
-                    match GraphBrowserApp::resolve_settings_route(&url) {
-                        Some(crate::app::SettingsRouteTarget::History) => {
-                            let active_is_control_surface = matches!(
-                                Self::active_tool_surface_return_target(tiles_tree),
-                                Some(crate::app::ToolSurfaceReturnTarget::Tool(
-                                    ToolPaneState::Settings
-                                ))
-                                    | Some(crate::app::ToolSurfaceReturnTarget::Tool(
-                                        ToolPaneState::HistoryManager
-                                    ))
-                            );
-                            if !active_is_control_surface {
-                                graph_app.set_pending_tool_surface_return_target(
-                                    Self::active_tool_surface_return_target(tiles_tree),
-                                );
-                            }
-                            Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::HistoryManager);
-                        }
-                        Some(crate::app::SettingsRouteTarget::Settings(page)) => {
-                            let active_is_control_surface = matches!(
-                                Self::active_tool_surface_return_target(tiles_tree),
-                                Some(crate::app::ToolSurfaceReturnTarget::Tool(
-                                    ToolPaneState::Settings
-                                ))
-                                    | Some(crate::app::ToolSurfaceReturnTarget::Tool(
-                                        ToolPaneState::HistoryManager
-                                    ))
-                            );
-                            if !active_is_control_surface {
-                                graph_app.set_pending_tool_surface_return_target(
-                                    Self::active_tool_surface_return_target(tiles_tree),
-                                );
-                            }
-                            graph_app.workspace.settings_tool_page = page;
-                            Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
-                        }
-                        None => {
-                            remaining.push(GraphIntent::OpenSettingsUrl { url });
-                        }
-                    }
-                }
-                GraphIntent::OpenNodeInPane { node, pane } => {
-                    log::debug!(
-                        "workbench intent OpenNodeInPane ignored pane target {}; opening node pane directly",
-                        pane
-                    );
-                    tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node);
-                }
-                GraphIntent::SetPaneView { pane, view } => {
-                    log::debug!(
-                        "workbench intent SetPaneView ignored pane target {}; applying view payload",
-                        pane
-                    );
-                    match view {
-                        crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(kind) => {
-                            Self::open_or_focus_tool_pane(tiles_tree, kind);
-                        }
-                        crate::shell::desktop::workbench::pane_model::PaneViewState::Node(
-                            state,
-                        ) => {
-                            tile_view_ops::open_or_focus_node_pane(
-                                tiles_tree,
-                                graph_app,
-                                state.node,
-                            );
-                        }
-                        crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(
-                            graph_ref,
-                        ) => {
-                            tile_view_ops::open_or_focus_graph_pane(
-                                tiles_tree,
-                                graph_ref.graph_view_id,
-                            );
-                        }
-                    }
-                }
-                GraphIntent::SplitPane {
-                    source_pane,
-                    direction,
-                } => {
-                    if matches!(
-                        direction,
-                        crate::shell::desktop::workbench::pane_model::SplitDirection::Vertical
-                    ) {
-                        log::debug!(
-                            "workbench intent SplitPane({source_pane}, {:?}) currently maps to horizontal split in tile_view_ops",
-                            direction
-                        );
-                    }
-                    let new_view_id = GraphViewId::new();
-                    tile_view_ops::open_or_focus_graph_pane_with_mode(
-                        tiles_tree,
-                        new_view_id,
-                        TileOpenMode::SplitHorizontal,
-                    );
-                }
-                other => remaining.push(other),
-            }
-        }
-        *frame_intents = remaining;
+        gui_orchestration::handle_tool_pane_intents(graph_app, tiles_tree, frame_intents);
     }
 
     fn has_active_node_pane(&self) -> bool {
