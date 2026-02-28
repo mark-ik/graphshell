@@ -11,7 +11,7 @@ use std::time::Duration;
 use arboard::Clipboard;
 use egui::pos2;
 use egui_glow::EguiGlow;
-use egui_tiles::{Tile, Tiles, Tree};
+use egui_tiles::{Tile, TileId, Tiles, Tree};
 use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
 use log::warn;
@@ -1370,17 +1370,20 @@ impl Gui {
     }
 
     fn selected_node_url_for_toolbar(&self) -> Option<String> {
-        self.selected_node_key_for_toolbar().and_then(|key| {
-            self.graph_app
-                .workspace
-                .graph
-                .get_node(key)
-                .map(|node| node.url.clone())
-        })
+        self.selected_node_key_for_toolbar()
+            .and_then(|key| Self::selected_node_url(&self.graph_app, key))
     }
 
     fn selected_node_key_for_toolbar(&self) -> Option<NodeKey> {
         self.graph_app.get_single_selected_node()
+    }
+
+    fn selected_node_url(graph_app: &GraphBrowserApp, key: NodeKey) -> Option<String> {
+        graph_app
+            .workspace
+            .graph
+            .get_node(key)
+            .map(|node| node.url.clone())
     }
 
     /// Returns true if a redraw is required after handling the provided event.
