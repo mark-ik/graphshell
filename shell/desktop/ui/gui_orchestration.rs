@@ -444,12 +444,7 @@ fn handle_pending_clipboard_copy_request(
         return;
     };
 
-    if !ensure_clipboard_initialized(clipboard) {
-        emit_clipboard_copy_failure("clipboard unavailable".len());
-        toasts.error("Clipboard unavailable");
-        return;
-    }
-
+    ensure_clipboard_initialized(clipboard);
     let Some(cb) = clipboard.as_mut() else {
         emit_clipboard_copy_failure("clipboard unavailable".len());
         toasts.error("Clipboard unavailable");
@@ -777,10 +772,7 @@ fn handle_open_tool_pane_intent(
     if matches!(kind, ToolPaneState::Settings | ToolPaneState::HistoryManager) {
         maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
     }
-    #[cfg(feature = "diagnostics")]
-    {
-        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(tiles_tree, kind);
-    }
+    open_or_focus_tool_pane_if_available(tiles_tree, kind);
 }
 
 fn handle_close_tool_pane_intent(
@@ -820,33 +812,38 @@ fn handle_open_settings_url_intent(
     tiles_tree: &mut Tree<TileKind>,
     url: String,
 ) -> Option<GraphIntent> {
-    match GraphBrowserApp::resolve_settings_route(&url) {
-        Some(crate::app::SettingsRouteTarget::History) => {
-            maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
-            #[cfg(feature = "diagnostics")]
-            {
-                crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(
-                    tiles_tree,
-                    ToolPaneState::HistoryManager,
-                );
-            }
-            None
+    let Some(route) = GraphBrowserApp::resolve_settings_route(&url) else {
+        return Some(GraphIntent::OpenSettingsUrl { url });
+    };
+
+    maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
+    open_settings_route_target(graph_app, tiles_tree, route);
+    None
+}
+
+fn open_settings_route_target(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    route: crate::app::SettingsRouteTarget,
+) {
+    match route {
+        crate::app::SettingsRouteTarget::History => {
+            open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::HistoryManager);
         }
-        Some(crate::app::SettingsRouteTarget::Settings(page)) => {
-            maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
+        crate::app::SettingsRouteTarget::Settings(page) => {
             graph_app.workspace.settings_tool_page = page;
-            #[cfg(feature = "diagnostics")]
-            {
-                crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(
-                    tiles_tree,
-                    ToolPaneState::Settings,
-                );
-            }
-            None
+            open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::Settings);
         }
-        None => Some(GraphIntent::OpenSettingsUrl { url }),
     }
 }
+
+#[cfg(feature = "diagnostics")]
+fn open_or_focus_tool_pane_if_available(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneState) {
+    crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(tiles_tree, kind);
+}
+
+#[cfg(not(feature = "diagnostics"))]
+fn open_or_focus_tool_pane_if_available(_tiles_tree: &mut Tree<TileKind>, _kind: ToolPaneState) {}
 
 fn handle_open_node_in_pane_intent(
     graph_app: &mut GraphBrowserApp,
@@ -875,12 +872,7 @@ fn handle_set_pane_view_intent(
     );
     match view {
         crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(kind) => {
-            #[cfg(feature = "diagnostics")]
-            {
-                crate::shell::desktop::workbench::tile_view_ops::open_or_focus_tool_pane(
-                    tiles_tree, kind,
-                );
-            }
+            open_or_focus_tool_pane_if_available(tiles_tree, kind);
         }
         crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state) => {
             crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
