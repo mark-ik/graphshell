@@ -16,7 +16,7 @@
 1. **Unit tests** (`cargo test`)  
    Validate reducer logic, routing helpers, and deterministic behavior.
 
-2. **Scenario/integration tests** (`desktop/tests/*`)  
+2. **Scenario/integration tests** (`shell/desktop/tests/*`)  
    Validate frame/tile/workbench behaviors and routing flows.
 
 3. **Smoke scripts** (`scripts/dev/smoke-matrix.ps1|.sh quick`)  

@@ -204,7 +204,7 @@ Forty-seven `servoshell` / `ServoShell` references remain across the codebase:
 | `headed_window.rs` | 3 | "servoshell key bindings" comments. Easy doc-only fix. |
 | `prefs.rs` | 3 | Preference loading comments. |
 | `gui.rs` | 2 | Doc comments referencing servoshell composition model. |
-| Others | 9 | Scattered across `event_loop.rs`, `window.rs`, `webxr.rs`, `desktop/mod.rs`. |
+| Others | 9 | Scattered across `event_loop.rs`, `window.rs`, `webxr.rs`, `shell/desktop/mod.rs`. |
 
 **Risk**: The `tracing.rs` references are the only *functional* debt — everything else is cosmetic. The tracing rename needs a migration path (accept both `servoshell::` and `graphshell::` filter prefix temporarily).
 

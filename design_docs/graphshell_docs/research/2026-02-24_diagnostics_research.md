@@ -2,12 +2,12 @@
 
 **Document Type**: Research report — architecture, gaps, and forward design
 **Date**: 2026-02-24
-**Scope**: `registries/atomic/diagnostics.rs`, `shell/desktop/runtime/diagnostics.rs`, `desktop/tests/harness.rs`, diagnostics pane
+**Scope**: `registries/atomic/diagnostics.rs`, `shell/desktop/runtime/diagnostics.rs`, `shell/desktop/tests/harness.rs`, diagnostics pane
 
 > **Terminology note (2026-02-26)**: The names `TestHarness` and `TestRegistry` have been swapped
 > since this document was written. In current canonical terminology:
 >
-> - **`TestRegistry`** = the `cargo test` fixture struct (`desktop/tests/harness.rs`) — app factory + assertion surface
+> - **`TestRegistry`** = the `cargo test` fixture struct (`shell/desktop/tests/harness.rs`) — app factory + assertion surface
 > - **`TestHarness`** = the planned in-pane runner — named test suites, background execution, panic isolation
 >
 > Wherever this document says "TestHarness" for the `cargo test` fixture, read `TestRegistry`.
@@ -39,7 +39,7 @@ Runtime event accumulation and pane state:
 - **Compositor snapshots** — frame sequence, active tile count, tile rects, webview mapping, paint callback state, hierarchy
 - **JSON export** — `snapshot_json_for_tests()` for assertion-driven scenario testing
 
-### 1.3 TestHarness (`desktop/tests/harness.rs`)
+### 1.3 TestHarness (`shell/desktop/tests/harness.rs`)
 
 Headless integration driver:
 

@@ -91,7 +91,7 @@ Key properties:
 
 On-demand isolated execution from within the diagnostics pane. Named test cases run against
 synthetic fresh state and return structured pass/fail results. Not related to `TestRegistry`
-(the `cargo test` fixture struct in `desktop/tests/`).
+(the `cargo test` fixture struct in `shell/desktop/tests/`).
 
 - Feature-gated: `#[cfg(any(test, feature = "diagnostics_tests"))]`
 - Named `TestSuite` structs containing `&'static [TestCase]`
@@ -151,7 +151,7 @@ Rule: if you read state, it's a probe. If you create state, it's a test. Probes 
 Required checks for PRs touching:
 - `registries/atomic/diagnostics.rs`
 - `shell/desktop/runtime/diagnostics.rs`
-- `desktop/tests/harness.rs`
+- `shell/desktop/tests/harness.rs`
 - Diagnostics pane rendering code
 - Any file registering new channels or invariants
 
@@ -195,7 +195,7 @@ Diagnostics does not require per-surface capability declarations (it is the infr
 | **`DiagnosticsState`** | Event ring, drain cycles, `DiagnosticGraph` aggregation, compositor snapshots, JSON export for tests |
 | **`AnalyzerRegistry`** (future) | Analyzer lifecycle, continuous processing, derived signal production, pane section registration |
 | **`TestHarness`** (future, gated) | In-pane runner: test case registration, background execution, result streaming, panic isolation |
-| **`TestRegistry`** | `cargo test` fixture: app factory, snapshot helpers, structured assertion surface (`desktop/tests/`) |
+| **`TestRegistry`** | `cargo test` fixture: app factory, snapshot helpers, structured assertion surface (`shell/desktop/tests/`) |
 
 ---
 
@@ -227,7 +227,7 @@ entry point that bypasses the OnceLock. Production call sites unchanged.
 
 **T2 — Split scenario tests to a separate `[[test]]` binary** (`Cargo.toml`, `tests/scenarios/`)
 
-`desktop/tests/` is compiled into the library under `#[cfg(test)]`. At 10x scale, editing any
+`shell/desktop/tests/` is compiled into the library under `#[cfg(test)]`. At 10x scale, editing any
 test file invalidates the full library compile cache. A `[[test]]` Cargo target is a separate
 compilation unit; editing it does not touch the library cache.
 
@@ -235,7 +235,7 @@ Fix (two steps):
 
 - Step 1: Add `[[test]] name = "scenarios"` binary + `test-utils` feature flag. New scenario
   tests land here from the start. Zero churn to existing code.
-- Step 2+: Migrate existing `desktop/tests/scenarios/` incrementally, widening `_for_tests`
+- Step 2+: Migrate existing `shell/desktop/tests/scenarios/` incrementally, widening `_for_tests`
   helper visibility to `pub` under `#[cfg(any(test, feature = "test-utils"))]` as each scenario
   file moves. One PR per scenario file.
 

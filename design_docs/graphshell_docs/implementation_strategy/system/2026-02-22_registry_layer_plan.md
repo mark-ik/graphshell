@@ -246,7 +246,7 @@ Each registry ships with two test layers:
     - Validate registration, lookup, conflict behavior, and fallback semantics.
     - Validate diagnostics schema stability for each exposed channel.
 2.  **Harness Scenario Tests** (integration-level):
-    - Validate end-to-end behavior through `desktop/tests/scenarios/*` using diagnostics snapshots.
+    - Validate end-to-end behavior through `shell/desktop/tests/scenarios/*` using diagnostics snapshots.
     - Required for any new registry capability before it is considered complete.
 
 ## Diagnostics Contract Checklist (Required for Every Registry)
@@ -913,7 +913,7 @@ The `ProtocolRegistry` effectively abstracts storage. In the future, Verse Tier 
     - Persisted user override source (`workspace:settings-registry-*-id`). Settings UI controls.
     - Identity scaffolding: `IdentityRegistry`, sign/fallback, diagnostics contracts.
     - `DiagnosticsRegistry` consolidated as sole contract source; `diagnostics_contract.rs` removed.
-- Validation: `cargo check` (pass), all `desktop::registries::`, `webview_controller::tests::`, `desktop::tests::scenarios::registries::` pass.
+- Validation: `cargo check` (pass), all `shell::desktop::registries::`, `webview_controller::tests::`, `shell::desktop::tests::scenarios::registries::` pass.
 
 ### 2026-02-23 — Consolidated Checkpoint
 - Phase 1 callsite migration complete (runtime path promotion):
@@ -925,7 +925,7 @@ The `ProtocolRegistry` effectively abstracts storage. In the future, Verse Tier 
     - Temporary compatibility re-export at `desktop/registries/diagnostics.rs` removed.
     - Module wiring: `registries/mod.rs`, `registries/atomic/mod.rs`, crate root registration.
     - Diagnostics contract continuity: `registry.diagnostics.config_changed` emission path validated.
-- Validation: `cargo test webview_controller::`, `desktop::registries::`, `desktop::tests::scenarios::registries::` all pass. `cargo check` pass.
+- Validation: `cargo test webview_controller::`, `shell::desktop::registries::`, `shell::desktop::tests::scenarios::registries::` all pass. `cargo check` pass.
 - Documentation: `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md` consolidated into this document and archived to `archive_docs/checkpoint_2026-02-23/`.
 - Phase 2 complete:
     - `ModRegistry` lifecycle and status model implemented with dependency resolution and diagnostics channels.

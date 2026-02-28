@@ -16,7 +16,7 @@ Two latent problems appear at 10x scale:
    env-driven and cached forever in the test process. Tests that exercise different disabled-mod
    configurations race on initialization order and may all see the same cached result.
 
-2. All test code (`desktop/tests/`, `_for_tests` helpers, `new_for_testing()`) is compiled into
+2. All test code (`shell/desktop/tests/`, `_for_tests` helpers, `new_for_testing()`) is compiled into
    the library for every `cargo test` run. At 10x scale, changing any test file invalidates the
    entire library compile cache. Splitting to a separate Cargo `[[test]]` binary gives the
    compiler a boundary to cache across.
@@ -73,11 +73,11 @@ pub(crate) fn compute_active_capabilities_with_disabled(
 
 **Files**:
 - `Cargo.toml` (add `[[test]]` target)
-- `desktop/tests/` (move to `tests/integration/` at crate root, or add a shim entry point)
+- `shell/desktop/tests/` (move to `tests/integration/` at crate root, or add a shim entry point)
 - `app.rs`, `shell/`, `registries/` (widen visibility of `_for_tests` helpers from `pub(crate)`
   to `pub` under a `test-utils` feature flag)
 
-**Problem**: `desktop/tests/` is compiled as part of the library (gated by `#[cfg(test)]`).
+**Problem**: `shell/desktop/tests/` is compiled as part of the library (gated by `#[cfg(test)]`).
 Every edit to any test file forces recompilation of the entire library. At 10x test scale with
 frequent test edits this is a meaningful velocity tax. A Cargo `[[test]]` binary is a separate
 compilation unit: editing it does not invalidate the library cache.
@@ -108,7 +108,7 @@ Cons: Two test models coexist. Legacy unit tests still pollute the library compi
 **Recommended sequence**:
 
 1. Land Option B first (zero churn, immediate benefit for new tests).
-2. Migrate existing scenario tests from `desktop/tests/` to the `[[test]]` binary incrementally,
+2. Migrate existing scenario tests from `shell/desktop/tests/` to the `[[test]]` binary incrementally,
    widening visibility of helpers as needed.
 3. Once all scenarios are in the `[[test]]` binary, evaluate whether the remaining inline unit
    tests (in `app.rs`, `shell/`, etc.) are worth migrating. Most are pure unit logic and are
@@ -171,6 +171,6 @@ T2 step 2+ depends on T2 step 1 being merged first (branch on the new binary tar
 
 - This plan does not change how `cargo test` is invoked in CI.
 - This plan does not change `DiagnosticsState`, channel schemas, or any production code path.
-- This plan does not remove or rename `desktop/tests/` — it coexists until migration is complete.
+- This plan does not remove or rename `shell/desktop/tests/` — it coexists until migration is complete.
 - "Pouches" as a terminology change is out of scope; the scenario-file organization is already
   functionally equivalent and renaming adds churn with no benefit.

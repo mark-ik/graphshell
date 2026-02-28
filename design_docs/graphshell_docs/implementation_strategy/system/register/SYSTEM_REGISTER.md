@@ -327,7 +327,7 @@ Goals:
 
 Files:
 - `desktop/control_panel.rs` (new)
-- `desktop/mod.rs` — expose `control_panel` module
+- `shell/desktop/mod.rs` — expose `control_panel` module
 
 Done gates:
 - [x] `ControlPanel::new()` creates channel + token + empty `JoinSet`

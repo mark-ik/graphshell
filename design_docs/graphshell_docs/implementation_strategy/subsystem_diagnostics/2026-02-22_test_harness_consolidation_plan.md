@@ -12,21 +12,21 @@
 
 Completed in this checkpoint:
 - Migrated persistence switching scenario to harness:
-    - `switch_persistence_dir_reloads_graph_state` -> `desktop/tests/scenarios/persistence.rs`
+    - `switch_persistence_dir_reloads_graph_state` -> `shell/desktop/tests/scenarios/persistence.rs`
 - Migrated one preference persistence scenario to harness:
-    - `set_toast_anchor_preference_persists_across_restart` -> `desktop/tests/scenarios/persistence.rs`
+    - `set_toast_anchor_preference_persists_across_restart` -> `shell/desktop/tests/scenarios/persistence.rs`
 - Added first grouping-intent scenario coverage:
-    - `create_user_grouped_edge_from_primary_selection_creates_grouped_edge` -> `desktop/tests/scenarios/grouping.rs`
+    - `create_user_grouped_edge_from_primary_selection_creates_grouped_edge` -> `shell/desktop/tests/scenarios/grouping.rs`
 - **Added semantic tagging scenario coverage:**
-    - `set_node_pinned_intent_syncs_pin_tag` -> `desktop/tests/scenarios/tags.rs`
-    - `tag_node_pin_updates_pinned_state` -> `desktop/tests/scenarios/tags.rs`
+    - `set_node_pinned_intent_syncs_pin_tag` -> `shell/desktop/tests/scenarios/tags.rs`
+    - `tag_node_pin_updates_pinned_state` -> `shell/desktop/tests/scenarios/tags.rs`
 - Removed migrated duplicate tests from `app.rs` in same slice.
 
 Validation evidence for this checkpoint:
-- `cargo test desktop::tests::scenarios::persistence:: -- --nocapture` (pass, 12 tests)
-- `cargo test desktop::tests::scenarios::grouping:: -- --nocapture` (pass, 1 test)
-- `cargo test desktop::tests::scenarios::tags:: -- --nocapture` (pass, 2 tests)
-- `cargo test desktop::tests::scenarios::registries -- --nocapture` (pass)
+- `cargo test shell::desktop::tests::scenarios::persistence:: -- --nocapture` (pass, 12 tests)
+- `cargo test shell::desktop::tests::scenarios::grouping:: -- --nocapture` (pass, 1 test)
+- `cargo test shell::desktop::tests::scenarios::tags:: -- --nocapture` (pass, 2 tests)
+- `cargo test shell::desktop::tests::scenarios::registries -- --nocapture` (pass)
 - `cargo check` (pass)
 - Full scenario matrix: 49 tests passing
 
@@ -38,7 +38,7 @@ We will leverage this to build a unified `TestHarness` that treats the app as a 
 ## Architecture
 
 ### 1. The `src/tests/` Module
-A new top-level module (or `desktop/tests/`) to house the harness and scenarios.
+A new top-level module (or `shell/desktop/tests/`) to house the harness and scenarios.
 
 - `harness.rs`: Wraps `GraphBrowserApp` + `Gui` (headless) + `DiagnosticsState`.
 - `scenarios/`: Submodules for specific feature areas (e.g., `routing.rs`, `layout.rs`).
@@ -114,17 +114,17 @@ Re-running the test passes.
 ## Implementation Stages
 
 ### Stage 1: Harness Foundation
-1.  Create `desktop/tests/harness.rs`.
+1.  Create `shell/desktop/tests/harness.rs`.
 2.  Implement `TestHarness::new()` with a headless `Gui` instance.
 3.  Expose `DiagnosticsState` from `Gui` (already done).
 
 **Stage 1 progress (2026-02-22):**
-- Added `desktop/tests` scaffold:
-    - `desktop/tests/mod.rs`
-    - `desktop/tests/harness.rs`
-    - `desktop/tests/scenarios/mod.rs`
-    - `desktop/tests/scenarios/black_tile.rs`
-- Wired test module registration in `desktop/mod.rs` under `#[cfg(test)]`.
+- Added `shell/desktop/tests` scaffold:
+    - `shell/desktop/tests/mod.rs`
+    - `shell/desktop/tests/harness.rs`
+    - `shell/desktop/tests/scenarios/mod.rs`
+    - `shell/desktop/tests/scenarios/black_tile.rs`
+- Wired test module registration in `shell/desktop/mod.rs` under `#[cfg(test)]`.
 - Added minimal `TestHarness` API for observability-driven assertions:
     - app construction + node creation/open helpers
     - diagnostics-driven frame sampling and snapshot extraction
@@ -136,7 +136,7 @@ Re-running the test passes.
     - `DiagnosticsState::force_drain_for_tests`
     - `DiagnosticsState::snapshot_json_for_tests`
 - Validation:
-    - `cargo test desktop::tests::scenarios::black_tile:: -- --nocapture` (pass)
+    - `cargo test shell::desktop::tests::scenarios::black_tile:: -- --nocapture` (pass)
     - `cargo check --message-format short` (pass)
 
 ### Stage 2: Migration
@@ -145,9 +145,9 @@ Re-running the test passes.
 
 **Stage 2 progress (2026-02-22):**
 - Migrated first `workspace_routing` case into harness scenarios:
-    - Added `desktop/tests/scenarios/routing.rs`
+    - Added `shell/desktop/tests/scenarios/routing.rs`
     - Added test: `open_node_workspace_routed_falls_back_to_current_workspace_for_zero_membership`
-- Registered routing scenario in `desktop/tests/scenarios/mod.rs`.
+- Registered routing scenario in `shell/desktop/tests/scenarios/mod.rs`.
 - Removed duplicated original test from `app.rs` to keep migration authoritative.
 - Stabilized harness diagnostics assertions by switching from global diagnostics emission
     to harness-local test-only diagnostics event injection.
@@ -159,7 +159,7 @@ Re-running the test passes.
     - `set_node_url_preserves_workspace_membership`
 - Removed duplicated originals from `app.rs` for migrated cases above.
 - Started persistence-focused Stage 2 migration:
-    - Added `desktop/tests/scenarios/persistence.rs`
+    - Added `shell/desktop/tests/scenarios/persistence.rs`
     - Added tests:
         - `open_node_workspace_routed_preserves_unsaved_prompt_state_until_restore`
         - `workspace_has_unsaved_changes_for_graph_mutations`
@@ -173,9 +173,9 @@ Re-running the test passes.
     - `save_named_workspace_clears_unsaved_prompt_state`
     - Removed duplicated originals from `app.rs` for migrated cases above.
 - Validation:
-    - `cargo test desktop::tests::scenarios::persistence:: -- --nocapture` (pass, 8 tests)
-    - `cargo test desktop::tests::scenarios::routing:: -- --nocapture` (pass)
-    - `cargo test desktop::tests::scenarios::black_tile:: -- --nocapture` (pass)
+    - `cargo test shell::desktop::tests::scenarios::persistence:: -- --nocapture` (pass, 8 tests)
+    - `cargo test shell::desktop::tests::scenarios::routing:: -- --nocapture` (pass)
+    - `cargo test shell::desktop::tests::scenarios::black_tile:: -- --nocapture` (pass)
     - `cargo check` (pass)
 
 ### Stage 3: Expansion
@@ -183,7 +183,7 @@ Re-running the test passes.
 2.  Add `Engine` topology assertions for performance tests.
 
 **Stage 3 progress (2026-02-22):**
-- Added `desktop/tests/scenarios/layout.rs` and registered it in `desktop/tests/scenarios/mod.rs`.
+- Added `shell/desktop/tests/scenarios/layout.rs` and registered it in `shell/desktop/tests/scenarios/mod.rs`.
 - Added initial layout/compositor scenario coverage:
     - `compositor_frames_capture_sequence_and_active_tile_count_transitions`
     - `compositor_tile_rects_are_non_zero_in_healthy_layout_path`
@@ -192,19 +192,19 @@ Re-running the test passes.
 - Expanded Stage 3 layout coverage with topology assertions:
     - `compositor_multi_tile_layout_samples_have_non_overlapping_rects`
     - `compositor_hierarchy_samples_include_split_container_and_child_tiles`
-- Migrated Session Autosave/Retention tests into harness scenarios (`desktop/tests/scenarios/persistence.rs`):
+- Migrated Session Autosave/Retention tests into harness scenarios (`shell/desktop/tests/scenarios/persistence.rs`):
     - `session_workspace_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layout`
     - `session_workspace_blob_autosave_rotates_previous_latest_bundle_on_layout_change`
 - Removed migrated autosave/retention duplicates from `app.rs`.
 - Validation:
-    - `cargo test desktop::tests::scenarios::layout:: -- --nocapture` (pass, 6 tests)
-    - `cargo test desktop::tests::scenarios::persistence:: -- --nocapture` (pass, 10 tests)
-    - `cargo test desktop::tests::scenarios::routing:: -- --nocapture` (pass, 6 tests)
-    - `cargo test desktop::tests::scenarios::black_tile:: -- --nocapture` (pass, 2 tests)
+    - `cargo test shell::desktop::tests::scenarios::layout:: -- --nocapture` (pass, 6 tests)
+    - `cargo test shell::desktop::tests::scenarios::persistence:: -- --nocapture` (pass, 10 tests)
+    - `cargo test shell::desktop::tests::scenarios::routing:: -- --nocapture` (pass, 6 tests)
+    - `cargo test shell::desktop::tests::scenarios::black_tile:: -- --nocapture` (pass, 2 tests)
     - `cargo check` (pass)
 
 **Stage 3 scope (next):**
-- Add a `layout.rs` scenario module under `desktop/tests/scenarios/` for tile geometry + viewport invariants.
+- Add a `layout.rs` scenario module under `shell/desktop/tests/scenarios/` for tile geometry + viewport invariants.
 - Add scenario assertions for:
     - active tile count transitions during open/close flows
     - stable non-zero tile rects after routing and restore
@@ -222,9 +222,9 @@ Re-running the test passes.
 3.  Keep targeted command matrix stable for CI/local validation.
 
 **Stage 4 acceptance criteria:**
-- Migrated tests live in `desktop/tests/scenarios/*` with no equivalent duplicates in `app.rs`.
+- Migrated tests live in `shell/desktop/tests/scenarios/*` with no equivalent duplicates in `app.rs`.
 - Consolidation doc includes final migrated test inventory and command matrix.
-- `cargo test desktop::tests::scenarios:: -- --nocapture` and `cargo check` are green.
+- `cargo test shell::desktop::tests::scenarios:: -- --nocapture` and `cargo check` are green.
 
 ---
 
@@ -299,7 +299,7 @@ This inventory maps all functional areas to migration stages.
 ## Migration Strategy per Area
 
 1.  **Identify**: Locate existing tests in `app.rs`, `gui_tests.rs`, or `test_guide.md`.
-2.  **Port**: Rewrite as a scenario in `desktop/tests/scenarios/<area>.rs` using `TestHarness`.
+2.  **Port**: Rewrite as a scenario in `shell/desktop/tests/scenarios/<area>.rs` using `TestHarness`.
 3.  **Verify**: Run the new scenario.
 4.  **Delete**: Remove the old test code or manual checklist item.
 
@@ -309,17 +309,17 @@ This inventory maps all functional areas to migration stages.
 
 Run after each migration increment:
 
-- `cargo test desktop::tests::scenarios::layout:: -- --nocapture`
-- `cargo test desktop::tests::scenarios::persistence:: -- --nocapture`
-- `cargo test desktop::tests::scenarios::routing:: -- --nocapture`
-- `cargo test desktop::tests::scenarios::registries:: -- --nocapture`
-- `cargo test desktop::tests::scenarios::tags:: -- --nocapture`
-- `cargo test desktop::tests::scenarios::black_tile:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::layout:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::persistence:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::routing:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::registries:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::tags:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::black_tile:: -- --nocapture`
 - `cargo check`
 
 Run at stage boundaries:
 
-- `cargo test desktop::tests::scenarios:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios:: -- --nocapture`
 
 ---
 
@@ -346,7 +346,7 @@ Run at stage boundaries:
 - Phase A Preference Persistence: toast anchor migrated.
 - Semantic tagging scenarios added: `#pin` tag sync and `TagNode`/`UntagNode` state (2 tests in `tags.rs`).
 - First grouping-intent scenario: `create_user_grouped_edge_from_primary_selection_creates_grouped_edge` (1 test in `grouping.rs`).
-- Registries scenarios passing (`cargo test desktop::tests::scenarios::registries -- --nocapture`).
+- Registries scenarios passing (`cargo test shell::desktop::tests::scenarios::registries -- --nocapture`).
 - Full scenario matrix: **49 tests passing** (2026-02-23 checkpoint).
 
 **Remaining**
@@ -364,10 +364,10 @@ Run at stage boundaries:
 
 Immediate next batch:
 
-1. Migrate remaining preference persistence tests (lasso binding + shortcut bindings) into `desktop/tests/scenarios/persistence.rs`.
+1. Migrate remaining preference persistence tests (lasso binding + shortcut bindings) into `shell/desktop/tests/scenarios/persistence.rs`.
 2. Add Phase C.1 Undo/Redo scenarios (`stack_mechanics` + `state_restoration` sub-modules or inline in a new `undo.rs`).
 3. Extend grouping coverage to split/container hierarchy semantics in harness-observable outputs.
-4. Run full stage-boundary matrix and append evidence: `cargo test desktop::tests::scenarios:: -- --nocapture`.
+4. Run full stage-boundary matrix and append evidence: `cargo test shell::desktop::tests::scenarios:: -- --nocapture`.
 
 ---
 
