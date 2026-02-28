@@ -1197,13 +1197,14 @@ fn handle_pending_frame_save_layout_actions(
 
     if let Some(name) = graph_app.take_pending_save_frame_snapshot_named() {
         match persistence_ops::save_named_frame_bundle(graph_app, &name, tiles_tree) {
-            Ok(()) => {
-                let _ =
-                    persistence_ops::refresh_frame_membership_cache_from_manifests(graph_app);
-            }
+            Ok(()) => refresh_frame_membership_cache(graph_app),
             Err(e) => warn!("Failed to serialize tile layout for frame snapshot '{name}': {e}"),
         }
     }
+}
+
+fn refresh_frame_membership_cache(graph_app: &mut GraphBrowserApp) {
+    let _ = persistence_ops::refresh_frame_membership_cache_from_manifests(graph_app);
 }
 
 fn handle_pending_frame_prune_retention_actions(graph_app: &mut GraphBrowserApp) {
