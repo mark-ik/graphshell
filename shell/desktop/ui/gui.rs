@@ -1449,7 +1449,7 @@ impl Gui {
             && let Some(label) = focused_node.label()
             && !label.trim().is_empty()
         {
-            return format!("Embedded web content: {label}");
+            return Self::format_embedded_web_content_label(label);
         }
 
         if let Some((_, first_labeled)) = tree_update
@@ -1458,7 +1458,7 @@ impl Gui {
             .find(|(_, node)| node.label().is_some_and(|label| !label.trim().is_empty()))
             && let Some(label) = first_labeled.label()
         {
-            return format!("Embedded web content: {label}");
+            return Self::format_embedded_web_content_label(label);
         }
 
         format!(
@@ -1466,6 +1466,10 @@ impl Gui {
             webview_id,
             tree_update.nodes.len()
         )
+    }
+
+    fn format_embedded_web_content_label(label: &str) -> String {
+        format!("Embedded web content: {label}")
     }
 
     fn convert_webview_accessibility_role(role: accesskit::Role) -> (egui::accesskit::Role, bool) {
