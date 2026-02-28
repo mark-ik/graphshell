@@ -1190,13 +1190,7 @@ fn handle_pending_frame_save_layout_actions(
     tiles_tree: &Tree<TileKind>,
 ) {
     handle_pending_save_frame_snapshot(graph_app, tiles_tree);
-
-    if let Some(name) = graph_app.take_pending_save_frame_snapshot_named() {
-        match persistence_ops::save_named_frame_bundle(graph_app, &name, tiles_tree) {
-            Ok(()) => refresh_frame_membership_cache(graph_app),
-            Err(e) => warn!("Failed to serialize tile layout for frame snapshot '{name}': {e}"),
-        }
-    }
+    handle_pending_save_frame_snapshot_named(graph_app, tiles_tree);
 }
 
 fn handle_pending_save_frame_snapshot(
