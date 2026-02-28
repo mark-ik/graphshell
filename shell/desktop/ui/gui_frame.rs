@@ -1468,6 +1468,14 @@ fn apply_connected_open_selection_intents(
     source: NodeKey,
     ordered: &[NodeKey],
 ) {
+    let mut intents = build_connected_open_selection_intents(source, ordered);
+    apply_intents_if_any(graph_app, tiles_tree, &mut intents);
+}
+
+fn build_connected_open_selection_intents(
+    source: NodeKey,
+    ordered: &[NodeKey],
+) -> Vec<GraphIntent> {
     let mut intents = Vec::with_capacity(ordered.len() + 1);
     intents.push(GraphIntent::SelectNode {
         key: source,
@@ -1483,7 +1491,7 @@ fn apply_connected_open_selection_intents(
             LifecycleCause::ActiveTileVisible,
         ));
     }
-    apply_intents_if_any(graph_app, tiles_tree, &mut intents);
+    intents
 }
 
 fn open_connected_nodes_by_mode(
