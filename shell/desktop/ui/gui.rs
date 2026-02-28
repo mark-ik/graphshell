@@ -1369,9 +1369,8 @@ impl Gui {
             graph_app,
             window,
         );
-        let nav_state_changed = webview_status_sync::update_can_go_back_and_forward(
-            &mut toolbar_state.can_go_back,
-            &mut toolbar_state.can_go_forward,
+        let nav_state_changed = Self::sync_toolbar_navigation_state(
+            toolbar_state,
             focused_node_key,
             graph_app,
             window,
@@ -1403,6 +1402,21 @@ impl Gui {
     ) -> bool {
         webview_status_sync::update_status_text(
             &mut toolbar_state.status_text,
+            focused_node_key,
+            graph_app,
+            window,
+        )
+    }
+
+    fn sync_toolbar_navigation_state(
+        toolbar_state: &mut ToolbarState,
+        focused_node_key: Option<NodeKey>,
+        graph_app: &GraphBrowserApp,
+        window: &EmbedderWindow,
+    ) -> bool {
+        webview_status_sync::update_can_go_back_and_forward(
+            &mut toolbar_state.can_go_back,
+            &mut toolbar_state.can_go_forward,
             focused_node_key,
             graph_app,
             window,
