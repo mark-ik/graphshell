@@ -1549,7 +1549,11 @@ impl Gui {
     }
 
     fn webview_accessibility_anchor_id(webview_id: WebViewId) -> egui::Id {
-        egui::Id::new(("webview_accessibility_anchor", webview_id))
+        egui::Id::new(Self::webview_accessibility_anchor_id_key(webview_id))
+    }
+
+    fn webview_accessibility_anchor_id_key(webview_id: WebViewId) -> (&'static str, WebViewId) {
+        ("webview_accessibility_anchor", webview_id)
     }
 
     fn webview_accessibility_node_id(
