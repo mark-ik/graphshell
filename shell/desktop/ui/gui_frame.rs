@@ -1652,19 +1652,26 @@ fn build_session_workspace_layout_payload(
 ) -> Option<(String, String)> {
     let layout_json = serialize_tiles_tree_layout_json(tiles_tree, "session frame layout")?;
 
-    let bundle_json = match persistence_ops::serialize_named_frame_bundle(
+    let bundle_json = serialize_session_frame_bundle(graph_app, tiles_tree)?;
+
+    Some((bundle_json, layout_json))
+}
+
+fn serialize_session_frame_bundle(
+    graph_app: &GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) -> Option<String> {
+    match persistence_ops::serialize_named_frame_bundle(
         graph_app,
         GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
         tiles_tree,
     ) {
-        Ok(bundle_json) => bundle_json,
+        Ok(bundle_json) => Some(bundle_json),
         Err(e) => {
             warn!("Failed to serialize session frame bundle: {e}");
-            return None;
+            None
         }
-    };
-
-    Some((bundle_json, layout_json))
+    }
 }
 
 fn serialize_tiles_tree_layout_json(tiles_tree: &Tree<TileKind>, context: &str) -> Option<String> {
