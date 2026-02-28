@@ -1357,9 +1357,8 @@ impl Gui {
         graph_app: &GraphBrowserApp,
         window: &EmbedderWindow,
     ) -> bool {
-        let load_status_changed = webview_status_sync::update_load_status(
-            &mut toolbar_state.load_status,
-            &mut toolbar_state.location_dirty,
+        let load_status_changed = Self::sync_toolbar_load_status(
+            toolbar_state,
             focused_node_key,
             graph_app,
             window,
@@ -1379,6 +1378,21 @@ impl Gui {
         );
 
         load_status_changed | status_text_changed | nav_state_changed
+    }
+
+    fn sync_toolbar_load_status(
+        toolbar_state: &mut ToolbarState,
+        focused_node_key: Option<NodeKey>,
+        graph_app: &GraphBrowserApp,
+        window: &EmbedderWindow,
+    ) -> bool {
+        webview_status_sync::update_load_status(
+            &mut toolbar_state.load_status,
+            &mut toolbar_state.location_dirty,
+            focused_node_key,
+            graph_app,
+            window,
+        )
     }
 
     fn is_omnibar_node_search_query_active(&self) -> bool {
