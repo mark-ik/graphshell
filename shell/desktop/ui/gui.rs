@@ -1613,32 +1613,35 @@ impl Gui {
             Self::inject_webview_a11y_plan_nodes(ctx, webview_id, &plan.nodes);
 
             Self::inject_webview_a11y_anchor_node(ctx, anchor_id, &plan.anchor_label);
+            Self::warn_webview_a11y_plan_degradation(webview_id, &plan);
+        }
+    }
 
-            if plan.nodes.is_empty() {
-                warn!(
-                    "Runtime viewer accessibility injection used degraded synthesized document node for {:?}: incoming tree update had no nodes",
-                    webview_id
-                );
-            } else if plan.root_node_id.is_none() {
-                warn!(
-                    "Runtime viewer accessibility injection used degraded synthesized document node for {:?}: no injectable root node was found",
-                    webview_id
-                );
-            }
+    fn warn_webview_a11y_plan_degradation(webview_id: WebViewId, plan: &WebViewA11yGraftPlan) {
+        if plan.nodes.is_empty() {
+            warn!(
+                "Runtime viewer accessibility injection used degraded synthesized document node for {:?}: incoming tree update had no nodes",
+                webview_id
+            );
+        } else if plan.root_node_id.is_none() {
+            warn!(
+                "Runtime viewer accessibility injection used degraded synthesized document node for {:?}: no injectable root node was found",
+                webview_id
+            );
+        }
 
-            if plan.dropped_node_count > 0 {
-                warn!(
-                    "Runtime viewer accessibility injection dropped {} reserved node(s) for {:?}",
-                    plan.dropped_node_count, webview_id
-                );
-            }
+        if plan.dropped_node_count > 0 {
+            warn!(
+                "Runtime viewer accessibility injection dropped {} reserved node(s) for {:?}",
+                plan.dropped_node_count, webview_id
+            );
+        }
 
-            if plan.conversion_fallback_count > 0 {
-                warn!(
-                    "Runtime viewer accessibility injection used degraded role conversion fallback for {} node(s) in {:?}",
-                    plan.conversion_fallback_count, webview_id
-                );
-            }
+        if plan.conversion_fallback_count > 0 {
+            warn!(
+                "Runtime viewer accessibility injection used degraded role conversion fallback for {} node(s) in {:?}",
+                plan.conversion_fallback_count, webview_id
+            );
         }
     }
 
