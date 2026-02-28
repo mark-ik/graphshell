@@ -1488,13 +1488,23 @@ fn handle_pending_open_connected_from(
     tiles_tree: &mut Tree<TileKind>,
 ) {
     if let Some((source, open_mode, scope)) = take_valid_pending_open_connected_from(graph_app) {
-        capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
-        let connected = connected_targets_for_open(graph_app, source, scope);
-        let ordered = ordered_connected_open_nodes(source, connected);
-
-        apply_connected_open_selection_intents(graph_app, tiles_tree, source, &ordered);
-        open_connected_nodes_by_mode(graph_app, tiles_tree, open_mode, &ordered);
+        execute_pending_open_connected_from(graph_app, tiles_tree, source, open_mode, scope);
     }
+}
+
+fn execute_pending_open_connected_from(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    source: NodeKey,
+    open_mode: PendingTileOpenMode,
+    scope: PendingConnectedOpenScope,
+) {
+    capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
+    let connected = connected_targets_for_open(graph_app, source, scope);
+    let ordered = ordered_connected_open_nodes(source, connected);
+
+    apply_connected_open_selection_intents(graph_app, tiles_tree, source, &ordered);
+    open_connected_nodes_by_mode(graph_app, tiles_tree, open_mode, &ordered);
 }
 
 fn take_valid_pending_open_connected_from(
