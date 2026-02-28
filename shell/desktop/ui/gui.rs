@@ -1350,13 +1350,17 @@ impl Gui {
     }
 
     fn selected_node_url_for_toolbar(&self) -> Option<String> {
-        self.graph_app.get_single_selected_node().and_then(|key| {
+        self.selected_node_key_for_toolbar().and_then(|key| {
             self.graph_app
                 .workspace
                 .graph
                 .get_node(key)
                 .map(|node| node.url.clone())
         })
+    }
+
+    fn selected_node_key_for_toolbar(&self) -> Option<NodeKey> {
+        self.graph_app.get_single_selected_node()
     }
 
     /// Returns true if a redraw is required after handling the provided event.
