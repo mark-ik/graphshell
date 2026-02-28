@@ -106,6 +106,8 @@ pub(crate) const CHANNEL_VERSE_SYNC_IDENTITY_GENERATED: &str = "verse.sync.ident
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_DETECTED: &str = "verse.sync.conflict_detected";
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED: &str = "verse.sync.conflict_resolved";
 pub(crate) const CHANNEL_COMPOSITOR_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
+pub(crate) const CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED: &str =
+    "compositor.focus_activation.deferred";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE: &str =
     "compositor.overlay.style.rect_stroke";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY: &str =
@@ -1651,6 +1653,11 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_GL_STATE_VIOLATION)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED)
         );
         assert!(
             channels

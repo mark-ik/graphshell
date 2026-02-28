@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED,
     CHANNEL_ACTION_EXECUTE_SUCCEEDED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY, CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
@@ -371,7 +372,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 33] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 34] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -504,6 +505,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 33] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
     },

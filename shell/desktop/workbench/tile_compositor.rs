@@ -14,6 +14,8 @@ use servo::OffscreenRenderingContext;
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
     OverlayStrokePass,
@@ -152,6 +154,10 @@ pub(crate) fn activate_focused_node_for_frame(
                 node_key,
                 fallback_node
             );
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
+                byte_len: 1,
+            });
             window.activate_webview(fallback_wv_id);
         }
     }
