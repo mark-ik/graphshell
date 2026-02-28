@@ -1765,6 +1765,13 @@ impl Gui {
             return;
         }
 
+        Self::inject_all_pending_webview_a11y_updates(ctx, pending);
+    }
+
+    fn inject_all_pending_webview_a11y_updates(
+        ctx: &egui::Context,
+        pending: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
+    ) {
         for (webview_id, tree_update) in pending.drain() {
             Self::inject_single_webview_a11y_update(ctx, webview_id, &tree_update);
         }
