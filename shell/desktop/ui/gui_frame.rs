@@ -1066,6 +1066,27 @@ pub(crate) fn run_post_render_phase<FActive>(
         tile_view_ops::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
     }
 
+    run_post_render_pending_actions(
+        graph_app,
+        window,
+        tiles_tree,
+        tile_rendering_contexts,
+        tile_favicon_textures,
+        webview_creation_backpressure,
+        focused_node_hint,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_post_render_pending_actions(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+) {
     if let Some((request, action)) = graph_app.take_unsaved_workspace_prompt_resolution() {
         match (request, action) {
             (
@@ -1133,8 +1154,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &[node_key]);
     }
 
-    if let Some((seed_nodes, frame_name)) = graph_app.take_pending_add_connected_to_frame()
-    {
+    if let Some((seed_nodes, frame_name)) = graph_app.take_pending_add_connected_to_frame() {
         let nodes = connected_frame_import_nodes(graph_app, &seed_nodes);
         add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &nodes);
     }
@@ -1198,6 +1218,16 @@ pub(crate) fn run_post_render_phase<FActive>(
         tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, node_key);
     }
 
+    handle_pending_open_connected_from(graph_app, tiles_tree);
+
+    handle_pending_history_frame_restore(graph_app, tiles_tree);
+    autosave_session_workspace_layout_if_allowed(graph_app, tiles_tree);
+}
+
+fn handle_pending_open_connected_from(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) {
     if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
         && graph_app.workspace.graph.get_node(source).is_some()
     {
@@ -1241,13 +1271,16 @@ pub(crate) fn run_post_render_phase<FActive>(
                 }
             }
             tile_view_ops::TileOpenMode::SplitHorizontal => {
-                // One-shot connected-open uses a compact 2-up / 2x2 split policy (max 4),
-                // with overflow grouped into tabs below the split area.
                 apply_connected_split_layout(tiles_tree, &ordered);
             }
         }
     }
+}
 
+fn handle_pending_history_frame_restore(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) {
     if let Some(layout_json) = graph_app.take_pending_history_frame_layout_json() {
         match serde_json::from_str::<Tree<TileKind>>(&layout_json) {
             Ok(mut restored_tree) => {
@@ -1260,10 +1293,13 @@ pub(crate) fn run_post_render_phase<FActive>(
             Err(e) => warn!("Failed to deserialize undo/redo frame snapshot: {e}"),
         }
     }
+}
 
+fn autosave_session_workspace_layout_if_allowed(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
     let prompt_pending = graph_app.unsaved_workspace_prompt_request().is_some();
-    // Session autosave should not block on unsaved-workspace prompts. Prompting
-    // is reserved for explicit frame-switch actions.
     if !prompt_pending {
         match serde_json::to_string(tiles_tree) {
             Ok(layout_json) => match persistence_ops::serialize_named_frame_bundle(
