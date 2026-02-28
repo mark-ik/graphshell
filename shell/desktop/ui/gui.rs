@@ -1364,15 +1364,22 @@ impl Gui {
         &mut self,
         event: &egui_winit::accesskit_winit::WindowEvent,
     ) -> bool {
+        Self::dispatch_accesskit_window_event(self, event)
+    }
+
+    fn dispatch_accesskit_window_event(
+        gui: &mut Self,
+        event: &egui_winit::accesskit_winit::WindowEvent,
+    ) -> bool {
         match event {
             egui_winit::accesskit_winit::WindowEvent::InitialTreeRequested => {
-                self.handle_accesskit_initial_tree_requested()
+                gui.handle_accesskit_initial_tree_requested()
             }
             egui_winit::accesskit_winit::WindowEvent::ActionRequested(req) => {
-                self.handle_accesskit_action_requested(req)
+                gui.handle_accesskit_action_requested(req)
             }
             egui_winit::accesskit_winit::WindowEvent::AccessibilityDeactivated => {
-                self.handle_accesskit_deactivated()
+                gui.handle_accesskit_deactivated()
             }
         }
     }
