@@ -1736,7 +1736,28 @@ fn restore_graph_snapshot_and_reset_workspace(
 ) {
     capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
     close_all_webviews_and_apply_intents(graph_app, window, tiles_tree);
-    match restore(graph_app) {
+    apply_graph_snapshot_restore_result(
+        restore(graph_app),
+        tiles_tree,
+        tile_rendering_contexts,
+        tile_favicon_textures,
+        webview_creation_backpressure,
+        focused_node_hint,
+        on_error,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_graph_snapshot_restore_result(
+    restore_result: Result<(), String>,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+    on_error: impl FnOnce(&str),
+) {
+    match restore_result {
         Ok(()) => {
             reset_graph_workspace_after_snapshot_restore(
                 tiles_tree,
