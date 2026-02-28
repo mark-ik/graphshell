@@ -1482,7 +1482,7 @@ impl Gui {
     }
 
     fn handle_accesskit_initial_tree_requested(&mut self) -> bool {
-        self.context.egui_ctx.enable_accesskit();
+        Self::set_accesskit_enabled(&self.context.egui_ctx, true);
         true
     }
 
@@ -1502,8 +1502,16 @@ impl Gui {
     }
 
     fn handle_accesskit_deactivated(&mut self) -> bool {
-        self.context.egui_ctx.disable_accesskit();
+        Self::set_accesskit_enabled(&self.context.egui_ctx, false);
         false
+    }
+
+    fn set_accesskit_enabled(egui_ctx: &egui::Context, enabled: bool) {
+        if enabled {
+            egui_ctx.enable_accesskit();
+        } else {
+            egui_ctx.disable_accesskit();
+        }
     }
 
     pub(crate) fn set_zoom_factor(&self, factor: f32) {
