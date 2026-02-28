@@ -1522,11 +1522,11 @@ impl Gui {
             });
         }
 
-        let root_node_id = if allowed_node_ids.contains(&tree_update.focus) {
-            Some(tree_update.focus)
-        } else {
-            nodes.first().map(|node| node.node_id)
-        };
+        let root_node_id = Self::select_webview_a11y_root_node_id(
+            &allowed_node_ids,
+            tree_update.focus,
+            &nodes,
+        );
 
         WebViewA11yGraftPlan {
             anchor_label: Self::webview_accessibility_label(webview_id, tree_update),
@@ -1534,6 +1534,18 @@ impl Gui {
             dropped_node_count: tree_update.nodes.len().saturating_sub(nodes.len()),
             conversion_fallback_count,
             nodes,
+        }
+    }
+
+    fn select_webview_a11y_root_node_id(
+        allowed_node_ids: &HashSet<accesskit::NodeId>,
+        focus_node_id: accesskit::NodeId,
+        nodes: &[WebViewA11yNodePlan],
+    ) -> Option<accesskit::NodeId> {
+        if allowed_node_ids.contains(&focus_node_id) {
+            Some(focus_node_id)
+        } else {
+            nodes.first().map(|node| node.node_id)
         }
     }
 
