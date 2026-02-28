@@ -120,6 +120,24 @@ struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
 }
 
+struct SemanticLifecyclePhaseArgs<'a> {
+    graph_app: &'a mut GraphBrowserApp,
+    tiles_tree: &'a mut Tree<TileKind>,
+    window: &'a EmbedderWindow,
+    app_state: &'a Option<Rc<RunningAppState>>,
+    rendering_context: &'a Rc<OffscreenRenderingContext>,
+    window_rendering_context: &'a Rc<WindowRenderingContext>,
+    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    favicon_textures:
+        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    responsive_webviews: &'a HashSet<WebViewId>,
+    pending_open_child_webviews: Vec<WebViewId>,
+    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
+    frame_intents: &'a mut Vec<GraphIntent>,
+}
+
 struct WebViewA11yNodePlan {
     node_id: accesskit::NodeId,
     role: egui::accesskit::Role,
@@ -984,7 +1002,7 @@ impl Gui {
         open_node_tile_after_intents: &mut Option<TileOpenMode>,
         frame_intents: &mut Vec<GraphIntent>,
     ) {
-        Self::run_semantic_lifecycle_phase(
+        Self::run_semantic_lifecycle_phase(SemanticLifecyclePhaseArgs {
             graph_app,
             tiles_tree,
             window,
@@ -999,7 +1017,7 @@ impl Gui {
             webview_creation_backpressure,
             open_node_tile_after_intents,
             frame_intents,
-        );
+        });
 
         knowledge::reconcile_semantics(graph_app, &registry_runtime.knowledge);
 
@@ -1037,23 +1055,24 @@ impl Gui {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn run_semantic_lifecycle_phase(
-        graph_app: &mut GraphBrowserApp,
-        tiles_tree: &mut Tree<TileKind>,
-        window: &EmbedderWindow,
-        app_state: &Option<Rc<RunningAppState>>,
-        rendering_context: &Rc<OffscreenRenderingContext>,
-        window_rendering_context: &Rc<WindowRenderingContext>,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-        responsive_webviews: &HashSet<WebViewId>,
-        pending_open_child_webviews: Vec<WebViewId>,
-        webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-        open_node_tile_after_intents: &mut Option<TileOpenMode>,
-        frame_intents: &mut Vec<GraphIntent>,
-    ) {
+    fn run_semantic_lifecycle_phase(args: SemanticLifecyclePhaseArgs<'_>) {
+        let SemanticLifecyclePhaseArgs {
+            graph_app,
+            tiles_tree,
+            window,
+            app_state,
+            rendering_context,
+            window_rendering_context,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            favicon_textures,
+            responsive_webviews,
+            pending_open_child_webviews,
+            webview_creation_backpressure,
+            open_node_tile_after_intents,
+            frame_intents,
+        } = args;
+
         gui_orchestration::run_semantic_lifecycle_phase(
             graph_app,
             tiles_tree,
