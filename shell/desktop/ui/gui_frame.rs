@@ -1657,11 +1657,18 @@ fn autosave_session_workspace_layout_if_allowed(
 ) {
     let prompt_pending = is_unsaved_workspace_prompt_pending(graph_app);
     if !prompt_pending {
-        if let Some((bundle_json, layout_json)) =
-            build_session_workspace_layout_payload(graph_app, tiles_tree)
-        {
-            persist_session_workspace_layout_blob_if_changed(graph_app, &bundle_json, &layout_json);
-        }
+        persist_autosave_session_workspace_layout_if_available(graph_app, tiles_tree);
+    }
+}
+
+fn persist_autosave_session_workspace_layout_if_available(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &Tree<TileKind>,
+) {
+    if let Some((bundle_json, layout_json)) =
+        build_session_workspace_layout_payload(graph_app, tiles_tree)
+    {
+        persist_session_workspace_layout_blob_if_changed(graph_app, &bundle_json, &layout_json);
     }
 }
 
