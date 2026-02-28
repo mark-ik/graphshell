@@ -100,16 +100,59 @@ pub(crate) fn node_for_frame_activation(
         .or_else(|| active_node_pane_rects(tiles_tree).first().map(|(node_key, _)| *node_key))
 }
 
+fn mapped_active_node_for_activation_fallback(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    excluded: Option<NodeKey>,
+) -> Option<NodeKey> {
+    tiles_tree
+        .active_tiles()
+        .into_iter()
+        .filter_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
+            Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
+            _ => None,
+        })
+        .find(|node_key| {
+            Some(*node_key) != excluded && graph_app.get_webview_for_node(*node_key).is_some()
+        })
+}
+
+fn frame_activation_targets(
+    tiles_tree: &Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    focused_hint: Option<NodeKey>,
+) -> (Option<NodeKey>, Option<NodeKey>) {
+    let primary = node_for_frame_activation(tiles_tree, graph_app, focused_hint);
+    let fallback = primary.and_then(|node_key| {
+        if graph_app.get_webview_for_node(node_key).is_some() {
+            None
+        } else {
+            mapped_active_node_for_activation_fallback(tiles_tree, graph_app, Some(node_key))
+        }
+    });
+    (primary, fallback)
+}
+
 pub(crate) fn activate_focused_node_for_frame(
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     graph_app: &GraphBrowserApp,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
-    if let Some(node_key) = node_for_frame_activation(tiles_tree, graph_app, *focused_node_hint) {
+    let (primary, fallback) = frame_activation_targets(tiles_tree, graph_app, *focused_node_hint);
+    if let Some(node_key) = primary {
         *focused_node_hint = Some(node_key);
         if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
             window.activate_webview(wv_id);
+        } else if let Some(fallback_node) = fallback
+            && let Some(fallback_wv_id) = graph_app.get_webview_for_node(fallback_node)
+        {
+            log::debug!(
+                "tile_compositor: deferring activation for unmapped focus node {:?}; using mapped fallback {:?}",
+                node_key,
+                fallback_node
+            );
+            window.activate_webview(fallback_wv_id);
         }
     }
 }
@@ -331,5 +374,65 @@ fn hover_overlay_for_mode(
         stroke,
         style,
         render_mode,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+    use egui_tiles::Tiles;
+
+    fn test_webview_id() -> servo::WebViewId {
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+        servo::WebViewId::new(PainterId::next())
+    }
+
+    fn tree_with_two_active_nodes(a: NodeKey, b: NodeKey) -> Tree<TileKind> {
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![graph, a_tile, b_tile]);
+        let mut tree = Tree::new("tile_compositor_focus_targets", root, tiles);
+        let _ = tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == a)
+        });
+        let _ = tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b)
+        });
+        tree
+    }
+
+    #[test]
+    fn frame_activation_targets_prefers_primary_when_mapped() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = NodeKey::new(1);
+        let b = NodeKey::new(2);
+        let tree = tree_with_two_active_nodes(a, b);
+        app.map_webview_to_node(test_webview_id(), a);
+
+        let (primary, fallback) = frame_activation_targets(&tree, &app, Some(a));
+
+        assert_eq!(primary, Some(a));
+        assert_eq!(fallback, None);
+    }
+
+    #[test]
+    fn frame_activation_targets_retains_unmapped_primary_and_uses_mapped_fallback() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = NodeKey::new(3);
+        let b = NodeKey::new(4);
+        let tree = tree_with_two_active_nodes(a, b);
+        app.map_webview_to_node(test_webview_id(), b);
+
+        let (primary, fallback) = frame_activation_targets(&tree, &app, Some(a));
+
+        assert_eq!(primary, Some(a));
+        assert_eq!(fallback, Some(b));
     }
 }
