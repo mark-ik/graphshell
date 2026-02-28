@@ -1360,15 +1360,25 @@ fn handle_pending_history_frame_restore(
     tiles_tree: &mut Tree<TileKind>,
 ) {
     if let Some(layout_json) = graph_app.take_pending_history_frame_layout_json() {
-        match serde_json::from_str::<Tree<TileKind>>(&layout_json) {
-            Ok(mut restored_tree) => {
-                tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
-                if restored_tree.root().is_some() {
-                    *tiles_tree = restored_tree;
-                    graph_app.mark_session_frame_layout_json(&layout_json);
-                }
-            }
-            Err(e) => warn!("Failed to deserialize undo/redo frame snapshot: {e}"),
+        if let Some(restored_tree) = deserialize_history_frame_layout(graph_app, &layout_json) {
+            *tiles_tree = restored_tree;
+            graph_app.mark_session_frame_layout_json(&layout_json);
+        }
+    }
+}
+
+fn deserialize_history_frame_layout(
+    graph_app: &GraphBrowserApp,
+    layout_json: &str,
+) -> Option<Tree<TileKind>> {
+    match serde_json::from_str::<Tree<TileKind>>(layout_json) {
+        Ok(mut restored_tree) => {
+            tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
+            restored_tree.root().is_some().then_some(restored_tree)
+        }
+        Err(e) => {
+            warn!("Failed to deserialize undo/redo frame snapshot: {e}");
+            None
         }
     }
 }
