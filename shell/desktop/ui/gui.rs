@@ -1248,13 +1248,21 @@ impl Gui {
 
     /// Paint the GUI, as of the last update.
     pub(crate) fn paint(&mut self, window: &Window) {
+        self.begin_paint_pass();
+        self.context.paint(window);
+        self.end_paint_pass();
+    }
+
+    fn begin_paint_pass(&self) {
         self.rendering_context
             .make_current()
             .expect("Could not make RenderingContext current");
         self.rendering_context
             .parent_context()
             .prepare_for_rendering();
-        self.context.paint(window);
+    }
+
+    fn end_paint_pass(&self) {
         self.rendering_context.parent_context().present();
     }
 
