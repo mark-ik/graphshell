@@ -112,6 +112,29 @@ pub enum HistoryManagerTab {
     Dissolved,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SettingsToolPage {
+    #[default]
+    General,
+    Persistence,
+    Physics,
+    Sync,
+    Appearance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsRouteTarget {
+    History,
+    Settings(SettingsToolPage),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolSurfaceReturnTarget {
+    Graph(GraphViewId),
+    Node(NodeKey),
+    Tool(crate::shell::desktop::workbench::pane_model::ToolPaneState),
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum LayoutMode {
     Free,
@@ -1125,6 +1148,16 @@ pub enum GraphIntent {
     OpenToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
     },
+    /// Close a tool pane of the given kind.
+    ///
+    /// **Workbench-authority intent** — intercepted by the Gui frame loop
+    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
+    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
+    #[allow(dead_code)]
+    CloseToolPane {
+        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+        restore_previous_focus: bool,
+    },
     /// Set (or clear) the MIME type hint on a node.
     ///
     /// Emitted after extension sniffing at node creation time, or after content-byte
@@ -1207,6 +1240,8 @@ pub struct GraphWorkspace {
 
     /// Active tab in the History Manager panel.
     pub history_manager_tab: HistoryManagerTab,
+    /// Active page in the Settings tool pane.
+    pub settings_tool_page: SettingsToolPage,
 
     /// Whether the keyboard shortcut help panel is open
     pub show_help_panel: bool,
@@ -1240,6 +1275,8 @@ pub struct GraphWorkspace {
     pending_node_context_target: Option<NodeKey>,
     /// Explicit highlighted edge in graph view (for edge-search targeting).
     pub highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
+    /// Pending return target for settings/history tool-surface exit actions.
+    pending_tool_surface_return_target: Option<ToolSurfaceReturnTarget>,
 
     /// Pending UI command: open connected nodes for this source, tile mode, and scope.
     pending_open_connected_from: Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)>,
@@ -1518,6 +1555,7 @@ impl GraphBrowserApp {
                 is_interacting: false,
                 drag_release_frames_remaining: 0,
                 history_manager_tab: HistoryManagerTab::Timeline,
+                settings_tool_page: SettingsToolPage::General,
                 show_help_panel: false,
                 show_command_palette: false,
                 show_radial_menu: false,
@@ -1533,6 +1571,7 @@ impl GraphBrowserApp {
                 search_display_mode: SearchDisplayMode::Highlight,
                 pending_node_context_target: None,
                 highlighted_graph_edge: None,
+                pending_tool_surface_return_target: None,
                 pending_open_connected_from: None,
                 pending_open_node_request: None,
                 pending_save_workspace_snapshot: false,
@@ -1708,6 +1747,7 @@ impl GraphBrowserApp {
                 is_interacting: false,
                 drag_release_frames_remaining: 0,
                 history_manager_tab: HistoryManagerTab::Timeline,
+                settings_tool_page: SettingsToolPage::General,
                 show_help_panel: false,
                 show_command_palette: false,
                 show_radial_menu: false,
@@ -1723,6 +1763,7 @@ impl GraphBrowserApp {
                 search_display_mode: SearchDisplayMode::Highlight,
                 pending_node_context_target: None,
                 highlighted_graph_edge: None,
+                pending_tool_surface_return_target: None,
                 pending_open_connected_from: None,
                 pending_open_node_request: None,
                 pending_save_workspace_snapshot: false,
@@ -1877,6 +1918,13 @@ impl GraphBrowserApp {
 
     pub fn request_camera_command(&mut self, command: CameraCommand) {
         let target_view = self.resolve_camera_target_view();
+        if target_view.is_none() {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: "runtime.ui.graph.camera_request_blocked",
+                latency_us: 0,
+            });
+            return;
+        }
         self.request_camera_command_for_view(target_view, command);
     }
 
@@ -1907,6 +1955,10 @@ impl GraphBrowserApp {
     fn queue_keyboard_zoom_request(&mut self, request: KeyboardZoomRequest) {
         let Some(target_view) = self.resolve_camera_target_view()
         else {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: "runtime.ui.graph.keyboard_zoom_blocked",
+                latency_us: 0,
+            });
             return;
         };
 
@@ -2691,7 +2743,8 @@ impl GraphBrowserApp {
             GraphIntent::SplitPane { .. }
             | GraphIntent::SetPaneView { .. }
             | GraphIntent::OpenNodeInPane { .. }
-            | GraphIntent::OpenToolPane { .. } => {
+            | GraphIntent::OpenToolPane { .. }
+            | GraphIntent::CloseToolPane { .. } => {
                 log::warn!(
                     "workbench-authority intent reached graph reducer — \
                      should have been intercepted by Gui frame-loop before apply_intents(); \
@@ -4148,6 +4201,41 @@ impl GraphBrowserApp {
              expected interception in Gui handle_tool_pane_intents",
             normalized
         );
+    }
+
+    pub fn resolve_settings_route(url: &str) -> Option<SettingsRouteTarget> {
+        match url.trim().to_ascii_lowercase().as_str() {
+            "graphshell://settings/history" => Some(SettingsRouteTarget::History),
+            "graphshell://settings" | "graphshell://settings/general" => {
+                Some(SettingsRouteTarget::Settings(SettingsToolPage::General))
+            }
+            "graphshell://settings/persistence" => {
+                Some(SettingsRouteTarget::Settings(SettingsToolPage::Persistence))
+            }
+            "graphshell://settings/physics" => {
+                Some(SettingsRouteTarget::Settings(SettingsToolPage::Physics))
+            }
+            "graphshell://settings/sync" => Some(SettingsRouteTarget::Settings(SettingsToolPage::Sync)),
+            "graphshell://settings/appearance" => {
+                Some(SettingsRouteTarget::Settings(SettingsToolPage::Appearance))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn set_pending_tool_surface_return_target(
+        &mut self,
+        target: Option<ToolSurfaceReturnTarget>,
+    ) {
+        self.workspace.pending_tool_surface_return_target = target;
+    }
+
+    pub fn take_pending_tool_surface_return_target(&mut self) -> Option<ToolSurfaceReturnTarget> {
+        self.workspace.pending_tool_surface_return_target.take()
+    }
+
+    pub fn pending_tool_surface_return_target(&self) -> Option<ToolSurfaceReturnTarget> {
+        self.workspace.pending_tool_surface_return_target.clone()
     }
 
     /// Return recent traversal archive entries (descending, newest first).
@@ -5619,6 +5707,7 @@ mod tests {
         // Request fit to screen
         app.request_fit_to_screen();
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+        assert_eq!(app.pending_camera_command_target(), Some(view_id));
 
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
@@ -5640,6 +5729,27 @@ mod tests {
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
         assert_eq!(app.pending_camera_command_target(), Some(view_id));
+    }
+
+    #[test]
+    fn test_request_fit_to_screen_without_focus_and_multiple_views_is_noop() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+        app.workspace.focused_view = None;
+        app.workspace.graph_view_frames.clear();
+
+        app.clear_pending_camera_command();
+        app.request_fit_to_screen();
+
+        assert!(app.pending_camera_command().is_none());
+        assert!(app.pending_camera_command_target().is_none());
     }
 
     #[test]
@@ -5753,6 +5863,7 @@ mod tests {
         app.apply_intents([GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+        assert_eq!(app.pending_camera_command_target(), Some(view_id));
     }
 
     #[test]
@@ -5774,6 +5885,7 @@ mod tests {
         app.apply_intents([GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+        assert_eq!(app.pending_camera_command_target(), Some(view_id));
     }
 
     #[test]
@@ -5804,6 +5916,37 @@ mod tests {
             app.pending_camera_command(),
             Some(CameraCommand::FitSelection)
         );
+        assert_eq!(app.pending_camera_command_target(), Some(view_id));
+    }
+
+    #[test]
+    fn test_zoom_to_selected_without_focus_and_multiple_views_is_noop() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+        app.workspace.focused_view = None;
+        let key_a = app
+            .workspace
+            .graph
+            .add_node("a".to_string(), Point2D::new(0.0, 0.0));
+        let key_b = app
+            .workspace
+            .graph
+            .add_node("b".to_string(), Point2D::new(100.0, 50.0));
+        app.select_node(key_a, false);
+        app.select_node(key_b, true);
+        app.clear_pending_camera_command();
+
+        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+
+        assert!(app.pending_camera_command().is_none());
+        assert!(app.pending_camera_command_target().is_none());
     }
 
     #[test]

@@ -56,6 +56,27 @@ impl TileCoordinator {
             .unwrap_or(TileRenderMode::Placeholder)
     }
 
+    fn render_path_hint_for_mode(
+        render_mode: TileRenderMode,
+        mapped_webview: bool,
+        has_context: bool,
+    ) -> &'static str {
+        match render_mode {
+            TileRenderMode::CompositedTexture => {
+                if mapped_webview && has_context {
+                    "composited"
+                } else if mapped_webview {
+                    "composited-missing-context"
+                } else {
+                    "composited-unmapped"
+                }
+            }
+            TileRenderMode::NativeOverlay => "native-overlay",
+            TileRenderMode::EmbeddedEgui => "embedded-egui",
+            TileRenderMode::Placeholder => "placeholder",
+        }
+    }
+
     fn node_pane_uses_composited_runtime_impl(
         state: &NodePaneState,
         graph_app: &GraphBrowserApp,
@@ -299,6 +320,14 @@ pub(crate) fn refresh_node_pane_render_modes(
     TileCoordinator::refresh_node_pane_render_modes(tiles_tree, graph_app);
 }
 
+pub(crate) fn render_path_hint_for_mode(
+    render_mode: TileRenderMode,
+    mapped_webview: bool,
+    has_context: bool,
+) -> &'static str {
+    TileCoordinator::render_path_hint_for_mode(render_mode, mapped_webview, has_context)
+}
+
 pub(crate) fn prune_stale_node_pane_keys_only(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -537,6 +566,46 @@ mod tests {
         assert_eq!(
             mode_for.get(&plaintext_node).copied(),
             Some(TileRenderMode::EmbeddedEgui)
+        );
+    }
+
+    #[test]
+    fn render_path_hint_projects_from_tile_render_mode() {
+        assert_eq!(
+            TileCoordinator::render_path_hint_for_mode(
+                TileRenderMode::CompositedTexture,
+                true,
+                true
+            ),
+            "composited"
+        );
+        assert_eq!(
+            TileCoordinator::render_path_hint_for_mode(
+                TileRenderMode::CompositedTexture,
+                true,
+                false
+            ),
+            "composited-missing-context"
+        );
+        assert_eq!(
+            TileCoordinator::render_path_hint_for_mode(
+                TileRenderMode::CompositedTexture,
+                false,
+                false
+            ),
+            "composited-unmapped"
+        );
+        assert_eq!(
+            TileCoordinator::render_path_hint_for_mode(TileRenderMode::NativeOverlay, false, false),
+            "native-overlay"
+        );
+        assert_eq!(
+            TileCoordinator::render_path_hint_for_mode(TileRenderMode::EmbeddedEgui, false, false),
+            "embedded-egui"
+        );
+        assert_eq!(
+            TileCoordinator::render_path_hint_for_mode(TileRenderMode::Placeholder, false, false),
+            "placeholder"
         );
     }
 }

@@ -42,6 +42,7 @@ impl TestRegistry {
     pub(crate) fn open_node_tab(&mut self, key: NodeKey) {
         tile_view_ops::open_or_focus_node_pane_with_mode(
             &mut self.tiles_tree,
+            &self.app,
             key,
             TileOpenMode::Tab,
         );

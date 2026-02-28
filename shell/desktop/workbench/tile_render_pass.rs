@@ -204,6 +204,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     for open in pending_open_nodes {
         tile_view_ops::open_or_focus_node_pane_with_mode(
             tiles_tree,
+            graph_app,
             open.key,
             open_mode_from_pending(open.mode),
         );
@@ -211,7 +212,12 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
 
     #[cfg(feature = "diagnostics")]
     if let Some(node_key) = diagnostics_state.take_pending_focus_node() {
-        tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, node_key, TileOpenMode::Tab);
+        tile_view_ops::open_or_focus_node_pane_with_mode(
+            tiles_tree,
+            graph_app,
+            node_key,
+            TileOpenMode::Tab,
+        );
         post_render_intents.push(GraphIntent::SelectNode {
             key: node_key,
             multi_select: false,
@@ -460,16 +466,24 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         let tiles = active_tiles_for_diag
             .iter()
             .map(|(node_key, rect)| {
+                let render_mode = tiles_tree
+                    .tiles
+                    .iter()
+                    .find_map(|(_, tile)| match tile {
+                        egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == *node_key => {
+                            Some(state.render_mode)
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder);
                 let mapped_webview = graph_app.get_webview_for_node(*node_key).is_some();
                 let has_context = tile_rendering_contexts.contains_key(node_key);
                 let paint_callback_registered = mapped_webview && has_context;
-                let render_path_hint = if paint_callback_registered {
-                    "composited"
-                } else if mapped_webview {
-                    "missing-context"
-                } else {
-                    "unmapped-node-viewer"
-                };
+                let render_path_hint = crate::shell::desktop::workbench::tile_runtime::render_path_hint_for_mode(
+                    render_mode,
+                    mapped_webview,
+                    has_context,
+                );
                 crate::shell::desktop::runtime::diagnostics::CompositorTileSample {
                     node_key: *node_key,
                     rect: *rect,

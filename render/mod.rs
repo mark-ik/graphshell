@@ -251,9 +251,7 @@ pub fn render_graph_in_ui_collect_actions(
     // cannot consume the delta first.
     let graph_rect = ui.max_rect();
     if ui.rect_contains_pointer(graph_rect) {
-        // Track the focused graph view — used to route keyboard zoom / camera
-        // commands to the correct pane when multiple graph panes are open.
-        app.workspace.focused_view = Some(view_id);
+        let mut captured_wheel_zoom = false;
         ui.input_mut(|input| {
             let scroll_delta = if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
                 input.smooth_scroll_delta.y
@@ -269,11 +267,20 @@ pub fn render_graph_in_ui_collect_actions(
             let should_capture = canvas_profile.should_capture_wheel_zoom(ctrl_pressed);
 
             if should_capture {
+                captured_wheel_zoom = true;
                 app.queue_pending_wheel_zoom_delta(view_id, scroll_delta);
                 input.smooth_scroll_delta.y = 0.0;
                 input.raw_scroll_delta.y = 0.0;
+            } else {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: "runtime.ui.graph.wheel_zoom_not_captured",
+                    latency_us: 0,
+                });
             }
         });
+        if captured_wheel_zoom {
+            app.workspace.focused_view = Some(view_id);
+        }
     }
 
     // Render the graph (nested scope for mutable borrow)
@@ -425,6 +432,9 @@ pub fn render_graph_in_ui_collect_actions(
     }
     if let Some(zoom) = custom_zoom {
         actions.push(GraphAction::Zoom(zoom));
+    }
+    if clear_selection_on_background_click || !actions.is_empty() {
+        app.workspace.focused_view = Some(view_id);
     }
     actions
 }
@@ -980,6 +990,7 @@ fn handle_custom_navigation(
     ) {
         let delta = ui.input(|i| i.pointer.delta());
         if delta != Vec2::ZERO {
+            app.workspace.focused_view = Some(view_id);
             ui.ctx().data_mut(|data| {
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
                     meta.pan += delta;
@@ -1055,6 +1066,7 @@ fn apply_pending_keyboard_zoom_request(
     let local_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size());
     let local_center = local_rect.center().to_vec2();
     let mut updated_zoom = None;
+    let mut missing_metadata = false;
 
     ui.ctx().data_mut(|data| {
         if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
@@ -1070,8 +1082,17 @@ fn apply_pending_keyboard_zoom_request(
             meta.zoom = new_zoom;
             data.insert_persisted(metadata_id, meta);
             updated_zoom = Some(new_zoom);
+        } else {
+            missing_metadata = true;
         }
     });
+
+    if missing_metadata {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: "runtime.ui.graph.keyboard_zoom_blocked_no_metadata",
+            latency_us: 0,
+        });
+    }
 
     // Keep zoom in sync on the appropriate camera.
     if let Some(new_zoom) = updated_zoom {
@@ -1115,14 +1136,23 @@ fn apply_pending_camera_command(
     match command {
         CameraCommand::SetZoom(target_zoom) => {
             let mut updated_zoom = None;
+            let mut missing_metadata = false;
             ui.ctx().data_mut(|data| {
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
                     let new_zoom = target_zoom.clamp(zoom_min, zoom_max);
                     meta.zoom = new_zoom;
                     data.insert_persisted(metadata_id, meta);
                     updated_zoom = Some(new_zoom);
+                } else {
+                    missing_metadata = true;
                 }
             });
+            if missing_metadata {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: "runtime.ui.graph.camera_zoom_deferred_no_metadata",
+                    latency_us: 0,
+                });
+            }
             if let Some(new_zoom) = updated_zoom {
                 if let Some(view) = app.workspace.views.get_mut(&view_id) {
                     view.camera.current_zoom = new_zoom;
@@ -1135,6 +1165,10 @@ fn apply_pending_camera_command(
             let graph_rect = ui.max_rect();
             let view_size = graph_rect.size();
             if view_size.x <= f32::EPSILON || view_size.y <= f32::EPSILON {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: "runtime.ui.graph.camera_fit_blocked_zero_view",
+                    latency_us: 0,
+                });
                 return None;
             }
 
@@ -1146,8 +1180,16 @@ fn apply_pending_camera_command(
 
             let Some((min_x, max_x, min_y, max_y)) = bounds else {
                 if matches!(command, CameraCommand::FitSelection) {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: "runtime.ui.graph.fit_selection_fallback_to_fit",
+                        latency_us: 0,
+                    });
                     app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
                 } else {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: "runtime.ui.graph.camera_fit_blocked_no_bounds",
+                        latency_us: 0,
+                    });
                     app.clear_pending_camera_command();
                 }
                 return None;
@@ -1177,14 +1219,24 @@ fn apply_pending_camera_command(
             let target_pan = viewport_center - center.to_vec2() * target_zoom;
 
             let mut updated_zoom = None;
+            let mut missing_metadata = false;
             ui.ctx().data_mut(|data| {
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
                     meta.zoom = target_zoom;
                     meta.pan = target_pan;
                     data.insert_persisted(metadata_id, meta);
                     updated_zoom = Some(target_zoom);
+                } else {
+                    missing_metadata = true;
                 }
             });
+
+            if missing_metadata {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: "runtime.ui.graph.camera_fit_deferred_no_metadata",
+                    latency_us: 0,
+                });
+            }
 
             if let Some(new_zoom) = updated_zoom {
                 if let Some(view) = app.workspace.views.get_mut(&view_id) {
@@ -1455,6 +1507,10 @@ fn collect_lasso_action(
         .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
         .unwrap_or_default();
     let Some(state) = app.workspace.egui_state.as_ref() else {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: "runtime.ui.graph.lasso_blocked_no_state",
+            latency_us: 0,
+        });
         return LassoGestureResult {
             action: None,
             suppress_context_menu: matches!(lasso_binding, CanvasLassoBinding::RightDrag),
@@ -1501,6 +1557,11 @@ fn collect_graph_actions(
                             actions.push(GraphAction::FocusNode(key));
                         }
                     }
+                } else {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        latency_us: 0,
+                    });
                 }
             }
             Event::NodeDragStart(_) => {
@@ -1518,6 +1579,11 @@ fn collect_graph_actions(
                             .unwrap_or_default();
                         actions.push(GraphAction::DragEnd(key, pos));
                     }
+                } else {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        latency_us: 0,
+                    });
                 }
             }
             Event::NodeMove(p) => {
@@ -1529,6 +1595,11 @@ fn collect_graph_actions(
                             Point2D::new(p.new_pos[0], p.new_pos[1]),
                         ));
                     }
+                } else {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        latency_us: 0,
+                    });
                 }
             }
             Event::NodeSelect(p) => {
@@ -1540,6 +1611,11 @@ fn collect_graph_actions(
                             multi_select: multi_select_modifier,
                         });
                     }
+                } else {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        latency_us: 0,
+                    });
                 }
             }
             Event::NodeDeselect(p) => {
@@ -1554,6 +1630,11 @@ fn collect_graph_actions(
                                 multi_select: true,
                             });
                         }
+                    } else {
+                        emit_event(DiagnosticEvent::MessageReceived {
+                            channel_id: "runtime.ui.graph.event_blocked_no_state",
+                            latency_us: 0,
+                        });
                     }
                 }
                 // Without modifier: selection clearing is handled by the next SelectNode action.
@@ -1628,6 +1709,12 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
 /// changes to `GraphAction` or `GraphIntent`.
 pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     let Some(state) = app.workspace.egui_state.as_ref() else {
+        if app.workspace.is_interacting {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: "runtime.ui.graph.layout_sync_blocked_no_state",
+                latency_us: 0,
+            });
+        }
         return;
     };
 
@@ -2073,6 +2160,21 @@ pub fn render_history_manager_in_ui(
     let (timeline_total, dissolved_total) = app.history_manager_archive_counts();
 
     ui.horizontal(|ui| {
+        if ui.button("Settings").clicked() {
+            intents.push(GraphIntent::OpenSettingsUrl {
+                url: "graphshell://settings/general".to_string(),
+            });
+        }
+        if ui.button("Done").clicked() {
+            intents.push(GraphIntent::CloseToolPane {
+                kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager,
+                restore_previous_focus: true,
+            });
+        }
+    });
+    ui.add_space(4.0);
+
+    ui.horizontal(|ui| {
         ui.selectable_value(
             &mut app.workspace.history_manager_tab,
             HistoryManagerTab::Timeline,
@@ -2127,94 +2229,177 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
     app: &mut GraphBrowserApp,
     mut control_panel: Option<&mut crate::shell::desktop::runtime::control_panel::ControlPanel>,
 ) -> Vec<GraphIntent> {
-    let intents: Vec<GraphIntent> = Vec::new();
+    let mut intents: Vec<GraphIntent> = Vec::new();
     ui.heading("Settings");
     ui.separator();
 
-    ui.label("Storage");
     ui.horizontal(|ui| {
-        ui.label("Data directory:");
-        let data_dir_input_id = ui.make_persistent_id("settings_tool_data_dir_input");
-        let mut data_dir_input = ui
-            .data_mut(|d| d.get_persisted::<String>(data_dir_input_id))
-            .unwrap_or_default();
-        if ui
-            .add(
-                egui::TextEdit::singleline(&mut data_dir_input)
-                    .desired_width(220.0)
-                    .hint_text("C:\\path\\to\\graph_data"),
-            )
-            .changed()
-        {
-            ui.data_mut(|d| d.insert_persisted(data_dir_input_id, data_dir_input.clone()));
+        if ui.button("History").clicked() {
+            intents.push(GraphIntent::OpenSettingsUrl {
+                url: "graphshell://settings/history".to_string(),
+            });
         }
-        if ui.button("Switch").clicked() {
-            let trimmed = data_dir_input.trim();
-            if !trimmed.is_empty() {
-                app.request_switch_data_dir(trimmed);
+        if ui.button("Done").clicked() {
+            intents.push(GraphIntent::CloseToolPane {
+                kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
+                restore_previous_focus: true,
+            });
+        }
+    });
+    ui.add_space(4.0);
+
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Category:");
+        ui.selectable_value(
+            &mut app.workspace.settings_tool_page,
+            crate::app::SettingsToolPage::General,
+            "General",
+        );
+        ui.selectable_value(
+            &mut app.workspace.settings_tool_page,
+            crate::app::SettingsToolPage::Persistence,
+            "Persistence",
+        );
+        ui.selectable_value(
+            &mut app.workspace.settings_tool_page,
+            crate::app::SettingsToolPage::Physics,
+            "Physics",
+        );
+        ui.selectable_value(
+            &mut app.workspace.settings_tool_page,
+            crate::app::SettingsToolPage::Sync,
+            "Sync",
+        );
+        ui.selectable_value(
+            &mut app.workspace.settings_tool_page,
+            crate::app::SettingsToolPage::Appearance,
+            "Appearance",
+        );
+    });
+    ui.separator();
+
+    match app.workspace.settings_tool_page {
+        crate::app::SettingsToolPage::General => {
+            ui.label("Settings are page-backed app surfaces in this pane.");
+            ui.label("Use categories to edit persistence, physics, sync, and appearance.");
+            ui.add_space(8.0);
+            if ui.button("Open History Surface").clicked() {
+                intents.push(GraphIntent::OpenSettingsUrl {
+                    url: "graphshell://settings/history".to_string(),
+                });
             }
         }
-    });
 
-    ui.horizontal(|ui| {
-        ui.label("Snapshot interval (sec):");
-        let interval_input_id = ui.make_persistent_id("settings_tool_snapshot_interval_input");
-        let mut interval_input = ui
-            .data_mut(|d| d.get_persisted::<String>(interval_input_id))
-            .unwrap_or_else(|| {
-                app.snapshot_interval_secs()
-                    .unwrap_or(crate::services::persistence::DEFAULT_SNAPSHOT_INTERVAL_SECS)
-                    .to_string()
+        crate::app::SettingsToolPage::Persistence => {
+            ui.label("Storage");
+            ui.horizontal(|ui| {
+                ui.label("Data directory:");
+                let data_dir_input_id = ui.make_persistent_id("settings_tool_data_dir_input");
+                let mut data_dir_input = ui
+                    .data_mut(|d| d.get_persisted::<String>(data_dir_input_id))
+                    .unwrap_or_default();
+                if ui
+                    .add(
+                        egui::TextEdit::singleline(&mut data_dir_input)
+                            .desired_width(220.0)
+                            .hint_text("C:\\path\\to\\graph_data"),
+                    )
+                    .changed()
+                {
+                    ui.data_mut(|d| d.insert_persisted(data_dir_input_id, data_dir_input.clone()));
+                }
+                if ui.button("Switch").clicked() {
+                    let trimmed = data_dir_input.trim();
+                    if !trimmed.is_empty() {
+                        app.request_switch_data_dir(trimmed);
+                    }
+                }
             });
-        if ui
-            .add(egui::TextEdit::singleline(&mut interval_input).desired_width(80.0))
-            .changed()
-        {
-            ui.data_mut(|d| d.insert_persisted(interval_input_id, interval_input.clone()));
+
+            ui.horizontal(|ui| {
+                ui.label("Snapshot interval (sec):");
+                let interval_input_id = ui.make_persistent_id("settings_tool_snapshot_interval_input");
+                let mut interval_input = ui
+                    .data_mut(|d| d.get_persisted::<String>(interval_input_id))
+                    .unwrap_or_else(|| {
+                        app.snapshot_interval_secs()
+                            .unwrap_or(crate::services::persistence::DEFAULT_SNAPSHOT_INTERVAL_SECS)
+                            .to_string()
+                    });
+                if ui
+                    .add(egui::TextEdit::singleline(&mut interval_input).desired_width(80.0))
+                    .changed()
+                {
+                    ui.data_mut(|d| d.insert_persisted(interval_input_id, interval_input.clone()));
+                }
+                if ui.button("Apply").clicked()
+                    && let Ok(secs) = interval_input.trim().parse::<u64>()
+                {
+                    let _ = app.set_snapshot_interval_secs(secs);
+                }
+            });
+
+            ui.separator();
+            ui.label("Frames");
+            if ui.button("Save Current Frame").clicked() {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                app.request_save_frame_snapshot_named(format!("workspace:toolpane-{now}"));
+            }
+            if ui.button("Prune Empty Named Frames").clicked() {
+                app.request_prune_empty_frames();
+            }
+
+            ui.separator();
+            ui.label("Graphs");
+            if ui.button("Save Graph Snapshot").clicked() {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                app.request_save_graph_snapshot_named(format!("toolpane-graph-{now}"));
+            }
+            if ui.button("Restore Latest Graph").clicked() {
+                app.request_restore_graph_snapshot_latest();
+            }
         }
-        if ui.button("Apply").clicked()
-            && let Ok(secs) = interval_input.trim().parse::<u64>()
-        {
-            let _ = app.set_snapshot_interval_secs(secs);
+
+        crate::app::SettingsToolPage::Physics => {
+            ui.label("Physics");
+            render_physics_settings_in_ui(ui, app);
         }
-    });
 
-    ui.separator();
-    ui.label("Frames");
-    if ui.button("Save Current Frame").clicked() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        app.request_save_frame_snapshot_named(format!("workspace:toolpane-{now}"));
-    }
-    if ui.button("Prune Empty Named Frames").clicked() {
-        app.request_prune_empty_frames();
-    }
+        crate::app::SettingsToolPage::Sync => {
+            ui.label("Sync");
+            if let Some(control_panel) = control_panel.as_mut() {
+                render_sync_settings_in_ui(ui, app, control_panel);
+            } else {
+                ui.small("Sync controls unavailable in this surface.");
+            }
+        }
 
-    ui.separator();
-    ui.label("Graphs");
-    if ui.button("Save Graph Snapshot").clicked() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        app.request_save_graph_snapshot_named(format!("toolpane-graph-{now}"));
-    }
-    if ui.button("Restore Latest Graph").clicked() {
-        app.request_restore_graph_snapshot_latest();
-    }
-
-    ui.separator();
-    ui.label("Physics");
-    render_physics_settings_in_ui(ui, app);
-
-    ui.separator();
-    ui.label("Sync");
-    if let Some(control_panel) = control_panel.as_mut() {
-        render_sync_settings_in_ui(ui, app, control_panel);
-    } else {
-        ui.small("Sync controls unavailable in this surface.");
+        crate::app::SettingsToolPage::Appearance => {
+            ui.label("Theme Mode");
+            let current_dark = matches!(
+                app.default_registry_theme_id(),
+                Some(crate::registries::atomic::theme::THEME_ID_DARK)
+            );
+            let mut dark_mode = current_dark;
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut dark_mode, false, "Light");
+                ui.radio_value(&mut dark_mode, true, "Dark");
+            });
+            if dark_mode != current_dark {
+                if dark_mode {
+                    app.set_default_registry_theme_id(Some(crate::registries::atomic::theme::THEME_ID_DARK));
+                } else {
+                    app.set_default_registry_theme_id(Some(crate::registries::atomic::theme::THEME_ID_DEFAULT));
+                }
+            }
+            ui.small("Theme mode is persisted through the workspace settings model.");
+        }
     }
 
     intents

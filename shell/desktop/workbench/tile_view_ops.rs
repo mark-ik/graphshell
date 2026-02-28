@@ -160,8 +160,12 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
     }
 }
 
-pub(crate) fn open_or_focus_node_pane(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
-    open_or_focus_node_pane_with_mode(tiles_tree, node_key, TileOpenMode::Tab);
+pub(crate) fn open_or_focus_node_pane(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+) {
+    open_or_focus_node_pane_with_mode(tiles_tree, graph_app, node_key, TileOpenMode::Tab);
 }
 
 #[cfg(feature = "diagnostics")]
@@ -202,8 +206,33 @@ pub(crate) fn open_or_focus_tool_pane(
 ) {
 }
 
+#[cfg(feature = "diagnostics")]
+pub(crate) fn close_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneState) -> bool {
+    let tool_tile_id = tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
+        Tile::Pane(TileKind::Tool(existing)) if *existing == kind => Some(*tile_id),
+        _ => None,
+    });
+
+    let Some(tile_id) = tool_tile_id else {
+        return false;
+    };
+
+    tiles_tree.remove_recursively(tile_id);
+    let _ = ensure_active_tile(tiles_tree);
+    true
+}
+
+#[cfg(not(feature = "diagnostics"))]
+pub(crate) fn close_tool_pane(
+    _tiles_tree: &mut Tree<TileKind>,
+    _kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+) -> bool {
+    false
+}
+
 pub(crate) fn open_or_focus_node_pane_with_mode(
     tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
     node_key: NodeKey,
     mode: TileOpenMode,
 ) {
@@ -219,6 +248,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             "tile_view_ops: focused existing node pane for node {:?}",
             node_key
         );
+        tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
         return;
     }
 
@@ -238,6 +268,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             TileOpenMode::SplitHorizontal => split_leaf_tile_id,
         });
         log::debug!("tile_view_ops: no root, set root to {:?}", tiles_tree.root);
+        tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
         return;
     };
 
@@ -247,6 +278,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             {
                 tabs.add_child(node_pane_tile_id);
                 tabs.set_active(node_pane_tile_id);
+                tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
                 return;
             }
 
@@ -257,6 +289,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             tiles_tree.make_active(
                 |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
             );
+            tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
         }
         TileOpenMode::SplitHorizontal => {
             // Never split directly against a raw leaf pane: wrap it in tabs first.
@@ -278,6 +311,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
                 tiles_tree.make_active(
                     |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
                 );
+                tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
                 return;
             }
             let split_root = tiles_tree
@@ -287,11 +321,16 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
             tiles_tree.make_active(
                 |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
             );
+            tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
         }
     }
 }
 
-pub(crate) fn detach_node_pane_to_split(tiles_tree: &mut Tree<TileKind>, node_key: NodeKey) {
+pub(crate) fn detach_node_pane_to_split(
+    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    node_key: NodeKey,
+) {
     let existing_tile_id = tiles_tree
         .tiles
         .iter()
@@ -303,7 +342,12 @@ pub(crate) fn detach_node_pane_to_split(tiles_tree: &mut Tree<TileKind>, node_ke
     if let Some(tile_id) = existing_tile_id {
         tiles_tree.remove_recursively(tile_id);
     }
-    open_or_focus_node_pane_with_mode(tiles_tree, node_key, TileOpenMode::SplitHorizontal);
+    open_or_focus_node_pane_with_mode(
+        tiles_tree,
+        graph_app,
+        node_key,
+        TileOpenMode::SplitHorizontal,
+    );
 }
 
 pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
@@ -340,7 +384,7 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
             }
         }
     } else if let Some(node_key) = preferred_detail_node(args.graph_app) {
-        open_or_focus_node_pane(args.tiles_tree, node_key);
+        open_or_focus_node_pane(args.tiles_tree, args.graph_app, node_key);
         let opened_node_pane = NodePaneState::for_node(node_key);
         if tile_runtime::node_pane_uses_composited_runtime(&opened_node_pane, args.graph_app) {
             webview_backpressure::ensure_webview_for_node(

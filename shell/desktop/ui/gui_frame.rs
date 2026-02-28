@@ -112,6 +112,7 @@ fn restore_named_frame_snapshot(
                     );
                     tile_view_ops::open_or_focus_node_pane_with_mode(
                         &mut restored_tree,
+                        graph_app,
                         request.key,
                         pending_tile_mode_to_tile_mode(request.mode),
                     );
@@ -199,6 +200,7 @@ fn add_nodes_to_named_frame_snapshot(
     for node_key in live_nodes {
         tile_view_ops::open_or_focus_node_pane_with_mode(
             &mut workspace_tree,
+            graph_app,
             node_key,
             tile_view_ops::TileOpenMode::Tab,
         );
@@ -1198,7 +1200,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
             graph_app.capture_undo_checkpoint(Some(layout_json));
         }
-        tile_view_ops::detach_node_pane_to_split(tiles_tree, node_key);
+        tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, node_key);
     }
 
     if let Some((source, open_mode, scope)) = graph_app.take_pending_open_connected_from()
@@ -1237,6 +1239,7 @@ pub(crate) fn run_post_render_phase<FActive>(
                 for node in ordered {
                     tile_view_ops::open_or_focus_node_pane_with_mode(
                         tiles_tree,
+                        graph_app,
                         node,
                         tile_view_ops::TileOpenMode::Tab,
                     );

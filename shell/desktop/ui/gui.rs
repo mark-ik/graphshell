@@ -812,7 +812,7 @@ impl Gui {
 
             // Workbench-layer pane intents (P6) mutate tile state directly and should
             // not flow through GraphBrowserApp's semantic reducer.
-            Self::handle_tool_pane_intents(tiles_tree, &mut frame_intents);
+            Self::handle_tool_pane_intents(graph_app, tiles_tree, &mut frame_intents);
 
             // Phase 1: apply semantic/UI intents before lifecycle reconciliation.
             gui_frame::apply_intents_if_any(graph_app, tiles_tree, &mut frame_intents);
@@ -828,6 +828,7 @@ impl Gui {
                 |node_key| {
                     tile_view_ops::open_or_focus_node_pane_with_mode(
                         tiles_tree,
+                        graph_app,
                         node_key,
                         Self::default_open_mode_for_layout(tiles_tree),
                     );
@@ -1164,6 +1165,55 @@ impl Gui {
     #[cfg(not(feature = "diagnostics"))]
     fn open_or_focus_diagnostics_tool_pane(_tiles_tree: &mut Tree<TileKind>) {}
 
+    fn active_tool_surface_return_target(
+        tiles_tree: &Tree<TileKind>,
+    ) -> Option<crate::app::ToolSurfaceReturnTarget> {
+        for tile_id in tiles_tree.active_tiles() {
+            match tiles_tree.tiles.get(tile_id) {
+                Some(Tile::Pane(TileKind::Graph(view_id))) => {
+                    return Some(crate::app::ToolSurfaceReturnTarget::Graph(*view_id));
+                }
+                Some(Tile::Pane(TileKind::Node(state))) => {
+                    return Some(crate::app::ToolSurfaceReturnTarget::Node(state.node));
+                }
+                #[cfg(feature = "diagnostics")]
+                Some(Tile::Pane(TileKind::Tool(kind))) => {
+                    return Some(crate::app::ToolSurfaceReturnTarget::Tool(kind.clone()));
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn focus_tool_surface_return_target(
+        tiles_tree: &mut Tree<TileKind>,
+        target: crate::app::ToolSurfaceReturnTarget,
+    ) -> bool {
+        match target {
+            crate::app::ToolSurfaceReturnTarget::Graph(view_id) => tiles_tree
+                .make_active(|_, tile| {
+                    matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == view_id)
+                }),
+            crate::app::ToolSurfaceReturnTarget::Node(node_key) => tiles_tree
+                .make_active(|_, tile| {
+                    matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
+                }),
+            crate::app::ToolSurfaceReturnTarget::Tool(kind) => {
+                #[cfg(feature = "diagnostics")]
+                {
+                    tiles_tree.make_active(|_, tile| {
+                        matches!(tile, Tile::Pane(TileKind::Tool(existing)) if *existing == kind)
+                    })
+                }
+                #[cfg(not(feature = "diagnostics"))]
+                {
+                    false
+                }
+            }
+        }
+    }
+
     /// Intercept workbench-authority intents before they reach `apply_intents()`.
     ///
     /// ## Two-authority model
@@ -1184,6 +1234,7 @@ impl Gui {
     /// be drained here, before `apply_intents` is called. Any that leak through
     /// will produce a `log::warn!` in the reducer.
     fn handle_tool_pane_intents(
+        graph_app: &mut GraphBrowserApp,
         tiles_tree: &mut Tree<TileKind>,
         frame_intents: &mut Vec<GraphIntent>,
     ) {
@@ -1193,25 +1244,86 @@ impl Gui {
         for intent in frame_intents.drain(..) {
             match intent {
                 GraphIntent::OpenToolPane { kind } => {
+                    if matches!(
+                        kind,
+                        ToolPaneState::Settings | ToolPaneState::HistoryManager
+                    ) {
+                        let active_is_control_surface = matches!(
+                            Self::active_tool_surface_return_target(tiles_tree),
+                            Some(crate::app::ToolSurfaceReturnTarget::Tool(
+                                ToolPaneState::Settings
+                            ))
+                                | Some(crate::app::ToolSurfaceReturnTarget::Tool(
+                                    ToolPaneState::HistoryManager
+                                ))
+                        );
+                        if !active_is_control_surface {
+                            graph_app.set_pending_tool_surface_return_target(
+                                Self::active_tool_surface_return_target(tiles_tree),
+                            );
+                        }
+                    }
                     Self::open_or_focus_tool_pane(tiles_tree, kind);
                 }
-                GraphIntent::OpenSettingsUrl { url } => {
-                    let normalized = url.trim().to_ascii_lowercase();
-                    if !normalized.starts_with("graphshell://settings") {
-                        remaining.push(GraphIntent::OpenSettingsUrl { url });
-                        continue;
+                GraphIntent::CloseToolPane {
+                    kind,
+                    restore_previous_focus,
+                } => {
+                    #[cfg(feature = "diagnostics")]
+                    {
+                        let closed = tile_view_ops::close_tool_pane(tiles_tree, kind.clone());
+                        if closed && restore_previous_focus {
+                            if let Some(target) = graph_app.take_pending_tool_surface_return_target()
+                            {
+                                let restored =
+                                    Self::focus_tool_surface_return_target(tiles_tree, target);
+                                if !restored {
+                                    let _ = tile_view_ops::ensure_active_tile(tiles_tree);
+                                }
+                            } else {
+                                let _ = tile_view_ops::ensure_active_tile(tiles_tree);
+                            }
+                        }
                     }
-                    match normalized.as_str() {
-                        "graphshell://settings/history" | "graphshell://settings" => {
+                }
+                GraphIntent::OpenSettingsUrl { url } => {
+                    match GraphBrowserApp::resolve_settings_route(&url) {
+                        Some(crate::app::SettingsRouteTarget::History) => {
+                            let active_is_control_surface = matches!(
+                                Self::active_tool_surface_return_target(tiles_tree),
+                                Some(crate::app::ToolSurfaceReturnTarget::Tool(
+                                    ToolPaneState::Settings
+                                ))
+                                    | Some(crate::app::ToolSurfaceReturnTarget::Tool(
+                                        ToolPaneState::HistoryManager
+                                    ))
+                            );
+                            if !active_is_control_surface {
+                                graph_app.set_pending_tool_surface_return_target(
+                                    Self::active_tool_surface_return_target(tiles_tree),
+                                );
+                            }
                             Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::HistoryManager);
                         }
-                        "graphshell://settings/persistence" | "graphshell://settings/sync" => {
+                        Some(crate::app::SettingsRouteTarget::Settings(page)) => {
+                            let active_is_control_surface = matches!(
+                                Self::active_tool_surface_return_target(tiles_tree),
+                                Some(crate::app::ToolSurfaceReturnTarget::Tool(
+                                    ToolPaneState::Settings
+                                ))
+                                    | Some(crate::app::ToolSurfaceReturnTarget::Tool(
+                                        ToolPaneState::HistoryManager
+                                    ))
+                            );
+                            if !active_is_control_surface {
+                                graph_app.set_pending_tool_surface_return_target(
+                                    Self::active_tool_surface_return_target(tiles_tree),
+                                );
+                            }
+                            graph_app.workspace.settings_tool_page = page;
                             Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
                         }
-                        "graphshell://settings/physics" => {
-                            Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
-                        }
-                        _ => {
+                        None => {
                             remaining.push(GraphIntent::OpenSettingsUrl { url });
                         }
                     }
@@ -1221,7 +1333,7 @@ impl Gui {
                         "workbench intent OpenNodeInPane ignored pane target {}; opening node pane directly",
                         pane
                     );
-                    tile_view_ops::open_or_focus_node_pane(tiles_tree, node);
+                    tile_view_ops::open_or_focus_node_pane(tiles_tree, graph_app, node);
                 }
                 GraphIntent::SetPaneView { pane, view } => {
                     log::debug!(
@@ -1235,7 +1347,11 @@ impl Gui {
                         crate::shell::desktop::workbench::pane_model::PaneViewState::Node(
                             state,
                         ) => {
-                            tile_view_ops::open_or_focus_node_pane(tiles_tree, state.node);
+                            tile_view_ops::open_or_focus_node_pane(
+                                tiles_tree,
+                                graph_app,
+                                state.node,
+                            );
                         }
                         crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(
                             graph_ref,
@@ -1310,7 +1426,12 @@ impl Gui {
                 node_key,
                 open_mode
             );
-            tile_view_ops::open_or_focus_node_pane_with_mode(tiles_tree, node_key, open_mode);
+            tile_view_ops::open_or_focus_node_pane_with_mode(
+                tiles_tree,
+                graph_app,
+                node_key,
+                open_mode,
+            );
             if open_mode == TileOpenMode::Tab
                 && !node_already_in_workspace
                 && let Some(anchor) = anchor_before_open
@@ -1977,7 +2098,7 @@ mod tool_pane_routing_tests {
 #[cfg(test)]
 mod graph_split_intent_tests {
     use super::Gui;
-    use crate::app::{GraphIntent, GraphViewId};
+    use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, SettingsToolPage};
     use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use egui_tiles::{Tile, Tiles, Tree};
@@ -2017,6 +2138,7 @@ mod graph_split_intent_tests {
 
     #[test]
     fn split_pane_intent_creates_new_graph_view_pane() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let initial_view = GraphViewId::new();
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
@@ -2027,7 +2149,7 @@ mod graph_split_intent_tests {
             direction: SplitDirection::Horizontal,
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -2058,6 +2180,7 @@ mod graph_split_intent_tests {
 
     #[test]
     fn settings_history_url_intent_is_consumed_by_workbench_authority() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let initial_view = GraphViewId::new();
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
@@ -2066,7 +2189,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/history".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -2076,6 +2199,7 @@ mod graph_split_intent_tests {
 
     #[test]
     fn settings_physics_url_intent_is_consumed_by_workbench_authority() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let initial_view = GraphViewId::new();
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
@@ -2084,7 +2208,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/physics".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -2094,6 +2218,7 @@ mod graph_split_intent_tests {
 
     #[test]
     fn settings_persistence_url_intent_is_consumed_by_workbench_authority() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let initial_view = GraphViewId::new();
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
@@ -2102,7 +2227,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/persistence".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -2112,6 +2237,7 @@ mod graph_split_intent_tests {
 
     #[test]
     fn settings_sync_url_intent_is_consumed_by_workbench_authority() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let initial_view = GraphViewId::new();
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
@@ -2120,7 +2246,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/sync".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(
             intents.is_empty(),
@@ -2129,7 +2255,8 @@ mod graph_split_intent_tests {
     }
 
     #[test]
-    fn settings_root_url_opens_history_tool_pane() {
+    fn settings_root_url_opens_settings_tool_pane() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let initial_view = GraphViewId::new();
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
@@ -2138,15 +2265,17 @@ mod graph_split_intent_tests {
             url: "graphshell://settings".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(intents.is_empty());
-        assert_eq!(tool_pane_count(&tree, ToolPaneState::HistoryManager), 1);
-        assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
+        assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 1);
+        assert!(active_tool_pane(&tree, ToolPaneState::Settings));
+        assert_eq!(app.workspace.settings_tool_page, SettingsToolPage::General);
     }
 
     #[test]
     fn settings_sync_url_focuses_existing_settings_tool_pane_without_duplication() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let mut tiles = Tiles::default();
         let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
         let history = tiles.insert_pane(TileKind::Tool(ToolPaneState::HistoryManager));
@@ -2162,7 +2291,7 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/sync".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(intents.is_empty());
         assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 1);
@@ -2171,6 +2300,7 @@ mod graph_split_intent_tests {
 
     #[test]
     fn settings_history_url_focuses_existing_history_tool_pane_without_duplication() {
+        let mut app = GraphBrowserApp::new_for_testing();
         let mut tiles = Tiles::default();
         let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
         let history = tiles.insert_pane(TileKind::Tool(ToolPaneState::HistoryManager));
@@ -2183,11 +2313,42 @@ mod graph_split_intent_tests {
             url: "graphshell://settings/history".to_string(),
         }];
 
-        Gui::handle_tool_pane_intents(&mut tree, &mut intents);
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
         assert!(intents.is_empty());
         assert_eq!(tool_pane_count(&tree, ToolPaneState::HistoryManager), 1);
         assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
+    }
+
+    #[test]
+    fn close_settings_tool_pane_restores_previous_graph_focus() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let graph_view = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+        let root = tiles.insert_tab_tile(vec![graph]);
+        let mut tree = Tree::new("graphshell_tiles", root, tiles);
+
+        let mut open_intents = vec![GraphIntent::OpenSettingsUrl {
+            url: "graphshell://settings/general".to_string(),
+        }];
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
+        assert!(open_intents.is_empty());
+
+        let mut close_intents = vec![GraphIntent::CloseToolPane {
+            kind: ToolPaneState::Settings,
+            restore_previous_focus: true,
+        }];
+        Gui::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+        assert!(close_intents.is_empty());
+        assert!(active_graph_count(&tree) >= 1);
+        assert!(tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
+            )
+        }));
     }
 }
 

@@ -14,11 +14,9 @@
 6. Prospective Lane Catalog (Comprehensive)
 7. Forgotten Concepts for Adoption (Vision / Research)
 8. Quickest Improvements (Low-Effort / High-Leverage)
-9. Historical Execution Sequence + Registry Closure Backlog (Reference)
-10. Backlog Ticket Stubs (Index)
-11. Implementation Guides (Index)
-12. Suggested Tracker Labels
-13. Import Notes
+9. Historical Tail (Archived)
+10. Suggested Tracker Labels
+11. Import Notes
 
 ### Contents Notes
 
@@ -26,7 +24,7 @@
 - `§1A` is the canonical sequencing control-plane section.
 - `§1C` is the current prioritized lane board.
 - `§1D` is the comprehensive lane catalog (including prospective and incubation lanes).
-- Later duplicated numeric section labels (`## 2`..`## 5` repeated near the end of the file) are retained for archive/reference continuity and should be treated as reference payload, not canonical sequencing state.
+- Historical tail payload has been archived to dated receipts under `design_docs/archive_docs/checkpoint_2026-02-27/` to keep this file focused on active execution control-plane content.
 
 ---
 
@@ -447,7 +445,15 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
 2. **lane:roadmap (docs/planning, merge-safe default lane)**
   - Queue reconciled (2026-02-26): `#11`, `#12`, `#13`, `#14`, `#18` closed as completed adoption/planning slices.
   - Remaining open roadmap queue item: `#19` (`2D↔3D` hotswitch; still deferred/blocked).
+  - Active docs-only execution guide for blocked-state parallel work: `design_docs/graphshell_docs/implementation_strategy/2026-02-27_roadmap_lane_19_readiness_plan.md`.
   - Low conflict risk with runtime/render hot files; preferred background lane while bugfix lane is idle
+
+  **Roadmap lane quick status (checklist style)**
+  - `#19` remains **blocked** until prerequisites in `2026-02-27_roadmap_lane_19_readiness_plan.md` are closed.
+  - While blocked, roadmap work stays **docs-only** and confined to `design_docs/**`.
+  - Next roadmap slices are `R1`..`R4` from the readiness plan (issue-shaping + acceptance-contract alignment, no runtime code).
+  - Move `#19` to implementation-ready only after explicit evidence links exist for each prerequisite closure.
+
 3. **lane:runtime-followon (new tickets required)**
   - `SYSTEM_REGISTER.md` SR2 (signal routing contract) before SR3 (`SignalBus`/equivalent fabric)
   - Hub: `#91` (SR2/SR3 signal routing contract + fabric tracker)
@@ -587,7 +593,7 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
 | `lane:stabilization` (`#88`) | User-visible regressions, control responsiveness, focus affordances, camera/lasso correctness | Active when regressions exist | `render/mod.rs`, `app.rs`, `gui.rs`, `input/mod.rs`, `tile_compositor.rs` | Preempts other lanes while an active repro exists. |
-| `lane:roadmap` | Remaining docs/planning follow-on `#19` (`2D↔3D` hotswitch, blocked) | Active merge-safe default (low activity while blocked) | `PLANNING_REGISTER.md`, planning docs | Adoption/planning issues `#11/#12/#13/#14/#18` were closed in queue reconciliation (2026-02-26). |
+| `lane:roadmap` | Remaining docs/planning follow-on `#19` (`2D↔3D` hotswitch, blocked) | Active merge-safe default (docs-only execution) | `PLANNING_REGISTER.md`, `2026-02-27_roadmap_lane_19_readiness_plan.md` | Use readiness plan `R1`..`R4` to advance issue-shaping without touching runtime hotspots. |
 | `lane:control-ui-settings` (`#89`) | Command surfaces + settings IA/surface execution | Active planning / queued (high priority) | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs` | User report now provides concrete issue-ready slices (palette/context unification, theme toggle, omnibar/radial polish). |
 | `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority, active child slices) | `2026-02-20_embedder_decomposition_plan.md`, `gui.rs`, `gui_frame.rs`, `host/*` | Includes compositor callback pass contract and legacy webview context-menu/new-tab path retirement/bridging. |
 | `lane:runtime-followon` (`#91`) | SR2/SR3 signal routing contract/fabric + observability | Prospective (ticket first) | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md` | Requires fresh child issues; do not reuse queue-cleanup issues. |
@@ -719,177 +725,30 @@ These are intentionally scoped to small slices that can ship independently witho
 
 ---
 
-## 4. Recommended Execution Sequence (2026-02-25 Refresh)
+## 4. Historical Tail (Archived)
 
-Historical reference only (retained for archive continuity). Superseded by:
-- `§1A` Merge-Safe Lane Execution Reference (current canonical sequencing)
-- `§1C` Top 10 Active Execution Lanes (current strategic lane board)
+Historical execution sequences, legacy closure backlog details, and preserved-numbering reference payload were moved out of the active register to keep this file operational as a control-plane document.
 
-### Wave A: Close Migration Done Gates (Highest Risk Reduction)
+Archive receipt:
+- `design_docs/archive_docs/checkpoint_2026-02-27/2026-02-27_planning_register_historical_tail_archive_receipt.md`
 
-1. Registry Phase 5.4 closure (delta sync harness + conflict diagnostics)
-2. Registry Phase 5.5 closure (access control harness + deny-path coverage)
-3. Registry Phase 6.4 canonical imports/path cleanup
-4. Registry Phase 6.5 shim removal + final boundary lock + doc path refresh
+Canonical historical sources:
+- `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_backlog_ticket_stubs.md`
+- `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_copilot_implementation_guides.md`
+- `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_planning_register_lane_sequence_receipt.md`
+- `design_docs/archive_docs/checkpoint_2026-02-26/2026-02-26_planning_register_queue_execution_audit_receipt.md`
 
-### Wave B: Establish Pane/View and Viewer Foundations
+Active usage rule:
+- Use `§1A`, `§1B`, `§1C`, and `§1D` in this file for current sequencing and execution decisions.
+- Use archive docs for historical detail, superseded plans, and long-form receipts.
 
-1. Pane-hosted multi-view architecture doc+type sync (graph/viewer/tool pane model)
-2. Graph multi-view implementation (`GraphViewId`, per-view state, split/lens UI)
-3. Universal content Steps 1-3 (data model + viewer selection + plaintext baseline)
-4. Wry Steps 1-5 (feature gate through lifecycle integration)
-
-### Wave C: UX Consolidation, Scale, and Accessibility Baselines
-
-1. Control UI/UX extraction + ActionRegistry routing
-2. Viewport culling + LOD policy activation
-3. WebView accessibility bridge (Phase 1 critical fix)
-4. Pull from Quick Wins list continuously between larger slices
-
----
-
-## 5. Registry Plan Closure Backlog (Audited 2026-02-24, retained 2026-02-25)
-
-This is the strict closure checklist derived from the current `2026-02-22_registry_layer_plan.md` state and code/test audit.
-
-### 5.1 Phase 5.4 — Delta Sync Done-Gate Closure
-
-1. **Add missing harness scenario `verse_delta_sync_basic`**
-   - Create scenario under `desktop/tests/scenarios/` and include it in `desktop/tests/scenarios/mod.rs`.
-   - Validate two-instance flow: node created on A appears on B within 5 seconds.
-   - Validate concurrent rename conflict resolves deterministically (LWW behavior) without crash.
-
-2. **Close conflict diagnostics gap in runtime code**
-   - Implement emission paths for `verse.sync.conflict_detected` and `verse.sync.conflict_resolved` where conflict logic runs.
-   - Ensure channels are seeded/registered in diagnostics registry defaults and covered by contract tests.
-
-3. **Acceptance checks (must all pass)**
-   - `cargo test verse_delta_sync_basic`
-   - Diagnostics assertions include `unit_sent`, `unit_received`, `intent_applied`, `conflict_detected`, `conflict_resolved`.
-   - `cargo check` remains green.
-
-### 5.2 Phase 5.5 — Workspace Access Control Done-Gate Closure
-
-1. **Add missing harness scenario `verse_access_control`**
-   - Validate grant matrix for `ReadOnly` and `ReadWrite` workspace permissions.
-   - Confirm read-only peer receives remote updates but local mutating intents for that workspace are rejected.
-
-2. **Harden access-denied behavior and coverage**
-   - Ensure inbound non-granted workspace sync always emits `verse.sync.access_denied` and does not mutate graph state.
-   - Add focused tests for deny paths and revoke/forget flows.
-
-3. **Acceptance checks (must all pass)**
-   - `cargo test verse_access_control`
-   - Access-control path emits `verse.sync.access_denied` deterministically.
-   - `cargo check` remains green.
-
-### 5.3 Phase 6.4 — Filesystem/Import Canonicalization Closure
-
-1. **Finish canonical imports away from root compatibility paths**
-   - Remove remaining `crate::persistence::*` consumers by migrating to `crate::services::persistence::*` (and `types` submodule path equivalents) in runtime/UI/tests where appropriate.
-   - Continue mechanical path migration slices per subtree with compile validation after each slice.
-
-2. **Align test/harness imports during each move slice**
-   - Update `desktop/tests/scenarios/*` imports in the same commit as each path migration.
-   - Keep boundary/seam contracts green after each move.
-
-3. **Acceptance checks (must all pass)**
-   - `cargo check` after each subtree slice.
-   - `cargo test contract_runtime_layers_do_not_call_graph_topology_mutators_directly`
-   - `cargo test servo_callbacks_only_enqueue_events`
-
-### 5.4 Phase 6.5 — Transition Shim Removal & Final Boundary Lock
-
-1. **Delete all temporary root re-export shims**
-   - Remove shim files/usages for: `running_app_state.rs`, `window.rs`, `search.rs`, `persistence/mod.rs` (root compatibility layer).
-   - Update all callsites to canonical module paths before deleting shims.
-
-2. **Enforce single-write-path visibility target**
-   - Tighten graph topology mutator visibility in `model/graph/mod.rs` to the planned boundary level and resolve resulting callers through reducer-owned paths.
-
-3. **Update docs to canonical paths**
-   - Refresh strategy/architecture map references that still point at shim or pre-move paths.
-
-4. **Acceptance checks (must all pass)**
-   - No transition shims remain at crate root.
-   - Full suite passes: `cargo test` and `cargo check`.
-   - Registry done-gate language in strategy docs matches repository reality.
-
-### 5.5 Immediate Next Sequence (Recommended Order)
-
-1. Implement `verse_delta_sync_basic` + conflict diagnostics channels.
-2. Implement `verse_access_control` harness and deny-path assertions.
-3. Complete remaining 6.4 import canonicalization (`persistence` path cleanup).
-4. Execute 6.5 shim removal in one controlled slice with full-suite validation.
-
----
-
----
-
-## Reference Payload (Preserved Numbering / Historical Layout)
-
-The sections below retain their original numbering and structure for continuity with prior receipts/PRs. Treat them as reference material unless explicitly promoted into `§1A` / `§1C` / `§1D`.
-
-## 2. Backlog Ticket Stubs
-
-_Source file before consolidation: `2026-02-25_backlog_ticket_stubs.md`_
-
-
-**Status**: Active index (detailed payload moved to archive receipts)
-**Purpose**: Keep this register readable as the active control-plane while preserving detailed ticket stubs elsewhere.
-
-### Canonical sources
-
-- Primary historical stubs snapshot:
-  - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_backlog_ticket_stubs.md`
-- Sequencing receipt (conflict-aware lane/stack plan):
-  - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_planning_register_lane_sequence_receipt.md`
-
-### Usage rule
-
-- Use Sections `1`, `1A`, and `1B` in this file for current execution decisions.
-- Use archived ticket stubs only for deep scope/details while drafting new issues.
-- When execution sequencing changes materially, append a new dated receipt (do not re-expand this active file).
-
----
-
-## 3. Implementation Guides
-
-_Source file before consolidation: `2026-02-25_copilot_implementation_guides.md`_
-
-**Status**: Active index (detailed implementation notes moved to archive)
-**Purpose**: Keep agent-facing guidance discoverable without keeping long branch-specific instructions inline.
-
-### Canonical sources
-
-- Archived copilot implementation guide snapshot:
-  - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_copilot_implementation_guides.md`
-- Historical backlog source:
-  - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_backlog_ticket_stubs.md`
-
-### Additional active plans (linked for coverage; not all are prioritized in Section 1)
-
-- `2026-02-11_clipping_dom_extraction_plan.md` (Verso/DOM extraction feature slice)
-- `2026-02-20_node_badge_and_tagging_plan.md` (badge/tag visual + interaction layer)
-- `2026-02-20_settings_architecture_plan.md` (settings pane/page model and orchestration direction)
-- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` (workbench pane/tab semantics and promotion model)
-- `2026-02-23_udc_semantic_tagging_plan.md` (UDC semantic clustering/tagging roadmap)
-- `2026-02-25_interactive_html_export_plan.md` (deferred export artifact plan; adopted concept)
-
-### Usage rule
-
-- For active coding tasks, treat issue threads + current strategy docs as source of truth.
-- Use archived copilot guides as historical implementation hints only; validate against current code before applying.
-
----
-
-## 4. Suggested Tracker Labels (Operational Defaults)
+## 5. Suggested Tracker Labels (Operational Defaults)
 
 - Priority tasks: `priority/top10`, `architecture`, `registry`, `viewer`, `ui`, `performance`, `a11y`
 - Roadmap adoption: `concept/adoption`, `research-followup`, `future-roadmap`
 - Quick wins: `quick-win`, `low-risk`, `refactor`, `ux-polish`, `diag`
 
-## 5. Import Notes (Short Form)
+## 6. Import Notes (Short Form)
 
 - Keep `P#`, `F#`, `Q#` prefixes aligned between docs and tracker.
 - Prefer one issue per mergeable slice in hotspot files.
