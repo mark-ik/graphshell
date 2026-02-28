@@ -1295,29 +1295,42 @@ impl Gui {
 
     fn collect_webview_update_flags(&mut self, window: &EmbedderWindow) -> bool {
         let focused_node_key = self.focused_node_key();
-        let load_status_changed = webview_status_sync::update_load_status(
-            &mut self.toolbar_state.load_status,
-            &mut self.toolbar_state.location_dirty,
+        Self::sync_toolbar_webview_status_fields(
+            &mut self.toolbar_state,
             focused_node_key,
             &self.graph_app,
             window,
-        );
-        let location_changed = self.update_location_in_toolbar(window, focused_node_key);
-        let status_text_changed = webview_status_sync::update_status_text(
-            &mut self.toolbar_state.status_text,
+        ) | self.update_location_in_toolbar(window, focused_node_key)
+    }
+
+    fn sync_toolbar_webview_status_fields(
+        toolbar_state: &mut ToolbarState,
+        focused_node_key: Option<NodeKey>,
+        graph_app: &GraphBrowserApp,
+        window: &EmbedderWindow,
+    ) -> bool {
+        let load_status_changed = webview_status_sync::update_load_status(
+            &mut toolbar_state.load_status,
+            &mut toolbar_state.location_dirty,
             focused_node_key,
-            &self.graph_app,
+            graph_app,
+            window,
+        );
+        let status_text_changed = webview_status_sync::update_status_text(
+            &mut toolbar_state.status_text,
+            focused_node_key,
+            graph_app,
             window,
         );
         let nav_state_changed = webview_status_sync::update_can_go_back_and_forward(
-            &mut self.toolbar_state.can_go_back,
-            &mut self.toolbar_state.can_go_forward,
+            &mut toolbar_state.can_go_back,
+            &mut toolbar_state.can_go_forward,
             focused_node_key,
-            &self.graph_app,
+            graph_app,
             window,
         );
 
-        load_status_changed | location_changed | status_text_changed | nav_state_changed
+        load_status_changed | status_text_changed | nav_state_changed
     }
 
     fn is_omnibar_node_search_query_active(&self) -> bool {
