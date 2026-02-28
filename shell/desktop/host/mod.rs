@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 pub(crate) mod accelerated_gl_media;
+#[path = "host_app.rs"]
 pub(crate) mod app;
 pub(crate) mod embedder;
 pub(crate) mod event_loop;

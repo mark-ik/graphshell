@@ -53,6 +53,7 @@
 /// Additionally, for the first window, we also setup vsync callbacks.
 ///
 /// At this point the initialization is finished, and Graphshell is ready.
+#[path = "ohos_resources.rs"]
 mod resources;
 
 use std::cell::RefCell;

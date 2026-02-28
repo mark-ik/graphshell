@@ -4,6 +4,7 @@
 
 #[cfg(target_os = "android")]
 mod android;
+#[path = "egl_app.rs"]
 pub(crate) mod app;
 mod host_trait;
 mod log;

@@ -13,6 +13,7 @@ use cfg_if::cfg_if;
 mod test;
 
 // Graph browser core modules
+#[path = "graph_app.rs"]
 mod app;
 mod graph;
 mod input;
@@ -37,6 +38,7 @@ mod prefs;
 #[cfg(not(any(target_os = "android", target_env = "ohos")))]
 mod registries;
 #[cfg(not(target_os = "android"))]
+#[path = "graph_resources.rs"]
 mod resources;
 mod webdriver;
 

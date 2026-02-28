@@ -4,6 +4,7 @@
 
 #![allow(non_snake_case)]
 
+#[path = "android_resources.rs"]
 mod resources;
 
 use std::cell::RefCell;
