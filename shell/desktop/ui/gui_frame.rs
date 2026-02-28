@@ -1156,43 +1156,39 @@ pub(crate) fn run_post_render_phase<FActive>(
     }
 
     if let Some(name) = graph_app.take_pending_restore_graph_snapshot_named() {
-        if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-            graph_app.capture_undo_checkpoint(Some(layout_json));
-        }
-        let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
-        apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
-        match graph_app.load_named_graph_snapshot(&name) {
-            Ok(()) => {
-                tile_rendering_contexts.clear();
-                tile_favicon_textures.clear();
-                webview_creation_backpressure.clear();
-                *focused_node_hint = None;
-                let mut tiles = Tiles::default();
-                let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
-                *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
-            }
-            Err(e) => warn!("Failed to load named graph snapshot '{name}': {e}"),
-        }
+        restore_graph_snapshot_and_reset_workspace(
+            graph_app,
+            window,
+            tiles_tree,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            webview_creation_backpressure,
+            focused_node_hint,
+            |graph_app| {
+                graph_app
+                    .load_named_graph_snapshot(&name)
+                    .map_err(|e| e.to_string())
+            },
+            |e| warn!("Failed to load named graph snapshot '{name}': {e}"),
+        );
     }
 
     if graph_app.take_pending_restore_graph_snapshot_latest() {
-        if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-            graph_app.capture_undo_checkpoint(Some(layout_json));
-        }
-        let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
-        apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
-        match graph_app.load_latest_graph_snapshot() {
-            Ok(()) => {
-                tile_rendering_contexts.clear();
-                tile_favicon_textures.clear();
-                webview_creation_backpressure.clear();
-                *focused_node_hint = None;
-                let mut tiles = Tiles::default();
-                let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
-                *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
-            }
-            Err(e) => warn!("Failed to load autosaved latest graph snapshot: {e}"),
-        }
+        restore_graph_snapshot_and_reset_workspace(
+            graph_app,
+            window,
+            tiles_tree,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            webview_creation_backpressure,
+            focused_node_hint,
+            |graph_app| {
+                graph_app
+                    .load_latest_graph_snapshot()
+                    .map_err(|e| e.to_string())
+            },
+            |e| warn!("Failed to load autosaved latest graph snapshot: {e}"),
+        );
     }
 
     if let Some(node_key) = graph_app.take_pending_detach_node_to_split() {
@@ -1281,5 +1277,36 @@ pub(crate) fn run_post_render_phase<FActive>(
             },
             Err(e) => warn!("Failed to serialize session frame layout: {e}"),
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn restore_graph_snapshot_and_reset_workspace(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+    restore: impl FnOnce(&mut GraphBrowserApp) -> Result<(), String>,
+    on_error: impl FnOnce(&str),
+) {
+    if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
+        graph_app.capture_undo_checkpoint(Some(layout_json));
+    }
+    let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
+    apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
+    match restore(graph_app) {
+        Ok(()) => {
+            tile_rendering_contexts.clear();
+            tile_favicon_textures.clear();
+            webview_creation_backpressure.clear();
+            *focused_node_hint = None;
+            let mut tiles = Tiles::default();
+            let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+            *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
+        }
+        Err(e) => on_error(e.as_str()),
     }
 }
