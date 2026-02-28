@@ -1472,13 +1472,15 @@ fn restore_pending_latest_graph_snapshot(
         tile_favicon_textures,
         webview_creation_backpressure,
         focused_node_hint,
-        |graph_app| {
-            graph_app
-                .load_latest_graph_snapshot()
-                .map_err(|e| e.to_string())
-        },
+        |graph_app| load_latest_graph_snapshot_result(graph_app),
         |e| warn!("Failed to load autosaved latest graph snapshot: {e}"),
     );
+}
+
+fn load_latest_graph_snapshot_result(graph_app: &mut GraphBrowserApp) -> Result<(), String> {
+    graph_app
+        .load_latest_graph_snapshot()
+        .map_err(|e| e.to_string())
 }
 
 fn handle_pending_open_connected_from(
