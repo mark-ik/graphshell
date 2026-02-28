@@ -173,6 +173,20 @@ struct SemanticAndPostRenderPhaseArgs<'a> {
     frame_intents: &'a mut Vec<GraphIntent>,
 }
 
+struct PreFrameAndIntentInitArgs<'a> {
+    ctx: &'a egui::Context,
+    graph_app: &'a mut GraphBrowserApp,
+    state: &'a RunningAppState,
+    window: &'a EmbedderWindow,
+    favicon_textures:
+        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
+    thumbnail_capture_rx: &'a Receiver<ThumbnailCaptureResult>,
+    thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
+    command_palette_toggle_requested: &'a mut bool,
+    control_panel: &'a mut ControlPanel,
+}
+
 struct WebViewA11yNodePlan {
     node_id: accesskit::NodeId,
     role: egui::accesskit::Role,
@@ -709,18 +723,20 @@ impl Gui {
                 pending_webview_a11y_updates,
                 tiles_tree,
             );
-            let pre_frame = gui_orchestration::run_pre_frame_phase(
-                ctx,
-                graph_app,
-                state,
-                window,
-                favicon_textures,
-                thumbnail_capture_tx,
-                thumbnail_capture_rx,
-                thumbnail_capture_in_flight,
-                command_palette_toggle_requested,
+            let (pre_frame, mut frame_intents) = Self::run_pre_frame_and_initialize_intents(
+                PreFrameAndIntentInitArgs {
+                    ctx,
+                    graph_app,
+                    state,
+                    window,
+                    favicon_textures,
+                    thumbnail_capture_tx,
+                    thumbnail_capture_rx,
+                    thumbnail_capture_in_flight,
+                    command_palette_toggle_requested,
+                    control_panel,
+                },
             );
-            let mut frame_intents = Self::initialize_frame_intents(pre_frame.frame_intents, control_panel);
 
             let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
 
@@ -854,6 +870,38 @@ impl Gui {
         let mut frame_intents = pre_frame_intents;
         frame_intents.extend(control_panel.drain_pending());
         frame_intents
+    }
+
+    fn run_pre_frame_and_initialize_intents(
+        args: PreFrameAndIntentInitArgs<'_>,
+    ) -> (gui_orchestration::PreFramePhaseOutput, Vec<GraphIntent>) {
+        let PreFrameAndIntentInitArgs {
+            ctx,
+            graph_app,
+            state,
+            window,
+            favicon_textures,
+            thumbnail_capture_tx,
+            thumbnail_capture_rx,
+            thumbnail_capture_in_flight,
+            command_palette_toggle_requested,
+            control_panel,
+        } = args;
+
+        let pre_frame = gui_orchestration::run_pre_frame_phase(
+            ctx,
+            graph_app,
+            state,
+            window,
+            favicon_textures,
+            thumbnail_capture_tx,
+            thumbnail_capture_rx,
+            thumbnail_capture_in_flight,
+            command_palette_toggle_requested,
+        );
+        let frame_intents = Self::initialize_frame_intents(pre_frame.frame_intents.clone(), control_panel);
+
+        (pre_frame, frame_intents)
     }
 
     fn run_graph_search_and_keyboard_phases(
