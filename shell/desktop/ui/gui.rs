@@ -1504,7 +1504,8 @@ impl Gui {
     }
 
     fn convert_webview_accessibility_role(role: accesskit::Role) -> (egui::accesskit::Role, bool) {
-        let mapped = match format!("{role:?}").as_str() {
+        let role_name = Self::webview_accessibility_role_name(role);
+        let mapped = match role_name.as_str() {
             "Document" => egui::accesskit::Role::Document,
             "Paragraph" => egui::accesskit::Role::Paragraph,
             "Label" => egui::accesskit::Role::Label,
@@ -1520,6 +1521,10 @@ impl Gui {
             _ => return Self::fallback_webview_accessibility_role(),
         };
         (mapped, false)
+    }
+
+    fn webview_accessibility_role_name(role: accesskit::Role) -> String {
+        format!("{role:?}")
     }
 
     fn fallback_webview_accessibility_role() -> (egui::accesskit::Role, bool) {
