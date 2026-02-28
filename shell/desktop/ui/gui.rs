@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use arboard::Clipboard;
 use egui::pos2;
@@ -27,6 +27,9 @@ use winit::window::Window;
 use super::graph_search_flow::{self, GraphSearchFlowArgs};
 use super::graph_search_ui::{self, GraphSearchUiArgs};
 use super::gui_frame::{self, PreFrameIngestArgs, ToolbarDialogPhaseArgs};
+use super::gui_state::{
+    GuiRuntimeState, ToolbarState, apply_graph_surface_focus_state, apply_node_focus_state,
+};
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
@@ -60,47 +63,6 @@ use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode, ToggleTileViewArgs};
-
-struct ToolbarState {
-    location: String,
-    location_dirty: bool,
-    location_submitted: bool,
-    show_clear_data_confirm: bool,
-    load_status: LoadStatus,
-    status_text: Option<String>,
-    can_go_back: bool,
-    can_go_forward: bool,
-}
-
-struct GuiRuntimeState {
-    graph_search_open: bool,
-    graph_search_query: String,
-    graph_search_filter_mode: bool,
-    graph_search_matches: Vec<NodeKey>,
-    graph_search_active_match_index: Option<usize>,
-    focused_node_hint: Option<NodeKey>,
-    graph_surface_focused: bool,
-    focus_ring_node_key: Option<NodeKey>,
-    focus_ring_started_at: Option<Instant>,
-    focus_ring_duration: Duration,
-    omnibar_search_session: Option<OmnibarSearchSession>,
-    command_palette_toggle_requested: bool,
-}
-
-fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
-    runtime_state.focused_node_hint = node_key;
-    runtime_state.graph_surface_focused = false;
-}
-
-fn apply_graph_surface_focus_state(
-    runtime_state: &mut GuiRuntimeState,
-    graph_app: &mut GraphBrowserApp,
-    active_graph_view: Option<GraphViewId>,
-) {
-    runtime_state.focused_node_hint = None;
-    runtime_state.graph_surface_focused = true;
-    graph_app.workspace.focused_view = active_graph_view;
-}
 
 pub(crate) struct GuiUpdateInput<'a> {
     pub(crate) state: &'a RunningAppState,
@@ -2112,7 +2074,10 @@ mod tool_pane_routing_tests {
 
 #[cfg(test)]
 mod graph_split_intent_tests {
-    use super::{Gui, GuiRuntimeState, apply_graph_surface_focus_state, apply_node_focus_state};
+    use super::Gui;
+    use crate::shell::desktop::ui::gui_state::{
+        GuiRuntimeState, apply_graph_surface_focus_state, apply_node_focus_state,
+    };
     use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, SettingsToolPage};
     use crate::graph::NodeKey;
     use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
