@@ -1253,12 +1253,19 @@ fn handle_pending_graph_snapshot_actions(
 }
 
 fn handle_pending_graph_snapshot_save_delete(graph_app: &mut GraphBrowserApp) {
+    handle_pending_save_graph_snapshot_named(graph_app);
+    handle_pending_delete_graph_snapshot_named(graph_app);
+}
+
+fn handle_pending_save_graph_snapshot_named(graph_app: &mut GraphBrowserApp) {
     if let Some(name) = graph_app.take_pending_save_graph_snapshot_named()
         && let Err(e) = graph_app.save_named_graph_snapshot(&name)
     {
         warn!("Failed to save named graph snapshot '{name}': {e}");
     }
+}
 
+fn handle_pending_delete_graph_snapshot_named(graph_app: &mut GraphBrowserApp) {
     if let Some(name) = graph_app.take_pending_delete_graph_snapshot_named()
         && let Err(e) = graph_app.delete_named_graph_snapshot(&name)
     {
