@@ -26,7 +26,7 @@ use winit::window::Window;
 
 use super::graph_search_ui::{self, GraphSearchUiArgs};
 use super::gui_orchestration;
-use super::gui_frame::{self, ToolbarDialogPhaseArgs};
+use super::gui_frame;
 use super::gui_state::{
     GuiRuntimeState, ToolbarState, apply_graph_surface_focus_state, apply_node_focus_state,
 };
@@ -56,8 +56,6 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UI_CLIPBOARD_COPY_FAILED;
 use crate::shell::desktop::runtime::registries::{RegistryRuntime, knowledge};
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
-use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
-use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
@@ -212,13 +210,6 @@ impl Gui {
             ToastAnchorPreference::TopLeft => egui_notify::Anchor::TopLeft,
             ToastAnchorPreference::BottomRight => egui_notify::Anchor::BottomRight,
             ToastAnchorPreference::BottomLeft => egui_notify::Anchor::BottomLeft,
-        }
-    }
-
-    fn open_mode_from_toolbar(mode: ToolbarOpenMode) -> TileOpenMode {
-        match mode {
-            ToolbarOpenMode::Tab => TileOpenMode::Tab,
-            ToolbarOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
         }
     }
 
@@ -736,7 +727,7 @@ impl Gui {
                 },
             );
 
-            let (toolbar_visible, is_graph_view) = Self::run_toolbar_phase(
+            let (toolbar_visible, is_graph_view) = gui_orchestration::run_toolbar_phase(
                 ctx,
                 winit_window,
                 state,
@@ -868,82 +859,6 @@ impl Gui {
         });
 
         GuiUpdateOutput
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn run_toolbar_phase(
-        ctx: &egui::Context,
-        winit_window: &Window,
-        state: &RunningAppState,
-        graph_app: &mut GraphBrowserApp,
-        #[cfg(feature = "diagnostics")] diagnostics_state: &mut diagnostics::DiagnosticsState,
-        window: &EmbedderWindow,
-        tiles_tree: &mut Tree<TileKind>,
-        focused_node_hint: Option<NodeKey>,
-        graph_surface_focused: bool,
-        toolbar_state: &mut ToolbarState,
-        focus_location_field_for_search: bool,
-        omnibar_search_session: &mut Option<OmnibarSearchSession>,
-        toasts: &mut egui_notify::Toasts,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-        app_state: &Option<Rc<RunningAppState>>,
-        rendering_context: &Rc<OffscreenRenderingContext>,
-        window_rendering_context: &Rc<WindowRenderingContext>,
-        responsive_webviews: &HashSet<WebViewId>,
-        webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-        frame_intents: &mut Vec<GraphIntent>,
-        open_node_tile_after_intents: &mut Option<TileOpenMode>,
-    ) -> (bool, bool) {
-        let toolbar_dialog_phase = gui_frame::handle_toolbar_dialog_phase(
-            ToolbarDialogPhaseArgs {
-                ctx,
-                winit_window,
-                state,
-                graph_app,
-                window,
-                tiles_tree,
-                focused_node_hint,
-                graph_surface_focused,
-                can_go_back: toolbar_state.can_go_back,
-                can_go_forward: toolbar_state.can_go_forward,
-                location: &mut toolbar_state.location,
-                location_dirty: &mut toolbar_state.location_dirty,
-                location_submitted: &mut toolbar_state.location_submitted,
-                focus_location_field_for_search,
-                show_clear_data_confirm: &mut toolbar_state.show_clear_data_confirm,
-                omnibar_search_session,
-                toasts,
-                tile_rendering_contexts,
-                tile_favicon_textures,
-                favicon_textures,
-                #[cfg(feature = "diagnostics")]
-                diagnostics_state,
-            },
-            frame_intents,
-        );
-        let toolbar_output = toolbar_dialog_phase.toolbar_output;
-        let is_graph_view = toolbar_dialog_phase.is_graph_view;
-        if toolbar_output.toggle_tile_view_requested {
-            Self::toggle_tile_view(
-                tiles_tree,
-                graph_app,
-                window,
-                app_state,
-                rendering_context,
-                window_rendering_context,
-                tile_rendering_contexts,
-                responsive_webviews,
-                webview_creation_backpressure,
-                frame_intents,
-            );
-        }
-        if let Some(open_mode) = toolbar_output.open_selected_mode_after_submit {
-            *open_node_tile_after_intents = Some(Self::open_mode_from_toolbar(open_mode));
-        }
-
-        (toolbar_output.toolbar_visible, is_graph_view)
     }
 
     fn handle_pending_clipboard_copy_requests(
