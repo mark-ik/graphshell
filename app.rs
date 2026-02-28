@@ -5753,6 +5753,35 @@ mod tests {
     }
 
     #[test]
+    fn test_request_fit_to_screen_without_focus_targets_single_rendered_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+        app.workspace.focused_view = None;
+        app.workspace.graph_view_frames.clear();
+        app.workspace.graph_view_frames.insert(
+            view_b,
+            GraphViewFrame {
+                zoom: 1.0,
+                pan_x: 0.0,
+                pan_y: 0.0,
+            },
+        );
+
+        app.clear_pending_camera_command();
+        app.request_fit_to_screen();
+
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+        assert_eq!(app.pending_camera_command_target(), Some(view_b));
+    }
+
+    #[test]
     fn test_zoom_intents_queue_keyboard_zoom_requests() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();

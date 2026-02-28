@@ -87,6 +87,21 @@ struct GuiRuntimeState {
     command_palette_toggle_requested: bool,
 }
 
+fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
+    runtime_state.focused_node_hint = node_key;
+    runtime_state.graph_surface_focused = false;
+}
+
+fn apply_graph_surface_focus_state(
+    runtime_state: &mut GuiRuntimeState,
+    graph_app: &mut GraphBrowserApp,
+    active_graph_view: Option<GraphViewId>,
+) {
+    runtime_state.focused_node_hint = None;
+    runtime_state.graph_surface_focused = true;
+    graph_app.workspace.focused_view = active_graph_view;
+}
+
 pub(crate) struct GuiUpdateInput<'a> {
     pub(crate) state: &'a RunningAppState,
     pub(crate) window: &'a EmbedderWindow,
@@ -537,8 +552,7 @@ impl Gui {
     }
 
     pub(crate) fn set_focused_node_key(&mut self, node_key: Option<NodeKey>) {
-        self.runtime_state.focused_node_hint = node_key;
-        self.runtime_state.graph_surface_focused = false;
+        apply_node_focus_state(&mut self.runtime_state, node_key);
     }
 
     pub(crate) fn node_key_for_webview_id(&self, webview_id: WebViewId) -> Option<NodeKey> {
@@ -546,10 +560,11 @@ impl Gui {
     }
 
     pub(crate) fn focus_graph_surface(&mut self) {
-        self.runtime_state.focused_node_hint = None;
-        self.runtime_state.graph_surface_focused = true;
-        self.graph_app.workspace.focused_view =
-            tile_view_ops::active_graph_view_id(&self.tiles_tree);
+        apply_graph_surface_focus_state(
+            &mut self.runtime_state,
+            &mut self.graph_app,
+            tile_view_ops::active_graph_view_id(&self.tiles_tree),
+        );
     }
 
     pub(crate) fn location_has_focus(&self) -> bool {
@@ -2097,11 +2112,13 @@ mod tool_pane_routing_tests {
 
 #[cfg(test)]
 mod graph_split_intent_tests {
-    use super::Gui;
+    use super::{Gui, GuiRuntimeState, apply_graph_surface_focus_state, apply_node_focus_state};
     use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, SettingsToolPage};
+    use crate::graph::NodeKey;
     use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use egui_tiles::{Tile, Tiles, Tree};
+    use std::time::Duration;
 
     fn active_graph_count(tree: &Tree<TileKind>) -> usize {
         tree.active_tiles()
@@ -2349,6 +2366,56 @@ mod graph_split_intent_tests {
                 Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
             )
         }));
+    }
+
+    #[test]
+    fn node_focus_state_clears_graph_surface_focus() {
+        let mut runtime_state = GuiRuntimeState {
+            graph_search_open: false,
+            graph_search_query: String::new(),
+            graph_search_filter_mode: false,
+            graph_search_matches: Vec::new(),
+            graph_search_active_match_index: None,
+            focused_node_hint: None,
+            graph_surface_focused: true,
+            focus_ring_node_key: None,
+            focus_ring_started_at: None,
+            focus_ring_duration: Duration::from_millis(500),
+            omnibar_search_session: None,
+            command_palette_toggle_requested: false,
+        };
+
+        let node = NodeKey::new(1);
+        apply_node_focus_state(&mut runtime_state, Some(node));
+
+        assert_eq!(runtime_state.focused_node_hint, Some(node));
+        assert!(!runtime_state.graph_surface_focused);
+    }
+
+    #[test]
+    fn graph_surface_focus_state_clears_node_hint_and_syncs_focused_view() {
+        let mut runtime_state = GuiRuntimeState {
+            graph_search_open: false,
+            graph_search_query: String::new(),
+            graph_search_filter_mode: false,
+            graph_search_matches: Vec::new(),
+            graph_search_active_match_index: None,
+            focused_node_hint: Some(NodeKey::new(2)),
+            graph_surface_focused: false,
+            focus_ring_node_key: None,
+            focus_ring_started_at: None,
+            focus_ring_duration: Duration::from_millis(500),
+            omnibar_search_session: None,
+            command_palette_toggle_requested: false,
+        };
+        let mut app = GraphBrowserApp::new_for_testing();
+        let graph_view = GraphViewId::new();
+
+        apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));
+
+        assert_eq!(runtime_state.focused_node_hint, None);
+        assert!(runtime_state.graph_surface_focused);
+        assert_eq!(app.workspace.focused_view, Some(graph_view));
     }
 }
 

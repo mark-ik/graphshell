@@ -989,15 +989,7 @@ fn handle_custom_navigation(
         right_button_down,
     ) {
         let delta = ui.input(|i| i.pointer.delta());
-        if delta != Vec2::ZERO {
-            app.workspace.focused_view = Some(view_id);
-            ui.ctx().data_mut(|data| {
-                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-                    meta.pan += delta;
-                    data.insert_persisted(metadata_id, meta);
-                }
-            });
-        }
+        apply_background_pan(ui.ctx(), metadata_id, app, view_id, delta);
     }
 
     // Clamp zoom bounds using per-view camera if available, else global camera.
@@ -1029,6 +1021,29 @@ fn handle_custom_navigation(
     });
 
     camera_zoom.or(keyboard_zoom).or(wheel_zoom)
+}
+
+fn apply_background_pan(
+    ctx: &egui::Context,
+    metadata_id: egui::Id,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    delta: Vec2,
+) -> bool {
+    if delta == Vec2::ZERO {
+        return false;
+    }
+
+    app.workspace.focused_view = Some(view_id);
+    let mut applied = false;
+    ctx.data_mut(|data| {
+        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
+            meta.pan += delta;
+            data.insert_persisted(metadata_id, meta);
+            applied = true;
+        }
+    });
+    applied
 }
 
 fn apply_pending_keyboard_zoom_request(
@@ -3615,6 +3630,78 @@ mod tests {
         assert!((canvas.min.y + 10.0).abs() < 0.001);
         assert!((canvas.max.x - 75.0).abs() < 0.001);
         assert!((canvas.max.y - 90.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn background_pan_updates_metadata_and_focus_for_non_zero_delta() {
+        let ctx = egui::Context::default();
+        let metadata_id = egui::Id::new("test-background-pan");
+        let view_id = crate::app::GraphViewId::default();
+        let mut app = test_app();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new("Pan Test"));
+
+        ctx.data_mut(|data| {
+            let mut frame = MetadataFrame::default();
+            frame.zoom = 1.0;
+            frame.pan = egui::vec2(10.0, 20.0);
+            data.insert_persisted(
+                metadata_id,
+                frame,
+            );
+        });
+
+        let changed = apply_background_pan(
+            &ctx,
+            metadata_id,
+            &mut app,
+            view_id,
+            egui::vec2(15.0, -5.0),
+        );
+
+        assert!(changed);
+        assert_eq!(app.workspace.focused_view, Some(view_id));
+        ctx.data_mut(|data| {
+            let meta = data
+                .get_persisted::<MetadataFrame>(metadata_id)
+                .expect("background pan should keep metadata persisted");
+            assert!((meta.pan.x - 25.0).abs() < 0.001);
+            assert!((meta.pan.y - 15.0).abs() < 0.001);
+        });
+    }
+
+    #[test]
+    fn background_pan_is_noop_for_zero_delta() {
+        let ctx = egui::Context::default();
+        let metadata_id = egui::Id::new("test-background-pan-zero");
+        let view_id = crate::app::GraphViewId::default();
+        let mut app = test_app();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new("Zero Pan Test"));
+
+        ctx.data_mut(|data| {
+            let mut frame = MetadataFrame::default();
+            frame.zoom = 1.0;
+            frame.pan = egui::vec2(10.0, 20.0);
+            data.insert_persisted(
+                metadata_id,
+                frame,
+            );
+        });
+
+        let changed = apply_background_pan(&ctx, metadata_id, &mut app, view_id, Vec2::ZERO);
+
+        assert!(!changed);
+        assert_eq!(app.workspace.focused_view, None);
+        ctx.data_mut(|data| {
+            let meta = data
+                .get_persisted::<MetadataFrame>(metadata_id)
+                .expect("zero-delta pan should leave metadata intact");
+            assert!((meta.pan.x - 10.0).abs() < 0.001);
+            assert!((meta.pan.y - 20.0).abs() < 0.001);
+        });
     }
 
     #[test]
