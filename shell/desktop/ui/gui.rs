@@ -1737,17 +1737,25 @@ impl Gui {
         nodes: &[WebViewA11yNodePlan],
     ) {
         for node in nodes {
-            let node_id = Self::webview_accessibility_node_id(webview_id, node.node_id);
-            let role = node.role;
-            let label = node.label.clone();
-
-            ctx.accesskit_node_builder(node_id, |builder| {
-                builder.set_role(role);
-                if let Some(label) = &label {
-                    builder.set_label(label.clone());
-                }
-            });
+            Self::inject_webview_a11y_plan_node(ctx, webview_id, node);
         }
+    }
+
+    fn inject_webview_a11y_plan_node(
+        ctx: &egui::Context,
+        webview_id: WebViewId,
+        node: &WebViewA11yNodePlan,
+    ) {
+        let node_id = Self::webview_accessibility_node_id(webview_id, node.node_id);
+        let role = node.role;
+        let label = node.label.clone();
+
+        ctx.accesskit_node_builder(node_id, |builder| {
+            builder.set_role(role);
+            if let Some(label) = &label {
+                builder.set_label(label.clone());
+            }
+        });
     }
 }
 
