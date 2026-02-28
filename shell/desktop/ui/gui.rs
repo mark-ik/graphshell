@@ -64,6 +64,29 @@ pub(crate) struct GuiUpdateInput<'a> {
 
 pub(crate) struct GuiUpdateOutput;
 
+struct GraphSearchAndKeyboardPhaseArgs<'a> {
+    ctx: &'a egui::Context,
+    graph_app: &'a mut GraphBrowserApp,
+    window: &'a EmbedderWindow,
+    tiles_tree: &'a mut Tree<TileKind>,
+    graph_search_open: &'a mut bool,
+    graph_search_query: &'a mut String,
+    graph_search_filter_mode: &'a mut bool,
+    graph_search_matches: &'a mut Vec<NodeKey>,
+    graph_search_active_match_index: &'a mut Option<usize>,
+    toolbar_state: &'a mut ToolbarState,
+    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    favicon_textures:
+        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    app_state: &'a Option<Rc<RunningAppState>>,
+    rendering_context: &'a Rc<OffscreenRenderingContext>,
+    window_rendering_context: &'a Rc<WindowRenderingContext>,
+    responsive_webviews: &'a HashSet<WebViewId>,
+    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    frame_intents: &'a mut Vec<GraphIntent>,
+}
+
 struct WebViewA11yNodePlan {
     node_id: accesskit::NodeId,
     role: egui::accesskit::Role,
@@ -619,25 +642,27 @@ impl Gui {
             let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
 
             let mut graph_search_output = Self::run_graph_search_and_keyboard_phases(
-                ctx,
-                graph_app,
-                window,
-                tiles_tree,
-                graph_search_open,
-                graph_search_query,
-                graph_search_filter_mode,
-                graph_search_matches,
-                graph_search_active_match_index,
-                toolbar_state,
-                tile_rendering_contexts,
-                tile_favicon_textures,
-                favicon_textures,
-                app_state,
-                rendering_context,
-                window_rendering_context,
-                &pre_frame.responsive_webviews,
-                webview_creation_backpressure,
-                &mut frame_intents,
+                GraphSearchAndKeyboardPhaseArgs {
+                    ctx,
+                    graph_app,
+                    window,
+                    tiles_tree,
+                    graph_search_open,
+                    graph_search_query,
+                    graph_search_filter_mode,
+                    graph_search_matches,
+                    graph_search_active_match_index,
+                    toolbar_state,
+                    tile_rendering_contexts,
+                    tile_favicon_textures,
+                    favicon_textures,
+                    app_state,
+                    rendering_context,
+                    window_rendering_context,
+                    responsive_webviews: &pre_frame.responsive_webviews,
+                    webview_creation_backpressure,
+                    frame_intents: &mut frame_intents,
+                },
             );
 
             Self::run_toolbar_and_graph_search_window_phases(
@@ -729,28 +754,31 @@ impl Gui {
         frame_intents
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn run_graph_search_and_keyboard_phases(
-        ctx: &egui::Context,
-        graph_app: &mut GraphBrowserApp,
-        window: &EmbedderWindow,
-        tiles_tree: &mut Tree<TileKind>,
-        graph_search_open: &mut bool,
-        graph_search_query: &mut String,
-        graph_search_filter_mode: &mut bool,
-        graph_search_matches: &mut Vec<NodeKey>,
-        graph_search_active_match_index: &mut Option<usize>,
-        toolbar_state: &mut ToolbarState,
-        tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-        favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-        app_state: &Option<Rc<RunningAppState>>,
-        rendering_context: &Rc<OffscreenRenderingContext>,
-        window_rendering_context: &Rc<WindowRenderingContext>,
-        responsive_webviews: &HashSet<WebViewId>,
-        webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-        frame_intents: &mut Vec<GraphIntent>,
+        args: GraphSearchAndKeyboardPhaseArgs<'_>,
     ) -> graph_search_flow::GraphSearchFlowOutput {
+        let GraphSearchAndKeyboardPhaseArgs {
+            ctx,
+            graph_app,
+            window,
+            tiles_tree,
+            graph_search_open,
+            graph_search_query,
+            graph_search_filter_mode,
+            graph_search_matches,
+            graph_search_active_match_index,
+            toolbar_state,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            favicon_textures,
+            app_state,
+            rendering_context,
+            window_rendering_context,
+            responsive_webviews,
+            webview_creation_backpressure,
+            frame_intents,
+        } = args;
+
         let graph_search_output = gui_orchestration::run_graph_search_phase(
             ctx,
             graph_app,
