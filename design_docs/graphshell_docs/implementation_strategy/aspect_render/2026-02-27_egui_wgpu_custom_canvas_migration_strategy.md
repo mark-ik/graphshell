@@ -14,13 +14,12 @@
 
 ## Goal
 
-Migrate Graphshell from:
+Split the previously combined `wgpu` migration into two distinct workstreams:
 
-- `egui_glow` + `egui_graphs`
-
-to:
-
-- `egui_wgpu` + a Graphshell-owned custom canvas
+1. **Renderer backend migration**
+   - `egui_glow` -> `egui_wgpu`
+2. **Graph canvas migration**
+   - `egui_graphs` -> a Graphshell-owned custom canvas
 
 while intentionally retaining:
 
@@ -38,29 +37,32 @@ This strategy assumes:
 
 The objective is not "safe incrementalism." The objective is a cleaner architecture fast enough to keep momentum, while still respecting the real technical dependencies that can make a renderer migration fail.
 
+These two workstreams are related, but they are not the same issue, should not share the same blocker model, and should not be forced into one execution slice.
+
 ---
 
 ## Deferral Decision
 
-The `egui_wgpu` migration is now explicitly **deferred behind application maturity**.
+The renderer backend migration (`egui_glow` -> `egui_wgpu`) is explicitly **deferred behind application maturity and embedder decomposition readiness**.
 
 That means:
 
 - Graphshell should first fix its current architecture, UX, and core feature-set problems on the existing stack.
 - Graphshell should first become meaningfully usable as an application.
-- Only after the app logic, ownership boundaries, and baseline interactions are stable should Graphshell attempt the renderer backend migration from `egui_glow` to `egui_wgpu`.
+- Only after the app logic, ownership boundaries, baseline interactions, and embedder/runtime boundaries are stable enough should Graphshell attempt the renderer backend migration from `egui_glow` to `egui_wgpu`.
 
 Reason:
 
 - If Graphshell's app logic is still fighting `egui_graphs`, `egui_tiles`, and `egui_glow` today, moving to `wgpu` too early is likely to reproduce the same architectural mistakes under a newer backend.
 - `wgpu` is not the fix for unclear authority, weak interaction contracts, or immature application semantics.
-- The custom canvas migration remains the long-term architectural direction, but the renderer backend migration should follow application readiness, not precede it.
+- The backend migration is primarily blocked by `lane:embedder-debt` (`#90`) because the current compositor and host/UI boundary are still too GL-specific.
+- The custom canvas migration remains a conditional architectural option, not an automatic prerequisite for the backend swap.
 
 The practical consequence is:
 
 - **Near term:** stabilize the app, clarify ownership, and close the most important UX and correctness gaps.
-- **Medium term:** remove `egui_graphs` only when Graphshell is ready to replace it with a better-owned canvas surface.
-- **Later:** migrate `egui_glow` -> `egui_wgpu` once the app is structurally and behaviorally stable enough to benefit from the backend change.
+- **Medium term:** only replace `egui_graphs` if it becomes a proven product or performance bottleneck.
+- **Later:** migrate `egui_glow` -> `egui_wgpu` once the app is structurally stable and `lane:embedder-debt` has cleared the backend cut.
 
 ---
 
@@ -132,15 +134,18 @@ Those are the major sequencing constraints this strategy refuses to ignore.
 
 ## Target End State
 
-The end state should be:
+The default planned end state should be:
 
 1. `egui` remains the chrome/UI toolkit.
 2. `egui_tiles` remains the workbench layout host.
 3. `egui_wgpu` renders egui on top of a Graphshell-owned `wgpu` runtime.
-4. The graph surface is rendered by a Graphshell-owned custom canvas subsystem.
-5. `egui_graphs` is removed from the dependency graph.
-6. `egui_glow` is removed from the dependency graph.
-7. Graphshell owns interaction semantics, scene derivation, and frame-pass ordering.
+4. The graph surface is either:
+   - still rendered through `egui_graphs`, if that remains sufficient, or
+   - rendered by a Graphshell-owned custom canvas subsystem, if the replacement is justified.
+5. `egui_glow` is removed from the dependency graph.
+6. Graphshell owns interaction semantics, scene derivation, and frame-pass ordering.
+
+If the custom-canvas migration is activated later, a stricter long-term end state also removes `egui_graphs`.
 
 ---
 
@@ -180,13 +185,16 @@ These are not accidents. They are part of the strategy.
 Before Phase 1 implementation begins, Graphshell needs:
 
 1. A decision that `egui_tiles` stays for this migration.
-2. A decision that `egui_graphs` and `egui_glow` are both leaving.
+2. A decision that the combined migration umbrella is split into separate backend and canvas tracks.
 3. A short proof-of-concept plan for the runtime viewer GL -> `wgpu` bridge.
 4. A chosen owner for the future `wgpu` device/queue.
-5. A chosen initial custom-canvas presentation model:
+5. Agreement that feature parity may temporarily regress during the backend cutover.
+
+Only if the custom-canvas issue is activated:
+
+6. A chosen initial custom-canvas presentation model:
    - render-to-texture, or
    - direct callback
-6. Agreement that feature parity may temporarily regress during the cutover.
 
 If any of these are unresolved, the migration remains in research mode.
 
@@ -248,7 +256,7 @@ Rule:
 
 These are not formal blockers, but they materially reduce migration risk:
 
-- **#181** extract `GraphCanvasBackend` seams to prepare `egui_graphs` removal
+- **#181** extract `GraphCanvasBackend` seams to decouple graph-surface ownership from `egui_graphs`
 - **#118** split `gui.rs` responsibilities and reduce `RunningAppState` coupling
 - **#119** split `gui_frame.rs` responsibilities
 
@@ -285,7 +293,7 @@ Rule:
 
 - Treat these as migration-adjacent work, not old-stack-only work.
 
-### Runway Category D: Issues likely superseded or deprioritized once the cut begins
+### Runway Category D: Issues likely superseded or deprioritized once the relevant cut begins
 
 These mostly describe bugs or contracts tied to the current `egui_graphs` or GL-specific graph path and should not absorb major effort if the migration is genuinely underway:
 
@@ -324,15 +332,15 @@ These are attractive because they are concrete, but they are exactly the kind of
 
 ### Runway Exit Criteria
 
-The runway is complete enough to begin the major migration when:
+The runway is complete enough to begin the backend migration when:
 
 1. The application readiness gate is met.
 2. `#180` has answered the backend gate with measured evidence.
-3. `#181` has established the canvas seam (or the equivalent structural prep is complete).
+3. `#181` has established the graph/canvas seam (or the equivalent structural prep is complete).
 4. The major orchestration hotspots are reduced enough that the cut is contained.
 5. The team has explicitly stopped prioritizing old-path-only graph fixes unless they block development.
 
-At that point, Graphshell should stop treating the migration as a future plan and start executing the hard cuts.
+At that point, Graphshell should stop treating the backend migration as a future plan and start executing the renderer cut.
 
 ---
 
@@ -448,21 +456,27 @@ Make the current app structurally ready to lose `egui_graphs` and `egui_glow`.
 
 ---
 
-## Phase 3: Replace `egui_graphs` First
+## Phase 3: Conditional Canvas Migration (`egui_graphs` -> Graphshell Canvas)
 
 ### Objective
 
-Remove the graph widget dependency and make the graph pane Graphshell-owned.
+Remove the graph widget dependency and make the graph pane Graphshell-owned, but only if `egui_graphs` has become a proven bottleneck.
 
 ### Strategy
 
-Do **not** wait for `egui_wgpu` to do this. The graph canvas is the architectural problem; solve it first.
+Do **not** force this cut as a prerequisite for `egui_wgpu`.
 
-However, do not force this cut prematurely if the app still needs basic usability work on the current graph path first. The correct timing is:
+This phase should start only if one of the following becomes true:
+
+- `egui_graphs` is a measured performance bottleneck,
+- `egui_graphs` blocks required interaction ownership,
+- `egui_graphs` prevents a needed render path or product behavior from landing cleanly.
+
+Until then, the correct timing is:
 
 - fix the app enough that the interaction model is understood,
-- then replace `egui_graphs` with a better-owned canvas,
-- then later swap renderer backends.
+- keep `egui_graphs` if it remains sufficient,
+- prioritize the backend migration separately once its own blocker lane is cleared.
 
 ### Actions
 
@@ -556,10 +570,10 @@ Get the rest of the app ready for the backend swap without performing it yet.
    - texture registration
    - custom pass registration
    - frame submission
-4. Decide whether the custom canvas is presented by:
+4. If the custom canvas is active, decide whether it is presented by:
    - texture into egui, or
    - direct backend callback
-5. Make sure the graph pane and runtime viewer composition paths both target this new renderer contract.
+5. Make sure the graph pane and runtime viewer composition paths both target this new renderer contract, whether the graph pane is still `egui_graphs` or a custom canvas.
 
 ### Prototype-Breaking Policy
 
@@ -583,7 +597,7 @@ Replace the egui renderer backend and remove OpenGL-specific UI rendering code f
 This phase is explicitly deferred until:
 
 - the application readiness gate is met,
-- the custom canvas is stable enough to survive the backend swap,
+- `lane:embedder-debt` (`#90`) has cleared the host/render boundary blocker,
 - and the runtime-viewer bridge has been proven.
 
 ### Actions
@@ -592,7 +606,7 @@ This phase is explicitly deferred until:
 2. Create the Graphshell-owned `wgpu` runtime if that is the selected ownership model.
 3. Reconnect:
    - egui chrome
-   - custom graph canvas
+   - the active graph pane implementation (`egui_graphs` or custom canvas)
    - runtime viewer surface presentation
    to the new backend.
 4. Validate:
@@ -617,7 +631,7 @@ This phase is explicitly deferred until:
 
 - The app builds and runs without `egui_glow`.
 - egui chrome is rendered through `egui_wgpu`.
-- The graph canvas and runtime viewer content are visible through the new frame path.
+- The active graph pane path and runtime viewer content are visible through the new frame path.
 
 ---
 
@@ -723,23 +737,24 @@ If implementation starts immediately, the first three slices should be:
    - split `render/mod.rs`
    - isolate `egui_glow`
 
-3. **Slice 3: Delete `egui_graphs`**
-   - land minimal Graphshell custom canvas
-   - remove `egui_graphs` dependency
+3. **Slice 3: Backend landing prep**
+   - make the graph path consume the backend-neutral renderer contract
+   - keep `egui_graphs` unless it has become a demonstrated blocker
 
-This sequence gives the fastest route to architectural ownership while keeping the renderer swap technically honest.
+This sequence gives the fastest route to a viable backend migration while keeping the optional canvas replacement honest and evidence-driven.
 
 ---
 
 ## Final Position
 
-The correct aggressive strategy is:
+The correct strategy is:
 
 - keep `egui`
 - keep `egui_tiles`
-- remove `egui_graphs` first
-- then remove `egui_glow`
-- accept temporary breakage during the rebuild
+- split the old combined migration into separate backend and canvas issues
+- treat `egui_glow` -> `egui_wgpu` as blocked by `lane:embedder-debt` until the host/render boundary is ready
+- keep `egui_graphs` unless it becomes a proven bottleneck
+- only then consider the custom-canvas cut
 - refuse long-lived compatibility scaffolding
 
 The prototype is allowed to break.

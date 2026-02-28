@@ -150,12 +150,12 @@ These issues are part of the future UX evolution but are explicitly deferred beh
 
 ### Deferred backend/canvas migration issues
 
-- `#179` migrate UI stack to `egui_wgpu` and a Graphshell-owned custom canvas
+- `#179` legacy umbrella issue for the combined `wgpu` migration (superseded by the split below; do not execute as one combined slice)
 - `#180` prove runtime-viewer GL -> `wgpu` bridge
 - `#181` extract `GraphCanvasBackend` seams
-- `#182` replace `egui_graphs` with a minimal Graphshell custom canvas
-- `#183` replace `egui_glow` with `egui_wgpu`
-- `#184` stabilize and optimize the `egui_wgpu` + custom canvas stack
+- `#182` replace `egui_graphs` with a minimal Graphshell custom canvas (deferred unless `egui_graphs` becomes a proven bottleneck)
+- `#183` replace `egui_glow` with `egui_wgpu` (blocked by `lane:embedder-debt` / `#90` until embedder decomposition makes the backend cut technically viable)
+- `#184` stabilize and optimize the `egui_wgpu` backend landing after `#183` (do not couple this to custom-canvas work by default)
 
 These matter strategically, but they are not current UX contract slices to execute before the app is usable.
 

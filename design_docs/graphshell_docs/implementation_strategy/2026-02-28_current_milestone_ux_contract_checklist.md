@@ -170,7 +170,8 @@ It also walks the six-spec family in the right dependency order:
 The following remain important, but are not required for this UX-contract milestone:
 
 - backend migration to `egui_wgpu`
-- custom canvas replacement work (`#179`-`#184`)
+- backend migration issue split / interop prep (`#179`, `#180`, `#181`, `#183`, `#184`)
+- custom canvas replacement work only if `egui_graphs` proves to be a real bottleneck (`#182`)
 - deep renderer optimization
 - broad diagnostics platform expansion beyond what current UX issues require
 - speculative 2.5D / 3D work
@@ -192,5 +193,4 @@ Before declaring this milestone complete, ask:
 6. Are selection and degraded rendering states explicit enough to trust?
 
 If the answer to any of these is “not really,” the milestone is not done.
-
 

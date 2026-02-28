@@ -1,14 +1,21 @@
 # Egui WGPU and Custom Canvas Migration Requirements
 
 **Date:** 2026-02-27  
-**Status:** Fresh research baseline  
-**Scope:** What Graphshell must know, decide, and prove before migrating from `egui_glow` + `egui_graphs` to `egui_wgpu` + a Graphshell-owned custom canvas while retaining `egui` + `egui_tiles`.
+**Status:** Research baseline (full custom-canvas branch; not the default immediate execution plan)  
+**Scope:** What Graphshell must know, decide, and prove before pursuing the full migration path from `egui_glow` + `egui_graphs` to `egui_wgpu` + a Graphshell-owned custom canvas while retaining `egui` + `egui_tiles`.
 
 ---
 
 ## 1. Decision Baseline
 
-Assume the target stack is:
+This document describes the **full custom-canvas target branch**, not the minimum default path.
+
+The current canonical execution stance is:
+
+- backend migration (`egui_glow` -> `egui_wgpu`) is tracked separately and remains blocked by embedder/runtime readiness
+- custom canvas replacement is conditional and should only advance if `egui_graphs` becomes a proven bottleneck
+
+For the purposes of this research document only, assume the target stack is:
 
 - `egui` for chrome and widget UI
 - `egui_tiles` for docking/workbench layout
@@ -20,7 +27,7 @@ Assume the current stack being replaced is:
 - `egui_glow` for egui rendering
 - `egui_graphs` for graph canvas rendering and interaction
 
-This document intentionally starts from that accepted target and asks: what must be true before the migration is safe, coherent, and worth doing?
+This document intentionally starts from that stricter target and asks: what must be true before the full migration is safe, coherent, and worth doing?
 
 ---
 
@@ -644,4 +651,3 @@ Primary sources consulted on 2026-02-27:
   - https://docs.rs/egui/latest/egui/
 
 The Graphshell-specific requirements in this document are an engineering inference from those sources combined with the current code structure.
-

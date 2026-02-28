@@ -1,8 +1,17 @@
 # Egui Stack Assessment and Strategy for Graphshell
 
 **Date:** 2026-02-27  
-**Status:** Research-backed strategy note  
-**Scope:** How to get the best results from `egui` + `egui_tiles` + `egui_graphs` today, what technical boundaries must exist between Graphshell and the egui stack, and how to migrate if the stack becomes the main source of churn.
+**Status:** Background rationale / comparative research (superseded as the primary strategy source)  
+**Scope:** Background analysis of how to get the best results from `egui` + `egui_tiles` + `egui_graphs`, what technical boundaries must exist between Graphshell and the egui stack, and what tradeoffs informed the later migration strategy.
+
+**Use this doc for:**
+
+- rationale
+- tradeoff analysis
+- historical framing
+
+**Do not use this doc as the canonical execution plan.**  
+Use `implementation_strategy/aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md` for current migration sequencing and issue posture.
 
 ---
 
@@ -10,7 +19,12 @@
 
 The current egui stack is still viable for Graphshell, but only if Graphshell treats it as a set of backends rather than as product architecture.
 
-**Decision update:** Graphshell should retain `egui` and `egui_tiles`, and migrate away from both `egui_graphs` and `egui_glow`.
+**Historical decision snapshot:** this document was written when the working assumption was that Graphshell would retain `egui` and `egui_tiles`, and eventually migrate away from both `egui_graphs` and `egui_glow`.
+
+That framing is now partially narrowed:
+
+- `egui_glow` -> `egui_wgpu` remains the active backend migration target
+- `egui_graphs` replacement is now conditional rather than automatic
 
 The present problems are mostly not "egui is wrong"; they are boundary problems:
 
