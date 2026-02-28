@@ -1240,9 +1240,17 @@ fn handle_pending_add_node_to_frame(graph_app: &mut GraphBrowserApp) {
 
 fn handle_pending_add_connected_to_frame(graph_app: &mut GraphBrowserApp) {
     if let Some((seed_nodes, frame_name)) = graph_app.take_pending_add_connected_to_frame() {
-        let nodes = connected_frame_import_nodes(graph_app, &seed_nodes);
-        add_nodes_to_named_frame_snapshot(graph_app, &frame_name, &nodes);
+        add_connected_nodes_to_named_frame_snapshot(graph_app, &frame_name, &seed_nodes);
     }
+}
+
+fn add_connected_nodes_to_named_frame_snapshot(
+    graph_app: &mut GraphBrowserApp,
+    frame_name: &str,
+    seed_nodes: &[NodeKey],
+) {
+    let nodes = connected_frame_import_nodes(graph_app, seed_nodes);
+    add_nodes_to_named_frame_snapshot(graph_app, frame_name, &nodes);
 }
 
 fn handle_pending_add_exact_to_frame(graph_app: &mut GraphBrowserApp) {
