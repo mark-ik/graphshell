@@ -1313,7 +1313,7 @@ fn handle_pending_named_graph_snapshot_restore(
     focused_node_hint: &mut Option<NodeKey>,
 ) {
     if let Some(name) = graph_app.take_pending_restore_graph_snapshot_named() {
-        restore_graph_snapshot_and_reset_workspace(
+        restore_pending_named_graph_snapshot(
             graph_app,
             window,
             tiles_tree,
@@ -1321,14 +1321,36 @@ fn handle_pending_named_graph_snapshot_restore(
             tile_favicon_textures,
             webview_creation_backpressure,
             focused_node_hint,
-            |graph_app| {
-                graph_app
-                    .load_named_graph_snapshot(&name)
-                    .map_err(|e| e.to_string())
-            },
-            |e| warn!("Failed to load named graph snapshot '{name}': {e}"),
+            &name,
         );
     }
+}
+
+fn restore_pending_named_graph_snapshot(
+    graph_app: &mut GraphBrowserApp,
+    window: &EmbedderWindow,
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+    name: &str,
+) {
+    restore_graph_snapshot_and_reset_workspace(
+        graph_app,
+        window,
+        tiles_tree,
+        tile_rendering_contexts,
+        tile_favicon_textures,
+        webview_creation_backpressure,
+        focused_node_hint,
+        |graph_app| {
+            graph_app
+                .load_named_graph_snapshot(name)
+                .map_err(|e| e.to_string())
+        },
+        |e| warn!("Failed to load named graph snapshot '{name}': {e}"),
+    );
 }
 
 fn handle_pending_latest_graph_snapshot_restore(
