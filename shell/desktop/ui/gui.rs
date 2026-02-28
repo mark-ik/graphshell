@@ -703,15 +703,12 @@ impl Gui {
         let winit_window = headed_window.winit_window();
         Self::configure_frame_toasts(toasts, graph_app.workspace.toast_anchor_preference);
         context.run(winit_window, |ctx| {
-            graph_app.tick_frame();
-
-            // Inject any pending runtime viewer accessibility tree updates into egui's
-            // accessibility tree. Conversion is deterministic and degrades
-            // explicitly when incoming nodes cannot be represented in egui's
-            // current AccessKit version.
-            Self::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
-
-            Self::maybe_toggle_diagnostics_tool_pane(ctx, tiles_tree);
+            Self::run_update_frame_prelude(
+                ctx,
+                graph_app,
+                pending_webview_a11y_updates,
+                tiles_tree,
+            );
             let pre_frame = gui_orchestration::run_pre_frame_phase(
                 ctx,
                 graph_app,
@@ -822,6 +819,23 @@ impl Gui {
         });
 
         GuiUpdateOutput
+    }
+
+    fn run_update_frame_prelude(
+        ctx: &egui::Context,
+        graph_app: &mut GraphBrowserApp,
+        pending_webview_a11y_updates: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
+        tiles_tree: &mut Tree<TileKind>,
+    ) {
+        graph_app.tick_frame();
+
+        // Inject any pending runtime viewer accessibility tree updates into egui's
+        // accessibility tree. Conversion is deterministic and degrades
+        // explicitly when incoming nodes cannot be represented in egui's
+        // current AccessKit version.
+        Self::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
+
+        Self::maybe_toggle_diagnostics_tool_pane(ctx, tiles_tree);
     }
 
     fn configure_frame_toasts(
