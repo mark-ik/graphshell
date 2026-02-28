@@ -1491,12 +1491,7 @@ impl Gui {
         webview_id: WebViewId,
         tree_update: &accesskit::TreeUpdate,
     ) -> WebViewA11yGraftPlan {
-        let mut allowed_node_ids = HashSet::with_capacity(tree_update.nodes.len());
-        for (node_id, _) in &tree_update.nodes {
-            if !Self::is_reserved_webview_accessibility_node_id(*node_id) {
-                allowed_node_ids.insert(*node_id);
-            }
-        }
+        let allowed_node_ids = Self::collect_allowed_webview_a11y_node_ids(tree_update);
 
         let mut nodes = Vec::with_capacity(allowed_node_ids.len());
         let mut conversion_fallback_count = 0;
@@ -1531,6 +1526,18 @@ impl Gui {
             conversion_fallback_count,
             nodes,
         }
+    }
+
+    fn collect_allowed_webview_a11y_node_ids(
+        tree_update: &accesskit::TreeUpdate,
+    ) -> HashSet<accesskit::NodeId> {
+        let mut allowed_node_ids = HashSet::with_capacity(tree_update.nodes.len());
+        for (node_id, _) in &tree_update.nodes {
+            if !Self::is_reserved_webview_accessibility_node_id(*node_id) {
+                allowed_node_ids.insert(*node_id);
+            }
+        }
+        allowed_node_ids
     }
 
     fn normalized_webview_a11y_node_label(node: &accesskit::Node) -> Option<String> {
