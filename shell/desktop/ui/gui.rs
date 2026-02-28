@@ -1674,6 +1674,18 @@ impl Gui {
     }
 
     fn warn_webview_a11y_plan_degradation(webview_id: WebViewId, plan: &WebViewA11yGraftPlan) {
+        Self::warn_webview_a11y_document_root_degradation(webview_id, plan);
+        Self::warn_webview_a11y_dropped_nodes(webview_id, plan.dropped_node_count);
+        Self::warn_webview_a11y_role_conversion_fallback(
+            webview_id,
+            plan.conversion_fallback_count,
+        );
+    }
+
+    fn warn_webview_a11y_document_root_degradation(
+        webview_id: WebViewId,
+        plan: &WebViewA11yGraftPlan,
+    ) {
         if plan.nodes.is_empty() {
             warn!(
                 "Runtime viewer accessibility injection used degraded synthesized document node for {:?}: incoming tree update had no nodes",
@@ -1685,18 +1697,25 @@ impl Gui {
                 webview_id
             );
         }
+    }
 
-        if plan.dropped_node_count > 0 {
+    fn warn_webview_a11y_dropped_nodes(webview_id: WebViewId, dropped_node_count: usize) {
+        if dropped_node_count > 0 {
             warn!(
                 "Runtime viewer accessibility injection dropped {} reserved node(s) for {:?}",
-                plan.dropped_node_count, webview_id
+                dropped_node_count, webview_id
             );
         }
+    }
 
-        if plan.conversion_fallback_count > 0 {
+    fn warn_webview_a11y_role_conversion_fallback(
+        webview_id: WebViewId,
+        conversion_fallback_count: usize,
+    ) {
+        if conversion_fallback_count > 0 {
             warn!(
                 "Runtime viewer accessibility injection used degraded role conversion fallback for {} node(s) in {:?}",
-                plan.conversion_fallback_count, webview_id
+                conversion_fallback_count, webview_id
             );
         }
     }
