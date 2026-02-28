@@ -1133,10 +1133,7 @@ fn handle_unsaved_workspace_prompt_resolution(
                 UnsavedFramePromptRequest::FrameSwitch { name, focus_node },
                 UnsavedFramePromptAction::ProceedWithoutSaving,
             ) => {
-                let open_request = focus_node.map(|key| PendingNodeOpenRequest {
-                    key,
-                    mode: PendingTileOpenMode::Tab,
-                });
+                let open_request = pending_open_request_from_focus_node(focus_node);
                 restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
             }
             (
@@ -1145,6 +1142,13 @@ fn handle_unsaved_workspace_prompt_resolution(
             ) => {}
         }
     }
+}
+
+fn pending_open_request_from_focus_node(focus_node: Option<NodeKey>) -> Option<PendingNodeOpenRequest> {
+    focus_node.map(|key| PendingNodeOpenRequest {
+        key,
+        mode: PendingTileOpenMode::Tab,
+    })
 }
 
 fn handle_pending_named_frame_snapshot_restore_request(
