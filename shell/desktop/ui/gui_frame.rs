@@ -1111,6 +1111,14 @@ fn handle_pending_frame_snapshot_actions(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) {
+    handle_pending_frame_prompt_and_restore(graph_app, tiles_tree);
+    handle_pending_frame_save_prune_and_import(graph_app, tiles_tree);
+}
+
+fn handle_pending_frame_prompt_and_restore(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) {
     if let Some((request, action)) = graph_app.take_unsaved_workspace_prompt_resolution() {
         match (request, action) {
             (
@@ -1129,6 +1137,29 @@ fn handle_pending_frame_snapshot_actions(
             ) => {}
         }
     }
+
+    if let Some(name) = graph_app.take_pending_restore_frame_snapshot_named() {
+        let open_request = graph_app.take_pending_frame_restore_open_request();
+        if graph_app.should_prompt_unsaved_workspace_save() {
+            if graph_app.consume_unsaved_workspace_prompt_warning() {
+                warn!("Current frame has unsaved graph changes before switching to '{name}'");
+            }
+            graph_app.request_unsaved_workspace_prompt(
+                UnsavedFramePromptRequest::FrameSwitch {
+                    name,
+                    focus_node: open_request.map(|request| request.key),
+                },
+            );
+        } else {
+            restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
+        }
+    }
+}
+
+fn handle_pending_frame_save_prune_and_import(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) {
 
     if graph_app.take_pending_save_frame_snapshot() {
         match serde_json::to_string(tiles_tree) {
@@ -1155,23 +1186,6 @@ fn handle_pending_frame_snapshot_actions(
     if let Some(keep) = graph_app.take_pending_keep_latest_named_frames() {
         let deleted = persistence_ops::keep_latest_named_workspaces(graph_app, keep);
         warn!("Removed {deleted} named frame snapshots beyond latest {keep}");
-    }
-
-    if let Some(name) = graph_app.take_pending_restore_frame_snapshot_named() {
-        let open_request = graph_app.take_pending_frame_restore_open_request();
-        if graph_app.should_prompt_unsaved_workspace_save() {
-            if graph_app.consume_unsaved_workspace_prompt_warning() {
-                warn!("Current frame has unsaved graph changes before switching to '{name}'");
-            }
-            graph_app.request_unsaved_workspace_prompt(
-                UnsavedFramePromptRequest::FrameSwitch {
-                    name,
-                    focus_node: open_request.map(|request| request.key),
-                },
-            );
-        } else {
-            restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
-        }
     }
 
     if let Some((node_key, frame_name)) = graph_app.take_pending_add_node_to_frame() {
