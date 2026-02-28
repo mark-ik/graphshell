@@ -1457,13 +1457,7 @@ impl Gui {
         webview_id: WebViewId,
         tree_update: &accesskit::TreeUpdate,
     ) -> String {
-        if let Some((_, focused_node)) = tree_update
-            .nodes
-            .iter()
-            .find(|(node_id, _)| *node_id == tree_update.focus)
-            && let Some(label) = focused_node.label()
-            && !label.trim().is_empty()
-        {
+        if let Some(label) = Self::focused_webview_accessibility_label(tree_update) {
             return Self::format_embedded_web_content_label(label);
         }
 
@@ -1481,6 +1475,15 @@ impl Gui {
             webview_id,
             tree_update.nodes.len()
         )
+    }
+
+    fn focused_webview_accessibility_label(tree_update: &accesskit::TreeUpdate) -> Option<&str> {
+        tree_update
+            .nodes
+            .iter()
+            .find(|(node_id, _)| *node_id == tree_update.focus)
+            .and_then(|(_, node)| node.label())
+            .filter(|label| !label.trim().is_empty())
     }
 
     fn format_embedded_web_content_label(label: &str) -> String {
