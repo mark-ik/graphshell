@@ -27,7 +27,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
 use crate::shell::desktop::render_backend::{
-    BackendCallbackFn, BackendCustomPass, glow, register_custom_paint_callback,
+    BackendCustomPass, BackendViewportInPixels, custom_pass_from_glow_viewport, glow,
+    register_custom_paint_callback,
 };
 use dpi::PhysicalSize;
 use euclid::{Point2D, Rect, Scale, Size2D, UnknownUnit};
@@ -654,12 +655,10 @@ impl CompositorAdapter {
     ) where
         F: Fn(&glow::Context, Rect<i32, UnknownUnit>) + Send + Sync + 'static,
     {
-        let callback = BackendCustomPass::from_callback_fn(BackendCallbackFn::new(
-            move |info, painter| {
+        let callback = custom_pass_from_glow_viewport(move |gl, clip: BackendViewportInPixels| {
             #[cfg(feature = "diagnostics")]
             let started = std::time::Instant::now();
 
-            let clip = info.viewport_in_pixels();
             let rect_in_parent = Rect::new(
                 Point2D::new(clip.left_px, clip.from_bottom_px),
                 Size2D::new(clip.width_px, clip.height_px),
@@ -677,10 +676,10 @@ impl CompositorAdapter {
 
             CompositorAdapter::run_content_callback_with_guardrails(
                 node_key,
-                painter.gl(),
+                gl,
                 probe_context,
                 || {
-                    render_to_parent(painter.gl(), rect_in_parent)
+                    render_to_parent(gl, rect_in_parent)
                 },
             );
 
@@ -689,8 +688,7 @@ impl CompositorAdapter {
                 "tile_compositor::content_pass_callback",
                 started.elapsed().as_micros() as u64,
             );
-            },
-        ));
+        });
 
         Self::register_content_pass(ctx, node_key, tile_rect, callback);
     }

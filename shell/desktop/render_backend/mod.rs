@@ -15,6 +15,14 @@ pub(crate) use egui_glow::EguiGlow as UiRenderBackend;
 pub(crate) use egui_glow::glow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BackendViewportInPixels {
+	pub(crate) left_px: i32,
+	pub(crate) from_bottom_px: i32,
+	pub(crate) width_px: i32,
+	pub(crate) height_px: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendTextureToken(pub(crate) egui::TextureId);
 
 #[derive(Clone)]
@@ -28,6 +36,24 @@ impl BackendCustomPass {
 			callback: Arc::new(callback),
 		}
 	}
+}
+
+pub(crate) fn custom_pass_from_glow_viewport<F>(render: F) -> BackendCustomPass
+where
+	F: Fn(&glow::Context, BackendViewportInPixels) + Send + Sync + 'static,
+{
+	BackendCustomPass::from_callback_fn(BackendCallbackFn::new(move |info, painter| {
+		let clip = info.viewport_in_pixels();
+		render(
+			painter.gl(),
+			BackendViewportInPixels {
+				left_px: clip.left_px,
+				from_bottom_px: clip.from_bottom_px,
+				width_px: clip.width_px,
+				height_px: clip.height_px,
+			},
+		);
+	}))
 }
 
 pub(crate) fn texture_token_from_handle(handle: &egui::TextureHandle) -> BackendTextureToken {
