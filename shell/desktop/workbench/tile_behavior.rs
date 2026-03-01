@@ -190,6 +190,113 @@ impl<'a> GraphshellTileBehavior<'a> {
         ));
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn accessibility_inspector_snapshot(
+        graph_app: &GraphBrowserApp,
+    ) -> AccessibilityInspectorSnapshot {
+        let selected_node_count = graph_app.workspace.selected_nodes.len();
+        let total_nodes = graph_app.workspace.graph.node_count();
+        let selected_node = graph_app
+            .workspace
+            .selected_nodes
+            .primary()
+            .and_then(|node_key| {
+                let node = graph_app.workspace.graph.get_node(node_key)?;
+                let viewer_registry = crate::registries::atomic::viewer::ViewerRegistry::default();
+                let viewer_id = viewer_registry.select_for(node.mime_hint.as_deref(), node.address_kind);
+                let capabilities = viewer_registry.capabilities_for(viewer_id);
+
+                Some(AccessibilityInspectorSelectedNodeSnapshot {
+                    node_key,
+                    node_url: node.url.clone(),
+                    viewer_id,
+                    accessibility_level: format!("{:?}", capabilities.accessibility.level),
+                    accessibility_reason: capabilities.accessibility.reason.clone(),
+                    runtime_webview_mapped: graph_app.get_webview_for_node(node_key).is_some(),
+                    runtime_blocked: graph_app.runtime_block_state_for_node(node_key).is_some(),
+                    runtime_crashed: graph_app.runtime_crash_state_for_node(node_key).is_some(),
+                })
+            });
+
+        AccessibilityInspectorSnapshot {
+            total_nodes,
+            selected_node_count,
+            selected_node,
+        }
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn render_accessibility_inspector_scaffold(ui: &mut Ui, graph_app: &GraphBrowserApp) {
+        let snapshot = Self::accessibility_inspector_snapshot(graph_app);
+
+        ui.heading("Accessibility Inspector");
+        ui.separator();
+        ui.small("Functional scaffold for bridge/tree diagnostics and future accessibility controls.");
+
+        egui::Grid::new("accessibility_inspector_summary")
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                ui.strong("Graph nodes");
+                ui.monospace(snapshot.total_nodes.to_string());
+                ui.end_row();
+
+                ui.strong("Selected nodes");
+                ui.monospace(snapshot.selected_node_count.to_string());
+                ui.end_row();
+            });
+
+        ui.add_space(8.0);
+        ui.strong("Selected node accessibility profile");
+        match snapshot.selected_node {
+            Some(selected) => {
+                egui::Grid::new("accessibility_selected_node_profile")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("Node");
+                        ui.monospace(format!("{:?}", selected.node_key));
+                        ui.end_row();
+
+                        ui.label("URL");
+                        ui.label(selected.node_url);
+                        ui.end_row();
+
+                        ui.label("Viewer");
+                        ui.monospace(selected.viewer_id);
+                        ui.end_row();
+
+                        ui.label("Accessibility conformance");
+                        ui.monospace(selected.accessibility_level);
+                        ui.end_row();
+
+                        ui.label("Conformance reason");
+                        ui.label(
+                            selected
+                                .accessibility_reason
+                                .unwrap_or_else(|| "none".to_string()),
+                        );
+                        ui.end_row();
+
+                        ui.label("Runtime webview mapped");
+                        ui.monospace(selected.runtime_webview_mapped.to_string());
+                        ui.end_row();
+
+                        ui.label("Runtime blocked");
+                        ui.monospace(selected.runtime_blocked.to_string());
+                        ui.end_row();
+
+                        ui.label("Runtime crashed");
+                        ui.monospace(selected.runtime_crashed.to_string());
+                        ui.end_row();
+                    });
+            }
+            None => {
+                ui.small("No selected node. Select a node to inspect viewer accessibility profile and runtime bridge state.");
+            }
+        }
+    }
+
     fn favicon_texture_id(&mut self, ui: &Ui, node_key: NodeKey) -> Option<egui::TextureId> {
         let (favicon_rgba, favicon_width, favicon_height) = {
             let node = self.graph_app.workspace.graph.get_node(node_key)?;
@@ -542,7 +649,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         self.pending_graph_intents.extend(intents);
                     }
                     ToolPaneState::AccessibilityInspector => {
-                        Self::render_tool_pane_placeholder(ui, tool);
+                        Self::render_accessibility_inspector_scaffold(ui, self.graph_app);
                     }
                     ToolPaneState::Settings => {
                         let intents = render::render_settings_tool_pane_in_ui_with_control_panel(
@@ -1014,6 +1121,27 @@ fn render_graph_pane_overlay(
         });
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Debug, Clone)]
+struct AccessibilityInspectorSelectedNodeSnapshot {
+    node_key: NodeKey,
+    node_url: String,
+    viewer_id: &'static str,
+    accessibility_level: String,
+    accessibility_reason: Option<String>,
+    runtime_webview_mapped: bool,
+    runtime_blocked: bool,
+    runtime_crashed: bool,
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Debug, Clone)]
+struct AccessibilityInspectorSnapshot {
+    total_nodes: usize,
+    selected_node_count: usize,
+    selected_node: Option<AccessibilityInspectorSelectedNodeSnapshot>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{GraphshellTileBehavior, PlaintextContent, decode_plaintext_content};
@@ -1094,5 +1222,23 @@ mod tests {
             other => panic!("expected tabs container root, got {other:?}"),
         };
         assert_eq!(active, Some(graph_tile));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn accessibility_inspector_snapshot_reports_selected_node_profile() {
+        use euclid::default::Point2D;
+        let mut app = crate::app::GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        app.workspace.selected_nodes.select(key, false);
+
+        let snapshot = GraphshellTileBehavior::accessibility_inspector_snapshot(&app);
+        assert_eq!(snapshot.total_nodes, 1);
+        assert_eq!(snapshot.selected_node_count, 1);
+
+        let selected = snapshot.selected_node.expect("selected node snapshot expected");
+        assert_eq!(selected.node_key, key);
+        assert_eq!(selected.node_url, "https://example.com");
+        assert!(!selected.viewer_id.is_empty());
     }
 }
