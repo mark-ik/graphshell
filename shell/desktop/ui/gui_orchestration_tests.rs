@@ -287,13 +287,29 @@ fn pending_open_request_split_mode_uses_split_route_and_focuses_node() {
         &mut frame_intents,
     );
 
-    assert_eq!(app.get_single_selected_node(), Some(selected));
+    assert_eq!(
+        app.get_single_selected_node(),
+        None,
+        "selection should remain unchanged until reducer applies intents"
+    );
+    assert!(frame_intents.iter().any(|intent| {
+        matches!(
+            intent,
+            GraphIntent::SelectNode {
+                key,
+                multi_select: false
+            } if *key == selected
+        )
+    }));
     assert_eq!(active_node_key(&tree), Some(selected));
     assert_eq!(node_pane_count(&tree), 1);
     assert!(matches!(
         tree.root().and_then(|root| tree.tiles.get(root)),
         Some(Tile::Container(egui_tiles::Container::Linear(_)))
     ));
+
+    app.apply_intents(std::mem::take(&mut frame_intents));
+    assert_eq!(app.get_single_selected_node(), Some(selected));
 }
 
 #[test]

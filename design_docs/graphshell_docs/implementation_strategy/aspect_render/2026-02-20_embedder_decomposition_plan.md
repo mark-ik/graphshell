@@ -209,6 +209,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 2. [x] Refactor `Gui::update()` as coordinator calling extracted stateless render functions.
 3. [x] Define `gui::Input` and `gui::Output` boundary; no render function has side effects outside return value.
 4. [x] Tighten GUI state/helper visibility boundaries: `gui_state::{ToolbarState, GuiRuntimeState}` visibility narrowed to UI-supermodule scope, mutating focus-state helpers moved to `gui.rs` owner module, and orchestration entry-point visibility aligned with state ownership.
+5. [x] Pending-open GUI selection path now enqueues `GraphIntent::SelectNode` and avoids direct `graph_app.select_node(...)` mutation in orchestration handlers.
 
 **4c. tile_*.rs:**
 1. [x] Extract `TileCoordinator` from `tile_runtime.rs`: owns tile→node mapping, pruning logic, mutations.
@@ -220,6 +221,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 - At least one stateful toolbar workflow covered by focused unit tests.
 - Frame orchestrator (`gui_frame`) owns sequencing; render functions are side-effect-scoped.
 - Mutation-capable GUI state helpers are owner-scoped; cross-layer writes from non-owner modules require explicit visibility escalation.
+- Pending-open selection and related GUI semantic changes flow through reducer-owned intent application instead of direct GUI mutation calls.
 - `cargo test` passes; no regressions in UI rendering or interaction.
 
 **Estimated scope:** ~800–1200 lines refactored per file; ~300–500 lines of tests.

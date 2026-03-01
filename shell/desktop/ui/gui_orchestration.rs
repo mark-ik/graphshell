@@ -540,6 +540,12 @@ pub(crate) fn handle_pending_open_node_after_intents(
     if let Some((request_node_key, open_mode)) = open_candidate
         && let Some(node_key) = request_node_key.or_else(|| graph_app.get_single_selected_node())
     {
+        if request_node_key.is_some() {
+            frame_intents.push(GraphIntent::SelectNode {
+                key: node_key,
+                multi_select: false,
+            });
+        }
         execute_pending_open_node_after_intents(
             graph_app,
             tiles_tree,
@@ -570,7 +576,6 @@ fn take_pending_open_node_request_selection(
             open_request.key
         );
         let open_mode = open_mode_from_pending(open_request.mode);
-        graph_app.select_node(open_request.key, false);
         return Some((open_request.key, open_mode));
     }
 
