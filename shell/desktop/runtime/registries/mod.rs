@@ -106,6 +106,11 @@ pub(crate) const CHANNEL_VERSE_SYNC_IDENTITY_GENERATED: &str = "verse.sync.ident
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_DETECTED: &str = "verse.sync.conflict_detected";
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED: &str = "verse.sync.conflict_resolved";
 pub(crate) const CHANNEL_COMPOSITOR_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
+pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS: &str = "diagnostics.compositor_chaos";
+pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS: &str =
+    "diagnostics.compositor_chaos.pass";
+pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL: &str =
+    "diagnostics.compositor_chaos.fail";
 pub(crate) const CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED: &str =
     "compositor.focus_activation.deferred";
 pub(crate) const CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED: &str =

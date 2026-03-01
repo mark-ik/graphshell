@@ -5,6 +5,8 @@ use std::time::SystemTime;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED,
     CHANNEL_ACTION_EXECUTE_SUCCEEDED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
     CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
     CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
@@ -385,7 +387,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 48] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 51] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -520,6 +522,21 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 48] = [
         channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,

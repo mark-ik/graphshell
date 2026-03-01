@@ -314,6 +314,11 @@ Why they are lower priority:
 - `#160`, `#166`, and `#171` protect and instrument the current GL callback model.
 - The underlying needs (camera correctness, observability, pass-order proof) still matter, but the specific old-path implementation work may be thrown away by the migration.
 
+Execution note (2026-03-01):
+
+- `#171` has been implemented as a diagnostics-gated compositor chaos probe for GL isolation invariants (viewport/scissor/blend/active-texture/framebuffer), with pass/fail diagnostics channels and focused regression coverage in `shell/desktop/workbench/compositor_adapter.rs`.
+- Receipt: `design_docs/archive_docs/checkpoint_2026-03-01/2026-03-01_issue_171_compositor_chaos_mode_receipt.md`
+
 Rule:
 
 - Do not invest heavily in these unless they are blocking day-to-day development before the cut.

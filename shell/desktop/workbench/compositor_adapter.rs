@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
     CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
@@ -32,10 +34,14 @@ const CHANNEL_CONTENT_PASS_REGISTERED: &str = "tile_compositor.content_pass_regi
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = "tile_compositor.overlay_pass_registered";
 const CHANNEL_PASS_ORDER_VIOLATION: &str = "tile_compositor.pass_order_violation";
 const CHANNEL_INVALID_TILE_RECT: &str = "tile_compositor.invalid_tile_rect";
+const COMPOSITOR_CHAOS_ENV_VAR: &str = "GRAPHSHELL_DIAGNOSTICS_COMPOSITOR_CHAOS";
 const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
 static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
     OnceLock::new();
+
+#[cfg(feature = "diagnostics")]
+static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CompositorReplaySample {
@@ -91,6 +97,64 @@ fn gl_state_violated(before: GlStateSnapshot, after: GlStateSnapshot) -> bool {
     before != after
 }
 
+fn chaos_mode_enabled_from_raw(raw: Option<&str>) -> bool {
+    raw.map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn compositor_chaos_mode_enabled() -> bool {
+    #[cfg(feature = "diagnostics")]
+    {
+        *COMPOSITOR_CHAOS_ENABLED.get_or_init(|| {
+            let raw = std::env::var(COMPOSITOR_CHAOS_ENV_VAR).ok();
+            chaos_mode_enabled_from_raw(raw.as_deref())
+        })
+    }
+
+    #[cfg(not(feature = "diagnostics"))]
+    {
+        false
+    }
+}
+
+fn chaos_probe_passed(chaos_enabled: bool, violated: bool, restore_verified: bool) -> bool {
+    if !chaos_enabled {
+        return true;
+    }
+    violated && restore_verified
+}
+
+fn emit_chaos_probe_outcome(chaos_enabled: bool, passed: bool) {
+    if !chaos_enabled {
+        return;
+    }
+
+    #[cfg(feature = "diagnostics")]
+    {
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
+                byte_len: std::mem::size_of::<NodeKey>(),
+            },
+        );
+
+        let channel_id = if passed {
+            CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS
+        } else {
+            CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL
+        };
+
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id,
+                byte_len: std::mem::size_of::<NodeKey>(),
+            },
+        );
+    }
+}
+
 fn capture_gl_state(gl: &glow::Context) -> GlStateSnapshot {
     let mut viewport = [0_i32; 4];
 
@@ -136,6 +200,58 @@ fn restore_gl_state(gl: &glow::Context, snapshot: GlStateSnapshot) {
     }
 }
 
+fn inject_chaos_gl_perturbation(gl: &glow::Context, seed: u64) {
+    let mutation_count = (seed % 3 + 1) as usize;
+    let start = (seed as usize) % 5;
+    for offset in 0..mutation_count {
+        let selector = (start + offset) % 5;
+        unsafe {
+            match selector {
+                0 => {
+                    glow::HasContext::viewport(gl, 13, 17, 7, 5);
+                }
+                1 => {
+                    if glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST) {
+                        glow::HasContext::disable(gl, glow::SCISSOR_TEST);
+                    } else {
+                        glow::HasContext::enable(gl, glow::SCISSOR_TEST);
+                    }
+                }
+                2 => {
+                    if glow::HasContext::is_enabled(gl, glow::BLEND) {
+                        glow::HasContext::disable(gl, glow::BLEND);
+                    } else {
+                        glow::HasContext::enable(gl, glow::BLEND);
+                    }
+                }
+                3 => {
+                    let active = glow::HasContext::get_parameter_i32(gl, glow::ACTIVE_TEXTURE);
+                    let bumped = if active == glow::TEXTURE0 as i32 {
+                        glow::TEXTURE3
+                    } else {
+                        glow::TEXTURE0
+                    };
+                    glow::HasContext::active_texture(gl, bumped);
+                }
+                _ => {
+                    let bound = glow::HasContext::get_parameter_i32(gl, glow::FRAMEBUFFER_BINDING);
+                    if bound == 0 {
+                        glow::HasContext::bind_framebuffer(
+                            gl,
+                            glow::FRAMEBUFFER,
+                            Some(glow::NativeFramebuffer(
+                                std::num::NonZeroU32::new(9).expect("non-zero"),
+                            )),
+                        );
+                    } else {
+                        glow::HasContext::bind_framebuffer(gl, glow::FRAMEBUFFER, None);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn framebuffer_binding_target(binding: i32) -> Option<glow::NativeFramebuffer> {
     if binding <= 0 {
         None
@@ -158,6 +274,30 @@ where
     violated
 }
 
+fn run_guarded_callback_with_snapshots_and_perturbation<Capture, Render, Perturb, Restore>(
+    mut capture: Capture,
+    render: Render,
+    mut perturb: Perturb,
+    mut restore: Restore,
+) -> (bool, GlStateSnapshot, GlStateSnapshot, bool)
+where
+    Capture: FnMut() -> GlStateSnapshot,
+    Render: FnOnce(),
+    Perturb: FnMut(),
+    Restore: FnMut(GlStateSnapshot),
+{
+    let before = capture();
+    render();
+    perturb();
+    let after = capture();
+    if gl_state_violated(before, after) {
+        restore(before);
+        let restored = capture();
+        return (true, before, after, restored == before);
+    }
+    (false, before, after, true)
+}
+
 fn run_guarded_callback_with_snapshots<Capture, Render, Restore>(
     mut capture: Capture,
     render: Render,
@@ -168,14 +308,14 @@ where
     Render: FnOnce(),
     Restore: FnMut(GlStateSnapshot),
 {
-    let before = capture();
-    render();
-    let after = capture();
-    if gl_state_violated(before, after) {
-        restore(before);
-        return (true, before, after);
-    }
-    (false, before, after)
+    let (violated, before, after, _restore_verified) =
+        run_guarded_callback_with_snapshots_and_perturbation(
+            &mut capture,
+            render,
+            || {},
+            &mut restore,
+        );
+    (violated, before, after)
 }
 
 pub(crate) struct CompositorPassTracker {
@@ -482,12 +622,22 @@ impl CompositorAdapter {
         F: FnOnce(),
     {
         let started = std::time::Instant::now();
+        let chaos_enabled = compositor_chaos_mode_enabled();
+        let chaos_seed = COMPOSITOR_REPLAY_SEQUENCE.load(Ordering::Relaxed);
 
-        let (violated, before, after) = run_guarded_callback_with_snapshots(
+        let (violated, before, after, restore_verified) =
+            run_guarded_callback_with_snapshots_and_perturbation(
             || capture_gl_state(gl),
             render,
+            || {
+                if chaos_enabled {
+                    inject_chaos_gl_perturbation(gl, chaos_seed);
+                }
+            },
             |snapshot| restore_gl_state(gl, snapshot),
         );
+        let chaos_passed = chaos_probe_passed(chaos_enabled, violated, restore_verified);
+        emit_chaos_probe_outcome(chaos_enabled, chaos_passed);
 
         let elapsed = started.elapsed().as_micros() as u64;
         let sequence = COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -657,6 +807,8 @@ mod tests {
     use crate::graph::NodeKey;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
+        CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
+        CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
         CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
         CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
         CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
@@ -670,8 +822,10 @@ mod tests {
         CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION, CompositorAdapter,
         CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
         COMPOSITOR_REPLAY_RING_CAPACITY, clear_replay_samples_for_tests,
+        chaos_mode_enabled_from_raw, chaos_probe_passed, emit_chaos_probe_outcome,
         framebuffer_binding_target, gl_state_violated, push_replay_sample, replay_samples_snapshot,
         run_guarded_callback, run_guarded_callback_with_snapshots,
+        run_guarded_callback_with_snapshots_and_perturbation,
     };
 
     #[test]
@@ -1018,6 +1172,206 @@ mod tests {
         assert!(violated);
         assert_eq!(captured_before, before);
         assert_eq!(captured_after, after);
+    }
+
+    #[test]
+    fn guarded_callback_perturbation_detects_viewport_invariant() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        let state = RefCell::new(before);
+        let (violated, _, after, restore_verified) =
+            run_guarded_callback_with_snapshots_and_perturbation(
+                || *state.borrow(),
+                || {},
+                || {
+                    state.borrow_mut().viewport = [7, 11, 3, 5];
+                },
+                |snapshot| {
+                    *state.borrow_mut() = snapshot;
+                },
+            );
+
+        assert!(violated);
+        assert!(restore_verified);
+        assert_ne!(after.viewport, before.viewport);
+        assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn guarded_callback_perturbation_detects_scissor_invariant() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        let state = RefCell::new(before);
+        let (violated, _, after, restore_verified) =
+            run_guarded_callback_with_snapshots_and_perturbation(
+                || *state.borrow(),
+                || {},
+                || {
+                    state.borrow_mut().scissor_enabled = true;
+                },
+                |snapshot| {
+                    *state.borrow_mut() = snapshot;
+                },
+            );
+
+        assert!(violated);
+        assert!(restore_verified);
+        assert_ne!(after.scissor_enabled, before.scissor_enabled);
+        assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn guarded_callback_perturbation_detects_blend_invariant() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        let state = RefCell::new(before);
+        let (violated, _, after, restore_verified) =
+            run_guarded_callback_with_snapshots_and_perturbation(
+                || *state.borrow(),
+                || {},
+                || {
+                    state.borrow_mut().blend_enabled = true;
+                },
+                |snapshot| {
+                    *state.borrow_mut() = snapshot;
+                },
+            );
+
+        assert!(violated);
+        assert!(restore_verified);
+        assert_ne!(after.blend_enabled, before.blend_enabled);
+        assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn guarded_callback_perturbation_detects_active_texture_invariant() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        let state = RefCell::new(before);
+        let (violated, _, after, restore_verified) =
+            run_guarded_callback_with_snapshots_and_perturbation(
+                || *state.borrow(),
+                || {},
+                || {
+                    state.borrow_mut().active_texture = 3;
+                },
+                |snapshot| {
+                    *state.borrow_mut() = snapshot;
+                },
+            );
+
+        assert!(violated);
+        assert!(restore_verified);
+        assert_ne!(after.active_texture, before.active_texture);
+        assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn guarded_callback_perturbation_detects_framebuffer_binding_invariant() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        let state = RefCell::new(before);
+        let (violated, _, after, restore_verified) =
+            run_guarded_callback_with_snapshots_and_perturbation(
+                || *state.borrow(),
+                || {},
+                || {
+                    state.borrow_mut().framebuffer_binding = 9;
+                },
+                |snapshot| {
+                    *state.borrow_mut() = snapshot;
+                },
+            );
+
+        assert!(violated);
+        assert!(restore_verified);
+        assert_ne!(after.framebuffer_binding, before.framebuffer_binding);
+        assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn compositor_chaos_env_parser_accepts_truthy_values() {
+        assert!(chaos_mode_enabled_from_raw(Some("1")));
+        assert!(chaos_mode_enabled_from_raw(Some("true")));
+        assert!(chaos_mode_enabled_from_raw(Some("ON")));
+        assert!(!chaos_mode_enabled_from_raw(Some("0")));
+        assert!(!chaos_mode_enabled_from_raw(Some("no")));
+        assert!(!chaos_mode_enabled_from_raw(None));
+    }
+
+    #[test]
+    fn chaos_probe_pass_and_fail_decision_is_explicit() {
+        assert!(chaos_probe_passed(false, false, false));
+        assert!(chaos_probe_passed(true, true, true));
+        assert!(!chaos_probe_passed(true, false, true));
+        assert!(!chaos_probe_passed(true, true, false));
+    }
+
+    #[test]
+    fn chaos_probe_outcome_emits_channels() {
+        let mut diagnostics = DiagnosticsState::new();
+
+        emit_chaos_probe_outcome(true, true);
+        emit_chaos_probe_outcome(true, false);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        assert!(
+            channel_counts
+                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            channel_counts
+                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            channel_counts
+                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
     }
 
     #[test]
