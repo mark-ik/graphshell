@@ -213,7 +213,7 @@ fn compute_active_capabilities() -> HashSet<String> {
     registry.active_capability_ids()
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub(crate) fn compute_active_capabilities_with_disabled(
     disabled: &HashSet<String>,
 ) -> HashSet<String> {

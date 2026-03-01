@@ -64,6 +64,21 @@ pub fn init_crypto() {
         .expect("Error initializing crypto provider");
 }
 
+#[cfg(feature = "test-utils")]
+pub mod test_utils {
+    use std::collections::HashSet;
+
+    pub fn active_capabilities_with_disabled(disabled_mod_ids: &[&str]) -> HashSet<String> {
+        let disabled = disabled_mod_ids
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect::<HashSet<_>>();
+        crate::registries::infrastructure::mod_loader::compute_active_capabilities_with_disabled(
+            &disabled,
+        )
+    }
+}
+
 pub fn init_tracing(filter_directives: Option<&str>) {
     #[cfg(not(feature = "tracing"))]
     {
