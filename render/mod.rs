@@ -69,6 +69,8 @@ pub enum GraphAction {
     Zoom(f32),
 }
 
+const CHANNEL_SELECTION_AMBIGUOUS_HIT: &str = "runtime.ui.graph.selection_ambiguous_hit";
+
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
         action,
@@ -96,6 +98,16 @@ fn should_clear_selection_on_background_click(
         && !graph_handled_primary_click
         && !radial_open
         && !lasso_active
+}
+
+fn node_key_or_emit_ambiguous_hit(node_key: Option<NodeKey>) -> Option<NodeKey> {
+    if node_key.is_none() {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_SELECTION_AMBIGUOUS_HIT,
+            latency_us: 0,
+        });
+    }
+    node_key
 }
 
 /// Render graph info and controls hint overlay text into the current UI.
@@ -1662,7 +1674,7 @@ fn collect_graph_actions(
             Event::NodeSelect(p) => {
                 if let Some(state) = app.workspace.egui_state.as_ref() {
                     let idx = NodeIndex::new(p.id);
-                    if let Some(key) = state.get_key(idx) {
+                    if let Some(key) = node_key_or_emit_ambiguous_hit(state.get_key(idx)) {
                         actions.push(GraphAction::SelectNode {
                             key,
                             multi_select: multi_select_modifier,
@@ -1681,7 +1693,7 @@ fn collect_graph_actions(
                 if multi_select_modifier {
                     if let Some(state) = app.workspace.egui_state.as_ref() {
                         let idx = NodeIndex::new(p.id);
-                        if let Some(key) = state.get_key(idx) {
+                        if let Some(key) = node_key_or_emit_ambiguous_hit(state.get_key(idx)) {
                             actions.push(GraphAction::SelectNode {
                                 key,
                                 multi_select: true,
@@ -3110,6 +3122,7 @@ fn resolve_source_node_context(
 mod tests {
     use super::*;
     use crate::app::SearchDisplayMode;
+    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -3319,6 +3332,43 @@ mod tests {
         let actions = vec![GraphAction::Zoom(1.2)];
 
         assert!(!actions.iter().any(action_handles_primary_click));
+    }
+
+    #[test]
+    fn test_node_key_or_emit_ambiguous_hit_emits_diagnostic_on_none() {
+        let mut diagnostics = DiagnosticsState::new();
+
+        let resolved = node_key_or_emit_ambiguous_hit(None);
+
+        assert!(resolved.is_none());
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_count = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(CHANNEL_SELECTION_AMBIGUOUS_HIT))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert_eq!(channel_count, 1);
+    }
+
+    #[test]
+    fn test_node_key_or_emit_ambiguous_hit_does_not_emit_for_valid_node() {
+        let mut diagnostics = DiagnosticsState::new();
+        let key = NodeKey::new(42);
+
+        let resolved = node_key_or_emit_ambiguous_hit(Some(key));
+
+        assert_eq!(resolved, Some(key));
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_count = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(CHANNEL_SELECTION_AMBIGUOUS_HIT))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert_eq!(channel_count, 0);
     }
 
     #[test]
