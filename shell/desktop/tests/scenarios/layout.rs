@@ -1,5 +1,9 @@
 use super::super::harness::TestRegistry;
 use crate::shell::desktop::runtime::diagnostics::{CompositorTileSample, HierarchySample};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops;
 use egui_tiles::Tile;
@@ -127,6 +131,36 @@ fn unhealthy_layout_signal_is_observable_via_active_tile_violation_channel() {
     assert!(
         violations > 0,
         "violation channel should expose unhealthy active tile signal"
+    );
+}
+
+#[test]
+fn healthy_composited_overlay_emits_style_and_mode_without_pass_order_violation() {
+    let mut harness = TestRegistry::new();
+    let node = harness.add_node("https://example.com/overlay");
+    harness.open_node_tab(node);
+    harness.map_test_webview(node);
+    let rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(220.0, 140.0));
+    harness.step_with_tile_sample(node, true, true, rect);
+
+    harness
+        .diagnostics
+        .emit_message_sent_for_tests(CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, 1);
+    harness
+        .diagnostics
+        .emit_message_sent_for_tests(CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE, 1);
+
+    let snapshot = harness.snapshot();
+    let style_count = TestRegistry::channel_count(&snapshot, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE);
+    let mode_count =
+        TestRegistry::channel_count(&snapshot, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE);
+    let violation_count = TestRegistry::channel_count(&snapshot, "tile_compositor.pass_order_violation");
+
+    assert!(style_count > 0, "expected overlay style channel in healthy path");
+    assert!(mode_count > 0, "expected overlay mode channel in healthy path");
+    assert_eq!(
+        violation_count, 0,
+        "healthy composited overlay path should not emit pass-order violations"
     );
 }
 
