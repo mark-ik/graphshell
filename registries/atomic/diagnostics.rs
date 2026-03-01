@@ -43,6 +43,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_CONFIG_SNAPSHOT, CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT, CHANNEL_STARTUP_VERSE_INIT_FAILED,
+    CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
+    CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
     CHANNEL_STARTUP_VERSE_INIT_MODE, CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED,
     CHANNEL_SURFACE_CONFORMANCE_NONE, CHANNEL_SURFACE_CONFORMANCE_PARTIAL,
     CHANNEL_THEME_FALLBACK_USED, CHANNEL_THEME_LOOKUP_FAILED, CHANNEL_THEME_LOOKUP_SUCCEEDED,
@@ -391,7 +393,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 55] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 58] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -494,6 +496,21 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 55] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_STARTUP_VERSE_INIT_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE,
         schema_version: 1,
         severity: ChannelSeverity::Error,
     },

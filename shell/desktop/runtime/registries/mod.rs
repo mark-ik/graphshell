@@ -94,6 +94,12 @@ pub(crate) const CHANNEL_PERSISTENCE_RECOVER_FAILED: &str = "persistence.recover
 pub(crate) const CHANNEL_STARTUP_VERSE_INIT_MODE: &str = "startup.verse.init_mode";
 pub(crate) const CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED: &str = "startup.verse.init_succeeded";
 pub(crate) const CHANNEL_STARTUP_VERSE_INIT_FAILED: &str = "startup.verse.init_failed";
+pub(crate) const CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED: &str =
+    "startup.selfcheck.registries_loaded";
+pub(crate) const CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE: &str =
+    "startup.selfcheck.channels_complete";
+pub(crate) const CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE: &str =
+    "startup.selfcheck.channels_incomplete";
 pub(crate) const CHANNEL_UI_HISTORY_MANAGER_LIMIT: &str = "ui.history_manager.limit_applied";
 pub(crate) const CHANNEL_UI_CLIPBOARD_COPY_FAILED: &str = "ui.clipboard.copy_failed";
 pub(crate) const CHANNEL_VERSE_PREINIT_CALL: &str = "verse.preinit.call";

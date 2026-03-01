@@ -41,6 +41,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
+    CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
+    CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
 };
 
 static GLOBAL_DIAGNOSTICS_TX: OnceLock<Sender<DiagnosticEvent>> = OnceLock::new();
@@ -358,6 +360,49 @@ fn analyze_event_ring_pressure(
     AnalyzerResult { signal, summary }
 }
 
+fn analyze_startup_structural_selfcheck(
+    graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+) -> AnalyzerResult {
+    let incomplete_count = graph
+        .message_counts
+        .get(CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE)
+        .copied()
+        .unwrap_or(0);
+    if incomplete_count > 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Alert,
+            summary: format!(
+                "startup self-check found incomplete channel contract ({incomplete_count} findings)"
+            ),
+        };
+    }
+
+    let registries_loaded = graph
+        .message_counts
+        .get(CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED)
+        .copied()
+        .unwrap_or(0);
+    let channels_complete = graph
+        .message_counts
+        .get(CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE)
+        .copied()
+        .unwrap_or(0);
+
+    if registries_loaded > 0 && channels_complete > 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Active,
+            summary: "startup self-check passed (registries loaded, channels complete)"
+                .to_string(),
+        };
+    }
+
+    AnalyzerResult {
+        signal: AnalyzerSignal::Quiet,
+        summary: "startup self-check pending first drain".to_string(),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct EdgeMetric {
     count: u64,
@@ -473,6 +518,7 @@ pub(crate) struct DiagnosticsState {
     bottleneck_latency_us: u64,
     export_feedback: Option<String>,
     analyzer_registry: AnalyzerRegistry,
+    startup_selfcheck_emitted: bool,
 }
 
 impl DiagnosticsState {
@@ -482,6 +528,63 @@ impl DiagnosticsState {
             "Event Ring Pressure",
             analyze_event_ring_pressure,
         );
+        let _ = self.register_analyzer(
+            "startup.selfcheck.structural",
+            "Startup Structural Self-Check",
+            analyze_startup_structural_selfcheck,
+        );
+    }
+
+    fn missing_required_phase_channels() -> Vec<&'static str> {
+        let mut present_channels = std::collections::HashSet::new();
+        for (descriptor, _config) in diagnostics_registry::list_channel_configs_snapshot() {
+            present_channels.insert(descriptor.channel_id);
+        }
+
+        let mut missing = Vec::new();
+        for descriptor in diagnostics_registry::phase0_required_channels()
+            .iter()
+            .chain(diagnostics_registry::phase2_required_channels().iter())
+            .chain(diagnostics_registry::phase3_required_channels().iter())
+        {
+            if !present_channels.contains(descriptor.channel_id) {
+                missing.push(descriptor.channel_id);
+            }
+        }
+
+        missing
+    }
+
+    fn emit_startup_selfcheck_events(&mut self) {
+        if self.startup_selfcheck_emitted {
+            return;
+        }
+
+        let registered_channel_count = diagnostics_registry::list_channel_configs_snapshot().len();
+        let _ = self.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
+            byte_len: registered_channel_count,
+        });
+
+        let missing_channels = Self::missing_required_phase_channels();
+        let (channel_id, byte_len) = if missing_channels.is_empty() {
+            (
+                CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
+                registered_channel_count,
+            )
+        } else {
+            (
+                CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE,
+                missing_channels.len(),
+            )
+        };
+
+        let _ = self.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id,
+            byte_len,
+        });
+
+        self.startup_selfcheck_emitted = true;
     }
 
     pub(crate) fn register_analyzer(
@@ -834,8 +937,10 @@ impl DiagnosticsState {
             bottleneck_latency_us: DEFAULT_BOTTLENECK_LATENCY_US,
             export_feedback: None,
             analyzer_registry: AnalyzerRegistry::default(),
+            startup_selfcheck_emitted: false,
         };
         state.register_builtin_analyzers();
+        state.emit_startup_selfcheck_events();
         state
     }
 
@@ -2313,6 +2418,17 @@ mod tests {
         assert!(event_ring_pressure.run_count >= 1);
         assert!(event_ring_pressure.last_result.is_some());
 
+        let startup_selfcheck = snapshots
+            .iter()
+            .find(|snapshot| snapshot.id == "startup.selfcheck.structural")
+            .expect("startup self-check analyzer should be registered");
+        assert!(startup_selfcheck.run_count >= 1);
+        let startup_result = startup_selfcheck
+            .last_result
+            .as_ref()
+            .expect("startup self-check analyzer should produce result");
+        assert_eq!(startup_result.signal, AnalyzerSignal::Active);
+
         let custom = snapshots
             .iter()
             .find(|snapshot| snapshot.id == "diagnostics.test.analyzer")
@@ -2324,6 +2440,40 @@ mod tests {
             .expect("custom analyzer should produce result");
         assert_eq!(result.signal, AnalyzerSignal::Active);
         assert_eq!(result.summary, "test analyzer active");
+    }
+
+    #[test]
+    fn startup_selfcheck_emits_registry_and_channel_contract_records() {
+        let mut state = DiagnosticsState::new();
+        state.force_drain_for_tests();
+
+        assert!(
+            state
+                .diagnostic_graph
+                .message_counts
+                .get(CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED)
+                .copied()
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            state
+                .diagnostic_graph
+                .message_counts
+                .get(CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE)
+                .copied()
+                .unwrap_or(0)
+                > 0
+        );
+        assert_eq!(
+            state
+                .diagnostic_graph
+                .message_counts
+                .get(CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE)
+                .copied()
+                .unwrap_or(0),
+            0
+        );
     }
 
     #[test]
