@@ -32,6 +32,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - `37f2ba8` — diagnostics/profiling hook slice for `#184`: diagnostics snapshot JSON now exports `compositor_differential` summary metrics (composed/skipped/fallback counts and skip-rate basis points), and Diagnostics Inspector `Compositor` tab surfaces the same differential metrics in a dedicated summary grid.
 - `187cb2e` — optimization/degradation policy slice for `#184`: compositor now culls off-viewport tile content callbacks, enforces an explicit per-frame composited content budget with placeholder-mode degradation under GPU-pressure conditions, and emits culling/degradation diagnostics channels surfaced via diagnostics summary/export.
 - `0a25448` — batching/resource-reuse observability slice for `#184`: compositor now emits context reuse hit/miss channels and per-frame overlay batch-size samples, with diagnostics summary/export surfacing reuse and batching metrics alongside degradation and skip-rate signals.
+- `045c8ca` — replay forensics inspector completion slice for `#166`: Diagnostics Inspector `Compositor` tab now surfaces replay availability summary (sample count, violation count, latest sequence/node/duration), snapshot export feedback explicitly reports replay sample/violation totals with export path, and snapshot JSON shape includes `compositor_replay` summary metadata alongside replay artifacts.
 
 ## Validation evidence
 
@@ -41,6 +42,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - Targeted diagnostics snapshot tests for differential summary are passing (`diagnostics_json_snapshot_shape_is_stable`, `snapshot_json_includes_compositor_differential_summary_section`, `snapshot_json_includes_compositor_replay_samples_section`).
 - Targeted optimization/degradation regressions are passing (`should_cull_tile_content_when_disjoint_from_viewport`, `should_not_cull_tile_content_when_visible_in_viewport`, `gpu_pressure_degradation_triggers_at_budget_boundary`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`, `snapshot_json_includes_compositor_differential_summary_section`).
 - Targeted batching/reuse diagnostics tests are passing (`diagnostics_registry_declares_phase3_identity_channels_with_versions`, `snapshot_json_includes_compositor_differential_summary_section`, `should_cull_tile_content_when_disjoint_from_viewport`, `gpu_pressure_degradation_triggers_at_budget_boundary`).
+- Targeted replay inspector/export diagnostics tests are passing (`diagnostics_json_snapshot_shape_is_stable`, `replay_export_feedback_includes_path_and_counts`, `snapshot_json_includes_compositor_replay_samples_section`).
 - `cargo check` passed for each stabilization slice.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after the latest stabilization test coverage commit.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after each newly landed stabilization slice above.
