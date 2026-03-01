@@ -27,7 +27,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
 use crate::shell::desktop::render_backend::{
-    BackendCustomPass, BackendViewportInPixels, custom_pass_from_glow_viewport, glow,
+    BackendCustomPass, BackendGraphicsContext, BackendViewportInPixels,
+    custom_pass_from_glow_viewport, glow,
     register_custom_paint_callback,
 };
 use dpi::PhysicalSize;
@@ -192,7 +193,7 @@ fn emit_chaos_probe_outcome(chaos_enabled: bool, passed: bool) {
     }
 }
 
-fn capture_gl_state(gl: &glow::Context) -> GlStateSnapshot {
+fn capture_gl_state(gl: &BackendGraphicsContext) -> GlStateSnapshot {
     let mut viewport = [0_i32; 4];
 
     // Safety: this function performs read-only OpenGL state queries on the current context.
@@ -209,7 +210,7 @@ fn capture_gl_state(gl: &glow::Context) -> GlStateSnapshot {
     }
 }
 
-fn capture_scissor_box(gl: &glow::Context) -> [i32; 4] {
+fn capture_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
     let mut scissor_box = [0_i32; 4];
 
     unsafe {
@@ -219,7 +220,7 @@ fn capture_scissor_box(gl: &glow::Context) -> [i32; 4] {
     scissor_box
 }
 
-fn restore_scissor_box(gl: &glow::Context, scissor_box: [i32; 4]) {
+fn restore_scissor_box(gl: &BackendGraphicsContext, scissor_box: [i32; 4]) {
     unsafe {
         glow::HasContext::scissor(
             gl,
@@ -231,7 +232,7 @@ fn restore_scissor_box(gl: &glow::Context, scissor_box: [i32; 4]) {
     }
 }
 
-fn run_render_with_scissor_isolation<F>(gl: &glow::Context, render: F)
+fn run_render_with_scissor_isolation<F>(gl: &BackendGraphicsContext, render: F)
 where
     F: FnOnce(),
 {
@@ -254,7 +255,7 @@ where
     }
 }
 
-fn restore_gl_state(gl: &glow::Context, snapshot: GlStateSnapshot) {
+fn restore_gl_state(gl: &BackendGraphicsContext, snapshot: GlStateSnapshot) {
     unsafe {
         glow::HasContext::viewport(
             gl,
@@ -282,7 +283,7 @@ fn restore_gl_state(gl: &glow::Context, snapshot: GlStateSnapshot) {
     }
 }
 
-fn inject_chaos_gl_perturbation(gl: &glow::Context, seed: u64) {
+fn inject_chaos_gl_perturbation(gl: &BackendGraphicsContext, seed: u64) {
     let mutation_count = (seed % 3 + 1) as usize;
     let start = (seed as usize) % 5;
     for offset in 0..mutation_count {
@@ -653,7 +654,7 @@ impl CompositorAdapter {
         tile_rect: EguiRect,
         render_to_parent: F,
     ) where
-        F: Fn(&glow::Context, Rect<i32, UnknownUnit>) + Send + Sync + 'static,
+        F: Fn(&BackendGraphicsContext, Rect<i32, UnknownUnit>) + Send + Sync + 'static,
     {
         let callback = custom_pass_from_glow_viewport(move |gl, clip: BackendViewportInPixels| {
             #[cfg(feature = "diagnostics")]
@@ -709,7 +710,7 @@ impl CompositorAdapter {
 
     pub(crate) fn run_content_callback_with_guardrails<F>(
         _node_key: NodeKey,
-        gl: &glow::Context,
+        gl: &BackendGraphicsContext,
         probe_context: BridgeProbeContext,
         render: F,
     ) where

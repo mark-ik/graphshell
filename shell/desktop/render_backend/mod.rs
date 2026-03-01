@@ -14,6 +14,8 @@ pub(crate) use egui_glow::CallbackFn as BackendCallbackFn;
 pub(crate) use egui_glow::EguiGlow as UiRenderBackend;
 pub(crate) use egui_glow::glow;
 
+pub(crate) type BackendGraphicsContext = glow::Context;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendViewportInPixels {
 	pub(crate) left_px: i32,
@@ -40,7 +42,7 @@ impl BackendCustomPass {
 
 pub(crate) fn custom_pass_from_glow_viewport<F>(render: F) -> BackendCustomPass
 where
-	F: Fn(&glow::Context, BackendViewportInPixels) + Send + Sync + 'static,
+	F: Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync + 'static,
 {
 	BackendCustomPass::from_callback_fn(BackendCallbackFn::new(move |info, painter| {
 		let clip = info.viewport_in_pixels();
