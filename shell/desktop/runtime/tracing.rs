@@ -4,7 +4,8 @@
 
 /// Log an event from winit ([winit::event::Event]) at trace level.
 /// - Canonical target prefix: `graphshell<winit@`
-/// - Legacy prefix `servoshell<winit@` is deprecated and not emitted by Graphshell.
+/// - Compatibility note: historical logs may contain `servoshell<winit@`; runtime emission is
+///   `graphshell<winit@` only.
 /// - To disable tracing: RUST_LOG='graphshell<winit@=off'
 /// - To enable tracing: RUST_LOG='graphshell<winit@'
 /// - Recommended filters when tracing is enabled:

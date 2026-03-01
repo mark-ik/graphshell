@@ -378,7 +378,7 @@ fn restore_startup_session_frame_if_available(
         tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
         if restored_tree.root().is_some() {
             graph_app.mark_session_frame_layout_json(&layout_json);
-            log::debug!("gui: restored startup session frame from legacy layout json");
+            log::debug!("gui: restored startup session frame from compatibility layout json");
             *tiles_tree = restored_tree;
             return true;
         }
