@@ -213,6 +213,16 @@ fn compute_active_capabilities() -> HashSet<String> {
     registry.active_capability_ids()
 }
 
+#[cfg(test)]
+pub(crate) fn compute_active_capabilities_with_disabled(
+    disabled: &HashSet<String>,
+) -> HashSet<String> {
+    let mut registry = ModRegistry::new_with_disabled(disabled);
+    let _ = registry.resolve_dependencies();
+    let _ = registry.load_all();
+    registry.active_capability_ids()
+}
+
 pub(crate) fn runtime_has_capability(capability_id: &str) -> bool {
     ACTIVE_CAPABILITIES
         .get_or_init(compute_active_capabilities)
@@ -548,6 +558,13 @@ mod tests {
         ModRegistry::new_with_disabled(&disabled_ids)
     }
 
+    fn disabled_set(disabled: &[&str]) -> HashSet<String> {
+        disabled
+            .iter()
+            .map(|id| (*id).to_string())
+            .collect::<HashSet<_>>()
+    }
+
     #[test]
     fn discovers_native_mods_including_verso() {
         let mods = discover_native_mods();
@@ -697,5 +714,25 @@ mod tests {
         assert!(!registry.is_capability_available("protocol:https"));
         assert!(registry.is_capability_available("ProtocolRegistry"));
         assert!(registry.is_capability_available("ViewerRegistry"));
+    }
+
+    #[test]
+    fn test_safe_capability_path_disabling_verso_removes_webview_capabilities() {
+        let disabled = disabled_set(&["mod:verso"]);
+        let capabilities = compute_active_capabilities_with_disabled(&disabled);
+
+        assert!(!capabilities.contains("viewer:webview"));
+        assert!(!capabilities.contains("protocol:https"));
+        assert!(capabilities.contains("ProtocolRegistry"));
+        assert!(capabilities.contains("ViewerRegistry"));
+    }
+
+    #[test]
+    fn test_safe_capability_path_matches_runtime_default_when_unmodified() {
+        let default = compute_active_capabilities();
+        let disabled = HashSet::new();
+        let test_safe = compute_active_capabilities_with_disabled(&disabled);
+
+        assert_eq!(default, test_safe);
     }
 }
