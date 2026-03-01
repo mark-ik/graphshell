@@ -36,6 +36,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - `4b5e324` — selection-contract hardening slice for `#185`: node select/deselect hit resolution now emits explicit ambiguous-hit diagnostics when event node index cannot be resolved to a Graphshell node key, preserving prior selection truth instead of drifting state; regression tests cover both ambiguous and valid-hit paths.
 - `5f61430` — open-routing contract slice for `#186`: selected-node open execution now consumes queued open mode as a one-shot signal per action, pending open requests are routed through one deterministic node+mode path, split-mode node opens normalize leaf-root wrapping before split construction, and targeted regressions cover one-shot mode consumption, split-route focus handoff, and split root wrapping.
 - `d9422f0` — close-handoff contract slice for `#187`: tab-close now deterministically preselects successor focus in the same tab group (right sibling, then left fallback) before tile removal, covering node-pane and tool-pane close flows so the next context remains immediately visible/usable without ambiguous active-target repair.
+- `d67ffa9` — GUI boundary-contract test slice for `#244`: added regression guards proving Servo callback semantic events remain queue-only until reducer intent application and proving GUI orchestration/presenter authority preserves semantic intents for reducer-owned mutation, enforcing decomposition invariants from the embedder-debt split plan.
 
 ## Validation evidence
 
@@ -49,6 +50,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - Targeted selection-contract tests are passing (`test_select_node_action_ctrl_click_adds_to_selection`, `test_select_node_single_click_does_not_affect_multi_selection`, `test_node_key_or_emit_ambiguous_hit_emits_diagnostic_on_none`, `test_node_key_or_emit_ambiguous_hit_does_not_emit_for_valid_node`).
 - Targeted open-routing contract tests are passing (`pending_open_mode_is_one_shot_after_execution`, `pending_open_request_split_mode_uses_split_route_and_focuses_node`, `open_or_focus_node_pane_split_wraps_leaf_root_before_split`).
 - Targeted close-handoff contract tests are passing (`close_handoff_from_active_node_tab_prefers_right_successor`, `close_handoff_from_active_tool_tab_prefers_left_when_no_right_successor`, `close_settings_tool_pane_restores_previous_graph_focus_via_orchestration`, `ensure_active_tile_recovers_after_active_node_tile_is_removed`).
+- Targeted GUI boundary-invariant tests are passing (`servo_callback_events_are_enqueue_only_until_reducer_applies_intents`, `orchestration_preserves_semantic_intents_until_reducer_applies_them`).
 - `cargo check` passed for each stabilization slice.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after the latest stabilization test coverage commit.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after each newly landed stabilization slice above.
