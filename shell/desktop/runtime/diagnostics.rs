@@ -258,6 +258,106 @@ pub(crate) struct DiagnosticGraph {
     pub(crate) last_span_duration_us: HashMap<&'static str, u64>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AnalyzerSignal {
+    Quiet,
+    Active,
+    Alert,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AnalyzerResult {
+    pub(crate) signal: AnalyzerSignal,
+    pub(crate) summary: String,
+}
+
+type DiagnosticsAnalyzerFn = fn(&DiagnosticGraph, &VecDeque<DiagnosticEvent>) -> AnalyzerResult;
+
+#[derive(Clone, Debug)]
+struct RegisteredAnalyzer {
+    id: &'static str,
+    label: &'static str,
+    analyze: DiagnosticsAnalyzerFn,
+    run_count: u64,
+    last_result: Option<AnalyzerResult>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AnalyzerSnapshot {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) run_count: u64,
+    pub(crate) last_result: Option<AnalyzerResult>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct AnalyzerRegistry {
+    analyzers: Vec<RegisteredAnalyzer>,
+}
+
+impl AnalyzerRegistry {
+    fn register(
+        &mut self,
+        id: &'static str,
+        label: &'static str,
+        analyze: DiagnosticsAnalyzerFn,
+    ) -> bool {
+        if self.analyzers.iter().any(|entry| entry.id == id) {
+            return false;
+        }
+
+        self.analyzers.push(RegisteredAnalyzer {
+            id,
+            label,
+            analyze,
+            run_count: 0,
+            last_result: None,
+        });
+        true
+    }
+
+    fn run_all(&mut self, graph: &DiagnosticGraph, event_ring: &VecDeque<DiagnosticEvent>) {
+        for analyzer in &mut self.analyzers {
+            analyzer.run_count = analyzer.run_count.saturating_add(1);
+            analyzer.last_result = Some((analyzer.analyze)(graph, event_ring));
+        }
+    }
+
+    fn snapshots(&self) -> Vec<AnalyzerSnapshot> {
+        self.analyzers
+            .iter()
+            .map(|entry| AnalyzerSnapshot {
+                id: entry.id,
+                label: entry.label,
+                run_count: entry.run_count,
+                last_result: entry.last_result.clone(),
+            })
+            .collect()
+    }
+}
+
+fn analyze_event_ring_pressure(
+    _graph: &DiagnosticGraph,
+    event_ring: &VecDeque<DiagnosticEvent>,
+) -> AnalyzerResult {
+    let size = event_ring.len();
+    let (signal, summary) = if size >= 480 {
+        (
+            AnalyzerSignal::Alert,
+            format!("event ring near capacity ({size}/512)"),
+        )
+    } else if size > 0 {
+        (
+            AnalyzerSignal::Active,
+            format!("event ring receiving traffic ({size} events buffered)"),
+        )
+    } else {
+        (AnalyzerSignal::Quiet, "event ring idle".to_string())
+    };
+
+    AnalyzerResult { signal, summary }
+}
+
 #[derive(Clone, Copy)]
 struct EdgeMetric {
     count: u64,
@@ -372,9 +472,31 @@ pub(crate) struct DiagnosticsState {
     latency_percentile: LatencyPercentile,
     bottleneck_latency_us: u64,
     export_feedback: Option<String>,
+    analyzer_registry: AnalyzerRegistry,
 }
 
 impl DiagnosticsState {
+    fn register_builtin_analyzers(&mut self) {
+        let _ = self.register_analyzer(
+            "diagnostics.event_ring_pressure",
+            "Event Ring Pressure",
+            analyze_event_ring_pressure,
+        );
+    }
+
+    pub(crate) fn register_analyzer(
+        &mut self,
+        id: &'static str,
+        label: &'static str,
+        analyze: DiagnosticsAnalyzerFn,
+    ) -> bool {
+        self.analyzer_registry.register(id, label, analyze)
+    }
+
+    fn analyzer_snapshots(&self) -> Vec<AnalyzerSnapshot> {
+        self.analyzer_registry.snapshots()
+    }
+
     fn compositor_replay_summary(&self) -> Value {
         let samples = replay_samples_snapshot();
         let sample_count = samples.len() as u64;
@@ -693,7 +815,7 @@ impl DiagnosticsState {
     pub(crate) fn new() -> Self {
         let (event_tx, event_rx) = unbounded();
         install_global_sender(event_tx.clone());
-        Self {
+        let mut state = Self {
             active_tab: DiagnosticsTab::Compositor,
             event_tx,
             event_rx,
@@ -711,7 +833,10 @@ impl DiagnosticsState {
             latency_percentile: LatencyPercentile::P95,
             bottleneck_latency_us: DEFAULT_BOTTLENECK_LATENCY_US,
             export_feedback: None,
-        }
+            analyzer_registry: AnalyzerRegistry::default(),
+        };
+        state.register_builtin_analyzers();
+        state
     }
 
     pub(crate) fn push_frame(&mut self, sample: CompositorFrameSample) {
@@ -748,6 +873,9 @@ impl DiagnosticsState {
                 self.event_ring.pop_front();
             }
         }
+
+        self.analyzer_registry
+            .run_all(&self.diagnostic_graph, &self.event_ring);
     }
 
     fn aggregate_event(&mut self, event: &DiagnosticEvent) {
@@ -1082,6 +1210,11 @@ impl DiagnosticsState {
     #[cfg(test)]
     pub(crate) fn snapshot_json_for_tests(&self) -> Value {
         self.snapshot_json_value()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn analyzer_snapshots_for_tests(&self) -> Vec<AnalyzerSnapshot> {
+        self.analyzer_snapshots()
     }
 
     #[cfg(test)]
@@ -1424,6 +1557,51 @@ impl DiagnosticsState {
                     self.diagnostic_graph.message_counts.len(),
                     self.diagnostic_graph.last_span_duration_us.len()
                 ));
+                let analyzer_snapshots = self.analyzer_snapshots();
+                if !analyzer_snapshots.is_empty() {
+                    egui::CollapsingHeader::new("Active analyzers")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            egui::Grid::new("diag_active_analyzers")
+                                .num_columns(4)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.strong("Analyzer");
+                                    ui.strong("Signal");
+                                    ui.strong("Runs");
+                                    ui.strong("Summary");
+                                    ui.end_row();
+
+                                    for analyzer in analyzer_snapshots {
+                                        ui.monospace(analyzer.id);
+                                        let (signal_label, signal_color) = match analyzer
+                                            .last_result
+                                            .as_ref()
+                                            .map(|result| result.signal)
+                                            .unwrap_or(AnalyzerSignal::Quiet)
+                                        {
+                                            AnalyzerSignal::Quiet => {
+                                                ("quiet", egui::Color32::from_gray(180))
+                                            }
+                                            AnalyzerSignal::Active => {
+                                                ("active", egui::Color32::from_rgb(90, 200, 120))
+                                            }
+                                            AnalyzerSignal::Alert => {
+                                                ("alert", egui::Color32::from_rgb(255, 120, 120))
+                                            }
+                                        };
+                                        ui.colored_label(signal_color, signal_label);
+                                        ui.monospace(analyzer.run_count.to_string());
+                                        if let Some(result) = analyzer.last_result {
+                                            ui.label(result.summary);
+                                        } else {
+                                            ui.label("not yet run");
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                        });
+                }
                 let active_tile_violations = self.channel_count(CHANNEL_ACTIVE_TILE_VIOLATION);
                 if active_tile_violations > 0 {
                     ui.colored_label(
@@ -2057,6 +2235,64 @@ mod tests {
                 .unwrap_or(0),
             1
         );
+    }
+
+    fn test_active_analyzer(
+        _graph: &DiagnosticGraph,
+        _event_ring: &VecDeque<DiagnosticEvent>,
+    ) -> AnalyzerResult {
+        AnalyzerResult {
+            signal: AnalyzerSignal::Active,
+            summary: "test analyzer active".to_string(),
+        }
+    }
+
+    #[test]
+    fn analyzer_registry_registration_surface_rejects_duplicate_ids() {
+        let mut state = DiagnosticsState::new();
+
+        assert!(state.register_analyzer(
+            "diagnostics.test.analyzer",
+            "Test Analyzer",
+            test_active_analyzer,
+        ));
+        assert!(!state.register_analyzer(
+            "diagnostics.test.analyzer",
+            "Duplicate Analyzer",
+            test_active_analyzer,
+        ));
+    }
+
+    #[test]
+    fn analyzer_registry_executes_registered_analyzers_on_drain_cycle() {
+        let mut state = DiagnosticsState::new();
+        let _ = state.register_analyzer(
+            "diagnostics.test.analyzer",
+            "Test Analyzer",
+            test_active_analyzer,
+        );
+
+        state.force_drain_for_tests();
+        let snapshots = state.analyzer_snapshots_for_tests();
+
+        let event_ring_pressure = snapshots
+            .iter()
+            .find(|snapshot| snapshot.id == "diagnostics.event_ring_pressure")
+            .expect("builtin analyzer should be registered");
+        assert!(event_ring_pressure.run_count >= 1);
+        assert!(event_ring_pressure.last_result.is_some());
+
+        let custom = snapshots
+            .iter()
+            .find(|snapshot| snapshot.id == "diagnostics.test.analyzer")
+            .expect("custom analyzer should be registered");
+        assert!(custom.run_count >= 1);
+        let result = custom
+            .last_result
+            .as_ref()
+            .expect("custom analyzer should produce result");
+        assert_eq!(result.signal, AnalyzerSignal::Active);
+        assert_eq!(result.summary, "test analyzer active");
     }
 
     #[test]
