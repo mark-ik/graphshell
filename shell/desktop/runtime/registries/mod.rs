@@ -111,6 +111,14 @@ pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS: &str =
     "diagnostics.compositor_chaos.pass";
 pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL: &str =
     "diagnostics.compositor_chaos.fail";
+pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE: &str =
+    "diagnostics.compositor_bridge_probe";
+pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME: &str =
+    "diagnostics.compositor_bridge_probe.failed_frame";
+pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE: &str =
+    "diagnostics.compositor_bridge_probe.callback_us_sample";
+pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE: &str =
+    "diagnostics.compositor_bridge_probe.presentation_us_sample";
 pub(crate) const CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED: &str =
     "compositor.focus_activation.deferred";
 pub(crate) const CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED: &str =

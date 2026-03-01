@@ -14,6 +14,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
     CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
@@ -658,6 +662,30 @@ impl CompositorAdapter {
             },
         );
 
+        #[cfg(feature = "diagnostics")]
+        {
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+                    byte_len: std::mem::size_of::<NodeKey>(),
+                },
+            );
+
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+                    byte_len: elapsed as usize,
+                },
+            );
+
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+                    byte_len: elapsed as usize,
+                },
+            );
+        }
+
         if violated {
             #[cfg(feature = "diagnostics")]
             crate::shell::desktop::runtime::diagnostics::emit_event(
@@ -673,6 +701,14 @@ impl CompositorAdapter {
                 crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
                     channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
                     byte_len: std::mem::size_of::<CompositorReplaySample>(),
+                },
+            );
+
+            #[cfg(feature = "diagnostics")]
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
+                    byte_len: std::mem::size_of::<NodeKey>(),
                 },
             );
         }
@@ -807,6 +843,10 @@ mod tests {
     use crate::graph::NodeKey;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
+        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+        CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
         CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
@@ -1439,8 +1479,32 @@ mod tests {
         );
         crate::shell::desktop::runtime::diagnostics::emit_event(
             crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+                byte_len: std::mem::size_of::<NodeKey>(),
+            },
+        );
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+                byte_len: 27,
+            },
+        );
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+                byte_len: 31,
+            },
+        );
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
                 byte_len: std::mem::size_of_val(&after),
+            },
+        );
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
+                byte_len: std::mem::size_of::<NodeKey>(),
             },
         );
 
@@ -1461,6 +1525,34 @@ mod tests {
         assert!(
             channel_counts
                 .get(CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            channel_counts
+                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            channel_counts
+                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            channel_counts
+                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            channel_counts
+                .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME)
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0)
                 > 0

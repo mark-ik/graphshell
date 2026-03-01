@@ -36,6 +36,10 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
 };
 
@@ -382,6 +386,35 @@ impl DiagnosticsState {
             .find(|sample| sample.violation)
             .map(|sample| format!("{:?}", sample.node_key));
         let latest_duration_us = samples.last().map(|sample| sample.duration_us);
+        let bridge_probe_count = self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE);
+        let bridge_failed_frame_count =
+            self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME);
+        let bridge_callback_sample_count =
+            self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE);
+        let bridge_callback_total_us = self
+            .diagnostic_graph
+            .message_bytes_sent
+            .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE)
+            .copied()
+            .unwrap_or(0);
+        let avg_bridge_callback_us = if bridge_callback_sample_count == 0 {
+            0
+        } else {
+            bridge_callback_total_us / bridge_callback_sample_count
+        };
+        let bridge_presentation_sample_count =
+            self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE);
+        let bridge_presentation_total_us = self
+            .diagnostic_graph
+            .message_bytes_sent
+            .get(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE)
+            .copied()
+            .unwrap_or(0);
+        let avg_bridge_presentation_us = if bridge_presentation_sample_count == 0 {
+            0
+        } else {
+            bridge_presentation_total_us / bridge_presentation_sample_count
+        };
 
         json!({
             "sample_count": sample_count,
@@ -389,6 +422,10 @@ impl DiagnosticsState {
             "latest_sequence": latest_sequence,
             "latest_violation_node": latest_violation_node,
             "latest_duration_us": latest_duration_us,
+            "bridge_probe_count": bridge_probe_count,
+            "bridge_failed_frame_count": bridge_failed_frame_count,
+            "avg_bridge_callback_us": avg_bridge_callback_us,
+            "avg_bridge_presentation_us": avg_bridge_presentation_us,
         })
     }
 
@@ -1469,6 +1506,22 @@ impl DiagnosticsState {
                         ui.monospace("latest_duration_us");
                         ui.monospace(replay_summary["latest_duration_us"].to_string());
                         ui.end_row();
+
+                        ui.monospace("bridge_probe_count");
+                        ui.monospace(replay_summary["bridge_probe_count"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("bridge_failed_frame_count");
+                        ui.monospace(replay_summary["bridge_failed_frame_count"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("avg_bridge_callback_us");
+                        ui.monospace(replay_summary["avg_bridge_callback_us"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("avg_bridge_presentation_us");
+                        ui.monospace(replay_summary["avg_bridge_presentation_us"].to_string());
+                        ui.end_row();
                     });
                 ui.small("Save Snapshot JSON includes compositor replay artifacts and path details.");
                 ui.separator();
@@ -2227,6 +2280,54 @@ Object {
         let state = DiagnosticsState::new();
         let snapshot = state.snapshot_json_value();
         assert!(snapshot["compositor_replay_samples"].is_array());
+    }
+
+    #[test]
+    fn snapshot_json_includes_compositor_bridge_probe_summary_metrics() {
+        let mut state = DiagnosticsState::new();
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+            byte_len: 8,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+            byte_len: 50,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+            byte_len: 70,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+            byte_len: 80,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+            byte_len: 100,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
+            byte_len: 8,
+        });
+
+        state.force_drain_for_tests();
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["compositor_replay"]["bridge_probe_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["bridge_failed_frame_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["avg_bridge_callback_us"].as_u64(),
+            Some(60)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["avg_bridge_presentation_us"].as_u64(),
+            Some(90)
+        );
     }
 
     #[test]
