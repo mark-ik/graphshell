@@ -43,6 +43,7 @@ const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
 static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
     OnceLock::new();
+const BRIDGE_PATH_GL_RENDER_TO_PARENT: &str = "gl.render_to_parent_callback";
 
 #[cfg(feature = "diagnostics")]
 static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
@@ -52,9 +53,21 @@ pub(crate) struct CompositorReplaySample {
     pub(crate) sequence: u64,
     pub(crate) node_key: NodeKey,
     pub(crate) duration_us: u64,
+    pub(crate) callback_us: u64,
+    pub(crate) presentation_us: u64,
     pub(crate) violation: bool,
+    pub(crate) bridge_path: &'static str,
+    pub(crate) tile_rect_px: [i32; 4],
+    pub(crate) render_size_px: [u32; 2],
     pub(crate) before: GlStateSnapshot,
     pub(crate) after: GlStateSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BridgeProbeContext {
+    pub(crate) bridge_path: &'static str,
+    pub(crate) tile_rect_px: [i32; 4],
+    pub(crate) render_size_px: [u32; 2],
 }
 
 fn replay_ring() -> &'static Mutex<std::collections::VecDeque<CompositorReplaySample>> {
@@ -589,10 +602,25 @@ impl CompositorAdapter {
                 Point2D::new(clip.left_px, clip.from_bottom_px),
                 Size2D::new(clip.width_px, clip.height_px),
             );
+            let probe_context = BridgeProbeContext {
+                bridge_path: BRIDGE_PATH_GL_RENDER_TO_PARENT,
+                tile_rect_px: [
+                    rect_in_parent.origin.x,
+                    rect_in_parent.origin.y,
+                    rect_in_parent.size.width,
+                    rect_in_parent.size.height,
+                ],
+                render_size_px: [clip.width_px as u32, clip.height_px as u32],
+            };
 
-            CompositorAdapter::run_content_callback_with_guardrails(node_key, painter.gl(), || {
-                render_to_parent(painter.gl(), rect_in_parent)
-            });
+            CompositorAdapter::run_content_callback_with_guardrails(
+                node_key,
+                painter.gl(),
+                probe_context,
+                || {
+                    render_to_parent(painter.gl(), rect_in_parent)
+                },
+            );
 
             #[cfg(feature = "diagnostics")]
             crate::shell::desktop::runtime::diagnostics::emit_span_duration(
@@ -621,6 +649,7 @@ impl CompositorAdapter {
     pub(crate) fn run_content_callback_with_guardrails<F>(
         _node_key: NodeKey,
         gl: &glow::Context,
+        probe_context: BridgeProbeContext,
         render: F,
     ) where
         F: FnOnce(),
@@ -649,7 +678,12 @@ impl CompositorAdapter {
             sequence,
             node_key: _node_key,
             duration_us: elapsed,
+            callback_us: elapsed,
+            presentation_us: elapsed,
             violation: violated,
+            bridge_path: probe_context.bridge_path,
+            tile_rect_px: probe_context.tile_rect_px,
+            render_size_px: probe_context.render_size_px,
             before,
             after,
         });
@@ -1437,7 +1471,12 @@ mod tests {
                 sequence: index as u64 + 1,
                 node_key: NodeKey::new(index + 1),
                 duration_us: 5,
+                callback_us: 5,
+                presentation_us: 5,
                 violation: false,
+                bridge_path: "test.bridge",
+                tile_rect_px: [0, 0, 100, 100],
+                render_size_px: [100, 100],
                 before,
                 after,
             });
