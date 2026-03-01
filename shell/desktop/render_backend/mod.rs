@@ -50,7 +50,7 @@ impl BackendCustomPass {
 	}
 }
 
-pub(crate) fn custom_pass_from_glow_viewport<F>(render: F) -> BackendCustomPass
+pub(crate) fn custom_pass_from_backend_viewport<F>(render: F) -> BackendCustomPass
 where
 	F: Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync + 'static,
 {
@@ -66,6 +66,13 @@ where
 			},
 		);
 	}))
+}
+
+pub(crate) fn custom_pass_from_glow_viewport<F>(render: F) -> BackendCustomPass
+where
+	F: Fn(&BackendGraphicsContext, BackendViewportInPixels) + Send + Sync + 'static,
+{
+	custom_pass_from_backend_viewport(render)
 }
 
 pub(crate) fn backend_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {

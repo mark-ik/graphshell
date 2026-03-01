@@ -35,7 +35,7 @@ use crate::shell::desktop::render_backend::{
     backend_is_scissor_enabled, backend_scissor_box, backend_set_scissor_box,
     backend_primary_texture_unit,
     backend_set_active_texture, backend_set_blend_enabled,
-    backend_set_scissor_enabled, custom_pass_from_glow_viewport,
+    backend_set_scissor_enabled, custom_pass_from_backend_viewport,
     backend_set_viewport, backend_viewport,
     register_custom_paint_callback,
 };
@@ -607,7 +607,7 @@ impl CompositorAdapter {
     ) where
         F: Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync + 'static,
     {
-        let callback = custom_pass_from_glow_viewport(move |gl, clip: BackendViewportInPixels| {
+        let callback = custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
             #[cfg(feature = "diagnostics")]
             let started = std::time::Instant::now();
 
