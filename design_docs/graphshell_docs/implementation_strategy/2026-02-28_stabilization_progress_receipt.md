@@ -20,6 +20,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - `57a55e6` — semantic child-webview pane opens now route through `OpenNodeFrameRouted` intent flow (same frame-routing semantics as other node opens).
 - `7782fd9` — orchestration scenario coverage added for deferred child-webview retry and routed pane-open on first mapped frame.
 - `1a6e8a8` — compositor pass-contract diagnostics coverage added for overlay-without-content pass-order violation and overlay style/mode emission channels.
+- `67a4ad9` — scenario-level healthy compositor overlay diagnostics assertion added (style/mode channels present, pass-order violation absent).
 
 ## Validation evidence
 
@@ -39,6 +40,6 @@ Suggested issue comment body:
 > Stabilization progress receipt (2026-02-28) has been landed in docs with commit evidence and validation notes:
 > `design_docs/graphshell_docs/implementation_strategy/2026-02-28_stabilization_progress_receipt.md`.
 >
-> Newly landed commits on `main`: `001a121`, `004fd13`, `18c6ae9`, `874e2a6`, `441aded`, `d8983c9`, `4708e55`, `f12e0cc`, `37350e7`, `4f1011f`, `e755f48`, `57a55e6`, `7782fd9`, `1a6e8a8`.
+> Newly landed commits on `main`: `001a121`, `004fd13`, `18c6ae9`, `874e2a6`, `441aded`, `d8983c9`, `4708e55`, `f12e0cc`, `37350e7`, `4f1011f`, `e755f48`, `57a55e6`, `7782fd9`, `1a6e8a8`, `67a4ad9`.
 >
 > Net result: camera/zoom command reliability and lasso boundary correctness improved; pane-open/pane-close focus activation race is substantially hardened with new diagnostics receipts and regression tests. Lane remains partial pending closure of remaining bug-register items and compositor pass-contract closure evidence.
