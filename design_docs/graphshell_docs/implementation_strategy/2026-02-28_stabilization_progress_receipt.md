@@ -28,11 +28,13 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - `2c1f3e1` — lasso metadata state keying is now explicitly regression-covered for per-view scoping (`metadata_id`-derived lasso state IDs differ across views).
 - `64cd66d` — tile rearrange overlay scheduling regressions added: focused composited tiles now have explicit Focus overlay-pass scheduling evidence, and hovered native-overlay tiles have explicit Hover overlay scheduling evidence (fallback policy path).
 - `5c3a175` — compositor replay-forensics substrate landed for `#166`: bounded replay sample ring capture in the compositor adapter, replay sample channels registered in phase diagnostics, and snapshot export now includes `compositor_replay_samples` evidence.
+- `82f3712` — differential composition contract landed for `#167`: composited content pass now skips unchanged tile signatures (webview + pixel rect), preserves overlay affordance scheduling, emits skip/composed/fallback-reason diagnostics channels, and records per-frame skip-rate basis points.
 
 ## Validation evidence
 
 - Targeted workbench/unit tests for focus activation targeting and diagnostics emission are passing.
 - Targeted replay-forensics tests are passing (`replay_ring_is_bounded_to_capacity`, `guarded_callback_with_snapshots_returns_before_and_after_states`, `diagnostics_json_snapshot_shape_is_stable`, `snapshot_json_includes_compositor_replay_samples_section`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`).
+- Targeted differential-composition tests are passing (`differential_content_decision_skips_when_signature_is_unchanged`, `differential_content_decision_recomposes_when_signature_changes`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`).
 - `cargo check` passed for each stabilization slice.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after the latest stabilization test coverage commit.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after each newly landed stabilization slice above.
