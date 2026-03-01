@@ -280,6 +280,33 @@ impl<'a> GraphshellTileBehavior<'a> {
         }
         None
     }
+
+    fn activate_successor_tab_in_parent_before_close(
+        tiles: &mut Tiles<TileKind>,
+        tile_id: TileId,
+    ) {
+        let Some(parent_id) = tiles.parent_of(tile_id) else {
+            return;
+        };
+        let Some(Tile::Container(Container::Tabs(tabs))) = tiles.get_mut(parent_id) else {
+            return;
+        };
+        if tabs.active != Some(tile_id) {
+            return;
+        }
+
+        let Some(index) = tabs.children.iter().position(|child| *child == tile_id) else {
+            return;
+        };
+        let successor = tabs
+            .children
+            .get(index + 1)
+            .copied()
+            .or_else(|| index.checked_sub(1).and_then(|left| tabs.children.get(left).copied()));
+        if let Some(next_active) = successor {
+            tabs.set_active(next_active);
+        }
+    }
 }
 
 impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
@@ -780,6 +807,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     }
 
     fn on_tab_close(&mut self, tiles: &mut Tiles<TileKind>, tile_id: TileId) -> bool {
+        Self::activate_successor_tab_in_parent_before_close(tiles, tile_id);
+
         if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
             let node_key = state.node;
             self.pending_closed_nodes.push(node_key);
@@ -983,7 +1012,12 @@ fn render_graph_pane_overlay(
 
 #[cfg(test)]
 mod tests {
-    use super::{PlaintextContent, decode_plaintext_content};
+    use super::{GraphshellTileBehavior, PlaintextContent, decode_plaintext_content};
+    use crate::app::GraphViewId;
+    use crate::graph::NodeKey;
+    use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
+    use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use egui_tiles::{Container, Tile, Tiles};
 
     #[test]
     fn decode_plaintext_content_returns_text_for_utf8() {
@@ -1012,5 +1046,49 @@ mod tests {
                 assert!(hex.contains("81"));
             }
         }
+    }
+
+    #[test]
+    fn close_handoff_from_active_node_tab_prefers_right_successor() {
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+        let node_a = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(1))));
+        let node_b = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(2))));
+        let root = tiles.insert_tab_tile(vec![graph_tile, node_a, node_b]);
+
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles.get_mut(root) {
+            tabs.set_active(node_a);
+        }
+
+        GraphshellTileBehavior::activate_successor_tab_in_parent_before_close(&mut tiles, node_a);
+
+        let active = match tiles.get(root) {
+            Some(Tile::Container(Container::Tabs(tabs))) => tabs.active,
+            other => panic!("expected tabs container root, got {other:?}"),
+        };
+        assert_eq!(active, Some(node_b));
+    }
+
+    #[test]
+    fn close_handoff_from_active_tool_tab_prefers_left_when_no_right_successor() {
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+        let root = tiles.insert_tab_tile(vec![graph_tile, tool_tile]);
+
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles.get_mut(root) {
+            tabs.set_active(tool_tile);
+        }
+
+        GraphshellTileBehavior::activate_successor_tab_in_parent_before_close(
+            &mut tiles,
+            tool_tile,
+        );
+
+        let active = match tiles.get(root) {
+            Some(Tile::Container(Container::Tabs(tabs))) => tabs.active,
+            other => panic!("expected tabs container root, got {other:?}"),
+        };
+        assert_eq!(active, Some(graph_tile));
     }
 }
