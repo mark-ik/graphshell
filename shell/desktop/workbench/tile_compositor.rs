@@ -420,6 +420,35 @@ mod tests {
         tree
     }
 
+    fn tree_with_node_render_modes(
+        a: NodeKey,
+        a_mode: TileRenderMode,
+        b: NodeKey,
+        b_mode: TileRenderMode,
+    ) -> Tree<TileKind> {
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+
+        if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get_mut(a_tile) {
+            state.render_mode = a_mode;
+        }
+        if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get_mut(b_tile) {
+            state.render_mode = b_mode;
+        }
+
+        let root = tiles.insert_tab_tile(vec![graph, a_tile, b_tile]);
+        let mut tree = Tree::new("tile_compositor_render_mode_schedule", root, tiles);
+        let _ = tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == a)
+        });
+        let _ = tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b)
+        });
+        tree
+    }
+
     #[test]
     fn frame_activation_targets_prefers_primary_when_mapped() {
         let mut app = GraphBrowserApp::new_for_testing();
@@ -482,6 +511,76 @@ mod tests {
             "expected deferred focus activation channel to be emitted"
         );
         assert_eq!(focused_hint, Some(primary));
+    }
+
+    #[test]
+    fn schedule_passes_mark_focused_composited_tile_for_focus_overlay() {
+        let focused = NodeKey::new(30);
+        let other = NodeKey::new(31);
+        let tree = tree_with_node_render_modes(
+            focused,
+            TileRenderMode::CompositedTexture,
+            other,
+            TileRenderMode::NativeOverlay,
+        );
+        let passes = schedule_active_node_pane_passes(
+            &tree,
+            vec![
+                (
+                    focused,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                ),
+                (
+                    other,
+                    egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                ),
+            ],
+            Some(focused),
+            1.0,
+            None,
+        );
+
+        let focused_pass = passes
+            .iter()
+            .find(|pass| pass.node_key == focused)
+            .expect("focused node pass should be scheduled");
+        assert_eq!(focused_pass.render_mode, TileRenderMode::CompositedTexture);
+        assert!(matches!(focused_pass.overlay, Some(ScheduledOverlay::Focus)));
+    }
+
+    #[test]
+    fn schedule_passes_mark_hovered_native_overlay_tile_for_hover_overlay() {
+        let focused = NodeKey::new(32);
+        let hovered = NodeKey::new(33);
+        let tree = tree_with_node_render_modes(
+            focused,
+            TileRenderMode::CompositedTexture,
+            hovered,
+            TileRenderMode::NativeOverlay,
+        );
+        let passes = schedule_active_node_pane_passes(
+            &tree,
+            vec![
+                (
+                    focused,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                ),
+                (
+                    hovered,
+                    egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                ),
+            ],
+            Some(focused),
+            1.0,
+            Some(hovered),
+        );
+
+        let hovered_pass = passes
+            .iter()
+            .find(|pass| pass.node_key == hovered)
+            .expect("hovered node pass should be scheduled");
+        assert_eq!(hovered_pass.render_mode, TileRenderMode::NativeOverlay);
+        assert!(matches!(hovered_pass.overlay, Some(ScheduledOverlay::Hover)));
     }
 
     #[test]
