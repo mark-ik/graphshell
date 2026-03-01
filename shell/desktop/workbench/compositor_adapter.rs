@@ -28,7 +28,8 @@ use crate::shell::desktop::runtime::registries::{
 };
 use crate::shell::desktop::render_backend::{
     BackendCustomPass, BackendGraphicsContext, BackendViewportInPixels,
-    custom_pass_from_glow_viewport, glow,
+    backend_is_scissor_enabled, backend_scissor_box, backend_set_scissor_box,
+    backend_set_scissor_enabled, custom_pass_from_glow_viewport, glow,
     register_custom_paint_callback,
 };
 use dpi::PhysicalSize;
@@ -211,46 +212,28 @@ fn capture_gl_state(gl: &BackendGraphicsContext) -> GlStateSnapshot {
 }
 
 fn capture_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
-    let mut scissor_box = [0_i32; 4];
-
-    unsafe {
-        glow::HasContext::get_parameter_i32_slice(gl, glow::SCISSOR_BOX, &mut scissor_box);
-    }
-
-    scissor_box
+    backend_scissor_box(gl)
 }
 
 fn restore_scissor_box(gl: &BackendGraphicsContext, scissor_box: [i32; 4]) {
-    unsafe {
-        glow::HasContext::scissor(
-            gl,
-            scissor_box[0],
-            scissor_box[1],
-            scissor_box[2],
-            scissor_box[3],
-        );
-    }
+    backend_set_scissor_box(gl, scissor_box);
 }
 
 fn run_render_with_scissor_isolation<F>(gl: &BackendGraphicsContext, render: F)
 where
     F: FnOnce(),
 {
-    let incoming_scissor_enabled = unsafe { glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST) };
+    let incoming_scissor_enabled = backend_is_scissor_enabled(gl);
     let incoming_scissor_box = capture_scissor_box(gl);
 
     if incoming_scissor_enabled {
-        unsafe {
-            glow::HasContext::disable(gl, glow::SCISSOR_TEST);
-        }
+        backend_set_scissor_enabled(gl, false);
     }
 
     render();
 
     if incoming_scissor_enabled {
-        unsafe {
-            glow::HasContext::enable(gl, glow::SCISSOR_TEST);
-        }
+        backend_set_scissor_enabled(gl, true);
         restore_scissor_box(gl, incoming_scissor_box);
     }
 }

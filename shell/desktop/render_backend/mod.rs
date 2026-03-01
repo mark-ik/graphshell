@@ -58,6 +58,42 @@ where
 	}))
 }
 
+pub(crate) fn backend_scissor_box(gl: &BackendGraphicsContext) -> [i32; 4] {
+	let mut scissor_box = [0_i32; 4];
+
+	unsafe {
+		glow::HasContext::get_parameter_i32_slice(gl, glow::SCISSOR_BOX, &mut scissor_box);
+	}
+
+	scissor_box
+}
+
+pub(crate) fn backend_set_scissor_box(gl: &BackendGraphicsContext, scissor_box: [i32; 4]) {
+	unsafe {
+		glow::HasContext::scissor(
+			gl,
+			scissor_box[0],
+			scissor_box[1],
+			scissor_box[2],
+			scissor_box[3],
+		);
+	}
+}
+
+pub(crate) fn backend_is_scissor_enabled(gl: &BackendGraphicsContext) -> bool {
+	unsafe { glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST) }
+}
+
+pub(crate) fn backend_set_scissor_enabled(gl: &BackendGraphicsContext, enabled: bool) {
+	unsafe {
+		if enabled {
+			glow::HasContext::enable(gl, glow::SCISSOR_TEST);
+		} else {
+			glow::HasContext::disable(gl, glow::SCISSOR_TEST);
+		}
+	}
+}
+
 pub(crate) fn texture_token_from_handle(handle: &egui::TextureHandle) -> BackendTextureToken {
 	BackendTextureToken(handle.id())
 }
