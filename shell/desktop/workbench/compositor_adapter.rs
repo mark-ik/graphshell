@@ -26,6 +26,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
 use crate::shell::desktop::render_backend::{
+    backend_content_bridge_mode_label,
     backend_content_bridge_path,
     backend_active_texture, backend_bind_framebuffer, backend_framebuffer_binding,
     backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
@@ -69,6 +70,7 @@ pub(crate) struct CompositorReplaySample {
     pub(crate) presentation_us: u64,
     pub(crate) violation: bool,
     pub(crate) bridge_path: &'static str,
+    pub(crate) bridge_mode: &'static str,
     pub(crate) tile_rect_px: [i32; 4],
     pub(crate) render_size_px: [u32; 2],
     pub(crate) chaos_enabled: bool,
@@ -85,6 +87,7 @@ pub(crate) struct CompositorReplaySample {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BridgeProbeContext {
     pub(crate) bridge_path: &'static str,
+    pub(crate) bridge_mode: &'static str,
     pub(crate) tile_rect_px: [i32; 4],
     pub(crate) render_size_px: [u32; 2],
 }
@@ -604,6 +607,7 @@ impl CompositorAdapter {
         node_key: NodeKey,
         tile_rect: EguiRect,
         bridge_path: &'static str,
+        bridge_mode: &'static str,
         render_to_parent: BackendParentRenderCallback,
     ) {
         let callback = custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
@@ -618,6 +622,7 @@ impl CompositorAdapter {
             };
             let probe_context = BridgeProbeContext {
                 bridge_path,
+                bridge_mode,
                 tile_rect_px: [
                     rect_in_parent.left_px,
                     rect_in_parent.from_bottom_px,
@@ -668,12 +673,14 @@ impl CompositorAdapter {
 
         let bridge = select_backend_content_bridge(render_to_parent);
         let bridge_path = backend_content_bridge_path(bridge.mode);
+        let bridge_mode = backend_content_bridge_mode_label(bridge.mode);
 
         Self::register_render_to_parent_content_pass(
             ctx,
             node_key,
             tile_rect,
             bridge_path,
+            bridge_mode,
             bridge.callback,
         );
         true
@@ -733,6 +740,7 @@ impl CompositorAdapter {
             presentation_us: elapsed,
             violation: violation_detected,
             bridge_path: probe_context.bridge_path,
+            bridge_mode: probe_context.bridge_mode,
             tile_rect_px: probe_context.tile_rect_px,
             render_size_px: probe_context.render_size_px,
             chaos_enabled,
@@ -1533,6 +1541,7 @@ mod tests {
                 presentation_us: 5,
                 violation: false,
                 bridge_path: "test.bridge",
+                bridge_mode: "test.bridge_mode",
                 tile_rect_px: [0, 0, 100, 100],
                 render_size_px: [100, 100],
                 chaos_enabled: false,

@@ -61,6 +61,15 @@ pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'s
 	}
 }
 
+pub(crate) fn backend_content_bridge_mode_label(mode: BackendContentBridgeMode) -> &'static str {
+	match mode {
+		BackendContentBridgeMode::GlowCallback => "glow_callback",
+		BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback => {
+			"wgpu_preferred_fallback_glow_callback"
+		}
+	}
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendViewportInPixels {
 	pub(crate) left_px: i32,

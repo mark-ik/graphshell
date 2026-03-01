@@ -484,13 +484,16 @@ impl DiagnosticsState {
         }
 
         let mut bridge_path_counts: HashMap<&'static str, u64> = HashMap::new();
+        let mut bridge_mode_counts: HashMap<&'static str, u64> = HashMap::new();
         for sample in samples {
             *bridge_path_counts.entry(sample.bridge_path).or_insert(0) += 1;
+            *bridge_mode_counts.entry(sample.bridge_mode).or_insert(0) += 1;
         }
 
         let latest = samples.last().map(|sample| {
             json!({
                 "bridge_path": sample.bridge_path,
+                "bridge_mode": sample.bridge_mode,
                 "tile_rect_px": {
                     "x": sample.tile_rect_px[0],
                     "y": sample.tile_rect_px[1],
@@ -524,6 +527,7 @@ impl DiagnosticsState {
                     "sequence": sample.sequence,
                     "node_key": format!("{:?}", sample.node_key),
                     "bridge_path": sample.bridge_path,
+                    "bridge_mode": sample.bridge_mode,
                     "tile_rect_px": {
                         "x": sample.tile_rect_px[0],
                         "y": sample.tile_rect_px[1],
@@ -556,6 +560,7 @@ impl DiagnosticsState {
             "generated_at_unix_secs": Self::export_timestamp_secs(),
             "measurement_contract": {
                 "bridge_path_used": bridge_path_counts,
+                "bridge_mode_used": bridge_mode_counts,
                 "sample_count": sample_count,
                 "failed_frame_count": failed_frame_count,
                 "avg_callback_us": avg_callback_us,
@@ -2298,6 +2303,7 @@ Object {
                 presentation_us: 7,
                 violation: false,
                 bridge_path: "test.bridge",
+                bridge_mode: "test.bridge_mode",
                 tile_rect_px: [0, 0, 1, 1],
                 render_size_px: [1, 1],
                 chaos_enabled: false,
@@ -2330,6 +2336,7 @@ Object {
                 presentation_us: 11,
                 violation: true,
                 bridge_path: "test.bridge",
+                bridge_mode: "test.bridge_mode",
                 tile_rect_px: [1, 2, 3, 4],
                 render_size_px: [3, 4],
                 chaos_enabled: false,
@@ -2373,6 +2380,7 @@ Object {
                 presentation_us: 10,
                 violation: false,
                 bridge_path: "gl.render_to_parent_callback",
+                bridge_mode: "glow_callback",
                 tile_rect_px: [0, 0, 64, 64],
                 render_size_px: [64, 64],
                 chaos_enabled: false,
@@ -2405,6 +2413,7 @@ Object {
                 presentation_us: 20,
                 violation: true,
                 bridge_path: "gl.render_to_parent_callback",
+                bridge_mode: "glow_callback",
                 tile_rect_px: [4, 8, 120, 80],
                 render_size_px: [120, 80],
                 chaos_enabled: false,
@@ -2464,6 +2473,10 @@ Object {
         assert_eq!(
             payload["measurement_contract"]["latest"]["bridge_path"].as_str(),
             Some("gl.render_to_parent_callback")
+        );
+        assert_eq!(
+            payload["measurement_contract"]["latest"]["bridge_mode"].as_str(),
+            Some("glow_callback")
         );
         assert!(payload["samples"].is_array());
     }
