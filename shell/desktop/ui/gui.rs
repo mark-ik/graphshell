@@ -27,9 +27,7 @@ use winit::window::Window;
 use super::gui_orchestration;
 use super::gui_frame;
 use super::graph_search_flow;
-use super::gui_state::{
-    GuiRuntimeState, ToolbarState, apply_graph_surface_focus_state, apply_node_focus_state,
-};
+use super::gui_state::{GuiRuntimeState, ToolbarState};
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
@@ -383,6 +381,21 @@ fn restore_startup_session_frame_if_available(
         }
     }
     false
+}
+
+fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
+    runtime_state.focused_node_hint = node_key;
+    runtime_state.graph_surface_focused = false;
+}
+
+fn apply_graph_surface_focus_state(
+    runtime_state: &mut GuiRuntimeState,
+    graph_app: &mut GraphBrowserApp,
+    active_graph_view: Option<GraphViewId>,
+) {
+    runtime_state.focused_node_hint = None;
+    runtime_state.graph_surface_focused = true;
+    graph_app.workspace.focused_view = active_graph_view;
 }
 
 impl Gui {
@@ -2341,10 +2354,9 @@ mod tool_pane_routing_tests {
 
 #[cfg(test)]
 mod graph_split_intent_tests {
+    use super::{apply_graph_surface_focus_state, apply_node_focus_state};
     use super::gui_orchestration;
-    use crate::shell::desktop::ui::gui_state::{
-        GuiRuntimeState, apply_graph_surface_focus_state, apply_node_focus_state,
-    };
+    use crate::shell::desktop::ui::gui_state::GuiRuntimeState;
     use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, SettingsToolPage};
     use crate::graph::NodeKey;
     use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};

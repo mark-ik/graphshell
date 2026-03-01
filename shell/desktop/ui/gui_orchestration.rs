@@ -83,7 +83,7 @@ pub(crate) fn run_pre_frame_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_graph_search_phase(
+pub(super) fn run_graph_search_phase(
     ctx: &egui::Context,
     graph_app: &mut GraphBrowserApp,
     graph_search_open: &mut bool,
@@ -309,7 +309,7 @@ pub(crate) fn run_keyboard_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_toolbar_phase(
+pub(super) fn run_toolbar_phase(
     ctx: &egui::Context,
     winit_window: &Window,
     state: &RunningAppState,

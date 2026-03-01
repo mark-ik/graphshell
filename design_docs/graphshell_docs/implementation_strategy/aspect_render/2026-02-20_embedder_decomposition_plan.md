@@ -208,6 +208,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 1. [x] Extract `GuiRuntimeState` struct (texture caches, frame flags, backpressure state).
 2. [x] Refactor `Gui::update()` as coordinator calling extracted stateless render functions.
 3. [x] Define `gui::Input` and `gui::Output` boundary; no render function has side effects outside return value.
+4. [x] Tighten GUI state/helper visibility boundaries: `gui_state::{ToolbarState, GuiRuntimeState}` visibility narrowed to UI-supermodule scope, mutating focus-state helpers moved to `gui.rs` owner module, and orchestration entry-point visibility aligned with state ownership.
 
 **4c. tile_*.rs:**
 1. [x] Extract `TileCoordinator` from `tile_runtime.rs`: owns tile→node mapping, pruning logic, mutations.
@@ -218,6 +219,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 - No `desktop/*.rs` file exceeds ~1200 lines (first pass); < ~800 in follow-up.
 - At least one stateful toolbar workflow covered by focused unit tests.
 - Frame orchestrator (`gui_frame`) owns sequencing; render functions are side-effect-scoped.
+- Mutation-capable GUI state helpers are owner-scoped; cross-layer writes from non-owner modules require explicit visibility escalation.
 - `cargo test` passes; no regressions in UI rendering or interaction.
 
 **Estimated scope:** ~800–1200 lines refactored per file; ~300–500 lines of tests.
@@ -339,6 +341,9 @@ These are aligned with project goals and can be incorporated where useful:
 ---
 
 ## Changelog
+
+**2026-03-01 Revision:**
+- Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.
 
 **2026-02-21 Revision:**
 - Collapsed Phases (E0–E4) + Workstreams (WS1–WS7) into single ordered Stages (1–7) sequence for clarity.
