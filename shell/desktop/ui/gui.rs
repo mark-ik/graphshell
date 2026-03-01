@@ -133,6 +133,7 @@ struct SemanticLifecyclePhaseArgs<'a> {
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     responsive_webviews: &'a HashSet<WebViewId>,
     pending_open_child_webviews: Vec<WebViewId>,
+    deferred_open_child_webviews: &'a mut Vec<WebViewId>,
     webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
     frame_intents: &'a mut Vec<GraphIntent>,
@@ -169,6 +170,7 @@ struct SemanticAndPostRenderPhaseArgs<'a> {
     diagnostics_state: &'a mut diagnostics::DiagnosticsState,
     responsive_webviews: &'a HashSet<WebViewId>,
     pending_open_child_webviews: Vec<WebViewId>,
+    deferred_open_child_webviews: &'a mut Vec<WebViewId>,
     open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
     frame_intents: &'a mut Vec<GraphIntent>,
 }
@@ -221,6 +223,7 @@ struct ExecuteUpdateFrameArgs<'a> {
     focus_ring_duration: &'a mut Duration,
     omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
     command_palette_toggle_requested: &'a mut bool,
+    deferred_open_child_webviews: &'a mut Vec<WebViewId>,
     rendering_context: &'a Rc<OffscreenRenderingContext>,
     window_rendering_context: &'a Rc<WindowRenderingContext>,
     registry_runtime: &'a RegistryRuntime,
@@ -523,6 +526,7 @@ impl Gui {
                 focus_ring_duration: Duration::from_millis(500),
                 omnibar_search_session: None,
                 command_palette_toggle_requested: false,
+                deferred_open_child_webviews: Vec::new(),
             },
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
@@ -773,6 +777,7 @@ impl Gui {
             focus_ring_duration,
             omnibar_search_session,
             command_palette_toggle_requested,
+            deferred_open_child_webviews,
         } = runtime_state;
 
         let winit_window = headed_window.winit_window();
@@ -811,6 +816,7 @@ impl Gui {
                 focus_ring_duration,
                 omnibar_search_session,
                 command_palette_toggle_requested,
+                deferred_open_child_webviews,
                 rendering_context,
                 window_rendering_context,
                 registry_runtime,
@@ -860,6 +866,7 @@ impl Gui {
             focus_ring_duration,
             omnibar_search_session,
             command_palette_toggle_requested,
+            deferred_open_child_webviews,
             rendering_context,
             window_rendering_context,
             registry_runtime,
@@ -971,7 +978,12 @@ impl Gui {
                 #[cfg(feature = "diagnostics")]
                 diagnostics_state,
                 responsive_webviews: &pre_frame.responsive_webviews,
-                pending_open_child_webviews: pre_frame.pending_open_child_webviews,
+                pending_open_child_webviews: {
+                    let mut pending = std::mem::take(deferred_open_child_webviews);
+                    pending.extend(pre_frame.pending_open_child_webviews);
+                    pending
+                },
+                deferred_open_child_webviews,
                 open_node_tile_after_intents: &mut open_node_tile_after_intents,
                 frame_intents: &mut frame_intents,
             });
@@ -1247,6 +1259,7 @@ impl Gui {
             diagnostics_state,
             responsive_webviews,
             pending_open_child_webviews,
+            deferred_open_child_webviews,
             open_node_tile_after_intents,
             frame_intents,
         } = args;
@@ -1263,6 +1276,7 @@ impl Gui {
             favicon_textures,
             responsive_webviews,
             pending_open_child_webviews,
+            deferred_open_child_webviews,
             webview_creation_backpressure,
             open_node_tile_after_intents,
             frame_intents,
@@ -1322,12 +1336,13 @@ impl Gui {
             favicon_textures,
             responsive_webviews,
             pending_open_child_webviews,
+            deferred_open_child_webviews,
             webview_creation_backpressure,
             open_node_tile_after_intents,
             frame_intents,
         } = args;
 
-        gui_orchestration::run_semantic_lifecycle_phase(
+        *deferred_open_child_webviews = gui_orchestration::run_semantic_lifecycle_phase(
             graph_app,
             tiles_tree,
             window,
@@ -2600,6 +2615,7 @@ mod graph_split_intent_tests {
             focus_ring_duration: Duration::from_millis(500),
             omnibar_search_session: None,
             command_palette_toggle_requested: false,
+            deferred_open_child_webviews: Vec::new(),
         };
 
         let node = NodeKey::new(1);
@@ -2624,6 +2640,7 @@ mod graph_split_intent_tests {
             focus_ring_duration: Duration::from_millis(500),
             omnibar_search_session: None,
             command_palette_toggle_requested: false,
+            deferred_open_child_webviews: Vec::new(),
         };
         let mut app = GraphBrowserApp::new_for_testing();
         let graph_view = GraphViewId::new();

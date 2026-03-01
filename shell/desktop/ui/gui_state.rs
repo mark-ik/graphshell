@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::app::{GraphBrowserApp, GraphViewId};
 use crate::graph::NodeKey;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
-use servo::LoadStatus;
+use servo::{LoadStatus, WebViewId};
 
 pub(crate) struct ToolbarState {
     pub(crate) location: String,
@@ -33,6 +33,7 @@ pub(crate) struct GuiRuntimeState {
     pub(crate) focus_ring_duration: Duration,
     pub(crate) omnibar_search_session: Option<OmnibarSearchSession>,
     pub(crate) command_palette_toggle_requested: bool,
+    pub(crate) deferred_open_child_webviews: Vec<WebViewId>,
 }
 
 pub(crate) fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {

@@ -132,12 +132,12 @@ fn open_pending_child_webviews_skips_unmapped_child_webview_ids() {
     app.map_webview_to_node(mapped_webview, mapped_node);
 
     let mut opened = Vec::new();
-    let missing = gui_frame::open_pending_child_webviews_for_tiles(
+    let deferred = gui_frame::open_pending_child_webviews_for_tiles(
         &app,
         vec![mapped_webview, unmapped_webview],
         |node_key| opened.push(node_key),
     );
 
     assert_eq!(opened, vec![mapped_node]);
-    assert_eq!(missing, 1);
+    assert_eq!(deferred, vec![unmapped_webview]);
 }

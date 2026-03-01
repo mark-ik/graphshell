@@ -1019,7 +1019,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
-) {
+) -> Vec<WebViewId> {
     apply_semantic_intents_and_pending_open(
         graph_app,
         tiles_tree,
@@ -1027,7 +1027,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
         frame_intents,
     );
 
-    open_pending_child_webview_nodes(
+    let deferred_open_child_webviews = open_pending_child_webview_nodes(
         graph_app,
         tiles_tree,
         pending_open_child_webviews,
@@ -1047,6 +1047,8 @@ pub(crate) fn run_semantic_lifecycle_phase(
         webview_creation_backpressure,
         frame_intents,
     );
+
+    deferred_open_child_webviews
 }
 
 fn apply_semantic_intents_and_pending_open(
@@ -1069,8 +1071,8 @@ fn open_pending_child_webview_nodes(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
     pending_open_child_webviews: Vec<WebViewId>,
-) {
-    let _ = gui_frame::open_pending_child_webviews_for_tiles(
+) -> Vec<WebViewId> {
+    gui_frame::open_pending_child_webviews_for_tiles(
         graph_app,
         pending_open_child_webviews,
         |node_key| {
@@ -1081,7 +1083,7 @@ fn open_pending_child_webview_nodes(
                 TileOpenMode::Tab,
             );
         },
-    );
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

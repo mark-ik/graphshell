@@ -512,16 +512,16 @@ pub(crate) fn open_pending_child_webviews_for_tiles<F>(
     graph_app: &GraphBrowserApp,
     pending_open_child_webviews: Vec<WebViewId>,
     mut open_for_node: F,
-) -> usize
+) -> Vec<WebViewId>
 where
     F: FnMut(NodeKey),
 {
-    let mut missing_mapping_count = 0usize;
+    let mut deferred_webviews = Vec::new();
     for child_webview_id in pending_open_child_webviews {
         if let Some(node_key) = graph_app.get_node_for_webview(child_webview_id) {
             open_for_node(node_key);
         } else {
-            missing_mapping_count = missing_mapping_count.saturating_add(1);
+            deferred_webviews.push(child_webview_id);
             warn!(
                 "semantic child-webview {:?} had no node mapping; skipping pane-open",
                 child_webview_id
@@ -533,7 +533,7 @@ where
             });
         }
     }
-    missing_mapping_count
+    deferred_webviews
 }
 
 pub(crate) struct KeyboardPhaseArgs<'a> {
