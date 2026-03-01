@@ -1,8 +1,11 @@
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId};
 use crate::shell::desktop::ui::gui_orchestration;
+use crate::shell::desktop::ui::gui_frame;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use egui_tiles::{Tile, Tiles, Tree};
+use servo::WebViewId;
 
 fn active_graph_count(tree: &Tree<TileKind>) -> usize {
     tree.active_tiles()
@@ -14,6 +17,15 @@ fn active_graph_count(tree: &Tree<TileKind>) -> usize {
             )
         })
         .count()
+}
+
+fn test_webview_id() -> WebViewId {
+    PIPELINE_NAMESPACE.with(|tls| {
+        if tls.get().is_none() {
+            PipelineNamespace::install(TEST_NAMESPACE);
+        }
+    });
+    WebViewId::new(PainterId::next())
 }
 
 #[cfg(feature = "diagnostics")]
@@ -109,4 +121,23 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
             Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
         )
     }));
+}
+
+#[test]
+fn open_pending_child_webviews_skips_unmapped_child_webview_ids() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mapped_node = app.add_node_and_sync("https://example.com/mapped".to_string(), euclid::default::Point2D::new(0.0, 0.0));
+    let mapped_webview = test_webview_id();
+    let unmapped_webview = test_webview_id();
+    app.map_webview_to_node(mapped_webview, mapped_node);
+
+    let mut opened = Vec::new();
+    let missing = gui_frame::open_pending_child_webviews_for_tiles(
+        &app,
+        vec![mapped_webview, unmapped_webview],
+        |node_key| opened.push(node_key),
+    );
+
+    assert_eq!(opened, vec![mapped_node]);
+    assert_eq!(missing, 1);
 }

@@ -274,13 +274,14 @@ impl LatencyPercentile {
 const DEFAULT_BOTTLENECK_LATENCY_US: u64 = 50_000;
 const LATENCY_SAMPLE_WINDOW: usize = 256;
 
-const CHANNELS_SEMANTIC_TO_INTENTS: [&str; 14] = [
+const CHANNELS_SEMANTIC_TO_INTENTS: [&str; 15] = [
     "semantic.events_ingest",
     "semantic.intents_emitted",
     "semantic.intent.url_changed",
     "semantic.intent.history_changed",
     "semantic.intent.title_changed",
     "semantic.intent.create_new_webview",
+    "semantic.intent.create_new_webview_unmapped",
     "semantic.intent.webview_crashed",
     "window.graph_event.url_changed",
     "window.graph_event.history_changed",

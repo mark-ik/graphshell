@@ -1070,7 +1070,7 @@ fn open_pending_child_webview_nodes(
     tiles_tree: &mut Tree<TileKind>,
     pending_open_child_webviews: Vec<WebViewId>,
 ) {
-    gui_frame::open_pending_child_webviews_for_tiles(
+    let _ = gui_frame::open_pending_child_webviews_for_tiles(
         graph_app,
         pending_open_child_webviews,
         |node_key| {

@@ -21,6 +21,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_PHYSICS_FALLBACK_USED, CHANNEL_PHYSICS_LOOKUP_FAILED, CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
     CHANNEL_PROTOCOL_RESOLVE_FAILED, CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
+    CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED,
     CHANNEL_STARTUP_CONFIG_SNAPSHOT, CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT, CHANNEL_STARTUP_VERSE_INIT_FAILED,
@@ -372,7 +373,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 34] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 35] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -510,6 +511,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 34] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
     },
