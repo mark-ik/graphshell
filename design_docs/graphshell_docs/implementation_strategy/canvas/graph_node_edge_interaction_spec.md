@@ -421,10 +421,22 @@ These are intended near-term behaviors. They are not yet required for baseline c
 ### 5.2 Richer relationship tooling
 
 - Edge traversal previews
-- Edge filtering or highlighting by relationship type
+- Edge filtering or highlighting by relationship type (`UserGrouped`, `TraversalDerived`, `AgentDerived`)
 - Better relationship-specific context actions
+- Multi-kind edge visual controls (hide or emphasize specific kinds)
 
-### 5.3 Better graph navigation support
+### 5.3 (deferred) Categorical edges and Mediator Nodes
+
+When tag-based categorical relationships are implemented, edges of kind `Categorical` will route through a **Mediator Node** (a system-managed node representing the shared tag, e.g. `#Rust`). The graph interaction surface must handle:
+
+- Mediator Node creation on first tag assignment and garbage collection when its degree drops to zero.
+- `Categorical` edge rendering distinct from `UserGrouped` and `TraversalDerived` (e.g. dashed line).
+- Mediator Node presentation as a non-content node type (non-activatable, distinct visual treatment).
+- The interaction spec for `Categorical` edge kind and Mediator Node lifecycle belongs in this spec; the `EdgeKind` data-model extension belongs in `edge_traversal_spec.md`.
+
+This is a prospective extension — do not implement until a dedicated design doc for categorical/tag-based edges is written.
+
+### 5.4 Better graph navigation support
 
 - Camera bookmarks
 - Search-targeting affordances in graph space
@@ -463,6 +475,14 @@ These are exploratory design directions. They are informative only and should no
 - Multiple layout modes beyond the default graph layout
 - Graph-space lenses and semantic overlays
 - Command-driven multi-node structural opening workflows
+
+### 6.4 (prospective) Self-loop edges as node audit log carriers
+
+Logical self-loops (edges where `source == target`) are currently forbidden by the traversal skip rule and must be excluded from physics simulation regardless of how they arise (see `edge_traversal_spec.md §2.6`). A future node audit log design may permit self-loop edges to carry `MetadataChange` or workbench-action events as a localized per-node event log. If implemented:
+
+- Self-loop edges must remain headless (logical only) and excluded from physics.
+- They must not render as circular lines on the canvas.
+- The audit log design belongs in a dedicated `node_audit_log_spec.md` (see `subsystem_history/` deferred stub); it is not part of the edge traversal model.
 
 ---
 

@@ -10,7 +10,7 @@
 - `history_timeline_and_temporal_navigation_spec.md`
 - `2026-02-20_edge_traversal_impl_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
-- `../../TERMINOLOGY.md` — `Traversal`, `Edge Traversal History`, `EdgePayload`, `EdgeType`
+- `../../TERMINOLOGY.md` — `Traversal`, `Edge Traversal History`, `EdgePayload`, `EdgeType`, `AgentRegistry`
 
 ---
 
@@ -34,18 +34,28 @@ This spec defines the canonical contracts for:
 
 ```
 EdgePayload {
-    kind: EdgeKind,
-    traversals: Vec<Traversal>,
+    kinds: EdgeKindSet,            -- set of active kinds (see §2.3)
+    traversals: Vec<Traversal>,    -- rolling window (see §2.4)
+    metrics: EdgeMetrics,          -- rolled-up aggregates (see §2.4)
 }
 
-EdgeKind =
+EdgeKindSet = one or more of:
   | UserGrouped       -- explicit user-created connection
   | TraversalDerived  -- implicit; created by navigation event
+  | AgentDerived      -- implicit; created by an AgentRegistry agent recommendation
 ```
 
 **Invariant**: Display-only computations (dominant direction, stroke width) are derived from `EdgePayload` at render time. They must not be stored in `EdgePayload`.
 
-### 2.2 Traversal Record
+**Multi-kind invariant**: `UserGrouped` and `TraversalDerived` may coexist on the same node pair. The union represents an edge that is both user-asserted and traversal-active. Rendering priority when both are present is defined in §4.1.
+
+### 2.2 EdgeKind Rules
+
+- `UserGrouped` is asserted by an explicit user action and retracted only by an explicit user action.
+- `TraversalDerived` is asserted when the first `Traversal` record is appended to the edge and cannot be retracted independently (it persists as long as traversal records exist).
+- `AgentDerived` is asserted by an `AgentRegistry` agent emit and is subject to time-decay and eviction rules (§2.5). It is promoted to `TraversalDerived` the first time a user navigates the edge (§2.5).
+
+### 2.3 Traversal Record
 
 ```
 Traversal {
@@ -63,11 +73,45 @@ NavigationTrigger =
   | Unknown
 ```
 
-Each navigation event between two nodes appends a `Traversal` record to the edge's `traversals` list. Repeated traversals are recorded (not deduplicated). The full traversal list is the history of all navigation over that edge.
+Each navigation event between two nodes appends a `Traversal` record to the edge's `traversals` list. Repeated traversals are recorded (not deduplicated). The full traversal list within the rolling window is the recent history; older records are flushed to the archive and reflected in `metrics` (§2.4).
 
-### 2.3 Traversal Append Rules
+### 2.4 EdgeMetrics and Rolling Window
 
-All traversal append logic lives in a single `push_traversal` function (reducer layer).
+To bound in-memory size on heavily traversed edges, `EdgePayload` separates a bounded recent-events window from rolled-up aggregate metrics.
+
+```
+EdgeMetrics {
+    total_navigations: u64,         -- incremented on every Traversal append; never decremented
+    last_navigated_at: Option<DateTime>,
+    agent_asserted_at: Option<DateTime>,  -- when AgentDerived was last set
+    agent_confidence: Option<f32>,        -- last confidence score from asserting agent
+}
+```
+
+**Rolling window contract**:
+
+- `traversals` holds at most N recent records (configurable; default 100).
+- When the window is full and a new `Traversal` is appended, the oldest record is evicted from memory and written to `traversal_archive` (§3.2) before appending the new record.
+- `metrics.total_navigations` is incremented on every append, including evicted records. It reflects the true total, not the window size.
+- `metrics.last_navigated_at` is always the timestamp of the most recently appended `Traversal`.
+
+**Invariant**: Display-only computations (dominant direction, stroke width) must be derived from the rolling window or metrics — never from a full unbounded scan. The render layer must not assume `traversals` contains all historical records.
+
+**Archive invariant**: Eviction from the rolling window must write to archive before the in-memory record is dropped. Crash-order guarantee is the Storage subsystem's responsibility (see `SUBSYSTEM_STORAGE.md`).
+
+### 2.5 AgentDerived Decay and Promotion
+
+`AgentDerived` edges are ephemeral suggestions from `AgentRegistry` agents. They are subject to time-decay and user-driven promotion.
+
+**Decay rule**: An edge whose `kinds` set contains only `AgentDerived` (no `TraversalDerived`, no `UserGrouped`) will have its visual opacity faded over time. If no `Traversal` append occurs within the configured decay window (default: 72 hours), the `AgentDerived` kind is removed. If the `kinds` set becomes empty as a result, the edge is evicted from the active graph entirely.
+
+**Promotion rule**: When a user navigates an `AgentDerived` edge, a `Traversal` record is appended normally via `push_traversal`. This asserts `TraversalDerived` on the edge's `kinds` set. Once `TraversalDerived` is present, decay is halted and the `AgentDerived` kind may be retained for provenance or removed; the edge is permanently part of the traversal-derived graph.
+
+**Eviction is not history loss**: An evicted `AgentDerived` edge with zero traversals has no entries in `traversal_archive`. Eviction is the correct outcome. An edge promoted to `TraversalDerived` before eviction retains its full traversal history in archive as normal.
+
+### 2.6 Traversal Append Rules
+
+All traversal append logic lives in a single `push_traversal` function (reducer layer). Appending a traversal also updates `metrics.total_navigations` and `metrics.last_navigated_at` (§2.4).
 
 Skip rules — a traversal is **not** recorded when:
 
@@ -76,6 +120,8 @@ Skip rules — a traversal is **not** recorded when:
 - The navigation event has `#nohistory` tag on the source or destination node.
 
 **Invariant**: UI and render code must not mutate traversal state directly. All mutations route through the reducer via `AppendTraversal` intent or its WAL equivalent.
+
+**Physics exclusion invariant**: Any edge whose `source == target` (self-loop, however created) must not participate in force-directed physics simulation and must not render as a literal circular line on the canvas. This applies regardless of how a self-loop edge came to exist.
 
 ---
 
@@ -118,18 +164,23 @@ The render layer derives edge visuals from `EdgePayload`. It does not define tra
 
 | EdgePayload state | Visual |
 |-------------------|--------|
-| `TraversalDerived`, 1 traversal | Thin solid line; direction arrow |
-| `TraversalDerived`, N traversals | Stroke width proportional to log(N); direction arrow toward dominant direction |
-| `UserGrouped` | Distinct style (e.g., dashed or colored); no direction arrow |
-| Both kinds on same pair | Combined rendering; `UserGrouped` style dominates with traversal weight overlay |
+| `TraversalDerived` only, 1 traversal | Thin solid line; direction arrow |
+| `TraversalDerived` only, N traversals | Stroke width proportional to log(N); direction arrow toward dominant direction |
+| `UserGrouped` only | Distinct style (e.g., dashed or colored); no direction arrow |
+| `UserGrouped` + `TraversalDerived` | `UserGrouped` base style dominates; traversal stroke-width and direction arrow applied as modifiers on top |
+| `AgentDerived` only | Low-opacity style (fading with time elapsed since assert); no direction arrow |
+| `AgentDerived` + `TraversalDerived` | `TraversalDerived` style takes over fully; opacity restored; decay halted |
 
-**Dominant direction**: The direction with the majority of traversal records. Computed at render time from `traversals`; not stored.
+**Dominant direction**: The direction with the majority of traversal records. Computed at render time from `traversals` or `metrics`; not stored.
+
+**Multi-kind rendering priority**: When multiple kinds are present, the base visual style is determined by the highest-priority kind present: `UserGrouped` > `TraversalDerived` > `AgentDerived`. Traversal-derived modifiers (stroke width, direction arrow) are applied on top of the base style whenever `TraversalDerived` is in the set, regardless of what the base style is.
 
 ### 4.2 Edge Tooltip / Inspection
 
 On edge hover: tooltip shows:
-- Edge kind (`UserGrouped` / `TraversalDerived`)
-- Total traversal count
+
+- Edge kinds present (`UserGrouped`, `TraversalDerived`, `AgentDerived` — whichever are active)
+- Total traversal count (`metrics.total_navigations`)
 - Most recent traversal timestamp and trigger
 
 This is a read-only inspection surface. No mutations from tooltip interaction.
@@ -191,3 +242,9 @@ This section is a placeholder for future spec expansion.
 | Timeline click emits `SelectNode` and `RequestZoomToSelected` | Test: click timeline entry → both intents in intent queue |
 | `traversal_archive` and `dissolved_archive` are separate keyspaces | Test: append to each → query confirms entries in respective keyspace only |
 | UI cannot mutate traversal state directly | Architecture invariant: no `push_traversal` call from render or UI layer |
+| Rolling window is bounded | Test: append 1,000 traversals → `traversals.len()` ≤ N (window size); `metrics.total_navigations` == 1,000 |
+| Evicted records reach archive before memory drop | Test: fill window + 1 → oldest record present in `traversal_archive` before in-memory list shrinks |
+| `AgentDerived` edge decays after threshold | Test: assert `AgentDerived` edge; advance clock past decay window → edge evicted from active graph |
+| `AgentDerived` promoted on navigation | Test: assert `AgentDerived` edge; navigate it → `TraversalDerived` present in `kinds`; decay halted |
+| Self-loop edges excluded from physics | Test: graph with a self-loop edge → layout simulation produces stable positions; no circular line rendered |
+| Multi-kind rendering priority | Test: `UserGrouped` + `TraversalDerived` edge → `UserGrouped` base style present; traversal stroke-width modifier applied on top |
