@@ -16,6 +16,7 @@ pub(crate) use egui_glow::glow;
 
 pub(crate) type BackendGraphicsContext = glow::Context;
 pub(crate) type BackendFramebufferHandle = glow::NativeFramebuffer;
+pub(crate) type BackendGraphicsApi = std::sync::Arc<BackendGraphicsContext>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendViewportInPixels {
@@ -182,6 +183,19 @@ pub(crate) fn texture_id_from_token(token: BackendTextureToken) -> egui::Texture
 	token.0
 }
 
+pub(crate) fn create_ui_render_backend(
+	event_loop: &ActiveEventLoop,
+	gl_api: BackendGraphicsApi,
+) -> UiRenderBackendHandle {
+	UiRenderBackendHandle {
+		inner: UiRenderBackend::new(event_loop, gl_api, None, None, false),
+	}
+}
+
+pub(crate) struct UiRenderBackendHandle {
+	inner: UiRenderBackend,
+}
+
 pub(crate) trait UiRenderBackendContract {
 	fn init_surface_accesskit<Event>(
 		&mut self,
@@ -205,7 +219,7 @@ pub(crate) trait UiRenderBackendContract {
 	fn destroy_surface(&mut self);
 }
 
-impl UiRenderBackendContract for UiRenderBackend {
+impl UiRenderBackendContract for UiRenderBackendHandle {
 	fn init_surface_accesskit<Event>(
 		&mut self,
 		event_loop: &ActiveEventLoop,
@@ -215,28 +229,29 @@ impl UiRenderBackendContract for UiRenderBackend {
 	where
 		Event: From<egui_winit::accesskit_winit::Event> + Send + 'static,
 	{
-		self.egui_winit
+		self.inner
+			.egui_winit
 			.init_accesskit(event_loop, window, event_loop_proxy);
 	}
 
 	fn egui_context(&self) -> &Context {
-		&self.egui_ctx
+		&self.inner.egui_ctx
 	}
 
 	fn egui_context_mut(&mut self) -> &mut Context {
-		&mut self.egui_ctx
+		&mut self.inner.egui_ctx
 	}
 
 	fn egui_winit_state_mut(&mut self) -> &mut egui_winit::State {
-		&mut self.egui_winit
+		&mut self.inner.egui_winit
 	}
 
 	fn handle_window_event(&mut self, window: &Window, event: &WindowEvent) -> EventResponse {
-		self.on_window_event(window, event)
+		self.inner.on_window_event(window, event)
 	}
 
 	fn run_ui_frame(&mut self, window: &Window, run_ui: impl FnMut(&Context)) {
-		self.run(window, run_ui)
+		self.inner.run(window, run_ui)
 	}
 
 	fn register_texture_token(&mut self, texture_id: egui::TextureId) -> BackendTextureToken {
@@ -244,11 +259,11 @@ impl UiRenderBackendContract for UiRenderBackend {
 	}
 
 	fn submit_frame(&mut self, window: &Window) {
-		self.paint(window);
+		self.inner.paint(window);
 	}
 
 	fn destroy_surface(&mut self) {
-		self.destroy();
+		self.inner.destroy();
 	}
 }
 

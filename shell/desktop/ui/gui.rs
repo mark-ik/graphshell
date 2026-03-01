@@ -36,7 +36,9 @@ use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::headed_window;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::render_backend::{UiRenderBackend, UiRenderBackendContract};
+use crate::shell::desktop::render_backend::{
+    UiRenderBackendContract, UiRenderBackendHandle, create_ui_render_backend,
+};
 #[cfg(test)]
 use crate::shell::desktop::host::window::GraphSemanticEvent;
 #[cfg(test)]
@@ -271,7 +273,7 @@ struct WebViewA11yGraftPlan {
 pub struct Gui {
     rendering_context: Rc<OffscreenRenderingContext>,
     window_rendering_context: Rc<WindowRenderingContext>,
-    context: UiRenderBackend,
+    context: UiRenderBackendHandle,
     /// Tile tree backing graph/detail pane layout.
     tiles_tree: Tree<TileKind>,
     toolbar_height: Length<f32, DeviceIndependentPixel>,
@@ -424,13 +426,7 @@ impl Gui {
         rendering_context
             .make_current()
             .expect("Could not make window RenderingContext current");
-        let mut context = UiRenderBackend::new(
-            event_loop,
-            rendering_context.glow_gl_api(),
-            None,
-            None,
-            false,
-        );
+        let mut context = create_ui_render_backend(event_loop, rendering_context.glow_gl_api());
 
         context.init_surface_accesskit(event_loop, winit_window, event_loop_proxy);
         winit_window.set_visible(true);

@@ -678,7 +678,7 @@ impl HeadedWindow {
         match event {
             WindowEvent::Focused(true) => state.handle_focused(window.clone()),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                // Intercept any ScaleFactorChanged events away from EguiGlow::on_window_event, so
+                // Intercept ScaleFactorChanged before backend window-event handling so
                 // we can use our own logic for calculating the scale factor and set egui’s
                 // scale factor to that value manually.
                 let desired_scale_factor = self.hidpi_scale_factor().get();
