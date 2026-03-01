@@ -40,11 +40,11 @@ use crate::shell::desktop::render_backend::{
     backend_set_active_texture, backend_set_blend_enabled,
     backend_set_scissor_enabled, custom_pass_from_backend_viewport,
     backend_set_viewport, backend_viewport,
-    select_backend_content_bridge,
+    select_content_bridge_from_render_context,
     register_custom_paint_callback,
 };
 use dpi::PhysicalSize;
-use euclid::{Point2D, Rect, Scale, Size2D, UnknownUnit};
+use euclid::{Scale, Size2D, UnknownUnit};
 use egui::{Context, Id, LayerId, Rect as EguiRect, Stroke, StrokeKind};
 use log::warn;
 use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, WebView};
@@ -658,21 +658,10 @@ impl CompositorAdapter {
         tile_rect: EguiRect,
         render_context: &OffscreenRenderingContext,
     ) -> bool {
-        let Some(render_to_parent) = render_context.render_to_parent_callback() else {
+        let Some(bridge) = select_content_bridge_from_render_context(render_context) else {
             return false;
         };
 
-        let render_to_parent: BackendParentRenderCallback = std::sync::Arc::new(
-            move |gl, region| {
-                let rect_in_parent = Rect::new(
-                    Point2D::new(region.left_px, region.from_bottom_px),
-                    Size2D::new(region.width_px, region.height_px),
-                );
-                render_to_parent(gl, rect_in_parent)
-            },
-        );
-
-        let bridge = select_backend_content_bridge(render_to_parent);
         let bridge_path = backend_content_bridge_path(bridge.mode);
         let bridge_mode = backend_content_bridge_mode_label(bridge.mode);
 

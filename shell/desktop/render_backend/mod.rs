@@ -7,6 +7,8 @@ use std::sync::Arc;
 use egui::{Context, LayerId, PaintCallback, Rect as EguiRect};
 use egui_winit::EventResponse;
 use egui_glow::glow;
+use euclid::{Point2D, Rect, Size2D};
+use servo::OffscreenRenderingContext;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
@@ -58,6 +60,22 @@ pub(crate) fn select_backend_content_bridge(
 		mode,
 		bridge: BackendContentBridge::ParentRenderCallback(callback),
 	}
+}
+
+pub(crate) fn select_content_bridge_from_render_context(
+	render_context: &OffscreenRenderingContext,
+) -> Option<BackendContentBridgeSelection> {
+	let render_to_parent = render_context.render_to_parent_callback()?;
+
+	let callback: BackendParentRenderCallback = Arc::new(move |gl, region| {
+		let rect_in_parent = Rect::new(
+			Point2D::new(region.left_px, region.from_bottom_px),
+			Size2D::new(region.width_px, region.height_px),
+		);
+		render_to_parent(gl, rect_in_parent)
+	});
+
+	Some(select_backend_content_bridge(callback))
 }
 
 pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'static str {
