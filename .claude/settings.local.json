@@ -47,7 +47,8 @@
       "Bash(gh pr list --state all --limit 20)",
       "Bash(git pull origin main)",
       "Bash(python3 -c \":*)",
-      "Bash(python3 -:*)"
+      "Bash(python3 -:*)",
+      "WebFetch(domain:wusyong.github.io)"
     ]
   }
 }
