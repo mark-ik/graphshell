@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 use egui::{Context, LayerId, PaintCallback, Rect as EguiRect};
 use egui_winit::EventResponse;
+use egui_glow::glow;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
-pub(crate) use egui_glow::CallbackFn as BackendCallbackFn;
-pub(crate) use egui_glow::EguiGlow as UiRenderBackend;
-pub(crate) use egui_glow::glow;
+type BackendCallbackFn = egui_glow::CallbackFn;
+type UiRenderBackend = egui_glow::EguiGlow;
 
 pub(crate) type BackendGraphicsContext = glow::Context;
 pub(crate) type BackendFramebufferHandle = glow::NativeFramebuffer;
