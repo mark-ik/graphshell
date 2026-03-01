@@ -87,7 +87,7 @@ Why this is second:
 
 ### C. Content Opening and Routing
 
-- [ ] `#175` Content-originating open flows route through Graphshell node/tile semantics
+- [x] `#175` Content-originating open flows route through Graphshell node/tile semantics
 
 Why this matters:
 

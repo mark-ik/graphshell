@@ -222,6 +222,51 @@ fn deferred_child_webview_retries_and_opens_via_frame_routed_intent() {
 }
 
 #[test]
+fn webview_created_child_open_routes_through_frame_routed_intent() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let parent_node = app.add_node_and_sync(
+        "https://example.com/parent".to_string(),
+        euclid::default::Point2D::new(30.0, 30.0),
+    );
+    let parent_webview = test_webview_id();
+    let child_webview = test_webview_id();
+    app.map_webview_to_node(parent_webview, parent_node);
+
+    app.apply_intents([GraphIntent::WebViewCreated {
+        parent_webview_id: parent_webview,
+        child_webview_id: child_webview,
+        initial_url: Some("https://example.com/child".to_string()),
+    }]);
+
+    assert_eq!(
+        app.get_single_selected_node(),
+        None,
+        "webview creation should not directly mutate selection"
+    );
+
+    let child_node = app
+        .get_node_for_webview(child_webview)
+        .expect("child webview should map to a node");
+    let mut frame_intents = Vec::new();
+    let deferred = super::open_pending_child_webview_nodes(
+        &mut app,
+        &mut frame_intents,
+        vec![child_webview],
+    );
+
+    assert!(deferred.is_empty());
+    assert!(frame_intents.iter().any(|intent| {
+        matches!(
+            intent,
+            GraphIntent::OpenNodeFrameRouted {
+                key,
+                prefer_frame: None,
+            } if *key == child_node
+        )
+    }));
+}
+
+#[test]
 fn pending_open_mode_is_one_shot_after_execution() {
     let mut app = GraphBrowserApp::new_for_testing();
     let selected = app.add_node_and_sync(

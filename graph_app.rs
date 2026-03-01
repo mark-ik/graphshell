@@ -2479,7 +2479,6 @@ impl GraphBrowserApp {
                 if let Some(parent_key) = parent_node {
                     let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
                 }
-                self.select_node(child_node, false);
             }
             GraphIntent::WebViewUrlChanged {
                 webview_id,
@@ -6458,7 +6457,7 @@ mod tests {
     }
 
     #[test]
-    fn test_intent_webview_created_links_parent_and_selects_child() {
+    fn test_intent_webview_created_links_parent_without_direct_selection_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let parent = app
             .workspace
@@ -6477,7 +6476,7 @@ mod tests {
 
         assert_eq!(app.workspace.graph.edge_count(), edges_before + 1);
         let child = app.get_node_for_webview(child_wv).unwrap();
-        assert_eq!(app.get_single_selected_node(), Some(child));
+        assert_eq!(app.get_single_selected_node(), None);
         assert_eq!(
             app.workspace.graph.get_node(child).unwrap().url,
             "https://child.com"

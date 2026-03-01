@@ -59,6 +59,11 @@ This is an operational planning map, not a permanent taxonomy.
 - `#186` define deterministic open-selected-node contract for pane/tab/split routing
 - `#187` define deterministic close-pane focus return contract
 
+**Execution note (2026-03-01)**
+
+- `#175` is implemented: content-originating child-webview opens now route through Graphshell frame routing semantics (`OpenNodeFrameRouted`) rather than reducer-side direct selection mutation.
+- Diagnostics receipt: `design_docs/archive_docs/checkpoint_2026-03-01/2026-03-01_issue_175_content_open_routing_receipt.md`
+
 **Enabling**
 
 - `#118` split `gui.rs` responsibilities, reduce `RunningAppState` coupling

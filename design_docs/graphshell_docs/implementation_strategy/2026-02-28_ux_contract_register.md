@@ -319,6 +319,11 @@ This domain also includes:
 
 - content paths bypassing graph/node/tile semantics
 
+**Execution update (2026-03-01)**
+
+- `#175` implemented content-originating child-webview open routing through Graphshell semantics (`OpenNodeFrameRouted`) without reducer-side direct selection shortcuts.
+- Diagnostics receipt: `design_docs/archive_docs/checkpoint_2026-03-01/2026-03-01_issue_175_content_open_routing_receipt.md`
+
 This remains a cross-cutting concern shared primarily by the graph and workbench specs.
 
 ### 6.4 Command Surfaces
