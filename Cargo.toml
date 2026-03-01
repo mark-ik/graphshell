@@ -45,6 +45,7 @@ ProductName = "GraphShell Browser"
 default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics"]
 diagnostics = []
 diagnostics_tests = []
+test-utils = []
 crown = ["servo/crown"]
 debugmozjs = ["servo/debugmozjs"]
 gamepad = ["servo/gamepad"]
@@ -192,3 +193,8 @@ tempfile = "3"
 tracing = "0.1.44"
 tracing-test = "0.2"
 inventory = "0.3"
+
+[[test]]
+name = "scenarios"
+path = "tests/scenarios/main.rs"
+required-features = ["test-utils"]

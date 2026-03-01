@@ -64,6 +64,7 @@ Debug-focused test commands (common):
 - `cargo test`
 - `cargo test <name> --lib -- --nocapture`
 - `cargo test --test <integration_test_name>`
+- `cargo test --features test-utils --test scenarios`
 - `cargo test -- --test-threads=1`
 
 ## 4) Fast conflict-resolution checklist
