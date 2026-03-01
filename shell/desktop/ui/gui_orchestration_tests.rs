@@ -295,3 +295,45 @@ fn pending_open_request_split_mode_uses_split_route_and_focuses_node() {
         Some(Tile::Container(egui_tiles::Container::Linear(_)))
     ));
 }
+
+#[test]
+fn orchestration_preserves_semantic_intents_until_reducer_applies_them() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node_key = app.add_node_and_sync(
+        "https://before.example".to_string(),
+        euclid::default::Point2D::new(5.0, 5.0),
+    );
+
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+
+    let mut intents = vec![GraphIntent::SetNodeUrl {
+        key: node_key,
+        new_url: "https://after.example".to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    assert!(matches!(intents[0], GraphIntent::SetNodeUrl { .. }));
+    assert_eq!(
+        app.workspace
+            .graph
+            .get_node(node_key)
+            .expect("node should exist")
+            .url,
+        "https://before.example"
+    );
+
+    app.apply_intents(intents);
+
+    assert_eq!(
+        app.workspace
+            .graph
+            .get_node(node_key)
+            .expect("node should exist")
+            .url,
+        "https://after.example"
+    );
+}
