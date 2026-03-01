@@ -1,29 +1,65 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Graphshell: WSL quick",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "scripts/dev/smoke-matrix.sh quick"
-      ],
-      "group": "test",
-      "problemMatcher": []
-    },
-    {
-      "label": "Graphshell: Windows quick",
-      "type": "shell",
-      "command": "pwsh",
-      "args": [
-        "-NoProfile",
-        "-File",
-        "scripts/dev/smoke-matrix.ps1",
-        "quick"
-      ],
-      "group": "test",
-      "problemMatcher": []
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Graphshell: WSL quick",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"scripts/dev/smoke-matrix.sh quick"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Graphshell: Windows quick",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"scripts/dev/smoke-matrix.ps1",
+				"quick"
+			],
+			"group": "test",
+			"problemMatcher": []
+		},
+		{
+			"label": "Accessibility Scaffold Tests",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q accessibility_inspector_snapshot_reports_selected_node_profile; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q close_handoff_from_active_tool_tab_prefers_left_when_no_right_successor"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Test accessibility_inspector_snapshot",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"-q",
+				"accessibility_inspector_snapshot_reports_selected_node_profile",
+				"--",
+				"--nocapture"
+			]
+		},
+		{
+			"label": "Test tile_behavior module",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"-q",
+				"tile_behavior",
+				"--",
+				"--nocapture"
+			]
+		}
+	]
 }
