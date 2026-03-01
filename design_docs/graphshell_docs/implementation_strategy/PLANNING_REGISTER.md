@@ -397,6 +397,29 @@ Tracker linkage:
 - Primary tracker: `#183`.
 - Related lanes: `#88`, `#99`, `#92`, `#90`.
 
+### 0.13 WebRender wgpu Renderer Implementation Plan
+
+Decision (2026-03-01): convert WebRender wgpu renderer research into a phased, technically validatable implementation plan.
+
+Phases P0–P12 cover dependency audit, upstream reconnaissance, fork/patch scaffold, trait extraction, shader translation, wgpu Device/Renderer implementation, compositor output contract, Graphshell integration spike, pixel parity validation, performance validation, platform matrix validation, and production cutover preparation.
+
+Key properties:
+
+- Every phase has explicit entry conditions, exit criteria, and rollback posture.
+- GL path preserved throughout via C+F fallback-safe policy.
+- `active_backend_content_bridge_policy()` remains `GlowBaseline` until P12 switch authorization.
+- Readiness gates G1–G5 mapped to specific closing phases.
+
+Canonical reference:
+
+- `aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md`.
+
+Tracker linkage:
+
+- Primary tracker: `#183`.
+- Spike evidence target: `#180`.
+- Related lanes: `#88`, `#90`, `#92`, `#99`.
+
 ---
 
 ## 1. Immediate Priorities Register (10/10/10)
