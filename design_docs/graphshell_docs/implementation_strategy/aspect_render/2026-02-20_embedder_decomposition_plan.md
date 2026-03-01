@@ -216,6 +216,10 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 1. [x] Extract `TileCoordinator` from `tile_runtime.rs`: owns tile→node mapping, pruning logic, mutations.
 2. [x] Leave `tile_render_pass.rs` and `tile_compositor.rs` as stateless renderers.
 
+**4d. gui_frame.rs:**
+1. [x] Extract post-render pending-action coordinator pipeline to dedicated module (`ui/gui_frame/pending_actions.rs`) while keeping frame helper semantics unchanged.
+2. [x] Add in-module ownership map comments clarifying `gui_frame.rs` facade role vs extracted coordinator role.
+
 **Acceptance gates:**
 
 - No `desktop/*.rs` file exceeds ~1200 lines (first pass); < ~800 in follow-up.
@@ -224,6 +228,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 - Mutation-capable GUI state helpers are owner-scoped; cross-layer writes from non-owner modules require explicit visibility escalation.
 - Pending-open selection and related GUI semantic changes flow through reducer-owned intent application instead of direct GUI mutation calls.
 - Update-frame orchestration logic is no longer co-located with all `Gui` state/accessibility/presenter methods in one file path; coordinator boundary is module-explicit.
+- `gui_frame` post-render pending-action coordination is no longer co-located with all frame helper logic in a single file path.
 - `cargo test` passes; no regressions in UI rendering or interaction.
 
 **Estimated scope:** ~800–1200 lines refactored per file; ~300–500 lines of tests.
