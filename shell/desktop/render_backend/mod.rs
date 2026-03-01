@@ -17,6 +17,8 @@ pub(crate) use egui_glow::glow;
 pub(crate) type BackendGraphicsContext = glow::Context;
 pub(crate) type BackendFramebufferHandle = glow::NativeFramebuffer;
 pub(crate) type BackendGraphicsApi = std::sync::Arc<BackendGraphicsContext>;
+pub(crate) type BackendParentRenderCallback =
+	std::sync::Arc<dyn Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendViewportInPixels {

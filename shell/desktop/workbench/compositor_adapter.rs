@@ -31,7 +31,7 @@ use crate::shell::desktop::render_backend::{
     backend_framebuffer_from_binding,
     backend_is_blend_enabled,
     BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext,
-    BackendParentRenderRegionInPixels, BackendViewportInPixels,
+    BackendParentRenderCallback, BackendParentRenderRegionInPixels, BackendViewportInPixels,
     backend_is_scissor_enabled, backend_scissor_box, backend_set_scissor_box,
     backend_primary_texture_unit,
     backend_set_active_texture, backend_set_blend_enabled,
@@ -599,14 +599,12 @@ impl CompositorAdapter {
         }
     }
 
-    fn register_render_to_parent_content_pass<F>(
+    fn register_render_to_parent_content_pass(
         ctx: &Context,
         node_key: NodeKey,
         tile_rect: EguiRect,
-        render_to_parent: F,
-    ) where
-        F: Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync + 'static,
-    {
+        render_to_parent: BackendParentRenderCallback,
+    ) {
         let callback = custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
             #[cfg(feature = "diagnostics")]
             let started = std::time::Instant::now();
@@ -657,10 +655,7 @@ impl CompositorAdapter {
             return false;
         };
 
-        Self::register_render_to_parent_content_pass(
-            ctx,
-            node_key,
-            tile_rect,
+        let render_to_parent: BackendParentRenderCallback = std::sync::Arc::new(
             move |gl, region| {
                 let rect_in_parent = Rect::new(
                     Point2D::new(region.left_px, region.from_bottom_px),
@@ -669,6 +664,8 @@ impl CompositorAdapter {
                 render_to_parent(gl, rect_in_parent)
             },
         );
+
+        Self::register_render_to_parent_content_pass(ctx, node_key, tile_rect, render_to_parent);
         true
     }
 
