@@ -29,12 +29,14 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - `64cd66d` — tile rearrange overlay scheduling regressions added: focused composited tiles now have explicit Focus overlay-pass scheduling evidence, and hovered native-overlay tiles have explicit Hover overlay scheduling evidence (fallback policy path).
 - `5c3a175` — compositor replay-forensics substrate landed for `#166`: bounded replay sample ring capture in the compositor adapter, replay sample channels registered in phase diagnostics, and snapshot export now includes `compositor_replay_samples` evidence.
 - `82f3712` — differential composition contract landed for `#167`: composited content pass now skips unchanged tile signatures (webview + pixel rect), preserves overlay affordance scheduling, emits skip/composed/fallback-reason diagnostics channels, and records per-frame skip-rate basis points.
+- `37f2ba8` — diagnostics/profiling hook slice for `#184`: diagnostics snapshot JSON now exports `compositor_differential` summary metrics (composed/skipped/fallback counts and skip-rate basis points), and Diagnostics Inspector `Compositor` tab surfaces the same differential metrics in a dedicated summary grid.
 
 ## Validation evidence
 
 - Targeted workbench/unit tests for focus activation targeting and diagnostics emission are passing.
 - Targeted replay-forensics tests are passing (`replay_ring_is_bounded_to_capacity`, `guarded_callback_with_snapshots_returns_before_and_after_states`, `diagnostics_json_snapshot_shape_is_stable`, `snapshot_json_includes_compositor_replay_samples_section`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`).
 - Targeted differential-composition tests are passing (`differential_content_decision_skips_when_signature_is_unchanged`, `differential_content_decision_recomposes_when_signature_changes`, `focus_overlay_scheduling_is_preserved_when_content_signature_is_clean`, `hover_overlay_scheduling_is_preserved_when_content_signature_is_clean`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`).
+- Targeted diagnostics snapshot tests for differential summary are passing (`diagnostics_json_snapshot_shape_is_stable`, `snapshot_json_includes_compositor_differential_summary_section`, `snapshot_json_includes_compositor_replay_samples_section`).
 - `cargo check` passed for each stabilization slice.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after the latest stabilization test coverage commit.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after each newly landed stabilization slice above.
