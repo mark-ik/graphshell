@@ -141,3 +141,68 @@ fn open_pending_child_webviews_skips_unmapped_child_webview_ids() {
     assert_eq!(opened, vec![mapped_node]);
     assert_eq!(deferred, vec![unmapped_webview]);
 }
+
+#[test]
+fn deferred_child_webview_retries_and_opens_via_frame_routed_intent() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+
+    let child_webview = test_webview_id();
+    let mut frame_intents = Vec::new();
+
+    let deferred = super::open_pending_child_webview_nodes(
+        &mut app,
+        &mut frame_intents,
+        vec![child_webview],
+    );
+    assert_eq!(deferred, vec![child_webview]);
+    assert!(frame_intents.is_empty());
+
+    let child_node = app.add_node_and_sync(
+        "https://example.com/child".to_string(),
+        euclid::default::Point2D::new(120.0, 80.0),
+    );
+    app.map_webview_to_node(child_webview, child_node);
+
+    let deferred_after_mapping = super::open_pending_child_webview_nodes(
+        &mut app,
+        &mut frame_intents,
+        deferred,
+    );
+    assert!(deferred_after_mapping.is_empty());
+    assert!(frame_intents.iter().any(|intent| {
+        matches!(
+            intent,
+            GraphIntent::OpenNodeFrameRouted {
+                key,
+                prefer_frame: None,
+            } if *key == child_node
+        )
+    }));
+
+    let mut open_node_tile_after_intents = None;
+    super::apply_semantic_intents_and_pending_open(
+        &mut app,
+        &mut tree,
+        &mut open_node_tile_after_intents,
+        &mut frame_intents,
+    );
+    super::apply_semantic_intents_and_pending_open(
+        &mut app,
+        &mut tree,
+        &mut open_node_tile_after_intents,
+        &mut frame_intents,
+    );
+
+    let node_pane_exists = tree.tiles.iter().any(|(_, tile)| {
+        matches!(
+            tile,
+            Tile::Pane(TileKind::Node(state)) if state.node == child_node
+        )
+    });
+    assert!(node_pane_exists, "child node pane should open after routed retry");
+}
