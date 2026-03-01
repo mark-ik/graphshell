@@ -1795,6 +1795,37 @@ impl DiagnosticsState {
                             });
                     });
 
+                let orphan_channels = diagnostics_registry::list_orphan_channels_snapshot();
+                egui::CollapsingHeader::new("Orphan Channels")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        let total_hits: u64 = orphan_channels.iter().map(|(_, count)| *count).sum();
+                        ui.small(format!(
+                            "Auto-registered runtime channels detected: {} (registration hits: {})",
+                            orphan_channels.len(),
+                            total_hits
+                        ));
+
+                        if orphan_channels.is_empty() {
+                            ui.small("No orphan channels detected in this session.");
+                        } else {
+                            egui::Grid::new("diag_orphan_channel_grid")
+                                .num_columns(2)
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.strong("Channel");
+                                    ui.strong("Auto-registration hits");
+                                    ui.end_row();
+
+                                    for (channel_id, count) in orphan_channels {
+                                        ui.monospace(channel_id);
+                                        ui.monospace(count.to_string());
+                                        ui.end_row();
+                                    }
+                                });
+                        }
+                    });
+
                 egui::Grid::new("diag_span_table")
                     .num_columns(2)
                     .show(ui, |ui| {

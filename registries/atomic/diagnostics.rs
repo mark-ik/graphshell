@@ -761,6 +761,7 @@ pub struct DiagnosticsRegistry {
     channels: HashMap<String, RuntimeChannelDescriptor>,
     configs: HashMap<String, ChannelConfig>,
     sample_counters: HashMap<String, u64>,
+    orphan_channels: HashMap<String, u64>,
     invariants: HashMap<String, DiagnosticsInvariant>,
     pending_invariants: HashMap<String, VecDeque<PendingInvariantToken>>,
 }
@@ -771,6 +772,7 @@ impl Default for DiagnosticsRegistry {
             channels: HashMap::new(),
             configs: HashMap::new(),
             sample_counters: HashMap::new(),
+            orphan_channels: HashMap::new(),
             invariants: HashMap::new(),
             pending_invariants: HashMap::new(),
         };
@@ -832,6 +834,16 @@ impl DiagnosticsRegistry {
                 (descriptor, config)
             })
             .collect()
+    }
+
+    pub(crate) fn list_orphan_channels(&self) -> Vec<(String, u64)> {
+        let mut entries: Vec<(String, u64)> = self
+            .orphan_channels
+            .iter()
+            .map(|(channel_id, count)| (channel_id.clone(), *count))
+            .collect();
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries
     }
 
     pub(crate) fn register_runtime_channel(
@@ -941,6 +953,7 @@ impl DiagnosticsRegistry {
                 ),
                 ChannelRegistrationPolicy::KeepExisting,
             );
+            *self.orphan_channels.entry(normalized.clone()).or_insert(0) += 1;
         }
 
         let config = self.configs.get(&normalized).cloned().unwrap_or_default();
@@ -1188,6 +1201,13 @@ pub(crate) fn list_channel_configs_snapshot() -> Vec<(RuntimeChannelDescriptor, 
         .list_channel_configs()
 }
 
+pub(crate) fn list_orphan_channels_snapshot() -> Vec<(String, u64)> {
+    global_registry()
+        .lock()
+        .expect("diagnostics registry lock poisoned")
+        .list_orphan_channels()
+}
+
 #[allow(dead_code)]
 pub(crate) fn list_invariants_snapshot() -> Vec<DiagnosticsInvariant> {
     let mut invariants: Vec<DiagnosticsInvariant> = global_registry()
@@ -1330,6 +1350,19 @@ mod tests {
 
         assert!(created);
         assert!(registry.has_channel("agent.think.started"));
+    }
+
+    #[test]
+    fn diagnostics_registry_tracks_auto_registered_orphan_channels() {
+        let mut registry = DiagnosticsRegistry::default();
+
+        assert!(registry.should_emit_channel("runtime.unknown.channel"));
+        assert!(registry.should_emit_channel("runtime.unknown.channel"));
+
+        let orphan_channels = registry.list_orphan_channels();
+        assert_eq!(orphan_channels.len(), 1);
+        assert_eq!(orphan_channels[0].0, "runtime.unknown.channel");
+        assert_eq!(orphan_channels[0].1, 1);
     }
 
     #[test]
