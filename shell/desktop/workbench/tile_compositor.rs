@@ -21,7 +21,6 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
-    CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
@@ -336,114 +335,106 @@ pub(crate) fn composite_active_node_pane_webviews(
 
             let signature = content_signature_for_tile(webview_id, tile_rect, ctx.pixels_per_point());
             evaluated_composited_passes += 1;
-            match differential_content_decision(node_key, signature) {
-                DifferentialContentDecision::SkipUnchanged => {
-                    skipped_composited_passes += 1;
-                    pass_tracker.record_content_pass(node_key);
-                    emit_event(DiagnosticEvent::MessageSent {
-                        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
-                        byte_len: 1,
-                    });
+            let differential_decision = differential_content_decision(node_key, signature);
+
+            if should_degrade_for_gpu_pressure(
+                composed_composited_passes,
+                DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+            ) {
+                skipped_composited_passes += 1;
+                pass_tracker.record_content_pass(node_key);
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+                    byte_len: DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+                });
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
+                    byte_len: 1,
+                });
+                match pass.overlay {
+                    Some(ScheduledOverlay::Focus) => {
+                        pending_overlay_passes.push(focus_overlay_for_mode(
+                            TileRenderMode::Placeholder,
+                            node_key,
+                            tile_rect,
+                            focus_ring_alpha,
+                        ))
+                    }
+                    Some(ScheduledOverlay::Hover) => {
+                        pending_overlay_passes.push(hover_overlay_for_mode(
+                            TileRenderMode::Placeholder,
+                            node_key,
+                            tile_rect,
+                        ))
+                    }
+                    None => {}
                 }
-                DifferentialContentDecision::Compose(reason) => {
-                    if should_degrade_for_gpu_pressure(
-                        composed_composited_passes,
-                        DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
-                    ) {
-                        skipped_composited_passes += 1;
-                        pass_tracker.record_content_pass(node_key);
-                        emit_event(DiagnosticEvent::MessageSent {
-                            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
-                            byte_len: DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
-                        });
-                        emit_event(DiagnosticEvent::MessageSent {
-                            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
-                            byte_len: 1,
-                        });
-                        match pass.overlay {
-                            Some(ScheduledOverlay::Focus) => {
-                                pending_overlay_passes.push(focus_overlay_for_mode(
-                                    TileRenderMode::Placeholder,
-                                    node_key,
-                                    tile_rect,
-                                    focus_ring_alpha,
-                                ))
-                            }
-                            Some(ScheduledOverlay::Hover) => {
-                                pending_overlay_passes.push(hover_overlay_for_mode(
-                                    TileRenderMode::Placeholder,
-                                    node_key,
-                                    tile_rect,
-                                ))
-                            }
-                            None => {}
-                        }
-                        continue;
-                    }
+                continue;
+            }
 
-                    emit_event(DiagnosticEvent::MessageSent {
-                        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
-                        byte_len: 1,
-                    });
-                    emit_event(DiagnosticEvent::MessageSent {
-                        channel_id: differential_fallback_channel(reason),
-                        byte_len: 1,
-                    });
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
+                byte_len: 1,
+            });
+            if let DifferentialContentDecision::Compose(reason) = differential_decision {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: differential_fallback_channel(reason),
+                    byte_len: 1,
+                });
+            }
 
-                    let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
-                        emit_event(DiagnosticEvent::MessageSent {
-                            channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
-                            byte_len: 1,
-                        });
-                        log::debug!("composite: no render_context for node {:?}", node_key);
-                        continue;
-                    };
-                    emit_event(DiagnosticEvent::MessageSent {
-                        channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
-                        byte_len: 1,
-                    });
+            let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+                    byte_len: 1,
+                });
+                log::debug!("composite: no render_context for node {:?}", node_key);
+                continue;
+            };
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+                byte_len: 1,
+            });
 
-                    let Some(webview) = window.webview_by_id(webview_id) else {
-                        log::debug!(
-                            "composite: runtime viewer {:?} not found in window for node {:?}",
-                            webview_id,
-                            node_key
-                        );
-                        continue;
-                    };
+            let Some(webview) = window.webview_by_id(webview_id) else {
+                log::debug!(
+                    "composite: runtime viewer {:?} not found in window for node {:?}",
+                    webview_id,
+                    node_key
+                );
+                continue;
+            };
+            log::debug!(
+                "composite: painting runtime viewer {:?} for node {:?} at rect {:?}",
+                webview_id,
+                node_key,
+                tile_rect
+            );
+            match CompositorAdapter::compose_webview_content_pass(
+                ctx,
+                node_key,
+                tile_rect,
+                ctx.pixels_per_point(),
+                &render_context,
+                &webview,
+            ) {
+                CompositedContentPassOutcome::Registered => {
                     log::debug!(
-                        "composite: painting runtime viewer {:?} for node {:?} at rect {:?}",
-                        webview_id,
-                        node_key,
-                        tile_rect
+                        "composite: registered content pass callback for runtime viewer {:?}",
+                        webview_id
                     );
-                    match CompositorAdapter::compose_webview_content_pass(
-                        ctx,
-                        node_key,
-                        tile_rect,
-                        ctx.pixels_per_point(),
-                        &render_context,
-                        &webview,
-                    ) {
-                        CompositedContentPassOutcome::Registered => {
-                            log::debug!(
-                                "composite: registered content pass callback for runtime viewer {:?}",
-                                webview_id
-                            );
-                            pass_tracker.record_content_pass(node_key);
-                            composed_composited_passes += 1;
-                        }
-                        CompositedContentPassOutcome::MissingContentCallback => {
-                            log::debug!(
-                                "composite: no adapter content callback available for runtime viewer {:?}",
-                                webview_id
-                            );
-                        }
-                        CompositedContentPassOutcome::PaintFailed
-                        | CompositedContentPassOutcome::InvalidTileRect => {
-                            continue;
-                        }
-                    }
+                    pass_tracker.record_content_pass(node_key);
+                    composed_composited_passes += 1;
+                }
+                CompositedContentPassOutcome::MissingContentCallback => {
+                    log::debug!(
+                        "composite: no adapter content callback available for runtime viewer {:?}",
+                        webview_id
+                    );
+                }
+                CompositedContentPassOutcome::PaintFailed
+                | CompositedContentPassOutcome::InvalidTileRect => {
+                    continue;
                 }
             }
 
