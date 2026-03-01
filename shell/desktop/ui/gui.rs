@@ -36,7 +36,7 @@ use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::headed_window;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::render_backend::UiRenderBackend;
+use crate::shell::desktop::render_backend::{UiRenderBackend, UiRenderBackendContract};
 #[cfg(test)]
 use crate::shell::desktop::host::window::GraphSemanticEvent;
 #[cfg(test)]
@@ -349,7 +349,7 @@ impl Drop for Gui {
         self.rendering_context
             .make_current()
             .expect("Could not make window RenderingContext current");
-        self.context.destroy();
+        self.context.destroy_surface();
     }
 }
 
@@ -432,12 +432,10 @@ impl Gui {
             false,
         );
 
-        context
-            .egui_winit
-            .init_accesskit(event_loop, winit_window, event_loop_proxy);
+        context.init_surface_accesskit(event_loop, winit_window, event_loop_proxy);
         winit_window.set_visible(true);
 
-        context.egui_ctx.options_mut(|options| {
+        context.egui_context_mut().options_mut(|options| {
             // Disable the builtin egui handlers for the Ctrl+Plus, Ctrl+Minus and Ctrl+0
             // shortcuts as they don't work well with Graphshell's `device-pixel-ratio` CLI argument.
             options.zoom_with_keyboard = false;
@@ -567,7 +565,7 @@ impl Gui {
     }
 
     pub(crate) fn surrender_focus(&self) {
-        self.context.egui_ctx.memory_mut(|memory| {
+        self.context.egui_context().memory_mut(|memory| {
             if let Some(focused) = memory.focused() {
                 memory.surrender_focus(focused);
             }
@@ -579,7 +577,7 @@ impl Gui {
         winit_window: &Window,
         event: &WindowEvent,
     ) -> EventResponse {
-        let mut response = self.context.on_window_event(winit_window, event);
+        let mut response = self.context.handle_window_event(winit_window, event);
 
         // When no node-viewer tile is active, consume user input events so they
         // never reach an inactive/hidden runtime viewer.
@@ -688,7 +686,7 @@ impl Gui {
     }
 
     pub(crate) fn location_has_focus(&self) -> bool {
-        self.context.egui_ctx.memory(|m| {
+        self.context.egui_context().memory(|m| {
             m.focused()
                 .is_some_and(|focused| focused == egui::Id::new("location_input"))
         })
@@ -703,16 +701,16 @@ impl Gui {
     }
 
     pub(crate) fn egui_wants_keyboard_input(&self) -> bool {
-        self.context.egui_ctx.wants_keyboard_input()
+        self.context.egui_context().wants_keyboard_input()
     }
 
     pub(crate) fn egui_wants_pointer_input(&self) -> bool {
-        self.context.egui_ctx.wants_pointer_input()
+        self.context.egui_context().wants_pointer_input()
     }
 
     pub(crate) fn pointer_hover_position(&self) -> Option<Point2D<f32, DeviceIndependentPixel>> {
         self.context
-            .egui_ctx
+            .egui_context()
             .input(|i| i.pointer.hover_pos())
             .map(|p| Point2D::new(p.x, p.y))
     }
@@ -798,7 +796,7 @@ impl Gui {
 
         let winit_window = headed_window.winit_window();
         Self::configure_frame_toasts(toasts, graph_app.workspace.toast_anchor_preference);
-        context.run(winit_window, |ctx| {
+        context.run_ui_frame(winit_window, |ctx| {
             Self::execute_update_frame(ExecuteUpdateFrameArgs {
                 ctx,
                 winit_window,
@@ -919,7 +917,7 @@ impl Gui {
     /// Paint the GUI, as of the last update.
     pub(crate) fn paint(&mut self, window: &Window) {
         self.begin_paint_pass();
-        self.context.paint(window);
+        self.context.submit_frame(window);
         self.end_paint_pass();
     }
 
@@ -1136,7 +1134,7 @@ impl Gui {
     }
 
     fn handle_accesskit_initial_tree_requested(&mut self) -> bool {
-        Self::set_accesskit_enabled(&self.context.egui_ctx, true);
+        Self::set_accesskit_enabled(self.context.egui_context(), true);
         true
     }
 
@@ -1144,7 +1142,7 @@ impl Gui {
         &mut self,
         req: &egui::accesskit::ActionRequest,
     ) -> bool {
-        Self::forward_accesskit_action_request(&mut self.context.egui_winit, req);
+        Self::forward_accesskit_action_request(self.context.egui_winit_state_mut(), req);
         true
     }
 
@@ -1156,7 +1154,7 @@ impl Gui {
     }
 
     fn handle_accesskit_deactivated(&mut self) -> bool {
-        Self::set_accesskit_enabled(&self.context.egui_ctx, false);
+        Self::set_accesskit_enabled(self.context.egui_context(), false);
         false
     }
 
@@ -1170,7 +1168,7 @@ impl Gui {
 
     pub(crate) fn set_zoom_factor(&self, factor: f32) {
         let clamped = Self::clamp_zoom_factor(factor);
-        self.context.egui_ctx.set_zoom_factor(clamped);
+        self.context.egui_context().set_zoom_factor(clamped);
     }
 
     fn clamp_zoom_factor(factor: f32) -> f32 {

@@ -26,10 +26,12 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
-use crate::shell::desktop::render_backend::{BackendCallbackFn, glow};
+use crate::shell::desktop::render_backend::{
+    BackendCallbackFn, glow, register_custom_paint_callback,
+};
 use dpi::PhysicalSize;
 use euclid::{Point2D, Rect, Scale, Size2D, UnknownUnit};
-use egui::{Context, Id, LayerId, PaintCallback, Rect as EguiRect, Stroke, StrokeKind};
+use egui::{Context, Id, LayerId, Rect as EguiRect, Stroke, StrokeKind};
 use log::warn;
 use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, WebView};
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
@@ -544,10 +546,7 @@ impl CompositorAdapter {
         callback: Arc<BackendCallbackFn>,
     ) {
         let layer = Self::content_layer(node_key);
-        ctx.layer_painter(layer).add(PaintCallback {
-            rect: tile_rect,
-            callback,
-        });
+        register_custom_paint_callback(ctx, layer, tile_rect, callback);
     }
 
     pub(crate) fn prepare_composited_target(
