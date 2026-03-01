@@ -206,6 +206,28 @@ fn capture_gl_state(gl: &glow::Context) -> GlStateSnapshot {
     }
 }
 
+fn capture_scissor_box(gl: &glow::Context) -> [i32; 4] {
+    let mut scissor_box = [0_i32; 4];
+
+    unsafe {
+        glow::HasContext::get_parameter_i32_slice(gl, glow::SCISSOR_BOX, &mut scissor_box);
+    }
+
+    scissor_box
+}
+
+fn restore_scissor_box(gl: &glow::Context, scissor_box: [i32; 4]) {
+    unsafe {
+        glow::HasContext::scissor(
+            gl,
+            scissor_box[0],
+            scissor_box[1],
+            scissor_box[2],
+            scissor_box[3],
+        );
+    }
+}
+
 fn restore_gl_state(gl: &glow::Context, snapshot: GlStateSnapshot) {
     unsafe {
         glow::HasContext::viewport(
@@ -674,6 +696,7 @@ impl CompositorAdapter {
         let started = std::time::Instant::now();
         let chaos_enabled = compositor_chaos_mode_enabled();
         let chaos_seed = COMPOSITOR_REPLAY_SEQUENCE.load(Ordering::Relaxed);
+        let scissor_box_before = capture_scissor_box(gl);
 
         let (violated, before, after, restore_verified) =
             run_guarded_callback_with_snapshots_and_perturbation(
@@ -686,6 +709,14 @@ impl CompositorAdapter {
             },
             |snapshot| restore_gl_state(gl, snapshot),
         );
+        let scissor_box_after = capture_scissor_box(gl);
+        let scissor_box_changed = scissor_box_before != scissor_box_after;
+        let mut restore_verified = restore_verified;
+        if scissor_box_changed {
+            restore_scissor_box(gl, scissor_box_before);
+            restore_verified = restore_verified && capture_scissor_box(gl) == scissor_box_before;
+        }
+        let violation_detected = violated || scissor_box_changed;
         let chaos_passed = chaos_probe_passed(chaos_enabled, violated, restore_verified);
         emit_chaos_probe_outcome(chaos_enabled, chaos_passed);
         let (
@@ -695,6 +726,7 @@ impl CompositorAdapter {
             active_texture_changed,
             framebuffer_binding_changed,
         ) = gl_state_change_flags(before, after);
+        let scissor_changed = scissor_changed || scissor_box_changed;
 
         let elapsed = started.elapsed().as_micros() as u64;
         let sequence = COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -704,7 +736,7 @@ impl CompositorAdapter {
             duration_us: elapsed,
             callback_us: elapsed,
             presentation_us: elapsed,
-            violation: violated,
+            violation: violation_detected,
             bridge_path: probe_context.bridge_path,
             tile_rect_px: probe_context.tile_rect_px,
             render_size_px: probe_context.render_size_px,
@@ -751,7 +783,7 @@ impl CompositorAdapter {
             );
         }
 
-        if violated {
+        if violation_detected {
             #[cfg(feature = "diagnostics")]
             crate::shell::desktop::runtime::diagnostics::emit_event(
                 crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
