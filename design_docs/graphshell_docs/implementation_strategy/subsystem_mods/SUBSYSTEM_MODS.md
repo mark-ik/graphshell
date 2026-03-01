@@ -84,3 +84,33 @@ The core seed (graph manipulation, local files, plaintext/metadata viewers, sear
 
 If a behavior answers "can this mod be loaded, activated, or unloaded without silently corrupting registry state?" it belongs to the **Mods subsystem**.
 
+---
+
+## 9. Deferred Spec: `mod_lifecycle_integrity_spec.md`
+
+**Status**: Deferred — not yet written.
+
+A `mod_lifecycle_integrity_spec.md` should be created once the registry specs that mods
+actively populate are stable. Specifically, this spec is blocked on:
+
+- `mod_registry_spec.md` — mod manifest registration contract,
+- `action_registry_spec.md` — action registration by mods,
+- `input_registry_spec.md` — input profile registration by mods,
+- and any further registry specs whose registration lifecycle mods must participate in.
+
+Until those specs define stable registration interfaces and invariants, writing the
+mod lifecycle integrity spec would require re-specification as each registry hardens.
+
+### What the deferred spec must cover
+
+When written, `mod_lifecycle_integrity_spec.md` must define the normative contract for:
+
+- manifest validation acceptance criteria (what `provides`/`requires` declarations are legal),
+- activation sequencing invariants (topological order, conflict rules, deferred mod behavior),
+- WASM capability grant enforcement at activation time,
+- per-registry isolation contract (mod activation into one registry must not corrupt another),
+- health diagnostics obligations (which channels emit for load/activate/deactivate failures),
+- core seed protection invariant (core seed must remain functional if any mod activation fails),
+- reload/hot-swap contract for WASM mods,
+- acceptance criteria that gate readiness for production mod ecosystem support.
+

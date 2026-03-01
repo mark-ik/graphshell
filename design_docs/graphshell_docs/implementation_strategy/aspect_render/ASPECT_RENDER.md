@@ -75,3 +75,39 @@ This decomposition is deferred pending the `egui_graphs` custom canvas migration
 
 If a behavior answers "how is a frame assembled and committed to the GPU?" it belongs to the **Render aspect**.
 
+---
+
+## 7. Deferred Spec: `window_surface_lifecycle_spec.md`
+
+**Status**: Deferred — not yet written.
+
+A `window_surface_lifecycle_spec.md` should be created once the GPU surface and
+window management path is stabilized and the `gui.rs` decomposition (§5) has
+extracted the GPU surface lifecycle into its own Render aspect module.
+
+### What the deferred spec must cover
+
+When written, `window_surface_lifecycle_spec.md` must define the normative contract
+for:
+
+- swapchain creation: when a `wgpu::Surface` (or equivalent Glow surface) is created
+  relative to OS window creation,
+- resize handling: the full sequence from OS resize event through surface
+  reconfiguration to the first correctly-sized committed frame,
+- DPI scaling: how logical-to-physical pixel scaling is applied and when it changes,
+- device loss recovery: the reinit path when a GPU device is lost — what is torn down,
+  re-created, and in what order; which backend capability probes re-run,
+- multi-window behavior: whether multiple `EmbedderWindow` instances share a device or
+  each own a surface independently,
+- present timing contract: vsync, mailbox, or immediate present selection policy and
+  how it is selected per platform,
+- surface lifecycle diagnostics channels: at minimum, channels for surface creation,
+  resize, device loss, and present timing samples.
+
+### Prerequisite
+
+This spec is blocked on the `gui.rs` decomposition completing enough that GPU surface
+lifecycle is owned by a discrete module (not the gui monolith). Until then, the
+surface lifecycle is co-located with frame orchestration and cannot be separately
+specified without creating a misleading boundary.
+
