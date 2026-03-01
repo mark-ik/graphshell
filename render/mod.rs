@@ -82,6 +82,22 @@ fn action_handles_primary_click(action: &GraphAction) -> bool {
     )
 }
 
+fn should_clear_selection_on_background_click(
+    pointer_primary_clicked: bool,
+    modifiers: egui::Modifiers,
+    hovered_graph_node: Option<NodeKey>,
+    graph_handled_primary_click: bool,
+    radial_open: bool,
+    lasso_active: bool,
+) -> bool {
+    pointer_primary_clicked
+        && !modifiers.any()
+        && hovered_graph_node.is_none()
+        && !graph_handled_primary_click
+        && !radial_open
+        && !lasso_active
+}
+
 /// Render graph info and controls hint overlay text into the current UI.
 pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
     draw_graph_info(ui, app);
@@ -434,11 +450,15 @@ pub fn render_graph_in_ui_collect_actions(
     let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
     let graph_handled_primary_click = actions.iter().any(action_handles_primary_click);
     let clear_selection_on_background_click = ui.input(|i| {
-        i.pointer.primary_clicked()
-            && !i.modifiers.shift
-            && app.workspace.hovered_graph_node.is_none()
-            && !graph_handled_primary_click
-    }) && lasso.action.is_none();
+        should_clear_selection_on_background_click(
+            i.pointer.primary_clicked(),
+            i.modifiers,
+            app.workspace.hovered_graph_node,
+            graph_handled_primary_click,
+            radial_open,
+            lasso.action.is_some(),
+        )
+    });
     if clear_selection_on_background_click {
         actions.push(GraphAction::ClearSelection);
     }
@@ -3293,6 +3313,44 @@ mod tests {
         let actions = vec![GraphAction::Zoom(1.2)];
 
         assert!(!actions.iter().any(action_handles_primary_click));
+    }
+
+    #[test]
+    fn test_background_click_clear_selection_requires_no_modifiers() {
+        let modifiers = egui::Modifiers::CTRL;
+
+        assert!(!should_clear_selection_on_background_click(
+            true,
+            modifiers,
+            None,
+            false,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn test_background_click_clear_selection_blocked_when_radial_open() {
+        assert!(!should_clear_selection_on_background_click(
+            true,
+            egui::Modifiers::NONE,
+            None,
+            false,
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn test_background_click_clear_selection_allowed_when_plain_click() {
+        assert!(should_clear_selection_on_background_click(
+            true,
+            egui::Modifiers::NONE,
+            None,
+            false,
+            false,
+            false,
+        ));
     }
 
     #[test]
