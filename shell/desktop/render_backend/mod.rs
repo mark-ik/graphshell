@@ -20,6 +20,47 @@ pub(crate) type BackendGraphicsApi = std::sync::Arc<BackendGraphicsContext>;
 pub(crate) type BackendParentRenderCallback =
 	std::sync::Arc<dyn Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync>;
 
+const BACKEND_BRIDGE_MODE_ENV_VAR: &str = "GRAPHSHELL_BACKEND_BRIDGE_MODE";
+const BACKEND_BRIDGE_PATH_GLOW_CALLBACK: &str = "gl.render_to_parent_callback";
+const BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GLOW: &str =
+	"wgpu.preferred.fallback_glow.render_to_parent_callback";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BackendContentBridgeMode {
+	GlowCallback,
+	WgpuPreferredFallbackGlowCallback,
+}
+
+#[derive(Clone)]
+pub(crate) struct BackendContentBridgeSelection {
+	pub(crate) mode: BackendContentBridgeMode,
+	pub(crate) callback: BackendParentRenderCallback,
+}
+
+pub(crate) fn select_backend_content_bridge(
+	callback: BackendParentRenderCallback,
+) -> BackendContentBridgeSelection {
+	let mode = std::env::var(BACKEND_BRIDGE_MODE_ENV_VAR)
+		.ok()
+		.map(|value| value.trim().to_ascii_lowercase())
+		.map(|value| match value.as_str() {
+			"wgpu_preferred" => BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback,
+			_ => BackendContentBridgeMode::GlowCallback,
+		})
+		.unwrap_or(BackendContentBridgeMode::GlowCallback);
+
+	BackendContentBridgeSelection { mode, callback }
+}
+
+pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'static str {
+	match mode {
+		BackendContentBridgeMode::GlowCallback => BACKEND_BRIDGE_PATH_GLOW_CALLBACK,
+		BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback => {
+			BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GLOW
+		}
+	}
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendViewportInPixels {
 	pub(crate) left_px: i32,

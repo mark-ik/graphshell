@@ -26,6 +26,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
 use crate::shell::desktop::render_backend::{
+    backend_content_bridge_path,
     backend_active_texture, backend_bind_framebuffer, backend_framebuffer_binding,
     backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
     backend_framebuffer_from_binding,
@@ -37,6 +38,7 @@ use crate::shell::desktop::render_backend::{
     backend_set_active_texture, backend_set_blend_enabled,
     backend_set_scissor_enabled, custom_pass_from_backend_viewport,
     backend_set_viewport, backend_viewport,
+    select_backend_content_bridge,
     register_custom_paint_callback,
 };
 use dpi::PhysicalSize;
@@ -55,8 +57,6 @@ const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
 static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
     OnceLock::new();
-const BRIDGE_PATH_GL_RENDER_TO_PARENT: &str = "gl.render_to_parent_callback";
-
 #[cfg(feature = "diagnostics")]
 static COMPOSITOR_CHAOS_ENABLED: OnceLock<bool> = OnceLock::new();
 
@@ -603,6 +603,7 @@ impl CompositorAdapter {
         ctx: &Context,
         node_key: NodeKey,
         tile_rect: EguiRect,
+        bridge_path: &'static str,
         render_to_parent: BackendParentRenderCallback,
     ) {
         let callback = custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
@@ -616,7 +617,7 @@ impl CompositorAdapter {
                 height_px: clip.height_px,
             };
             let probe_context = BridgeProbeContext {
-                bridge_path: BRIDGE_PATH_GL_RENDER_TO_PARENT,
+                bridge_path,
                 tile_rect_px: [
                     rect_in_parent.left_px,
                     rect_in_parent.from_bottom_px,
@@ -665,7 +666,16 @@ impl CompositorAdapter {
             },
         );
 
-        Self::register_render_to_parent_content_pass(ctx, node_key, tile_rect, render_to_parent);
+        let bridge = select_backend_content_bridge(render_to_parent);
+        let bridge_path = backend_content_bridge_path(bridge.mode);
+
+        Self::register_render_to_parent_content_pass(
+            ctx,
+            node_key,
+            tile_rect,
+            bridge_path,
+            bridge.callback,
+        );
         true
     }
 
