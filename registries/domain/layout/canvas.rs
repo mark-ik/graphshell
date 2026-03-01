@@ -129,7 +129,7 @@ impl CanvasSurfaceProfile {
         pointer_inside: bool,
         primary_down: bool,
         lasso_primary_drag_active: bool,
-        radial_open: bool,
+        _radial_open: bool,
         right_button_down: bool,
     ) -> bool {
         let is_tree_topology = self.topology.policy_id == "topology:tree";
@@ -138,7 +138,6 @@ impl CanvasSurfaceProfile {
             && primary_down
             && !lasso_primary_drag_active
             && self.interaction.dragging_enabled
-            && !radial_open
             && !right_button_down
             && !is_tree_topology
     }
@@ -359,6 +358,15 @@ mod tests {
         let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
         assert!(!resolution.profile.allows_background_pan(
             true, true, true, true, false, false,
+        ));
+    }
+
+    #[test]
+    fn canvas_surface_profile_allows_background_pan_when_radial_menu_open() {
+        let registry = CanvasRegistry::default();
+        let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
+        assert!(resolution.profile.allows_background_pan(
+            true, true, true, false, true, false,
         ));
     }
 
