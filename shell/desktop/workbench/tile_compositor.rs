@@ -2,8 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::{Mutex, OnceLock};
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
 
@@ -15,7 +16,13 @@ use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
+};
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
     OverlayStrokePass,
@@ -35,6 +42,90 @@ struct ScheduledPanePass {
     tile_rect: egui::Rect,
     render_mode: TileRenderMode,
     overlay: Option<ScheduledOverlay>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CompositedContentSignature {
+    webview_id: servo::WebViewId,
+    rect_px: [i32; 4],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DifferentialComposeReason {
+    NoPriorSignature,
+    SignatureChanged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DifferentialContentDecision {
+    Compose(DifferentialComposeReason),
+    SkipUnchanged,
+}
+
+static COMPOSITED_CONTENT_SIGNATURES: OnceLock<Mutex<HashMap<NodeKey, CompositedContentSignature>>> =
+    OnceLock::new();
+
+fn composited_content_signatures(
+) -> &'static Mutex<HashMap<NodeKey, CompositedContentSignature>> {
+    COMPOSITED_CONTENT_SIGNATURES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn content_signature_for_tile(
+    webview_id: servo::WebViewId,
+    tile_rect: egui::Rect,
+    pixels_per_point: f32,
+) -> CompositedContentSignature {
+    let min_x = (tile_rect.min.x * pixels_per_point).round() as i32;
+    let min_y = (tile_rect.min.y * pixels_per_point).round() as i32;
+    let max_x = (tile_rect.max.x * pixels_per_point).round() as i32;
+    let max_y = (tile_rect.max.y * pixels_per_point).round() as i32;
+    CompositedContentSignature {
+        webview_id,
+        rect_px: [min_x, min_y, max_x, max_y],
+    }
+}
+
+fn differential_content_decision(
+    node_key: NodeKey,
+    signature: CompositedContentSignature,
+) -> DifferentialContentDecision {
+    let mut cache = composited_content_signatures()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    match cache.insert(node_key, signature) {
+        None => DifferentialContentDecision::Compose(DifferentialComposeReason::NoPriorSignature),
+        Some(previous) if previous != signature => {
+            DifferentialContentDecision::Compose(DifferentialComposeReason::SignatureChanged)
+        }
+        Some(_) => DifferentialContentDecision::SkipUnchanged,
+    }
+}
+
+fn retain_composited_signature_cache(active_nodes: &HashSet<NodeKey>) {
+    let mut cache = composited_content_signatures()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.retain(|node_key, _| active_nodes.contains(node_key));
+}
+
+fn differential_fallback_channel(reason: DifferentialComposeReason) -> &'static str {
+    match reason {
+        DifferentialComposeReason::NoPriorSignature => {
+            CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE
+        }
+        DifferentialComposeReason::SignatureChanged => {
+            CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED
+        }
+    }
+}
+
+#[cfg(test)]
+fn clear_composited_signature_cache_for_tests() {
+    composited_content_signatures()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clear();
 }
 
 fn schedule_active_node_pane_passes(
@@ -199,6 +290,9 @@ pub(crate) fn composite_active_node_pane_webviews(
         focus_ring_alpha,
         hovered_node_key,
     );
+    let mut active_composited_nodes = HashSet::new();
+    let mut evaluated_composited_passes = 0usize;
+    let mut skipped_composited_passes = 0usize;
     for pass in scheduled_passes {
         let node_key = pass.node_key;
         let tile_rect = pass.tile_rect;
@@ -206,55 +300,80 @@ pub(crate) fn composite_active_node_pane_webviews(
         let node_webview_id = graph_app.get_webview_for_node(node_key);
 
         if render_mode == TileRenderMode::CompositedTexture {
-            let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
-                log::debug!("composite: no render_context for node {:?}", node_key);
-                continue;
-            };
-
             let Some(webview_id) = node_webview_id else {
                 log::debug!("composite: no runtime viewer mapped for node {:?}", node_key);
                 continue;
             };
-            let Some(webview) = window.webview_by_id(webview_id) else {
-                log::debug!(
-                    "composite: runtime viewer {:?} not found in window for node {:?}",
-                    webview_id,
-                    node_key
-                );
-                continue;
-            };
-            log::debug!(
-                "composite: painting runtime viewer {:?} for node {:?} at rect {:?}",
-                webview_id,
-                node_key,
-                tile_rect
-            );
-            match CompositorAdapter::compose_webview_content_pass(
-                ctx,
-                node_key,
-                tile_rect,
-                ctx.pixels_per_point(),
-                &render_context,
-                &webview,
-            ) {
-                CompositedContentPassOutcome::Registered => {
-                    log::debug!(
-                        "composite: registered content pass callback for runtime viewer {:?}",
-                        webview_id
-                    );
-                    pass_tracker.record_content_pass(node_key);
+            active_composited_nodes.insert(node_key);
+
+            let signature = content_signature_for_tile(webview_id, tile_rect, ctx.pixels_per_point());
+            evaluated_composited_passes += 1;
+            match differential_content_decision(node_key, signature) {
+                DifferentialContentDecision::SkipUnchanged => {
+                    skipped_composited_passes += 1;
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
+                        byte_len: 1,
+                    });
                 }
-                CompositedContentPassOutcome::MissingContentCallback => {
+                DifferentialContentDecision::Compose(reason) => {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
+                        byte_len: 1,
+                    });
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: differential_fallback_channel(reason),
+                        byte_len: 1,
+                    });
+
+                    let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
+                        log::debug!("composite: no render_context for node {:?}", node_key);
+                        continue;
+                    };
+
+                    let Some(webview) = window.webview_by_id(webview_id) else {
+                        log::debug!(
+                            "composite: runtime viewer {:?} not found in window for node {:?}",
+                            webview_id,
+                            node_key
+                        );
+                        continue;
+                    };
                     log::debug!(
-                        "composite: no adapter content callback available for runtime viewer {:?}",
-                        webview_id
+                        "composite: painting runtime viewer {:?} for node {:?} at rect {:?}",
+                        webview_id,
+                        node_key,
+                        tile_rect
                     );
-                }
-                CompositedContentPassOutcome::PaintFailed
-                | CompositedContentPassOutcome::InvalidTileRect => {
-                    continue;
+                    match CompositorAdapter::compose_webview_content_pass(
+                        ctx,
+                        node_key,
+                        tile_rect,
+                        ctx.pixels_per_point(),
+                        &render_context,
+                        &webview,
+                    ) {
+                        CompositedContentPassOutcome::Registered => {
+                            log::debug!(
+                                "composite: registered content pass callback for runtime viewer {:?}",
+                                webview_id
+                            );
+                            pass_tracker.record_content_pass(node_key);
+                        }
+                        CompositedContentPassOutcome::MissingContentCallback => {
+                            log::debug!(
+                                "composite: no adapter content callback available for runtime viewer {:?}",
+                                webview_id
+                            );
+                        }
+                        CompositedContentPassOutcome::PaintFailed
+                        | CompositedContentPassOutcome::InvalidTileRect => {
+                            continue;
+                        }
+                    }
                 }
             }
+
         }
 
         match pass.overlay {
@@ -270,6 +389,14 @@ pub(crate) fn composite_active_node_pane_webviews(
             None => {}
         }
     }
+    if evaluated_composited_passes > 0 {
+        let skip_rate_basis_points = (skipped_composited_passes * 10_000) / evaluated_composited_passes;
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
+            byte_len: skip_rate_basis_points,
+        });
+    }
+    retain_composited_signature_cache(&active_composited_nodes);
     CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);
 
     #[cfg(feature = "diagnostics")]
@@ -623,5 +750,48 @@ mod tests {
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
+    }
+
+    #[test]
+    fn differential_content_decision_skips_when_signature_is_unchanged() {
+        clear_composited_signature_cache_for_tests();
+        let node = NodeKey::new(50);
+        let signature = content_signature_for_tile(
+            test_webview_id(),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+            1.0,
+        );
+
+        assert!(matches!(
+            differential_content_decision(node, signature),
+            DifferentialContentDecision::Compose(DifferentialComposeReason::NoPriorSignature)
+        ));
+        assert!(matches!(
+            differential_content_decision(node, signature),
+            DifferentialContentDecision::SkipUnchanged
+        ));
+    }
+
+    #[test]
+    fn differential_content_decision_recomposes_when_signature_changes() {
+        clear_composited_signature_cache_for_tests();
+        let node = NodeKey::new(51);
+        let webview = test_webview_id();
+        let original = content_signature_for_tile(
+            webview,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+            1.0,
+        );
+        let changed = content_signature_for_tile(
+            webview,
+            egui::Rect::from_min_max(egui::pos2(10.0, 0.0), egui::pos2(110.0, 60.0)),
+            1.0,
+        );
+
+        let _ = differential_content_decision(node, original);
+        assert!(matches!(
+            differential_content_decision(node, changed),
+            DifferentialContentDecision::Compose(DifferentialComposeReason::SignatureChanged)
+        ));
     }
 }

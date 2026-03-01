@@ -126,6 +126,16 @@ pub(crate) const CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED: &str =
     "compositor.replay.sample_recorded";
 pub(crate) const CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED: &str =
     "compositor.replay.artifact_recorded";
+pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED: &str =
+    "compositor.differential.content_composed";
+pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED: &str =
+    "compositor.differential.content_skipped";
+pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE: &str =
+    "compositor.differential.fallback_no_prior_signature";
+pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED: &str =
+    "compositor.differential.fallback_signature_changed";
+pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE: &str =
+    "compositor.differential.skip_rate_basis_points";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -1689,6 +1699,21 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE)
         );
     }
 

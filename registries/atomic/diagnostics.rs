@@ -5,6 +5,11 @@ use std::time::SystemTime;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED,
     CHANNEL_ACTION_EXECUTE_SUCCEEDED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
     CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
@@ -374,7 +379,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 37] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 42] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -559,6 +564,31 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 37] = [
         channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
 ];
 
