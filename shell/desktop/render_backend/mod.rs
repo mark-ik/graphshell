@@ -44,22 +44,72 @@ pub(crate) enum BackendContentBridge {
 	ParentRenderCallback(BackendParentRenderCallback),
 }
 
-pub(crate) fn select_backend_content_bridge(
-	callback: BackendParentRenderCallback,
-) -> BackendContentBridgeSelection {
-	let mode = std::env::var(BACKEND_BRIDGE_MODE_ENV_VAR)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BackendContentBridgeCapabilities {
+	pub(crate) supports_wgpu_parent_render_bridge: bool,
+}
+
+impl Default for BackendContentBridgeCapabilities {
+	fn default() -> Self {
+		Self {
+			supports_wgpu_parent_render_bridge: true,
+		}
+	}
+}
+
+fn requested_backend_content_bridge_mode() -> BackendContentBridgeMode {
+	std::env::var(BACKEND_BRIDGE_MODE_ENV_VAR)
 		.ok()
 		.map(|value| value.trim().to_ascii_lowercase())
 		.map(|value| match value.as_str() {
 			"wgpu_preferred" => BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback,
 			_ => BackendContentBridgeMode::GlowCallback,
 		})
-		.unwrap_or(BackendContentBridgeMode::GlowCallback);
+		.unwrap_or(BackendContentBridgeMode::GlowCallback)
+}
+
+fn resolve_backend_content_bridge_mode(
+	requested: BackendContentBridgeMode,
+	capabilities: BackendContentBridgeCapabilities,
+) -> BackendContentBridgeMode {
+	match requested {
+		BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
+			if !capabilities.supports_wgpu_parent_render_bridge =>
+		{
+			BackendContentBridgeMode::GlowCallback
+		}
+		mode => mode,
+	}
+}
+
+pub(crate) fn select_backend_content_bridge_with_capabilities(
+	callback: BackendParentRenderCallback,
+	capabilities: BackendContentBridgeCapabilities,
+) -> BackendContentBridgeSelection {
+	let mode = resolve_backend_content_bridge_mode(
+		requested_backend_content_bridge_mode(),
+		capabilities,
+	);
 
 	BackendContentBridgeSelection {
 		mode,
 		bridge: BackendContentBridge::ParentRenderCallback(callback),
 	}
+}
+
+pub(crate) fn select_backend_content_bridge(
+	callback: BackendParentRenderCallback,
+) -> BackendContentBridgeSelection {
+	select_backend_content_bridge_with_capabilities(
+		callback,
+		BackendContentBridgeCapabilities::default(),
+	)
+}
+
+fn content_bridge_capabilities_for_render_context(
+	_render_context: &OffscreenRenderingContext,
+) -> BackendContentBridgeCapabilities {
+	BackendContentBridgeCapabilities::default()
 }
 
 pub(crate) fn select_content_bridge_from_render_context(
@@ -75,7 +125,11 @@ pub(crate) fn select_content_bridge_from_render_context(
 		render_to_parent(gl, rect_in_parent)
 	});
 
-	Some(select_backend_content_bridge(callback))
+	let capabilities = content_bridge_capabilities_for_render_context(render_context);
+	Some(select_backend_content_bridge_with_capabilities(
+		callback,
+		capabilities,
+	))
 }
 
 pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'static str {
@@ -410,6 +464,24 @@ mod tests {
 			selected.mode,
 			BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
 		);
+
+		clear_bridge_mode_env();
+	}
+
+	#[test]
+	fn bridge_mode_falls_back_to_glow_when_wgpu_capability_is_unavailable() {
+		let _guard = env_lock().lock().expect("env lock poisoned");
+		set_bridge_mode_env("wgpu_preferred");
+
+		let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
+		let selected = select_backend_content_bridge_with_capabilities(
+			callback,
+			BackendContentBridgeCapabilities {
+				supports_wgpu_parent_render_bridge: false,
+			},
+		);
+
+		assert_eq!(selected.mode, BackendContentBridgeMode::GlowCallback);
 
 		clear_bridge_mode_env();
 	}
