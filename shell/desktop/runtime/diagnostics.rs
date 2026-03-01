@@ -18,6 +18,9 @@ use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
 use crate::shell::desktop::workbench::compositor_adapter::replay_samples_snapshot;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
+    CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+    CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
@@ -377,6 +380,12 @@ impl DiagnosticsState {
         };
         let skip_rate_sample_count =
             self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE);
+        let content_culled_offviewport_count =
+            self.channel_count(CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT);
+        let degradation_gpu_pressure_count =
+            self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE);
+        let degradation_placeholder_mode_count =
+            self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE);
         let avg_skip_rate_basis_points = if skip_rate_sample_count == 0 {
             0
         } else {
@@ -394,6 +403,9 @@ impl DiagnosticsState {
             "fallback_no_prior_signature_count": fallback_no_prior_count,
             "fallback_signature_changed_count": fallback_signature_changed_count,
             "skip_rate_sample_count": skip_rate_sample_count,
+            "content_culled_offviewport_count": content_culled_offviewport_count,
+            "degradation_gpu_pressure_count": degradation_gpu_pressure_count,
+            "degradation_placeholder_mode_count": degradation_placeholder_mode_count,
             "computed_skip_rate_basis_points": computed_skip_rate_basis_points,
             "avg_skip_rate_basis_points": avg_skip_rate_basis_points,
         })
@@ -1400,6 +1412,24 @@ impl DiagnosticsState {
                         );
                         ui.end_row();
 
+                        ui.monospace("content_culled_offviewport_count");
+                        ui.monospace(
+                            differential["content_culled_offviewport_count"].to_string(),
+                        );
+                        ui.end_row();
+
+                        ui.monospace("degradation_gpu_pressure_count");
+                        ui.monospace(
+                            differential["degradation_gpu_pressure_count"].to_string(),
+                        );
+                        ui.end_row();
+
+                        ui.monospace("degradation_placeholder_mode_count");
+                        ui.monospace(
+                            differential["degradation_placeholder_mode_count"].to_string(),
+                        );
+                        ui.end_row();
+
                         ui.monospace("avg_skip_rate_basis_points");
                         ui.monospace(differential["avg_skip_rate_basis_points"].to_string());
                         ui.end_row();
@@ -1911,6 +1941,18 @@ Object {
             channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
             byte_len: 5000,
         });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
+            byte_len: 1,
+        });
         state.force_drain_for_tests();
 
         let snapshot = state.snapshot_json_value();
@@ -1929,6 +1971,18 @@ Object {
         assert_eq!(
             snapshot["compositor_differential"]["avg_skip_rate_basis_points"].as_u64(),
             Some(5000)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["content_culled_offviewport_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["degradation_gpu_pressure_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["degradation_placeholder_mode_count"].as_u64(),
+            Some(1)
         );
     }
 

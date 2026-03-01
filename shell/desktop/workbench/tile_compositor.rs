@@ -17,6 +17,9 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
+    CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+    CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
@@ -43,6 +46,8 @@ struct ScheduledPanePass {
     render_mode: TileRenderMode,
     overlay: Option<ScheduledOverlay>,
 }
+
+const DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CompositedContentSignature {
@@ -118,6 +123,17 @@ fn differential_fallback_channel(reason: DifferentialComposeReason) -> &'static 
             CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED
         }
     }
+}
+
+fn should_cull_tile_content(tile_rect: egui::Rect, viewport_rect: egui::Rect) -> bool {
+    tile_rect.width() <= 0.0 || tile_rect.height() <= 0.0 || !tile_rect.intersects(viewport_rect)
+}
+
+fn should_degrade_for_gpu_pressure(
+    composed_content_passes: usize,
+    budget_per_frame: usize,
+) -> bool {
+    composed_content_passes >= budget_per_frame
 }
 
 #[cfg(test)]
@@ -293,11 +309,21 @@ pub(crate) fn composite_active_node_pane_webviews(
     let mut active_composited_nodes = HashSet::new();
     let mut evaluated_composited_passes = 0usize;
     let mut skipped_composited_passes = 0usize;
+    let mut composed_composited_passes = 0usize;
+    let viewport_rect = ctx.viewport_rect();
     for pass in scheduled_passes {
         let node_key = pass.node_key;
         let tile_rect = pass.tile_rect;
         let render_mode = pass.render_mode;
         let node_webview_id = graph_app.get_webview_for_node(node_key);
+
+        if should_cull_tile_content(tile_rect, viewport_rect) {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
+                byte_len: 1,
+            });
+            continue;
+        }
 
         if render_mode == TileRenderMode::CompositedTexture {
             let Some(webview_id) = node_webview_id else {
@@ -311,12 +337,48 @@ pub(crate) fn composite_active_node_pane_webviews(
             match differential_content_decision(node_key, signature) {
                 DifferentialContentDecision::SkipUnchanged => {
                     skipped_composited_passes += 1;
+                    pass_tracker.record_content_pass(node_key);
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
                         byte_len: 1,
                     });
                 }
                 DifferentialContentDecision::Compose(reason) => {
+                    if should_degrade_for_gpu_pressure(
+                        composed_composited_passes,
+                        DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+                    ) {
+                        skipped_composited_passes += 1;
+                        pass_tracker.record_content_pass(node_key);
+                        emit_event(DiagnosticEvent::MessageSent {
+                            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+                            byte_len: DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+                        });
+                        emit_event(DiagnosticEvent::MessageSent {
+                            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
+                            byte_len: 1,
+                        });
+                        match pass.overlay {
+                            Some(ScheduledOverlay::Focus) => {
+                                pending_overlay_passes.push(focus_overlay_for_mode(
+                                    TileRenderMode::Placeholder,
+                                    node_key,
+                                    tile_rect,
+                                    focus_ring_alpha,
+                                ))
+                            }
+                            Some(ScheduledOverlay::Hover) => {
+                                pending_overlay_passes.push(hover_overlay_for_mode(
+                                    TileRenderMode::Placeholder,
+                                    node_key,
+                                    tile_rect,
+                                ))
+                            }
+                            None => {}
+                        }
+                        continue;
+                    }
+
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
                         byte_len: 1,
@@ -359,6 +421,7 @@ pub(crate) fn composite_active_node_pane_webviews(
                                 webview_id
                             );
                             pass_tracker.record_content_pass(node_key);
+                            composed_composited_passes += 1;
                         }
                         CompositedContentPassOutcome::MissingContentCallback => {
                             log::debug!(
@@ -384,7 +447,8 @@ pub(crate) fn composite_active_node_pane_webviews(
                 focus_ring_alpha,
             )),
             Some(ScheduledOverlay::Hover) => {
-                pending_overlay_passes.push(hover_overlay_for_mode(render_mode, node_key, tile_rect))
+                pending_overlay_passes
+                    .push(hover_overlay_for_mode(render_mode, node_key, tile_rect))
             }
             None => {}
         }
@@ -887,5 +951,37 @@ mod tests {
             .find(|pass| pass.node_key == hovered)
             .expect("hovered node pass should be scheduled");
         assert!(matches!(hovered_pass.overlay, Some(ScheduledOverlay::Hover)));
+    }
+
+    #[test]
+    fn should_cull_tile_content_when_disjoint_from_viewport() {
+        let tile_rect =
+            egui::Rect::from_min_max(egui::pos2(300.0, 300.0), egui::pos2(360.0, 360.0));
+        let viewport_rect =
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+
+        assert!(should_cull_tile_content(tile_rect, viewport_rect));
+    }
+
+    #[test]
+    fn should_not_cull_tile_content_when_visible_in_viewport() {
+        let tile_rect =
+            egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(140.0, 100.0));
+        let viewport_rect =
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
+
+        assert!(!should_cull_tile_content(tile_rect, viewport_rect));
+    }
+
+    #[test]
+    fn gpu_pressure_degradation_triggers_at_budget_boundary() {
+        assert!(!should_degrade_for_gpu_pressure(
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME - 1,
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+        ));
+        assert!(should_degrade_for_gpu_pressure(
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+        ));
     }
 }

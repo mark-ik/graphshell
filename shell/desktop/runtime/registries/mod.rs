@@ -136,6 +136,12 @@ pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED: &st
     "compositor.differential.fallback_signature_changed";
 pub(crate) const CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE: &str =
     "compositor.differential.skip_rate_basis_points";
+pub(crate) const CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT: &str =
+    "compositor.content.culled_offviewport";
+pub(crate) const CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE: &str =
+    "compositor.degradation.gpu_pressure";
+pub(crate) const CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE: &str =
+    "compositor.degradation.placeholder_mode";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -1714,6 +1720,16 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE)
         );
     }
 

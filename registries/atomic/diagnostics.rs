@@ -5,6 +5,9 @@ use std::time::SystemTime;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED,
     CHANNEL_ACTION_EXECUTE_SUCCEEDED, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
+    CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+    CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
@@ -379,7 +382,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 42] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 45] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -589,6 +592,21 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 42] = [
         channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
         schema_version: 1,
         severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
     },
 ];
 
