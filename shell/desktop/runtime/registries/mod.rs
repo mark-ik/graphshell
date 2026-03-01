@@ -142,6 +142,12 @@ pub(crate) const CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE: &str =
     "compositor.degradation.gpu_pressure";
 pub(crate) const CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE: &str =
     "compositor.degradation.placeholder_mode";
+pub(crate) const CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT: &str =
+    "compositor.resource_reuse.context_hit";
+pub(crate) const CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS: &str =
+    "compositor.resource_reuse.context_miss";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE: &str =
+    "compositor.overlay.batch_size_sample";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -1730,6 +1736,16 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE)
         );
     }
 

@@ -25,6 +25,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
+    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
@@ -389,9 +391,17 @@ pub(crate) fn composite_active_node_pane_webviews(
                     });
 
                     let Some(render_context) = tile_rendering_contexts.get(&node_key).cloned() else {
+                        emit_event(DiagnosticEvent::MessageSent {
+                            channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+                            byte_len: 1,
+                        });
                         log::debug!("composite: no render_context for node {:?}", node_key);
                         continue;
                     };
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+                        byte_len: 1,
+                    });
 
                     let Some(webview) = window.webview_by_id(webview_id) else {
                         log::debug!(
@@ -460,6 +470,10 @@ pub(crate) fn composite_active_node_pane_webviews(
             byte_len: skip_rate_basis_points,
         });
     }
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
+        byte_len: pending_overlay_passes.len(),
+    });
     retain_composited_signature_cache(&active_composited_nodes);
     CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);
 

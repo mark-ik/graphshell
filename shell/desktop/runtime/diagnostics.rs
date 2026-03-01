@@ -26,10 +26,13 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
+    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
 };
 
@@ -386,6 +389,11 @@ impl DiagnosticsState {
             self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE);
         let degradation_placeholder_mode_count =
             self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE);
+        let resource_reuse_context_hit_count =
+            self.channel_count(CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT);
+        let resource_reuse_context_miss_count =
+            self.channel_count(CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS);
+        let overlay_batch_sample_count = self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE);
         let avg_skip_rate_basis_points = if skip_rate_sample_count == 0 {
             0
         } else {
@@ -395,6 +403,16 @@ impl DiagnosticsState {
                 .copied()
                 .unwrap_or(0)
                 / skip_rate_sample_count
+        };
+        let avg_overlay_batch_size = if overlay_batch_sample_count == 0 {
+            0
+        } else {
+            self.diagnostic_graph
+                .message_bytes_sent
+                .get(CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE)
+                .copied()
+                .unwrap_or(0)
+                / overlay_batch_sample_count
         };
 
         json!({
@@ -406,8 +424,12 @@ impl DiagnosticsState {
             "content_culled_offviewport_count": content_culled_offviewport_count,
             "degradation_gpu_pressure_count": degradation_gpu_pressure_count,
             "degradation_placeholder_mode_count": degradation_placeholder_mode_count,
+            "resource_reuse_context_hit_count": resource_reuse_context_hit_count,
+            "resource_reuse_context_miss_count": resource_reuse_context_miss_count,
+            "overlay_batch_sample_count": overlay_batch_sample_count,
             "computed_skip_rate_basis_points": computed_skip_rate_basis_points,
             "avg_skip_rate_basis_points": avg_skip_rate_basis_points,
+            "avg_overlay_batch_size": avg_overlay_batch_size,
         })
     }
 
@@ -1430,8 +1452,28 @@ impl DiagnosticsState {
                         );
                         ui.end_row();
 
+                        ui.monospace("resource_reuse_context_hit_count");
+                        ui.monospace(
+                            differential["resource_reuse_context_hit_count"].to_string(),
+                        );
+                        ui.end_row();
+
+                        ui.monospace("resource_reuse_context_miss_count");
+                        ui.monospace(
+                            differential["resource_reuse_context_miss_count"].to_string(),
+                        );
+                        ui.end_row();
+
+                        ui.monospace("overlay_batch_sample_count");
+                        ui.monospace(differential["overlay_batch_sample_count"].to_string());
+                        ui.end_row();
+
                         ui.monospace("avg_skip_rate_basis_points");
                         ui.monospace(differential["avg_skip_rate_basis_points"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("avg_overlay_batch_size");
+                        ui.monospace(differential["avg_overlay_batch_size"].to_string());
                         ui.end_row();
                     });
                 ui.separator();
@@ -1953,6 +1995,18 @@ Object {
             channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
             byte_len: 1,
         });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
+            byte_len: 4,
+        });
         state.force_drain_for_tests();
 
         let snapshot = state.snapshot_json_value();
@@ -1983,6 +2037,22 @@ Object {
         assert_eq!(
             snapshot["compositor_differential"]["degradation_placeholder_mode_count"].as_u64(),
             Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["resource_reuse_context_hit_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["resource_reuse_context_miss_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["overlay_batch_sample_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["avg_overlay_batch_size"].as_u64(),
+            Some(4)
         );
     }
 
