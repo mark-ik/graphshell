@@ -76,7 +76,7 @@ Why this is first:
 
 - [ ] `#174` New pane spawn/focus/first-render activation is deterministic
 - [x] `#186` Opening the current selection into pane/tab/split follows one deterministic contract
-- [ ] `#187` Closing the active pane returns focus to a valid visible next context
+- [x] `#187` Closing the active pane returns focus to a valid visible next context
 - [ ] `#118` `gui.rs` responsibility split reduces orchestration ambiguity where needed
 - [ ] `#119` `gui_frame.rs` responsibility split reduces frame lifecycle ambiguity where needed
 
