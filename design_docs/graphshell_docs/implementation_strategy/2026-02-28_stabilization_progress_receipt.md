@@ -34,6 +34,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - `0a25448` — batching/resource-reuse observability slice for `#184`: compositor now emits context reuse hit/miss channels and per-frame overlay batch-size samples, with diagnostics summary/export surfacing reuse and batching metrics alongside degradation and skip-rate signals.
 - `045c8ca` — replay forensics inspector completion slice for `#166`: Diagnostics Inspector `Compositor` tab now surfaces replay availability summary (sample count, violation count, latest sequence/node/duration), snapshot export feedback explicitly reports replay sample/violation totals with export path, and snapshot JSON shape includes `compositor_replay` summary metadata alongside replay artifacts.
 - `4b5e324` — selection-contract hardening slice for `#185`: node select/deselect hit resolution now emits explicit ambiguous-hit diagnostics when event node index cannot be resolved to a Graphshell node key, preserving prior selection truth instead of drifting state; regression tests cover both ambiguous and valid-hit paths.
+- `5f61430` — open-routing contract slice for `#186`: selected-node open execution now consumes queued open mode as a one-shot signal per action, pending open requests are routed through one deterministic node+mode path, split-mode node opens normalize leaf-root wrapping before split construction, and targeted regressions cover one-shot mode consumption, split-route focus handoff, and split root wrapping.
 
 ## Validation evidence
 
@@ -45,6 +46,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - Targeted batching/reuse diagnostics tests are passing (`diagnostics_registry_declares_phase3_identity_channels_with_versions`, `snapshot_json_includes_compositor_differential_summary_section`, `should_cull_tile_content_when_disjoint_from_viewport`, `gpu_pressure_degradation_triggers_at_budget_boundary`).
 - Targeted replay inspector/export diagnostics tests are passing (`diagnostics_json_snapshot_shape_is_stable`, `replay_export_feedback_includes_path_and_counts`, `snapshot_json_includes_compositor_replay_samples_section`).
 - Targeted selection-contract tests are passing (`test_select_node_action_ctrl_click_adds_to_selection`, `test_select_node_single_click_does_not_affect_multi_selection`, `test_node_key_or_emit_ambiguous_hit_emits_diagnostic_on_none`, `test_node_key_or_emit_ambiguous_hit_does_not_emit_for_valid_node`).
+- Targeted open-routing contract tests are passing (`pending_open_mode_is_one_shot_after_execution`, `pending_open_request_split_mode_uses_split_route_and_focuses_node`, `open_or_focus_node_pane_split_wraps_leaf_root_before_split`).
 - `cargo check` passed for each stabilization slice.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after the latest stabilization test coverage commit.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after each newly landed stabilization slice above.
