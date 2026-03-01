@@ -26,6 +26,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 - `0b837b4` — compositor render-mode policy regressions expanded to cover embedded/placeholder pass-order non-violation paths and hover-overlay style mapping for composited/native-overlay modes.
 - `b77fd1e` — background pan no longer blocks on `radial_open`, preventing sticky radial-menu state from disabling graph pan controls; policy regression added.
 - `2c1f3e1` — lasso metadata state keying is now explicitly regression-covered for per-view scoping (`metadata_id`-derived lasso state IDs differ across views).
+- `64cd66d` — tile rearrange overlay scheduling regressions added: focused composited tiles now have explicit Focus overlay-pass scheduling evidence, and hovered native-overlay tiles have explicit Hover overlay scheduling evidence (fallback policy path).
 
 ## Validation evidence
 
@@ -45,6 +46,6 @@ Suggested issue comment body:
 > Stabilization progress receipt (2026-02-28) has been landed in docs with commit evidence and validation notes:
 > `design_docs/graphshell_docs/implementation_strategy/2026-02-28_stabilization_progress_receipt.md`.
 >
-> Newly landed commits on `main`: `001a121`, `004fd13`, `18c6ae9`, `874e2a6`, `441aded`, `d8983c9`, `4708e55`, `f12e0cc`, `37350e7`, `4f1011f`, `e755f48`, `57a55e6`, `7782fd9`, `1a6e8a8`, `67a4ad9`, `936073e`, `b6b931b`, `0b837b4`, `b77fd1e`, `2c1f3e1`.
+> Newly landed commits on `main`: `001a121`, `004fd13`, `18c6ae9`, `874e2a6`, `441aded`, `d8983c9`, `4708e55`, `f12e0cc`, `37350e7`, `4f1011f`, `e755f48`, `57a55e6`, `7782fd9`, `1a6e8a8`, `67a4ad9`, `936073e`, `b6b931b`, `0b837b4`, `b77fd1e`, `2c1f3e1`, `64cd66d`.
 >
 > Net result: camera/zoom command reliability, lasso boundary correctness, click-away selection determinism, and compositor pass-contract diagnostics/state isolation robustness improved; pane-open/pane-close focus activation race is substantially hardened with regression evidence. Lane remains partial pending closure of remaining bug-register items and final compositor pass-contract closure evidence.
