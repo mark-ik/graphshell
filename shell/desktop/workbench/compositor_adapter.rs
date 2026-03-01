@@ -26,10 +26,10 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
+use crate::shell::desktop::render_backend::{BackendCallbackFn, glow};
 use dpi::PhysicalSize;
 use euclid::{Point2D, Rect, Scale, Size2D, UnknownUnit};
 use egui::{Context, Id, LayerId, PaintCallback, Rect as EguiRect, Stroke, StrokeKind};
-use egui_glow::{CallbackFn, glow};
 use log::warn;
 use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, WebView};
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
@@ -541,7 +541,7 @@ impl CompositorAdapter {
         ctx: &Context,
         node_key: NodeKey,
         tile_rect: EguiRect,
-        callback: Arc<CallbackFn>,
+        callback: Arc<BackendCallbackFn>,
     ) {
         let layer = Self::content_layer(node_key);
         ctx.layer_painter(layer).add(PaintCallback {
@@ -655,7 +655,7 @@ impl CompositorAdapter {
     ) where
         F: Fn(&glow::Context, Rect<i32, UnknownUnit>) + Send + Sync + 'static,
     {
-        let callback = Arc::new(CallbackFn::new(move |info, painter| {
+        let callback = Arc::new(BackendCallbackFn::new(move |info, painter| {
             #[cfg(feature = "diagnostics")]
             let started = std::time::Instant::now();
 

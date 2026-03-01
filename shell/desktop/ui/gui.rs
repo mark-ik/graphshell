@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use arboard::Clipboard;
 use egui::pos2;
-use egui_glow::EguiGlow;
 use egui_tiles::{Tile, TileId, Tiles, Tree};
 use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
@@ -37,6 +36,7 @@ use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::headed_window;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::render_backend::UiRenderBackend;
 #[cfg(test)]
 use crate::shell::desktop::host::window::GraphSemanticEvent;
 #[cfg(test)]
@@ -271,7 +271,7 @@ struct WebViewA11yGraftPlan {
 pub struct Gui {
     rendering_context: Rc<OffscreenRenderingContext>,
     window_rendering_context: Rc<WindowRenderingContext>,
-    context: EguiGlow,
+    context: UiRenderBackend,
     /// Tile tree backing graph/detail pane layout.
     tiles_tree: Tree<TileKind>,
     toolbar_height: Length<f32, DeviceIndependentPixel>,
@@ -424,7 +424,7 @@ impl Gui {
         rendering_context
             .make_current()
             .expect("Could not make window RenderingContext current");
-        let mut context = EguiGlow::new(
+        let mut context = UiRenderBackend::new(
             event_loop,
             rendering_context.glow_gl_api(),
             None,
