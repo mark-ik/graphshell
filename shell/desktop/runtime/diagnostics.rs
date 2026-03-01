@@ -18,6 +18,11 @@ use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
 use crate::shell::desktop::workbench::compositor_adapter::replay_samples_snapshot;
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
@@ -357,6 +362,43 @@ pub(crate) struct DiagnosticsState {
 }
 
 impl DiagnosticsState {
+    fn compositor_differential_summary(&self) -> Value {
+        let composed_count = self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED);
+        let skipped_count = self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED);
+        let fallback_no_prior_count =
+            self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE);
+        let fallback_signature_changed_count =
+            self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED);
+        let evaluated_count = composed_count.saturating_add(skipped_count);
+        let computed_skip_rate_basis_points = if evaluated_count == 0 {
+            0
+        } else {
+            ((skipped_count * 10_000) / evaluated_count) as u64
+        };
+        let skip_rate_sample_count =
+            self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE);
+        let avg_skip_rate_basis_points = if skip_rate_sample_count == 0 {
+            0
+        } else {
+            self.diagnostic_graph
+                .message_bytes_sent
+                .get(CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE)
+                .copied()
+                .unwrap_or(0)
+                / skip_rate_sample_count
+        };
+
+        json!({
+            "content_composed_count": composed_count,
+            "content_skipped_count": skipped_count,
+            "fallback_no_prior_signature_count": fallback_no_prior_count,
+            "fallback_signature_changed_count": fallback_signature_changed_count,
+            "skip_rate_sample_count": skip_rate_sample_count,
+            "computed_skip_rate_basis_points": computed_skip_rate_basis_points,
+            "avg_skip_rate_basis_points": avg_skip_rate_basis_points,
+        })
+    }
+
     fn render_compositor_overlay_buckets(&self, ui: &mut egui::Ui) {
         ui.label("Compositor overlay buckets");
 
@@ -751,6 +793,7 @@ impl DiagnosticsState {
                 "exit_counts": self.diagnostic_graph.span_exit_counts,
                 "last_duration_us": self.diagnostic_graph.last_span_duration_us,
             },
+            "compositor_differential": self.compositor_differential_summary(),
             "compositor_frames": frames,
             "compositor_replay_samples": replay_samples,
             "recent_intents": self.intents.iter().map(|intent| {
@@ -1323,6 +1366,45 @@ impl DiagnosticsState {
                     }
                 });
                 ui.separator();
+                let differential = self.compositor_differential_summary();
+                ui.label("Differential composition summary");
+                egui::Grid::new("diagnostics_compositor_differential")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Metric");
+                        ui.strong("Value");
+                        ui.end_row();
+
+                        ui.monospace("content_composed_count");
+                        ui.monospace(differential["content_composed_count"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("content_skipped_count");
+                        ui.monospace(differential["content_skipped_count"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("fallback_no_prior_signature_count");
+                        ui.monospace(differential["fallback_no_prior_signature_count"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("fallback_signature_changed_count");
+                        ui.monospace(
+                            differential["fallback_signature_changed_count"].to_string(),
+                        );
+                        ui.end_row();
+
+                        ui.monospace("computed_skip_rate_basis_points");
+                        ui.monospace(
+                            differential["computed_skip_rate_basis_points"].to_string(),
+                        );
+                        ui.end_row();
+
+                        ui.monospace("avg_skip_rate_basis_points");
+                        ui.monospace(differential["avg_skip_rate_basis_points"].to_string());
+                        ui.end_row();
+                    });
+                ui.separator();
                 ui.label("Active tile hierarchy");
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     egui::ScrollArea::vertical()
@@ -1794,6 +1876,7 @@ Object {
         String("event_ring_len"),
         String("channels"),
         String("spans"),
+        String("compositor_differential"),
         String("compositor_frames"),
         String("compositor_replay_samples"),
         String("recent_intents"),
@@ -1811,6 +1894,42 @@ Object {
     "first_frame_sequence": String("[sequence]"),
 }
         "###);
+    }
+
+    #[test]
+    fn snapshot_json_includes_compositor_differential_summary_section() {
+        let mut state = DiagnosticsState::new();
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
+            byte_len: 5000,
+        });
+        state.force_drain_for_tests();
+
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["compositor_differential"]["content_composed_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["content_skipped_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["computed_skip_rate_basis_points"].as_u64(),
+            Some(5000)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["avg_skip_rate_basis_points"].as_u64(),
+            Some(5000)
+        );
     }
 
     #[test]
