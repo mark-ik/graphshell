@@ -551,8 +551,19 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use crate::graph::NodeKey;
+    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
+    use crate::shell::desktop::runtime::registries::{
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+        CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+    };
+    use crate::shell::desktop::workbench::pane_model::TileRenderMode;
+    use egui::Stroke;
 
-    use super::{CompositorPassTracker, GlStateSnapshot, gl_state_violated, run_guarded_callback};
+    use super::{
+        CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION, CompositorAdapter,
+        CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
+        gl_state_violated, run_guarded_callback,
+    };
 
     #[test]
     fn pass_scheduler_runs_content_before_overlay() {
@@ -571,6 +582,77 @@ mod tests {
         let mut tracker = CompositorPassTracker::new();
         tracker.record_content_pass(NodeKey::new(1));
         tracker.record_overlay_pass(NodeKey::new(1));
+    }
+
+    #[test]
+    fn tracker_emits_pass_order_violation_when_overlay_has_no_content_pass() {
+        let mut diagnostics = DiagnosticsState::new();
+        let tracker = CompositorPassTracker::new();
+
+        tracker.record_overlay_pass(NodeKey::new(9));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        let overlay_count = channel_counts
+            .get(CHANNEL_OVERLAY_PASS_REGISTERED)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let violation_count = channel_counts
+            .get(CHANNEL_PASS_ORDER_VIOLATION)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert!(overlay_count > 0, "expected overlay pass registration channel");
+        assert!(
+            violation_count > 0,
+            "expected pass-order violation channel when content pass was missing"
+        );
+    }
+
+    #[test]
+    fn execute_overlay_affordance_pass_emits_style_and_mode_channels() {
+        let mut diagnostics = DiagnosticsState::new();
+        let ctx = egui::Context::default();
+        let mut tracker = CompositorPassTracker::new();
+        let node = NodeKey::new(12);
+        tracker.record_content_pass(node);
+
+        CompositorAdapter::execute_overlay_affordance_pass(
+            &ctx,
+            &tracker,
+            vec![OverlayStrokePass {
+                node_key: node,
+                tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                rounding: 4.0,
+                stroke: Stroke::new(2.0, egui::Color32::WHITE),
+                style: OverlayAffordanceStyle::RectStroke,
+                render_mode: TileRenderMode::CompositedTexture,
+            }],
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        let style_count = channel_counts
+            .get(CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let mode_count = channel_counts
+            .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert!(style_count > 0, "expected overlay style diagnostics emission");
+        assert!(mode_count > 0, "expected overlay mode diagnostics emission");
     }
 
     #[test]
