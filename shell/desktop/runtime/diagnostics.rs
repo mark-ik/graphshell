@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::SystemTime;
@@ -16,7 +17,9 @@ use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
 use crate::graph::NodeKey;
 use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
-use crate::shell::desktop::workbench::compositor_adapter::replay_samples_snapshot;
+use crate::shell::desktop::workbench::compositor_adapter::{
+    CompositorReplaySample, replay_samples_snapshot,
+};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
     CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
@@ -368,6 +371,40 @@ pub(crate) struct DiagnosticsState {
 }
 
 impl DiagnosticsState {
+    fn compositor_replay_summary(&self) -> Value {
+        let samples = replay_samples_snapshot();
+        let sample_count = samples.len() as u64;
+        let violation_count = samples.iter().filter(|sample| sample.violation).count() as u64;
+        let latest_sequence = samples.last().map(|sample| sample.sequence);
+        let latest_violation_node = samples
+            .iter()
+            .rev()
+            .find(|sample| sample.violation)
+            .map(|sample| format!("{:?}", sample.node_key));
+        let latest_duration_us = samples.last().map(|sample| sample.duration_us);
+
+        json!({
+            "sample_count": sample_count,
+            "violation_count": violation_count,
+            "latest_sequence": latest_sequence,
+            "latest_violation_node": latest_violation_node,
+            "latest_duration_us": latest_duration_us,
+        })
+    }
+
+    fn replay_export_feedback(path: &Path, replay_samples: &[CompositorReplaySample]) -> String {
+        let violation_count = replay_samples
+            .iter()
+            .filter(|sample| sample.violation)
+            .count();
+        format!(
+            "Saved JSON: {} (replay samples: {}, violations: {})",
+            path.display(),
+            replay_samples.len(),
+            violation_count
+        )
+    }
+
     fn compositor_differential_summary(&self) -> Value {
         let composed_count = self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED);
         let skipped_count = self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED);
@@ -828,6 +865,7 @@ impl DiagnosticsState {
                 "last_duration_us": self.diagnostic_graph.last_span_duration_us,
             },
             "compositor_differential": self.compositor_differential_summary(),
+            "compositor_replay": self.compositor_replay_summary(),
             "compositor_frames": frames,
             "compositor_replay_samples": replay_samples,
             "recent_intents": self.intents.iter().map(|intent| {
@@ -1121,8 +1159,10 @@ impl DiagnosticsState {
             if ui.button("Save Snapshot JSON").clicked() {
                 match self.export_snapshot_json() {
                     Ok(path) => {
+                        let replay_samples = replay_samples_snapshot();
                         log::info!("Diagnostics JSON exported: {}", path.display());
-                        self.export_feedback = Some(format!("Saved JSON: {}", path.display()));
+                        self.export_feedback =
+                            Some(Self::replay_export_feedback(&path, &replay_samples));
                     }
                     Err(err) => {
                         log::warn!("Diagnostics JSON export failed: {err}");
@@ -1371,18 +1411,19 @@ impl DiagnosticsState {
                     });
             }
             DiagnosticsTab::Compositor => {
-                let Some(last) = self.compositor_state.frames.back() else {
-                    ui.small("No compositor samples yet.");
-                    return;
-                };
+                let replay_summary = self.compositor_replay_summary();
                 ui.horizontal(|ui| {
-                    ui.monospace(format!("seq={}", last.sequence));
-                    ui.separator();
-                    ui.monospace(format!("active_tiles={}", last.active_tile_count));
-                    ui.separator();
-                    ui.monospace(format!("focused_node={}", last.focused_node_present));
-                    ui.separator();
                     ui.monospace(format!("history={}", self.compositor_state.frames.len()));
+                    ui.separator();
+                    ui.monospace(format!(
+                        "replay_samples={}",
+                        replay_summary["sample_count"].as_u64().unwrap_or(0)
+                    ));
+                    ui.separator();
+                    ui.monospace(format!(
+                        "replay_violations={}",
+                        replay_summary["violation_count"].as_u64().unwrap_or(0)
+                    ));
                     ui.separator();
                     match self.pinned_node_key {
                         Some(node_key) => {
@@ -1398,6 +1439,51 @@ impl DiagnosticsState {
                             ui.small("pin=none");
                         }
                     }
+                });
+                ui.separator();
+                ui.label("Compositor replay summary");
+                egui::Grid::new("diagnostics_compositor_replay")
+                    .num_columns(2)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Metric");
+                        ui.strong("Value");
+                        ui.end_row();
+
+                        ui.monospace("sample_count");
+                        ui.monospace(replay_summary["sample_count"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("violation_count");
+                        ui.monospace(replay_summary["violation_count"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("latest_sequence");
+                        ui.monospace(replay_summary["latest_sequence"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("latest_violation_node");
+                        ui.monospace(replay_summary["latest_violation_node"].to_string());
+                        ui.end_row();
+
+                        ui.monospace("latest_duration_us");
+                        ui.monospace(replay_summary["latest_duration_us"].to_string());
+                        ui.end_row();
+                    });
+                ui.small("Save Snapshot JSON includes compositor replay artifacts and path details.");
+                ui.separator();
+
+                let Some(last) = self.compositor_state.frames.back() else {
+                    ui.small("No compositor frame samples yet.");
+                    return;
+                };
+
+                ui.horizontal(|ui| {
+                    ui.monospace(format!("seq={}", last.sequence));
+                    ui.separator();
+                    ui.monospace(format!("active_tiles={}", last.active_tile_count));
+                    ui.separator();
+                    ui.monospace(format!("focused_node={}", last.focused_node_present));
                 });
                 ui.separator();
                 let differential = self.compositor_differential_summary();
@@ -1949,6 +2035,7 @@ Object {
         String("channels"),
         String("spans"),
         String("compositor_differential"),
+        String("compositor_replay"),
         String("compositor_frames"),
         String("compositor_replay_samples"),
         String("recent_intents"),
@@ -1966,6 +2053,58 @@ Object {
     "first_frame_sequence": String("[sequence]"),
 }
         "###);
+    }
+
+    #[test]
+    fn replay_export_feedback_includes_path_and_counts() {
+        let path = PathBuf::from("diagnostics-123.json");
+        let samples = vec![
+            CompositorReplaySample {
+                sequence: 1,
+                node_key: NodeKey::new(1),
+                duration_us: 7,
+                violation: false,
+                before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 1, 1],
+                    scissor_enabled: false,
+                    blend_enabled: false,
+                    active_texture: 0,
+                    framebuffer_binding: 0,
+                },
+                after: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 1, 1],
+                    scissor_enabled: false,
+                    blend_enabled: false,
+                    active_texture: 0,
+                    framebuffer_binding: 0,
+                },
+            },
+            CompositorReplaySample {
+                sequence: 2,
+                node_key: NodeKey::new(2),
+                duration_us: 11,
+                violation: true,
+                before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 1, 1],
+                    scissor_enabled: false,
+                    blend_enabled: false,
+                    active_texture: 0,
+                    framebuffer_binding: 0,
+                },
+                after: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 2, 2],
+                    scissor_enabled: true,
+                    blend_enabled: false,
+                    active_texture: 1,
+                    framebuffer_binding: 1,
+                },
+            },
+        ];
+
+        let feedback = DiagnosticsState::replay_export_feedback(&path, &samples);
+        assert!(feedback.contains("diagnostics-123.json"));
+        assert!(feedback.contains("replay samples: 2"));
+        assert!(feedback.contains("violations: 1"));
     }
 
     #[test]
