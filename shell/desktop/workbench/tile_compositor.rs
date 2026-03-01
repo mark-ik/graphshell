@@ -483,4 +483,25 @@ mod tests {
         );
         assert_eq!(focused_hint, Some(primary));
     }
+
+    #[test]
+    fn focus_overlay_for_native_overlay_uses_chrome_only_style() {
+        let node = NodeKey::new(40);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(110.0, 70.0));
+        let overlay = focus_overlay_for_mode(TileRenderMode::NativeOverlay, node, tile_rect, 1.0);
+
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::ChromeOnly));
+        assert_eq!(overlay.render_mode, TileRenderMode::NativeOverlay);
+    }
+
+    #[test]
+    fn focus_overlay_for_composited_texture_uses_rect_stroke_style() {
+        let node = NodeKey::new(41);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(20.0, 20.0), egui::pos2(120.0, 80.0));
+        let overlay =
+            focus_overlay_for_mode(TileRenderMode::CompositedTexture, node, tile_rect, 1.0);
+
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
+        assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
+    }
 }

@@ -8,6 +8,7 @@
 //! blend enable, active texture unit, and framebuffer binding.
 
 use std::collections::HashSet;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use crate::graph::NodeKey;
@@ -80,7 +81,19 @@ fn restore_gl_state(gl: &glow::Context, snapshot: GlStateSnapshot) {
             glow::HasContext::disable(gl, glow::BLEND);
         }
         glow::HasContext::active_texture(gl, snapshot.active_texture as u32);
-        glow::HasContext::bind_framebuffer(gl, glow::FRAMEBUFFER, None);
+        glow::HasContext::bind_framebuffer(
+            gl,
+            glow::FRAMEBUFFER,
+            framebuffer_binding_target(snapshot.framebuffer_binding),
+        );
+    }
+}
+
+fn framebuffer_binding_target(binding: i32) -> Option<glow::NativeFramebuffer> {
+    if binding <= 0 {
+        None
+    } else {
+        NonZeroU32::new(binding as u32).map(glow::NativeFramebuffer)
     }
 }
 
@@ -158,7 +171,7 @@ impl CompositorPassTracker {
         );
     }
 
-    pub(crate) fn record_overlay_pass(&self, node_key: NodeKey) {
+    pub(crate) fn record_overlay_pass(&self, node_key: NodeKey, render_mode: TileRenderMode) {
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_event(
             crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
@@ -167,7 +180,9 @@ impl CompositorPassTracker {
             },
         );
 
-        if !self.content_pass_nodes.contains(&node_key) {
+        if render_mode == TileRenderMode::CompositedTexture
+            && !self.content_pass_nodes.contains(&node_key)
+        {
             #[cfg(feature = "diagnostics")]
             crate::shell::desktop::runtime::diagnostics::emit_event(
                 crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
@@ -495,7 +510,7 @@ impl CompositorAdapter {
         let started = std::time::Instant::now();
 
         for overlay in overlays {
-            pass_tracker.record_overlay_pass(overlay.node_key);
+            pass_tracker.record_overlay_pass(overlay.node_key, overlay.render_mode);
             #[cfg(feature = "diagnostics")]
             {
                 crate::shell::desktop::runtime::diagnostics::emit_event(
@@ -553,7 +568,9 @@ mod tests {
     use crate::graph::NodeKey;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
         CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+        CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
         CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     };
     use crate::shell::desktop::workbench::pane_model::TileRenderMode;
@@ -562,7 +579,7 @@ mod tests {
     use super::{
         CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION, CompositorAdapter,
         CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
-        gl_state_violated, run_guarded_callback,
+        framebuffer_binding_target, gl_state_violated, run_guarded_callback,
     };
 
     #[test]
@@ -581,7 +598,7 @@ mod tests {
     fn tracker_records_content_membership() {
         let mut tracker = CompositorPassTracker::new();
         tracker.record_content_pass(NodeKey::new(1));
-        tracker.record_overlay_pass(NodeKey::new(1));
+        tracker.record_overlay_pass(NodeKey::new(1), TileRenderMode::CompositedTexture);
     }
 
     #[test]
@@ -589,7 +606,7 @@ mod tests {
         let mut diagnostics = DiagnosticsState::new();
         let tracker = CompositorPassTracker::new();
 
-        tracker.record_overlay_pass(NodeKey::new(9));
+        tracker.record_overlay_pass(NodeKey::new(9), TileRenderMode::CompositedTexture);
 
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests();
@@ -611,6 +628,36 @@ mod tests {
         assert!(
             violation_count > 0,
             "expected pass-order violation channel when content pass was missing"
+        );
+    }
+
+    #[test]
+    fn tracker_does_not_emit_pass_order_violation_for_native_overlay() {
+        let mut diagnostics = DiagnosticsState::new();
+        let tracker = CompositorPassTracker::new();
+
+        tracker.record_overlay_pass(NodeKey::new(10), TileRenderMode::NativeOverlay);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        let overlay_count = channel_counts
+            .get(CHANNEL_OVERLAY_PASS_REGISTERED)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let violation_count = channel_counts
+            .get(CHANNEL_PASS_ORDER_VIOLATION)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert!(overlay_count > 0, "expected overlay pass registration channel");
+        assert_eq!(
+            violation_count, 0,
+            "native overlay should not require composited content-pass ordering"
         );
     }
 
@@ -656,6 +703,54 @@ mod tests {
     }
 
     #[test]
+    fn execute_overlay_affordance_pass_native_overlay_emits_chrome_style_without_violation() {
+        let mut diagnostics = DiagnosticsState::new();
+        let ctx = egui::Context::default();
+        let tracker = CompositorPassTracker::new();
+        let node = NodeKey::new(22);
+
+        CompositorAdapter::execute_overlay_affordance_pass(
+            &ctx,
+            &tracker,
+            vec![OverlayStrokePass {
+                node_key: node,
+                tile_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                rounding: 0.0,
+                stroke: Stroke::new(2.0, egui::Color32::WHITE),
+                style: OverlayAffordanceStyle::ChromeOnly,
+                render_mode: TileRenderMode::NativeOverlay,
+            }],
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        let style_count = channel_counts
+            .get(CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let mode_count = channel_counts
+            .get(CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let violation_count = channel_counts
+            .get(CHANNEL_PASS_ORDER_VIOLATION)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert!(style_count > 0, "expected chrome-only overlay style diagnostics emission");
+        assert!(mode_count > 0, "expected native-overlay mode diagnostics emission");
+        assert_eq!(
+            violation_count, 0,
+            "native-overlay path should not emit composited pass-order violation"
+        );
+    }
+
+    #[test]
     fn gl_state_violation_detects_differences() {
         let before = GlStateSnapshot {
             viewport: [0, 0, 100, 100],
@@ -673,6 +768,19 @@ mod tests {
         };
         assert!(gl_state_violated(before, after));
         assert!(!gl_state_violated(before, before));
+    }
+
+    #[test]
+    fn framebuffer_binding_target_returns_none_for_default_framebuffer() {
+        assert_eq!(framebuffer_binding_target(0), None);
+        assert_eq!(framebuffer_binding_target(-1), None);
+    }
+
+    #[test]
+    fn framebuffer_binding_target_returns_handle_for_non_default_framebuffer() {
+        let target = framebuffer_binding_target(12)
+            .expect("non-default framebuffer binding should produce native handle");
+        assert_eq!(target.0.get(), 12_u32);
     }
 
     #[test]
