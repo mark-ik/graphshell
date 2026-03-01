@@ -122,6 +122,10 @@ pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI: &str =
     "compositor.overlay.mode.embedded_egui";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER: &str =
     "compositor.overlay.mode.placeholder";
+pub(crate) const CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED: &str =
+    "compositor.replay.sample_recorded";
+pub(crate) const CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED: &str =
+    "compositor.replay.artifact_recorded";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 

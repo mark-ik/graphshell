@@ -9,6 +9,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY, CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
+    CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
     CHANNEL_IDENTITY_KEY_UNAVAILABLE, CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED,
@@ -373,7 +374,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 35] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 37] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -548,6 +549,16 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 35] = [
         channel_id: CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
         schema_version: 1,
         severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
     },
 ];
 

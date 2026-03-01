@@ -9,14 +9,16 @@
 
 use std::collections::HashSet;
 use std::num::NonZeroU32;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
-    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
+    CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
 use dpi::PhysicalSize;
 use euclid::{Point2D, Rect, Scale, Size2D, UnknownUnit};
@@ -30,14 +32,59 @@ const CHANNEL_CONTENT_PASS_REGISTERED: &str = "tile_compositor.content_pass_regi
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = "tile_compositor.overlay_pass_registered";
 const CHANNEL_PASS_ORDER_VIOLATION: &str = "tile_compositor.pass_order_violation";
 const CHANNEL_INVALID_TILE_RECT: &str = "tile_compositor.invalid_tile_rect";
+const COMPOSITOR_REPLAY_RING_CAPACITY: usize = 64;
+static COMPOSITOR_REPLAY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static COMPOSITOR_REPLAY_RING: OnceLock<Mutex<std::collections::VecDeque<CompositorReplaySample>>> =
+    OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct GlStateSnapshot {
-    viewport: [i32; 4],
-    scissor_enabled: bool,
-    blend_enabled: bool,
-    active_texture: i32,
-    framebuffer_binding: i32,
+pub(crate) struct CompositorReplaySample {
+    pub(crate) sequence: u64,
+    pub(crate) node_key: NodeKey,
+    pub(crate) duration_us: u64,
+    pub(crate) violation: bool,
+    pub(crate) before: GlStateSnapshot,
+    pub(crate) after: GlStateSnapshot,
+}
+
+fn replay_ring() -> &'static Mutex<std::collections::VecDeque<CompositorReplaySample>> {
+    COMPOSITOR_REPLAY_RING
+        .get_or_init(|| Mutex::new(std::collections::VecDeque::with_capacity(COMPOSITOR_REPLAY_RING_CAPACITY)))
+}
+
+fn push_replay_sample(sample: CompositorReplaySample) {
+    let mut ring = replay_ring().lock().expect("compositor replay ring mutex poisoned");
+    if ring.len() >= COMPOSITOR_REPLAY_RING_CAPACITY {
+        ring.pop_front();
+    }
+    ring.push_back(sample);
+}
+
+pub(crate) fn replay_samples_snapshot() -> Vec<CompositorReplaySample> {
+    replay_ring()
+        .lock()
+        .expect("compositor replay ring mutex poisoned")
+        .iter()
+        .copied()
+        .collect()
+}
+
+#[cfg(test)]
+fn clear_replay_samples_for_tests() {
+    replay_ring()
+        .lock()
+        .expect("compositor replay ring mutex poisoned")
+        .clear();
+    COMPOSITOR_REPLAY_SEQUENCE.store(1, Ordering::Relaxed);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GlStateSnapshot {
+    pub(crate) viewport: [i32; 4],
+    pub(crate) scissor_enabled: bool,
+    pub(crate) blend_enabled: bool,
+    pub(crate) active_texture: i32,
+    pub(crate) framebuffer_binding: i32,
 }
 
 fn gl_state_violated(before: GlStateSnapshot, after: GlStateSnapshot) -> bool {
@@ -98,10 +145,24 @@ fn framebuffer_binding_target(binding: i32) -> Option<glow::NativeFramebuffer> {
 }
 
 fn run_guarded_callback<Capture, Render, Restore>(
+    capture: Capture,
+    render: Render,
+    restore: Restore,
+) -> bool
+where
+    Capture: FnMut() -> GlStateSnapshot,
+    Render: FnOnce(),
+    Restore: FnMut(GlStateSnapshot),
+{
+    let (violated, _before, _after) = run_guarded_callback_with_snapshots(capture, render, restore);
+    violated
+}
+
+fn run_guarded_callback_with_snapshots<Capture, Render, Restore>(
     mut capture: Capture,
     render: Render,
     mut restore: Restore,
-) -> bool
+) -> (bool, GlStateSnapshot, GlStateSnapshot)
 where
     Capture: FnMut() -> GlStateSnapshot,
     Render: FnOnce(),
@@ -112,9 +173,9 @@ where
     let after = capture();
     if gl_state_violated(before, after) {
         restore(before);
-        return true;
+        return (true, before, after);
     }
-    false
+    (false, before, after)
 }
 
 pub(crate) struct CompositorPassTracker {
@@ -420,14 +481,34 @@ impl CompositorAdapter {
     ) where
         F: FnOnce(),
     {
-        #[cfg(feature = "diagnostics")]
         let started = std::time::Instant::now();
 
-        if run_guarded_callback(
+        let (violated, before, after) = run_guarded_callback_with_snapshots(
             || capture_gl_state(gl),
             render,
             |snapshot| restore_gl_state(gl, snapshot),
-        ) {
+        );
+
+        let elapsed = started.elapsed().as_micros() as u64;
+        let sequence = COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        push_replay_sample(CompositorReplaySample {
+            sequence,
+            node_key: _node_key,
+            duration_us: elapsed,
+            violation: violated,
+            before,
+            after,
+        });
+
+        #[cfg(feature = "diagnostics")]
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
+                byte_len: std::mem::size_of::<CompositorReplaySample>(),
+            },
+        );
+
+        if violated {
             #[cfg(feature = "diagnostics")]
             crate::shell::desktop::runtime::diagnostics::emit_event(
                 crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
@@ -436,12 +517,20 @@ impl CompositorAdapter {
                         + std::mem::size_of::<GlStateSnapshot>(),
                 },
             );
+
+            #[cfg(feature = "diagnostics")]
+            crate::shell::desktop::runtime::diagnostics::emit_event(
+                crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
+                    byte_len: std::mem::size_of::<CompositorReplaySample>(),
+                },
+            );
         }
 
         #[cfg(feature = "diagnostics")]
         crate::shell::desktop::runtime::diagnostics::emit_span_duration(
             "tile_compositor::content_pass_guarded_callback",
-            started.elapsed().as_micros() as u64,
+            elapsed,
         );
     }
 
@@ -570,6 +659,7 @@ mod tests {
     use crate::shell::desktop::runtime::registries::{
         CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
         CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+        CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
         CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
         CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     };
@@ -579,7 +669,9 @@ mod tests {
     use super::{
         CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION, CompositorAdapter,
         CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
-        framebuffer_binding_target, gl_state_violated, run_guarded_callback,
+        COMPOSITOR_REPLAY_RING_CAPACITY, clear_replay_samples_for_tests,
+        framebuffer_binding_target, gl_state_violated, push_replay_sample, replay_samples_snapshot,
+        run_guarded_callback, run_guarded_callback_with_snapshots,
     };
 
     #[test]
@@ -893,5 +985,131 @@ mod tests {
         assert!(!violated);
         assert!(!restored.get());
         assert_eq!(*state.borrow(), before);
+    }
+
+    #[test]
+    fn guarded_callback_with_snapshots_returns_before_and_after_states() {
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+        let after = GlStateSnapshot {
+            viewport: [0, 0, 110, 90],
+            scissor_enabled: true,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 2,
+        };
+
+        let state = RefCell::new(before);
+        let (violated, captured_before, captured_after) = run_guarded_callback_with_snapshots(
+            || *state.borrow(),
+            || {
+                *state.borrow_mut() = after;
+            },
+            |snapshot| {
+                *state.borrow_mut() = snapshot;
+            },
+        );
+
+        assert!(violated);
+        assert_eq!(captured_before, before);
+        assert_eq!(captured_after, after);
+    }
+
+    #[test]
+    fn replay_ring_is_bounded_to_capacity() {
+        clear_replay_samples_for_tests();
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+        let after = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        for index in 0..(COMPOSITOR_REPLAY_RING_CAPACITY + 5) {
+            push_replay_sample(super::CompositorReplaySample {
+                sequence: index as u64 + 1,
+                node_key: NodeKey::new(index + 1),
+                duration_us: 5,
+                violation: false,
+                before,
+                after,
+            });
+        }
+
+        let snapshot = replay_samples_snapshot();
+        assert_eq!(snapshot.len(), COMPOSITOR_REPLAY_RING_CAPACITY);
+        assert_eq!(snapshot.first().map(|s| s.sequence), Some(6));
+        assert_eq!(
+            snapshot.last().map(|s| s.sequence),
+            Some((COMPOSITOR_REPLAY_RING_CAPACITY + 5) as u64)
+        );
+    }
+
+    #[test]
+    fn replay_channels_emit_for_sample_and_violation_artifact() {
+        let mut diagnostics = DiagnosticsState::new();
+        clear_replay_samples_for_tests();
+        let before = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: false,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+        let after = GlStateSnapshot {
+            viewport: [0, 0, 100, 100],
+            scissor_enabled: true,
+            blend_enabled: false,
+            active_texture: 0,
+            framebuffer_binding: 1,
+        };
+
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
+                byte_len: std::mem::size_of_val(&before),
+            },
+        );
+        crate::shell::desktop::runtime::diagnostics::emit_event(
+            crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
+                byte_len: std::mem::size_of_val(&after),
+            },
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        assert!(
+            channel_counts
+                .get(CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
+        assert!(
+            channel_counts
+                .get(CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        );
     }
 }

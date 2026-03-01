@@ -16,6 +16,7 @@ use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
 use crate::graph::NodeKey;
 use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
+use crate::shell::desktop::workbench::compositor_adapter::replay_samples_snapshot;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
@@ -656,6 +657,32 @@ impl DiagnosticsState {
     }
 
     fn snapshot_json_value(&self) -> Value {
+        let replay_samples: Vec<Value> = replay_samples_snapshot()
+            .into_iter()
+            .map(|sample| {
+                json!({
+                    "sequence": sample.sequence,
+                    "node_key": format!("{:?}", sample.node_key),
+                    "duration_us": sample.duration_us,
+                    "violation": sample.violation,
+                    "before": {
+                        "viewport": sample.before.viewport,
+                        "scissor_enabled": sample.before.scissor_enabled,
+                        "blend_enabled": sample.before.blend_enabled,
+                        "active_texture": sample.before.active_texture,
+                        "framebuffer_binding": sample.before.framebuffer_binding,
+                    },
+                    "after": {
+                        "viewport": sample.after.viewport,
+                        "scissor_enabled": sample.after.scissor_enabled,
+                        "blend_enabled": sample.after.blend_enabled,
+                        "active_texture": sample.after.active_texture,
+                        "framebuffer_binding": sample.after.framebuffer_binding,
+                    },
+                })
+            })
+            .collect();
+
         let frames: Vec<Value> = self
             .compositor_state
             .frames
@@ -725,6 +752,7 @@ impl DiagnosticsState {
                 "last_duration_us": self.diagnostic_graph.last_span_duration_us,
             },
             "compositor_frames": frames,
+            "compositor_replay_samples": replay_samples,
             "recent_intents": self.intents.iter().map(|intent| {
                 json!({
                     "line": intent.line,
@@ -1767,6 +1795,7 @@ Object {
         String("channels"),
         String("spans"),
         String("compositor_frames"),
+        String("compositor_replay_samples"),
         String("recent_intents"),
     ],
     "channel_keys": Array [
@@ -1809,6 +1838,13 @@ Object {
             snapshot["compositor_frames"][0]["tiles"][0]["render_path_hint"].as_str(),
             Some("composited")
         );
+    }
+
+    #[test]
+    fn snapshot_json_includes_compositor_replay_samples_section() {
+        let state = DiagnosticsState::new();
+        let snapshot = state.snapshot_json_value();
+        assert!(snapshot["compositor_replay_samples"].is_array());
     }
 
     #[test]
