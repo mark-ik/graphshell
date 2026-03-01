@@ -329,3 +329,67 @@ pub(crate) fn register_custom_paint_callback(
 		callback: callback.callback,
 	});
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::sync::{Mutex, OnceLock};
+
+	fn env_lock() -> &'static Mutex<()> {
+		static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+		LOCK.get_or_init(|| Mutex::new(()))
+	}
+
+	fn clear_bridge_mode_env() {
+		unsafe {
+			std::env::remove_var(BACKEND_BRIDGE_MODE_ENV_VAR);
+		}
+	}
+
+	fn set_bridge_mode_env(value: &str) {
+		unsafe {
+			std::env::set_var(BACKEND_BRIDGE_MODE_ENV_VAR, value);
+		}
+	}
+
+	#[test]
+	fn bridge_mode_defaults_to_glow_callback() {
+		let _guard = env_lock().lock().expect("env lock poisoned");
+		clear_bridge_mode_env();
+
+		let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
+		let selected = select_backend_content_bridge(callback);
+
+		assert_eq!(selected.mode, BackendContentBridgeMode::GlowCallback);
+	}
+
+	#[test]
+	fn bridge_mode_selects_wgpu_preferred_fallback_when_requested() {
+		let _guard = env_lock().lock().expect("env lock poisoned");
+		set_bridge_mode_env("wgpu_preferred");
+
+		let callback: BackendParentRenderCallback = std::sync::Arc::new(|_, _| {});
+		let selected = select_backend_content_bridge(callback);
+
+		assert_eq!(
+			selected.mode,
+			BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback
+		);
+
+		clear_bridge_mode_env();
+	}
+
+	#[test]
+	fn bridge_path_maps_per_bridge_mode() {
+		assert_eq!(
+			backend_content_bridge_path(BackendContentBridgeMode::GlowCallback),
+			BACKEND_BRIDGE_PATH_GLOW_CALLBACK
+		);
+		assert_eq!(
+			backend_content_bridge_path(
+				BackendContentBridgeMode::WgpuPreferredFallbackGlowCallback,
+			),
+			BACKEND_BRIDGE_PATH_WGPU_PREFERRED_FALLBACK_GLOW
+		);
+	}
+}
