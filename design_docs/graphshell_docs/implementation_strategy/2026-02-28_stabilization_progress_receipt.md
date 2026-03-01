@@ -34,7 +34,7 @@ This receipt captures stabilization slices landed on `main` after the prior part
 
 - Targeted workbench/unit tests for focus activation targeting and diagnostics emission are passing.
 - Targeted replay-forensics tests are passing (`replay_ring_is_bounded_to_capacity`, `guarded_callback_with_snapshots_returns_before_and_after_states`, `diagnostics_json_snapshot_shape_is_stable`, `snapshot_json_includes_compositor_replay_samples_section`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`).
-- Targeted differential-composition tests are passing (`differential_content_decision_skips_when_signature_is_unchanged`, `differential_content_decision_recomposes_when_signature_changes`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`).
+- Targeted differential-composition tests are passing (`differential_content_decision_skips_when_signature_is_unchanged`, `differential_content_decision_recomposes_when_signature_changes`, `focus_overlay_scheduling_is_preserved_when_content_signature_is_clean`, `hover_overlay_scheduling_is_preserved_when_content_signature_is_clean`, `diagnostics_registry_declares_phase3_identity_channels_with_versions`).
 - `cargo check` passed for each stabilization slice.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after the latest stabilization test coverage commit.
 - `scripts/dev/smoke-matrix.ps1 quick` (Windows quick profile) passed after each newly landed stabilization slice above.

@@ -794,4 +794,98 @@ mod tests {
             DifferentialContentDecision::Compose(DifferentialComposeReason::SignatureChanged)
         ));
     }
+
+    #[test]
+    fn focus_overlay_scheduling_is_preserved_when_content_signature_is_clean() {
+        clear_composited_signature_cache_for_tests();
+        let focused = NodeKey::new(52);
+        let other = NodeKey::new(53);
+        let tree = tree_with_node_render_modes(
+            focused,
+            TileRenderMode::CompositedTexture,
+            other,
+            TileRenderMode::CompositedTexture,
+        );
+        let signature = content_signature_for_tile(
+            test_webview_id(),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+            1.0,
+        );
+
+        let _ = differential_content_decision(focused, signature);
+        assert!(matches!(
+            differential_content_decision(focused, signature),
+            DifferentialContentDecision::SkipUnchanged
+        ));
+
+        let passes = schedule_active_node_pane_passes(
+            &tree,
+            vec![
+                (
+                    focused,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                ),
+                (
+                    other,
+                    egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                ),
+            ],
+            Some(focused),
+            1.0,
+            None,
+        );
+
+        let focused_pass = passes
+            .iter()
+            .find(|pass| pass.node_key == focused)
+            .expect("focused node pass should be scheduled");
+        assert!(matches!(focused_pass.overlay, Some(ScheduledOverlay::Focus)));
+    }
+
+    #[test]
+    fn hover_overlay_scheduling_is_preserved_when_content_signature_is_clean() {
+        clear_composited_signature_cache_for_tests();
+        let hovered = NodeKey::new(54);
+        let other = NodeKey::new(55);
+        let tree = tree_with_node_render_modes(
+            hovered,
+            TileRenderMode::CompositedTexture,
+            other,
+            TileRenderMode::CompositedTexture,
+        );
+        let signature = content_signature_for_tile(
+            test_webview_id(),
+            egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+            1.0,
+        );
+
+        let _ = differential_content_decision(hovered, signature);
+        assert!(matches!(
+            differential_content_decision(hovered, signature),
+            DifferentialContentDecision::SkipUnchanged
+        ));
+
+        let passes = schedule_active_node_pane_passes(
+            &tree,
+            vec![
+                (
+                    hovered,
+                    egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
+                ),
+                (
+                    other,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
+                ),
+            ],
+            Some(other),
+            1.0,
+            Some(hovered),
+        );
+
+        let hovered_pass = passes
+            .iter()
+            .find(|pass| pass.node_key == hovered)
+            .expect("hovered node pass should be scheduled");
+        assert!(matches!(hovered_pass.overlay, Some(ScheduledOverlay::Hover)));
+    }
 }
