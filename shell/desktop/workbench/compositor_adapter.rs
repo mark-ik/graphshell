@@ -30,7 +30,8 @@ use crate::shell::desktop::render_backend::{
     backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
     backend_framebuffer_from_binding,
     backend_is_blend_enabled,
-    BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext, BackendViewportInPixels,
+    BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext,
+    BackendParentRenderRegionInPixels, BackendViewportInPixels,
     backend_is_scissor_enabled, backend_scissor_box, backend_set_scissor_box,
     backend_primary_texture_unit,
     backend_set_active_texture, backend_set_blend_enabled,
@@ -604,23 +605,25 @@ impl CompositorAdapter {
         tile_rect: EguiRect,
         render_to_parent: F,
     ) where
-        F: Fn(&BackendGraphicsContext, Rect<i32, UnknownUnit>) + Send + Sync + 'static,
+        F: Fn(&BackendGraphicsContext, BackendParentRenderRegionInPixels) + Send + Sync + 'static,
     {
         let callback = custom_pass_from_glow_viewport(move |gl, clip: BackendViewportInPixels| {
             #[cfg(feature = "diagnostics")]
             let started = std::time::Instant::now();
 
-            let rect_in_parent = Rect::new(
-                Point2D::new(clip.left_px, clip.from_bottom_px),
-                Size2D::new(clip.width_px, clip.height_px),
-            );
+            let rect_in_parent = BackendParentRenderRegionInPixels {
+                left_px: clip.left_px,
+                from_bottom_px: clip.from_bottom_px,
+                width_px: clip.width_px,
+                height_px: clip.height_px,
+            };
             let probe_context = BridgeProbeContext {
                 bridge_path: BRIDGE_PATH_GL_RENDER_TO_PARENT,
                 tile_rect_px: [
-                    rect_in_parent.origin.x,
-                    rect_in_parent.origin.y,
-                    rect_in_parent.size.width,
-                    rect_in_parent.size.height,
+                    rect_in_parent.left_px,
+                    rect_in_parent.from_bottom_px,
+                    rect_in_parent.width_px,
+                    rect_in_parent.height_px,
                 ],
                 render_size_px: [clip.width_px as u32, clip.height_px as u32],
             };
@@ -654,7 +657,18 @@ impl CompositorAdapter {
             return false;
         };
 
-        Self::register_render_to_parent_content_pass(ctx, node_key, tile_rect, render_to_parent);
+        Self::register_render_to_parent_content_pass(
+            ctx,
+            node_key,
+            tile_rect,
+            move |gl, region| {
+                let rect_in_parent = Rect::new(
+                    Point2D::new(region.left_px, region.from_bottom_px),
+                    Size2D::new(region.width_px, region.height_px),
+                );
+                render_to_parent(gl, rect_in_parent)
+            },
+        );
         true
     }
 

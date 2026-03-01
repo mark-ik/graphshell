@@ -27,6 +27,14 @@ pub(crate) struct BackendViewportInPixels {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BackendParentRenderRegionInPixels {
+	pub(crate) left_px: i32,
+	pub(crate) from_bottom_px: i32,
+	pub(crate) width_px: i32,
+	pub(crate) height_px: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendTextureToken(pub(crate) egui::TextureId);
 
 #[derive(Clone)]
