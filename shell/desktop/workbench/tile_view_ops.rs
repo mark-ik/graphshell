@@ -93,6 +93,79 @@ pub(crate) fn ensure_active_tile(tiles_tree: &mut Tree<TileKind>) -> bool {
     false
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FocusCycleRegion {
+    Graph,
+    Node,
+    #[cfg(feature = "diagnostics")]
+    Tool,
+}
+
+fn active_focus_cycle_region(tiles_tree: &Tree<TileKind>) -> Option<FocusCycleRegion> {
+    let mut active = None;
+    for tile_id in tiles_tree.active_tiles() {
+        match tiles_tree.tiles.get(tile_id) {
+            Some(Tile::Pane(TileKind::Graph(_))) => active = Some(FocusCycleRegion::Graph),
+            Some(Tile::Pane(TileKind::Node(_))) => active = Some(FocusCycleRegion::Node),
+            #[cfg(feature = "diagnostics")]
+            Some(Tile::Pane(TileKind::Tool(_))) => active = Some(FocusCycleRegion::Tool),
+            _ => {}
+        }
+    }
+    active
+}
+
+fn focus_cycle_region_is_present(tiles_tree: &Tree<TileKind>, region: FocusCycleRegion) -> bool {
+    tiles_tree.tiles.iter().any(|(_, tile)| match (region, tile) {
+        (FocusCycleRegion::Graph, Tile::Pane(TileKind::Graph(_))) => true,
+        (FocusCycleRegion::Node, Tile::Pane(TileKind::Node(_))) => true,
+        #[cfg(feature = "diagnostics")]
+        (FocusCycleRegion::Tool, Tile::Pane(TileKind::Tool(_))) => true,
+        _ => false,
+    })
+}
+
+fn make_focus_cycle_region_active(tiles_tree: &mut Tree<TileKind>, region: FocusCycleRegion) -> bool {
+    match region {
+        FocusCycleRegion::Graph => {
+            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))))
+        }
+        FocusCycleRegion::Node => {
+            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Node(_))))
+        }
+        #[cfg(feature = "diagnostics")]
+        FocusCycleRegion::Tool => {
+            tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(_))))
+        }
+    }
+}
+
+pub(crate) fn cycle_focus_region(tiles_tree: &mut Tree<TileKind>) -> bool {
+    let order = [
+        FocusCycleRegion::Graph,
+        FocusCycleRegion::Node,
+        #[cfg(feature = "diagnostics")]
+        FocusCycleRegion::Tool,
+    ];
+
+    let current_index = active_focus_cycle_region(tiles_tree)
+        .and_then(|region| order.iter().position(|candidate| *candidate == region));
+
+    let start_index = current_index.unwrap_or(order.len() - 1);
+    for offset in 1..=order.len() {
+        let idx = (start_index + offset) % order.len();
+        let candidate = order[idx];
+        if !focus_cycle_region_is_present(tiles_tree, candidate) {
+            continue;
+        }
+        if make_focus_cycle_region_active(tiles_tree, candidate) {
+            return true;
+        }
+    }
+
+    false
+}
+
 pub(crate) fn open_or_focus_graph_pane(tiles_tree: &mut Tree<TileKind>, view_id: GraphViewId) {
     open_or_focus_graph_pane_with_mode(tiles_tree, view_id, TileOpenMode::Tab);
 }
@@ -419,6 +492,8 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
 mod tests {
     use super::*;
     use crate::app::GraphBrowserApp;
+    #[cfg(feature = "diagnostics")]
+    use crate::shell::desktop::workbench::pane_model::ToolPaneState;
     use egui_tiles::Tiles;
 
     fn count_graph_panes(tiles_tree: &Tree<TileKind>) -> usize {
@@ -439,6 +514,18 @@ mod tests {
 
     fn active_graph_view(tiles_tree: &Tree<TileKind>) -> Option<GraphViewId> {
         active_graph_view_id(tiles_tree)
+    }
+
+    fn active_region_name(tiles_tree: &Tree<TileKind>) -> Option<&'static str> {
+        tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
+            match tiles_tree.tiles.get(tile_id) {
+                Some(Tile::Pane(TileKind::Graph(_))) => Some("graph"),
+                Some(Tile::Pane(TileKind::Node(_))) => Some("node"),
+                #[cfg(feature = "diagnostics")]
+                Some(Tile::Pane(TileKind::Tool(_))) => Some("tool"),
+                _ => None,
+            }
+        })
     }
 
     #[test]
@@ -569,5 +656,49 @@ mod tests {
                 Some(Tile::Pane(TileKind::Node(state))) if state.node == node_key
             )
         }));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn cycle_focus_region_rotates_graph_node_tool_deterministically() {
+        let graph_view = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_view));
+        let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(7).into()));
+        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+        let root = tiles.insert_tab_tile(vec![graph_tile, node_tile, tool_tile]);
+        let mut tree = Tree::new("cycle_focus_regions", root, tiles);
+
+        let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+        assert_eq!(active_region_name(&tree), Some("graph"));
+
+        assert!(cycle_focus_region(&mut tree));
+        assert_eq!(active_region_name(&tree), Some("node"));
+
+        assert!(cycle_focus_region(&mut tree));
+        assert_eq!(active_region_name(&tree), Some("tool"));
+
+        assert!(cycle_focus_region(&mut tree));
+        assert_eq!(active_region_name(&tree), Some("graph"));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn cycle_focus_region_skips_absent_regions() {
+        let graph_view = GraphViewId::new();
+        let mut tiles = Tiles::default();
+        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_view));
+        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+        let root = tiles.insert_tab_tile(vec![graph_tile, tool_tile]);
+        let mut tree = Tree::new("cycle_focus_skip_absent_node", root, tiles);
+
+        let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+        assert_eq!(active_region_name(&tree), Some("graph"));
+
+        assert!(cycle_focus_region(&mut tree));
+        assert_eq!(active_region_name(&tree), Some("tool"));
+
+        assert!(cycle_focus_region(&mut tree));
+        assert_eq!(active_region_name(&tree), Some("graph"));
     }
 }

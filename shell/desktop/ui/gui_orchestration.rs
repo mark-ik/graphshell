@@ -750,6 +750,7 @@ pub(crate) fn handle_tool_pane_intents(
 }
 
 enum WorkbenchAuthorityIntent {
+    CycleFocusRegion,
     OpenToolPane {
         kind: ToolPaneState,
     },
@@ -778,6 +779,7 @@ fn classify_workbench_authority_intent(
     intent: GraphIntent,
 ) -> Result<WorkbenchAuthorityIntent, GraphIntent> {
     match intent {
+        GraphIntent::CycleFocusRegion => Ok(WorkbenchAuthorityIntent::CycleFocusRegion),
         GraphIntent::OpenToolPane { kind } => Ok(WorkbenchAuthorityIntent::OpenToolPane { kind }),
         GraphIntent::CloseToolPane {
             kind,
@@ -812,6 +814,10 @@ fn dispatch_workbench_authority_intent(
     intent: WorkbenchAuthorityIntent,
 ) -> Option<GraphIntent> {
     match intent {
+        WorkbenchAuthorityIntent::CycleFocusRegion => {
+            handle_cycle_focus_region_intent(tiles_tree);
+            None
+        }
         WorkbenchAuthorityIntent::OpenToolPane { kind } => {
             handle_open_tool_pane_intent(graph_app, tiles_tree, kind);
             None
@@ -842,6 +848,10 @@ fn dispatch_workbench_authority_intent(
             None
         }
     }
+}
+
+fn handle_cycle_focus_region_intent(tiles_tree: &mut Tree<TileKind>) {
+    let _ = crate::shell::desktop::workbench::tile_view_ops::cycle_focus_region(tiles_tree);
 }
 
 fn dispatch_open_settings_url_workbench_intent(

@@ -227,7 +227,7 @@ impl<'a> GraphshellTileBehavior<'a> {
 
     #[cfg(feature = "diagnostics")]
     fn accessibility_bridge_health_snapshot(
-        graph_app: &GraphBrowserApp,
+        _graph_app: &GraphBrowserApp,
     ) -> AccessibilityBridgeHealthSnapshot {
         // Placeholder snapshot capturing bridge health state structure.
         // In production, these would be populated by querying the bridge subsystem,
@@ -250,9 +250,24 @@ impl<'a> GraphshellTileBehavior<'a> {
     }
 
     #[cfg(feature = "diagnostics")]
+    fn graph_reader_snapshot(
+        _graph_app: &GraphBrowserApp,
+    ) -> GraphReaderSnapshot {
+        GraphReaderSnapshot {
+            mode: GraphReaderMode::Off,
+            entry_point_reachable: true,
+            degraded_reason: Some(
+                "Phase-1 scaffold only: Room/Map linearization and action routing are not yet implemented."
+                    .to_string(),
+            ),
+        }
+    }
+
+    #[cfg(feature = "diagnostics")]
     fn render_accessibility_inspector_scaffold(ui: &mut Ui, graph_app: &GraphBrowserApp) {
         let snapshot = Self::accessibility_inspector_snapshot(graph_app);
         let bridge_health = Self::accessibility_bridge_health_snapshot(graph_app);
+        let graph_reader = Self::graph_reader_snapshot(graph_app);
 
         ui.heading("Accessibility Inspector");
         ui.separator();
@@ -362,6 +377,40 @@ impl<'a> GraphshellTileBehavior<'a> {
                 ui.colored_label(color, &bridge_health.degradation_state);
                 ui.end_row();
             });
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.strong("Graph Reader (phase-1 scaffold)");
+        ui.small("Entry point is reachable with explicit degraded status while Room/Map semantics land.");
+
+        egui::Grid::new("accessibility_graph_reader_scaffold")
+            .num_columns(2)
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("Mode");
+                ui.monospace(graph_reader.mode.label());
+                ui.end_row();
+
+                ui.label("Entry point reachable");
+                ui.monospace(graph_reader.entry_point_reachable.to_string());
+                ui.end_row();
+
+                ui.label("Status");
+                ui.colored_label(egui::Color32::from_rgb(220, 180, 60), "degraded");
+                ui.end_row();
+
+                ui.label("Degradation reason");
+                ui.label(
+                    graph_reader
+                        .degraded_reason
+                        .as_deref()
+                        .unwrap_or("none"),
+                );
+                ui.end_row();
+            });
+
+        ui.add_enabled(false, egui::Button::new("Enter Room Mode (scaffold)"));
+        ui.add_enabled(false, egui::Button::new("Enter Map Mode (scaffold)"));
     }
 
     fn favicon_texture_id(&mut self, ui: &Ui, node_key: NodeKey) -> Option<egui::TextureId> {
@@ -1224,9 +1273,38 @@ struct AccessibilityBridgeHealthSnapshot {
     degradation_state: String,
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GraphReaderMode {
+    Off,
+    Room,
+    Map,
+}
+
+#[cfg(feature = "diagnostics")]
+impl GraphReaderMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::Room => "Room",
+            Self::Map => "Map",
+        }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Debug, Clone)]
+struct GraphReaderSnapshot {
+    mode: GraphReaderMode,
+    entry_point_reachable: bool,
+    degraded_reason: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{GraphshellTileBehavior, PlaintextContent, decode_plaintext_content};
+    #[cfg(feature = "diagnostics")]
+    use super::GraphReaderMode;
     use crate::app::GraphViewId;
     use crate::graph::NodeKey;
     use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
@@ -1337,5 +1415,17 @@ mod tests {
         assert_eq!(health.dropped_update_count, 0);
         assert_eq!(health.focus_target, None);
         assert_eq!(health.degradation_state, "none");
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn graph_reader_snapshot_exposes_reachable_degraded_entry_point() {
+        let app = crate::app::GraphBrowserApp::new_for_testing();
+
+        let snapshot = GraphshellTileBehavior::graph_reader_snapshot(&app);
+
+        assert_eq!(snapshot.mode, GraphReaderMode::Off);
+        assert!(snapshot.entry_point_reachable);
+        assert!(snapshot.degraded_reason.is_some());
     }
 }

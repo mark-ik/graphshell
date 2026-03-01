@@ -45,6 +45,7 @@ pub struct KeyboardActions {
     pub select_all: bool,
     pub undo: bool,
     pub redo: bool,
+    pub cycle_focus_region: bool,
 }
 
 /// Collect keyboard actions from the egui context (input detection only).
@@ -227,6 +228,11 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         if i.modifiers.ctrl && i.key_pressed(Key::A) {
             actions.select_all = true;
         }
+
+        // F6: cycle top-level focus region (workbench authority path).
+        if i.key_pressed(Key::F6) {
+            actions.cycle_focus_region = true;
+        }
     });
 
     actions
@@ -321,6 +327,9 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     }
     if actions.select_all {
         intents.push(GraphIntent::SelectAll);
+    }
+    if actions.cycle_focus_region {
+        intents.push(GraphIntent::CycleFocusRegion);
     }
     intents
 }
@@ -682,5 +691,18 @@ mod tests {
             ..Default::default()
         });
         assert!(intents.iter().any(|i| matches!(i, GraphIntent::SelectAll)));
+    }
+
+    #[test]
+    fn test_cycle_focus_region_maps_to_intent() {
+        let intents = intents_from_actions(&KeyboardActions {
+            cycle_focus_region: true,
+            ..Default::default()
+        });
+        assert!(
+            intents
+                .iter()
+                .any(|i| matches!(i, GraphIntent::CycleFocusRegion))
+        );
     }
 }

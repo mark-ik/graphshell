@@ -1158,6 +1158,13 @@ pub enum GraphIntent {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
         restore_previous_focus: bool,
     },
+    /// Cycle semantic focus across top-level regions.
+    ///
+    /// **Workbench-authority intent** — intercepted by the Gui frame loop
+    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
+    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
+    #[allow(dead_code)]
+    CycleFocusRegion,
     /// Set (or clear) the MIME type hint on a node.
     ///
     /// Emitted after extension sniffing at node creation time, or after content-byte
@@ -2758,7 +2765,8 @@ impl GraphBrowserApp {
             | GraphIntent::SetPaneView { .. }
             | GraphIntent::OpenNodeInPane { .. }
             | GraphIntent::OpenToolPane { .. }
-            | GraphIntent::CloseToolPane { .. } => {
+            | GraphIntent::CloseToolPane { .. }
+            | GraphIntent::CycleFocusRegion => {
                 log::warn!(
                     "workbench-authority intent reached graph reducer — \
                      should have been intercepted by Gui frame-loop before apply_intents(); \

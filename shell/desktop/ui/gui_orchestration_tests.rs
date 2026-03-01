@@ -1,7 +1,7 @@
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode};
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::ui::gui_frame;
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use egui_tiles::{Tile, Tiles, Tree};
@@ -135,6 +135,82 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
             Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
         )
     }));
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn cycle_focus_region_intent_cycles_graph_node_tool_regions() {
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let node_key = crate::graph::NodeKey::new(11);
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
+    let tool = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+    let root = tiles.insert_tab_tile(vec![graph, node, tool]);
+    let mut tree = Tree::new("cycle_focus_orchestration", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let _ = tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))));
+
+    let mut intents = vec![GraphIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+    assert!(intents.is_empty());
+    assert!(tree.active_tiles().into_iter().any(|tile_id| {
+        matches!(tree.tiles.get(tile_id), Some(Tile::Pane(TileKind::Node(_))))
+    }));
+
+    let mut intents = vec![GraphIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+    assert!(intents.is_empty());
+    assert!(tree.active_tiles().into_iter().any(|tile_id| {
+        matches!(
+            tree.tiles.get(tile_id),
+            Some(Tile::Pane(TileKind::Tool(ToolPaneState::Diagnostics)))
+        )
+    }));
+
+    let mut intents = vec![GraphIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+    assert!(intents.is_empty());
+    assert!(tree.active_tiles().into_iter().any(|tile_id| {
+        matches!(
+            tree.tiles.get(tile_id),
+            Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
+        )
+    }));
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_history_tool_pane_restores_previous_node_focus_via_orchestration() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let focus_node = crate::graph::NodeKey::new(77);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(focus_node)));
+    let root = tiles.insert_tab_tile(vec![graph, node]);
+    let mut tree = Tree::new("restore_history_focus_node", root, tiles);
+
+    let _ = tree.make_active(|_, tile| {
+        matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == focus_node)
+    });
+
+    let mut open_intents = vec![GraphIntent::OpenToolPane {
+        kind: ToolPaneState::HistoryManager,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
+    assert!(open_intents.is_empty());
+    assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::HistoryManager,
+        restore_previous_focus: true,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    assert!(close_intents.is_empty());
+    assert_eq!(active_node_key(&tree), Some(focus_node));
 }
 
 #[test]
