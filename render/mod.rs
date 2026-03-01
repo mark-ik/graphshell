@@ -1446,8 +1446,7 @@ fn collect_lasso_action(
     metadata_id: egui::Id,
     lasso_binding: CanvasLassoBinding,
 ) -> LassoGestureResult {
-    let start_id = metadata_id.with("lasso_start_screen");
-    let moved_id = metadata_id.with("lasso_moved");
+    let (start_id, moved_id) = lasso_state_ids(metadata_id);
     let threshold_px = 6.0_f32;
     if !enabled {
         ui.ctx().data_mut(|d| {
@@ -1585,6 +1584,13 @@ fn collect_lasso_action(
         action: Some(GraphAction::LassoSelect { keys, mode }),
         suppress_context_menu: matches!(lasso_binding, CanvasLassoBinding::RightDrag) && moved,
     }
+}
+
+fn lasso_state_ids(metadata_id: egui::Id) -> (egui::Id, egui::Id) {
+    (
+        metadata_id.with("lasso_start_screen"),
+        metadata_id.with("lasso_moved"),
+    )
 }
 
 /// Convert egui_graphs events to resolved GraphActions and apply them.
@@ -3837,5 +3843,20 @@ mod tests {
             selection_b.visible.contains(&keys[10]),
             "shifted view should include later nodes"
         );
+    }
+
+    #[test]
+    fn lasso_state_ids_are_scoped_per_metadata_id() {
+        let metadata_a = egui::Id::new("view-a").with("metadata");
+        let metadata_b = egui::Id::new("view-b").with("metadata");
+
+        let (start_a, moved_a) = lasso_state_ids(metadata_a);
+        let (start_a_repeat, moved_a_repeat) = lasso_state_ids(metadata_a);
+        let (start_b, moved_b) = lasso_state_ids(metadata_b);
+
+        assert_eq!(start_a, start_a_repeat);
+        assert_eq!(moved_a, moved_a_repeat);
+        assert_ne!(start_a, start_b);
+        assert_ne!(moved_a, moved_b);
     }
 }
