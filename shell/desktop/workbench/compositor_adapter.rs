@@ -228,6 +228,29 @@ fn restore_scissor_box(gl: &glow::Context, scissor_box: [i32; 4]) {
     }
 }
 
+fn run_render_with_scissor_isolation<F>(gl: &glow::Context, render: F)
+where
+    F: FnOnce(),
+{
+    let incoming_scissor_enabled = unsafe { glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST) };
+    let incoming_scissor_box = capture_scissor_box(gl);
+
+    if incoming_scissor_enabled {
+        unsafe {
+            glow::HasContext::disable(gl, glow::SCISSOR_TEST);
+        }
+    }
+
+    render();
+
+    if incoming_scissor_enabled {
+        unsafe {
+            glow::HasContext::enable(gl, glow::SCISSOR_TEST);
+        }
+        restore_scissor_box(gl, incoming_scissor_box);
+    }
+}
+
 fn restore_gl_state(gl: &glow::Context, snapshot: GlStateSnapshot) {
     unsafe {
         glow::HasContext::viewport(
@@ -701,7 +724,7 @@ impl CompositorAdapter {
         let (violated, before, after, restore_verified) =
             run_guarded_callback_with_snapshots_and_perturbation(
             || capture_gl_state(gl),
-            render,
+            || run_render_with_scissor_isolation(gl, render),
             || {
                 if chaos_enabled {
                     inject_chaos_gl_perturbation(gl, chaos_seed);
@@ -717,7 +740,8 @@ impl CompositorAdapter {
             restore_verified = restore_verified && capture_scissor_box(gl) == scissor_box_before;
         }
         let violation_detected = violated || scissor_box_changed;
-        let chaos_passed = chaos_probe_passed(chaos_enabled, violated, restore_verified);
+        let chaos_passed =
+            chaos_probe_passed(chaos_enabled, violation_detected, restore_verified);
         emit_chaos_probe_outcome(chaos_enabled, chaos_passed);
         let (
             viewport_changed,
