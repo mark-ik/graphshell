@@ -34,7 +34,12 @@ pub(crate) enum BackendContentBridgeMode {
 #[derive(Clone)]
 pub(crate) struct BackendContentBridgeSelection {
 	pub(crate) mode: BackendContentBridgeMode,
-	pub(crate) callback: BackendParentRenderCallback,
+	pub(crate) bridge: BackendContentBridge,
+}
+
+#[derive(Clone)]
+pub(crate) enum BackendContentBridge {
+	ParentRenderCallback(BackendParentRenderCallback),
 }
 
 pub(crate) fn select_backend_content_bridge(
@@ -49,7 +54,10 @@ pub(crate) fn select_backend_content_bridge(
 		})
 		.unwrap_or(BackendContentBridgeMode::GlowCallback);
 
-	BackendContentBridgeSelection { mode, callback }
+	BackendContentBridgeSelection {
+		mode,
+		bridge: BackendContentBridge::ParentRenderCallback(callback),
+	}
 }
 
 pub(crate) fn backend_content_bridge_path(mode: BackendContentBridgeMode) -> &'static str {

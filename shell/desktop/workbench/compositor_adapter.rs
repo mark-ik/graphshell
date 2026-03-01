@@ -30,6 +30,7 @@ use crate::shell::desktop::render_backend::{
     backend_content_bridge_path,
     backend_active_texture, backend_bind_framebuffer, backend_framebuffer_binding,
     backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
+    BackendContentBridge,
     backend_framebuffer_from_binding,
     backend_is_blend_enabled,
     BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext,
@@ -675,13 +676,15 @@ impl CompositorAdapter {
         let bridge_path = backend_content_bridge_path(bridge.mode);
         let bridge_mode = backend_content_bridge_mode_label(bridge.mode);
 
+        let BackendContentBridge::ParentRenderCallback(callback) = bridge.bridge;
+
         Self::register_render_to_parent_content_pass(
             ctx,
             node_key,
             tile_rect,
             bridge_path,
             bridge_mode,
-            bridge.callback,
+            callback,
         );
         true
     }
