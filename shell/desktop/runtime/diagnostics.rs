@@ -442,6 +442,95 @@ impl DiagnosticsState {
         )
     }
 
+    fn bridge_spike_measurement_value_from_samples(samples: &[CompositorReplaySample]) -> Value {
+        let sample_count = samples.len() as u64;
+        let failed_frame_count = samples
+            .iter()
+            .filter(|sample| sample.violation)
+            .count() as u64;
+        let callback_total_us: u64 = samples.iter().map(|sample| sample.callback_us).sum();
+        let presentation_total_us: u64 = samples.iter().map(|sample| sample.presentation_us).sum();
+        let avg_callback_us = if sample_count == 0 {
+            0
+        } else {
+            callback_total_us / sample_count
+        };
+        let avg_presentation_us = if sample_count == 0 {
+            0
+        } else {
+            presentation_total_us / sample_count
+        };
+
+        let mut bridge_path_counts: HashMap<&'static str, u64> = HashMap::new();
+        for sample in samples {
+            *bridge_path_counts.entry(sample.bridge_path).or_insert(0) += 1;
+        }
+
+        let latest = samples.last().map(|sample| {
+            json!({
+                "bridge_path": sample.bridge_path,
+                "tile_rect_px": {
+                    "x": sample.tile_rect_px[0],
+                    "y": sample.tile_rect_px[1],
+                    "width": sample.tile_rect_px[2],
+                    "height": sample.tile_rect_px[3],
+                },
+                "render_size_px": {
+                    "width": sample.render_size_px[0],
+                    "height": sample.render_size_px[1],
+                },
+                "callback_us": sample.callback_us,
+                "presentation_us": sample.presentation_us,
+                "duration_us": sample.duration_us,
+                "failed_frame": sample.violation,
+            })
+        });
+
+        let samples_json: Vec<Value> = samples
+            .iter()
+            .map(|sample| {
+                json!({
+                    "sequence": sample.sequence,
+                    "node_key": format!("{:?}", sample.node_key),
+                    "bridge_path": sample.bridge_path,
+                    "tile_rect_px": {
+                        "x": sample.tile_rect_px[0],
+                        "y": sample.tile_rect_px[1],
+                        "width": sample.tile_rect_px[2],
+                        "height": sample.tile_rect_px[3],
+                    },
+                    "render_size_px": {
+                        "width": sample.render_size_px[0],
+                        "height": sample.render_size_px[1],
+                    },
+                    "callback_us": sample.callback_us,
+                    "presentation_us": sample.presentation_us,
+                    "duration_us": sample.duration_us,
+                    "failed_frame": sample.violation,
+                })
+            })
+            .collect();
+
+        json!({
+            "version": 1,
+            "generated_at_unix_secs": Self::export_timestamp_secs(),
+            "measurement_contract": {
+                "bridge_path_used": bridge_path_counts,
+                "sample_count": sample_count,
+                "failed_frame_count": failed_frame_count,
+                "avg_callback_us": avg_callback_us,
+                "avg_presentation_us": avg_presentation_us,
+                "latest": latest,
+            },
+            "samples": samples_json,
+        })
+    }
+
+    fn bridge_spike_measurement_value(&self) -> Value {
+        let samples = replay_samples_snapshot();
+        Self::bridge_spike_measurement_value_from_samples(&samples)
+    }
+
     fn compositor_differential_summary(&self) -> Value {
         let composed_count = self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED);
         let skipped_count = self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED);
@@ -1074,6 +1163,16 @@ impl DiagnosticsState {
         Ok(path)
     }
 
+    pub(crate) fn export_bridge_spike_json(&self) -> Result<PathBuf, String> {
+        let dir = Self::export_dir()?;
+        let path = dir.join(format!("bridge-spike-{}.json", Self::export_timestamp_secs()));
+        let payload = serde_json::to_string_pretty(&self.bridge_spike_measurement_value())
+            .map_err(|e| format!("failed to serialize bridge spike JSON: {e}"))?;
+        fs::write(&path, payload)
+            .map_err(|e| format!("failed to write bridge spike JSON {}: {e}", path.display()))?;
+        Ok(path)
+    }
+
     fn render_engine_topology(&self, ui: &mut egui::Ui) {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(520.0, 260.0), egui::Sense::hover());
         let painter = ui.painter_at(rect);
@@ -1229,6 +1328,20 @@ impl DiagnosticsState {
                     Err(err) => {
                         log::warn!("Diagnostics SVG export failed: {err}");
                         self.export_feedback = Some(format!("SVG export failed: {err}"));
+                    }
+                }
+            }
+            if ui.button("Save Bridge Spike JSON").clicked() {
+                match self.export_bridge_spike_json() {
+                    Ok(path) => {
+                        log::info!("Bridge spike JSON exported: {}", path.display());
+                        self.export_feedback =
+                            Some(format!("Saved Bridge Spike JSON: {}", path.display()));
+                    }
+                    Err(err) => {
+                        log::warn!("Bridge spike JSON export failed: {err}");
+                        self.export_feedback =
+                            Some(format!("Bridge Spike JSON export failed: {err}"));
                     }
                 }
             }
@@ -2181,6 +2294,82 @@ Object {
         assert!(feedback.contains("diagnostics-123.json"));
         assert!(feedback.contains("replay samples: 2"));
         assert!(feedback.contains("violations: 1"));
+    }
+
+    #[test]
+    fn bridge_spike_measurement_payload_contains_contract_fields() {
+        let samples = vec![
+            CompositorReplaySample {
+                sequence: 1,
+                node_key: NodeKey::new(1),
+                duration_us: 30,
+                callback_us: 20,
+                presentation_us: 10,
+                violation: false,
+                bridge_path: "gl.render_to_parent_callback",
+                tile_rect_px: [0, 0, 64, 64],
+                render_size_px: [64, 64],
+                before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 64, 64],
+                    scissor_enabled: false,
+                    blend_enabled: false,
+                    active_texture: 0,
+                    framebuffer_binding: 0,
+                },
+                after: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 64, 64],
+                    scissor_enabled: false,
+                    blend_enabled: false,
+                    active_texture: 0,
+                    framebuffer_binding: 0,
+                },
+            },
+            CompositorReplaySample {
+                sequence: 2,
+                node_key: NodeKey::new(2),
+                duration_us: 45,
+                callback_us: 25,
+                presentation_us: 20,
+                violation: true,
+                bridge_path: "gl.render_to_parent_callback",
+                tile_rect_px: [4, 8, 120, 80],
+                render_size_px: [120, 80],
+                before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 120, 80],
+                    scissor_enabled: false,
+                    blend_enabled: false,
+                    active_texture: 0,
+                    framebuffer_binding: 0,
+                },
+                after: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
+                    viewport: [0, 0, 120, 80],
+                    scissor_enabled: true,
+                    blend_enabled: false,
+                    active_texture: 0,
+                    framebuffer_binding: 0,
+                },
+            },
+        ];
+
+        let payload = DiagnosticsState::bridge_spike_measurement_value_from_samples(&samples);
+        assert_eq!(payload["measurement_contract"]["sample_count"].as_u64(), Some(2));
+        assert_eq!(
+            payload["measurement_contract"]["failed_frame_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            payload["measurement_contract"]["avg_callback_us"].as_u64(),
+            Some(22)
+        );
+        assert_eq!(
+            payload["measurement_contract"]["avg_presentation_us"].as_u64(),
+            Some(15)
+        );
+        assert_eq!(
+            payload["measurement_contract"]["latest"]["bridge_path"].as_str(),
+            Some("gl.render_to_parent_callback")
+        );
+        assert!(payload["samples"].is_array());
     }
 
     #[test]
