@@ -352,6 +352,32 @@ Duplicate cleanup note: `#172` was created in parallel and closed as a duplicate
 
 Each issue should explicitly reference Appendix subsection IDs (`A.1`, `A.3`, etc.) and include a **Foundation Done Gate**: "removes one concrete blocker for future capabilities without introducing new cross-lane hotspot conflicts."
 
+### 0.11 Backend Bridge Contract Rollout (C+F)
+
+Decision (2026-03-01): adopt **C+F** as the backend migration strategy for composited content paths.
+
+- **C (Contract-first)**: all compositor/content pass invocation paths must consume a backend-agnostic bridge contract owned by `render_backend`, with backend-specific callback/context details hidden behind adapter implementations.
+- **F (Fallback-safe)**: the wgpu path is primary, with capability-driven fallback for environments where interop path assumptions are unavailable or unstable.
+
+Execution policy:
+
+1. Land contract boundaries first (type/ownership isolation, call-site migration, diagnostics parity hooks).
+2. Keep Glow only as a temporary benchmark and parity baseline during wgpu adapter bring-up.
+3. Add explicit capability checks and fallback routing before removing Glow from production composition paths.
+4. Retire Glow path when wgpu + fallback make it redundant for supported targets.
+
+Acceptance gates for Glow retirement:
+
+- Compositor replay diagnostics parity between Glow baseline and wgpu primary path.
+- No open stabilization regressions tied to pass-order, callback-state isolation, or overlay affordance visibility.
+- Capability fallback behavior validated in targeted non-interop environments.
+- Receipt-linked evidence exists in issue tracker showing wgpu path covers all required pass-contract scenarios.
+
+Issue linkage:
+
+- `#183` is the implementation tracker for backend migration slices aligned to this C+F contract.
+- Receipt: `2026-03-01_backend_bridge_contract_c_plus_f_receipt.md`.
+
 ---
 
 ## 1. Immediate Priorities Register (10/10/10)
@@ -468,7 +494,7 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
   | Prerequisite | Owner lane / tracker | Status (`open` / `partial` / `closed`) | Current evidence links | Closure criteria (for `closed`) |
   | --- | --- | --- | --- | --- |
   | Stabilization closure on camera/input/focus | `lane:stabilization` / `#88` | `partial` | Stabilization progress receipt updated at `implementation_strategy/2026-02-28_stabilization_progress_receipt.md` with landed evidence across `001a121` → `d67ffa9` (including replay-forensics `#166` completion, differential composition `#167`, iterative `#184` stabilization slices, `#185` selection ambiguity diagnostics hardening, `#186` deterministic selected-node pane/tab/split routing coverage, `#187` deterministic close-pane successor focus handoff coverage, and `#244` GUI decomposition boundary-contract test invariants); active bug register below still contains unresolved repro items pending closure evidence. | Linked issue/PR evidence confirms camera controls, focus ownership, and lasso regressions are closed with targeted tests/diagnostics and no active repro remains in the bug register. |
-  | Surface composition pass contract + overlay affordance policy closure | `lane:stabilization` / `#88`; `lane:spec-code-parity` / `#99` | `open` | Gap analysis and architectural contract are documented in `§0` of this register; no closure receipt yet proving full pass-contract rollout. | Compositor pass contract + overlay policy issue stack is linked with closure evidence showing Pass 3 ordering invariants and per-render-mode affordance behavior validated. |
+  | Surface composition pass contract + overlay affordance policy closure | `lane:stabilization` / `#88`; `lane:spec-code-parity` / `#99`; backend migration `#183` | `partial` | Gap analysis and architectural contract are documented in `§0`; C+F backend bridge-contract rollout is now explicitly defined in `§0.11` with receipt evidence at `implementation_strategy/2026-03-01_backend_bridge_contract_c_plus_f_receipt.md`. | Compositor pass contract + overlay policy issue stack is linked with closure evidence showing Pass 3 ordering invariants and per-render-mode affordance behavior validated, and `#183` closure evidence confirms wgpu-primary + fallback-safe contract parity. |
   | Runtime-authoritative tile render mode behavior | `lane:viewer-platform` / `#92` | `partial` | Runtime render-mode projection and diagnostics-path hint plumbing were landed in recent work touching `tile_runtime.rs` + `tile_render_pass.rs`; full lane closure evidence not yet linked. | Linked issue/PR evidence confirms `TileRenderMode` is authoritative end-to-end (attach-time resolution, render dispatch, diagnostics projection) with acceptance tests and no known regressions. |
   | Persistence + degradation guarantees for dimension state | `lane:roadmap` (spec) then implementation lanes | `partial` | Blocker and requirements are defined in `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md`; acceptance contract drafted in `canvas/2026-02-27_viewdimension_acceptance_contract.md`; terminology alignment is complete in `design_docs/TERMINOLOGY.md` (`ViewDimension`, `ThreeDMode`, `ZSource`, `Derived Z Positions`, `Dimension Degradation Rule`); issue templates are seeded in readiness plan `R4.1`..`R4.4`. | Canonical docs align on persisted `ViewDimension` ownership and deterministic `TwoD` fallback semantics; linked implementation/test issues exist for restore/degradation behavior. |
 
