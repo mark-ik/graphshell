@@ -599,6 +599,8 @@ Get the rest of the app ready for the backend swap without performing it yet.
 
 Replace the egui renderer backend and remove OpenGL-specific UI rendering code from the mainline path.
 
+Scope rule: this backend cut is about `egui_glow` -> `egui_wgpu` only. It must not implicitly require replacing `egui_tiles` or migrating off `egui_graphs`; graph-canvas migration remains a separate issue stream.
+
 This phase is explicitly deferred until:
 
 - the application readiness gate is met,
@@ -637,6 +639,8 @@ This phase is explicitly deferred until:
 - The app builds and runs without `egui_glow`.
 - egui chrome is rendered through `egui_wgpu`.
 - The active graph pane path and runtime viewer content are visible through the new frame path.
+
+Non-goal reminder: completion of this phase does not require deprecating `egui_tiles` or deprecating `egui_graphs`.
 
 ---
 
