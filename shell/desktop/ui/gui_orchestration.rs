@@ -1029,8 +1029,15 @@ pub(crate) fn run_semantic_lifecycle_phase(
 
     let deferred_open_child_webviews = open_pending_child_webview_nodes(
         graph_app,
-        tiles_tree,
+        frame_intents,
         pending_open_child_webviews,
+    );
+
+    apply_semantic_intents_and_pending_open(
+        graph_app,
+        tiles_tree,
+        open_node_tile_after_intents,
+        frame_intents,
     );
 
     reconcile_semantic_lifecycle_phase(
@@ -1068,20 +1075,18 @@ fn apply_semantic_intents_and_pending_open(
 }
 
 fn open_pending_child_webview_nodes(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
+    graph_app: &GraphBrowserApp,
+    frame_intents: &mut Vec<GraphIntent>,
     pending_open_child_webviews: Vec<WebViewId>,
 ) -> Vec<WebViewId> {
     gui_frame::open_pending_child_webviews_for_tiles(
         graph_app,
         pending_open_child_webviews,
         |node_key| {
-            crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane_with_mode(
-                tiles_tree,
-                graph_app,
-                node_key,
-                TileOpenMode::Tab,
-            );
+            frame_intents.push(GraphIntent::OpenNodeFrameRouted {
+                key: node_key,
+                prefer_frame: None,
+            });
         },
     )
 }
