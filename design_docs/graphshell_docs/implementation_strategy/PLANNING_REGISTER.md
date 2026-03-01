@@ -378,6 +378,25 @@ Issue linkage:
 - `#183` is the implementation tracker for backend migration slices aligned to this C+F contract.
 - Receipt: `2026-03-01_backend_bridge_contract_c_plus_f_receipt.md`.
 
+### 0.12 WebRender Readiness Gate + Feature Guardrails
+
+Decision (2026-03-01): keep Glow active for current milestone delivery, but start WebRender/wgpu switch-readiness work now under explicit guardrails.
+
+Policy:
+
+- Runtime switch remains blocked until readiness gates are closed with evidence.
+- Feature work continues only if it avoids new renderer-specific coupling and preserves backend bridge observability.
+- Readiness work runs in parallel through bounded spikes and dependency-control validation.
+
+Canonical reference:
+
+- `2026-03-01_webrender_readiness_gate_feature_guardrails.md`.
+
+Tracker linkage:
+
+- Primary tracker: `#183`.
+- Related lanes: `#88`, `#99`, `#92`, `#90`.
+
 ---
 
 ## 1. Immediate Priorities Register (10/10/10)
