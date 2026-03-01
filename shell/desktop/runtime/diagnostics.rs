@@ -499,6 +499,37 @@ struct IntentSample {
     cause: Option<LifecycleCause>,
 }
 
+fn invoke_minimal_test_harness_entry_point() -> Result<String, String> {
+    let required_channels = diagnostics_registry::phase0_required_channels().len()
+        + diagnostics_registry::phase2_required_channels().len()
+        + diagnostics_registry::phase3_required_channels().len();
+    let available_channels = diagnostics_registry::list_channel_configs_snapshot().len();
+
+    if available_channels < required_channels {
+        return Err(format!(
+            "required channel contracts missing (required={required_channels}, available={available_channels})"
+        ));
+    }
+
+    Ok(format!(
+        "minimal entry point passed (required_channels={required_channels}, available_channels={available_channels})"
+    ))
+}
+
+#[cfg(feature = "diagnostics_tests")]
+#[derive(Clone, Debug)]
+struct DiagnosticsHarnessRunResult {
+    passed: bool,
+    summary: String,
+}
+
+#[cfg(feature = "diagnostics_tests")]
+#[derive(Clone, Debug, Default)]
+struct DiagnosticsTestHarnessState {
+    run_count: u64,
+    last_run: Option<DiagnosticsHarnessRunResult>,
+}
+
 pub(crate) struct DiagnosticsState {
     active_tab: DiagnosticsTab,
     event_tx: Sender<DiagnosticEvent>,
@@ -519,6 +550,8 @@ pub(crate) struct DiagnosticsState {
     export_feedback: Option<String>,
     analyzer_registry: AnalyzerRegistry,
     startup_selfcheck_emitted: bool,
+    #[cfg(feature = "diagnostics_tests")]
+    test_harness_state: DiagnosticsTestHarnessState,
 }
 
 impl DiagnosticsState {
@@ -585,6 +618,50 @@ impl DiagnosticsState {
         });
 
         self.startup_selfcheck_emitted = true;
+    }
+
+    #[cfg(feature = "diagnostics_tests")]
+    fn render_test_harness_scaffold(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Test Harness (feature-gated)")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.small(
+                    "In-pane harness scaffold (`diagnostics_tests`) for lightweight diagnostics entry-point invocation.",
+                );
+
+                if ui.button("Run Minimal Harness Entry Point").clicked() {
+                    self.test_harness_state.run_count =
+                        self.test_harness_state.run_count.saturating_add(1);
+
+                    match invoke_minimal_test_harness_entry_point() {
+                        Ok(summary) => {
+                            self.test_harness_state.last_run = Some(DiagnosticsHarnessRunResult {
+                                passed: true,
+                                summary,
+                            });
+                        }
+                        Err(summary) => {
+                            self.test_harness_state.last_run = Some(DiagnosticsHarnessRunResult {
+                                passed: false,
+                                summary,
+                            });
+                        }
+                    }
+                }
+
+                ui.small(format!("Runs: {}", self.test_harness_state.run_count));
+                if let Some(last_run) = &self.test_harness_state.last_run {
+                    let color = if last_run.passed {
+                        egui::Color32::from_rgb(90, 200, 120)
+                    } else {
+                        egui::Color32::from_rgb(255, 120, 120)
+                    };
+                    let label = if last_run.passed { "PASS" } else { "FAIL" };
+                    ui.colored_label(color, format!("Last run: {label} — {}", last_run.summary));
+                } else {
+                    ui.small("Last run: not executed");
+                }
+            });
     }
 
     pub(crate) fn register_analyzer(
@@ -938,6 +1015,8 @@ impl DiagnosticsState {
             export_feedback: None,
             analyzer_registry: AnalyzerRegistry::default(),
             startup_selfcheck_emitted: false,
+            #[cfg(feature = "diagnostics_tests")]
+            test_harness_state: DiagnosticsTestHarnessState::default(),
         };
         state.register_builtin_analyzers();
         state.emit_startup_selfcheck_events();
@@ -1707,6 +1786,8 @@ impl DiagnosticsState {
                                 });
                         });
                 }
+                        #[cfg(feature = "diagnostics_tests")]
+                        self.render_test_harness_scaffold(ui);
                 let active_tile_violations = self.channel_count(CHANNEL_ACTIVE_TILE_VIOLATION);
                 if active_tile_violations > 0 {
                     ui.colored_label(
@@ -2474,6 +2555,14 @@ mod tests {
                 .unwrap_or(0),
             0
         );
+    }
+
+    #[test]
+    fn minimal_test_harness_entry_point_reports_pass() {
+        let summary = invoke_minimal_test_harness_entry_point()
+            .expect("minimal test harness entry point should pass");
+        assert!(summary.contains("required_channels="));
+        assert!(summary.contains("available_channels="));
     }
 
     #[test]

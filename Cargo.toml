@@ -44,6 +44,7 @@ ProductName = "GraphShell Browser"
 [features]
 default = ["gamepad", "servo/clipboard", "js_jit", "max_log_level", "webgpu", "webxr", "diagnostics"]
 diagnostics = []
+diagnostics_tests = []
 crown = ["servo/crown"]
 debugmozjs = ["servo/debugmozjs"]
 gamepad = ["servo/gamepad"]
