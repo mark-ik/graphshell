@@ -662,6 +662,56 @@ mod tests {
     }
 
     #[test]
+    fn tracker_does_not_emit_pass_order_violation_for_embedded_egui() {
+        let mut diagnostics = DiagnosticsState::new();
+        let tracker = CompositorPassTracker::new();
+
+        tracker.record_overlay_pass(NodeKey::new(11), TileRenderMode::EmbeddedEgui);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        let violation_count = channel_counts
+            .get(CHANNEL_PASS_ORDER_VIOLATION)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert_eq!(
+            violation_count, 0,
+            "embedded egui path should not emit composited pass-order violation"
+        );
+    }
+
+    #[test]
+    fn tracker_does_not_emit_pass_order_violation_for_placeholder() {
+        let mut diagnostics = DiagnosticsState::new();
+        let tracker = CompositorPassTracker::new();
+
+        tracker.record_overlay_pass(NodeKey::new(12), TileRenderMode::Placeholder);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        let violation_count = channel_counts
+            .get(CHANNEL_PASS_ORDER_VIOLATION)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert_eq!(
+            violation_count, 0,
+            "placeholder path should not emit composited pass-order violation"
+        );
+    }
+
+    #[test]
     fn execute_overlay_affordance_pass_emits_style_and_mode_channels() {
         let mut diagnostics = DiagnosticsState::new();
         let ctx = egui::Context::default();

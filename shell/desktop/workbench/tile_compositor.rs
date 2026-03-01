@@ -504,4 +504,25 @@ mod tests {
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
     }
+
+    #[test]
+    fn hover_overlay_for_native_overlay_uses_chrome_only_style() {
+        let node = NodeKey::new(42);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(30.0, 30.0), egui::pos2(130.0, 90.0));
+        let overlay = hover_overlay_for_mode(TileRenderMode::NativeOverlay, node, tile_rect);
+
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::ChromeOnly));
+        assert_eq!(overlay.render_mode, TileRenderMode::NativeOverlay);
+    }
+
+    #[test]
+    fn hover_overlay_for_composited_texture_uses_rect_stroke_style() {
+        let node = NodeKey::new(43);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(140.0, 100.0));
+        let overlay =
+            hover_overlay_for_mode(TileRenderMode::CompositedTexture, node, tile_rect);
+
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
+        assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
+    }
 }
