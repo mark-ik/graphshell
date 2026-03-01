@@ -69,6 +69,19 @@ pub enum GraphAction {
     Zoom(f32),
 }
 
+fn action_handles_primary_click(action: &GraphAction) -> bool {
+    matches!(
+        action,
+        GraphAction::FocusNode(_)
+            | GraphAction::FocusNodeSplit(_)
+            | GraphAction::DragStart
+            | GraphAction::DragEnd(_, _)
+            | GraphAction::MoveNode(_, _)
+            | GraphAction::SelectNode { .. }
+            | GraphAction::LassoSelect { .. }
+    )
+}
+
 /// Render graph info and controls hint overlay text into the current UI.
 pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
     draw_graph_info(ui, app);
@@ -418,12 +431,14 @@ pub fn render_graph_in_ui_collect_actions(
     }
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
+    let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
+    let graph_handled_primary_click = actions.iter().any(action_handles_primary_click);
     let clear_selection_on_background_click = ui.input(|i| {
         i.pointer.primary_clicked()
             && !i.modifiers.shift
             && app.workspace.hovered_graph_node.is_none()
+            && !graph_handled_primary_click
     }) && lasso.action.is_none();
-    let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
     if clear_selection_on_background_click {
         actions.push(GraphAction::ClearSelection);
     }
@@ -3261,6 +3276,23 @@ mod tests {
         ]));
         assert!(app.workspace.selected_nodes.is_empty());
         assert_eq!(app.workspace.selected_nodes.primary(), None);
+    }
+
+    #[test]
+    fn test_primary_click_handler_detects_selection_action() {
+        let actions = vec![GraphAction::SelectNode {
+            key: NodeIndex::new(0),
+            multi_select: false,
+        }];
+
+        assert!(actions.iter().any(action_handles_primary_click));
+    }
+
+    #[test]
+    fn test_primary_click_handler_ignores_zoom_only_actions() {
+        let actions = vec![GraphAction::Zoom(1.2)];
+
+        assert!(!actions.iter().any(action_handles_primary_click));
     }
 
     #[test]
