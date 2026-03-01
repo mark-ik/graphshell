@@ -8,7 +8,6 @@
 //! blend enable, active texture unit, and framebuffer binding.
 
 use std::collections::HashSet;
-use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -27,9 +26,16 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
 use crate::shell::desktop::render_backend::{
-    BackendCustomPass, BackendGraphicsContext, BackendViewportInPixels,
+    backend_active_texture, backend_bind_framebuffer, backend_framebuffer_binding,
+    backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
+    backend_framebuffer_from_binding,
+    backend_is_blend_enabled,
+    BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext, BackendViewportInPixels,
     backend_is_scissor_enabled, backend_scissor_box, backend_set_scissor_box,
-    backend_set_scissor_enabled, custom_pass_from_glow_viewport, glow,
+    backend_primary_texture_unit,
+    backend_set_active_texture, backend_set_blend_enabled,
+    backend_set_scissor_enabled, custom_pass_from_glow_viewport,
+    backend_set_viewport, backend_viewport,
     register_custom_paint_callback,
 };
 use dpi::PhysicalSize;
@@ -195,19 +201,12 @@ fn emit_chaos_probe_outcome(chaos_enabled: bool, passed: bool) {
 }
 
 fn capture_gl_state(gl: &BackendGraphicsContext) -> GlStateSnapshot {
-    let mut viewport = [0_i32; 4];
-
-    // Safety: this function performs read-only OpenGL state queries on the current context.
-    // No mutation is performed; values are captured for before/after invariant comparison.
-    unsafe {
-        glow::HasContext::get_parameter_i32_slice(gl, glow::VIEWPORT, &mut viewport);
-        GlStateSnapshot {
-            viewport,
-            scissor_enabled: glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST),
-            blend_enabled: glow::HasContext::is_enabled(gl, glow::BLEND),
-            active_texture: glow::HasContext::get_parameter_i32(gl, glow::ACTIVE_TEXTURE),
-            framebuffer_binding: glow::HasContext::get_parameter_i32(gl, glow::FRAMEBUFFER_BINDING),
-        }
+    GlStateSnapshot {
+        viewport: backend_viewport(gl),
+        scissor_enabled: backend_is_scissor_enabled(gl),
+        blend_enabled: backend_is_blend_enabled(gl),
+        active_texture: backend_active_texture(gl),
+        framebuffer_binding: backend_framebuffer_binding(gl),
     }
 }
 
@@ -239,31 +238,11 @@ where
 }
 
 fn restore_gl_state(gl: &BackendGraphicsContext, snapshot: GlStateSnapshot) {
-    unsafe {
-        glow::HasContext::viewport(
-            gl,
-            snapshot.viewport[0],
-            snapshot.viewport[1],
-            snapshot.viewport[2],
-            snapshot.viewport[3],
-        );
-        if snapshot.scissor_enabled {
-            glow::HasContext::enable(gl, glow::SCISSOR_TEST);
-        } else {
-            glow::HasContext::disable(gl, glow::SCISSOR_TEST);
-        }
-        if snapshot.blend_enabled {
-            glow::HasContext::enable(gl, glow::BLEND);
-        } else {
-            glow::HasContext::disable(gl, glow::BLEND);
-        }
-        glow::HasContext::active_texture(gl, snapshot.active_texture as u32);
-        glow::HasContext::bind_framebuffer(
-            gl,
-            glow::FRAMEBUFFER,
-            framebuffer_binding_target(snapshot.framebuffer_binding),
-        );
-    }
+    backend_set_viewport(gl, snapshot.viewport);
+    backend_set_scissor_enabled(gl, snapshot.scissor_enabled);
+    backend_set_blend_enabled(gl, snapshot.blend_enabled);
+    backend_set_active_texture(gl, snapshot.active_texture as u32);
+    backend_bind_framebuffer(gl, framebuffer_binding_target(snapshot.framebuffer_binding));
 }
 
 fn inject_chaos_gl_perturbation(gl: &BackendGraphicsContext, seed: u64) {
@@ -271,59 +250,47 @@ fn inject_chaos_gl_perturbation(gl: &BackendGraphicsContext, seed: u64) {
     let start = (seed as usize) % 5;
     for offset in 0..mutation_count {
         let selector = (start + offset) % 5;
-        unsafe {
-            match selector {
-                0 => {
-                    glow::HasContext::viewport(gl, 13, 17, 7, 5);
+        match selector {
+            0 => {
+                backend_set_viewport(gl, [13, 17, 7, 5]);
+            }
+            1 => {
+                if backend_is_scissor_enabled(gl) {
+                    backend_set_scissor_enabled(gl, false);
+                } else {
+                    backend_set_scissor_enabled(gl, true);
                 }
-                1 => {
-                    if glow::HasContext::is_enabled(gl, glow::SCISSOR_TEST) {
-                        glow::HasContext::disable(gl, glow::SCISSOR_TEST);
-                    } else {
-                        glow::HasContext::enable(gl, glow::SCISSOR_TEST);
-                    }
+            }
+            2 => {
+                if backend_is_blend_enabled(gl) {
+                    backend_set_blend_enabled(gl, false);
+                } else {
+                    backend_set_blend_enabled(gl, true);
                 }
-                2 => {
-                    if glow::HasContext::is_enabled(gl, glow::BLEND) {
-                        glow::HasContext::disable(gl, glow::BLEND);
-                    } else {
-                        glow::HasContext::enable(gl, glow::BLEND);
-                    }
-                }
-                3 => {
-                    let active = glow::HasContext::get_parameter_i32(gl, glow::ACTIVE_TEXTURE);
-                    let bumped = if active == glow::TEXTURE0 as i32 {
-                        glow::TEXTURE3
-                    } else {
-                        glow::TEXTURE0
-                    };
-                    glow::HasContext::active_texture(gl, bumped);
-                }
-                _ => {
-                    let bound = glow::HasContext::get_parameter_i32(gl, glow::FRAMEBUFFER_BINDING);
-                    if bound == 0 {
-                        glow::HasContext::bind_framebuffer(
-                            gl,
-                            glow::FRAMEBUFFER,
-                            Some(glow::NativeFramebuffer(
-                                std::num::NonZeroU32::new(9).expect("non-zero"),
-                            )),
-                        );
-                    } else {
-                        glow::HasContext::bind_framebuffer(gl, glow::FRAMEBUFFER, None);
-                    }
+            }
+            3 => {
+                let active = backend_active_texture(gl);
+                let bumped = if active == backend_primary_texture_unit() as i32 {
+                    backend_chaos_alternate_texture_unit()
+                } else {
+                    backend_primary_texture_unit()
+                };
+                backend_set_active_texture(gl, bumped);
+            }
+            _ => {
+                let bound = backend_framebuffer_binding(gl);
+                if bound == 0 {
+                    backend_bind_framebuffer(gl, Some(backend_chaos_framebuffer_handle()));
+                } else {
+                    backend_bind_framebuffer(gl, None);
                 }
             }
         }
     }
 }
 
-fn framebuffer_binding_target(binding: i32) -> Option<glow::NativeFramebuffer> {
-    if binding <= 0 {
-        None
-    } else {
-        NonZeroU32::new(binding as u32).map(glow::NativeFramebuffer)
-    }
+fn framebuffer_binding_target(binding: i32) -> Option<BackendFramebufferHandle> {
+    backend_framebuffer_from_binding(binding)
 }
 
 fn run_guarded_callback<Capture, Render, Restore>(
