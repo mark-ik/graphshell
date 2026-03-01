@@ -210,6 +210,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 3. [x] Define `gui::Input` and `gui::Output` boundary; no render function has side effects outside return value.
 4. [x] Tighten GUI state/helper visibility boundaries: `gui_state::{ToolbarState, GuiRuntimeState}` visibility narrowed to UI-supermodule scope, mutating focus-state helpers moved to `gui.rs` owner module, and orchestration entry-point visibility aligned with state ownership.
 5. [x] Pending-open GUI selection path now enqueues `GraphIntent::SelectNode` and avoids direct `graph_app.select_node(...)` mutation in orchestration handlers.
+6. [x] Extracted update-frame coordinator pipeline methods from `gui.rs` into dedicated child module `ui/gui/gui_update_coordinator.rs`, making frame orchestration boundary explicit while preserving behavior.
 
 **4c. tile_*.rs:**
 1. [x] Extract `TileCoordinator` from `tile_runtime.rs`: owns tile→node mapping, pruning logic, mutations.
@@ -222,6 +223,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 - Frame orchestrator (`gui_frame`) owns sequencing; render functions are side-effect-scoped.
 - Mutation-capable GUI state helpers are owner-scoped; cross-layer writes from non-owner modules require explicit visibility escalation.
 - Pending-open selection and related GUI semantic changes flow through reducer-owned intent application instead of direct GUI mutation calls.
+- Update-frame orchestration logic is no longer co-located with all `Gui` state/accessibility/presenter methods in one file path; coordinator boundary is module-explicit.
 - `cargo test` passes; no regressions in UI rendering or interaction.
 
 **Estimated scope:** ~800–1200 lines refactored per file; ~300–500 lines of tests.
