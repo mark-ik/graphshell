@@ -523,17 +523,21 @@ pub(crate) fn handle_pending_open_node_after_intents(
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    let request_node_key =
-        apply_pending_open_node_request_selection(graph_app, open_node_tile_after_intents);
+    let queued_open_mode = open_node_tile_after_intents.take();
+    let pending_open_request = take_pending_open_node_request_selection(graph_app);
 
     log::debug!(
-        "gui: pending open node phase mode={:?} request_node={:?} selected={:?}",
-        open_node_tile_after_intents,
-        request_node_key,
+        "gui: pending open node phase queued_mode={:?} pending_request={:?} selected={:?}",
+        queued_open_mode,
+        pending_open_request,
         graph_app.get_single_selected_node()
     );
 
-    if let Some(open_mode) = *open_node_tile_after_intents
+    let open_candidate = pending_open_request
+        .map(|(node_key, mode)| (Some(node_key), mode))
+        .or_else(|| queued_open_mode.map(|mode| (None, mode)));
+
+    if let Some((request_node_key, open_mode)) = open_candidate
         && let Some(node_key) = request_node_key.or_else(|| graph_app.get_single_selected_node())
     {
         execute_pending_open_node_after_intents(
@@ -550,21 +554,24 @@ pub(crate) fn handle_pending_open_node_after_intents(
             open_mode,
             tiles_tree.active_tiles().len()
         );
+    } else if open_candidate.is_some() {
+        log::debug!(
+            "gui: pending open node skipped because no valid selected node is available"
+        );
     }
 }
 
-fn apply_pending_open_node_request_selection(
+fn take_pending_open_node_request_selection(
     graph_app: &mut GraphBrowserApp,
-    open_node_tile_after_intents: &mut Option<TileOpenMode>,
-) -> Option<NodeKey> {
+) -> Option<(NodeKey, TileOpenMode)> {
     if let Some(open_request) = graph_app.take_pending_open_node_request() {
         log::debug!(
             "gui: handle_pending_open_node_after_intents taking request for {:?}",
             open_request.key
         );
-        *open_node_tile_after_intents = Some(open_mode_from_pending(open_request.mode));
+        let open_mode = open_mode_from_pending(open_request.mode);
         graph_app.select_node(open_request.key, false);
-        return Some(open_request.key);
+        return Some((open_request.key, open_mode));
     }
 
     None

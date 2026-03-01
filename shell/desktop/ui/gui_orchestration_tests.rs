@@ -1,4 +1,4 @@
-use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId};
+use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode};
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::ui::gui_frame;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
@@ -16,6 +16,20 @@ fn active_graph_count(tree: &Tree<TileKind>) -> usize {
                 Some(Tile::Pane(TileKind::Graph(_)))
             )
         })
+        .count()
+}
+
+fn active_node_key(tree: &Tree<TileKind>) -> Option<crate::graph::NodeKey> {
+    tree.active_tiles().into_iter().find_map(|tile_id| match tree.tiles.get(tile_id) {
+        Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
+        _ => None,
+    })
+}
+
+fn node_pane_count(tree: &Tree<TileKind>) -> usize {
+    tree.tiles
+        .iter()
+        .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(_))))
         .count()
 }
 
@@ -205,4 +219,79 @@ fn deferred_child_webview_retries_and_opens_via_frame_routed_intent() {
         )
     });
     assert!(node_pane_exists, "child node pane should open after routed retry");
+}
+
+#[test]
+fn pending_open_mode_is_one_shot_after_execution() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let selected = app.add_node_and_sync(
+        "https://example.com/selected".to_string(),
+        euclid::default::Point2D::new(10.0, 10.0),
+    );
+    app.select_node(selected, false);
+
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut frame_intents = Vec::new();
+    let mut open_node_tile_after_intents = Some(
+        crate::shell::desktop::workbench::tile_view_ops::TileOpenMode::Tab,
+    );
+
+    super::handle_pending_open_node_after_intents(
+        &mut app,
+        &mut tree,
+        &mut open_node_tile_after_intents,
+        &mut frame_intents,
+    );
+
+    assert_eq!(open_node_tile_after_intents, None);
+    assert_eq!(node_pane_count(&tree), 1);
+    assert_eq!(active_node_key(&tree), Some(selected));
+    let intents_after_first_pass = frame_intents.len();
+
+    super::handle_pending_open_node_after_intents(
+        &mut app,
+        &mut tree,
+        &mut open_node_tile_after_intents,
+        &mut frame_intents,
+    );
+
+    assert_eq!(open_node_tile_after_intents, None);
+    assert_eq!(node_pane_count(&tree), 1);
+    assert_eq!(active_node_key(&tree), Some(selected));
+    assert_eq!(frame_intents.len(), intents_after_first_pass);
+}
+
+#[test]
+fn pending_open_request_split_mode_uses_split_route_and_focuses_node() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let selected = app.add_node_and_sync(
+        "https://example.com/split".to_string(),
+        euclid::default::Point2D::new(20.0, 20.0),
+    );
+
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let mut tree = Tree::new("graphshell_tiles", graph, tiles);
+    let mut frame_intents = Vec::new();
+    let mut open_node_tile_after_intents = None;
+
+    app.request_open_node_tile_mode(selected, PendingTileOpenMode::SplitHorizontal);
+
+    super::handle_pending_open_node_after_intents(
+        &mut app,
+        &mut tree,
+        &mut open_node_tile_after_intents,
+        &mut frame_intents,
+    );
+
+    assert_eq!(app.get_single_selected_node(), Some(selected));
+    assert_eq!(active_node_key(&tree), Some(selected));
+    assert_eq!(node_pane_count(&tree), 1);
+    assert!(matches!(
+        tree.root().and_then(|root| tree.tiles.get(root)),
+        Some(Tile::Container(egui_tiles::Container::Linear(_)))
+    ));
 }

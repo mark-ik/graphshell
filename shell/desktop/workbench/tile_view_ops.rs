@@ -308,10 +308,7 @@ pub(crate) fn open_or_focus_node_pane_with_mode(
         }
         TileOpenMode::SplitHorizontal => {
             // Never split directly against a raw leaf pane: wrap it in tabs first.
-            let split_lhs_id = if matches!(
-                tiles_tree.tiles.get(root_id),
-                Some(Tile::Pane(TileKind::Node(_)))
-            ) {
+            let split_lhs_id = if matches!(tiles_tree.tiles.get(root_id), Some(Tile::Pane(_))) {
                 let wrapped = tiles_tree.tiles.insert_tab_tile(vec![root_id]);
                 tiles_tree.root = Some(wrapped);
                 wrapped
@@ -421,6 +418,7 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::GraphBrowserApp;
     use egui_tiles::Tiles;
 
     fn count_graph_panes(tiles_tree: &Tree<TileKind>) -> usize {
@@ -532,5 +530,44 @@ mod tests {
 
         assert!(ensure_active_tile(&mut tree));
         assert_eq!(active_graph_view(&tree), Some(graph_a));
+    }
+
+    #[test]
+    fn open_or_focus_node_pane_split_wraps_leaf_root_before_split() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://example.com/split-root-wrap".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+
+        let mut tiles = Tiles::default();
+        let root_graph = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+        let mut tree = Tree::new("node_split_wrap", root_graph, tiles);
+
+        open_or_focus_node_pane_with_mode(
+            &mut tree,
+            &app,
+            node_key,
+            TileOpenMode::SplitHorizontal,
+        );
+
+        let root_id = tree.root().expect("split root should exist");
+        let linear = match tree.tiles.get(root_id) {
+            Some(Tile::Container(Container::Linear(linear))) => linear,
+            other => panic!("expected split root container, got {other:?}"),
+        };
+        assert_eq!(linear.children.len(), 2);
+        for child in &linear.children {
+            assert!(matches!(
+                tree.tiles.get(*child),
+                Some(Tile::Container(Container::Tabs(_)))
+            ));
+        }
+        assert!(tree.active_tiles().into_iter().any(|tile_id| {
+            matches!(
+                tree.tiles.get(tile_id),
+                Some(Tile::Pane(TileKind::Node(state))) if state.node == node_key
+            )
+        }));
     }
 }
