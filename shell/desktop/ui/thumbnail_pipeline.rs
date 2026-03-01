@@ -13,6 +13,9 @@ use servo::{Image, PixelFormat, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::render_backend::{
+    texture_id_from_token, texture_token_from_handle,
+};
 
 const NODE_THUMBNAIL_WIDTH: u32 = 256;
 const NODE_THUMBNAIL_HEIGHT: u32 = 192;
@@ -174,8 +177,9 @@ pub(crate) fn load_pending_favicons(
         let (width, height, rgba) = embedder_image_to_rgba(&favicon);
         let egui_image = egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba);
         let handle = ctx.load_texture(format!("favicon-{id:?}"), egui_image, Default::default());
+        let texture_token = texture_token_from_handle(&handle);
         let texture = egui::load::SizedTexture::new(
-            handle.id(),
+            texture_id_from_token(texture_token),
             egui::vec2(favicon.width as f32, favicon.height as f32),
         );
         texture_cache.insert(id, (handle, texture));

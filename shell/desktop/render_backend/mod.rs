@@ -17,6 +17,27 @@ pub(crate) use egui_glow::glow;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BackendTextureToken(pub(crate) egui::TextureId);
 
+#[derive(Clone)]
+pub(crate) struct BackendCustomPass {
+	callback: Arc<BackendCallbackFn>,
+}
+
+impl BackendCustomPass {
+	pub(crate) fn from_callback_fn(callback: BackendCallbackFn) -> Self {
+		Self {
+			callback: Arc::new(callback),
+		}
+	}
+}
+
+pub(crate) fn texture_token_from_handle(handle: &egui::TextureHandle) -> BackendTextureToken {
+	BackendTextureToken(handle.id())
+}
+
+pub(crate) fn texture_id_from_token(token: BackendTextureToken) -> egui::TextureId {
+	token.0
+}
+
 pub(crate) trait UiRenderBackendContract {
 	fn init_surface_accesskit<Event>(
 		&mut self,
@@ -91,7 +112,10 @@ pub(crate) fn register_custom_paint_callback(
 	ctx: &Context,
 	layer: LayerId,
 	rect: EguiRect,
-	callback: Arc<BackendCallbackFn>,
+	callback: BackendCustomPass,
 ) {
-	ctx.layer_painter(layer).add(PaintCallback { rect, callback });
+	ctx.layer_painter(layer).add(PaintCallback {
+		rect,
+		callback: callback.callback,
+	});
 }

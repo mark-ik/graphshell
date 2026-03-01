@@ -10,7 +10,7 @@
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::registries::{
@@ -27,7 +27,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
 };
 use crate::shell::desktop::render_backend::{
-    BackendCallbackFn, glow, register_custom_paint_callback,
+    BackendCallbackFn, BackendCustomPass, glow, register_custom_paint_callback,
 };
 use dpi::PhysicalSize;
 use euclid::{Point2D, Rect, Scale, Size2D, UnknownUnit};
@@ -543,7 +543,7 @@ impl CompositorAdapter {
         ctx: &Context,
         node_key: NodeKey,
         tile_rect: EguiRect,
-        callback: Arc<BackendCallbackFn>,
+        callback: BackendCustomPass,
     ) {
         let layer = Self::content_layer(node_key);
         register_custom_paint_callback(ctx, layer, tile_rect, callback);
@@ -654,7 +654,8 @@ impl CompositorAdapter {
     ) where
         F: Fn(&glow::Context, Rect<i32, UnknownUnit>) + Send + Sync + 'static,
     {
-        let callback = Arc::new(BackendCallbackFn::new(move |info, painter| {
+        let callback = BackendCustomPass::from_callback_fn(BackendCallbackFn::new(
+            move |info, painter| {
             #[cfg(feature = "diagnostics")]
             let started = std::time::Instant::now();
 
@@ -688,7 +689,8 @@ impl CompositorAdapter {
                 "tile_compositor::content_pass_callback",
                 started.elapsed().as_micros() as u64,
             );
-        }));
+            },
+        ));
 
         Self::register_content_pass(ctx, node_key, tile_rect, callback);
     }

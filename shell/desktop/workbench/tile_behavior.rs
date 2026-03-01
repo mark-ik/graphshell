@@ -20,6 +20,9 @@ use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFA
 use crate::render;
 use crate::render::GraphAction;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::render_backend::{
+    texture_id_from_token, texture_token_from_handle,
+};
 use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
 use crate::util::truncate_with_ellipsis;
 
@@ -242,7 +245,8 @@ impl<'a> GraphshellTileBehavior<'a> {
             handle
         };
 
-        Some(handle.id())
+            let texture_token = texture_token_from_handle(&handle);
+            Some(texture_id_from_token(texture_token))
     }
 
     fn should_detach_tab_on_drag_stop(
