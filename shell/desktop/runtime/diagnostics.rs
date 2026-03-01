@@ -460,6 +460,28 @@ impl DiagnosticsState {
         } else {
             presentation_total_us / sample_count
         };
+        let chaos_enabled_sample_count =
+            samples.iter().filter(|sample| sample.chaos_enabled).count() as u64;
+        let restore_verification_fail_count =
+            samples.iter().filter(|sample| !sample.restore_verified).count() as u64;
+        let mut failed_by_reason: HashMap<&'static str, u64> = HashMap::new();
+        for sample in samples.iter().filter(|sample| sample.violation) {
+            if sample.viewport_changed {
+                *failed_by_reason.entry("viewport").or_insert(0) += 1;
+            }
+            if sample.scissor_changed {
+                *failed_by_reason.entry("scissor").or_insert(0) += 1;
+            }
+            if sample.blend_changed {
+                *failed_by_reason.entry("blend").or_insert(0) += 1;
+            }
+            if sample.active_texture_changed {
+                *failed_by_reason.entry("active_texture").or_insert(0) += 1;
+            }
+            if sample.framebuffer_binding_changed {
+                *failed_by_reason.entry("framebuffer_binding").or_insert(0) += 1;
+            }
+        }
 
         let mut bridge_path_counts: HashMap<&'static str, u64> = HashMap::new();
         for sample in samples {
@@ -483,6 +505,15 @@ impl DiagnosticsState {
                 "presentation_us": sample.presentation_us,
                 "duration_us": sample.duration_us,
                 "failed_frame": sample.violation,
+                "chaos_enabled": sample.chaos_enabled,
+                "restore_verified": sample.restore_verified,
+                "failure_flags": {
+                    "viewport": sample.viewport_changed,
+                    "scissor": sample.scissor_changed,
+                    "blend": sample.blend_changed,
+                    "active_texture": sample.active_texture_changed,
+                    "framebuffer_binding": sample.framebuffer_binding_changed,
+                },
             })
         });
 
@@ -507,6 +538,15 @@ impl DiagnosticsState {
                     "presentation_us": sample.presentation_us,
                     "duration_us": sample.duration_us,
                     "failed_frame": sample.violation,
+                    "chaos_enabled": sample.chaos_enabled,
+                    "restore_verified": sample.restore_verified,
+                    "failure_flags": {
+                        "viewport": sample.viewport_changed,
+                        "scissor": sample.scissor_changed,
+                        "blend": sample.blend_changed,
+                        "active_texture": sample.active_texture_changed,
+                        "framebuffer_binding": sample.framebuffer_binding_changed,
+                    },
                 })
             })
             .collect();
@@ -520,6 +560,9 @@ impl DiagnosticsState {
                 "failed_frame_count": failed_frame_count,
                 "avg_callback_us": avg_callback_us,
                 "avg_presentation_us": avg_presentation_us,
+                "chaos_enabled_sample_count": chaos_enabled_sample_count,
+                "restore_verification_fail_count": restore_verification_fail_count,
+                "failed_by_reason": failed_by_reason,
                 "latest": latest,
             },
             "samples": samples_json,
@@ -906,6 +949,15 @@ impl DiagnosticsState {
                     "callback_us": sample.callback_us,
                     "presentation_us": sample.presentation_us,
                     "violation": sample.violation,
+                    "chaos_enabled": sample.chaos_enabled,
+                    "restore_verified": sample.restore_verified,
+                    "failure_flags": {
+                        "viewport": sample.viewport_changed,
+                        "scissor": sample.scissor_changed,
+                        "blend": sample.blend_changed,
+                        "active_texture": sample.active_texture_changed,
+                        "framebuffer_binding": sample.framebuffer_binding_changed,
+                    },
                     "bridge_path": sample.bridge_path,
                     "tile_rect_px": {
                         "x": sample.tile_rect_px[0],
@@ -2248,6 +2300,13 @@ Object {
                 bridge_path: "test.bridge",
                 tile_rect_px: [0, 0, 1, 1],
                 render_size_px: [1, 1],
+                chaos_enabled: false,
+                restore_verified: true,
+                viewport_changed: false,
+                scissor_changed: false,
+                blend_changed: false,
+                active_texture_changed: false,
+                framebuffer_binding_changed: false,
                 before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
                     viewport: [0, 0, 1, 1],
                     scissor_enabled: false,
@@ -2273,6 +2332,13 @@ Object {
                 bridge_path: "test.bridge",
                 tile_rect_px: [1, 2, 3, 4],
                 render_size_px: [3, 4],
+                chaos_enabled: false,
+                restore_verified: true,
+                viewport_changed: true,
+                scissor_changed: true,
+                blend_changed: false,
+                active_texture_changed: true,
+                framebuffer_binding_changed: true,
                 before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
                     viewport: [0, 0, 1, 1],
                     scissor_enabled: false,
@@ -2309,6 +2375,13 @@ Object {
                 bridge_path: "gl.render_to_parent_callback",
                 tile_rect_px: [0, 0, 64, 64],
                 render_size_px: [64, 64],
+                chaos_enabled: false,
+                restore_verified: true,
+                viewport_changed: false,
+                scissor_changed: false,
+                blend_changed: false,
+                active_texture_changed: false,
+                framebuffer_binding_changed: false,
                 before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
                     viewport: [0, 0, 64, 64],
                     scissor_enabled: false,
@@ -2334,6 +2407,13 @@ Object {
                 bridge_path: "gl.render_to_parent_callback",
                 tile_rect_px: [4, 8, 120, 80],
                 render_size_px: [120, 80],
+                chaos_enabled: false,
+                restore_verified: false,
+                viewport_changed: true,
+                scissor_changed: true,
+                blend_changed: false,
+                active_texture_changed: false,
+                framebuffer_binding_changed: false,
                 before: crate::shell::desktop::workbench::compositor_adapter::GlStateSnapshot {
                     viewport: [0, 0, 120, 80],
                     scissor_enabled: false,
@@ -2364,6 +2444,22 @@ Object {
         assert_eq!(
             payload["measurement_contract"]["avg_presentation_us"].as_u64(),
             Some(15)
+        );
+        assert_eq!(
+            payload["measurement_contract"]["chaos_enabled_sample_count"].as_u64(),
+            Some(0)
+        );
+        assert_eq!(
+            payload["measurement_contract"]["restore_verification_fail_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            payload["measurement_contract"]["failed_by_reason"]["viewport"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            payload["measurement_contract"]["failed_by_reason"]["scissor"].as_u64(),
+            Some(1)
         );
         assert_eq!(
             payload["measurement_contract"]["latest"]["bridge_path"].as_str(),

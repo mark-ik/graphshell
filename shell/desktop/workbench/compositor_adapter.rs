@@ -59,6 +59,13 @@ pub(crate) struct CompositorReplaySample {
     pub(crate) bridge_path: &'static str,
     pub(crate) tile_rect_px: [i32; 4],
     pub(crate) render_size_px: [u32; 2],
+    pub(crate) chaos_enabled: bool,
+    pub(crate) restore_verified: bool,
+    pub(crate) viewport_changed: bool,
+    pub(crate) scissor_changed: bool,
+    pub(crate) blend_changed: bool,
+    pub(crate) active_texture_changed: bool,
+    pub(crate) framebuffer_binding_changed: bool,
     pub(crate) before: GlStateSnapshot,
     pub(crate) after: GlStateSnapshot,
 }
@@ -112,6 +119,16 @@ pub(crate) struct GlStateSnapshot {
 
 fn gl_state_violated(before: GlStateSnapshot, after: GlStateSnapshot) -> bool {
     before != after
+}
+
+fn gl_state_change_flags(before: GlStateSnapshot, after: GlStateSnapshot) -> (bool, bool, bool, bool, bool) {
+    (
+        before.viewport != after.viewport,
+        before.scissor_enabled != after.scissor_enabled,
+        before.blend_enabled != after.blend_enabled,
+        before.active_texture != after.active_texture,
+        before.framebuffer_binding != after.framebuffer_binding,
+    )
 }
 
 fn chaos_mode_enabled_from_raw(raw: Option<&str>) -> bool {
@@ -671,6 +688,13 @@ impl CompositorAdapter {
         );
         let chaos_passed = chaos_probe_passed(chaos_enabled, violated, restore_verified);
         emit_chaos_probe_outcome(chaos_enabled, chaos_passed);
+        let (
+            viewport_changed,
+            scissor_changed,
+            blend_changed,
+            active_texture_changed,
+            framebuffer_binding_changed,
+        ) = gl_state_change_flags(before, after);
 
         let elapsed = started.elapsed().as_micros() as u64;
         let sequence = COMPOSITOR_REPLAY_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -684,6 +708,13 @@ impl CompositorAdapter {
             bridge_path: probe_context.bridge_path,
             tile_rect_px: probe_context.tile_rect_px,
             render_size_px: probe_context.render_size_px,
+            chaos_enabled,
+            restore_verified,
+            viewport_changed,
+            scissor_changed,
+            blend_changed,
+            active_texture_changed,
+            framebuffer_binding_changed,
             before,
             after,
         });
@@ -1477,6 +1508,13 @@ mod tests {
                 bridge_path: "test.bridge",
                 tile_rect_px: [0, 0, 100, 100],
                 render_size_px: [100, 100],
+                chaos_enabled: false,
+                restore_verified: true,
+                viewport_changed: false,
+                scissor_changed: false,
+                blend_changed: false,
+                active_texture_changed: false,
+                framebuffer_binding_changed: false,
                 before,
                 after,
             });
