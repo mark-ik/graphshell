@@ -417,6 +417,7 @@ Canonical reference:
 Tracker linkage:
 
 - Primary tracker: `#183`.
+- Lane hub: `#245`.
 - Spike evidence target: `#180`.
 - Related lanes: `#88`, `#90`, `#92`, `#99`.
 
