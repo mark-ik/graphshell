@@ -929,10 +929,25 @@ fn handle_open_tool_pane_intent(
     tiles_tree: &mut Tree<TileKind>,
     kind: ToolPaneState,
 ) {
+    let focused_before = active_tool_surface_return_target(tiles_tree);
     if matches!(kind, ToolPaneState::Settings | ToolPaneState::HistoryManager) {
         maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
     }
+    let kind_after = kind.clone();
     open_or_focus_tool_pane_if_available(tiles_tree, kind);
+
+    let focused_after = active_tool_surface_return_target(tiles_tree);
+    let transitioned_to_target_tool = matches!(
+        focused_after,
+        Some(ToolSurfaceReturnTarget::Tool(ref active_kind)) if *active_kind == kind_after
+    );
+
+    if transitioned_to_target_tool && focused_before != focused_after {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
 }
 
 fn handle_close_tool_pane_intent(

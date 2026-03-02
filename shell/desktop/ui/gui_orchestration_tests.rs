@@ -272,6 +272,35 @@ fn cycle_focus_region_success_does_not_emit_ux_navigation_violation_channel() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn open_tool_pane_emits_ux_navigation_transition_channel() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_navigation_transition_open_tool", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut intents = vec![GraphIntent::OpenToolPane {
+        kind: ToolPaneState::Settings,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "expected ux:navigation_transition when opening a tool pane changes focus region"
+    );
+    assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "did not expect ux:navigation_violation when opening a tool pane succeeds"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn close_history_tool_pane_restores_previous_node_focus_via_orchestration() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
