@@ -6,6 +6,8 @@ use egui::Key;
 
 use crate::app::{GraphBrowserApp, GraphIntent, SearchDisplayMode};
 use crate::graph::NodeKey;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 
 pub(crate) struct GraphSearchFlowArgs<'a> {
     pub ctx: &'a egui::Context,
@@ -60,6 +62,7 @@ where
         *graph_search_filter_mode = false;
         graph_app.workspace.search_display_mode = SearchDisplayMode::Highlight;
         graph_app.workspace.egui_state_dirty = true;
+        emit_navigation_transition_graph_search();
     }
 
     let search_shortcut_pressed = ctx.input(|i| {
@@ -81,6 +84,7 @@ where
         }
         *location_dirty = true;
         focus_location_field_for_search = true;
+        emit_navigation_transition_graph_search();
     }
 
     let mut suppress_toggle_view = false;
@@ -117,10 +121,12 @@ where
         }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
             suppress_toggle_view = true;
+            let mut closed_search_surface = false;
             if graph_search_query.trim().is_empty() {
                 *graph_search_open = false;
                 *graph_search_filter_mode = false;
                 graph_app.workspace.search_display_mode = SearchDisplayMode::Highlight;
+                closed_search_surface = true;
             } else {
                 graph_search_query.clear();
             }
@@ -131,6 +137,9 @@ where
                 graph_search_active_match_index,
             );
             graph_app.workspace.egui_state_dirty = true;
+            if closed_search_surface {
+                emit_navigation_transition_graph_search();
+            }
         }
     }
 
@@ -138,5 +147,31 @@ where
         focus_graph_search_field,
         focus_location_field_for_search,
         suppress_toggle_view,
+    }
+}
+
+fn emit_navigation_transition_graph_search() {
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graph_search_handoff_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        emit_navigation_transition_graph_search();
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition from graph search handoff helper"
+        );
     }
 }
