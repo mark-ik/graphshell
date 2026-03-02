@@ -1253,6 +1253,24 @@ fn keyboard_pan_delta_from_keys(keys: KeyboardPanKeys, step: f32) -> Vec2 {
     delta
 }
 
+fn seeded_metadata_frame_for_view(
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+) -> MetadataFrame {
+    let mut frame = MetadataFrame::default();
+    if let Some(view_frame) = app.workspace.graph_view_frames.get(&view_id) {
+        frame.zoom = view_frame.zoom.max(0.01);
+        frame.pan = egui::vec2(view_frame.pan_x, view_frame.pan_y);
+        return frame;
+    }
+
+    if let Some(view) = app.workspace.views.get(&view_id) {
+        frame.zoom = view.camera.current_zoom.max(0.01);
+    }
+
+    frame
+}
+
 fn emit_keyboard_pan_blocked_if_needed(
     keyboard_pan_delta: Vec2,
     wants_keyboard_input: bool,
@@ -1294,13 +1312,15 @@ fn apply_background_pan(
     }
 
     set_focused_view_with_transition(app, Some(view_id));
+    let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
     let mut applied = false;
     ctx.data_mut(|data| {
-        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-            meta.pan += delta;
-            data.insert_persisted(metadata_id, meta);
-            applied = true;
-        }
+        let mut meta = data
+            .get_persisted::<MetadataFrame>(metadata_id)
+            .unwrap_or(seeded_frame);
+        meta.pan += delta;
+        data.insert_persisted(metadata_id, meta);
+        applied = true;
     });
     applied
 }
@@ -1340,33 +1360,35 @@ fn apply_pending_keyboard_zoom_request(
     let local_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size());
     let local_center = local_rect.center().to_vec2();
     let mut updated_zoom = None;
-    let mut missing_metadata = false;
+    let mut seeded_metadata = false;
+    let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
 
     ui.ctx().data_mut(|data| {
-        if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-            let graph_center_pos = (local_center - meta.pan) / meta.zoom;
-            let target = if matches!(request, KeyboardZoomRequest::Reset) {
-                factor
-            } else {
-                meta.zoom * factor
-            };
-            let new_zoom = target.clamp(zoom_min, zoom_max);
-            let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
-            meta.pan += pan_delta;
-            meta.zoom = new_zoom;
-            data.insert_persisted(metadata_id, meta);
-            updated_zoom = Some(new_zoom);
+        let mut meta = if let Some(existing) = data.get_persisted::<MetadataFrame>(metadata_id) {
+            existing
         } else {
-            missing_metadata = true;
-        }
+            seeded_metadata = true;
+            seeded_frame
+        };
+        let graph_center_pos = (local_center - meta.pan) / meta.zoom;
+        let target = if matches!(request, KeyboardZoomRequest::Reset) {
+            factor
+        } else {
+            meta.zoom * factor
+        };
+        let new_zoom = target.clamp(zoom_min, zoom_max);
+        let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
+        meta.pan += pan_delta;
+        meta.zoom = new_zoom;
+        data.insert_persisted(metadata_id, meta);
+        updated_zoom = Some(new_zoom);
     });
 
-    if missing_metadata {
+    if seeded_metadata {
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
             latency_us: 0,
         });
-        app.restore_pending_keyboard_zoom_request(view_id, request);
     }
 
     // Keep zoom in sync on the appropriate camera.
@@ -1419,18 +1441,22 @@ fn apply_pending_camera_command(
     match command {
         CameraCommand::SetZoom(target_zoom) => {
             let mut updated_zoom = None;
-            let mut missing_metadata = false;
+            let mut seeded_metadata = false;
+            let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
             ui.ctx().data_mut(|data| {
-                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-                    let new_zoom = target_zoom.clamp(zoom_min, zoom_max);
-                    meta.zoom = new_zoom;
-                    data.insert_persisted(metadata_id, meta);
-                    updated_zoom = Some(new_zoom);
+                let mut meta = if let Some(existing) = data.get_persisted::<MetadataFrame>(metadata_id)
+                {
+                    existing
                 } else {
-                    missing_metadata = true;
-                }
+                    seeded_metadata = true;
+                    seeded_frame
+                };
+                let new_zoom = target_zoom.clamp(zoom_min, zoom_max);
+                meta.zoom = new_zoom;
+                data.insert_persisted(metadata_id, meta);
+                updated_zoom = Some(new_zoom);
             });
-            if missing_metadata {
+            if seeded_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_UI_GRAPH_CAMERA_ZOOM_DEFERRED_NO_METADATA,
                     latency_us: 0,
@@ -1502,19 +1528,23 @@ fn apply_pending_camera_command(
             let target_pan = viewport_center - center.to_vec2() * target_zoom;
 
             let mut updated_zoom = None;
-            let mut missing_metadata = false;
+            let mut seeded_metadata = false;
+            let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
             ui.ctx().data_mut(|data| {
-                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-                    meta.zoom = target_zoom;
-                    meta.pan = target_pan;
-                    data.insert_persisted(metadata_id, meta);
-                    updated_zoom = Some(target_zoom);
+                let mut meta = if let Some(existing) = data.get_persisted::<MetadataFrame>(metadata_id)
+                {
+                    existing
                 } else {
-                    missing_metadata = true;
-                }
+                    seeded_metadata = true;
+                    seeded_frame
+                };
+                meta.zoom = target_zoom;
+                meta.pan = target_pan;
+                data.insert_persisted(metadata_id, meta);
+                updated_zoom = Some(target_zoom);
             });
 
-            if missing_metadata {
+            if seeded_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_UI_GRAPH_CAMERA_FIT_DEFERRED_NO_METADATA,
                     latency_us: 0,
@@ -1581,23 +1611,27 @@ fn apply_pending_wheel_zoom(
                 .map(|p| egui::pos2(p.x - graph_rect.min.x, p.y - graph_rect.min.y))
                 .unwrap_or(local_rect.center())
                 .to_vec2();
-            let mut missing_metadata = false;
+            let mut seeded_metadata = false;
+            let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
 
             ui.ctx().data_mut(|data| {
-                if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-                    let graph_anchor_pos = (local_anchor - meta.pan) / meta.zoom;
-                    let new_zoom = (meta.zoom * factor).clamp(zoom_min, zoom_max);
-                    let pan_delta = graph_anchor_pos * meta.zoom - graph_anchor_pos * new_zoom;
-                    meta.pan += pan_delta;
-                    meta.zoom = new_zoom;
-                    data.insert_persisted(metadata_id, meta);
-                    updated_zoom = Some(new_zoom);
+                let mut meta = if let Some(existing) = data.get_persisted::<MetadataFrame>(metadata_id)
+                {
+                    existing
                 } else {
-                    missing_metadata = true;
-                }
+                    seeded_metadata = true;
+                    seeded_frame
+                };
+                let graph_anchor_pos = (local_anchor - meta.pan) / meta.zoom;
+                let new_zoom = (meta.zoom * factor).clamp(zoom_min, zoom_max);
+                let pan_delta = graph_anchor_pos * meta.zoom - graph_anchor_pos * new_zoom;
+                meta.pan += pan_delta;
+                meta.zoom = new_zoom;
+                data.insert_persisted(metadata_id, meta);
+                updated_zoom = Some(new_zoom);
             });
 
-            if missing_metadata {
+            if seeded_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA,
                     latency_us: 0,
@@ -4515,6 +4549,42 @@ mod tests {
                 .expect("zero-delta pan should leave metadata intact");
             assert!((meta.pan.x - 10.0).abs() < 0.001);
             assert!((meta.pan.y - 20.0).abs() < 0.001);
+        });
+    }
+
+    #[test]
+    fn background_pan_seeds_metadata_when_missing() {
+        let ctx = egui::Context::default();
+        let metadata_id = egui::Id::new("test-background-pan-missing-meta");
+        let view_id = crate::app::GraphViewId::default();
+        let mut app = test_app();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new("Seed Pan Test"));
+        app.workspace.graph_view_frames.insert(
+            view_id,
+            crate::app::GraphViewFrame {
+                zoom: 1.0,
+                pan_x: 5.0,
+                pan_y: 7.0,
+            },
+        );
+
+        let changed = apply_background_pan(
+            &ctx,
+            metadata_id,
+            &mut app,
+            view_id,
+            egui::vec2(3.0, -2.0),
+        );
+
+        assert!(changed);
+        ctx.data_mut(|data| {
+            let meta = data
+                .get_persisted::<MetadataFrame>(metadata_id)
+                .expect("missing metadata should be seeded on pan");
+            assert!((meta.pan.x - 8.0).abs() < 0.001);
+            assert!((meta.pan.y - 5.0).abs() < 0.001);
         });
     }
 
