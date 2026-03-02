@@ -19,10 +19,10 @@ use crate::render::action_registry::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
+    CHANNEL_UX_RADIAL_OVERFLOW,
 };
 use egui::{Color32, Key, Stroke, Window};
 
-const CHANNEL_UX_RADIAL_OVERFLOW: &str = "ux:radial_overflow";
 const MAX_VISIBLE_ACTIONS_PER_RING: usize = 8;
 const COMMAND_RING_RADIUS: f32 = 165.0;
 const COMMAND_BUTTON_RADIUS: f32 = 22.0;

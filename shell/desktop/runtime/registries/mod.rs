@@ -173,6 +173,7 @@ pub(crate) const CHANNEL_UX_DISPATCH_CONSUMED: &str = "ux:dispatch_consumed";
 pub(crate) const CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED: &str = "ux:dispatch_default_prevented";
 pub(crate) const CHANNEL_UX_NAVIGATION_VIOLATION: &str = "ux:navigation_violation";
 pub(crate) const CHANNEL_UX_CONTRACT_WARNING: &str = "ux:contract_warning";
+pub(crate) const CHANNEL_UX_RADIAL_OVERFLOW: &str = "ux:radial_overflow";
 pub(crate) const CHANNEL_UX_RADIAL_LAYOUT: &str = "ux:radial_layout";
 pub(crate) const CHANNEL_UX_RADIAL_LABEL_COLLISION: &str = "ux:radial_label_collision";
 
