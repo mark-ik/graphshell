@@ -40,7 +40,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 1, 2026
+Last updated: March 2, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -64,6 +64,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/research/STANDALONE_EXTRACTION.md](graphshell_docs/research/STANDALONE_EXTRACTION.md) - Standalone extraction notes.
 - [graphshell_docs/research/2026-03-01_webrender_wgpu_renderer_research.md](graphshell_docs/research/2026-03-01_webrender_wgpu_renderer_research.md) - WebRender wgpu renderer: spec, feasibility, QA strategy, upstreaming model, and upstream community state (byo-renderer, Mozilla wgpu-hal direction, GLSL→SPIR-V recommendation). Closes the technical definition of `#180` and feeds `#183` readiness gates.
 - [graphshell_docs/research/2026-03-01_servo_script_engine_alternatives.md](graphshell_docs/research/2026-03-01_servo_script_engine_alternatives.md) - Long-horizon research: Nova (Rust JS engine) + Cranelift JIT as a mozjs/SpiderMonkey replacement in Servo. Covers mozjs architecture, Nova DOD design, JIT options, ohim/Wasm plugin track, Servo AI policy, and scope comparison vs. WebRender wgpu work.
+- [graphshell_docs/research/2026-03-02_ux_integration_research.md](graphshell_docs/research/2026-03-02_ux_integration_research.md) - UX integration research: file tree + tile tree + UX tree. Seven-area gap analysis (IA, interaction semantics, predictability, discoverability, feedback/recovery, accessibility, density/overflow), priority matrix, five deliverable specs (Command Semantics Matrix, Interaction Contract, Surface Behavior Spec, Accessibility Baseline Checklist, UX Telemetry Plan).
 
 ### Graphshell Technical Architecture
 

@@ -61,56 +61,61 @@ pub fn render_command_palette_panel(
     Window::new("Edge Commands")
         .open(&mut open)
         .default_width(320.0)
-        .resizable(false)
+        .default_height(420.0)
+        .resizable(true)
         .show(ctx, |ui| {
-            ui.label("Selection-driven graph commands");
-            ui.add_space(6.0);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.label("Selection-driven graph commands");
+                    ui.add_space(6.0);
 
-            // Render actions grouped by category, using ActionRegistry content.
-            let categories = [
-                ActionCategory::Edge,
-                ActionCategory::Node,
-                ActionCategory::Graph,
-                ActionCategory::Persistence,
-            ];
+                    // Render actions grouped by category, using ActionRegistry content.
+                    let categories = [
+                        ActionCategory::Edge,
+                        ActionCategory::Node,
+                        ActionCategory::Graph,
+                        ActionCategory::Persistence,
+                    ];
 
-            let mut first_category = true;
-            for category in categories {
-                let cat_actions: Vec<_> = actions
-                    .iter()
-                    .filter(|e| e.id.category() == category)
-                    .collect();
-                if cat_actions.is_empty() {
-                    continue;
-                }
-                if !first_category {
+                    let mut first_category = true;
+                    for category in categories {
+                        let cat_actions: Vec<_> = actions
+                            .iter()
+                            .filter(|e| e.id.category() == category)
+                            .collect();
+                        if cat_actions.is_empty() {
+                            continue;
+                        }
+                        if !first_category {
+                            ui.separator();
+                        }
+                        first_category = false;
+                        for entry in &cat_actions {
+                            if ui
+                                .add_enabled(entry.enabled, egui::Button::new(entry.id.label()))
+                                .clicked()
+                            {
+                                execute_action(
+                                    app,
+                                    entry.id,
+                                    pair_context,
+                                    source_context,
+                                    &mut intents,
+                                    focused_pane_node,
+                                );
+                                should_close = true;
+                            }
+                        }
+                    }
+
                     ui.separator();
-                }
-                first_category = false;
-                for entry in &cat_actions {
-                    if ui
-                        .add_enabled(entry.enabled, egui::Button::new(entry.id.label()))
-                        .clicked()
-                    {
-                        execute_action(
-                            app,
-                            entry.id,
-                            pair_context,
-                            source_context,
-                            &mut intents,
-                            focused_pane_node,
-                        );
+                    if ui.button("Close").clicked() {
                         should_close = true;
                     }
-                }
-            }
-
-            ui.separator();
-            if ui.button("Close").clicked() {
-                should_close = true;
-            }
-            ui.add_space(6.0);
-            ui.small("Keyboard: G, Shift+G, Alt+G, I, U");
+                    ui.add_space(6.0);
+                    ui.small("Keyboard: G, Shift+G, Alt+G, I, U");
+                });
         });
 
     app.workspace.show_command_palette = open && !should_close;

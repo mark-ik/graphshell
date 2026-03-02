@@ -21,6 +21,7 @@ use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 #[derive(Default)]
 pub struct KeyboardActions {
     pub toggle_physics: bool,
+    pub toggle_camera_fit_lock: bool,
     pub toggle_view: bool,
     pub fit_to_screen: bool,
     pub open_physics_settings: bool,
@@ -78,6 +79,11 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         // T: Toggle physics
         if i.key_pressed(Key::T) {
             actions.toggle_physics = true;
+        }
+
+        // F9: Toggle camera fit-lock mode
+        if i.key_pressed(Key::F9) {
+            actions.toggle_camera_fit_lock = true;
         }
 
         // + / - / 0: keyboard zoom controls
@@ -244,6 +250,9 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     if actions.toggle_physics {
         intents.push(GraphIntent::TogglePhysics);
     }
+    if actions.toggle_camera_fit_lock {
+        intents.push(GraphIntent::ToggleCameraFitLock);
+    }
     // View toggling is owned by GUI tile logic.
     if actions.fit_to_screen {
         intents.push(GraphIntent::RequestFitToScreen);
@@ -373,6 +382,19 @@ mod tests {
         app.apply_intents(intents);
 
         assert_ne!(app.workspace.physics.base.is_running, was_running);
+    }
+
+    #[test]
+    fn test_toggle_camera_fit_lock_action_maps_to_intent() {
+        let intents = intents_from_actions(&KeyboardActions {
+            toggle_camera_fit_lock: true,
+            ..Default::default()
+        });
+        assert!(
+            intents
+                .iter()
+                .any(|i| matches!(i, GraphIntent::ToggleCameraFitLock))
+        );
     }
 
     #[test]

@@ -17,6 +17,8 @@ Default keybinds are configurable in `Settings -> Input`.
 - `P`: Toggle physics settings panel
 - `+` / `-` / `0`: Zoom in / out / reset
 - `Z`: Smart fit (`2+` selected: fit selection, else fit graph)
+- `W` / `A` / `S` / `D` or `Arrow Keys`: Pan graph camera (when unlocked; key mode configurable in Settings > Appearance)
+- `F9`: Toggle camera fit-lock (locks camera to fit-to-screen)
 - `Ctrl+Click`: Multi-select nodes
 - `Right+Drag` (default): Lasso select (replace)
 - `Right+Shift+Drag` (default): Lasso add to selection

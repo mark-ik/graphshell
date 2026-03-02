@@ -820,6 +820,29 @@ impl RadialMenuShortcut {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardPanInputMode {
+    WasdAndArrows,
+    ArrowsOnly,
+}
+
+impl KeyboardPanInputMode {
+    fn as_persisted_str(self) -> &'static str {
+        match self {
+            Self::WasdAndArrows => "wasd-and-arrows",
+            Self::ArrowsOnly => "arrows-only",
+        }
+    }
+
+    fn from_persisted_str(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "wasd-and-arrows" => Some(Self::WasdAndArrows),
+            "arrows-only" => Some(Self::ArrowsOnly),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OmnibarPreferredScope {
     Auto,
     LocalTabs,
@@ -880,6 +903,7 @@ impl OmnibarNonAtOrderPreset {
 #[derive(Debug, Clone)]
 pub enum GraphIntent {
     TogglePhysics,
+    ToggleCameraFitLock,
     RequestFitToScreen,
     RequestZoomIn,
     RequestZoomOut,
@@ -1269,6 +1293,10 @@ pub struct GraphWorkspace {
     pub help_panel_shortcut: HelpPanelShortcut,
     /// Shortcut binding for radial menu.
     pub radial_menu_shortcut: RadialMenuShortcut,
+    /// Keyboard pan speed for graph camera controls.
+    pub keyboard_pan_step: f32,
+    /// Keyboard pan input mode (WASD + arrows, or arrows-only).
+    pub keyboard_pan_input_mode: KeyboardPanInputMode,
     /// Preferred default non-`@` omnibar scope behavior.
     pub omnibar_preferred_scope: OmnibarPreferredScope,
     /// Non-`@` omnibar ordering preset.
@@ -1376,6 +1404,9 @@ pub struct GraphWorkspace {
     /// Camera state (zoom bounds)
     pub camera: Camera,
 
+    /// When true, graph camera is locked to fit-to-screen and free pan/zoom is disabled.
+    pub camera_fit_locked: bool,
+
     /// Global undo history snapshots.
     undo_stack: Vec<UndoRedoSnapshot>,
     /// Global redo history snapshots.
@@ -1470,6 +1501,10 @@ impl GraphBrowserApp {
         "workspace:settings-help-panel-shortcut";
     pub const SETTINGS_RADIAL_MENU_SHORTCUT_NAME: &'static str =
         "workspace:settings-radial-menu-shortcut";
+    pub const SETTINGS_KEYBOARD_PAN_STEP_NAME: &'static str =
+        "workspace:settings-keyboard-pan-step";
+    pub const SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME: &'static str =
+        "workspace:settings-keyboard-pan-input-mode";
     pub const SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME: &'static str =
         "workspace:settings-omnibar-preferred-scope";
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
@@ -1487,6 +1522,7 @@ impl GraphBrowserApp {
     pub const DEFAULT_WORKSPACE_AUTOSAVE_RETENTION: u8 = 1;
     pub const DEFAULT_ACTIVE_WEBVIEW_LIMIT: usize = 4;
     pub const DEFAULT_WARM_CACHE_LIMIT: usize = 12;
+    pub const DEFAULT_KEYBOARD_PAN_STEP: f32 = 12.0;
     pub const TAG_PIN: &'static str = "#pin";
     pub const TAG_STARRED: &'static str = "#starred";
 
@@ -1575,6 +1611,8 @@ impl GraphBrowserApp {
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
                 radial_menu_shortcut: RadialMenuShortcut::F3,
+                keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
+                keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                 selected_tab_nodes: HashSet::new(),
@@ -1615,6 +1653,7 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_target_view: None,
                 pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
+                camera_fit_locked: false,
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
@@ -1768,6 +1807,8 @@ impl GraphBrowserApp {
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
                 radial_menu_shortcut: RadialMenuShortcut::F3,
+                keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
+                keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                 selected_tab_nodes: HashSet::new(),
@@ -1808,6 +1849,7 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_target_view: None,
                 pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
+                camera_fit_locked: false,
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
@@ -1899,6 +1941,20 @@ impl GraphBrowserApp {
     /// Request camera fit on next render frame.
     pub fn request_fit_to_screen(&mut self) {
         self.request_camera_command(CameraCommand::Fit);
+    }
+
+    pub fn camera_fit_locked(&self) -> bool {
+        self.workspace.camera_fit_locked
+    }
+
+    pub fn set_camera_fit_locked(&mut self, locked: bool) {
+        if self.workspace.camera_fit_locked == locked {
+            return;
+        }
+        self.workspace.camera_fit_locked = locked;
+        if locked {
+            self.request_fit_to_screen();
+        }
     }
 
     fn resolve_camera_target_view(&self) -> Option<GraphViewId> {
@@ -2113,25 +2169,41 @@ impl GraphBrowserApp {
 
     fn apply_workspace_only_intent(&mut self, intent: &GraphIntent) -> bool {
         match intent {
+            GraphIntent::ToggleCameraFitLock => {
+                self.set_camera_fit_locked(!self.workspace.camera_fit_locked);
+                true
+            }
             GraphIntent::RequestFitToScreen => {
                 self.request_fit_to_screen();
                 true
             }
             GraphIntent::RequestZoomIn => {
-                self.queue_keyboard_zoom_request(KeyboardZoomRequest::In);
+                if self.workspace.camera_fit_locked {
+                    self.request_fit_to_screen();
+                } else {
+                    self.queue_keyboard_zoom_request(KeyboardZoomRequest::In);
+                }
                 true
             }
             GraphIntent::RequestZoomOut => {
-                self.queue_keyboard_zoom_request(KeyboardZoomRequest::Out);
+                if self.workspace.camera_fit_locked {
+                    self.request_fit_to_screen();
+                } else {
+                    self.queue_keyboard_zoom_request(KeyboardZoomRequest::Out);
+                }
                 true
             }
             GraphIntent::RequestZoomReset => {
-                self.queue_keyboard_zoom_request(KeyboardZoomRequest::Reset);
+                if self.workspace.camera_fit_locked {
+                    self.request_fit_to_screen();
+                } else {
+                    self.queue_keyboard_zoom_request(KeyboardZoomRequest::Reset);
+                }
                 true
             }
             GraphIntent::RequestZoomToSelected => {
-                if self.workspace.selected_nodes.len() < 2 {
-                    self.request_camera_command(CameraCommand::Fit);
+                if self.workspace.camera_fit_locked || self.workspace.selected_nodes.len() < 2 {
+                    self.request_fit_to_screen();
                 } else {
                     self.request_camera_command(CameraCommand::FitSelection);
                 }
@@ -2164,10 +2236,12 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetZoom { zoom } => {
-                if let Some(focused_view) = self.workspace.focused_view
-                    && let Some(view) = self.workspace.views.get_mut(&focused_view)
-                {
-                    view.camera.current_zoom = view.camera.clamp(*zoom);
+                if !self.workspace.camera_fit_locked {
+                    if let Some(focused_view) = self.workspace.focused_view
+                        && let Some(view) = self.workspace.views.get_mut(&focused_view)
+                    {
+                        view.camera.current_zoom = view.camera.clamp(*zoom);
+                    }
                 }
                 true
             }
@@ -2266,7 +2340,8 @@ impl GraphBrowserApp {
 
         match intent {
             GraphIntent::TogglePhysics => self.toggle_physics(),
-            GraphIntent::RequestFitToScreen
+            GraphIntent::ToggleCameraFitLock
+            | GraphIntent::RequestFitToScreen
             | GraphIntent::RequestZoomIn
             | GraphIntent::RequestZoomOut
             | GraphIntent::RequestZoomReset
@@ -3213,6 +3288,8 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME
             || name == Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME
             || name == Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME
+            || name == Self::SETTINGS_KEYBOARD_PAN_STEP_NAME
+            || name == Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
@@ -3260,10 +3337,43 @@ impl GraphBrowserApp {
         self.save_radial_menu_shortcut();
     }
 
+    pub fn keyboard_pan_step(&self) -> f32 {
+        self.workspace.keyboard_pan_step
+    }
+
+    pub fn set_keyboard_pan_step(&mut self, step: f32) {
+        let normalized = step.clamp(1.0, 200.0);
+        self.workspace.keyboard_pan_step = normalized;
+        self.save_keyboard_pan_step();
+    }
+
+    pub fn keyboard_pan_input_mode(&self) -> KeyboardPanInputMode {
+        self.workspace.keyboard_pan_input_mode
+    }
+
+    pub fn set_keyboard_pan_input_mode(&mut self, mode: KeyboardPanInputMode) {
+        self.workspace.keyboard_pan_input_mode = mode;
+        self.save_keyboard_pan_input_mode();
+    }
+
     fn save_radial_menu_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
             self.workspace.radial_menu_shortcut.as_persisted_str(),
+        );
+    }
+
+    fn save_keyboard_pan_step(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_KEYBOARD_PAN_STEP_NAME,
+            &format!("{:.3}", self.workspace.keyboard_pan_step),
+        );
+    }
+
+    fn save_keyboard_pan_input_mode(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME,
+            self.workspace.keyboard_pan_input_mode.as_persisted_str(),
         );
     }
 
@@ -3413,6 +3523,23 @@ impl GraphBrowserApp {
                 self.workspace.radial_menu_shortcut = shortcut;
             } else {
                 warn!("Ignoring invalid persisted radial-menu shortcut: '{raw}'");
+            }
+        }
+        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_STEP_NAME)
+        {
+            if let Ok(step) = raw.trim().parse::<f32>() {
+                self.workspace.keyboard_pan_step = step.clamp(1.0, 200.0);
+            } else {
+                warn!("Ignoring invalid persisted keyboard pan step: '{raw}'");
+            }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME)
+        {
+            if let Some(mode) = KeyboardPanInputMode::from_persisted_str(&raw) {
+                self.workspace.keyboard_pan_input_mode = mode;
+            } else {
+                warn!("Ignoring invalid persisted keyboard pan input mode: '{raw}'");
             }
         }
         if let Some(raw) =
@@ -5898,6 +6025,45 @@ mod tests {
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
         assert_eq!(app.pending_camera_command_target(), Some(view_b));
+    }
+
+    #[test]
+    fn test_toggle_camera_fit_lock_requests_fit() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
+        app.clear_pending_camera_command();
+
+        app.apply_intents([GraphIntent::ToggleCameraFitLock]);
+
+        assert!(app.camera_fit_locked());
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+        assert_eq!(app.pending_camera_command_target(), Some(view_id));
+    }
+
+    #[test]
+    fn test_zoom_intents_noop_when_camera_fit_lock_enabled() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
+
+        app.set_camera_fit_locked(true);
+        app.clear_pending_camera_command();
+
+        app.apply_intents([GraphIntent::RequestZoomIn]);
+        assert_eq!(app.take_pending_keyboard_zoom_request(view_id), None);
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+
+        app.clear_pending_camera_command();
+        app.workspace.views.get_mut(&view_id).unwrap().camera.current_zoom = 2.0;
+        app.apply_intents([GraphIntent::SetZoom { zoom: 0.25 }]);
+        assert_eq!(app.workspace.views.get(&view_id).unwrap().camera.current_zoom, 2.0);
     }
 
     #[test]
@@ -8582,6 +8748,35 @@ mod tests {
         assert_eq!(
             reopened.workspace.radial_menu_shortcut,
             RadialMenuShortcut::R
+        );
+    }
+
+    #[test]
+    fn test_keyboard_pan_step_persists_across_restart() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        app.set_keyboard_pan_step(27.0);
+        drop(app);
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        assert!((reopened.keyboard_pan_step() - 27.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_keyboard_pan_input_mode_persists_across_restart() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        app.set_keyboard_pan_input_mode(KeyboardPanInputMode::ArrowsOnly);
+        drop(app);
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        assert_eq!(
+            reopened.keyboard_pan_input_mode(),
+            KeyboardPanInputMode::ArrowsOnly
         );
     }
 

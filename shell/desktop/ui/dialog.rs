@@ -680,48 +680,56 @@ impl Dialog {
                         .show(ctx, |ui| {
                             Frame::popup(ui.style()).show(ui, |ui| {
                                 ui.set_min_width(MINIMUM_UI_ELEMENT_WIDTH);
-                                for item in context_menu.items() {
-                                    match item {
-                                        ContextMenuItem::Item {
-                                            label,
-                                            action,
-                                            enabled,
-                                        } => {
-                                            let (color, sense) = match enabled {
-                                                true => (
-                                                    ui.visuals().strong_text_color(),
-                                                    Sense::click(),
-                                                ),
-                                                false => {
-                                                    (ui.visuals().weak_text_color(), Sense::empty())
+                                let max_menu_height =
+                                    (ui.ctx().input(|i| i.content_rect().height()) - 120.0)
+                                        .max(180.0);
+                                egui::ScrollArea::vertical()
+                                    .auto_shrink([false, false])
+                                    .max_height(max_menu_height)
+                                    .show(ui, |ui| {
+                                        for item in context_menu.items() {
+                                            match item {
+                                                ContextMenuItem::Item {
+                                                    label,
+                                                    action,
+                                                    enabled,
+                                                } => {
+                                                    let (color, sense) = match enabled {
+                                                        true => (
+                                                            ui.visuals().strong_text_color(),
+                                                            Sense::click(),
+                                                        ),
+                                                        false => {
+                                                            (ui.visuals().weak_text_color(), Sense::empty())
+                                                        }
+                                                    };
+
+                                                    ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
+                                                        ui.visuals().panel_fill;
+                                                    ui.style_mut().visuals.widgets.inactive.bg_fill =
+                                                        ui.visuals().panel_fill;
+                                                    let button =
+                                                        Button::new(RichText::new(label).color(color))
+                                                            .sense(sense)
+                                                            .corner_radius(CornerRadius::ZERO)
+                                                            .stroke(Stroke::NONE)
+                                                            .wrap_mode(egui::TextWrapMode::Extend)
+                                                            .min_size(Vec2 {
+                                                                x: MINIMUM_UI_ELEMENT_WIDTH,
+                                                                y: 0.0,
+                                                            });
+
+                                                    if ui.add(button).clicked() {
+                                                        selected_action = Some(*action);
+                                                        ui.close();
+                                                    }
                                                 }
-                                            };
-
-                                            ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
-                                                ui.visuals().panel_fill;
-                                            ui.style_mut().visuals.widgets.inactive.bg_fill =
-                                                ui.visuals().panel_fill;
-                                            let button =
-                                                Button::new(RichText::new(label).color(color))
-                                                    .sense(sense)
-                                                    .corner_radius(CornerRadius::ZERO)
-                                                    .stroke(Stroke::NONE)
-                                                    .wrap_mode(egui::TextWrapMode::Extend)
-                                                    .min_size(Vec2 {
-                                                        x: MINIMUM_UI_ELEMENT_WIDTH,
-                                                        y: 0.0,
-                                                    });
-
-                                            if ui.add(button).clicked() {
-                                                selected_action = Some(*action);
-                                                ui.close();
+                                                ContextMenuItem::Separator => {
+                                                    ui.separator();
+                                                }
                                             }
                                         }
-                                        ContextMenuItem::Separator => {
-                                            ui.separator();
-                                        }
-                                    }
-                                }
+                                    });
                             })
                         });
 

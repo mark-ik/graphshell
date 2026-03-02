@@ -634,10 +634,14 @@ impl Gui {
         point: Point2D<f32, DeviceIndependentPixel>,
     ) -> Option<(WebViewId, Point2D<f32, DeviceIndependentPixel>)> {
         let cursor = pos2(point.x, point.y);
-        for tile_id in self.tiles_tree.active_tiles() {
-            let Some(Tile::Pane(TileKind::Node(state))) = self.tiles_tree.tiles.get(tile_id) else {
+        for (tile_id, tile) in self.tiles_tree.tiles.iter() {
+            let tile_id = *tile_id;
+            let Tile::Pane(TileKind::Node(state)) = tile else {
                 continue;
             };
+            if !self.tiles_tree.is_visible(tile_id) {
+                continue;
+            }
             let Some(rect) = self.tiles_tree.tiles.rect(tile_id) else {
                 continue;
             };
@@ -655,15 +659,15 @@ impl Gui {
 
     pub(crate) fn graph_at_point(&self, point: Point2D<f32, DeviceIndependentPixel>) -> bool {
         let cursor = pos2(point.x, point.y);
-        self.tiles_tree.active_tiles().into_iter().any(|tile_id| {
-            matches!(
-                self.tiles_tree.tiles.get(tile_id),
-                Some(Tile::Pane(TileKind::Graph(_)))
-            ) && self
-                .tiles_tree
-                .tiles
-                .rect(tile_id)
-                .is_some_and(|rect| rect.contains(cursor))
+        self.tiles_tree.tiles.iter().any(|(tile_id, tile)| {
+            let tile_id = *tile_id;
+            matches!(tile, Tile::Pane(TileKind::Graph(_)))
+                && self.tiles_tree.is_visible(tile_id)
+                && self
+                    .tiles_tree
+                    .tiles
+                    .rect(tile_id)
+                    .is_some_and(|rect| rect.contains(cursor))
         })
     }
 

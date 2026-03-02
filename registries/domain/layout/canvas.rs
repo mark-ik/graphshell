@@ -23,6 +23,8 @@ pub(crate) struct CanvasNavigationPolicy {
     pub(crate) wheel_zoom_requires_ctrl: bool,
     #[serde(default = "default_keyboard_zoom_step")]
     pub(crate) keyboard_zoom_step: f32,
+    #[serde(default = "default_keyboard_pan_step")]
+    pub(crate) keyboard_pan_step: f32,
     #[serde(default = "default_wheel_zoom_impulse_scale")]
     pub(crate) wheel_zoom_impulse_scale: f32,
     #[serde(default = "default_wheel_zoom_inertia_damping")]
@@ -43,6 +45,10 @@ fn default_keyboard_zoom_step() -> f32 {
 
 fn default_camera_fit_padding() -> f32 {
     1.1
+}
+
+fn default_keyboard_pan_step() -> f32 {
+    12.0
 }
 
 fn default_camera_fit_relax() -> f32 {
@@ -224,6 +230,7 @@ impl Default for CanvasRegistry {
                     zoom_and_pan_enabled: true,
                     wheel_zoom_requires_ctrl: false,
                     keyboard_zoom_step: default_keyboard_zoom_step(),
+                    keyboard_pan_step: default_keyboard_pan_step(),
                     camera_fit_padding: default_camera_fit_padding(),
                     wheel_zoom_impulse_scale: default_wheel_zoom_impulse_scale(),
                     wheel_zoom_inertia_damping: default_wheel_zoom_inertia_damping(),
@@ -311,6 +318,7 @@ mod tests {
                     zoom_and_pan_enabled: false,
                     wheel_zoom_requires_ctrl: false,
                     keyboard_zoom_step: default_keyboard_zoom_step(),
+                    keyboard_pan_step: default_keyboard_pan_step(),
                     camera_fit_padding: default_camera_fit_padding(),
                     wheel_zoom_impulse_scale: default_wheel_zoom_impulse_scale(),
                     wheel_zoom_inertia_damping: default_wheel_zoom_inertia_damping(),
@@ -405,6 +413,7 @@ mod tests {
                     zoom_and_pan_enabled: false,
                     wheel_zoom_requires_ctrl: true,
                     keyboard_zoom_step: default_keyboard_zoom_step(),
+                    keyboard_pan_step: default_keyboard_pan_step(),
                     camera_fit_padding: default_camera_fit_padding(),
                     wheel_zoom_impulse_scale: default_wheel_zoom_impulse_scale(),
                     wheel_zoom_inertia_damping: default_wheel_zoom_inertia_damping(),

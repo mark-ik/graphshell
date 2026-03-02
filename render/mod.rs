@@ -9,8 +9,8 @@
 
 use crate::app::{
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryManagerTab,
-    KeyboardZoomRequest, SearchDisplayMode, SelectionUpdateMode, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest,
+    KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode, SelectionUpdateMode,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest,
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
@@ -1048,27 +1048,42 @@ fn handle_custom_navigation(
         return None;
     }
 
+    let camera_fit_locked = app.camera_fit_locked();
+
+    if camera_fit_locked {
+        app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
+        app.clear_pending_wheel_zoom_delta();
+    }
+
     // Apply pending durable camera command.
     let camera_zoom = apply_pending_camera_command(ui, app, metadata_id, view_id, canvas_profile);
 
     // Apply keyboard zoom for this pane when a pending request explicitly targets it.
-    let keyboard_zoom = apply_pending_keyboard_zoom_request(
-        ui,
-        app,
-        metadata_id,
-        view_id,
-        canvas_profile.navigation.keyboard_zoom_step,
-    );
+    let keyboard_zoom = if camera_fit_locked {
+        None
+    } else {
+        apply_pending_keyboard_zoom_request(
+            ui,
+            app,
+            metadata_id,
+            view_id,
+            canvas_profile.navigation.keyboard_zoom_step,
+        )
+    };
 
     // Apply pre-intercepted wheel zoom delta.
-    let wheel_zoom = apply_pending_wheel_zoom(
-        ui,
-        response,
-        metadata_id,
-        app,
-        view_id,
-        &canvas_profile.navigation,
-    );
+    let wheel_zoom = if camera_fit_locked {
+        None
+    } else {
+        apply_pending_wheel_zoom(
+            ui,
+            response,
+            metadata_id,
+            app,
+            view_id,
+            &canvas_profile.navigation,
+        )
+    };
 
     let pointer_inside = response.contains_pointer() || response.dragged();
     let (primary_down, shift_down) = ui.input(|i| (i.pointer.primary_down(), i.modifiers.shift));
@@ -1076,17 +1091,33 @@ fn handle_custom_navigation(
         matches!(canvas_profile.interaction.lasso_binding, CanvasLassoBinding::ShiftLeftDrag)
             && shift_down;
 
+    if !camera_fit_locked
+        && keyboard_pan_allowed_for_view(app, view_id)
+        && !ui.ctx().wants_keyboard_input()
+    {
+        let keyboard_pan_delta = keyboard_pan_delta_from_input(
+            ui,
+            app.keyboard_pan_step(),
+            app.keyboard_pan_input_mode(),
+        );
+        if keyboard_pan_delta != Vec2::ZERO {
+            apply_background_pan(ui.ctx(), metadata_id, app, view_id, keyboard_pan_delta);
+        }
+    }
+
     // Pan with Left Mouse Button on background
     // Note: We check if we are NOT hovering a node to allow node dragging.
     // app.workspace.hovered_graph_node is updated before this function in render_graph_in_ui_collect_actions.
-    if canvas_profile.allows_background_pan(
+    if !camera_fit_locked
+        && canvas_profile.allows_background_pan(
         app.workspace.hovered_graph_node.is_none(),
         pointer_inside,
         primary_down,
         lasso_primary_drag_active,
         radial_open,
         right_button_down,
-    ) {
+    )
+    {
         let delta = ui.input(|i| i.pointer.delta());
         apply_background_pan(ui.ctx(), metadata_id, app, view_id, delta);
     }
@@ -1120,6 +1151,86 @@ fn handle_custom_navigation(
     });
 
     camera_zoom.or(keyboard_zoom).or(wheel_zoom)
+}
+
+fn keyboard_pan_allowed_for_view(app: &GraphBrowserApp, view_id: crate::app::GraphViewId) -> bool {
+    if app.workspace.focused_view == Some(view_id) {
+        return true;
+    }
+
+    app.workspace.focused_view.is_none()
+        && app.workspace.views.len() == 1
+        && app.workspace.views.contains_key(&view_id)
+}
+
+fn keyboard_pan_delta_from_input(ui: &Ui, step: f32, mode: KeyboardPanInputMode) -> Vec2 {
+    let state = ui.input(|i| KeyboardPanInputState {
+        wasd: KeyboardPanKeys {
+            up: i.key_down(egui::Key::W),
+            down: i.key_down(egui::Key::S),
+            left: i.key_down(egui::Key::A),
+            right: i.key_down(egui::Key::D),
+        },
+        arrows: KeyboardPanKeys {
+            up: i.key_down(egui::Key::ArrowUp),
+            down: i.key_down(egui::Key::ArrowDown),
+            left: i.key_down(egui::Key::ArrowLeft),
+            right: i.key_down(egui::Key::ArrowRight),
+        },
+    });
+    keyboard_pan_delta_from_state(state, step, mode)
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct KeyboardPanKeys {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct KeyboardPanInputState {
+    wasd: KeyboardPanKeys,
+    arrows: KeyboardPanKeys,
+}
+
+fn keyboard_pan_delta_from_state(
+    state: KeyboardPanInputState,
+    step: f32,
+    mode: KeyboardPanInputMode,
+) -> Vec2 {
+    let keys = match mode {
+        KeyboardPanInputMode::WasdAndArrows => KeyboardPanKeys {
+            up: state.wasd.up || state.arrows.up,
+            down: state.wasd.down || state.arrows.down,
+            left: state.wasd.left || state.arrows.left,
+            right: state.wasd.right || state.arrows.right,
+        },
+        KeyboardPanInputMode::ArrowsOnly => state.arrows,
+    };
+
+    keyboard_pan_delta_from_keys(keys, step)
+}
+
+fn keyboard_pan_delta_from_keys(keys: KeyboardPanKeys, step: f32) -> Vec2 {
+    let pan_step = step.max(1.0);
+    let mut delta = Vec2::ZERO;
+
+    if keys.left {
+        delta.x += pan_step;
+    }
+    if keys.right {
+        delta.x -= pan_step;
+    }
+    if keys.up {
+        delta.y += pan_step;
+    }
+    if keys.down {
+        delta.y -= pan_step;
+    }
+
+    delta
 }
 
 fn apply_background_pan(
@@ -2120,7 +2231,7 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
         crate::app::HelpPanelShortcut::H => "H Help",
     };
     let controls_text = format!(
-        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | Z Smart Fit | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} | {radial_hint} | Ctrl+Z/Y Undo/Redo | {help_hint}"
+        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | Z Smart Fit | WASD/Arrows Pan | F9 Fit-Lock | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} | {radial_hint} | Ctrl+Z/Y Undo/Redo | {help_hint}"
     );
     ui.painter().text(
         ui.available_rect_before_wrap().left_bottom() + Vec2::new(10.0, -10.0),
@@ -2244,79 +2355,84 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
     Window::new("Keyboard Shortcuts")
         .open(&mut open)
         .default_width(350.0)
-        .resizable(false)
+        .default_height(420.0)
+        .resizable(true)
         .show(ctx, |ui| {
-            egui::Grid::new("shortcut_grid")
-                .num_columns(2)
-                .spacing([20.0, 6.0])
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    let lasso_binding = layout_profile.canvas.profile.interaction.lasso_binding;
-                    let lasso_base = match lasso_binding {
-                        CanvasLassoBinding::RightDrag => "Right+Drag",
-                        CanvasLassoBinding::ShiftLeftDrag => "Shift+LeftDrag",
-                    };
-                    let lasso_add = match lasso_binding {
-                        CanvasLassoBinding::RightDrag => "Right+Shift/Ctrl+Drag",
-                        CanvasLassoBinding::ShiftLeftDrag => "Shift+Ctrl+LeftDrag",
-                    };
-                    let lasso_toggle = match lasso_binding {
-                        CanvasLassoBinding::RightDrag => "Right+Alt+Drag",
-                        CanvasLassoBinding::ShiftLeftDrag => "Shift+Alt+LeftDrag",
-                    };
-                    let command_palette_key = match app.workspace.command_palette_shortcut {
-                        crate::app::CommandPaletteShortcut::F2 => "F2",
-                        crate::app::CommandPaletteShortcut::CtrlK => "Ctrl+K",
-                    };
-                    let radial_key = match app.workspace.radial_menu_shortcut {
-                        crate::app::RadialMenuShortcut::F3 => "F3",
-                        crate::app::RadialMenuShortcut::R => "R",
-                    };
-                    let help_key = match app.workspace.help_panel_shortcut {
-                        crate::app::HelpPanelShortcut::F1OrQuestion => "F1 / ?",
-                        crate::app::HelpPanelShortcut::H => "H",
-                    };
-                    let shortcuts = [
-                        ("Home / Esc", "Toggle Graph / Detail view"),
-                        ("N", "Create new node"),
-                        ("Delete", "Remove selected nodes"),
-                        ("Ctrl+Shift+Delete", "Clear entire graph"),
-                        ("T", "Toggle physics simulation"),
-                        ("R", "Reheat physics simulation"),
-                        ("+ / - / 0", "Zoom in / out / reset"),
-                        (
-                            "Z",
-                            "Smart fit (2+ selected: fit selection; else fit graph)",
-                        ),
-                        ("P", "Physics settings panel"),
-                        ("Ctrl+H", "History Manager panel"),
-                        ("Ctrl+F", "Show graph search"),
-                        (command_palette_key, "Toggle edge command palette"),
-                        (radial_key, "Toggle radial command menu"),
-                        ("Ctrl+Z / Ctrl+Y", "Undo / Redo"),
-                        ("G", "Connect selected pair"),
-                        ("Shift+G", "Connect both directions"),
-                        ("Alt+G", "Remove user edge"),
-                        ("I / U", "Pin / Unpin selected node(s)"),
-                        ("L", "Toggle pin on primary selected node"),
-                        (lasso_base, "Lasso select (replace)"),
-                        (lasso_add, "Lasso add to selection"),
-                        (lasso_toggle, "Lasso toggle selection"),
-                        ("Search Up/Down", "Cycle graph matches"),
-                        ("Search Enter", "Select active search match"),
-                        (help_key, "This help panel"),
-                        ("Ctrl+L / Alt+D", "Focus address bar"),
-                        ("Double-click node", "Open node via workspace routing"),
-                        ("Drag tab out", "Detach tab into split pane"),
-                        ("Shift + Double-click node", "Fallback split-open gesture"),
-                        ("Click + drag", "Move a node"),
-                        ("Scroll wheel", "Zoom in / out"),
-                    ];
+                    egui::Grid::new("shortcut_grid")
+                        .num_columns(2)
+                        .spacing([20.0, 6.0])
+                        .show(ui, |ui| {
+                            let lasso_binding = layout_profile.canvas.profile.interaction.lasso_binding;
+                            let lasso_base = match lasso_binding {
+                                CanvasLassoBinding::RightDrag => "Right+Drag",
+                                CanvasLassoBinding::ShiftLeftDrag => "Shift+LeftDrag",
+                            };
+                            let lasso_add = match lasso_binding {
+                                CanvasLassoBinding::RightDrag => "Right+Shift/Ctrl+Drag",
+                                CanvasLassoBinding::ShiftLeftDrag => "Shift+Ctrl+LeftDrag",
+                            };
+                            let lasso_toggle = match lasso_binding {
+                                CanvasLassoBinding::RightDrag => "Right+Alt+Drag",
+                                CanvasLassoBinding::ShiftLeftDrag => "Shift+Alt+LeftDrag",
+                            };
+                            let command_palette_key = match app.workspace.command_palette_shortcut {
+                                crate::app::CommandPaletteShortcut::F2 => "F2",
+                                crate::app::CommandPaletteShortcut::CtrlK => "Ctrl+K",
+                            };
+                            let radial_key = match app.workspace.radial_menu_shortcut {
+                                crate::app::RadialMenuShortcut::F3 => "F3",
+                                crate::app::RadialMenuShortcut::R => "R",
+                            };
+                            let help_key = match app.workspace.help_panel_shortcut {
+                                crate::app::HelpPanelShortcut::F1OrQuestion => "F1 / ?",
+                                crate::app::HelpPanelShortcut::H => "H",
+                            };
+                            let shortcuts = [
+                                ("Home / Esc", "Toggle Graph / Detail view"),
+                                ("N", "Create new node"),
+                                ("Delete", "Remove selected nodes"),
+                                ("Ctrl+Shift+Delete", "Clear entire graph"),
+                                ("T", "Toggle physics simulation"),
+                                ("R", "Reheat physics simulation"),
+                                ("+ / - / 0", "Zoom in / out / reset"),
+                                (
+                                    "Z",
+                                    "Smart fit (2+ selected: fit selection; else fit graph)",
+                                ),
+                                ("P", "Physics settings panel"),
+                                ("Ctrl+H", "History Manager panel"),
+                                ("Ctrl+F", "Show graph search"),
+                                (command_palette_key, "Toggle edge command palette"),
+                                (radial_key, "Toggle radial command menu"),
+                                ("Ctrl+Z / Ctrl+Y", "Undo / Redo"),
+                                ("G", "Connect selected pair"),
+                                ("Shift+G", "Connect both directions"),
+                                ("Alt+G", "Remove user edge"),
+                                ("I / U", "Pin / Unpin selected node(s)"),
+                                ("L", "Toggle pin on primary selected node"),
+                                (lasso_base, "Lasso select (replace)"),
+                                (lasso_add, "Lasso add to selection"),
+                                (lasso_toggle, "Lasso toggle selection"),
+                                ("Search Up/Down", "Cycle graph matches"),
+                                ("Search Enter", "Select active search match"),
+                                (help_key, "This help panel"),
+                                ("Ctrl+L / Alt+D", "Focus address bar"),
+                                ("Double-click node", "Open node via workspace routing"),
+                                ("Drag tab out", "Detach tab into split pane"),
+                                ("Shift + Double-click node", "Fallback split-open gesture"),
+                                ("Click + drag", "Move a node"),
+                                ("Scroll wheel", "Zoom in / out"),
+                            ];
 
-                    for (key, desc) in shortcuts {
-                        ui.strong(key);
-                        ui.label(desc);
-                        ui.end_row();
-                    }
+                            for (key, desc) in shortcuts {
+                                ui.strong(key);
+                                ui.label(desc);
+                                ui.end_row();
+                            }
+                        });
                 });
         });
     app.workspace.show_help_panel = open;
@@ -2410,52 +2526,55 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
     ui.heading("Settings");
     ui.separator();
 
-    ui.horizontal(|ui| {
-        if ui.button("History").clicked() {
-            intents.push(GraphIntent::OpenSettingsUrl {
-                url: "graphshell://settings/history".to_string(),
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("History").clicked() {
+                    intents.push(GraphIntent::OpenSettingsUrl {
+                        url: "graphshell://settings/history".to_string(),
+                    });
+                }
+                if ui.button("Done").clicked() {
+                    intents.push(GraphIntent::CloseToolPane {
+                        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
+                        restore_previous_focus: true,
+                    });
+                }
             });
-        }
-        if ui.button("Done").clicked() {
-            intents.push(GraphIntent::CloseToolPane {
-                kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
-                restore_previous_focus: true,
+            ui.add_space(4.0);
+
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Category:");
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::General,
+                    "General",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Persistence,
+                    "Persistence",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Physics,
+                    "Physics",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Sync,
+                    "Sync",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Appearance,
+                    "Appearance",
+                );
             });
-        }
-    });
-    ui.add_space(4.0);
+            ui.separator();
 
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Category:");
-        ui.selectable_value(
-            &mut app.workspace.settings_tool_page,
-            crate::app::SettingsToolPage::General,
-            "General",
-        );
-        ui.selectable_value(
-            &mut app.workspace.settings_tool_page,
-            crate::app::SettingsToolPage::Persistence,
-            "Persistence",
-        );
-        ui.selectable_value(
-            &mut app.workspace.settings_tool_page,
-            crate::app::SettingsToolPage::Physics,
-            "Physics",
-        );
-        ui.selectable_value(
-            &mut app.workspace.settings_tool_page,
-            crate::app::SettingsToolPage::Sync,
-            "Sync",
-        );
-        ui.selectable_value(
-            &mut app.workspace.settings_tool_page,
-            crate::app::SettingsToolPage::Appearance,
-            "Appearance",
-        );
-    });
-    ui.separator();
-
-    match app.workspace.settings_tool_page {
+            match app.workspace.settings_tool_page {
         crate::app::SettingsToolPage::General => {
             ui.label("Settings are page-backed app surfaces in this pane.");
             ui.label("Use categories to edit persistence, physics, sync, and appearance.");
@@ -2576,8 +2695,45 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                 }
             }
             ui.small("Theme mode is persisted through the workspace settings model.");
+
+            ui.separator();
+            ui.label("Graph Camera");
+            let mut fit_lock_enabled = app.camera_fit_locked();
+            if ui
+                .checkbox(&mut fit_lock_enabled, "Lock camera to graph fit")
+                .changed()
+            {
+                app.set_camera_fit_locked(fit_lock_enabled);
+            }
+            ui.small("When enabled, camera stays fit-to-screen and free pan/zoom is disabled.");
+
+            ui.horizontal(|ui| {
+                ui.label("Keyboard pan speed");
+                let mut pan_step = app.keyboard_pan_step();
+                if ui
+                    .add(
+                        egui::Slider::new(&mut pan_step, 1.0..=80.0)
+                            .step_by(1.0)
+                            .suffix(" px"),
+                    )
+                    .changed()
+                {
+                    app.set_keyboard_pan_step(pan_step);
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Keyboard pan keys");
+                let mut mode = app.keyboard_pan_input_mode();
+                ui.radio_value(&mut mode, KeyboardPanInputMode::WasdAndArrows, "WASD + Arrows");
+                ui.radio_value(&mut mode, KeyboardPanInputMode::ArrowsOnly, "Arrows only");
+                if mode != app.keyboard_pan_input_mode() {
+                    app.set_keyboard_pan_input_mode(mode);
+                }
+            });
         }
-    }
+            }
+        });
 
     intents
 }
@@ -3051,53 +3207,60 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
         .unwrap_or_else(|| "Choose Frame".to_string());
     Window::new(title)
         .collapsible(false)
-        .resizable(false)
+        .resizable(true)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .default_width(300.0)
+        .default_height(360.0)
         .show(ctx, |ui| {
-            if memberships.is_empty() {
-                let msg = match request.mode {
-                    ChooseFramePickerMode::OpenNodeInFrame => "No frame memberships for this node.",
-                    ChooseFramePickerMode::AddNodeToFrame => {
-                        "No named frames available. Save one first."
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if memberships.is_empty() {
+                        let msg = match request.mode {
+                            ChooseFramePickerMode::OpenNodeInFrame => {
+                                "No frame memberships for this node."
+                            }
+                            ChooseFramePickerMode::AddNodeToFrame => {
+                                "No named frames available. Save one first."
+                            }
+                            ChooseFramePickerMode::AddConnectedSelectionToFrame => {
+                                "No named frames available. Save one first."
+                            }
+                            ChooseFramePickerMode::AddExactSelectionToFrame => {
+                                "No named frames available. Save one first."
+                            }
+                        };
+                        ui.small(msg);
+                    } else {
+                        memberships.dedup();
+                        let header = match request.mode {
+                            ChooseFramePickerMode::OpenNodeInFrame => "Open in frame:",
+                            ChooseFramePickerMode::AddNodeToFrame => "Add node to frame:",
+                            ChooseFramePickerMode::AddConnectedSelectionToFrame => {
+                                "Add connected nodes to frame:"
+                            }
+                            ChooseFramePickerMode::AddExactSelectionToFrame => {
+                                "Add selected nodes to frame:"
+                            }
+                        };
+                        ui.small(header);
+                        for name in &memberships {
+                            if ui.button(name).clicked() {
+                                selected_frame = Some(name.clone());
+                                close = true;
+                            }
+                        }
                     }
-                    ChooseFramePickerMode::AddConnectedSelectionToFrame => {
-                        "No named frames available. Save one first."
-                    }
-                    ChooseFramePickerMode::AddExactSelectionToFrame => {
-                        "No named frames available. Save one first."
-                    }
-                };
-                ui.small(msg);
-            } else {
-                memberships.dedup();
-                let header = match request.mode {
-                    ChooseFramePickerMode::OpenNodeInFrame => "Open in frame:",
-                    ChooseFramePickerMode::AddNodeToFrame => "Add node to frame:",
-                    ChooseFramePickerMode::AddConnectedSelectionToFrame => {
-                        "Add connected nodes to frame:"
-                    }
-                    ChooseFramePickerMode::AddExactSelectionToFrame => {
-                        "Add selected nodes to frame:"
-                    }
-                };
-                ui.small(header);
-                for name in &memberships {
-                    if ui.button(name).clicked() {
-                        selected_frame = Some(name.clone());
-                        close = true;
-                    }
-                }
-            }
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("Open Persistence Hub").clicked() {
-                    open_settings_tool_pane = true;
-                }
-                if ui.button("Close").clicked() {
-                    close = true;
-                }
-            });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Open Persistence Hub").clicked() {
+                            open_settings_tool_pane = true;
+                        }
+                        if ui.button("Close").clicked() {
+                            close = true;
+                        }
+                    });
+                });
         });
     if let Some(name) = selected_frame {
         match request.mode {
@@ -3612,6 +3775,81 @@ mod tests {
 
         // Should be clamped to min zoom
         assert!(app.workspace.camera.current_zoom >= app.workspace.camera.zoom_min);
+    }
+
+    #[test]
+    fn test_keyboard_pan_delta_from_keys_basic_directions() {
+        let left = keyboard_pan_delta_from_keys(
+            KeyboardPanKeys {
+                left: true,
+                ..Default::default()
+            },
+            10.0,
+        );
+        assert_eq!(left, Vec2::new(10.0, 0.0));
+
+        let right = keyboard_pan_delta_from_keys(
+            KeyboardPanKeys {
+                right: true,
+                ..Default::default()
+            },
+            10.0,
+        );
+        assert_eq!(right, Vec2::new(-10.0, 0.0));
+
+        let up = keyboard_pan_delta_from_keys(
+            KeyboardPanKeys {
+                up: true,
+                ..Default::default()
+            },
+            10.0,
+        );
+        assert_eq!(up, Vec2::new(0.0, 10.0));
+
+        let down = keyboard_pan_delta_from_keys(
+            KeyboardPanKeys {
+                down: true,
+                ..Default::default()
+            },
+            10.0,
+        );
+        assert_eq!(down, Vec2::new(0.0, -10.0));
+    }
+
+    #[test]
+    fn test_keyboard_pan_delta_from_keys_opposite_cancel_out() {
+        let delta = keyboard_pan_delta_from_keys(
+            KeyboardPanKeys {
+                left: true,
+                right: true,
+                up: true,
+                down: true,
+            },
+            10.0,
+        );
+        assert_eq!(delta, Vec2::ZERO);
+    }
+
+    #[test]
+    fn test_keyboard_pan_delta_from_state_respects_input_mode() {
+        let state = KeyboardPanInputState {
+            wasd: KeyboardPanKeys {
+                left: true,
+                ..Default::default()
+            },
+            arrows: KeyboardPanKeys::default(),
+        };
+
+        let arrows_only =
+            keyboard_pan_delta_from_state(state, 10.0, KeyboardPanInputMode::ArrowsOnly);
+        assert_eq!(arrows_only, Vec2::ZERO);
+
+        let both = keyboard_pan_delta_from_state(
+            state,
+            10.0,
+            KeyboardPanInputMode::WasdAndArrows,
+        );
+        assert_eq!(both, Vec2::new(10.0, 0.0));
     }
 
     #[test]
