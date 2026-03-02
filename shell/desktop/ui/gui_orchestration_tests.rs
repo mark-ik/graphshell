@@ -209,6 +209,10 @@ fn workbench_intent_dispatch_emits_ux_dispatch_channels() {
         snapshot.contains("ux:dispatch_consumed"),
         "expected ux:dispatch_consumed channel"
     );
+    assert!(
+        snapshot.contains("ux:dispatch_default_prevented"),
+        "expected ux:dispatch_default_prevented channel"
+    );
 }
 
 #[cfg(feature = "diagnostics")]

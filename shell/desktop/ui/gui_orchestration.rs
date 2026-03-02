@@ -19,7 +19,8 @@ use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UX_DISPATCH_CONSUMED,
-    CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE,
+    CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_VIOLATION,
 };
 use crate::shell::desktop::ui::graph_search_flow::{self, GraphSearchFlowArgs};
 use crate::shell::desktop::ui::graph_search_ui::{self, GraphSearchUiArgs};
@@ -764,6 +765,10 @@ pub(crate) fn handle_tool_pane_intents(
                 } else {
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
+                        byte_len: 1,
+                    });
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
                         byte_len: 1,
                     });
                 }
