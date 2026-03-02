@@ -290,6 +290,73 @@ fn modal_isolation_consumes_non_modal_workbench_intent() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn global_shortcut_toggle_command_palette_traverses_dispatch_phases() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_global_shortcut_toggle_palette", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut intents = vec![GraphIntent::ToggleCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests();
+    let phase_count = snapshot
+        .get("channels")
+        .and_then(|channels| channels.get("message_counts"))
+        .and_then(|counts| counts.get(CHANNEL_UX_DISPATCH_PHASE))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    assert!(
+        phase_count >= 4,
+        "expected capture/target/bubble/default phase emissions for global shortcut fallback path"
+    );
+    assert_eq!(
+        intents.len(),
+        1,
+        "global shortcut intent should remain for default action handling"
+    );
+    assert!(matches!(intents[0], GraphIntent::ToggleCommandPalette));
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn global_shortcut_undo_is_consumed_when_modal_is_active() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_global_shortcut_undo_modal", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    app.workspace.show_radial_menu = true;
+
+    let mut intents = vec![GraphIntent::Undo];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_CONSUMED),
+        "expected modal capture to consume global undo shortcut intent"
+    );
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED),
+        "expected modal capture to prevent default handling for consumed undo intent"
+    );
+    assert!(
+        intents.is_empty(),
+        "undo intent should be consumed while modal surface is active"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn cycle_focus_region_failure_emits_ux_navigation_violation_channel() {
     let mut diagnostics =
         crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
