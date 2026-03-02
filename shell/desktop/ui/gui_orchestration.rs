@@ -1014,8 +1014,23 @@ fn handle_open_settings_url_intent(
         return Some(GraphIntent::OpenSettingsUrl { url });
     };
 
+    let focused_before = active_tool_surface_return_target(tiles_tree);
     maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
     open_settings_route_target(graph_app, tiles_tree, route);
+
+    let focused_after = active_tool_surface_return_target(tiles_tree);
+    let transitioned_to_settings_surface = matches!(
+        focused_after,
+        Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
+            | Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::HistoryManager))
+    );
+    if transitioned_to_settings_surface && focused_before != focused_after {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
+
     None
 }
 
