@@ -61,7 +61,8 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/research/2026-02-27_viewer_state_matrix.md](graphshell_docs/research/2026-02-27_viewer_state_matrix.md) - Declared vs runtime-wired vs actually-rendered viewer matrix for migration planning.
 - [graphshell_docs/research/2026-02-27_all_docs_context_bootstrap.md](graphshell_docs/research/2026-02-27_all_docs_context_bootstrap.md) - High-signal AI bootstrap summary of active+archive documentation context, priorities, invariants, and execution guardrails.
 - [graphshell_docs/research/STANDALONE_EXTRACTION.md](graphshell_docs/research/STANDALONE_EXTRACTION.md) - Standalone extraction notes.
-- [graphshell_docs/research/2026-03-01_webrender_wgpu_renderer_research.md](graphshell_docs/research/2026-03-01_webrender_wgpu_renderer_research.md) - WebRender wgpu renderer: spec, feasibility, QA strategy, and upstreaming model. Closes the technical definition of `#180` (runtime-viewer GL→wgpu bridge) and feeds `#183` readiness gates.
+- [graphshell_docs/research/2026-03-01_webrender_wgpu_renderer_research.md](graphshell_docs/research/2026-03-01_webrender_wgpu_renderer_research.md) - WebRender wgpu renderer: spec, feasibility, QA strategy, upstreaming model, and upstream community state (byo-renderer, Mozilla wgpu-hal direction, GLSL→SPIR-V recommendation). Closes the technical definition of `#180` and feeds `#183` readiness gates.
+- [graphshell_docs/research/2026-03-01_servo_script_engine_alternatives.md](graphshell_docs/research/2026-03-01_servo_script_engine_alternatives.md) - Long-horizon research: Nova (Rust JS engine) + Cranelift JIT as a mozjs/SpiderMonkey replacement in Servo. Covers mozjs architecture, Nova DOD design, JIT options, ohim/Wasm plugin track, Servo AI policy, and scope comparison vs. WebRender wgpu work.
 
 ### Graphshell Technical Architecture
 
@@ -74,6 +75,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/technical_architecture/QUICKSTART.md](graphshell_docs/technical_architecture/QUICKSTART.md) - Fast-start command reference.
 - [graphshell_docs/technical_architecture/2026-02-18_universal_node_content_model.md](graphshell_docs/technical_architecture/2026-02-18_universal_node_content_model.md) - Universal node content model vision.
 - [graphshell_docs/technical_architecture/2026-02-27_presentation_provider_and_ai_orchestration.md](graphshell_docs/technical_architecture/2026-02-27_presentation_provider_and_ai_orchestration.md) - Provider capability contract, node facet taxonomy, and tiered AI orchestration (tiny local model + retrieval + optional large-model escalation).
+- [graphshell_docs/technical_architecture/2026-03-01_dependency_inventory.md](graphshell_docs/technical_architecture/2026-03-01_dependency_inventory.md) - Full direct-dependency inventory: active, transitional (wgpu migration drops), pre-staged (15 unused reserved deps), build-only, and platform-specific. Includes pre-staged→planned-feature mapping and wgpu migration group summary.
 
 ### Graphshell Implementation Strategy
 

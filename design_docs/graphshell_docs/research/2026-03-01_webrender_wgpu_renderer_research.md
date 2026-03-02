@@ -471,7 +471,126 @@ the WebRender level. The QA strategy in §5 is the definition of "proven."
 
 ---
 
-## 8. Open Questions
+## 8. Upstream Community State (2026-03-01 Reconnaissance)
+
+This section records the state of upstream efforts as of March 2026, resolving research
+Q2 and informing the implementation strategy. It also updates the implementation plan
+with findings about the wgpu vs wgpu-hal choice and shader translation direction.
+
+### 8.1 jdm's byo-renderer Branch
+
+**Location**: `jdm/servo:byo-renderer`
+**Last activity**: 2025-07-22 (comment update); last commits 2025-06-25. Not abandoned in
+intent; not active in practice.
+
+jdm extracted a `Renderer` trait in `components/compositing/render.rs` covering the
+full compositor-to-WebRender boundary (18 methods). `ServoBuilder::renderer()` allows
+embedder injection. **This is a compositor-level seam, not a GPU backend seam.**
+
+The key limitation: `send_transaction(transaction: Transaction)` — any alternative backend
+must still speak the full `webrender_api::Transaction` vocabulary. The trait does not
+abstract the GL `Device`/`Renderer` layer at all. GL-specific methods (`assert_no_gl_error`,
+`gl_info`, `assert_gl_framebuffer_complete`) would need stub implementations.
+
+The branch targets WebRender 0.67 git. Current Servo main uses 0.68 crates.io. The API
+delta between 0.67 and 0.68 is small (PR#4878 crates.io prep, minor API adjustments).
+The trait design is sound and the 0.67→0.68 forward-port is estimated at one day of work.
+
+**Actionable**: jdm's 4–5 commits can be cherry-picked or reproduced against current
+Servo main. This gives Graphshell the compositor-level injection point (`ServoBuilder::renderer()`)
+needed for the P8 integration spike, without waiting for jdm's PR to upstream.
+
+### 8.2 Mozilla's Authoritative Direction: wgpu-hal, Not wgpu
+
+@nical (Mozilla, WebRender lead) posted the following on servo/servo#37149 (2025-06-02):
+
+> *"We plan to add a **wgpu-hal backend** to WebRender besides the existing GL one. Over
+> time the GL backend will hopefully be phased out but it will take a long time. We do
+> not plan to use `wgpu` or even `wgpu-core` in WebRender, but instead use **`wgpu-hal`
+> directly**. WebRender has a lot of shader code written in GLSL. The source of truth
+> that is checked into the repository must be GLSL in the foreseeable future. Adding
+> SPIRV/DXIL/etc. as a build step from the GLSL is fine, but rewriting WebRender's
+> shaders in another language would come with too many complications.
+> This work is gated on WebGPU shipping in Firefox and stabilizing."*
+
+This has two direct implications for the implementation plan written above:
+
+**Implication 1: wgpu-hal vs wgpu at the WebRender Device boundary.**
+Mozilla explicitly rules out `wgpu-core` in WebRender. The reason is resource ownership:
+`wgpu-hal` exposes raw platform handles (`vk::Image`, `ID3D12Resource`, `MTLTexture`)
+that can be shared across subsystem boundaries without wgpu-core's reference-counted
+ownership model creating friction. At the compositor output boundary — where WebRender
+must hand a texture to the embedder — `wgpu-hal` textures can be consumed by wgpu-core
+(Graphshell's side) via the unsafe `hal` API (`device.as_hal`, `texture.as_hal`). This
+is the intended architecture for zero-copy handoff.
+
+The implementation plan (§3.3, P5) currently targets `wgpu` for `WgpuDevice`. This
+should be reconsidered. Two valid positions:
+
+| Position | wgpu-hal in WebRender | wgpu in Graphshell compositor | Trade-off |
+| --- | --- | --- | --- |
+| **A (match Mozilla)** | `wgpu-hal` directly for Device/Renderer | `wgpu` (`device.as_hal` for texture import) | Closer to upstream; unsafe boundary at handoff; no `wgpu-core` in WebRender |
+| **B (pragmatic)** | `wgpu` for Device/Renderer (uses `wgpu-core`) | `wgpu` (shared device, zero-copy native) | Simpler; may diverge from upstream; `wgpu-core` in WebRender |
+
+For Graphshell's initial spike (P8), Position B is acceptable — it is faster to prove
+and produces measurable evidence. Position A is the correct long-term architecture if
+Graphshell's changes are intended to upstream. The plan should state this explicitly.
+
+**Implication 2: GLSL→SPIRV, not GLSL→WGSL.**
+Mozilla's position is that GLSL stays as the shader source of truth. The accepted
+build-time path is GLSL → SPIR-V (via `glslang` or `shaderc`), not GLSL → WGSL.
+
+The implementation plan (§3.4, P4) currently recommends naga for GLSL→WGSL translation.
+@wusyong's June 2025 experiment validated that all optimized Servo WebRender shaders
+translate cleanly to SPIR-V via `glslang-validator` (only `gpu_cache_update`, an
+unoptimized shader, required manual fixup). This is faster than the naga WGSL path and
+aligns with upstream.
+
+**Updated shader translation recommendation**: use `glslang` / `shaderc` for GLSL→SPIR-V
+at build time. Consume SPIR-V through `wgpu::ShaderSource::SpirV` (for Position B) or
+directly through `wgpu-hal` pipeline creation (for Position A). naga remains useful for
+validation (naga can parse SPIR-V), but is no longer the recommended translation target.
+
+### 8.3 Community Experiments
+
+| Contributor | Experiment | Date | Status |
+| --- | --- | --- | --- |
+| @wusyong | GLSL→SPIR-V translation of all Servo WR shaders via `glslang-validator` | 2025-06 | Successful; not followed up |
+| @jdm | Compositor-level `Renderer` trait seam (byo-renderer branch) | 2025-06 | Prototype; not PRed |
+| @sagudev | Vello canvas 2D backend for `<canvas>` element | 2025-07 | **Merged** to Servo main |
+| Mozilla | wgpu-hal WebRender backend | Planned | Blocked on WebGPU-in-Firefox stabilization; no timeline |
+
+**Vello note**: The merged Vello canvas backend is behind `servo/vello` feature and
+`dom_canvas_vello_enabled` pref. It uses `wgpu` for `<canvas>` 2D rendering. It does
+not touch the WebRender compositor path. Graphshell's `vello = ["servo/vello"]` feature
+already exposes this and can be activated independently of the WebRender wgpu work.
+Vello's subcrates (`vello_encoding`, `vello_shaders`) are not usable as a WebRender
+Device/Renderer substrate — their rendering model (compute-shader vector rasterization)
+is fundamentally incompatible with WebRender's CSS primitive batch rendering model.
+
+### 8.4 Updated Open Questions
+
+The following questions from §9 (below) are resolved or updated by this reconnaissance:
+
+| Q# | Resolution |
+| --- | --- |
+| Q2 | Upstream active state: byo-renderer prototype exists but is stalled. Mozilla has a plan (wgpu-hal) but no active resources or timeline. No competing implementation to coordinate with at this time. |
+| Shader Q | GLSL→SPIR-V preferred over GLSL→WGSL per upstream direction. @wusyong's experiment validates feasibility. |
+| API level Q | wgpu-hal preferred over wgpu for WebRender Device internals per Mozilla. Graphshell spike can start with wgpu (Position B) and migrate to wgpu-hal if upstreaming proceeds. |
+
+### 8.5 Revised Decision Log Entries
+
+The following supersede or refine the implementation plan's §11 decisions:
+
+| Decision | Prior (2026-03-01) | Updated |
+| --- | --- | --- |
+| Shader translation | naga GLSL→WGSL | GLSL→SPIR-V via `shaderc`/`glslang` (matches upstream; validated by @wusyong) |
+| GPU API level in WebRender Device | `wgpu` | `wgpu-hal` for upstream alignment; `wgpu` acceptable for initial spike (Position B → Position A migration path) |
+| Compositor seam | Implement from scratch | Cherry-pick jdm's byo-renderer commits onto current Servo main (saves ~1 day of work; known-good design) |
+
+---
+
+## 9. Open Questions
 
 These are research questions that remain unresolved and must be answered before a full
 implementation plan is written. They are the inputs to the spike work in §7.2.
@@ -479,11 +598,12 @@ implementation plan is written. They are the inputs to the spike work in §7.2.
 | # | Question | Blocking for |
 |---|---------|-------------|
 | Q1 | What wgpu version does the current Servo main branch use? Does it match the egui_wgpu version Graphshell will target? | G1, dependency spike |
-| Q2 | Is there an active upstream Servo or WebRender tracking issue for a wgpu renderer? Who is the primary contributor? | Upstream coordination |
+| Q2 | ~~Active upstream Servo or WebRender wgpu renderer work?~~ **Resolved**: byo-renderer stalled; Mozilla wgpu-hal plan exists but ungated. | — |
 | Q3 | Does wgpu on Windows DX12 support external image import (shared DXGI handle)? What is the minimum wgpu version? | Platform feasibility, Windows spike |
 | Q4 | Can `egui_wgpu::Renderer` accept a Graphshell-owned `wgpu::Device`, or does it always create its own? | Device ownership model |
-| Q5 | How many WebRender shaders are there? What GLSL features do they use that naga may not translate correctly? | Shader translation risk |
+| Q5 | How many WebRender shaders are there? What GLSL features require manual fixup for SPIR-V translation? (`gpu_cache_update` known; others TBD) | Shader translation risk |
 | Q6 | Is the Servo `OffscreenRenderingContext` API extensible to return a `wgpu::Texture` instead of a GL texture ID, without breaking the GL path? | Embedding API design |
+| Q7 | For Position A (wgpu-hal in WebRender): which `wgpu-hal` backends are stable enough on Windows DX12, macOS Metal, and Linux Vulkan for Graphshell's milestone platform matrix? | Platform confidence for upstream-aligned path |
 
 ---
 
