@@ -16,7 +16,19 @@ use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionEntry, ActionId, InputMode,
     list_radial_actions_for_category,
 };
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
+};
 use egui::{Color32, Key, Stroke, Window};
+
+const CHANNEL_UX_RADIAL_OVERFLOW: &str = "ux:radial_overflow";
+const MAX_VISIBLE_ACTIONS_PER_RING: usize = 8;
+const COMMAND_RING_RADIUS: f32 = 165.0;
+const COMMAND_BUTTON_RADIUS: f32 = 22.0;
+const MIN_COMMAND_CENTER_SPACING: f32 = (COMMAND_BUTTON_RADIUS * 2.0) + 4.0;
+const HOVER_LABEL_MAX_CHARS: usize = 22;
+const HOVER_LABEL_OFFSET: f32 = 34.0;
 
 /// Radial domain maps to `ActionCategory` for registry-backed content.
 ///
@@ -312,7 +324,29 @@ pub fn render_radial_command_menu(
                     && let Some(domain) = hovered_domain
                 {
                     let cmds = list_radial_actions_for_category(&action_context, domain.category());
-                    hovered_entry = nearest_entry_for_pointer(domain, center, pos, &cmds);
+                    let page_state_id = egui::Id::new("radial_menu_page").with(domain.label());
+                    let page_count = ring_page_count(cmds.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+                    let mut page = ctx
+                        .data_mut(|d| d.get_persisted::<usize>(page_state_id))
+                        .unwrap_or(0);
+                    if page_count > 0 {
+                        page %= page_count;
+                    } else {
+                        page = 0;
+                    }
+                    let visible_cmds = paged_ring_entries(&cmds, page, MAX_VISIBLE_ACTIONS_PER_RING);
+                    if cmds.len() > visible_cmds.len() {
+                        emit_event(DiagnosticEvent::MessageSent {
+                            channel_id: CHANNEL_UX_RADIAL_OVERFLOW,
+                            byte_len: cmds.len() - visible_cmds.len(),
+                        });
+                    }
+                    hovered_entry = nearest_entry_for_pointer(domain, center, pos, visible_cmds);
+
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_UX_RADIAL_LAYOUT,
+                        byte_len: visible_cmds.len() + page + (page_count * 10),
+                    });
                 }
             }
         }
@@ -338,10 +372,13 @@ pub fn render_radial_command_menu(
                     36.0,
                     Stroke::new(2.0, Color32::from_rgb(90, 110, 125)),
                 );
+                let hub_label = hovered_domain
+                    .map(|d| d.label().to_string())
+                    .unwrap_or_else(|| "Cmd".to_string());
                 painter.text(
                     center,
                     egui::Align2::CENTER_CENTER,
-                    "Cmd",
+                    hub_label,
                     egui::FontId::proportional(16.0),
                     Color32::from_rgb(210, 230, 245),
                 );
@@ -365,8 +402,45 @@ pub fn render_radial_command_menu(
 
                 if let Some(domain) = hovered_domain {
                     let cmds = list_radial_actions_for_category(&action_context, domain.category());
-                    for (idx, entry) in cmds.iter().enumerate() {
-                        let anchor = command_anchor(center, domain, idx, cmds.len());
+                    let page_state_id = egui::Id::new("radial_menu_page").with(domain.label());
+                    let page_count = ring_page_count(cmds.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+                    let mut page = ctx
+                        .data_mut(|d| d.get_persisted::<usize>(page_state_id))
+                        .unwrap_or(0);
+                    if page_count > 0 {
+                        page %= page_count;
+                    } else {
+                        page = 0;
+                    }
+
+                    if page_count > 1 {
+                        if ctx.input(|i| i.key_pressed(Key::PageDown)) {
+                            page = (page + 1) % page_count;
+                        }
+                        if ctx.input(|i| i.key_pressed(Key::PageUp)) {
+                            page = (page + page_count - 1) % page_count;
+                        }
+                    }
+
+                    let visible_cmds = paged_ring_entries(&cmds, page, MAX_VISIBLE_ACTIONS_PER_RING);
+                    if cmds.len() > visible_cmds.len() {
+                        emit_event(DiagnosticEvent::MessageSent {
+                            channel_id: CHANNEL_UX_RADIAL_OVERFLOW,
+                            byte_len: cmds.len() - visible_cmds.len(),
+                        });
+                    }
+                    ctx.data_mut(|d| d.insert_persisted(page_state_id, page));
+
+                    let label_layout = compute_label_layout_metrics(center, domain, visible_cmds);
+                    let packed_collisions = (label_layout.pre_collisions << 16)
+                        .saturating_add(label_layout.post_collisions);
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_UX_RADIAL_LABEL_COLLISION,
+                        byte_len: packed_collisions,
+                    });
+
+                    for (idx, entry) in visible_cmds.iter().enumerate() {
+                        let anchor = command_anchor(center, domain, idx, visible_cmds.len());
                         let is_hovered = hovered_entry.as_ref().is_some_and(|h| h.id == entry.id);
                         let color = if is_hovered {
                             Color32::from_rgb(80, 170, 215)
@@ -386,6 +460,30 @@ pub fn render_radial_command_menu(
                             } else {
                                 Color32::from_rgb(120, 125, 130)
                             },
+                        );
+
+                        if is_hovered {
+                            let label_text = bounded_hover_label(entry.id.label(), HOVER_LABEL_MAX_CHARS);
+                            let label_pos = radial_label_anchor(anchor, center, HOVER_LABEL_OFFSET);
+                            draw_radial_hover_label(painter, label_pos, &label_text);
+                        }
+                    }
+                }
+
+                if let Some(domain) = hovered_domain {
+                    let page_state_id = egui::Id::new("radial_menu_page").with(domain.label());
+                    let page = ctx
+                        .data_mut(|d| d.get_persisted::<usize>(page_state_id))
+                        .unwrap_or(0);
+                    let cmds = list_radial_actions_for_category(&action_context, domain.category());
+                    let page_count = ring_page_count(cmds.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+                    if page_count > 1 {
+                        painter.text(
+                            center + egui::vec2(0.0, 52.0),
+                            egui::Align2::CENTER_CENTER,
+                            format!("Page {}/{}", page + 1, page_count),
+                            egui::FontId::proportional(11.0),
+                            Color32::from_rgb(170, 190, 205),
                         );
                     }
                 }
@@ -452,14 +550,45 @@ fn domain_anchor(center: egui::Pos2, domain: RadialDomain, radius: f32) -> egui:
 
 fn command_anchor(center: egui::Pos2, domain: RadialDomain, idx: usize, len: usize) -> egui::Pos2 {
     let base = domain_angle(domain);
-    let spread = 0.8_f32;
+    let spread = command_spread_for_len(len, COMMAND_RING_RADIUS, MIN_COMMAND_CENTER_SPACING);
     let t = if len <= 1 {
         0.0
     } else {
         idx as f32 / (len.saturating_sub(1) as f32) - 0.5
     };
     let angle = base + t * spread;
-    center + egui::vec2(angle.cos() * 165.0, angle.sin() * 165.0)
+    center + egui::vec2(angle.cos() * COMMAND_RING_RADIUS, angle.sin() * COMMAND_RING_RADIUS)
+}
+
+fn command_spread_for_len(len: usize, radius: f32, min_center_spacing: f32) -> f32 {
+    if len <= 1 {
+        return 0.0;
+    }
+
+    let required_min_spread = ((len.saturating_sub(1)) as f32) * (min_center_spacing / radius);
+    required_min_spread.max(0.8).min(2.6)
+}
+
+fn visible_ring_entries(cmds: &[ActionEntry]) -> &[ActionEntry] {
+    &cmds[..cmds.len().min(MAX_VISIBLE_ACTIONS_PER_RING)]
+}
+
+fn ring_page_count(total: usize, page_size: usize) -> usize {
+    if total == 0 || page_size == 0 {
+        return 0;
+    }
+    total.div_ceil(page_size)
+}
+
+fn paged_ring_entries(cmds: &[ActionEntry], page: usize, page_size: usize) -> &[ActionEntry] {
+    if cmds.is_empty() || page_size == 0 {
+        return &cmds[0..0];
+    }
+    let page_count = ring_page_count(cmds.len(), page_size);
+    let normalized_page = page.min(page_count.saturating_sub(1));
+    let start = normalized_page * page_size;
+    let end = (start + page_size).min(cmds.len());
+    &cmds[start..end]
 }
 
 fn nearest_entry_for_pointer(
@@ -481,4 +610,246 @@ fn nearest_entry_for_pointer(
         }
     }
     best.map(|(_, entry)| entry)
+}
+
+fn bounded_hover_label(label: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+
+    let count = label.chars().count();
+    if count <= max_chars {
+        return label.to_string();
+    }
+
+    if max_chars <= 1 {
+        return "…".to_string();
+    }
+
+    let keep = max_chars - 1;
+    let mut out = label.chars().take(keep).collect::<String>();
+    out.push('…');
+    out
+}
+
+fn radial_label_anchor(anchor: egui::Pos2, center: egui::Pos2, outward: f32) -> egui::Pos2 {
+    let delta = anchor - center;
+    let len = delta.length();
+    if len <= f32::EPSILON {
+        return anchor + egui::vec2(outward, 0.0);
+    }
+    anchor + (delta / len) * outward
+}
+
+fn draw_radial_hover_label(painter: &egui::Painter, pos: egui::Pos2, text: &str) {
+    let font = egui::FontId::proportional(12.0);
+    let approx_width = (text.chars().count() as f32) * 7.2 + 14.0;
+    let size = egui::vec2(approx_width.max(44.0), 22.0);
+    let rect = egui::Rect::from_center_size(pos, size);
+    painter.rect_filled(rect, 6.0, Color32::from_rgba_unmultiplied(22, 28, 34, 235));
+    painter.rect_stroke(
+        rect,
+        6.0,
+        Stroke::new(1.0, Color32::from_rgb(88, 110, 126)),
+        egui::StrokeKind::Middle,
+    );
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        font,
+        Color32::from_rgb(220, 236, 248),
+    );
+}
+
+struct LabelLayoutMetrics {
+    pre_collisions: usize,
+    post_collisions: usize,
+}
+
+fn compute_label_layout_metrics(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    entries: &[ActionEntry],
+) -> LabelLayoutMetrics {
+    if entries.len() <= 1 {
+        return LabelLayoutMetrics {
+            pre_collisions: 0,
+            post_collisions: 0,
+        };
+    }
+
+    let base_rects: Vec<egui::Rect> = entries
+        .iter()
+        .enumerate()
+        .map(|(idx, entry)| {
+            let anchor = command_anchor(center, domain, idx, entries.len());
+            let label_pos = radial_label_anchor(anchor, center, HOVER_LABEL_OFFSET);
+            hover_label_rect(label_pos, entry.id.label())
+        })
+        .collect();
+
+    let pre_collisions = count_rect_collisions(&base_rects);
+
+    let resolved_rects = resolve_label_rect_collisions(base_rects, center);
+    let post_collisions = count_rect_collisions(&resolved_rects);
+
+    LabelLayoutMetrics {
+        pre_collisions,
+        post_collisions,
+    }
+}
+
+fn hover_label_rect(pos: egui::Pos2, label: &str) -> egui::Rect {
+    let text = bounded_hover_label(label, HOVER_LABEL_MAX_CHARS);
+    let approx_width = (text.chars().count() as f32) * 7.2 + 14.0;
+    let size = egui::vec2(approx_width.max(44.0), 22.0);
+    egui::Rect::from_center_size(pos, size)
+}
+
+fn count_rect_collisions(rects: &[egui::Rect]) -> usize {
+    let mut collisions = 0usize;
+    for left in 0..rects.len() {
+        for right in (left + 1)..rects.len() {
+            if rects[left].intersects(rects[right]) {
+                collisions = collisions.saturating_add(1);
+            }
+        }
+    }
+    collisions
+}
+
+fn resolve_label_rect_collisions(mut rects: Vec<egui::Rect>, center: egui::Pos2) -> Vec<egui::Rect> {
+    if rects.len() <= 1 {
+        return rects;
+    }
+
+    const MAX_PASSES: usize = 6;
+    const EXTRA_STEP: f32 = 10.0;
+
+    for _ in 0..MAX_PASSES {
+        let mut changed = false;
+        for idx in 0..rects.len() {
+            let mut overlaps = false;
+            for other in 0..rects.len() {
+                if idx == other {
+                    continue;
+                }
+                if rects[idx].intersects(rects[other]) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if overlaps {
+                let offset = rects[idx].center() - center;
+                let length = offset.length();
+                let direction = if length <= f32::EPSILON {
+                    egui::vec2(1.0, 0.0)
+                } else {
+                    offset / length
+                };
+                rects[idx] = rects[idx].translate(direction * EXTRA_STEP);
+                changed = true;
+            }
+        }
+
+        if !changed || count_rect_collisions(&rects) == 0 {
+            break;
+        }
+    }
+
+    rects
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_entries() -> Vec<ActionEntry> {
+        use crate::render::action_registry::ActionId;
+        vec![
+            ActionEntry { id: ActionId::NodeNew, enabled: true },
+            ActionEntry { id: ActionId::NodeOpenFrame, enabled: true },
+            ActionEntry { id: ActionId::NodeOpenNeighbors, enabled: true },
+            ActionEntry { id: ActionId::NodeOpenConnected, enabled: true },
+            ActionEntry { id: ActionId::NodeOpenSplit, enabled: true },
+            ActionEntry { id: ActionId::NodeCopyUrl, enabled: true },
+            ActionEntry { id: ActionId::NodeCopyTitle, enabled: true },
+            ActionEntry { id: ActionId::NodePinToggle, enabled: true },
+            ActionEntry { id: ActionId::GraphFit, enabled: true },
+            ActionEntry { id: ActionId::GraphTogglePhysics, enabled: true },
+            ActionEntry { id: ActionId::PersistUndo, enabled: true },
+            ActionEntry { id: ActionId::PersistRedo, enabled: true },
+        ]
+    }
+
+    #[test]
+    fn visible_ring_entries_caps_at_eight_stably() {
+        let entries = sample_entries();
+        let visible = visible_ring_entries(&entries);
+        assert_eq!(visible.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+        for idx in 0..MAX_VISIBLE_ACTIONS_PER_RING {
+            assert_eq!(visible[idx].id, entries[idx].id);
+        }
+    }
+
+    #[test]
+    fn command_anchor_spacing_avoids_overlap_at_max_visible() {
+        let center = egui::pos2(0.0, 0.0);
+        let len = MAX_VISIBLE_ACTIONS_PER_RING;
+        let anchors: Vec<egui::Pos2> = (0..len)
+            .map(|idx| command_anchor(center, RadialDomain::Node, idx, len))
+            .collect();
+
+        for idx in 1..anchors.len() {
+            let distance = (anchors[idx] - anchors[idx - 1]).length();
+            assert!(
+                distance >= MIN_COMMAND_CENTER_SPACING - 0.5,
+                "adjacent command anchors overlap: distance={distance}"
+            );
+        }
+    }
+
+    #[test]
+    fn paged_ring_entries_windows_are_deterministic() {
+        let entries = sample_entries();
+        let page0 = paged_ring_entries(&entries, 0, MAX_VISIBLE_ACTIONS_PER_RING);
+        let page1 = paged_ring_entries(&entries, 1, MAX_VISIBLE_ACTIONS_PER_RING);
+
+        assert_eq!(page0.len(), MAX_VISIBLE_ACTIONS_PER_RING);
+        assert_eq!(page1.len(), entries.len() - MAX_VISIBLE_ACTIONS_PER_RING);
+        assert_eq!(page0[0].id, entries[0].id);
+        assert_eq!(page1[0].id, entries[MAX_VISIBLE_ACTIONS_PER_RING].id);
+    }
+
+    #[test]
+    fn bounded_hover_label_truncates_with_ellipsis() {
+        let text = "Open with Connected Nodes";
+        let bounded = bounded_hover_label(text, 12);
+        assert_eq!(bounded.chars().count(), 12);
+        assert!(bounded.ends_with('…'));
+    }
+
+    #[test]
+    fn radial_label_anchor_offsets_outward_from_center() {
+        let center = egui::pos2(0.0, 0.0);
+        let anchor = egui::pos2(50.0, 0.0);
+        let label = radial_label_anchor(anchor, center, 20.0);
+        assert!(label.x > anchor.x);
+        assert!((label.y - anchor.y).abs() < 0.001);
+    }
+
+    #[test]
+    fn resolve_label_rect_collisions_reduces_or_preserves_collision_count() {
+        let rects = vec![
+            egui::Rect::from_center_size(egui::pos2(0.0, 0.0), egui::vec2(120.0, 24.0)),
+            egui::Rect::from_center_size(egui::pos2(10.0, 0.0), egui::vec2(120.0, 24.0)),
+            egui::Rect::from_center_size(egui::pos2(20.0, 0.0), egui::vec2(120.0, 24.0)),
+        ];
+
+        let pre = count_rect_collisions(&rects);
+        let resolved = resolve_label_rect_collisions(rects, egui::pos2(-200.0, 0.0));
+        let post = count_rect_collisions(&resolved);
+        assert!(post <= pre);
+    }
 }

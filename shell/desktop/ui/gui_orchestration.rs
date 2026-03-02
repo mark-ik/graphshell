@@ -17,7 +17,10 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UI_CLIPBOARD_COPY_FAILED;
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UX_DISPATCH_CONSUMED,
+    CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_VIOLATION,
+};
 use crate::shell::desktop::ui::graph_search_flow::{self, GraphSearchFlowArgs};
 use crate::shell::desktop::ui::graph_search_ui::{self, GraphSearchUiArgs};
 use crate::shell::desktop::ui::gui_frame::ToolbarDialogPhaseArgs;
@@ -733,17 +736,45 @@ pub(crate) fn handle_tool_pane_intents(
 ) {
     let mut remaining = Vec::with_capacity(frame_intents.len());
     for intent in frame_intents.drain(..) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_DISPATCH_STARTED,
+            byte_len: 1,
+        });
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_DISPATCH_PHASE,
+            byte_len: 1,
+        });
+
         match classify_workbench_authority_intent(intent) {
             Ok(workbench_intent) => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_UX_DISPATCH_PHASE,
+                    byte_len: 2,
+                });
                 if let Some(unhandled) = dispatch_workbench_authority_intent(
                     graph_app,
                     tiles_tree,
                     workbench_intent,
                 ) {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_UX_DISPATCH_PHASE,
+                        byte_len: 3,
+                    });
                     remaining.push(unhandled);
+                } else {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
+                        byte_len: 1,
+                    });
                 }
             }
-            Err(other) => remaining.push(other),
+            Err(other) => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_UX_DISPATCH_PHASE,
+                    byte_len: 3,
+                });
+                remaining.push(other)
+            }
         }
     }
     *frame_intents = remaining;
@@ -815,7 +846,12 @@ fn dispatch_workbench_authority_intent(
 ) -> Option<GraphIntent> {
     match intent {
         WorkbenchAuthorityIntent::CycleFocusRegion => {
-            handle_cycle_focus_region_intent(tiles_tree);
+            if !handle_cycle_focus_region_intent(tiles_tree) {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+                    byte_len: 1,
+                });
+            }
             None
         }
         WorkbenchAuthorityIntent::OpenToolPane { kind } => {
@@ -850,8 +886,8 @@ fn dispatch_workbench_authority_intent(
     }
 }
 
-fn handle_cycle_focus_region_intent(tiles_tree: &mut Tree<TileKind>) {
-    let _ = crate::shell::desktop::workbench::tile_view_ops::cycle_focus_region(tiles_tree);
+fn handle_cycle_focus_region_intent(tiles_tree: &mut Tree<TileKind>) -> bool {
+    crate::shell::desktop::workbench::tile_view_ops::cycle_focus_region(tiles_tree)
 }
 
 fn dispatch_open_settings_url_workbench_intent(

@@ -182,6 +182,37 @@ fn cycle_focus_region_intent_cycles_graph_node_tool_regions() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn workbench_intent_dispatch_emits_ux_dispatch_channels() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_channels", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut intents = vec![GraphIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains("ux:dispatch_started"),
+        "expected ux:dispatch_started channel"
+    );
+    assert!(
+        snapshot.contains("ux:dispatch_phase"),
+        "expected ux:dispatch_phase channel"
+    );
+    assert!(
+        snapshot.contains("ux:dispatch_consumed"),
+        "expected ux:dispatch_consumed channel"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn close_history_tool_pane_restores_previous_node_focus_via_orchestration() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
