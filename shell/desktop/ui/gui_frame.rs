@@ -32,7 +32,9 @@ use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::runtime::diagnostics;
-use crate::shell::desktop::runtime::registries::CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED;
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED, CHANNEL_UX_NAVIGATION_TRANSITION,
+};
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
@@ -1823,11 +1825,53 @@ fn reset_graph_workspace_after_snapshot_restore(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     focused_node_hint: &mut Option<NodeKey>,
 ) {
+    let previous_focus_hint = *focused_node_hint;
     tile_rendering_contexts.clear();
     tile_favicon_textures.clear();
     webview_creation_backpressure.clear();
     *focused_node_hint = None;
+    if previous_focus_hint != *focused_node_hint {
+        diagnostics::emit_event(diagnostics::DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
     let mut tiles = Tiles::default();
     let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
     *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_restore_focus_reset_emits_ux_navigation_transition_channel() {
+        let mut tiles = Tiles::default();
+        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let mut tree = Tree::new("graphshell_tiles", root, tiles);
+        let mut tile_rendering_contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>> =
+            HashMap::new();
+        let mut tile_favicon_textures: HashMap<NodeKey, (u64, egui::TextureHandle)> =
+            HashMap::new();
+        let mut webview_creation_backpressure: HashMap<NodeKey, WebviewCreationBackpressureState> =
+            HashMap::new();
+        let mut focused_node_hint = Some(NodeKey::new(9));
+        let mut diagnostics = diagnostics::DiagnosticsState::new();
+
+        reset_graph_workspace_after_snapshot_restore(
+            &mut tree,
+            &mut tile_rendering_contexts,
+            &mut tile_favicon_textures,
+            &mut webview_creation_backpressure,
+            &mut focused_node_hint,
+        );
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when snapshot restore clears focus hint"
+        );
+    }
 }
