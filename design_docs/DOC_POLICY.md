@@ -66,6 +66,7 @@ It must satisfy all three goals at all times:
 3. Serve as the authoritative, first document of reference for current project documentation state, kept synchronized with the real contents of `design_docs/`.
 
 Operational requirements:
+
 - When AI assistant context/memory/instruction notes change in meaningful ways, update `DOC_README.md` Working Principles in the same session.
 - If any index conflict exists between `DOC_README.md` and any other README/index file, `DOC_README.md` is authoritative and other files must be aligned to it.
 - Any doc move/add/remove in active docs must include a same-session `DOC_README.md` index update.
@@ -124,4 +125,4 @@ Include in a markdown file three sections:
 
 Suggest alternate structures if relevant and useful for the document's purpose.
 
-Update the _plan file every two prompts related to the project, or every two tasks you complete related to the project. Update the file upon completing the project, and move it to archive docs (creating a timestamped folder if none has been made for the relevant day). Reread the relevant file before working on the same project, if the _plan file exists.
+Update the `_plan` file every two prompts related to the project, or every two tasks you complete related to the project. Update the file upon completing the project, and move it to archive docs (creating a timestamped folder if none has been made for the relevant day). Reread the relevant file before working on the same project, if the `_plan` file exists.

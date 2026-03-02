@@ -1,15 +1,17 @@
 # Graphshell Terminology
 
+<!-- markdownlint-disable MD030 MD007 -->
+
 **Status**: Living Document
 **Goal**: Define canonical terms for the project to ensure consistency across code, documentation, and UI. Terms must reflect actual architectural structures, not just semantic convenience.
 
 ## Core Identity
 
-*   **Graphshell**: The product name. A local-first, spatial browser combining a tile-tree and a file-tree.
-*   **Spatial Graph Browser**: The user-facing description of the interface. It emphasizes the force-directed graph and tiling window manager.
-*   **Knowledge User Agent**: The architectural philosophy. Unlike a passive "User Agent" that just renders what servers send, Graphshell actively crawls, indexes, cleans, and stores data on the user's behalf.
-*   **Verso**: A native mod and user agent component packaging (1) Servo/Wry web rendering and (2) local peer-to-peer collaboration via iroh. An homage to Servo. The private, fast, device-local layer.
-*   **Verse**: The optional public community network for federated knowledge sharing. Long-horizon research. The public, community, federated layer. Distinct from Verso's local collaboration.
+* **Graphshell**: The product name. A local-first, spatial browser combining a tile-tree and a file-tree.
+* **Spatial Graph Browser**: The user-facing description of the interface. It emphasizes the force-directed graph and tiling window manager.
+* **Knowledge User Agent**: The architectural philosophy. Unlike a passive "User Agent" that just renders what servers send, Graphshell actively crawls, indexes, cleans, and stores data on the user's behalf.
+* **Verso**: A native mod and user agent component packaging (1) Servo/Wry web rendering and (2) local peer-to-peer collaboration via iroh. An homage to Servo. The private, fast, device-local layer.
+* **Verse**: The optional public community network for federated knowledge sharing. Long-horizon research. The public, community, federated layer. Distinct from Verso's local collaboration.
 
 ## Tile Tree Architecture
 
@@ -17,67 +19,67 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 ### Primitives
 
-*   **Tile**: The fundamental node in the layout tree. Either a **Pane** (leaf) or a **Container** (branch). Identified by a `TileId` (opaque `u64`, unique within one tree). Code: `egui_tiles::Tile<TileKind>`.
-*   **Pane**: A leaf Tile that renders content. The payload is a `TileKind` enum:
-    *   `TileKind::Graph(GraphViewId)` — a force-directed graph canvas.
-    *   `TileKind::Node(NodePaneState)` — a node viewer pane bound to a graph node and resolved viewer backend (legacy serde alias preserves old `WebView(NodeKey)` layouts).
-    *   `TileKind::Tool(ToolPaneState)` — a tool/subsystem pane host (diagnostics today; history/settings/subsystem panes over time).
-*   **Tab** (**UI affordance term**): A visual selector control for choosing an active Tile among sibling tiles. Canonical structural term is **Tile**; "tab" is presentation shorthand only.
-*   **Container**: A branch Tile that holds and arranges child Tiles. Three structural types exist:
+* **Tile**: The fundamental node in the layout tree. Either a **Pane** (leaf) or a **Container** (branch). Identified by a `TileId` (opaque `u64`, unique within one tree). Code: `egui_tiles::Tile<TileKind>`.
+* **Pane**: A leaf Tile that renders content. The payload is a `TileKind` enum:
+    * `TileKind::Graph(GraphViewId)` — a force-directed graph canvas.
+    * `TileKind::Node(NodePaneState)` — a node viewer pane bound to a graph node and resolved viewer backend (legacy serde alias preserves old `WebView(NodeKey)` layouts).
+    * `TileKind::Tool(ToolPaneState)` — a tool/subsystem pane host (diagnostics today; history/settings/subsystem panes over time).
+* **Tab** (**UI affordance term**): A visual selector control for choosing an active Tile among sibling tiles. Canonical structural term is **Tile**; "tab" is presentation shorthand only.
+* **Container**: A branch Tile that holds and arranges child Tiles. Three structural types exist:
 
     | Container type | egui_tiles type | Children visible | Resizable | Layout direction |
-    |---|---|---|---|---|
+    | --- | --- | --- | --- | --- |
     | **Tab Group** | `Container::Tabs` | One at a time (active tab) | No | Tab bar selects active child |
     | **Split** | `Container::Linear` | All simultaneously | Yes, via drag handles | `Horizontal` (top↔bottom regions; horizontal divider) or `Vertical` (left↔right regions; vertical divider) |
     | **Grid** | `Container::Grid` | All simultaneously | Yes, rows & columns | 2D, auto or fixed column count |
 
-*   **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Every Pane is always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs.
-*   **Split**: A container that arranges children in either top/bottom regions (`Horizontal`, horizontal divider) or left/right regions (`Vertical`, vertical divider) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal arrangement label) or `Split ↕` (vertical arrangement label) in tile selector strips.
-*   **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
-*   **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.
+* **Tab Group**: A container that renders a tab bar; only the **active** child Tile is visible. Every Pane is always wrapped in a Tab Group (enforced by `all_panes_must_have_tabs: true`), so each split region always has its own tab strip that can accept additional tabs.
+* **Split**: A container that arranges children in either top/bottom regions (`Horizontal`, horizontal divider) or left/right regions (`Vertical`, vertical divider) with resizable dividers. Children are ordered in `Vec<TileId>`. **Shares** control the proportional width/height each child receives. User-facing label for `Container::Linear`; rendered as `Split ↔` (horizontal arrangement label) or `Split ↕` (vertical arrangement label) in tile selector strips.
+* **Grid**: A container that arranges children in a 2D matrix. Layout is either `Auto` (dynamic column count) or `Columns(n)`.
+* **Shares**: Per-child `f32` weights within a Split that determine proportional space allocation. Default share is `1.0`.
 
 ### Composition Rules
 
-*   **Arbitrary nesting**: Containers can hold other Containers to any depth. A Tab Group can contain Splits, which contain Tab Groups, which contain more Splits, etc.
-*   **Cross-direction nesting preserved**: A `Horizontal` Split inside a `Vertical` Split (or vice versa) is never collapsed — this is how complex layouts form.
-*   **Same-direction merging**: A `Horizontal` Split nested directly inside another `Horizontal` Split is automatically absorbed (children promoted, shares recalculated). Controlled by `join_nested_linear_containers: true`.
-*   **Simplification**: The tree is simplified every frame. Empty containers are pruned, single-child containers are collapsed (except Tab Groups wrapping a lone Pane, which are kept for the tab strip). Controlled by `SimplificationOptions`.
+* **Arbitrary nesting**: Containers can hold other Containers to any depth. A Tab Group can contain Splits, which contain Tab Groups, which contain more Splits, etc.
+* **Cross-direction nesting preserved**: A `Horizontal` Split inside a `Vertical` Split (or vice versa) is never collapsed — this is how complex layouts form.
+* **Same-direction merging**: A `Horizontal` Split nested directly inside another `Horizontal` Split is automatically absorbed (children promoted, shares recalculated). Controlled by `join_nested_linear_containers: true`.
+* **Simplification**: The tree is simplified every frame. Empty containers are pruned, single-child containers are collapsed (except Tab Groups wrapping a lone Pane, which are kept for the tab strip). Controlled by `SimplificationOptions`.
 
 ### Composite Structures
 
-*   **Tile Tree**: The complete recursive structure of Tiles forming the layout. Backed by a flat `Tiles<TileKind>` hashmap keyed by `TileId`, plus a root `TileId`. Code: `egui_tiles::Tree<TileKind>`, stored as `Gui::tiles_tree`.
-*   **App Scope**: The top-most global scope for a running Graphshell process. App Scope owns workbench switching/navigation.
-*   **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It owns the Tile Tree (`Tree<TileKind>`) and global chrome surfaces (omnibar, workbar, status, toasts), tracks frame ordering, and drives frame switching/render.
-*   **Workbench Scope**: The full, unscoped graph domain of one Workbench (`GraphId`-bound).
-*   **Frame**: A persisted branch/subtree of the Workbench Tile Tree that groups tiles and preserves their arrangement/focus as a unit. Frame is the canonical runtime/UI term for top-level working contexts within one Workbench.
-*   **Frame Snapshot** (**Persistence Snapshot**, canonical storage term): A persistable snapshot of a Workbench/Frame layout plus its content manifest. Serialized as `PersistedFrame`, which contains:
-    *   `FrameLayout` — the `Tree<PersistedPaneTile>` shape
-    *   `FrameManifest` — the pane-to-content mapping and member node UUIDs
-    *   `FrameMetadata` — timestamps for creation, update, last activation
+* **Tile Tree**: The complete recursive structure of Tiles forming the layout. Backed by a flat `Tiles<TileKind>` hashmap keyed by `TileId`, plus a root `TileId`. Code: `egui_tiles::Tree<TileKind>`, stored as `Gui::tiles_tree`.
+* **App Scope**: The top-most global scope for a running Graphshell process. App Scope owns workbench switching/navigation.
+* **Workbench**: A global container within App Scope paired to one complete graph dataset (`GraphId`). It owns the Tile Tree (`Tree<TileKind>`) and global chrome surfaces (omnibar, workbar, status, toasts), tracks frame ordering, and drives frame switching/render.
+* **Workbench Scope**: The full, unscoped graph domain of one Workbench (`GraphId`-bound).
+* **Frame**: A persisted branch/subtree of the Workbench Tile Tree that groups tiles and preserves their arrangement/focus as a unit. Frame is the canonical runtime/UI term for top-level working contexts within one Workbench.
+* **Frame Snapshot** (**Persistence Snapshot**, canonical storage term): A persistable snapshot of a Workbench/Frame layout plus its content manifest. Serialized as `PersistedFrame`, which contains:
+    * `FrameLayout` — the `Tree<PersistedPaneTile>` shape
+    * `FrameManifest` — the pane-to-content mapping and member node UUIDs
+    * `FrameMetadata` — timestamps for creation, update, last activation
     Frame Snapshot is the canonical save/restore/storage term; Frame remains the primary runtime/UI container term.
 
 ### Pane Types
 
-*   **Graph View**: A Pane (`TileKind::Graph`) containing a force-directed canvas visualization powered by `egui_graphs`. Renders the `Graph` data model with physics simulation, node selection, and camera controls.
-*   **GraphViewId**: A stable identifier for a specific Graph View pane instance. `GraphViewId` is the canonical identity for per-view camera state, `ViewDimension`, Lens assignment, and `LocalSimulation` (for Divergent layout views). Generated at pane creation; persists across reorder, split, and move operations.
-*   **GraphLayoutMode**: The layout participation mode for a Graph View pane. `Canonical` — participates in the shared workspace graph layout (shared node positions, one physics simulation). `Divergent` — has its own `LocalSimulation` with independent node positions; activated explicitly by the user.
-*   **LocalSimulation**: An independent physics simulation instance owned by a `Divergent` Graph View. Does not affect Canonical pane node positions.
-*   **Pane Presentation Mode** (aka **Pane Chrome Mode**): How a Pane is presented in the tile tree UI (chrome, mobility, and locking behavior), distinct from the Pane's content.
-*   **Tiled Pane** (aka **Promoted Pane**): A Pane presented with tile-selector chrome and normal tile-tree mobility operations (split/switch/reflow).
-*   **Docked Pane**: A Pane presented with reduced chrome and position-locked behavior inside the current tile arrangement. Intended to reduce accidental reflow and focus attention on content.
-*   **PaneLock**: The reflow lock state of a Pane, independent of `PanePresentationMode`. `Unlocked` (default) — all user-initiated reflow operations permitted. `PositionLocked` — cannot be moved or reordered; can be closed. Docked panes are implicitly position-locked from the user's perspective. `FullyLocked` — cannot be moved, reordered, or closed by the user; reserved for system-owned panes.
-*   **FrameTabSemantics**: An optional semantic overlay on top of the `egui_tiles` structural tree. Persists semantic tab group membership so that meaning is not lost when `egui_tiles` simplification restructures the tree. Serialized with rkyv into the frame bundle. This is frame state, not WAL data.
-*   **TabGroupMetadata**: A record within `FrameTabSemantics` for one semantic tab group. Contains `group_id` (`TabGroupId`), ordered `pane_ids`, and `active_pane_id` (repaired to `None` if the previously active pane is removed from the group).
-*   **Subsystem Pane**: A pane-addressable surface for a subsystem's runtime state, health, configuration, and primary operations. Subsystems are expected to have dedicated panes, but implementations may be staged. Subsystem panes are hosted as tool panes (`TileKind::Tool(ToolPaneState)`).
-*   **Tool Pane**: A non-document pane hosted under `TileKind::Tool(ToolPaneState)` (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces.
-*   **Diagnostic Inspector**: A subsystem pane (currently the primary `ToolPaneState` implementation) for visualizing system internals (Engine, Compositor, Intents, and future subsystem health views).
+* **Graph View**: A Pane (`TileKind::Graph`) containing a force-directed canvas visualization powered by `egui_graphs`. Renders the `Graph` data model with physics simulation, node selection, and camera controls.
+* **GraphViewId**: A stable identifier for a specific Graph View pane instance. `GraphViewId` is the canonical identity for per-view camera state, `ViewDimension`, Lens assignment, and `LocalSimulation` (for Divergent layout views). Generated at pane creation; persists across reorder, split, and move operations.
+* **GraphLayoutMode**: The layout participation mode for a Graph View pane. `Canonical` — participates in the shared workspace graph layout (shared node positions, one physics simulation). `Divergent` — has its own `LocalSimulation` with independent node positions; activated explicitly by the user.
+* **LocalSimulation**: An independent physics simulation instance owned by a `Divergent` Graph View. Does not affect Canonical pane node positions.
+* **Pane Presentation Mode** (aka **Pane Chrome Mode**): How a Pane is presented in the tile tree UI (chrome, mobility, and locking behavior), distinct from the Pane's content.
+* **Tiled Pane** (aka **Promoted Pane**): A Pane presented with tile-selector chrome and normal tile-tree mobility operations (split/switch/reflow).
+* **Docked Pane**: A Pane presented with reduced chrome and position-locked behavior inside the current tile arrangement. Intended to reduce accidental reflow and focus attention on content.
+* **PaneLock**: The reflow lock state of a Pane, independent of `PanePresentationMode`. `Unlocked` (default) — all user-initiated reflow operations permitted. `PositionLocked` — cannot be moved or reordered; can be closed. Docked panes are implicitly position-locked from the user's perspective. `FullyLocked` — cannot be moved, reordered, or closed by the user; reserved for system-owned panes.
+* **FrameTabSemantics**: An optional semantic overlay on top of the `egui_tiles` structural tree. Persists semantic tab group membership so that meaning is not lost when `egui_tiles` simplification restructures the tree. Serialized with rkyv into the frame bundle. This is frame state, not WAL data.
+* **TabGroupMetadata**: A record within `FrameTabSemantics` for one semantic tab group. Contains `group_id` (`TabGroupId`), ordered `pane_ids`, and `active_pane_id` (repaired to `None` if the previously active pane is removed from the group).
+* **Subsystem Pane**: A pane-addressable surface for a subsystem's runtime state, health, configuration, and primary operations. Subsystems are expected to have dedicated panes, but implementations may be staged. Subsystem panes are hosted as tool panes (`TileKind::Tool(ToolPaneState)`).
+* **Tool Pane**: A non-document pane hosted under `TileKind::Tool(ToolPaneState)` (e.g., Diagnostics today; History Manager, subsystem panes, settings surfaces over time). Tool panes may be subsystem panes or general utility surfaces.
+* **Diagnostic Inspector**: A subsystem pane (currently the primary `ToolPaneState` implementation) for visualizing system internals (Engine, Compositor, Intents, and future subsystem health views).
 
 ### Surface Composition
 
-*   **Surface Composition Contract**: The formal specification of how a node viewer pane tile's render frame is decomposed into ordered composition passes (UI Chrome, Content, Overlay Affordance), with backend-specific adaptations per `TileRenderMode`.
-*   **Composition Pass**: One of three ordered rendering phases within a single node viewer pane tile frame: (1) UI Chrome Pass, (2) Content Pass, (3) Overlay Affordance Pass. Pass ordering is Graphshell-owned sequencing and must not rely on incidental egui layer behavior.
-*   **CompositorAdapter**: A wrapper around backend-specific content callbacks (for example Servo `render_to_parent`) that owns callback ordering, GL state isolation, clipping/viewport contracts, and the post-content overlay hook.
-*   **TileRenderMode**: The runtime-authoritative render pipeline classification for a node viewer pane tile: `CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, or `Placeholder`. Resolved from `ViewerRegistry` at viewer attachment time and used for compositor pass dispatch.
+* **Surface Composition Contract**: The formal specification of how a node viewer pane tile's render frame is decomposed into ordered composition passes (UI Chrome, Content, Overlay Affordance), with backend-specific adaptations per `TileRenderMode`.
+* **Composition Pass**: One of three ordered rendering phases within a single node viewer pane tile frame: (1) UI Chrome Pass, (2) Content Pass, (3) Overlay Affordance Pass. Pass ordering is Graphshell-owned sequencing and must not rely on incidental egui layer behavior.
+* **CompositorAdapter**: A wrapper around backend-specific content callbacks (for example Servo `render_to_parent`) that owns callback ordering, GL state isolation, clipping/viewport contracts, and the post-content overlay hook.
+* **TileRenderMode**: The runtime-authoritative render pipeline classification for a node viewer pane tile: `CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, or `Placeholder`. Resolved from `ViewerRegistry` at viewer attachment time and used for compositor pass dispatch.
 
 ## Interface Components
 
@@ -331,3 +333,5 @@ Each subsystem defines its own descriptor type (e.g., `AccessibilityCapabilities
 *   *Tokenization* (Verse): Replaced by **VerseBlob** + **Proof of Access**. The original concept of "anonymizing a Report and minting it as a digital asset" is now the `Report` BlobType + the receipt economy.
 *   *Lamport Clock* (Verse): Replaced by **VersionVector**. Verse uses per-peer monotonic sequence numbers (a vector clock), not a single Lamport scalar. A VersionVector records causal dependencies across all peers; a Lamport clock only orders events globally.
 *   *DID / Decentralized Identifier* (Verse): Not used. Verse identity is an Ed25519 `NodeId` stored in the OS keychain. The `NodeId` is the DID equivalent — it is self-sovereign, portable, and derives both iroh and libp2p peer handles from a single keypair. Formal DID method integration is deferred.
+
+<!-- markdownlint-enable MD030 MD007 -->

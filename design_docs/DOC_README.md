@@ -37,7 +37,7 @@ It serves three goals:
 - - Is the way you want this system to work consistent with our architectural guarantees (modularity, parallelization, access through intents and not direct state mutation, componentization as opposed to consolidation into monolithic core files, centralization of testing + diagnostic threading to automate testing)?
 - - How can we refine the integration to meet our feature goals but respect our architecture?
 
-# Design Docs Index
+## Design Docs Index
 
 Last updated: March 1, 2026
 Project status source: [../README.md](../README.md)
