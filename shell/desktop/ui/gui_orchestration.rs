@@ -943,6 +943,8 @@ fn handle_close_tool_pane_intent(
         );
         if closed && restore_previous_focus {
             restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree);
+        } else if closed {
+            graph_app.set_pending_tool_surface_return_target(None);
         }
     }
 }

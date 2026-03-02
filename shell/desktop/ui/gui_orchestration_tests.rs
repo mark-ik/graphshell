@@ -360,6 +360,56 @@ fn close_tool_pane_restore_success_does_not_emit_ux_navigation_violation_channel
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_tool_pane_without_restore_clears_pending_return_target() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let root = tiles.insert_tab_tile(vec![graph, settings]);
+    let mut tree = Tree::new("clear_pending_return_target", root, tiles);
+
+    app.set_pending_tool_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
+        graph_view,
+    )));
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: false,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    assert!(app.pending_tool_surface_return_target().is_none());
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_tool_pane_without_restore_keeps_pending_target_when_close_fails() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("keep_pending_target_when_close_fails", root, tiles);
+
+    app.set_pending_tool_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
+        graph_view,
+    )));
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: false,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    assert_eq!(
+        app.pending_tool_surface_return_target(),
+        Some(crate::app::ToolSurfaceReturnTarget::Graph(graph_view))
+    );
+}
+
 #[test]
 fn open_pending_child_webviews_skips_unmapped_child_webview_ids() {
     let mut app = GraphBrowserApp::new_for_testing();
