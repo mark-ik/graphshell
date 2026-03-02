@@ -217,6 +217,29 @@ fn workbench_intent_dispatch_emits_ux_dispatch_channels() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn cycle_focus_region_failure_emits_ux_navigation_violation_channel() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let mut tree = Tree::new("ux_navigation_violation", graph, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    tree.root = None;
+    let mut intents = vec![GraphIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains("ux:navigation_violation"),
+        "expected ux:navigation_violation when focus cycle cannot resolve a target"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn close_history_tool_pane_restores_previous_node_focus_via_orchestration() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
