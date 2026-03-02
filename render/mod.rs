@@ -75,6 +75,12 @@ const CHANNEL_KEYBOARD_ZOOM_BLOCKED_NO_METADATA: &str =
     "runtime.ui.graph.keyboard_zoom_blocked_no_metadata";
 const CHANNEL_CAMERA_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.camera_zoom_deferred_no_metadata";
+const CHANNEL_CAMERA_FIT_BLOCKED_ZERO_VIEW: &str = "runtime.ui.graph.camera_fit_blocked_zero_view";
+const CHANNEL_FIT_SELECTION_FALLBACK_TO_FIT: &str =
+    "runtime.ui.graph.fit_selection_fallback_to_fit";
+const CHANNEL_CAMERA_FIT_BLOCKED_NO_BOUNDS: &str = "runtime.ui.graph.camera_fit_blocked_no_bounds";
+const CHANNEL_CAMERA_FIT_DEFERRED_NO_METADATA: &str =
+    "runtime.ui.graph.camera_fit_deferred_no_metadata";
 const CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
 const CHANNEL_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR: &str =
@@ -1239,7 +1245,7 @@ fn apply_pending_camera_command(
             let view_size = graph_rect.size();
             if view_size.x <= f32::EPSILON || view_size.y <= f32::EPSILON {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: "runtime.ui.graph.camera_fit_blocked_zero_view",
+                    channel_id: CHANNEL_CAMERA_FIT_BLOCKED_ZERO_VIEW,
                     latency_us: 0,
                 });
                 return None;
@@ -1254,13 +1260,13 @@ fn apply_pending_camera_command(
             let Some((min_x, max_x, min_y, max_y)) = bounds else {
                 if matches!(command, CameraCommand::FitSelection) {
                     emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: "runtime.ui.graph.fit_selection_fallback_to_fit",
+                        channel_id: CHANNEL_FIT_SELECTION_FALLBACK_TO_FIT,
                         latency_us: 0,
                     });
                     app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
                 } else {
                     emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: "runtime.ui.graph.camera_fit_blocked_no_bounds",
+                        channel_id: CHANNEL_CAMERA_FIT_BLOCKED_NO_BOUNDS,
                         latency_us: 0,
                     });
                     app.clear_pending_camera_command();
@@ -1306,7 +1312,7 @@ fn apply_pending_camera_command(
 
             if missing_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: "runtime.ui.graph.camera_fit_deferred_no_metadata",
+                    channel_id: CHANNEL_CAMERA_FIT_DEFERRED_NO_METADATA,
                     latency_us: 0,
                 });
             }
