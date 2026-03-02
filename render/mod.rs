@@ -26,6 +26,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_FIT_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
     CHANNEL_UI_GRAPH_FIT_SELECTION_FALLBACK_TO_FIT,
+    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK,
+    CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW,
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
     CHANNEL_UI_GRAPH_LASSO_BLOCKED_NO_STATE,
     CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE,
@@ -1109,18 +1111,18 @@ fn handle_custom_navigation(
         matches!(canvas_profile.interaction.lasso_binding, CanvasLassoBinding::ShiftLeftDrag)
             && shift_down;
 
-    if !camera_fit_locked
-        && keyboard_pan_allowed_for_view(app, view_id)
-        && !ui.ctx().wants_keyboard_input()
-    {
-        let keyboard_pan_delta = keyboard_pan_delta_from_input(
-            ui,
-            app.keyboard_pan_step(),
-            app.keyboard_pan_input_mode(),
-        );
-        if keyboard_pan_delta != Vec2::ZERO {
-            apply_background_pan(ui.ctx(), metadata_id, app, view_id, keyboard_pan_delta);
-        }
+    let wants_keyboard_input = ui.ctx().wants_keyboard_input();
+    let keyboard_pan_allowed = keyboard_pan_allowed_for_view(app, view_id);
+    let keyboard_pan_delta =
+        keyboard_pan_delta_from_input(ui, app.keyboard_pan_step(), app.keyboard_pan_input_mode());
+    let keyboard_pan_blocked = emit_keyboard_pan_blocked_if_needed(
+        keyboard_pan_delta,
+        wants_keyboard_input,
+        camera_fit_locked,
+        keyboard_pan_allowed,
+    );
+    if !keyboard_pan_blocked && keyboard_pan_delta != Vec2::ZERO {
+        apply_background_pan(ui.ctx(), metadata_id, app, view_id, keyboard_pan_delta);
     }
 
     // Pan with Left Mouse Button on background
@@ -1249,6 +1251,35 @@ fn keyboard_pan_delta_from_keys(keys: KeyboardPanKeys, step: f32) -> Vec2 {
     }
 
     delta
+}
+
+fn emit_keyboard_pan_blocked_if_needed(
+    keyboard_pan_delta: Vec2,
+    wants_keyboard_input: bool,
+    camera_fit_locked: bool,
+    keyboard_pan_allowed: bool,
+) -> bool {
+    if keyboard_pan_delta == Vec2::ZERO || wants_keyboard_input {
+        return false;
+    }
+
+    let blocked_channel = if camera_fit_locked {
+        Some(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK)
+    } else if !keyboard_pan_allowed {
+        Some(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW)
+    } else {
+        None
+    };
+
+    if let Some(channel_id) = blocked_channel {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id,
+            latency_us: 0,
+        });
+        return true;
+    }
+
+    false
 }
 
 fn apply_background_pan(
@@ -3988,6 +4019,72 @@ mod tests {
             KeyboardPanInputMode::WasdAndArrows,
         );
         assert_eq!(both, Vec2::new(10.0, 0.0));
+    }
+
+    #[test]
+    fn test_keyboard_pan_blocked_emits_fit_lock_diagnostic() {
+        let mut diagnostics = DiagnosticsState::new();
+
+        let blocked = emit_keyboard_pan_blocked_if_needed(Vec2::new(12.0, 0.0), false, true, true);
+
+        assert!(blocked);
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_count = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert_eq!(channel_count, 1);
+    }
+
+    #[test]
+    fn test_keyboard_pan_blocked_emits_inactive_view_diagnostic() {
+        let mut diagnostics = DiagnosticsState::new();
+
+        let blocked =
+            emit_keyboard_pan_blocked_if_needed(Vec2::new(0.0, 8.0), false, false, false);
+
+        assert!(blocked);
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_count = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert_eq!(channel_count, 1);
+    }
+
+    #[test]
+    fn test_keyboard_pan_blocked_ignores_zero_delta_or_text_input_capture() {
+        let mut diagnostics = DiagnosticsState::new();
+
+        let zero_delta_blocked =
+            emit_keyboard_pan_blocked_if_needed(Vec2::ZERO, false, true, false);
+        let text_capture_blocked =
+            emit_keyboard_pan_blocked_if_needed(Vec2::new(5.0, 0.0), true, true, false);
+
+        assert!(!zero_delta_blocked);
+        assert!(!text_capture_blocked);
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let fit_lock_count = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let inactive_view_count = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .and_then(|m| m.get(CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert_eq!(fit_lock_count, 0);
+        assert_eq!(inactive_view_count, 0);
     }
 
     #[test]
