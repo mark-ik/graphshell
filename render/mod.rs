@@ -1514,6 +1514,28 @@ struct LassoGestureResult {
     suppress_context_menu: bool,
 }
 
+fn resolve_lasso_selection_mode(
+    lasso_binding: CanvasLassoBinding,
+    ctrl: bool,
+    shift: bool,
+    alt: bool,
+) -> SelectionUpdateMode {
+    let add_mode = ctrl || (matches!(lasso_binding, CanvasLassoBinding::RightDrag) && shift);
+    if alt {
+        SelectionUpdateMode::Toggle
+    } else if add_mode {
+        SelectionUpdateMode::Add
+    } else {
+        SelectionUpdateMode::Replace
+    }
+}
+
+fn normalize_lasso_keys(mut keys: Vec<NodeKey>) -> Vec<NodeKey> {
+    keys.sort_by_key(|key| key.index());
+    keys.dedup_by_key(|key| key.index());
+    keys
+}
+
 fn collect_lasso_action(
     ui: &Ui,
     app: &GraphBrowserApp,
@@ -1619,14 +1641,7 @@ fn collect_lasso_action(
     }
 
     let rect = egui::Rect::from_two_pos(a, b);
-    let add_mode = ctrl || (matches!(lasso_binding, CanvasLassoBinding::RightDrag) && shift);
-    let mode = if alt {
-        SelectionUpdateMode::Toggle
-    } else if add_mode {
-        SelectionUpdateMode::Add
-    } else {
-        SelectionUpdateMode::Replace
-    };
+    let mode = resolve_lasso_selection_mode(lasso_binding, ctrl, shift, alt);
     let meta = ui
         .ctx()
         .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
@@ -1653,7 +1668,7 @@ fn collect_lasso_action(
     let canvas_min = meta.screen_to_canvas_pos(rect.min);
     let canvas_max = meta.screen_to_canvas_pos(rect.max);
     let canvas_rect = egui::Rect::from_min_max(canvas_min, canvas_max);
-    let keys = index.nodes_with_center_in_canvas_rect(canvas_rect);
+    let keys = normalize_lasso_keys(index.nodes_with_center_in_canvas_rect(canvas_rect));
 
     LassoGestureResult {
         action: Some(GraphAction::LassoSelect { keys, mode }),
@@ -3382,6 +3397,51 @@ mod tests {
         assert!(app.workspace.selected_nodes.contains(&a));
         assert!(app.workspace.selected_nodes.contains(&b));
         assert_eq!(app.workspace.selected_nodes.primary(), Some(b));
+    }
+
+    #[test]
+    fn lasso_mode_resolution_right_drag_is_deterministic() {
+        assert_eq!(
+            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, false, false, false),
+            SelectionUpdateMode::Replace
+        );
+        assert_eq!(
+            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, true, false, false),
+            SelectionUpdateMode::Add
+        );
+        assert_eq!(
+            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, false, true, false),
+            SelectionUpdateMode::Add
+        );
+        assert_eq!(
+            resolve_lasso_selection_mode(CanvasLassoBinding::RightDrag, false, false, true),
+            SelectionUpdateMode::Toggle
+        );
+    }
+
+    #[test]
+    fn lasso_mode_resolution_shift_left_drag_is_deterministic() {
+        assert_eq!(
+            resolve_lasso_selection_mode(CanvasLassoBinding::ShiftLeftDrag, false, true, false),
+            SelectionUpdateMode::Replace
+        );
+        assert_eq!(
+            resolve_lasso_selection_mode(CanvasLassoBinding::ShiftLeftDrag, true, true, false),
+            SelectionUpdateMode::Add
+        );
+        assert_eq!(
+            resolve_lasso_selection_mode(CanvasLassoBinding::ShiftLeftDrag, false, true, true),
+            SelectionUpdateMode::Toggle
+        );
+    }
+
+    #[test]
+    fn normalize_lasso_keys_sorts_and_deduplicates() {
+        let k0 = NodeKey::new(0);
+        let k1 = NodeKey::new(1);
+        let k2 = NodeKey::new(2);
+        let normalized = normalize_lasso_keys(vec![k2, k0, k1, k0, k2]);
+        assert_eq!(normalized, vec![k0, k1, k2]);
     }
 
     #[test]
