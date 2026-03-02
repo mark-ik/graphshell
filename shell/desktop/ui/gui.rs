@@ -390,8 +390,20 @@ fn restore_startup_session_frame_if_available(
 }
 
 fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
+    let was_focused_node_hint = runtime_state.focused_node_hint;
+    let was_graph_surface_focused = runtime_state.graph_surface_focused;
+
     runtime_state.focused_node_hint = node_key;
     runtime_state.graph_surface_focused = false;
+
+    if runtime_state.focused_node_hint != was_focused_node_hint
+        || runtime_state.graph_surface_focused != was_graph_surface_focused
+    {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
 }
 
 fn apply_graph_surface_focus_state(
@@ -2207,6 +2219,35 @@ mod diagnostics_tests {
         assert!(
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when graph surface focus changes"
+        );
+    }
+
+    #[test]
+    fn node_focus_state_emits_ux_navigation_transition_on_change() {
+        let mut runtime_state = GuiRuntimeState {
+            graph_search_open: false,
+            graph_search_query: String::new(),
+            graph_search_filter_mode: false,
+            graph_search_matches: Vec::new(),
+            graph_search_active_match_index: None,
+            focused_node_hint: None,
+            graph_surface_focused: true,
+            focus_ring_node_key: None,
+            focus_ring_started_at: None,
+            focus_ring_duration: Duration::from_millis(500),
+            omnibar_search_session: None,
+            command_palette_toggle_requested: false,
+            deferred_open_child_webviews: Vec::new(),
+        };
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        apply_node_focus_state(&mut runtime_state, Some(NodeKey::new(42)));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when node focus changes"
         );
     }
 }
