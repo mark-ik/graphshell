@@ -61,7 +61,7 @@
 | Viewer fallback/degraded-state clarity | Current | Pre-renderer/WGPU required | Yellow | `viewer/viewer_presentation_and_fallback_spec.md` | Placeholder-state UX and diagnostics messaging still needs scenario hardening |
 | UxTree/UxProbe runtime contracts | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Core C1–C5 + probe contracts are canonical |
 | UxScenario/UxHarness deterministic UX testing | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | CI-required core scenarios already specified |
-| UX integration deliverables (D1-D5) | Planned | Pre-renderer/WGPU required | Yellow | UX integration research + canonical spec family | D1 (`#292`), D2 (`#293`), D3 (`#294`), and D4 (`#295`) canonical artifacts are now merged; D5 remains tracked by `#296` |
+| UX integration deliverables (D1-D5) | Current | Pre-renderer/WGPU required | Green | UX integration research + canonical spec family | D1 (`#292`) through D5 (`#296`) canonical artifacts are merged and linked into the control-plane/parity triad |
 | IA/predictability/discoverability closure bundle | Planned | Pre-renderer/WGPU required | Yellow | command/focus/workbench specs + UX research | `#300` deterministic focus/selection mapping is codified in focus spec; remaining closure tracked by `#297` and `#299` |
 | Accessibility closure bundle (beyond baseline) | Planned | Pre-renderer/WGPU required | Yellow | accessibility/focus/viewer specs + UX research | Tracked by `#298`, `#301`; includes reduced-motion and keyboard-trap hardening |
 | Canonical docs parity audit | Planned | Pre-renderer/WGPU required | Green | control-plane + coverage matrix + lifecycle register | Tracked by `#302`; keeps research/issues/specs synchronized |
@@ -105,8 +105,8 @@ observable, and contract-driven.
 `#162` overlay affordance policy per `TileRenderMode` is implemented at compositor boundary, and `#188` now adds explicit user-visible degraded/fallback reasons + recovery affordances with diagnostics receipts.
 - [ ] UxHarness critical-path evidence closure: `#251`, `#257`, `#273`.
 - [ ] UxTree authority trajectory gate closure: `#272`.
-- [ ] UX integration deliverables closure: `#292`, `#293`, `#294`, `#295`, `#296`.
-`#292` command semantics matrix, `#293` focus/selection interaction contract, `#294` surface behavior policy, and `#295` accessibility baseline checklist are present in canonical design/spec docs; grouped checklist remains open until D5 closes.
+- [x] UX integration deliverables closure: `#292`, `#293`, `#294`, `#295`, `#296`.
+`#292` command semantics matrix, `#293` focus/selection interaction contract, `#294` surface behavior policy, `#295` accessibility baseline checklist, and `#296` telemetry plan are present in canonical design/spec docs.
 - [ ] IA/predictability/discoverability closure bundle: `#297`, `#299`, `#300`.
 - [ ] Accessibility closure bundle: `#298`, `#301`.
 - [ ] Canonical docs parity audit closure: `#302`.
@@ -132,6 +132,7 @@ observable, and contract-driven.
 | `graphshell_docs/design/command_semantics_matrix.md` | `#292`, `#299` | D1 canonical action semantics matrix; IA scope clarity and future surface expansion remain linked to IA closure work |
 | `graphshell_docs/design/surface_behavior_spec.md` | `#294`, `#297` | D3 canonical surface behavior policy (scroll/overflow/resize/empty/loading/error/lifecycle); discoverability refinement remains linked to `#297` |
 | `graphshell_docs/design/accessibility_baseline_checklist.md` | `#295`, `#298`, `#301` | D4 canonical WCAG A/AA baseline checklist with initial screen-reader matrix; implementation hardening remains tracked by accessibility closure issues |
+| `graphshell_docs/design/ux_telemetry_plan.md` | `#296` | D5 canonical telemetry metric register with channel/probe mapping, baseline targets, and wired diagnostics evidence |
 | UX integration research deliverables (`D1`-`D5`) | `#292`, `#293`, `#294`, `#295`, `#296` | Command semantics, interaction contract, surface behavior, accessibility baseline, telemetry plan |
 | Canonical docs parity | `#302` | Keep control-plane/matrix/lifecycle synchronized with research and issue state |
 

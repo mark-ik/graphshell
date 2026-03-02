@@ -14,6 +14,7 @@
 - `../../research/2026-03-02_ux_integration_research.md`
 - `../../design/surface_behavior_spec.md`
 - `../../design/accessibility_baseline_checklist.md`
+- `../../design/ux_telemetry_plan.md`
 - `../2026-03-01_ux_migration_feature_spec_coverage_matrix.md`
 - `../2026-03-01_ux_migration_lifecycle_audit_register.md`
 - `ux_tree_and_probe_spec.md`
