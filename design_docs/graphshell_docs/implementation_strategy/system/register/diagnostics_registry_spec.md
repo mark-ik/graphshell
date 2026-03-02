@@ -17,6 +17,15 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Invariant-visibility policy**: Watchdog violations and pending states must be surfaced to diagnostics state/consumers.
 4. **Config-roundtrip policy**: Runtime channel configuration changes must be explicit, persistent-capable, and testable.
 
+## Policy-to-Contract Traceability
+
+| Policy | Contract anchors in this doc | Stability implication |
+|---|---|---|
+| Schema-authority policy | **Normative Core**: "Diagnostics channels are first-class contracts with versioned payloads."; **Purpose and Scope**: schema/version contracts; **Acceptance Criteria**: contract tests + register diagnostics contract | Prevents drift in channel shape/severity/invariant semantics over time |
+| Non-silent-orphan policy | **Normative Core**: explicit blocked/deferred/failure signaling; **Purpose and Scope**: channel registration/configuration ownership; **Acceptance Criteria**: harness/scenario coverage of real behavior | Prevents silent channel fallthrough and undiscoverable observability gaps |
+| Invariant-visibility policy | **Normative Core**: compatibility managed deliberately + explicit failure signaling; **Acceptance Criteria**: tests covering registration/lookup/fallback behavior | Keeps watchdog/invariant failures actionable rather than latent |
+| Config-roundtrip policy | **Canonical interfaces**: `get_config` / `set_config`; **Purpose and Scope**: sampling/retention configuration; **Acceptance Criteria**: contract tests for behavior correctness | Ensures runtime config changes remain safe, reversible, and test-backed |
+
 ## Purpose and Scope
 
 Defines channel names, payload schemas, sampling, and retention rules for diagnostics.
