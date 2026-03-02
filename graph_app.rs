@@ -6081,6 +6081,22 @@ mod tests {
     }
 
     #[test]
+    fn test_request_camera_command_for_view_accepts_valid_target() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.clear_pending_camera_command();
+
+        app.request_camera_command_for_view(Some(view_id), CameraCommand::FitSelection);
+
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::FitSelection));
+        assert_eq!(app.pending_camera_command_target_raw(), Some(view_id));
+        assert_eq!(app.pending_camera_command_target(), Some(view_id));
+    }
+
+    #[test]
     fn test_frame_only_reducer_handles_zoom_and_selection_intents() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
