@@ -330,6 +330,42 @@ fn open_settings_url_emits_ux_navigation_transition_channel() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn open_settings_url_already_focused_does_not_emit_ux_navigation_transition_channel() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut tiles = Tiles::default();
+    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let root = tiles.insert_tab_tile(vec![settings]);
+    let mut tree = Tree::new(
+        "ux_navigation_transition_open_settings_url_noop",
+        root,
+        tiles,
+    );
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))),
+    );
+
+    let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        url: "graphshell://settings/general".to_string(),
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "did not expect ux:navigation_transition when settings route target is already focused"
+    );
+    assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "did not expect ux:navigation_violation when no settings focus handoff is needed"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn open_tool_pane_already_focused_does_not_emit_ux_navigation_transition_channel() {
     let mut diagnostics =
         crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
