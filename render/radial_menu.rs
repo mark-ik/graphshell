@@ -18,6 +18,7 @@ use crate::render::action_registry::{
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_NAVIGATION_TRANSITION,
     CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
     CHANNEL_UX_RADIAL_OVERFLOW,
 };
@@ -137,7 +138,8 @@ pub fn render_radial_command_menu(
     hovered_node: Option<NodeKey>,
     focused_pane_node: Option<NodeKey>,
 ) {
-    if !app.workspace.show_radial_menu {
+    let was_open = app.workspace.show_radial_menu;
+    if !was_open {
         return;
     }
 
@@ -504,6 +506,12 @@ pub fn render_radial_command_menu(
     }
 
     app.workspace.show_radial_menu = !should_close;
+    if app.workspace.show_radial_menu != was_open {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
     if !app.workspace.show_radial_menu {
         app.set_pending_node_context_target(None);
         ctx.data_mut(|d| {

@@ -12,6 +12,8 @@ use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, PendingConnectedOpenScope, PendingTileOpenMode,
 };
 use crate::graph::NodeKey;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionId, InputMode, list_actions_for_context,
@@ -29,7 +31,8 @@ pub fn render_command_palette_panel(
     hovered_node: Option<NodeKey>,
     focused_pane_node: Option<NodeKey>,
 ) {
-    if !app.workspace.show_command_palette {
+    let was_open = app.workspace.show_command_palette;
+    if !was_open {
         return;
     }
 
@@ -111,6 +114,12 @@ pub fn render_command_palette_panel(
         });
 
     app.workspace.show_command_palette = open && !should_close;
+    if app.workspace.show_command_palette != was_open {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
     super::apply_ui_intents_with_checkpoint(app, intents);
 }
 

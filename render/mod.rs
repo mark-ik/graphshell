@@ -33,6 +33,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
+    CHANNEL_UX_NAVIGATION_TRANSITION,
 };
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
@@ -2168,7 +2169,8 @@ fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
 
 /// Render keyboard shortcut help panel
 pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
-    if !app.workspace.show_help_panel {
+    let was_open = app.workspace.show_help_panel;
+    if !was_open {
         return;
     }
 
@@ -2259,6 +2261,12 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                 });
         });
     app.workspace.show_help_panel = open;
+    if app.workspace.show_help_panel != was_open {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
 }
 
 /// Render History Manager panel with Timeline and Dissolved tabs.
