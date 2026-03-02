@@ -712,9 +712,12 @@ impl Gui {
     }
 
     pub(crate) fn ui_overlay_active(&self) -> bool {
-        self.graph_app.workspace.show_command_palette
-            || self.graph_app.workspace.show_help_panel
-            || self.toolbar_state.show_clear_data_confirm
+        ui_overlay_active_from_flags(
+            self.graph_app.workspace.show_command_palette,
+            self.graph_app.workspace.show_help_panel,
+            self.graph_app.workspace.show_radial_menu,
+            self.toolbar_state.show_clear_data_confirm,
+        )
     }
 
     /// Update the user interface, but do not paint the updated state.
@@ -1546,6 +1549,15 @@ impl Gui {
     }
 }
 
+fn ui_overlay_active_from_flags(
+    show_command_palette: bool,
+    show_help_panel: bool,
+    show_radial_menu: bool,
+    show_clear_data_confirm: bool,
+) -> bool {
+    show_command_palette || show_help_panel || show_radial_menu || show_clear_data_confirm
+}
+
 #[cfg(test)]
 #[path = "gui_tests.rs"]
 mod gui_tests;
@@ -2076,6 +2088,15 @@ mod graph_split_intent_tests {
                 Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
             )
         }));
+    }
+
+    #[test]
+    fn ui_overlay_active_flags_include_radial_menu_capture() {
+        assert!(!super::ui_overlay_active_from_flags(false, false, false, false));
+        assert!(super::ui_overlay_active_from_flags(true, false, false, false));
+        assert!(super::ui_overlay_active_from_flags(false, true, false, false));
+        assert!(super::ui_overlay_active_from_flags(false, false, true, false));
+        assert!(super::ui_overlay_active_from_flags(false, false, false, true));
     }
 
     #[test]
