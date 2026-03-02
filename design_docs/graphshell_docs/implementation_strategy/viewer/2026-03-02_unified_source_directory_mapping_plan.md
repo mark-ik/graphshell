@@ -112,6 +112,44 @@ Granularity rules:
 - Changing granularity must update presentation/topology without violating canonical node identity for already-mapped leaf addresses.
 - Diagnostics must include effective depth, granularity mode, and collapse counts.
 
+### MVP Default Profiles
+
+Unless the user overrides settings, unified mapping must apply deterministic default profiles.
+
+#### Global defaults (all source kinds)
+
+| Setting | Default | Notes |
+|---|---:|---|
+| `granularity_mode` | `scope-balanced` | Default balance between detail and readability |
+| `max_items` | 2000 | Hard cap across one mapping run |
+| `per_scope_fanout_cap` | 120 | Avoids oversized single-scope expansions |
+| `scope_collapse_threshold` | 40 | Sibling sets above threshold are summarized |
+| `summary_representative_leaf_limit` | 10 | Max representative leaves when collapsed |
+| `follow_links` | `false` | Conservative default for symlink/link-jump behavior |
+
+#### Source-specific defaults
+
+| Source kind | `max_depth` | `max_items` override | Default include posture | Default exclude posture |
+|---|---:|---:|---|---|
+| Local directory | 5 | none | all readable files | hidden/system paths |
+| Network root/share | 4 | 1200 | allowlisted document/media/code types | hidden/system paths, offline mounts |
+| Web domain seed | 3 | 800 | `text/html`, markdown-like, viewer-supported docs | binary downloads by default |
+| Sitemap seed | 4 | 1000 | sitemap-resolved same-origin URLs | off-domain URLs, blocked mime/content-types |
+
+#### Granularity mode behavior (MVP)
+
+| Mode | Node density target | Scope/frame behavior | Collapse behavior |
+|---|---|---|---|
+| `leaf` | High | Preserve discovered scopes; map most eligible leaves | Collapse only beyond `scope_collapse_threshold` |
+| `scope-balanced` | Medium | Preserve major scopes; summarize low-signal branches | Collapse and representative-leaf sampling enabled |
+| `scope-only` | Low | Prioritize scope frames over per-leaf nodes | Aggressive collapse; selective representative leaves only |
+
+Profile rules:
+
+- Preflight must show the selected profile and all effective values before execution.
+- Runtime must emit the effective profile in completion diagnostics summaries.
+- Presets are versioned policy defaults; user overrides remain authoritative for each run.
+
 #### Local + network
 
 - Depth limits are mandatory.
@@ -203,6 +241,7 @@ Safety rules:
 6. Source-specific limits/filters are enforced and reflected in diagnostics summaries.
 7. Mixed-source sessions preserve graph/workbench consistency on cancel/failure.
 8. Default web mapping behavior remains same-origin and bounded by policy caps.
+9. MVP default profile values are applied deterministically when no user override is provided.
 
 ---
 
@@ -218,3 +257,4 @@ Safety rules:
 
 - 2026-03-02: Created canonical expansion plan for unified local/network/web directory-domain mapping, explicitly gated behind filesystem-ingest readiness.
 - 2026-03-02: Expanded spec to require configurable hierarchy depth and graph granularity (including sitemap-seeded traversal mode).
+- 2026-03-02: Added MVP default profile table (global + source-specific + mode behavior) for deterministic out-of-box mapping behavior.
