@@ -8893,6 +8893,25 @@ mod tests {
 
     #[cfg(feature = "diagnostics")]
     #[test]
+    fn stale_camera_target_enqueue_emits_blocked_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let stale_target = GraphViewId::new();
+        app.clear_pending_camera_command();
+
+        app.request_camera_command_for_view(Some(stale_target), CameraCommand::Fit);
+
+        assert!(app.pending_camera_command().is_none());
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("runtime.ui.graph.camera_command_blocked_missing_target_view"),
+            "expected stale camera target enqueue to emit blocked channel"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
     fn leaked_workbench_intent_emits_ux_contract_warning_channel() {
         let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
         let mut app = GraphBrowserApp::new_for_testing();
