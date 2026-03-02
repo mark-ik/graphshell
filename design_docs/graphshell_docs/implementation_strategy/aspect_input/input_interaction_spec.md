@@ -155,6 +155,19 @@ When multiple bindings could match the same event:
 3. If two bindings of equal specificity conflict, the one registered later wins, and a
    `CHANNEL_INPUT_BINDING_CONFLICT` diagnostic is emitted at `Warn` severity.
 
+### 4.5 Canvas boundary invariants (pre-renderer/WGPU closure)
+
+**Invariant**: The Input aspect owns event resolution and routing, but does not own canvas
+selection, lasso, zoom, or edge-focus semantics. Those meanings remain in
+`canvas/graph_node_edge_interaction_spec.md` and reducer-owned intents.
+
+**Invariant**: For a pointer gesture sequence, ownership is exclusive once resolved
+(`GraphDrag`/canvas path, viewer path, or command/modal path). Mid-gesture reclassification
+from unrelated hover/state drift is forbidden.
+
+**Invariant**: Edge inspection routing (`SetHighlightedEdge` / `ClearHighlightedEdge`) is
+input dispatch only; traversal-history mutation is not permitted in Input dispatch paths.
+
 ---
 
 ## 5. Remapping Contract
@@ -294,3 +307,4 @@ correctness invariant breaks).
 7. Gamepad and keyboard/pointer contexts switch immediately on device activity.
 8. All input routing is diagnosable through the defined channel set.
 9. Input dispatch latency is sampled and available in diagnostics.
+10. Input-to-canvas ownership boundaries for lasso/zoom/edge-focus are explicit and deterministic.

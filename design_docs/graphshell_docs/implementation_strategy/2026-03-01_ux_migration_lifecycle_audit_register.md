@@ -46,9 +46,9 @@
 | UxTree authority trajectory (UX source of truth) | Planned | Pre-renderer/WGPU required | Yellow | `2026-03-01_ux_migration_design_spec.md` §3.3 + `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Requires staged convergence roadmap with explicit non-goals |
 | Faceted filter schema + operations | Planned | Pre-networking required | Red | `2026-03-01_ux_migration_design_spec.md` | Missing dedicated canonical Faceted Filter Surface spec |
 | Facet rail + Enter-to-pane routing | Planned | Pre-networking required | Red | `2026-03-01_ux_migration_design_spec.md` | Missing Facet Pane Routing spec (input/focus/pane-target semantics) |
-| Core graph selection/lasso semantics | Planned | Pre-renderer/WGPU required | Yellow | `canvas/graph_node_edge_interaction_spec.md` + `aspect_input/input_interaction_spec.md` | Modifier and boundary semantics need canonical closure |
+| Core graph selection/lasso semantics | Planned | Pre-renderer/WGPU required | Yellow | `canvas/graph_node_edge_interaction_spec.md` + `aspect_input/input_interaction_spec.md` | Canonical modifier/boundary invariants are explicit (`#271`); remaining grouped closure slices tracked in `#173`, `#185`, `#102`, `#104`, `#101`, `#103` |
 | Target-locked zoom + pointer-relative camera behavior | Planned | Pre-renderer/WGPU required | Yellow | `canvas/graph_node_edge_interaction_spec.md` | Requires pointer-anchor invariants and passive-input conformance text |
-| Edge traversal event-stream projection | Current | Pre-networking required | Yellow | `subsystem_history/edge_traversal_spec.md` + `2026-03-01_ux_migration_design_spec.md` | Core model aligned; timeline/preview scenario coverage remains planned |
+| Edge traversal event-stream projection | Current | Pre-networking required | Yellow | `subsystem_history/edge_traversal_spec.md` + `2026-03-01_ux_migration_design_spec.md` | Core model aligned; edge-focus inspection vs traversal append parity is now explicit; timeline/preview scenario coverage remains planned |
 | Physics presets and mode switching | Current | Pre-renderer/WGPU required | Yellow | `canvas/layout_behaviors_and_physics_spec.md` | Runtime behavior is canonical; readability-driven adaptation still planned |
 | Layout readability diagnostics and adaptation | Planned | Post-renderer/WGPU | Yellow | `2026-03-01_ux_migration_design_spec.md` + research (`1808.00703`) | Advisory vs automatic adaptation policy still open |
 | Command palette contextual mode surface (context + radial) | Planned | Pre-renderer/WGPU required | Red | `aspect_command/command_surface_interaction_spec.md` + migration spec | Needs full two-tier mode parity + dedicated radial geometry/overflow canonical spec |
@@ -95,6 +95,7 @@ observable, and contract-driven.
 - [ ] Event dispatch contract closure: `#261`, `#269`.
 - [x] Radial geometry/overflow closure: `#263`, `#270`.
 - [ ] Canvas interaction invariants closure (selection/lasso/zoom/edge focus): `#271`, `#173`, `#185`, `#102`, `#104`, `#101`, `#103`.
+`#271` now contributes explicit canonical invariants for lasso/zoom/edge-focus and targeted diagnostics coverage; this grouped checklist item remains open pending companion issues.
 - [ ] Viewer fallback/degraded-state clarity closure: `#188`, `#162`.
 - [ ] UxHarness critical-path evidence closure: `#251`, `#257`, `#273`.
 - [ ] UxTree authority trajectory gate closure: `#272`.

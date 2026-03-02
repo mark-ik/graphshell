@@ -189,6 +189,12 @@ This section defines the stable target behavior for the current graph surface.
 - Fit operations must visibly land on the intended target set.
 - If auto-fit is active, the user must be able to perceive that the camera is following graph bounds rather than being in a fully manual mode.
 
+**Camera invariants (pre-renderer/WGPU closure)**
+
+- Zoom ownership is per active graph pane; a zoom request for one view must not mutate camera state in another view.
+- Wheel zoom is pointer-relative when an anchor is available; missing anchor/metadata paths must defer safely or emit diagnostics rather than silently mutating camera state.
+- `Zoom Reset` and fit-family commands resolve to deterministic camera targets under the active camera policy.
+
 **Fallback / degraded behavior**
 
 - If input cannot be claimed, Graphshell must emit diagnostics and preserve existing camera state.
@@ -257,6 +263,12 @@ This section defines the stable target behavior for the current graph surface.
 - Edge single-click changes the active relationship target for inspection.
 - Edge double-click may trigger traversal or related open behavior when the edge semantics define a primary action.
 
+**Edge-focus and traversal invariants**
+
+- Edge focus (`SetHighlightedEdge` / `ClearHighlightedEdge`) is inspection-only state and must not append traversal history by itself.
+- Traversal history mutation is owned by the history/reducer traversal append path, not by edge hover or single-click inspection.
+- Clearing edge focus is explicit and deterministic when the active inspection target changes to none.
+
 **Visual feedback**
 
 - Hovered edges must visibly read as inspectable.
@@ -290,6 +302,12 @@ This section defines the stable target behavior for the current graph surface.
 - Empty-canvas click clears the current selection set.
 - Lasso updates the app-owned selection set based on the chosen region and selection mode.
 - Context commands do not directly mutate graph truth until a command is executed.
+
+**Lasso invariants (pre-renderer/WGPU closure)**
+
+- Lasso selection mode is deterministic from binding + modifiers: `Alt => Toggle`; otherwise `Add` when `Ctrl` is active or when the binding is `RightDrag` with `Shift`; otherwise `Replace`.
+- Lasso key sets are canonicalized before intent dispatch (stable sort + deduplicate by node key).
+- Lasso, pan, and node drag are mutually exclusive gesture owners for a pointer sequence; ambiguity must be canceled explicitly with diagnostics.
 
 **Gesture precedence**
 
@@ -497,5 +515,7 @@ Logical self-loops (edges where `source == target`) are currently forbidden by t
 7. Visual feedback and degraded-state requirements are explicit.
 8. Accessibility expectations and current incompleteness rules are explicit.
 9. Planned and exploratory controls are separated from the canonical core.
+10. Lasso modifier-mode resolution and key normalization rules are explicit and deterministic.
+11. Edge-focus inspection is explicitly separated from traversal-history mutation semantics.
 
 

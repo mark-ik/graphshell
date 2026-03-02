@@ -192,7 +192,14 @@ The render layer derives edge visuals from `EdgePayload`. It does not define tra
 
 **Multi-kind rendering priority**: When multiple kinds are present, the base visual style is determined by the highest-priority kind present: `UserGrouped` > `TraversalDerived` > `AgentDerived`. Traversal-derived modifiers (stroke width, direction arrow) are applied on top of the base style whenever `TraversalDerived` is in the set, regardless of what the base style is.
 
-### 4.2 Edge Tooltip / Inspection
+### 4.2 Edge Focus vs Traversal Invariants (Canvas/History parity)
+
+- Edge focus/highlight is inspection context, not traversal truth.
+- `SetHighlightedEdge` and `ClearHighlightedEdge` may update focus diagnostics/transition state, but must not append `Traversal` records.
+- Traversal append occurs only on navigation/traversal actions routed through reducer traversal paths.
+- Hover and single-click inspection must not change `metrics.total_navigations`.
+
+### 4.3 Edge Tooltip / Inspection
 
 On edge hover: tooltip shows:
 
@@ -259,6 +266,7 @@ This section is a placeholder for future spec expansion.
 | Timeline click emits `SelectNode` and `RequestZoomToSelected` | Test: click timeline entry → both intents in intent queue |
 | `traversal_archive` and `dissolved_archive` are separate keyspaces | Test: append to each → query confirms entries in respective keyspace only |
 | UI cannot mutate traversal state directly | Architecture invariant: no `push_traversal` call from render or UI layer |
+| Edge highlight/focus does not append traversal | Test: set/clear highlighted edge → traversal count and `metrics.total_navigations` unchanged |
 | Rolling window is bounded | Test: append 1,000 traversals → `traversals.len()` ≤ N (window size); `metrics.total_navigations` == 1,000 |
 | Evicted records reach archive before memory drop | Test: fill window + 1 → oldest record present in `traversal_archive` before in-memory list shrinks |
 | `AgentDerived` edge decays after threshold | Test: assert `AgentDerived` edge; advance clock past decay window → edge evicted from active graph |
