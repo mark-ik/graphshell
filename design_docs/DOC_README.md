@@ -126,6 +126,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/design/surface_behavior_spec.md](graphshell_docs/design/surface_behavior_spec.md) - Canonical D3 surface behavior policy for scroll, overflow, resize, empty/loading/error states, and floating lifecycle.
 - [graphshell_docs/design/accessibility_baseline_checklist.md](graphshell_docs/design/accessibility_baseline_checklist.md) - Canonical D4 WCAG 2.2 A/AA checklist by surface, with initial screen-reader test matrix.
 - [graphshell_docs/design/ux_telemetry_plan.md](graphshell_docs/design/ux_telemetry_plan.md) - Canonical D5 UX telemetry metric register with diagnostics/probe mapping and baseline targets.
+- [graphshell_docs/testing/2026-03-02_accessibility_closure_bundle_audit_301.md](graphshell_docs/testing/2026-03-02_accessibility_closure_bundle_audit_301.md) - `#301` closure evidence for reduced-motion guardrails, contrast/target-size audits, and keyboard-trap validation.
 
 ### Graphshell Testing
 

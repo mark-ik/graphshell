@@ -9,6 +9,7 @@
 - `../implementation_strategy/subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md`
 - `../implementation_strategy/subsystem_focus/focus_and_region_navigation_spec.md`
 - `../implementation_strategy/subsystem_ux_semantics/ux_tree_and_probe_spec.md`
+- `../testing/2026-03-02_accessibility_closure_bundle_audit_301.md`
 
 ---
 
@@ -124,5 +125,18 @@ Execution note:
 - [x] Contains one row per WCAG 2.2 Level A + AA criterion with no blank status cells.
 - [x] Includes all required surface columns (graph, node, tool, floating, dialogs, omnibar, workbar).
 - [x] Initial screen reader test matrix is included.
+
+---
+
+## 5. Status delta update (`#301`)
+
+Delta source: `../testing/2026-03-02_accessibility_closure_bundle_audit_301.md`.
+
+| Gap | Previous status | Updated status | Evidence |
+|---|---|---|---|
+| `G-A-8` Reduced-motion support | Missing | Staged with guardrails | §2 in audit artifact |
+| `G-A-7` Contrast ratios | Unverified | Key explicit-color command surfaces audited | §3 in audit artifact |
+| `G-A-9` Target-size minimums | Unverified | Key explicit-size command surfaces audited; exceptions logged | §4 in audit artifact |
+| `G-A-11` Keyboard trap | Partially addressed | Host UI no-trap return-path validation complete | §5 in audit artifact |
 
 Maintenance rule: any accessibility behavior change that affects WCAG mapping must update this checklist and the UX parity trackers in the same PR.
