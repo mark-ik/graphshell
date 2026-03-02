@@ -124,6 +124,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/design/KEYBINDINGS.md](graphshell_docs/design/KEYBINDINGS.md) - Keyboard interaction reference.
 - [graphshell_docs/design/command_semantics_matrix.md](graphshell_docs/design/command_semantics_matrix.md) - Canonical D1 command semantics matrix across keyboard, palette, radial, toolbar, and omnibar surfaces.
 - [graphshell_docs/design/surface_behavior_spec.md](graphshell_docs/design/surface_behavior_spec.md) - Canonical D3 surface behavior policy for scroll, overflow, resize, empty/loading/error states, and floating lifecycle.
+- [graphshell_docs/design/accessibility_baseline_checklist.md](graphshell_docs/design/accessibility_baseline_checklist.md) - Canonical D4 WCAG 2.2 A/AA checklist by surface, with initial screen-reader test matrix.
 
 ### Graphshell Testing
 
