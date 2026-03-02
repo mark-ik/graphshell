@@ -20,10 +20,14 @@ use crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT;
 use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_GRAPH_CAMERA_ZOOM_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_NO_BOUNDS, CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_ZERO_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_FIT_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_FIT_SELECTION_FALLBACK_TO_FIT,
+    CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
+    CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA,
+    CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
 };
 use egui::{Color32, Stroke, Ui, Vec2, Window};
@@ -76,13 +80,6 @@ pub enum GraphAction {
 }
 
 const CHANNEL_SELECTION_AMBIGUOUS_HIT: &str = "runtime.ui.graph.selection_ambiguous_hit";
-const CHANNEL_WHEEL_ZOOM_NOT_CAPTURED: &str = "runtime.ui.graph.wheel_zoom_not_captured";
-const CHANNEL_KEYBOARD_ZOOM_BLOCKED_NO_METADATA: &str =
-    "runtime.ui.graph.keyboard_zoom_blocked_no_metadata";
-const CHANNEL_CAMERA_ZOOM_DEFERRED_NO_METADATA: &str =
-    "runtime.ui.graph.camera_zoom_deferred_no_metadata";
-const CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
-    "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
 
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
@@ -328,7 +325,7 @@ pub fn render_graph_in_ui_collect_actions(
                 input.raw_scroll_delta.y = 0.0;
             } else {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_WHEEL_ZOOM_NOT_CAPTURED,
+                    channel_id: CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
                     latency_us: 0,
                 });
             }
@@ -1165,7 +1162,7 @@ fn apply_pending_keyboard_zoom_request(
 
     if missing_metadata {
         emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
+            channel_id: CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
             latency_us: 0,
         });
         app.restore_pending_keyboard_zoom_request(view_id, request);
@@ -1234,7 +1231,7 @@ fn apply_pending_camera_command(
             });
             if missing_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_CAMERA_ZOOM_DEFERRED_NO_METADATA,
+                    channel_id: CHANNEL_UI_GRAPH_CAMERA_ZOOM_DEFERRED_NO_METADATA,
                     latency_us: 0,
                 });
             }
@@ -1401,7 +1398,7 @@ fn apply_pending_wheel_zoom(
 
             if missing_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA,
+                    channel_id: CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA,
                     latency_us: 0,
                 });
             }
