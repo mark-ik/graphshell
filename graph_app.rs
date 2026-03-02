@@ -2172,11 +2172,25 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetHighlightedEdge { from, to } => {
+                let previous = self.workspace.highlighted_graph_edge;
                 self.workspace.highlighted_graph_edge = Some((*from, *to));
+                if self.workspace.highlighted_graph_edge != previous {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
                 true
             }
             GraphIntent::ClearHighlightedEdge => {
+                let had_highlighted_edge = self.workspace.highlighted_graph_edge.is_some();
                 self.workspace.highlighted_graph_edge = None;
+                if had_highlighted_edge {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
                 true
             }
             GraphIntent::SetNodeFormDraft { key, form_draft } => {
@@ -9032,6 +9046,43 @@ mod tests {
         assert!(
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when clear_graph resets focused view"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn set_highlighted_edge_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
+        let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
+
+        app.apply_intents([GraphIntent::SetHighlightedEdge { from, to }]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when edge highlight focus changes"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn clear_highlighted_edge_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
+        let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
+        app.workspace.highlighted_graph_edge = Some((from, to));
+
+        app.apply_intents([GraphIntent::ClearHighlightedEdge]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when edge highlight focus clears"
         );
     }
 
