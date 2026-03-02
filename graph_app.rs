@@ -6153,6 +6153,22 @@ mod tests {
     }
 
     #[test]
+    fn test_pending_wheel_zoom_anchor_updates_when_new_pointer_is_provided() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view = GraphViewId::new();
+
+        app.workspace
+            .views
+            .insert(view, GraphViewState::new_with_id(view, "A"));
+
+        app.queue_pending_wheel_zoom_delta(view, 15.0, Some((10.0, 20.0)));
+        app.queue_pending_wheel_zoom_delta(view, 5.0, Some((90.0, 120.0)));
+
+        assert_eq!(app.pending_wheel_zoom_delta(view), 20.0);
+        assert_eq!(app.pending_wheel_zoom_anchor_screen(view), Some((90.0, 120.0)));
+    }
+
+    #[test]
     fn test_frame_only_reducer_excludes_verse_side_effect_intents() {
         let mut app = GraphBrowserApp::new_for_testing();
 
