@@ -46,9 +46,10 @@ use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics;
-use crate::shell::desktop::runtime::registries::{RegistryRuntime, knowledge};
+use crate::shell::desktop::runtime::registries::{CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, knowledge};
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::tile_compositor;
@@ -398,9 +399,23 @@ fn apply_graph_surface_focus_state(
     graph_app: &mut GraphBrowserApp,
     active_graph_view: Option<GraphViewId>,
 ) {
+    let was_focused_node_hint = runtime_state.focused_node_hint;
+    let was_graph_surface_focused = runtime_state.graph_surface_focused;
+    let was_focused_view = graph_app.workspace.focused_view;
+
     runtime_state.focused_node_hint = None;
     runtime_state.graph_surface_focused = true;
     graph_app.workspace.focused_view = active_graph_view;
+
+    if runtime_state.focused_node_hint != was_focused_node_hint
+        || runtime_state.graph_surface_focused != was_graph_surface_focused
+        || graph_app.workspace.focused_view != was_focused_view
+    {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
 }
 
 impl Gui {
@@ -2158,4 +2173,40 @@ fn graph_intent_for_thumbnail_result(
     result: &ThumbnailCaptureResult,
 ) -> Option<GraphIntent> {
     thumbnail_pipeline::graph_intent_for_thumbnail_result(graph_app, result)
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+mod diagnostics_tests {
+    use super::*;
+
+    #[test]
+    fn graph_surface_focus_state_emits_ux_navigation_transition_on_change() {
+        let mut runtime_state = GuiRuntimeState {
+            graph_search_open: false,
+            graph_search_query: String::new(),
+            graph_search_filter_mode: false,
+            graph_search_matches: Vec::new(),
+            graph_search_active_match_index: None,
+            focused_node_hint: Some(NodeKey::new(7)),
+            graph_surface_focused: false,
+            focus_ring_node_key: None,
+            focus_ring_started_at: None,
+            focus_ring_duration: Duration::from_millis(500),
+            omnibar_search_session: None,
+            command_palette_toggle_requested: false,
+            deferred_open_child_webviews: Vec::new(),
+        };
+        let mut app = GraphBrowserApp::new_for_testing();
+        let graph_view = GraphViewId::new();
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        apply_graph_surface_focus_state(&mut runtime_state, &mut app, Some(graph_view));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when graph surface focus changes"
+        );
+    }
 }
