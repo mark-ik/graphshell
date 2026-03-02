@@ -958,6 +958,7 @@ fn handle_close_tool_pane_intent(
 ) {
     #[cfg(feature = "diagnostics")]
     {
+        let focused_before = active_tool_surface_return_target(tiles_tree);
         let closed = crate::shell::desktop::workbench::tile_view_ops::close_tool_pane(
             tiles_tree,
             kind,
@@ -971,6 +972,13 @@ fn handle_close_tool_pane_intent(
             }
         } else if closed {
             graph_app.set_pending_tool_surface_return_target(None);
+            let focused_after = active_tool_surface_return_target(tiles_tree);
+            if focused_after.is_some() && focused_before != focused_after {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                    latency_us: 0,
+                });
+            }
         } else if restore_previous_focus {
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,

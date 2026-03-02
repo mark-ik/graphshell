@@ -560,8 +560,47 @@ fn close_tool_pane_without_restore_and_close_fails_does_not_emit_ux_navigation_v
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
     assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "did not expect ux:navigation_transition when close fails without restore request"
+    );
+    assert!(
         !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
         "did not expect ux:navigation_violation when close failed without restore request"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_tool_pane_without_restore_and_close_succeeds_emits_ux_navigation_transition() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let root = tiles.insert_tab_tile(vec![graph, settings]);
+    let mut tree = Tree::new("close_without_restore_transition", root, tiles);
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))),
+    );
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: false,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "expected ux:navigation_transition when close succeeds without restore and focus handoff resolves"
+    );
+    assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "did not expect ux:navigation_violation when close succeeds without restore"
     );
 }
 
