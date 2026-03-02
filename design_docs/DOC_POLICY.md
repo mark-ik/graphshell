@@ -151,6 +151,25 @@ Rules:
 3. If a supporting doc needs policy context, it should link to the subsystem authority and keep only local contract detail.
 4. PRs adding or changing subsystem policy must update the subsystem authority doc in the same slice.
 
+### 12. Architectural Construct Policy Authority Rule
+
+Architectural construct policy must be consolidated in the canonical file for that construct type.
+
+Canonical authority locations:
+
+- **Aspects**: `graphshell_docs/implementation_strategy/aspect_*/ASPECT_*.md`
+- **System-level construct boundaries**: `graphshell_docs/implementation_strategy/system/system_architecture_spec.md`
+- **Register layer**: `graphshell_docs/implementation_strategy/system/register_layer_spec.md` and register hub `graphshell_docs/implementation_strategy/system/register/SYSTEM_REGISTER.md`
+- **Domain registries**: `graphshell_docs/implementation_strategy/system/register/*_domain_registry_spec.md`
+- **Atomic/surface/workflow registries**: `graphshell_docs/implementation_strategy/system/register/*_registry_spec.md`
+
+Rules:
+
+1. Construct-specific policy text belongs in that construct's canonical authority file.
+2. Supporting docs (plans/research/receipts/adjacent specs) may define local behavior detail, but must not establish conflicting construct policy authority.
+3. When changing construct policy (aspects/domains/registers/registries), update the canonical authority doc in the same PR/slice.
+4. If construct policy appears in multiple files, the canonical authority file wins and supporting files must be aligned.
+
 ### Workflow Documentation Rule
 
 For AI assistants: store documentation (including memories, instructions, plans, etc.) in DOC_README.md per this file's rules. Refer to DOC_README.md first, then this file, for context when needed. This also means that the content of agent-specific instruction folders should exist in design_docs (such as .claude/ readme sending its updates to DOC_README.md, but also memory files that are useful for context should be copied and archived).

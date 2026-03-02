@@ -11,6 +11,8 @@
 - [control_panel_spec.md](./control_panel_spec.md) (async worker/process host)
 - [signal_bus_spec.md](./signal_bus_spec.md) (signal/event routing fabric)
 
+**Policy authority**: This file is the canonical policy authority for Register-layer treatment and boundaries.
+
 ## Purpose and Scope
 
 The Register layer is the system-owned capability composition and routing layer.

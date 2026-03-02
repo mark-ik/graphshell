@@ -10,6 +10,8 @@
 - [2026-02-24_universal_content_model_plan.md](../viewer/2026-02-24_universal_content_model_plan.md) (content model and identity surface)
 - [register/SYSTEM_REGISTER.md](./register/SYSTEM_REGISTER.md) (register-layer runtime hub/spec)
 
+**Policy authority**: This file is the canonical policy authority for top-level system construct boundaries and cross-construct ownership.
+
 ## Purpose and Scope
 
 This document defines the top-level architecture of Graphshell:

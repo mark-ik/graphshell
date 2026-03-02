@@ -19,6 +19,8 @@
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry architecture and provider wiring)
 - [../../PLANNING_REGISTER.md](../../PLANNING_REGISTER.md) (cross-subsystem sequencing / backlog)
 
+**Policy authority**: This file is the canonical policy authority for Register hub rules and register-spec family coordination.
+
 ---
 
 ## Register Component Spec Family

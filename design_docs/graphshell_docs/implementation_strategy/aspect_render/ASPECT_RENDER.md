@@ -11,6 +11,8 @@
 - `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
 - `../2026-02-28_ux_contract_register.md`
 
+**Policy authority**: This file is the canonical policy authority for the Render aspect. Supporting render docs refine contracts/implementation detail and must defer policy authority to this file.
+
 ---
 
 ## 1. Purpose

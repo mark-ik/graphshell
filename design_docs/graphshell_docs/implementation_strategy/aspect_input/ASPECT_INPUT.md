@@ -11,6 +11,8 @@
 - `../aspect_command/ASPECT_COMMAND.md`
 - `../subsystem_focus/SUBSYSTEM_FOCUS.md`
 
+**Policy authority**: This file is the canonical policy authority for the Input aspect. Supporting input docs refine contracts/implementation detail and must defer policy authority to this file.
+
 ---
 
 ## 1. Purpose

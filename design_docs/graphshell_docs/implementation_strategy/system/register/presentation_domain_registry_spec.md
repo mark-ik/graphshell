@@ -7,6 +7,8 @@
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry ecosystem and ownership model)
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) (register hub and routing boundary)
 
+**Policy authority**: This file is the canonical policy authority for `presentation_domain_registry` semantics and boundaries.
+
 ## Purpose and Scope
 
 Coordinates appearance and motion semantics after layout has resolved.
