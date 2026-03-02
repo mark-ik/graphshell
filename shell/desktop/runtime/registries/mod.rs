@@ -102,6 +102,10 @@ pub(crate) const CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE: &str =
     "startup.selfcheck.channels_incomplete";
 pub(crate) const CHANNEL_UI_HISTORY_MANAGER_LIMIT: &str = "ui.history_manager.limit_applied";
 pub(crate) const CHANNEL_UI_CLIPBOARD_COPY_FAILED: &str = "ui.clipboard.copy_failed";
+pub(crate) const CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED: &str =
+    "runtime.ui.graph.camera_request_blocked";
+pub(crate) const CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED: &str =
+    "runtime.ui.graph.keyboard_zoom_blocked";
 pub(crate) const CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR: &str =
     "runtime.ui.graph.wheel_zoom_blocked_invalid_factor";
 pub(crate) const CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW: &str =

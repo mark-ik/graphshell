@@ -26,7 +26,8 @@ use crate::services::persistence::types::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
-    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_UX_CONTRACT_WARNING,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED,
+    CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED, CHANNEL_UX_CONTRACT_WARNING,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
@@ -1931,7 +1932,7 @@ impl GraphBrowserApp {
         let target_view = self.resolve_camera_target_view();
         if target_view.is_none() {
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "runtime.ui.graph.camera_request_blocked",
+                channel_id: CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED,
                 latency_us: 0,
             });
             return;
@@ -1982,7 +1983,7 @@ impl GraphBrowserApp {
         let Some(target_view) = self.resolve_camera_target_view()
         else {
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "runtime.ui.graph.keyboard_zoom_blocked",
+                channel_id: CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
                 latency_us: 0,
             });
             return;
