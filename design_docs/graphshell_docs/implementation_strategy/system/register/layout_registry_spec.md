@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `layout_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Algorithm-contract policy**: Layout algorithm registration and lookup are explicit contracts with deterministic fallback.
+2. **Execution-clarity policy**: Compute lifecycle success/failure/fallback paths are diagnosable.
+3. **No-hidden-mutation policy**: Layout computation informs placement policies without bypassing authority boundaries.
+4. **Extensibility-policy**: Additional layout providers must honor declared capability/compatibility contracts.
+
 ## Purpose and Scope
 
 Hosts named graph layout algorithms used by graph/canvas policies.

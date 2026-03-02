@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `protocol_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Protocol-resolution policy**: URI/protocol resolution follows explicit handler lookup and fallback contracts.
+2. **Non-blocking-resolution policy**: Protocol paths should preserve responsiveness and avoid hidden blocking behavior.
+3. **Capability-boundary policy**: Protocol providers operate within declared capability/trust boundaries.
+4. **Failure-visibility policy**: Resolve failures and fallback paths must be explicit and diagnosable.
+
 ## Purpose and Scope
 
 Maps URI schemes to content handlers and load adapters.

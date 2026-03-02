@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `action_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Semantic-action policy**: Actions encode canonical meaning independent of invoking surface.
+2. **Explicit-registration policy**: Action registration/conflict behavior must be deterministic and diagnosable.
+3. **Intent-emission policy**: Action execution routes through explicit intent/authority boundaries, not hidden state mutation.
+4. **Availability-policy**: Action availability and target resolution are explicit contracts, not ad hoc UI conditions.
+
 ## Purpose and Scope
 
 Registers canonical executable actions and their handler contracts.

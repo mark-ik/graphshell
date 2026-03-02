@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `agent_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Supervised-agent policy**: Agent execution must run through supervised runtime coordination, not unmanaged threads.
+2. **Boundary-ingress policy**: Agent outcomes cross into app state via explicit intents/signals.
+3. **Backpressure policy**: Scheduling/load failures and throttling are explicit and diagnosable.
+4. **Capability-declaration policy**: Agent capabilities and side-effect classes must be declared and testable.
+
 ## Purpose and Scope
 
 Defines background/autonomous tasks and their scheduling contracts.

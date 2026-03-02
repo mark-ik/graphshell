@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `knowledge_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Semantic-validation policy**: Tag/taxonomy validation must be explicit and provider-routed.
+2. **Seed-floor policy**: Core semantic seed floor remains available offline.
+3. **Advisory-semantic policy**: Knowledge hints inform other systems but do not override their mutation authority.
+4. **Schema-evolution policy**: Provider/schema changes require explicit compatibility behavior and diagnostics.
+
 ## Purpose and Scope
 
 Owns semantic tagging, taxonomy validation, and ontology-derived hints.

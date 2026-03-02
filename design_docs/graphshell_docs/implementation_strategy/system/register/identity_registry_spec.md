@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `identity_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Identity-integrity policy**: Persona/key resolution must be explicit and deterministic.
+2. **Trust-boundary policy**: Trust decisions and key availability failures must be explicit and diagnosable.
+3. **Crypto-operation policy**: Signing/verification paths are contract-first and cannot be silently bypassed.
+4. **Fallback-safety policy**: Any fallback behavior must preserve security posture and emit explicit diagnostics.
+
 ## Purpose and Scope
 
 Owns persona, signing, and local/peer identity capability contracts.

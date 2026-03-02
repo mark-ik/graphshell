@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `mod_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Manifest-gate policy**: Capability and dependency declarations are validated before load/activation.
+2. **Activation-order policy**: Dependency resolution and activation ordering are deterministic and diagnosable.
+3. **Containment policy**: Denial/quarantine paths are explicit and must prevent silent contract erosion.
+4. **Lifecycle-integrity policy**: Load/unload transitions must preserve registry health and observability.
+
 ## Purpose and Scope
 
 Manages native and WASM mod lifecycle, dependency resolution, and declared capabilities.

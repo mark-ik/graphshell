@@ -18,6 +18,16 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Invariant-first policy**: Tree integrity, focus preservation, action routing, and degradation invariants are required contracts, not optional quality goals.
+2. **Declared-capability policy**: Every participating surface/viewer must declare accessibility capability and degradation state explicitly.
+3. **Non-silent-degradation policy**: Bridge failures, stale updates, and unavailable capabilities must be observable via diagnostics and user-visible status.
+4. **Determinism policy**: Focus fallback, region cycle order, and mode transitions must remain deterministic and test-backed.
+5. **Cross-surface parity policy**: New pane/viewer paths must either meet accessibility contracts or explicitly declare/diagnose partial support.
+
+---
+
 ## 1. Why This Exists
 
 Accessibility is a **project-level reliability requirement**, not a one-time UI deliverable.

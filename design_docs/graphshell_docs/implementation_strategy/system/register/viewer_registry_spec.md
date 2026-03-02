@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `viewer_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Selection-authority policy**: Viewer registry owns content-to-viewer selection, not viewport or tile placement policy.
+2. **Fallback-floor policy**: Unsupported content resolves through canonical fallback viewers/core-seed floor.
+3. **Diagnosable-selection policy**: Viewer selection/fallback paths must remain explicit and observable.
+4. **Capability-declaration policy**: Viewer providers declare capabilities/conformance before selection use.
+
 ## Purpose and Scope
 
 Maps MIME types, extensions, and content categories to viewer implementations.

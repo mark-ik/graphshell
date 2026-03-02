@@ -19,6 +19,16 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Temporal-integrity policy**: Traversal capture ordering and archive transfer correctness are mandatory invariants.
+2. **Replay-isolation policy**: Preview/replay paths must not mutate live graph truth or write unintended WAL entries.
+3. **Restoration policy**: Returning from temporal preview to present state must be deterministic and lossless.
+4. **Archive-fidelity policy**: Dissolved/archived traversal state must preserve identity and reconstructable timeline semantics.
+5. **Temporal-observability policy**: Timeline append/replay/restore failures must surface via explicit diagnostics and tests.
+
+---
+
 ## 1. Why This Exists
 
 History in Graphshell is not just a pane. It is a temporal truth system spanning:

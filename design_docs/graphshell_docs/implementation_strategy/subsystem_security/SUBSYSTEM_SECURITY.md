@@ -19,6 +19,16 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Default-deny policy**: Access-control and grant evaluation defaults to deny when capability or trust evaluation is incomplete.
+2. **Intent-coverage policy**: Security-sensitive intents/operations require explicit grant matrix coverage before release.
+3. **Crypto-correctness policy**: At-rest and in-transit cryptographic requirements are mandatory boundaries, not optional enhancements.
+4. **Identity-trust policy**: Identity resolution and trust state must be explicit, versioned, and diagnosable.
+5. **Denial-observability policy**: Security denials, bypass attempts, and fallback paths must surface with structured diagnostics.
+
+---
+
 ## 1. Why This Exists
 
 Security is not a feature of Verse. It is a **cross-cutting guarantee** that must hold regardless of which sync backend is active, which mods are loaded, or which protocol paths are exercised.

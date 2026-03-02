@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `workflow_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Composed-workflow policy**: Workflow activation composes lens/profile surfaces without collapsing ownership boundaries.
+2. **Deterministic-activation policy**: Workflow switch/activation outcomes are explicit, diagnosable, and reversible.
+3. **Fallback-safety policy**: Missing workflow components degrade through explicit fallback paths.
+4. **Session-integrity policy**: Workflow changes must preserve session stability and authority-safe transitions.
+
 ## Purpose and Scope
 
 Defines full session modes as Lens x WorkbenchProfile compositions.

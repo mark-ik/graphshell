@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `index_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Local-floor policy**: Local index/search capability must remain available without network providers.
+2. **Source-metadata policy**: Query results carry explicit provider/source metadata for traceability.
+3. **Provider-fanout policy**: Multi-provider query behavior and fallback are explicit and diagnosable.
+4. **Retrieval-boundary policy**: Index retrieval informs surfaces/features but does not assume semantic authority ownership.
+
 ## Purpose and Scope
 
 Defines search backends for local lookup, retrieval, and timeline/history queries.

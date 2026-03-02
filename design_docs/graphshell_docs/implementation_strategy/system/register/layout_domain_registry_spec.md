@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `layout_domain_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Layout-first policy**: Layout-domain coordination resolves structure/interaction before presentation styling.
+2. **Surface-sovereignty policy**: Canvas/workbench/viewer surfaces stay distinct territories coordinated through explicit domain contracts.
+3. **Compositional-resolution policy**: Domain resolution remains explicit and diagnosable, not implicit side effects.
+4. **Boundary-policy**: Domain coordination must not absorb command or semantic graph authority.
+
 ## Purpose and Scope
 
 Coordinates layout-first resolution across graph, workbench, and viewer surfaces.

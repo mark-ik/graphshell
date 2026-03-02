@@ -17,6 +17,16 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Contracted-extension policy**: Mods extend existing registry contracts; they do not redefine core authority semantics.
+2. **Manifest-integrity policy**: `provides/requires` declarations are required and validated before activation.
+3. **Capability-boundary policy**: Native and WASM mods must remain within declared capability and sandbox constraints.
+4. **Lifecycle-observability policy**: Load/activate/unload/dependency outcomes and denial paths must be diagnosable.
+5. **Failure-containment policy**: Mod failure must degrade explicitly without silently corrupting registry state.
+
+---
+
 ## 1. Purpose
 
 This note defines the **Mods subsystem** as the architectural owner of mod lifecycle integrity.

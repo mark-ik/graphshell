@@ -28,6 +28,16 @@ Supporting-doc rules:
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Schema-contract policy**: Channels, severities, and invariant contracts are declared artifacts that must remain versioned and testable.
+2. **Observable-failure policy**: Unknown channels, invariant violations, and retention/routing faults must never be silent.
+3. **Analyzer-boundary policy**: Live analyzers are read-only observers; synthetic side-effect assertions belong to harness/test lanes.
+4. **Coverage policy**: Started/terminal operation pairs across subsystems require watchdog invariant coverage and visibility.
+5. **Subsystem-service policy**: Diagnostics remains observability infrastructure and must not become mutation authority for other subsystems.
+
+---
+
 ## 1. Why This Exists
 
 Diagnostics is the **reference cross-cutting subsystem**. It was the first concern in Graphshell to have declarative contracts (channel schemas, invariant watchdogs), runtime state (event ring, compositor snapshots), and structured validation (harness scenarios, contract tests).

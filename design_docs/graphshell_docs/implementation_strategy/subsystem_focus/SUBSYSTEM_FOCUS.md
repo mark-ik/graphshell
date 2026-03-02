@@ -14,6 +14,16 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Semantic-focus policy**: Framework-local focus state may assist rendering but cannot become semantic focus authority.
+2. **Deterministic-handoff policy**: Region activation, return paths, and handoff behavior must be deterministic and consistent across surfaces.
+3. **Modal-integrity policy**: Blocking/modal focus rules must be explicit and enforceable, never implicit side effects.
+4. **Cross-surface precedence policy**: Focus precedence order across graph/workbench/viewer/tool surfaces must be stable and documented.
+5. **Regression-visibility policy**: Focus regressions and fallback paths should be diagnosable and scenario-test visible.
+
+---
+
 ## 1. Purpose
 
 This note defines the **Focus subsystem** as the architectural owner of focus, region activation, and handoff.

@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `lens_compositor` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Compositional-lens policy**: Lens composition combines existing domain outputs and does not replace subsystem ownership boundaries.
+2. **Layout-then-presentation policy**: Lens resolution preserves canonical sequencing (layout before presentation).
+3. **Scope-boundary policy**: Lens scope remains graph-view configuration and excludes workbench/session authority.
+4. **Fallback-clarity policy**: Lens resolution/fallback behavior is explicit, diagnosable, and test-backed.
+
 ## Purpose and Scope
 
 Composes named lenses from graph-surface, presentation, and knowledge/filter configuration.

@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `canvas_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Canvas-territory policy**: Canvas registry owns graph-surface topology/layout/interaction policy, not unrelated subsystem semantics.
+2. **Deterministic-layout policy**: Layout and interaction resolution must be reproducible under equivalent state/inputs.
+3. **Physics-execution policy**: Physics execution occurs in canvas territory using selected profile parameters from presentation policies.
+4. **No-hidden-authority policy**: Canvas callbacks must not bypass graph/workbench mutation authorities.
+
 ## Purpose and Scope
 
 Defines graph-surface topology, layout, and interaction/rendering policy.

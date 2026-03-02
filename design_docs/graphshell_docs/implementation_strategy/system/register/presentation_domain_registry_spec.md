@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `presentation_domain_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Post-layout policy**: Presentation resolution applies only after layout-domain structure/interaction resolution.
+2. **Coordinated-semantics policy**: Theme and motion profiles coordinate here without collapsing into one undifferentiated control.
+3. **Explicit-cross-domain policy**: Cross-domain mappings (e.g., Liquid/Gas/Solid semantics) are explicit and diagnosable.
+4. **No-layout-override policy**: Presentation decisions must not usurp layout/workbench authority.
+
 ## Purpose and Scope
 
 Coordinates appearance and motion semantics after layout has resolved.

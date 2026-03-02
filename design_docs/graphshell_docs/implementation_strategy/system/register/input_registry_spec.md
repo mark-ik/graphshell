@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `input_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Context-resolution policy**: Input binding resolution is context-aware and deterministic.
+2. **Conflict-explicit policy**: Missing/conflicting bindings are surfaced explicitly with diagnostics.
+3. **Remap-boundary policy**: User remapping changes dispatch routes but does not redefine command semantics.
+4. **Cross-surface parity policy**: Input routing rules should remain consistent across supported surfaces/modes.
+
 ## Purpose and Scope
 
 Maps input events to canonical actions and profiles.

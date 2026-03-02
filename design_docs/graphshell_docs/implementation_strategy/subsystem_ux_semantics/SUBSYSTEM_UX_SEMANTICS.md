@@ -20,6 +20,16 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Canonical-ux-tree policy**: UxTree is the authoritative machine-readable model of native Graphshell UI semantics.
+2. **Contract-verification policy**: UX contract violations must be expressible as deterministic probe/assertion results.
+3. **Snapshot-regression policy**: Structural UX changes require explicit snapshot/contract updates rather than silent drift.
+4. **Bridge-separation policy**: UxBridge transports test/control commands but does not become semantic owner of UX policy.
+5. **Accessibility-alignment policy**: UX semantics and accessibility mapping must stay aligned without duplicating ownership.
+
+---
+
 ## 1. Why This Exists
 
 Graphshell already has a pure reducer (`apply_intents`), a reconcile boundary, a diagnostics

@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `viewer_surface_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Viewport-authority policy**: Viewer surface registry governs how selected viewers present viewport behavior.
+2. **Backend-constraint policy**: Backend constraints and degraded modes must be explicit and diagnosable.
+3. **Selection-separation policy**: Viewer-surface policy must not assume viewer-selection ownership.
+4. **Workbench-separation policy**: Viewport behavior remains independent from tile-tree/workbench arrangement authority.
+
 ## Purpose and Scope
 
 Defines viewport behavior and document-surface presentation policy for viewer panes.

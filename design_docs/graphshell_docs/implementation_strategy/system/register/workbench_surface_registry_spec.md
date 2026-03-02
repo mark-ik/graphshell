@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `workbench_surface_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Tile-tree-authority policy**: Workbench surface registry owns pane/tile structural interaction policy.
+2. **Graph-separation policy**: Workbench surface policy must not redefine graph semantic ownership.
+3. **Locking-constraint policy**: Split/reorder/lock constraints are explicit contracts, not implicit framework defaults.
+4. **Focus-handoff policy**: Surface-level transitions preserve deterministic focus and return-path rules.
+
 ## Purpose and Scope
 
 Defines tile-tree layout policy and workbench interaction policy for pane hosts.

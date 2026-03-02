@@ -19,6 +19,16 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ---
 
+## 0A. Subsystem Policies
+
+1. **Single-write-path policy**: Durable graph mutation must flow through canonical write paths; side-channel persistence writes are disallowed.
+2. **WAL-first integrity policy**: Journal and snapshot paths must remain consistent and recoverable under interruption/failure.
+3. **Roundtrip-safety policy**: Serialization/deserialization and schema evolution must preserve state or degrade explicitly.
+4. **Encryption-completeness policy**: Sensitive persistence keyspaces require mandated cryptographic handling with explicit failure behavior.
+5. **Recovery-observability policy**: Recovery/snapshot corruption, fallback, and repair paths must be diagnosable and test-backed.
+
+---
+
 ## 1. Why This Exists
 
 The persistence layer is the single point where **all graph state transitions become durable**. Every graph mutation flows through `GraphStore.log_mutation()`, and every cold start depends on `GraphStore.recover()`. A silent corruption in either path is an unrecoverable data loss event.

@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `physics_profile_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Named-preset policy**: Physics profiles are semantic named parameter sets with stable IDs and explicit fallback.
+2. **Execution-separation policy**: Profile selection belongs here; physics engine execution remains in canvas territory.
+3. **Lookup-determinism policy**: Profile resolution and legacy mapping behavior are deterministic and diagnosable.
+4. **Override-policy**: Future user/mod overrides must preserve core fallback safety contracts.
+
 ## Purpose and Scope
 
 Defines named force/physics parameter presets such as Liquid, Gas, and Solid.

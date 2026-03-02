@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `diagnostics_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Schema-authority policy**: Channel schema, severity, and invariants are declared registry contracts.
+2. **Non-silent-orphan policy**: Unknown/orphan channel registration must be observable and auditable.
+3. **Invariant-visibility policy**: Watchdog violations and pending states must be surfaced to diagnostics state/consumers.
+4. **Config-roundtrip policy**: Runtime channel configuration changes must be explicit, persistent-capable, and testable.
+
 ## Purpose and Scope
 
 Defines channel names, payload schemas, sampling, and retention rules for diagnostics.

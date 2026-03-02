@@ -10,6 +10,13 @@
 **Policy authority**: This file is the canonical policy authority for `theme_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Registry Policies
+
+1. **Token-authority policy**: Theme registry owns visual token/style resolution, not interaction semantics.
+2. **Deterministic-fallback policy**: Theme lookup and fallback behavior must be explicit and stable.
+3. **Separation policy**: Theme choices must not implicitly override layout, command, or mutation authorities.
+4. **Conformance policy**: Theme providers must honor declared capability and compatibility contracts.
+
 ## Purpose and Scope
 
 Provides visual token sets, palettes, and style resolution for UI and graph presentation.
