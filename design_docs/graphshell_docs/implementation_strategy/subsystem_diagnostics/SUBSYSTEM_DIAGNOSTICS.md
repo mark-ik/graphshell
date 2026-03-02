@@ -10,6 +10,21 @@
 **Elevates**: `../research/2026-02-24_diagnostics_research.md` (research report → subsystem plan)
 **Related**: `2026-02-22_registry_layer_plan.md` (Phase 3 channel contracts), `2026-02-22_test_harness_consolidation_plan.md`
 
+**Policy authority**: This file is the single canonical policy authority for the Diagnostics subsystem.
+Supporting diagnostics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+
+---
+
+## 0. Policy Consolidation Rule
+
+Diagnostics policy is consolidated here and must remain synchronized here first.
+
+Supporting-doc rules:
+
+1. `diagnostics_observability_and_harness_spec.md` defines contract details and acceptance framing, but does not replace this file as policy authority.
+2. `performance_contract_spec.md` and diagnostics plans may define slice-local behavior and rollout steps, but any durable policy requirement must be reflected here.
+3. If diagnostics policy changes in any PR, this file must be updated in the same PR/slice.
+
 ---
 
 ## 1. Why This Exists

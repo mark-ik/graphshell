@@ -129,6 +129,28 @@ Rules:
 - Keep marker IDs stable; do not rename IDs unless the feature scope changes.
 - Prefer one marker per integration gap, even if multiple files are involved.
 
+### 11. Subsystem Policy Authority Rule
+
+Subsystem policy must be consolidated in each subsystem's root `SUBSYSTEM_*.md` file under `graphshell_docs/implementation_strategy/subsystem_*/`.
+
+Canonical policy authorities (current):
+
+- `subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md`
+- `subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md`
+- `subsystem_focus/SUBSYSTEM_FOCUS.md`
+- `subsystem_history/SUBSYSTEM_HISTORY.md`
+- `subsystem_mods/SUBSYSTEM_MODS.md`
+- `subsystem_security/SUBSYSTEM_SECURITY.md`
+- `subsystem_storage/SUBSYSTEM_STORAGE.md`
+- `subsystem_ux_semantics/SUBSYSTEM_UX_SEMANTICS.md`
+
+Rules:
+
+1. Subsystem-specific policy text belongs in that subsystem's canonical `SUBSYSTEM_*.md` file.
+2. Supporting docs (specs/plans/research) may define contracts and implementation detail, but must not establish conflicting policy authority.
+3. If a supporting doc needs policy context, it should link to the subsystem authority and keep only local contract detail.
+4. PRs adding or changing subsystem policy must update the subsystem authority doc in the same slice.
+
 ### Workflow Documentation Rule
 
 For AI assistants: store documentation (including memories, instructions, plans, etc.) in DOC_README.md per this file's rules. Refer to DOC_README.md first, then this file, for context when needed. This also means that the content of agent-specific instruction folders should exist in design_docs (such as .claude/ readme sending its updates to DOC_README.md, but also memory files that are useful for context should be copied and archived).

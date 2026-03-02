@@ -1,7 +1,7 @@
 # Diagnostics Observability and Harness Spec
 
 **Date**: 2026-02-28  
-**Status**: Canonical subsystem contract  
+**Status**: Canonical supporting contract  
 **Priority**: Immediate implementation guidance
 
 **Related**:
@@ -13,7 +13,10 @@
 
 ## 1. Purpose and Scope
 
-This spec defines the canonical contract for the **Diagnostics subsystem**.
+This spec defines the supporting contract surface for diagnostics observability and harness behavior.
+
+Policy authority remains in `SUBSYSTEM_DIAGNOSTICS.md`.
+If policy text in this file conflicts with `SUBSYSTEM_DIAGNOSTICS.md`, the subsystem file is authoritative.
 
 It governs:
 
