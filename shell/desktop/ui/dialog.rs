@@ -11,6 +11,8 @@ use egui::{
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog};
 use euclid::Length;
 use log::warn;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use servo::{
     AlertDialog, AuthenticationRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
     DeviceIndependentPixel, EmbedderControlId, FilePicker, GenericSender, PermissionRequest,
@@ -213,11 +215,13 @@ impl Dialog {
                         if let Some(picker) = maybe_picker.take() {
                             picker.dismiss();
                         }
+                        emit_navigation_transition_dialog_close();
                     }
                     DialogAction::Submit => {
                         if let Some(picker) = maybe_picker.take() {
                             picker.submit();
                         }
+                        emit_navigation_transition_dialog_close();
                     }
                     DialogAction::Continue => {}
                 }
@@ -248,6 +252,7 @@ impl Dialog {
                     if let Some(alert_dialog) = maybe_alert_dialog.take() {
                         alert_dialog.confirm();
                     }
+                    emit_navigation_transition_dialog_close();
                 }
                 is_open
             }
@@ -282,12 +287,14 @@ impl Dialog {
                         if let Some(confirm_dialog) = maybe_confirm_dialog.take() {
                             confirm_dialog.dismiss();
                         }
+                        emit_navigation_transition_dialog_close();
                         false
                     }
                     DialogAction::Submit => {
                         if let Some(confirm_dialog) = maybe_confirm_dialog.take() {
                             confirm_dialog.confirm();
                         }
+                        emit_navigation_transition_dialog_close();
                         false
                     }
                     DialogAction::Continue => true,
@@ -326,12 +333,14 @@ impl Dialog {
                         if let Some(prompt_dialog) = maybe_prompt_dialog.take() {
                             prompt_dialog.dismiss();
                         }
+                        emit_navigation_transition_dialog_close();
                         false
                     }
                     DialogAction::Submit => {
                         if let Some(prompt_dialog) = maybe_prompt_dialog.take() {
                             prompt_dialog.confirm();
                         }
+                        emit_navigation_transition_dialog_close();
                         false
                     }
                     DialogAction::Continue => true,
@@ -391,6 +400,9 @@ impl Dialog {
                         },
                     );
                 });
+                if !is_open {
+                    emit_navigation_transition_dialog_close();
+                }
                 is_open
             }
             Dialog::Permission { message, request } => {
@@ -421,6 +433,9 @@ impl Dialog {
                         },
                     );
                 });
+                if !is_open {
+                    emit_navigation_transition_dialog_close();
+                }
                 is_open
             }
             Dialog::SelectDevice {
@@ -473,6 +488,9 @@ impl Dialog {
                         },
                     );
                 });
+                if !is_open {
+                    emit_navigation_transition_dialog_close();
+                }
                 is_open
             }
             Dialog::SelectElement {
@@ -581,6 +599,7 @@ impl Dialog {
 
                 if !is_open {
                     maybe_prompt.take().unwrap().submit();
+                    emit_navigation_transition_dialog_close();
                 }
 
                 is_open
@@ -636,6 +655,10 @@ impl Dialog {
                 }
                 if is_open {
                     ctx.request_repaint();
+                }
+
+                if !is_open {
+                    emit_navigation_transition_dialog_close();
                 }
 
                 is_open
@@ -709,12 +732,16 @@ impl Dialog {
                     if let Some(action) = selected_action {
                         if let Some(context_menu) = menu.take() {
                             context_menu.select(action);
+                            emit_navigation_transition_dialog_close();
                             return false;
                         }
                     }
                 }
                 if is_open {
                     ctx.request_repaint();
+                }
+                if !is_open {
+                    emit_navigation_transition_dialog_close();
                 }
                 is_open
             }
@@ -741,6 +768,32 @@ impl Dialog {
             menu: Some(menu),
             toolbar_offset,
         }
+    }
+}
+
+fn emit_navigation_transition_dialog_close() {
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dialog_close_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        emit_navigation_transition_dialog_close();
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when dialog close helper emits"
+        );
     }
 }
 
