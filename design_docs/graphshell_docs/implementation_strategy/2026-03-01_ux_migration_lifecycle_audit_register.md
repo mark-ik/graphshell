@@ -62,7 +62,7 @@
 | UxTree/UxProbe runtime contracts | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Core C1–C5 + probe contracts are canonical |
 | UxScenario/UxHarness deterministic UX testing | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | CI-required core scenarios already specified |
 | UX integration deliverables (D1-D5) | Current | Pre-renderer/WGPU required | Green | UX integration research + canonical spec family | D1 (`#292`) through D5 (`#296`) canonical artifacts are merged and linked into the control-plane/parity triad |
-| IA/predictability/discoverability closure bundle | Planned | Pre-renderer/WGPU required | Yellow | command/focus/workbench specs + UX research | `#297` discoverability closure is implemented; remaining closure tracked by `#299` and `#300` |
+| IA/predictability/discoverability closure bundle | Current | Pre-renderer/WGPU required | Green | command/focus/workbench specs + UX research | `#297` discoverability, `#299` IA scope/label disambiguation, and `#300` predictability closure are implemented with canonical focus/workbench contracts and targeted deterministic-focus tests |
 | Accessibility closure bundle (beyond baseline) | Planned | Pre-renderer/WGPU required | Yellow | accessibility/focus/viewer specs + UX research | Tracked by `#298`, `#301`; includes reduced-motion and keyboard-trap hardening |
 | Canonical docs parity audit | Planned | Pre-renderer/WGPU required | Green | control-plane + coverage matrix + lifecycle register | Tracked by `#302`; keeps research/issues/specs synchronized |
 
@@ -107,8 +107,8 @@ observable, and contract-driven.
 - [ ] UxTree authority trajectory gate closure: `#272`.
 - [x] UX integration deliverables closure: `#292`, `#293`, `#294`, `#295`, `#296`.
 `#292` command semantics matrix, `#293` focus/selection interaction contract, `#294` surface behavior policy, `#295` accessibility baseline checklist, and `#296` telemetry plan are present in canonical design/spec docs.
-- [ ] IA/predictability/discoverability closure bundle: `#299`, `#300`.
-`#297` discoverability closure (empty-state inventory + disabled-action explanations with regression checks) is implemented and linked in surface/command behavior docs.
+- [x] IA/predictability/discoverability closure bundle: `#297`, `#299`, `#300`.
+`#297` discoverability closure (empty-state inventory + disabled-action explanations with regression checks), `#299` IA object-action scope/label disambiguation closure, and `#300` predictability closure (selection/focus mapping + return-path validation) are implemented and linked in canonical surface/command/workbench behavior docs.
 - [ ] Accessibility closure bundle: `#298`, `#301`.
 - [ ] Canonical docs parity audit closure: `#302`.
 - [ ] Terminology reinterpretation pass complete in affected canonical docs:

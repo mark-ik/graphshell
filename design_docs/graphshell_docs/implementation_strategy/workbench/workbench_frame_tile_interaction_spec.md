@@ -308,6 +308,8 @@ Implementation/test anchor (non-exhaustive):
 
 - Tile close removes a presentation instance, not graph identity.
 - Frame close removes an arrangement context, not graph identity.
+- `Close` in workbench interactions is reserved for presentation containers (tile/frame).
+- Graph content mutation uses `Delete` semantics (`Delete Selected Node(s)`) and is not a tile-close alias.
 - Closing the last tile in a frame must route deterministically to:
   - the next frame context, or
   - an explicit empty workbench state.

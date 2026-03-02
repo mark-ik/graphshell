@@ -155,7 +155,10 @@ pub fn render_radial_command_menu(
         any_selected,
         focused_pane_available: focused_pane_node.is_some(),
         input_mode: InputMode::Gamepad,
-        view_id: crate::app::GraphViewId::new(),
+        view_id: app
+            .workspace
+            .focused_view
+            .unwrap_or_else(crate::app::GraphViewId::new),
     };
 
     let center_id = egui::Id::new("radial_menu_center");

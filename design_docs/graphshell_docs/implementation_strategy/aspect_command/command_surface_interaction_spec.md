@@ -116,6 +116,22 @@ Invocation and dismissal contract:
 - Clicking outside current palette context dismisses the shell without command mutation.
 - Palette surfaces are resizable in situ.
 
+### 3.4 Verb-target wording policy (`#299`)
+
+Command labels must follow explicit `Verb + Target (+ Destination/Scope when needed)` grammar.
+
+Canonical wording rules:
+
+1. Use explicit target nouns for destructive verbs:
+   - `Delete Selected Node(s)` (graph content mutation)
+   - avoid targetless `Delete` for command labels.
+2. Reserve `Close` for UI presentation containers (tile/frame/window/dialog), not graph content deletion.
+3. For destination-dependent verbs (`Open`, `Move`), include destination semantics:
+   - `Open Node in Split`
+   - `Open via Frame Route`
+   - `Move Node to Active Pane`
+4. Disabled action explanations must state unmet precondition and satisfy guidance.
+
 ---
 
 ## 4. Normative Core

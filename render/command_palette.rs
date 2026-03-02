@@ -98,7 +98,10 @@ pub fn render_command_palette_panel(
         any_selected,
         focused_pane_available: focused_pane_node.is_some(),
         input_mode: InputMode::MouseKeyboard,
-        view_id: crate::app::GraphViewId::new(),
+        view_id: app
+            .workspace
+            .focused_view
+            .unwrap_or_else(crate::app::GraphViewId::new),
     };
     let actions = list_actions_for_context(&action_context);
 
@@ -106,7 +109,7 @@ pub fn render_command_palette_panel(
         should_close = true;
     }
 
-    Window::new("Edge Commands")
+    Window::new("Command Palette")
         .open(&mut open)
         .default_width(320.0)
         .default_height(420.0)
@@ -115,7 +118,8 @@ pub fn render_command_palette_panel(
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.label("Selection-driven graph commands");
+                    ui.label("Node, tile, edge, graph, and persistence commands");
+                    ui.small("Delete Node(s) is graph content mutation; tile close remains a tile-tree operation.");
                     if let Some(message) = empty_graph_message(graph_node_count) {
                         ui.add_space(4.0);
                         ui.small(message);
