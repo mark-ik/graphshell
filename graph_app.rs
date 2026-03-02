@@ -29,6 +29,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED,
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED, CHANNEL_UX_CONTRACT_WARNING,
+    CHANNEL_UX_NAVIGATION_TRANSITION,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
@@ -4242,6 +4243,10 @@ impl GraphBrowserApp {
     /// Toggle edge command palette visibility.
     pub fn toggle_command_palette(&mut self) {
         self.workspace.show_command_palette = !self.workspace.show_command_palette;
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
     }
 
     /// Toggle radial command menu visibility.
@@ -8923,6 +8928,24 @@ mod tests {
         assert!(
             snapshot.contains("ux:contract_warning"),
             "expected ux:contract_warning when workbench intent leaks to reducer"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn toggle_command_palette_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        assert!(!app.workspace.show_command_palette);
+
+        app.apply_intents([GraphIntent::ToggleCommandPalette]);
+
+        assert!(app.workspace.show_command_palette);
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when command palette focus surface toggles"
         );
     }
 }
