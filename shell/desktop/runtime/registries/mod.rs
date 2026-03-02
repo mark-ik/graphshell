@@ -124,6 +124,12 @@ pub(crate) const CHANNEL_UI_GRAPH_CAMERA_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.camera_zoom_deferred_no_metadata";
 pub(crate) const CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
+pub(crate) const CHANNEL_UI_GRAPH_LASSO_BLOCKED_NO_STATE: &str =
+    "runtime.ui.graph.lasso_blocked_no_state";
+pub(crate) const CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE: &str =
+    "runtime.ui.graph.event_blocked_no_state";
+pub(crate) const CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE: &str =
+    "runtime.ui.graph.layout_sync_blocked_no_state";
 pub(crate) const CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR: &str =
     "runtime.ui.graph.wheel_zoom_blocked_invalid_factor";
 pub(crate) const CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW: &str =

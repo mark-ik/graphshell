@@ -24,8 +24,11 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_NO_BOUNDS, CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_ZERO_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_FIT_DEFERRED_NO_METADATA,
+    CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
     CHANNEL_UI_GRAPH_FIT_SELECTION_FALLBACK_TO_FIT,
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
+    CHANNEL_UI_GRAPH_LASSO_BLOCKED_NO_STATE,
+    CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE,
     CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
@@ -1608,7 +1611,7 @@ fn collect_lasso_action(
         .unwrap_or_default();
     let Some(state) = app.workspace.egui_state.as_ref() else {
         emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: "runtime.ui.graph.lasso_blocked_no_state",
+            channel_id: CHANNEL_UI_GRAPH_LASSO_BLOCKED_NO_STATE,
             latency_us: 0,
         });
         return LassoGestureResult {
@@ -1666,7 +1669,7 @@ fn collect_graph_actions(
                     }
                 } else {
                     emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        channel_id: CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
                         latency_us: 0,
                     });
                 }
@@ -1688,7 +1691,7 @@ fn collect_graph_actions(
                     }
                 } else {
                     emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        channel_id: CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
                         latency_us: 0,
                     });
                 }
@@ -1704,7 +1707,7 @@ fn collect_graph_actions(
                     }
                 } else {
                     emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        channel_id: CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
                         latency_us: 0,
                     });
                 }
@@ -1720,7 +1723,7 @@ fn collect_graph_actions(
                     }
                 } else {
                     emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: "runtime.ui.graph.event_blocked_no_state",
+                        channel_id: CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
                         latency_us: 0,
                     });
                 }
@@ -1739,7 +1742,7 @@ fn collect_graph_actions(
                         }
                     } else {
                         emit_event(DiagnosticEvent::MessageReceived {
-                            channel_id: "runtime.ui.graph.event_blocked_no_state",
+                            channel_id: CHANNEL_UI_GRAPH_EVENT_BLOCKED_NO_STATE,
                             latency_us: 0,
                         });
                     }
@@ -1818,7 +1821,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     let Some(state) = app.workspace.egui_state.as_ref() else {
         if app.workspace.is_interacting {
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: "runtime.ui.graph.layout_sync_blocked_no_state",
+                channel_id: CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE,
                 latency_us: 0,
             });
         }
