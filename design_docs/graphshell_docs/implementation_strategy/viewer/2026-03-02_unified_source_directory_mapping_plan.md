@@ -21,7 +21,8 @@ Define a canonical feature where Graphshell can automatically map source hierarc
 
 - local filesystems,
 - network file roots/shares,
-- website domain/path structures.
+- website domain/path structures,
+- sitemap-seeded web structures.
 
 The mapping model keeps one consistent semantic contract:
 
@@ -50,7 +51,8 @@ A source root is one of:
 
 - Local root (`file://` path root),
 - Network root (share or mounted network path normalized to canonical URI),
-- Web root (`scheme://host[:port]` domain root).
+- Web root (`scheme://host[:port]` domain root),
+- Sitemap root (explicit sitemap URL plus its resolved host/path scope).
 
 #### Scope units
 
@@ -89,6 +91,27 @@ A source root is one of:
 
 ### Discovery / Crawl Rules
 
+### Configurable Hierarchy and Granularity
+
+Unified mapping must expose explicit user controls that shape both traversal depth and graph detail level.
+
+Required controls:
+
+- `max_depth` per source kind (directory depth or URL path/crawl depth),
+- `max_items` and per-scope fanout caps,
+- include/exclude filters (path patterns, extensions, content types),
+- granularity mode:
+  - `leaf` (fine: map most leaves as nodes),
+  - `scope-balanced` (default: preserve main scopes, collapse low-signal leaves),
+  - `scope-only` (coarse: map scope summaries with selective representative leaves),
+- scope-collapse thresholds (auto-cluster large sibling sets under synthetic summary labels in frame context).
+
+Granularity rules:
+
+- Re-running with the same source + config must be deterministic.
+- Changing granularity must update presentation/topology without violating canonical node identity for already-mapped leaf addresses.
+- Diagnostics must include effective depth, granularity mode, and collapse counts.
+
 #### Local + network
 
 - Depth limits are mandatory.
@@ -99,6 +122,7 @@ A source root is one of:
 #### Web domain mapping
 
 - Domain mapping starts from an explicit seed URL or host root.
+- Sitemap mapping starts from an explicit sitemap URL and resolves candidate pages within policy bounds.
 - Crawl policy is constrained by:
   - same-origin default,
   - depth/page-count limits,
@@ -114,10 +138,12 @@ Planned entry points:
    - `import.filesystem` (prerequisite path),
    - `import.source_map` (unified local/network/web map).
 2. Import settings surface for crawl depth, filters, and caps.
+3. Granularity controls for fine/balanced/coarse graph construction.
 
 Required UX behavior:
 
 - preflight summary (estimated scope and active limits),
+- explicit preview of effective depth + granularity mode,
 - progress counters by source type,
 - cancelability without graph corruption,
 - completion summary (mapped, skipped, blocked, capped).
@@ -130,7 +156,8 @@ Required diagnostic classes:
 - blocked-by-prerequisite-gate,
 - skipped-by-policy/filter/permission,
 - traversal cap reached,
-- canonicalization conflict resolved.
+- canonicalization conflict resolved,
+- granularity-collapse summary emitted.
 
 Safety rules:
 
@@ -158,22 +185,24 @@ Safety rules:
 #### Phase 4 — Web domain adapter
 
 - Add constrained domain/path traversal under explicit crawl policy.
+- Add sitemap-seeded traversal mode under the same crawl/policy constraints.
 - Map host/path scopes into frames/tags using same core semantics.
 
 #### Phase 5 — UX and policy hardening
 
-- Finalize preflight UI, cancellation UX, and policy diagnostics.
+- Finalize preflight UI, cancellation UX, granularity controls, and policy diagnostics.
 - Add acceptance coverage for mixed-source mapping sessions.
 
 ### Acceptance Criteria
 
 1. Unified source mapping action is unavailable with explicit blocked reason until filesystem-ingest prerequisites are met.
-2. Local/network/web leaves map to nodes idempotently by canonical address.
+2. Local/network/web/sitemap-discovered leaves map to nodes idempotently by canonical address.
 3. Directory/domain scopes map to stable frame contexts with deterministic labels.
-4. Scope tags are applied deterministically and remain stable across re-map runs.
-5. Source-specific limits/filters are enforced and reflected in diagnostics summaries.
-6. Mixed-source sessions preserve graph/workbench consistency on cancel/failure.
-7. Default web mapping behavior remains same-origin and bounded by policy caps.
+4. User-configured depth and granularity controls are enforced consistently across directory/domain/network/sitemap modes.
+5. Scope tags are applied deterministically and remain stable across re-map runs.
+6. Source-specific limits/filters are enforced and reflected in diagnostics summaries.
+7. Mixed-source sessions preserve graph/workbench consistency on cancel/failure.
+8. Default web mapping behavior remains same-origin and bounded by policy caps.
 
 ---
 
@@ -188,3 +217,4 @@ Safety rules:
 ## Progress
 
 - 2026-03-02: Created canonical expansion plan for unified local/network/web directory-domain mapping, explicitly gated behind filesystem-ingest readiness.
+- 2026-03-02: Expanded spec to require configurable hierarchy depth and graph granularity (including sitemap-seeded traversal mode).
