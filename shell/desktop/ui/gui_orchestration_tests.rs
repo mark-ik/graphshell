@@ -298,6 +298,68 @@ fn close_history_tool_pane_restores_previous_node_focus_via_orchestration() {
     assert_eq!(active_node_key(&tree), Some(focus_node));
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_tool_pane_restore_failure_emits_ux_navigation_violation_channel() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let mut tiles = Tiles::default();
+    let tool = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let mut tree = Tree::new("restore_failure_violation", tool, tiles);
+
+    app.set_pending_tool_surface_return_target(Some(
+        crate::app::ToolSurfaceReturnTarget::Graph(GraphViewId::new()),
+    ));
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: true,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "expected ux:navigation_violation when restore path cannot resolve a focus target"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_tool_pane_restore_success_does_not_emit_ux_navigation_violation_channel() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let root = tiles.insert_tab_tile(vec![graph, settings]);
+    let mut tree = Tree::new("restore_success_no_violation", root, tiles);
+
+    let _ = tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))),
+    );
+    app.set_pending_tool_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
+        graph_view,
+    )));
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: true,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "did not expect ux:navigation_violation when restore path resolves successfully"
+    );
+}
+
 #[test]
 fn open_pending_child_webviews_skips_unmapped_child_webview_ids() {
     let mut app = GraphBrowserApp::new_for_testing();

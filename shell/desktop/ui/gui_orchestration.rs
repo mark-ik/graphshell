@@ -951,13 +951,22 @@ fn restore_tool_surface_focus_or_ensure_active_tile(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) {
-    if let Some(target) = graph_app.take_pending_tool_surface_return_target() {
+    let resolved = if let Some(target) = graph_app.take_pending_tool_surface_return_target() {
         let restored = focus_tool_surface_return_target(tiles_tree, target);
-        if !restored {
-            let _ = crate::shell::desktop::workbench::tile_view_ops::ensure_active_tile(tiles_tree);
+        if restored {
+            true
+        } else {
+            crate::shell::desktop::workbench::tile_view_ops::ensure_active_tile(tiles_tree)
         }
     } else {
-        let _ = crate::shell::desktop::workbench::tile_view_ops::ensure_active_tile(tiles_tree);
+        crate::shell::desktop::workbench::tile_view_ops::ensure_active_tile(tiles_tree)
+    };
+
+    if !resolved && active_tool_surface_return_target(tiles_tree).is_none() {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+            byte_len: 1,
+        });
     }
 }
 
