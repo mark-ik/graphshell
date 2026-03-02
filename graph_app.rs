@@ -4238,6 +4238,10 @@ impl GraphBrowserApp {
     /// Toggle keyboard shortcut help panel visibility
     pub fn toggle_help_panel(&mut self) {
         self.workspace.show_help_panel = !self.workspace.show_help_panel;
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
     }
 
     /// Toggle edge command palette visibility.
@@ -4255,6 +4259,10 @@ impl GraphBrowserApp {
         if !self.workspace.show_radial_menu {
             self.workspace.pending_node_context_target = None;
         }
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
     }
 
     /// Open a `graphshell://settings/*` URL.
@@ -8946,6 +8954,42 @@ mod tests {
         assert!(
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when command palette focus surface toggles"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn toggle_help_panel_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        assert!(!app.workspace.show_help_panel);
+
+        app.apply_intents([GraphIntent::ToggleHelpPanel]);
+
+        assert!(app.workspace.show_help_panel);
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when help panel focus surface toggles"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn toggle_radial_menu_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        assert!(!app.workspace.show_radial_menu);
+
+        app.apply_intents([GraphIntent::ToggleRadialMenu]);
+
+        assert!(app.workspace.show_radial_menu);
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when radial menu focus surface toggles"
         );
     }
 }
