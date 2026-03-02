@@ -80,6 +80,8 @@ pub enum GraphAction {
         keys: Vec<NodeKey>,
         mode: SelectionUpdateMode,
     },
+    SetHighlightedEdge { from: NodeKey, to: NodeKey },
+    ClearHighlightedEdge,
     ClearSelection,
     Zoom(f32),
 }
@@ -108,6 +110,7 @@ fn action_handles_primary_click(action: &GraphAction) -> bool {
             | GraphAction::MoveNode(_, _)
             | GraphAction::SelectNode { .. }
             | GraphAction::LassoSelect { .. }
+            | GraphAction::SetHighlightedEdge { .. }
     )
 }
 
@@ -495,6 +498,15 @@ pub fn render_graph_in_ui_collect_actions(
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
     let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
+    let edge_click_eligible = ui.input(|i| i.pointer.primary_clicked())
+        && app.workspace.hovered_graph_node.is_none()
+        && !radial_open
+        && lasso.action.is_none();
+    if edge_click_eligible
+        && let Some((from, to)) = edge_endpoints_at_pointer(ui, app, response.id)
+    {
+        actions.push(GraphAction::SetHighlightedEdge { from, to });
+    }
     let graph_handled_primary_click = actions.iter().any(action_handles_primary_click);
     let clear_selection_on_background_click = ui.input(|i| {
         should_clear_selection_on_background_click(
@@ -508,6 +520,9 @@ pub fn render_graph_in_ui_collect_actions(
     });
     if clear_selection_on_background_click {
         actions.push(GraphAction::ClearSelection);
+        if app.workspace.highlighted_graph_edge.is_some() {
+            actions.push(GraphAction::ClearHighlightedEdge);
+        }
     }
     if let Some(lasso_action) = lasso.action {
         actions.push(lasso_action);
@@ -528,20 +543,7 @@ fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id
     let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
         return;
     };
-    let Some(state) = app.workspace.egui_state.as_ref() else {
-        return;
-    };
-    let meta_id = widget_id.with("metadata");
-    let Some(meta) = ui
-        .ctx()
-        .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
-    else {
-        return;
-    };
-    let Some(edge_id) = state.graph.edge_by_screen_pos(&meta, pointer) else {
-        return;
-    };
-    let Some((from, to)) = state.graph.edge_endpoints(edge_id) else {
+    let Some((from, to)) = edge_endpoints_at_pointer(ui, app, widget_id) else {
         return;
     };
 
@@ -614,6 +616,21 @@ fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id
                 ui.label(format!("Latest traversal: {latest_text}"));
             });
         });
+}
+
+fn edge_endpoints_at_pointer(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    widget_id: egui::Id,
+) -> Option<(NodeKey, NodeKey)> {
+    let pointer = ui.input(|i| i.pointer.latest_pos())?;
+    let state = app.workspace.egui_state.as_ref()?;
+    let meta_id = widget_id.with("metadata");
+    let meta = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))?;
+    let edge_id = state.graph.edge_by_screen_pos(&meta, pointer)?;
+    state.graph.edge_endpoints(edge_id)
 }
 
 fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp, widget_id: egui::Id) {
@@ -1828,6 +1845,12 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
             }
             GraphAction::LassoSelect { keys, mode } => {
                 intents.push(GraphIntent::UpdateSelection { keys, mode });
+            }
+            GraphAction::SetHighlightedEdge { from, to } => {
+                intents.push(GraphIntent::SetHighlightedEdge { from, to });
+            }
+            GraphAction::ClearHighlightedEdge => {
+                intents.push(GraphIntent::ClearHighlightedEdge);
             }
             GraphAction::ClearSelection => {
                 intents.push(GraphIntent::UpdateSelection {
@@ -3461,6 +3484,31 @@ mod tests {
         ]));
         assert!(app.workspace.selected_nodes.is_empty());
         assert_eq!(app.workspace.selected_nodes.primary(), None);
+    }
+
+    #[test]
+    fn test_set_highlighted_edge_action_maps_to_intent() {
+        let mut app = test_app();
+        let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
+        let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
+
+        let intents = intents_from_graph_actions(vec![GraphAction::SetHighlightedEdge { from, to }]);
+        app.apply_intents(intents);
+
+        assert_eq!(app.workspace.highlighted_graph_edge, Some((from, to)));
+    }
+
+    #[test]
+    fn test_clear_highlighted_edge_action_maps_to_intent() {
+        let mut app = test_app();
+        let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
+        let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
+        app.workspace.highlighted_graph_edge = Some((from, to));
+
+        let intents = intents_from_graph_actions(vec![GraphAction::ClearHighlightedEdge]);
+        app.apply_intents(intents);
+
+        assert!(app.workspace.highlighted_graph_edge.is_none());
     }
 
     #[test]
