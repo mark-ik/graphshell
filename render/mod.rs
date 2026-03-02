@@ -402,8 +402,15 @@ pub fn render_graph_in_ui_collect_actions(
         && !lasso.suppress_context_menu
         && let Some(target) = app.workspace.hovered_graph_node
     {
+        let was_open = app.workspace.show_radial_menu;
         app.set_pending_node_context_target(Some(target));
         app.workspace.show_radial_menu = true;
+        if app.workspace.show_radial_menu != was_open {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                latency_us: 0,
+            });
+        }
         if let Some(pointer) = ui.input(|i| i.pointer.latest_pos()) {
             ui.ctx().data_mut(|d| {
                 d.insert_persisted(egui::Id::new("radial_menu_center"), pointer);
