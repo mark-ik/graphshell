@@ -19,7 +19,9 @@ use crate::registries::domain::layout::canvas::{CANVAS_PROFILE_DEFAULT, CanvasLa
 use crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT;
 use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UI_HISTORY_MANAGER_LIMIT;
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
+};
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
@@ -83,8 +85,6 @@ const CHANNEL_CAMERA_FIT_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.camera_fit_deferred_no_metadata";
 const CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
-const CHANNEL_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR: &str =
-    "runtime.ui.graph.wheel_zoom_blocked_invalid_factor";
 
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
@@ -1407,7 +1407,7 @@ fn apply_pending_wheel_zoom(
             }
         } else {
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
+                channel_id: CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
                 latency_us: 0,
             });
             app.clear_pending_wheel_zoom_delta();
