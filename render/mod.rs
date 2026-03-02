@@ -84,6 +84,20 @@ pub enum GraphAction {
     Zoom(f32),
 }
 
+fn set_focused_view_with_transition(
+    app: &mut GraphBrowserApp,
+    focused_view: Option<crate::app::GraphViewId>,
+) {
+    let previous_focused_view = app.workspace.focused_view;
+    app.workspace.focused_view = focused_view;
+    if app.workspace.focused_view != previous_focused_view {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
+}
+
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
         action,
@@ -201,7 +215,7 @@ pub fn render_graph_in_ui_collect_actions(
         .focused_view
         .is_some_and(|focused| !app.workspace.views.contains_key(&focused))
     {
-        app.workspace.focused_view = None;
+        set_focused_view_with_transition(app, None);
     }
 
     let ctrl_pressed = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
@@ -334,7 +348,7 @@ pub fn render_graph_in_ui_collect_actions(
             }
         });
         if captured_wheel_zoom {
-            app.workspace.focused_view = Some(view_id);
+            set_focused_view_with_transition(app, Some(view_id));
         }
     }
 
@@ -502,7 +516,7 @@ pub fn render_graph_in_ui_collect_actions(
         actions.push(GraphAction::Zoom(zoom));
     }
     if clear_selection_on_background_click || !actions.is_empty() {
-        app.workspace.focused_view = Some(view_id);
+        set_focused_view_with_transition(app, Some(view_id));
     }
     actions
 }
@@ -1102,7 +1116,7 @@ fn apply_background_pan(
         return false;
     }
 
-    app.workspace.focused_view = Some(view_id);
+    set_focused_view_with_transition(app, Some(view_id));
     let mut applied = false;
     ctx.data_mut(|data| {
         if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
@@ -3206,6 +3220,22 @@ mod tests {
         app.apply_intents(intents);
 
         assert!(app.workspace.is_interacting);
+    }
+
+    #[test]
+    fn focused_view_change_emits_ux_navigation_transition_channel() {
+        let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        let mut diagnostics = DiagnosticsState::new();
+
+        set_focused_view_with_transition(&mut app, Some(view_id));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when focused view changes"
+        );
     }
 
     #[test]
