@@ -6169,6 +6169,30 @@ mod tests {
     }
 
     #[test]
+    fn test_pending_wheel_zoom_anchor_clears_when_target_view_changes_without_anchor() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+
+        app.queue_pending_wheel_zoom_delta(view_a, 10.0, Some((25.0, 35.0)));
+        assert_eq!(app.pending_wheel_zoom_anchor_screen(view_a), Some((25.0, 35.0)));
+
+        app.queue_pending_wheel_zoom_delta(view_b, 6.0, None);
+
+        assert_eq!(app.pending_wheel_zoom_delta(view_a), 0.0);
+        assert_eq!(app.pending_wheel_zoom_anchor_screen(view_a), None);
+        assert_eq!(app.pending_wheel_zoom_delta(view_b), 6.0);
+        assert_eq!(app.pending_wheel_zoom_anchor_screen(view_b), None);
+    }
+
+    #[test]
     fn test_frame_only_reducer_excludes_verse_side_effect_intents() {
         let mut app = GraphBrowserApp::new_for_testing();
 
