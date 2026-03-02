@@ -1,6 +1,6 @@
 # UX Execution Control Plane
 
-**Date**: 2026-03-01  
+**Date**: 2026-03-02  
 **Status**: Canonical operational control-plane  
 **Purpose**: Consolidated execution surface for UX baseline done-gates, current milestone checklist, and issue-domain mapping.
 
@@ -11,6 +11,7 @@
 
 **Related**:
 - `2026-02-28_ux_contract_register.md`
+- `../../research/2026-03-02_ux_integration_research.md`
 - `../2026-03-01_ux_migration_feature_spec_coverage_matrix.md`
 - `../2026-03-01_ux_migration_lifecycle_audit_register.md`
 - `ux_tree_and_probe_spec.md`
@@ -70,6 +71,8 @@ Validation gate:
    - `#109`, `#110`, `#177`, `#189`
 6. **Selection and viewer clarity**
    - `#185`, `#102`, `#162`, `#188`
+7. **UX integration deliverables and parity**
+   - `#292`, `#293`, `#294`, `#295`, `#296`, `#297`, `#298`, `#299`, `#300`, `#301`, `#302`
 
 ### 3.2 Exit questions
 
@@ -129,6 +132,11 @@ Issue status classes:
 - Primary: `#109`, `#110`, `#177`, `#189`
 - Support: `#89`, `#134`, `#135`, `#136`, `#137`, `#142`, `#94`
 
+### 4.7 UX Integration Deliverables and Docs Parity
+
+- Primary: `#292`, `#293`, `#294`, `#295`, `#296`, `#297`, `#298`, `#299`, `#300`, `#301`
+- Support: `#302`
+
 ---
 
 ## 5. Deferred Migration Boundary
@@ -149,5 +157,6 @@ For any UX issue/PR touching current milestone semantics:
 1. Update this control-plane doc when priority/status/domain changes.
 2. Update `../2026-03-01_ux_migration_feature_spec_coverage_matrix.md` for spec ownership + three-tree status.
 3. Update `../2026-03-01_ux_migration_lifecycle_audit_register.md` for lifecycle stage + timing gate.
+4. Keep `#302` parity mapping current when UX research deliverables or closure statuses change.
 
 A UX slice is not considered done until all three artifacts agree.

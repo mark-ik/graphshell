@@ -1,11 +1,12 @@
 # UX Migration Feature ↔ Spec Coverage Matrix
 
-**Date**: 2026-03-01  
+**Date**: 2026-03-02  
 **Status**: Canonical planning artifact  
 **Purpose**: Ensure every UX migration feature is anchored to an existing canonical spec or a clearly defined new spec, with three-tree pattern compliance checks.
 
 **Related**:
 - `2026-03-01_ux_migration_design_spec.md`
+- `../research/2026-03-02_ux_integration_research.md`
 - `subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `subsystem_ux_semantics/ux_scenario_and_harness_spec.md`
 - `aspect_input/input_interaction_spec.md`
@@ -63,6 +64,12 @@
 | Readability-driven adaptation | UX migration §6.2 | UX migration + research refs only | Red | Missing | Extend layout canonical spec with readability metric contract/channels |
 | LOD semantic zoom policy | UX migration §6.3 | `canvas/graph_node_edge_interaction_spec.md` (partial), UxTree C5 in `ux_tree_and_probe_spec.md` | Yellow | Partial | Add explicit LOD threshold contract to canonical canvas spec and UxTree emission contract cross-link |
 | Modal isolation and focus return | UX migration §7.3 | `aspect_input/input_interaction_spec.md`, `subsystem_focus/focus_and_region_navigation_spec.md`, UxTree spec | Yellow | Partial | Add shared modal isolation contract table across Input + Focus + UxTree specs |
+| Command Semantics Matrix deliverable | UX integration research §10 D1 | `aspect_command/command_surface_interaction_spec.md`, UX register family | Red | Missing | Implement matrix via `#292`; fold IA scope clarity from `#299` |
+| Focus/Selection Interaction Contract deliverable | UX integration research §10 D2 | `subsystem_focus/focus_and_region_navigation_spec.md`, `workbench/workbench_frame_tile_interaction_spec.md` | Yellow | Partial | Implement deterministic contract via `#293` + `#300` |
+| Surface Behavior Spec deliverable | UX integration research §10 D3 | command/workbench/viewer specs (partial) | Red | Missing | Create surface behavior canonical spec via `#294`; include discoverability closure `#297` |
+| Accessibility Baseline Checklist deliverable | UX integration research §10 D4 | `subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md` (policy), focus/viewer specs | Red | Missing | Create checklist via `#295`; implement graph a11y path via `#298` + `#301` |
+| UX Telemetry Plan deliverable | UX integration research §10 D5 | diagnostics registry + UxProbe/UxHarness specs (partial) | Red | Missing | Create telemetry plan via `#296` and wire initial metric path |
+| Docs parity audit deliverable mapping | UX integration research §13 + control-plane ops | control-plane + matrix + lifecycle register | Yellow | Partial | Keep canonical parity synchronized via `#302` |
 
 ---
 
@@ -121,6 +128,17 @@ UX migration is complete when:
 - `#271` — Pre-WGPU canvas interaction invariants closure.
 - `#272` — UxTree convergence roadmap staged authority gates.
 - `#273` — Pre-WGPU UxHarness critical-path gate.
+- `#292` — Command Semantics Matrix deliverable closure.
+- `#293` — Focus/Selection Interaction Contract deliverable closure.
+- `#294` — Surface Behavior Spec deliverable closure.
+- `#295` — Accessibility Baseline Checklist deliverable closure.
+- `#296` — UX Telemetry Plan deliverable closure.
+- `#297` — Discoverability closure (empty states + disabled-action explanations).
+- `#298` — Graph canvas keyboard focus + AccessKit naming implementation.
+- `#299` — IA object-action scope audit + label disambiguation.
+- `#300` — Predictability closure: selection truth + focus/active-pane mapping.
+- `#301` — Accessibility closure bundle (reduced motion, contrast/target-size, keyboard trap).
+- `#302` — Canonical docs parity audit against UX integration research.
 
 ---
 

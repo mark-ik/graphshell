@@ -1,12 +1,13 @@
 # UX Migration Lifecycle Audit Register
 
-**Date**: 2026-03-01  
+**Date**: 2026-03-02  
 **Status**: Canonical planning artifact  
 **Purpose**: Unified audit of UX-related capabilities across active specs, implementation strategies, research notes, and archive checkpoints, with explicit delivery timing gates.
 
 **Related**:
 - `2026-03-01_ux_migration_design_spec.md`
 - `2026-03-01_ux_migration_feature_spec_coverage_matrix.md`
+- `../research/2026-03-02_ux_integration_research.md`
 - `subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `subsystem_ux_semantics/ux_scenario_and_harness_spec.md`
 - `aspect_render/2026-03-01_webrender_readiness_gate_feature_guardrails.md`
@@ -60,6 +61,10 @@
 | Viewer fallback/degraded-state clarity | Current | Pre-renderer/WGPU required | Yellow | `viewer/viewer_presentation_and_fallback_spec.md` | Placeholder-state UX and diagnostics messaging still needs scenario hardening |
 | UxTree/UxProbe runtime contracts | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Core C1–C5 + probe contracts are canonical |
 | UxScenario/UxHarness deterministic UX testing | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | CI-required core scenarios already specified |
+| UX integration deliverables (D1-D5) | Planned | Pre-renderer/WGPU required | Yellow | UX integration research + canonical spec family | Deliverables tracked by `#292`-`#296`; closures must remain spec-linked and testable |
+| IA/predictability/discoverability closure bundle | Planned | Pre-renderer/WGPU required | Yellow | command/focus/workbench specs + UX research | Tracked by `#297`, `#299`, `#300`; required for deterministic cross-tree UX behavior |
+| Accessibility closure bundle (beyond baseline) | Planned | Pre-renderer/WGPU required | Yellow | accessibility/focus/viewer specs + UX research | Tracked by `#298`, `#301`; includes reduced-motion and keyboard-trap hardening |
+| Canonical docs parity audit | Planned | Pre-renderer/WGPU required | Green | control-plane + coverage matrix + lifecycle register | Tracked by `#302`; keeps research/issues/specs synchronized |
 
 ---
 
@@ -100,6 +105,10 @@ observable, and contract-driven.
 `#162` overlay affordance policy per `TileRenderMode` is implemented at compositor boundary, and `#188` now adds explicit user-visible degraded/fallback reasons + recovery affordances with diagnostics receipts.
 - [ ] UxHarness critical-path evidence closure: `#251`, `#257`, `#273`.
 - [ ] UxTree authority trajectory gate closure: `#272`.
+- [ ] UX integration deliverables closure: `#292`, `#293`, `#294`, `#295`, `#296`.
+- [ ] IA/predictability/discoverability closure bundle: `#297`, `#299`, `#300`.
+- [ ] Accessibility closure bundle: `#298`, `#301`.
+- [ ] Canonical docs parity audit closure: `#302`.
 - [ ] Terminology reinterpretation pass complete in affected canonical docs:
 	- "Magnetic zones" language reframed to frame-affinity behavior.
 	- Context-menu-primary language reframed to Command Palette contextual mode.
@@ -118,6 +127,8 @@ observable, and contract-driven.
 | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | `#251`, `#257`, `#273` | Critical-path UxHarness gate evidence |
 | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | `#272`, `#251`, `#257`, `#273` | UxTree authority trajectory and probe/harness closure |
 | `subsystem_focus/focus_and_region_navigation_spec.md` | `#140`, `#174`, `#187`, `#189`, `#103` | Focus-domain primary/support mapping from UX control-plane; represented in milestone domains, not as a separate checklist bullet |
+| UX integration research deliverables (`D1`-`D5`) | `#292`, `#293`, `#294`, `#295`, `#296` | Command semantics, interaction contract, surface behavior, accessibility baseline, telemetry plan |
+| Canonical docs parity | `#302` | Keep control-plane/matrix/lifecycle synchronized with research and issue state |
 
 ### 3.3 Safe to defer until after switch
 
@@ -180,6 +191,10 @@ the coverage matrix gate and this lifecycle gate are green for that row.
 - **Radial geometry/overflow contract**: `#263`, `#270`
 - **Canvas interaction invariants** (selection/lasso/zoom/edge focus): `#271`, `#173`, `#185`, `#102`, `#104`, `#101`, `#103`
 - **Viewer fallback/degraded-state clarity**: `#188`, `#162`
+- **UX integration deliverables**: `#292`, `#293`, `#294`, `#295`, `#296`
+- **IA/predictability/discoverability bundle**: `#297`, `#299`, `#300`
+- **Accessibility closure bundle**: `#298`, `#301`
+- **Canonical docs parity audit**: `#302`
 - **UxHarness critical-path evidence**: `#251`, `#257`, `#273`
 - **UxTree authority trajectory gates**: `#272`
 
