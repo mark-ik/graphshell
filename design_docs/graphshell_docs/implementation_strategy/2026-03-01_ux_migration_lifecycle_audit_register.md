@@ -64,7 +64,7 @@
 | UX integration deliverables (D1-D5) | Current | Pre-renderer/WGPU required | Green | UX integration research + canonical spec family | D1 (`#292`) through D5 (`#296`) canonical artifacts are merged and linked into the control-plane/parity triad |
 | IA/predictability/discoverability closure bundle | Current | Pre-renderer/WGPU required | Green | command/focus/workbench specs + UX research | `#297` discoverability, `#299` IA scope/label disambiguation, and `#300` predictability closure are implemented with canonical focus/workbench contracts and targeted deterministic-focus tests |
 | Accessibility closure bundle (beyond baseline) | Current | Pre-renderer/WGPU required | Green | accessibility/focus/viewer specs + UX research | `#298` graph keyboard-focus + naming baseline evidence and `#301` closure evidence (reduced-motion guardrails, contrast/target-size audit artifact, keyboard-trap validation) are merged |
-| Canonical docs parity audit | Planned | Pre-renderer/WGPU required | Green | control-plane + coverage matrix + lifecycle register | Tracked by `#302`; keeps research/issues/specs synchronized |
+| Canonical docs parity audit | Current | Pre-renderer/WGPU required | Green | control-plane + coverage matrix + lifecycle register | `#302` baseline parity pass is closed; maintain synchronization as ongoing policy |
 
 ---
 
@@ -111,7 +111,8 @@ observable, and contract-driven.
 `#297` discoverability closure (empty-state inventory + disabled-action explanations with regression checks), `#299` IA object-action scope/label disambiguation closure, and `#300` predictability closure (selection/focus mapping + return-path validation) are implemented and linked in canonical surface/command/workbench behavior docs.
 - [x] Accessibility closure bundle: `#298`, `#301`.
 `#298` deterministic graph keyboard traversal + graph canvas naming baseline is implemented with targeted unit tests and checklist delta evidence; `#301` closure bundle evidence is already merged.
-- [ ] Canonical docs parity audit closure: `#302`.
+- [x] Canonical docs parity audit closure: `#302`.
+`#302` baseline parity pass is closed; control-plane, coverage matrix, and lifecycle register are aligned to current issue and deliverable state.
 - [ ] Terminology reinterpretation pass complete in affected canonical docs:
 	- "Magnetic zones" language reframed to frame-affinity behavior.
 	- Context-menu-primary language reframed to Command Palette contextual mode.

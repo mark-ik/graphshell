@@ -75,7 +75,7 @@ Validation gate:
 6. **Selection and viewer clarity**
    - `#185`, `#102`, `#162`, `#188`
 7. **UX integration deliverables and parity**
-   - `#292`, `#293`, `#294`, `#295`, `#296`, `#297`, `#298`, `#299`, `#300`, `#301`, `#302`
+   - `#292`, `#293`, `#294`, `#295`, `#296`, `#297`, `#298`, `#299`, `#300`, `#301`
 
 ### 3.2 Exit questions
 
@@ -138,7 +138,17 @@ Issue status classes:
 ### 4.7 UX Integration Deliverables and Docs Parity
 
 - Primary: `#292`, `#293`, `#294`, `#295`, `#296`, `#297`, `#298`, `#299`, `#300`, `#301`
-- Support: `#302`
+- Support: `#302` (closed parity audit baseline)
+
+### 4.8 Open Gaps Matrix (Critical / High / Medium)
+
+| Severity | Gap slice | Issue links |
+|---|---|---|
+| Critical | Three-phase UX event-dispatch closure and authority routing | `#261`, `#269` |
+| Critical | Core canvas interaction invariants full closure (selection/lasso/zoom/edge focus) | `#173`, `#185`, `#102`, `#104`, `#101`, `#103`, `#271` |
+| High | UxHarness critical-path evidence and UxTree authority trajectory gate | `#251`, `#257`, `#273`, `#272` |
+| High | Inter-workbench semantics and WorkbenchProfile composition contracts | `#174`, `#186`, `#187`, `#118`, `#119` |
+| Medium | Readability/adaptation portfolio expansion and post-switch interaction tuning | `#180`, `#181`, `#182` |
 
 ---
 
@@ -160,6 +170,6 @@ For any UX issue/PR touching current milestone semantics:
 1. Update this control-plane doc when priority/status/domain changes.
 2. Update `../2026-03-01_ux_migration_feature_spec_coverage_matrix.md` for spec ownership + three-tree status.
 3. Update `../2026-03-01_ux_migration_lifecycle_audit_register.md` for lifecycle stage + timing gate.
-4. Keep `#302` parity mapping current when UX research deliverables or closure statuses change.
+4. Keep parity mapping current when UX research deliverables or closure statuses change (`#302` establishes the baseline audit pass).
 
 A UX slice is not considered done until all three artifacts agree.

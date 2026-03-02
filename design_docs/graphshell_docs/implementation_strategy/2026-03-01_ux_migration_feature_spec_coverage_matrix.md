@@ -69,7 +69,7 @@
 | Surface Behavior Spec deliverable | UX integration research §10 D3 | `../design/surface_behavior_spec.md`, command/workbench/viewer specs | Green | Pass | `#294` canonical surface behavior spec is merged with policy + implementation checklist; discoverability addendum and implementation linkage are now closed via `#297` |
 | Accessibility Baseline Checklist deliverable | UX integration research §10 D4 | `../design/accessibility_baseline_checklist.md`, `subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md`, focus/viewer specs | Green | Pass | `#295` canonical WCAG A/AA checklist is merged with initial screen-reader matrix; `#298` graph keyboard-focus + naming baseline evidence and `#301` closure evidence (reduced-motion guardrails, contrast/target-size audit, keyboard-trap validation) are recorded |
 | UX Telemetry Plan deliverable | UX integration research §10 D5 | `../design/ux_telemetry_plan.md`, diagnostics registry + UxProbe/UxHarness specs | Green | Pass | `#296` canonical telemetry plan is merged with metric-channel-target mapping and wired diagnostics evidence (`ux:navigation_violation` / `ux:navigation_transition`) |
-| Docs parity audit deliverable mapping | UX integration research §13 + control-plane ops | control-plane + matrix + lifecycle register | Yellow | Partial | Keep canonical parity synchronized via `#302` |
+| Docs parity audit deliverable mapping | UX integration research §13 + control-plane ops | control-plane + matrix + lifecycle register | Green | Pass | `#302` parity audit baseline is closed; keep control-plane/matrix/lifecycle synchronized as maintenance |
 
 ---
 
@@ -138,7 +138,7 @@ UX migration is complete when:
 - `#299` — IA object-action scope audit + label disambiguation.
 - `#300` — Predictability closure: selection truth + focus/active-pane mapping.
 - `#301` — Accessibility closure bundle (reduced motion, contrast/target-size, keyboard trap).
-- `#302` — Canonical docs parity audit against UX integration research.
+- `#302` — Canonical docs parity audit against UX integration research (closed baseline pass).
 
 ---
 
