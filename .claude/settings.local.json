@@ -48,7 +48,11 @@
       "Bash(git pull origin main)",
       "Bash(python3 -c \":*)",
       "Bash(python3 -:*)",
-      "WebFetch(domain:wusyong.github.io)"
+      "WebFetch(domain:wusyong.github.io)",
+      "WebFetch(domain:servo.org)",
+      "Bash(python3 -c \"import sys,json; branches=[b[''name''] for b in json.load\\(sys.stdin\\)]; print\\(''\\\\n''.join\\(b for b in branches if any\\(k in b.lower\\(\\) for k in [''byo'',''renderer'',''wgpu'',''webrender'',''vello'']\\)\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''TITLE:'', d[''title'']\\); print\\(''STATE:'', d[''state'']\\); print\\(''CREATED:'', d[''created_at'']\\); print\\(''UPDATED:'', d[''updated_at'']\\); print\\(''LABELS:'', [l[''name''] for l in d[''labels'']]\\); print\\(''BODY:''\\); print\\(d[''body'']\\)\")",
+      "WebFetch(domain:book.servo.org)"
     ]
   }
 }
