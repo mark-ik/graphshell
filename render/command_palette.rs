@@ -21,6 +21,53 @@ use crate::render::action_registry::{
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+fn disabled_action_reason(action_id: ActionId, action_context: &ActionContext) -> Option<&'static str> {
+    match action_id {
+        ActionId::EdgeConnectPair | ActionId::EdgeConnectBoth | ActionId::EdgeRemoveUser => {
+            if action_context.pair_context.is_none() {
+                Some("Requires exactly two nodes selected. Select a source and target node first.")
+            } else {
+                None
+            }
+        }
+        ActionId::NodeDetachToSplit => {
+            if !action_context.focused_pane_available {
+                Some("Requires a focused node pane. Focus a node pane, then retry.")
+            } else {
+                None
+            }
+        }
+        ActionId::NodePinSelected
+        | ActionId::NodeUnpinSelected
+        | ActionId::NodeDelete
+        | ActionId::NodeChooseFrame
+        | ActionId::NodeAddToFrame
+        | ActionId::NodeAddConnectedToFrame
+        | ActionId::NodeOpenFrame
+        | ActionId::NodeOpenNeighbors
+        | ActionId::NodeOpenConnected
+        | ActionId::NodeOpenSplit
+        | ActionId::NodeMoveToActivePane
+        | ActionId::NodeCopyUrl
+        | ActionId::NodeCopyTitle => {
+            if !action_context.any_selected && action_context.target_node.is_none() {
+                Some("Requires a selected or targeted node. Select a node first.")
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn empty_graph_message(node_count: usize) -> Option<&'static str> {
+    if node_count == 0 {
+        Some("Graph is empty. Create your first node to unlock node and edge actions.")
+    } else {
+        None
+    }
+}
+
 /// Render the command palette panel.
 ///
 /// Content is driven by [`list_actions_for_context`]; no hardcoded action
@@ -43,6 +90,7 @@ pub fn render_command_palette_panel(
     let pair_context = super::resolve_pair_command_context(app, hovered_node, focused_pane_node);
     let source_context = super::resolve_source_node_context(app, hovered_node, focused_pane_node);
     let any_selected = !app.workspace.selected_nodes.is_empty();
+    let graph_node_count = app.workspace.graph.node_count();
 
     let action_context = ActionContext {
         target_node: source_context,
@@ -68,6 +116,14 @@ pub fn render_command_palette_panel(
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.label("Selection-driven graph commands");
+                    if let Some(message) = empty_graph_message(graph_node_count) {
+                        ui.add_space(4.0);
+                        ui.small(message);
+                        if ui.button("Create First Node").clicked() {
+                            intents.push(GraphIntent::CreateNodeNearCenter);
+                            should_close = true;
+                        }
+                    }
                     ui.add_space(6.0);
 
                     // Render actions grouped by category, using ActionRegistry content.
@@ -92,10 +148,14 @@ pub fn render_command_palette_panel(
                         }
                         first_category = false;
                         for entry in &cat_actions {
-                            if ui
-                                .add_enabled(entry.enabled, egui::Button::new(entry.id.label()))
-                                .clicked()
+                            let mut response =
+                                ui.add_enabled(entry.enabled, egui::Button::new(entry.id.label()));
+                            if !entry.enabled
+                                && let Some(reason) = disabled_action_reason(entry.id, &action_context)
                             {
+                                response = response.on_hover_text(reason);
+                            }
+                            if response.clicked() {
                                 execute_action(
                                     app,
                                     entry.id,
@@ -288,5 +348,40 @@ pub(super) fn execute_action(
         ActionId::PersistOpenHub => intents.push(GraphIntent::OpenToolPane {
             kind: ToolPaneState::Settings,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::GraphViewId;
+
+    fn default_action_context() -> ActionContext {
+        ActionContext {
+            target_node: None,
+            pair_context: None,
+            any_selected: false,
+            focused_pane_available: false,
+            input_mode: InputMode::MouseKeyboard,
+            view_id: GraphViewId::new(),
+        }
+    }
+
+    #[test]
+    fn disabled_node_delete_exposes_precondition_reason() {
+        let reason = disabled_action_reason(ActionId::NodeDelete, &default_action_context());
+        assert_eq!(
+            reason,
+            Some("Requires a selected or targeted node. Select a node first.")
+        );
+    }
+
+    #[test]
+    fn empty_graph_message_present_when_graph_has_no_nodes() {
+        assert_eq!(
+            empty_graph_message(0),
+            Some("Graph is empty. Create your first node to unlock node and edge actions.")
+        );
+        assert_eq!(empty_graph_message(1), None);
     }
 }

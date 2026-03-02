@@ -175,4 +175,30 @@ Hard rule: no floating/overlay surface may silently clip vertically without eith
 - [x] Scroll, max-height, resize/min-size, truncation, empty/loading/error, and floating lifecycle rules are explicit.
 - [x] Control-plane and parity docs are linked/updated for D3 tracking.
 
+## 10. Discoverability addendum (`#297`)
+
+### 10.1 Empty-state inventory (priority surfaces)
+
+- Graph empty state: explicit guidance and first-action path in command palette (`Create First Node`).
+- Frame empty state: explicit actionable fallback remains required by workbench interaction contract.
+- Pane empty states: covered by §6 empty-state contract and §8 matrix (`Node Pane`, `Tool Pane`).
+- Search empty state: command/search surfaces must show explicit “no results” rather than blank list.
+- History empty state: tool pane must show explicit no-history guidance with next action.
+- Diagnostics empty state: tool pane must show explicit no-samples/no-events guidance.
+
+### 10.2 Disabled-action explanation policy
+
+- Palette surfaces must show disabled actions with explicit unmet-precondition reasons.
+- Reason format: `"[Action] requires [precondition]. [How to satisfy it]."`
+- Radial surfaces may omit disabled entries when spatial density constraints prevent readable explanations.
+
+### 10.3 Implementation and regression linkage
+
+- Implementation path: `render/command_palette.rs`
+  - disabled-action reason tooltips for disabled entries,
+  - empty-graph discoverability message + `Create First Node` action.
+- Regression checks:
+  - `disabled_node_delete_exposes_precondition_reason`
+  - `empty_graph_message_present_when_graph_has_no_nodes`
+
 Maintenance rule: any change to surface overflow/empty/loading/error semantics must update this spec and UX parity trackers in the same PR.
