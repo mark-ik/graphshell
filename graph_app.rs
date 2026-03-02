@@ -26,7 +26,7 @@ use crate::services::persistence::types::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
-    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_UX_CONTRACT_WARNING,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
@@ -2767,6 +2767,10 @@ impl GraphBrowserApp {
             | GraphIntent::OpenToolPane { .. }
             | GraphIntent::CloseToolPane { .. }
             | GraphIntent::CycleFocusRegion => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_UX_CONTRACT_WARNING,
+                    byte_len: 1,
+                });
                 log::warn!(
                     "workbench-authority intent reached graph reducer — \
                      should have been intercepted by Gui frame-loop before apply_intents(); \
@@ -8743,5 +8747,21 @@ mod tests {
         let node = app.workspace.graph.get_node(key).unwrap();
         assert_eq!(node.address_kind, crate::graph::AddressKind::File);
         assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn leaked_workbench_intent_emits_ux_contract_warning_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_intents([GraphIntent::CycleFocusRegion]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:contract_warning"),
+            "expected ux:contract_warning when workbench intent leaks to reducer"
+        );
     }
 }
