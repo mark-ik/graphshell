@@ -13,6 +13,10 @@
 - `archive_docs/` — historical persistence plans (superseded by this document)
 **Related**: `SUBSYSTEM_SECURITY.md` §3.4 (cryptographic correctness invariants overlap)
 
+**Policy authority**: This file is the single canonical policy authority for the Storage subsystem.
+Supporting storage docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ---
 
 ## 1. Why This Exists

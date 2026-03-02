@@ -10,6 +10,7 @@
 - `../2026-02-28_ux_contract_register.md`
 
 **Policy authority**: This file is the canonical policy authority for the Control aspect. Supporting control docs refine contracts/implementation detail and must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
 ---
 

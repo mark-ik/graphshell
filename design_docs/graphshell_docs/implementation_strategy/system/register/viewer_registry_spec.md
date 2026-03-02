@@ -7,6 +7,9 @@
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry ecosystem and ownership model)
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) (register hub and routing boundary)
 
+**Policy authority**: This file is the canonical policy authority for `viewer_registry` semantics and boundaries.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ## Purpose and Scope
 
 Maps MIME types, extensions, and content categories to viewer implementations.

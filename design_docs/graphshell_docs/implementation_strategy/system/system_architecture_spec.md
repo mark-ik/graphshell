@@ -11,6 +11,7 @@
 - [register/SYSTEM_REGISTER.md](./register/SYSTEM_REGISTER.md) (register-layer runtime hub/spec)
 
 **Policy authority**: This file is the canonical policy authority for top-level system construct boundaries and cross-construct ownership.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
 ## Purpose and Scope
 

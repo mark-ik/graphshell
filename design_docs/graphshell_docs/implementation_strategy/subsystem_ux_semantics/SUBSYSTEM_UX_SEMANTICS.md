@@ -14,6 +14,10 @@
 - `../subsystem_diagnostics/2026-02-26_test_infrastructure_improvement_plan.md` (T1/T2 infrastructure — Phase 0 prerequisite)
 - `PLANNING_REGISTER.md`
 
+**Policy authority**: This file is the single canonical policy authority for the UX Semantics subsystem.
+Supporting UX-semantics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ---
 
 ## 1. Why This Exists

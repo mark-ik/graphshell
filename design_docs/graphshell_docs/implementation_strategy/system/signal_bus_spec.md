@@ -8,6 +8,9 @@
 - [register/SYSTEM_REGISTER.md](./register/SYSTEM_REGISTER.md) (register-layer hub/index)
 - [2026-02-22_registry_layer_plan.md](./2026-02-22_registry_layer_plan.md) (registry ecosystem and capability model)
 
+**Policy authority**: This file is the canonical policy authority for `SignalBus` (or equivalent) behavior and boundaries.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ## Purpose and Scope
 
 `SignalBus` is the typed event-routing fabric for decoupled cross-registry and cross-subsystem notifications.

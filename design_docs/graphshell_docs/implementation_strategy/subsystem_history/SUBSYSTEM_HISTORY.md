@@ -13,6 +13,10 @@
 - `PLANNING_REGISTER.md` (temporal navigation adoption + Stage F append notes)
 **Related**: `SUBSYSTEM_STORAGE.md` (archive/WAL correctness), `SUBSYSTEM_DIAGNOSTICS.md` (timeline observability)
 
+**Policy authority**: This file is the single canonical policy authority for the History subsystem.
+Supporting history docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ---
 
 ## 1. Why This Exists

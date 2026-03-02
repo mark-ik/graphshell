@@ -8,6 +8,7 @@
 - [SYSTEM_REGISTER.md](SYSTEM_REGISTER.md) (register hub and routing boundary)
 
 **Policy authority**: This file is the canonical policy authority for `presentation_domain_registry` semantics and boundaries.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
 ## Purpose and Scope
 

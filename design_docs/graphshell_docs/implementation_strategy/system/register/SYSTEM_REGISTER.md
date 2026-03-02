@@ -20,6 +20,7 @@
 - [../../PLANNING_REGISTER.md](../../PLANNING_REGISTER.md) (cross-subsystem sequencing / backlog)
 
 **Policy authority**: This file is the canonical policy authority for Register hub rules and register-spec family coordination.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
 ---
 

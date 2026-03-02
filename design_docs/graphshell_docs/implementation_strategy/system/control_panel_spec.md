@@ -8,6 +8,9 @@
 - [2026-02-21_lifecycle_intent_model.md](./2026-02-21_lifecycle_intent_model.md) (intent model and reducer boundary)
 - [register/SYSTEM_REGISTER.md](./register/SYSTEM_REGISTER.md) (register-layer hub/index)
 
+**Policy authority**: This file is the canonical policy authority for `ControlPanel` behavior and boundaries.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ## Purpose and Scope
 
 `ControlPanel` is the async coordination and process-host surface that allows background producers to feed the deterministic app core without compromising testability.

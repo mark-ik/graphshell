@@ -11,6 +11,10 @@
 - `system/registry_runtime_spec.md`
 - `../subsystem_security/SUBSYSTEM_SECURITY.md`
 
+**Policy authority**: This file is the single canonical policy authority for the Mods subsystem.
+Supporting mods docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ---
 
 ## 1. Purpose

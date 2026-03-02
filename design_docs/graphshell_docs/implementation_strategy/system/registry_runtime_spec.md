@@ -8,6 +8,9 @@
 - [2026-02-22_registry_layer_plan.md](./2026-02-22_registry_layer_plan.md) (registry ecosystem and provider wiring)
 - [register/SYSTEM_REGISTER.md](./register/SYSTEM_REGISTER.md) (register-layer hub/index)
 
+**Policy authority**: This file is the canonical policy authority for `RegistryRuntime` behavior and boundaries.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ## Purpose and Scope
 
 `RegistryRuntime` is the system-owned runtime composition root for the Register layer.

@@ -12,6 +12,7 @@
 
 **Policy authority**: This file is the single canonical policy authority for the Diagnostics subsystem.
 Supporting diagnostics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
 ---
 

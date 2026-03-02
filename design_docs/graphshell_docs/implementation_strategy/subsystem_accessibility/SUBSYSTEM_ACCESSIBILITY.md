@@ -12,6 +12,10 @@
 - `design_docs/archive_docs/checkpoint_2026-02-25/2026-02-25_accessibility_contracts_diagnostics_and_validation_strategy.md` (now superseded — contract framing preserved in §§3-7)
 **Research basis**: `../research/2026-02-24_spatial_accessibility_research.md`
 
+**Policy authority**: This file is the single canonical policy authority for the Accessibility subsystem.
+Supporting accessibility docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ---
 
 ## 1. Why This Exists

@@ -12,6 +12,7 @@
 - [signal_bus_spec.md](./signal_bus_spec.md) (signal/event routing fabric)
 
 **Policy authority**: This file is the canonical policy authority for Register-layer treatment and boundaries.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
 ## Purpose and Scope
 

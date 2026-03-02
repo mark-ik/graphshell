@@ -13,6 +13,10 @@
 - `archive_docs/checkpoint_2026-02-24/2026-02-24_step5_5_workspace_access_control.md` (archived Phase 1 implementation status)
 **Related**: `PLANNING_REGISTER.md` (P1/P2 priority tasks reference Phase 5.4/5.5 done gates)
 
+**Policy authority**: This file is the single canonical policy authority for the Security subsystem.
+Supporting security docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
+Policy in this file should be distilled from canonical specs and accepted research conclusions.
+
 ---
 
 ## 1. Why This Exists
