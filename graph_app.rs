@@ -1999,10 +1999,14 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command.map(|p| p.command)
     }
 
-    pub fn pending_camera_command_target(&self) -> Option<GraphViewId> {
+    pub fn pending_camera_command_target_raw(&self) -> Option<GraphViewId> {
         self.workspace
             .pending_camera_command
             .and_then(|p| p.target_view)
+    }
+
+    pub fn pending_camera_command_target(&self) -> Option<GraphViewId> {
+        self.pending_camera_command_target_raw()
             .filter(|id| self.workspace.views.contains_key(id))
     }
 
@@ -6048,6 +6052,18 @@ mod tests {
         app.apply_intents([GraphIntent::RequestZoomToSelected]);
 
         assert!(app.pending_camera_command().is_none());
+        assert!(app.pending_camera_command_target().is_none());
+    }
+
+    #[test]
+    fn test_pending_camera_command_raw_target_preserves_stale_target_identity() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let stale_target = GraphViewId::new();
+
+        app.request_camera_command_for_view(Some(stale_target), CameraCommand::Fit);
+
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+        assert_eq!(app.pending_camera_command_target_raw(), Some(stale_target));
         assert!(app.pending_camera_command_target().is_none());
     }
 

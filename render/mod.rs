@@ -85,6 +85,8 @@ const CHANNEL_CAMERA_FIT_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.camera_fit_deferred_no_metadata";
 const CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
+const CHANNEL_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW: &str =
+    "runtime.ui.graph.camera_command_blocked_missing_target_view";
 
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
@@ -1193,10 +1195,18 @@ fn apply_pending_camera_command(
     let Some(command) = app.pending_camera_command() else {
         return None;
     };
-    if let Some(target_view) = app.pending_camera_command_target()
-        && target_view != view_id
-    {
-        return None;
+    if let Some(target_view) = app.pending_camera_command_target_raw() {
+        if !app.workspace.views.contains_key(&target_view) {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
+                latency_us: 0,
+            });
+            app.clear_pending_camera_command();
+            return None;
+        }
+        if target_view != view_id {
+            return None;
+        }
     }
 
     let zoom_min = app
