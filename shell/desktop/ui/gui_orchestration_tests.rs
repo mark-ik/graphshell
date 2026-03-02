@@ -1,5 +1,6 @@
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode};
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
     CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED,
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
@@ -217,6 +218,73 @@ fn workbench_intent_dispatch_emits_ux_dispatch_channels() {
     assert!(
         snapshot.contains(CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED),
         "expected ux:dispatch_default_prevented channel"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn non_workbench_intent_emits_contract_warning_for_default_fallback() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_contract_warning", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut intents = vec![GraphIntent::ToggleCommandPalette];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot_value = diagnostics.snapshot_json_for_tests();
+    let snapshot = snapshot_value.to_string();
+    let dispatch_phase_count = snapshot_value
+        .get("channels")
+        .and_then(|channels| channels.get("message_counts"))
+        .and_then(|counts| counts.get(CHANNEL_UX_DISPATCH_PHASE))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    assert!(
+        snapshot.contains(CHANNEL_UX_CONTRACT_WARNING),
+        "expected ux:contract_warning when dispatch falls back to default intent handling"
+    );
+    assert!(
+        dispatch_phase_count >= 3,
+        "expected at least capture/target/bubble phases for fallback path"
+    );
+    assert_eq!(intents.len(), 1, "fallback intent should remain for default handling");
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn modal_isolation_consumes_non_modal_workbench_intent() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_modal_isolation", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    app.workspace.show_command_palette = true;
+
+    let mut intents = vec![GraphIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_CONSUMED),
+        "expected ux:dispatch_consumed when active modal isolates non-modal intents"
+    );
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED),
+        "expected ux:dispatch_default_prevented when active modal consumes intent"
+    );
+    assert!(
+        intents.is_empty(),
+        "non-modal workbench intent should be consumed while modal surface is active"
     );
 }
 

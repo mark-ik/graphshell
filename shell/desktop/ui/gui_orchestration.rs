@@ -19,6 +19,7 @@ use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UX_DISPATCH_CONSUMED,
+    CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE,
     CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_TRANSITION,
     CHANNEL_UX_NAVIGATION_VIOLATION,
@@ -42,6 +43,64 @@ use servo::{OffscreenRenderingContext, WindowRenderingContext};
 use std::rc::Rc;
 use winit::window::Window;
 use servo::WebViewId;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UxEventKind {
+    PointerDown,
+    PointerUp,
+    PointerMove,
+    PointerEnter,
+    PointerLeave,
+    KeyDown,
+    KeyUp,
+    Scroll,
+    PinchZoom,
+    FocusIn,
+    FocusOut,
+    Focus,
+    Blur,
+    Action,
+    UxBridgeCommand,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UxDispatchPhase {
+    Capture = 1,
+    Target = 2,
+    Bubble = 3,
+    Default = 4,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct UxDispatchControl {
+    stop_propagation: bool,
+    stop_immediate_propagation: bool,
+    prevent_default: bool,
+}
+
+#[derive(Clone, Debug)]
+struct UxDispatchPath {
+    nodes: Vec<u64>,
+}
+
+impl UxDispatchPath {
+    fn is_valid(&self) -> bool {
+        if self.nodes.len() < 2 {
+            return false;
+        }
+        if self.nodes.first().copied() != Some(0) {
+            return false;
+        }
+        let mut seen = HashSet::new();
+        self.nodes.iter().all(|node| seen.insert(*node))
+    }
+}
+
+const UX_DISPATCH_NODE_ROOT: u64 = 0;
+const UX_DISPATCH_NODE_WORKBENCH: u64 = 1;
+const UX_DISPATCH_NODE_COMMAND_SURFACE: u64 = 2;
+const UX_DISPATCH_NODE_TOOL_SURFACE: u64 = 3;
+const UX_DISPATCH_NODE_GRAPH_SURFACE: u64 = 4;
 
 pub(crate) struct PreFramePhaseOutput {
     pub(crate) frame_intents: Vec<GraphIntent>,
@@ -738,32 +797,62 @@ pub(crate) fn handle_tool_pane_intents(
 ) {
     let mut remaining = Vec::with_capacity(frame_intents.len());
     for intent in frame_intents.drain(..) {
+        let event_kind = ux_event_kind_for_intent(&intent);
+        let path = ux_dispatch_path_for_intent(&intent);
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UX_DISPATCH_STARTED,
-            byte_len: 1,
+            byte_len: event_kind as usize,
         });
+
+        if !path.is_valid() {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+                latency_us: 0,
+            });
+            remaining.push(intent);
+            continue;
+        }
+
+        emit_dispatch_phase(UxDispatchPhase::Capture);
+        let mut control = UxDispatchControl::default();
+        if modal_surface_active(graph_app) && !modal_allows_intent(&intent) {
+            control.stop_propagation = true;
+            control.stop_immediate_propagation = true;
+            control.prevent_default = true;
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
+                byte_len: path.nodes.len(),
+            });
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
+                byte_len: 1,
+            });
+            continue;
+        }
+
+        emit_dispatch_phase(UxDispatchPhase::Target);
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_UX_DISPATCH_PHASE,
-            byte_len: 1,
+            byte_len: UxDispatchPhase::Target as usize,
         });
 
         match classify_workbench_authority_intent(intent) {
             Ok(workbench_intent) => {
-                emit_event(DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_UX_DISPATCH_PHASE,
-                    byte_len: 2,
-                });
                 if let Some(unhandled) = dispatch_workbench_authority_intent(
                     graph_app,
                     tiles_tree,
                     workbench_intent,
                 ) {
+                    emit_dispatch_phase(UxDispatchPhase::Bubble);
                     emit_event(DiagnosticEvent::MessageSent {
-                        channel_id: CHANNEL_UX_DISPATCH_PHASE,
-                        byte_len: 3,
+                        channel_id: CHANNEL_UX_CONTRACT_WARNING,
+                        byte_len: 1,
                     });
+                    emit_dispatch_phase(UxDispatchPhase::Default);
                     remaining.push(unhandled);
                 } else {
+                    control.stop_propagation = true;
+                    control.prevent_default = true;
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_UX_DISPATCH_CONSUMED,
                         byte_len: 1,
@@ -775,15 +864,80 @@ pub(crate) fn handle_tool_pane_intents(
                 }
             }
             Err(other) => {
+                emit_dispatch_phase(UxDispatchPhase::Bubble);
                 emit_event(DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_UX_DISPATCH_PHASE,
-                    byte_len: 3,
+                    channel_id: CHANNEL_UX_CONTRACT_WARNING,
+                    byte_len: 1,
                 });
+                if !control.prevent_default {
+                    emit_dispatch_phase(UxDispatchPhase::Default);
+                }
                 remaining.push(other)
             }
         }
     }
     *frame_intents = remaining;
+}
+
+fn emit_dispatch_phase(phase: UxDispatchPhase) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UX_DISPATCH_PHASE,
+        byte_len: phase as usize,
+    });
+}
+
+fn modal_surface_active(graph_app: &GraphBrowserApp) -> bool {
+    graph_app.workspace.show_command_palette
+        || graph_app.workspace.show_radial_menu
+        || graph_app.workspace.show_help_panel
+}
+
+fn modal_allows_intent(intent: &GraphIntent) -> bool {
+    matches!(
+        intent,
+        GraphIntent::ToggleCommandPalette | GraphIntent::ToggleRadialMenu | GraphIntent::ToggleHelpPanel
+    )
+}
+
+fn ux_event_kind_for_intent(intent: &GraphIntent) -> UxEventKind {
+    match intent {
+        GraphIntent::RequestZoomIn
+        | GraphIntent::RequestZoomOut
+        | GraphIntent::RequestZoomReset
+        | GraphIntent::RequestZoomToSelected
+        | GraphIntent::RequestFitToScreen
+        | GraphIntent::ToggleCameraFitLock => UxEventKind::Scroll,
+        GraphIntent::CycleFocusRegion => UxEventKind::FocusIn,
+        GraphIntent::OpenToolPane { .. }
+        | GraphIntent::CloseToolPane { .. }
+        | GraphIntent::OpenSettingsUrl { .. }
+        | GraphIntent::SetPaneView { .. }
+        | GraphIntent::SplitPane { .. }
+        | GraphIntent::OpenNodeInPane { .. }
+        | GraphIntent::ToggleCommandPalette
+        | GraphIntent::ToggleRadialMenu
+        | GraphIntent::ToggleHelpPanel => UxEventKind::Action,
+        _ => UxEventKind::UxBridgeCommand,
+    }
+}
+
+fn ux_dispatch_path_for_intent(intent: &GraphIntent) -> UxDispatchPath {
+    let leaf = match intent {
+        GraphIntent::OpenToolPane { .. }
+        | GraphIntent::CloseToolPane { .. }
+        | GraphIntent::OpenSettingsUrl { .. }
+        | GraphIntent::SetPaneView { .. }
+        | GraphIntent::SplitPane { .. }
+        | GraphIntent::OpenNodeInPane { .. } => UX_DISPATCH_NODE_TOOL_SURFACE,
+        GraphIntent::ToggleCommandPalette | GraphIntent::ToggleRadialMenu => {
+            UX_DISPATCH_NODE_COMMAND_SURFACE
+        }
+        _ => UX_DISPATCH_NODE_GRAPH_SURFACE,
+    };
+
+    UxDispatchPath {
+        nodes: vec![UX_DISPATCH_NODE_ROOT, UX_DISPATCH_NODE_WORKBENCH, leaf],
+    }
 }
 
 enum WorkbenchAuthorityIntent {
