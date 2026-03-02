@@ -945,6 +945,11 @@ fn handle_close_tool_pane_intent(
             restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree);
         } else if closed {
             graph_app.set_pending_tool_surface_return_target(None);
+        } else if restore_previous_focus {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+                byte_len: 1,
+            });
         }
     }
 }

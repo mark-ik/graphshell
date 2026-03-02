@@ -410,6 +410,58 @@ fn close_tool_pane_without_restore_keeps_pending_target_when_close_fails() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_tool_pane_restore_requested_but_close_fails_emits_ux_navigation_violation() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("restore_requested_close_fail_violation", root, tiles);
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: true,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "expected ux:navigation_violation when restore was requested but close failed"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_tool_pane_without_restore_and_close_fails_does_not_emit_ux_navigation_violation() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("no_restore_close_fail_no_violation", root, tiles);
+
+    let mut close_intents = vec![GraphIntent::CloseToolPane {
+        kind: ToolPaneState::Settings,
+        restore_previous_focus: false,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut close_intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "did not expect ux:navigation_violation when close failed without restore request"
+    );
+}
+
 #[test]
 fn open_pending_child_webviews_skips_unmapped_child_webview_ids() {
     let mut app = GraphBrowserApp::new_for_testing();
