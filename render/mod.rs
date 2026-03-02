@@ -1362,6 +1362,7 @@ fn apply_pending_wheel_zoom(
                 .map(|p| egui::pos2(p.x - graph_rect.min.x, p.y - graph_rect.min.y))
                 .unwrap_or(local_rect.center())
                 .to_vec2();
+            let mut missing_metadata = false;
 
             ui.ctx().data_mut(|data| {
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
@@ -1372,8 +1373,18 @@ fn apply_pending_wheel_zoom(
                     meta.zoom = new_zoom;
                     data.insert_persisted(metadata_id, meta);
                     updated_zoom = Some(new_zoom);
+                } else {
+                    missing_metadata = true;
                 }
             });
+
+            if missing_metadata {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: "runtime.ui.graph.wheel_zoom_deferred_no_metadata",
+                    latency_us: 0,
+                });
+            }
+
             if let Some(new_zoom) = updated_zoom
                 && let Some(view) = app.workspace.views.get_mut(&view_id)
             {
