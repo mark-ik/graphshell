@@ -311,6 +311,27 @@ This section is the canonical deterministic mapping used for predictability clos
 - Focus traps are correctness violations and must be observable in UX probes/harness scenarios.
 - Any fallback that changes intended return target must include explicit reason metadata in diagnostics.
 
+### 4.8 Implementation checklist and test references
+
+The deterministic interaction contract is considered implementation-aligned when the checklist below remains true.
+
+- [x] Selection truth source is documented as active `GraphViewId` in active Frame.
+- [x] Semantic focus owner to active-pane mapping is explicit by region.
+- [x] Return-path algorithm is explicit for modal close, pane close, and frame switch.
+- [x] Pointer-vs-keyboard arbitration is explicit and deterministic.
+- [x] Failure and fallback diagnostics expectations are explicit.
+
+Reference tests (current runtime evidence):
+
+- `shell/desktop/ui/gui.rs`
+   - `close_settings_tool_pane_restores_previous_graph_focus`
+   - `node_focus_state_clears_graph_surface_focus`
+   - `graph_surface_focus_state_clears_node_hint_and_syncs_focused_view`
+- `shell/desktop/ui/gui_orchestration_tests.rs`
+   - `close_settings_tool_pane_restores_previous_graph_focus_via_orchestration`
+- `shell/desktop/workbench/tile_view_ops.rs`
+   - `cycle_focus_region` path and `FocusCycleRegion` ordering (`Graph -> Node -> Tool` when present)
+
 ---
 
 ## 5. Planned Extensions

@@ -224,6 +224,23 @@ This section defines the stable target behavior for the current workbench layer.
 - If routing falls back to creation, the fallback must be explicit and deterministic.
 - If a preferred destination is unavailable, Graphshell may choose a safe default, but it must not hide that decision.
 
+### 4.2A Cross-tree focus and selection integration
+
+Workbench routing and tile activation must comply with the deterministic Focus subsystem contract.
+
+- Selection truth remains owned by the active Graph View within the active Frame.
+- Tile/frame activation updates semantic focus owner via the focus router; `egui_tiles` local focus is not semantic authority.
+- Pane close and frame-switch flows must restore focus through the canonical return-path algorithm defined in:
+  - `../subsystem_focus/focus_and_region_navigation_spec.md` (§4.7.3)
+- Pointer hover and keyboard-target conflict handling must follow focus-spec arbitration rules:
+  - `../subsystem_focus/focus_and_region_navigation_spec.md` (§4.7.4)
+
+Implementation/test anchor (non-exhaustive):
+
+- `shell/desktop/ui/gui.rs` focus-return and graph/node focus-state tests.
+- `shell/desktop/ui/gui_orchestration_tests.rs` orchestration-level focus-return test.
+- `shell/desktop/workbench/tile_view_ops.rs` region-cycle routing behavior.
+
 ### 4.3 Tile Arrangement: Group, Reorder, Split
 
 **What this domain is for**
