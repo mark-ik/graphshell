@@ -70,6 +70,13 @@ pub enum GraphAction {
 }
 
 const CHANNEL_SELECTION_AMBIGUOUS_HIT: &str = "runtime.ui.graph.selection_ambiguous_hit";
+const CHANNEL_WHEEL_ZOOM_NOT_CAPTURED: &str = "runtime.ui.graph.wheel_zoom_not_captured";
+const CHANNEL_KEYBOARD_ZOOM_BLOCKED_NO_METADATA: &str =
+    "runtime.ui.graph.keyboard_zoom_blocked_no_metadata";
+const CHANNEL_CAMERA_ZOOM_DEFERRED_NO_METADATA: &str =
+    "runtime.ui.graph.camera_zoom_deferred_no_metadata";
+const CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
+    "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
 
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
@@ -315,7 +322,7 @@ pub fn render_graph_in_ui_collect_actions(
                 input.raw_scroll_delta.y = 0.0;
             } else {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: "runtime.ui.graph.wheel_zoom_not_captured",
+                    channel_id: CHANNEL_WHEEL_ZOOM_NOT_CAPTURED,
                     latency_us: 0,
                 });
             }
@@ -1152,7 +1159,7 @@ fn apply_pending_keyboard_zoom_request(
 
     if missing_metadata {
         emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: "runtime.ui.graph.keyboard_zoom_blocked_no_metadata",
+            channel_id: CHANNEL_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
             latency_us: 0,
         });
         app.restore_pending_keyboard_zoom_request(view_id, request);
@@ -1213,7 +1220,7 @@ fn apply_pending_camera_command(
             });
             if missing_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: "runtime.ui.graph.camera_zoom_deferred_no_metadata",
+                    channel_id: CHANNEL_CAMERA_ZOOM_DEFERRED_NO_METADATA,
                     latency_us: 0,
                 });
             }
@@ -1380,7 +1387,7 @@ fn apply_pending_wheel_zoom(
 
             if missing_metadata {
                 emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: "runtime.ui.graph.wheel_zoom_deferred_no_metadata",
+                    channel_id: CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA,
                     latency_us: 0,
                 });
             }
