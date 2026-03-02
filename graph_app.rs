@@ -4238,6 +4238,11 @@ impl GraphBrowserApp {
     /// Toggle keyboard shortcut help panel visibility
     pub fn toggle_help_panel(&mut self) {
         self.workspace.show_help_panel = !self.workspace.show_help_panel;
+        if self.workspace.show_help_panel {
+            self.workspace.show_command_palette = false;
+            self.workspace.show_radial_menu = false;
+            self.workspace.pending_node_context_target = None;
+        }
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
             latency_us: 0,
@@ -4247,6 +4252,11 @@ impl GraphBrowserApp {
     /// Toggle edge command palette visibility.
     pub fn toggle_command_palette(&mut self) {
         self.workspace.show_command_palette = !self.workspace.show_command_palette;
+        if self.workspace.show_command_palette {
+            self.workspace.show_help_panel = false;
+            self.workspace.show_radial_menu = false;
+            self.workspace.pending_node_context_target = None;
+        }
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
             latency_us: 0,
@@ -4256,7 +4266,10 @@ impl GraphBrowserApp {
     /// Toggle radial command menu visibility.
     pub fn toggle_radial_menu(&mut self) {
         self.workspace.show_radial_menu = !self.workspace.show_radial_menu;
-        if !self.workspace.show_radial_menu {
+        if self.workspace.show_radial_menu {
+            self.workspace.show_help_panel = false;
+            self.workspace.show_command_palette = false;
+        } else {
             self.workspace.pending_node_context_target = None;
         }
         emit_event(DiagnosticEvent::MessageReceived {
@@ -8991,5 +9004,48 @@ mod tests {
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when radial menu focus surface toggles"
         );
+    }
+
+    #[test]
+    fn opening_help_panel_closes_other_capture_surfaces() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.show_command_palette = true;
+        app.workspace.show_radial_menu = true;
+        app.workspace.pending_node_context_target = Some(NodeKey::new(9));
+
+        app.apply_intents([GraphIntent::ToggleHelpPanel]);
+
+        assert!(app.workspace.show_help_panel);
+        assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.show_radial_menu);
+        assert!(app.workspace.pending_node_context_target.is_none());
+    }
+
+    #[test]
+    fn opening_command_palette_closes_other_capture_surfaces() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.show_help_panel = true;
+        app.workspace.show_radial_menu = true;
+        app.workspace.pending_node_context_target = Some(NodeKey::new(10));
+
+        app.apply_intents([GraphIntent::ToggleCommandPalette]);
+
+        assert!(app.workspace.show_command_palette);
+        assert!(!app.workspace.show_help_panel);
+        assert!(!app.workspace.show_radial_menu);
+        assert!(app.workspace.pending_node_context_target.is_none());
+    }
+
+    #[test]
+    fn opening_radial_menu_closes_other_capture_surfaces() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.show_help_panel = true;
+        app.workspace.show_command_palette = true;
+
+        app.apply_intents([GraphIntent::ToggleRadialMenu]);
+
+        assert!(app.workspace.show_radial_menu);
+        assert!(!app.workspace.show_help_panel);
+        assert!(!app.workspace.show_command_palette);
     }
 }
