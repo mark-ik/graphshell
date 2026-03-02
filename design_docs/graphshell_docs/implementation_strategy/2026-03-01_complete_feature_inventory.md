@@ -158,6 +158,7 @@ Status codes:
 | Settings viewer (EmbeddedEgui) | 📋 Planned | |
 | Markdown / plaintext viewer | 📋 Planned | Core Seed viewer |
 | Filesystem ingest (files→nodes, folders→frames, folder-tag links) | 📋 Planned | Blocked behind common document-viewer readiness; see `viewer/2026-03-02_filesystem_ingest_graph_mapping_plan.md` |
+| Unified source mapping (local/network/web domain-directory auto-map) | 📋 Planned | Depends on filesystem ingest readiness; see `viewer/2026-03-02_unified_source_directory_mapping_plan.md` |
 | Clipping tool (DOM element extraction to node) | 📋 Planned | Web page excerpt → new node |
 | Interactive HTML export with graph embedding | 🔭 Speculative | |
 | DOM inspection / element picker | 📋 Planned | |
