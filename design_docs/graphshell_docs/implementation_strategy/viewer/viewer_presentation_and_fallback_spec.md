@@ -129,6 +129,15 @@ Special route:
 - `EmbeddedEgui` tiles use normal embedded affordance paths.
 - `Placeholder` tiles are explicit non-content surfaces, not silent failures.
 
+**Overlay affordance policy by render mode**
+
+| `TileRenderMode` | Focus/Hover affordance policy | Notes |
+|---|---|---|
+| `CompositedTexture` | Rect-stroke overlay rendered after content pass | Full overlay ring allowed over composited content |
+| `NativeOverlay` | Chrome-only markers rendered in host chrome/border/gutter regions | Do not draw full-rect overlay inside native content region |
+| `EmbeddedEgui` | Standard embedded rect-stroke overlay path | Uses normal embedded paint path |
+| `Placeholder` | Standard embedded rect-stroke overlay path | Placeholder remains explicit, non-silent state |
+
 **Who owns it**
 
 - Graphshell compositor and viewer policy.

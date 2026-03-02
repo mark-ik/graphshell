@@ -97,6 +97,7 @@ observable, and contract-driven.
 - [ ] Canvas interaction invariants closure (selection/lasso/zoom/edge focus): `#271`, `#173`, `#185`, `#102`, `#104`, `#101`, `#103`.
 `#271` now contributes explicit canonical invariants for lasso/zoom/edge-focus and targeted diagnostics coverage; this grouped checklist item remains open pending companion issues.
 - [ ] Viewer fallback/degraded-state clarity closure: `#188`, `#162`.
+`#162` overlay affordance policy per `TileRenderMode` is implemented at compositor boundary; closure remains open pending `#188` degraded-state reason/explanation parity.
 - [ ] UxHarness critical-path evidence closure: `#251`, `#257`, `#273`.
 - [ ] UxTree authority trajectory gate closure: `#272`.
 - [ ] Terminology reinterpretation pass complete in affected canonical docs:

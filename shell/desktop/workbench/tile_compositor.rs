@@ -496,6 +496,31 @@ fn render_mode_for_node_pane(tiles_tree: &Tree<TileKind>, node_key: NodeKey) -> 
         .unwrap_or(TileRenderMode::Placeholder)
 }
 
+#[derive(Clone, Copy)]
+struct OverlayAffordancePolicy {
+    style: OverlayAffordanceStyle,
+    rounding: f32,
+}
+
+fn overlay_affordance_policy_for_render_mode(
+    render_mode: TileRenderMode,
+) -> OverlayAffordancePolicy {
+    match render_mode {
+        TileRenderMode::CompositedTexture => OverlayAffordancePolicy {
+            style: OverlayAffordanceStyle::RectStroke,
+            rounding: 4.0,
+        },
+        TileRenderMode::NativeOverlay => OverlayAffordancePolicy {
+            style: OverlayAffordanceStyle::ChromeOnly,
+            rounding: 0.0,
+        },
+        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => OverlayAffordancePolicy {
+            style: OverlayAffordanceStyle::RectStroke,
+            rounding: 4.0,
+        },
+    }
+}
+
 fn focus_overlay_for_mode(
     render_mode: TileRenderMode,
     node_key: NodeKey,
@@ -503,42 +528,18 @@ fn focus_overlay_for_mode(
     focus_ring_alpha: f32,
 ) -> OverlayStrokePass {
     let alpha = (focus_ring_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
-    let (rect, rounding, stroke, style) = match render_mode {
-        TileRenderMode::CompositedTexture => (
-            tile_rect,
-            4.0,
-            Stroke::new(
-                2.0,
-                egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
-            ),
-            OverlayAffordanceStyle::RectStroke,
-        ),
-        TileRenderMode::NativeOverlay => (
-            tile_rect,
-            0.0,
-            Stroke::new(
-                2.0,
-                egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
-            ),
-            OverlayAffordanceStyle::ChromeOnly,
-        ),
-        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => (
-            tile_rect,
-            4.0,
-            Stroke::new(
-                2.0,
-                egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
-            ),
-            OverlayAffordanceStyle::RectStroke,
-        ),
-    };
+    let policy = overlay_affordance_policy_for_render_mode(render_mode);
+    let stroke = Stroke::new(
+        2.0,
+        egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
+    );
 
     OverlayStrokePass {
         node_key,
-        tile_rect: rect,
-        rounding,
+        tile_rect,
+        rounding: policy.rounding,
         stroke,
-        style,
+        style: policy.style,
         render_mode,
     }
 }
@@ -548,33 +549,15 @@ fn hover_overlay_for_mode(
     node_key: NodeKey,
     tile_rect: egui::Rect,
 ) -> OverlayStrokePass {
-    let (rect, rounding, stroke, style) = match render_mode {
-        TileRenderMode::CompositedTexture => (
-            tile_rect,
-            4.0,
-            Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180)),
-            OverlayAffordanceStyle::RectStroke,
-        ),
-        TileRenderMode::NativeOverlay => (
-            tile_rect,
-            0.0,
-            Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180)),
-            OverlayAffordanceStyle::ChromeOnly,
-        ),
-        TileRenderMode::EmbeddedEgui | TileRenderMode::Placeholder => (
-            tile_rect,
-            4.0,
-            Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180)),
-            OverlayAffordanceStyle::RectStroke,
-        ),
-    };
+    let policy = overlay_affordance_policy_for_render_mode(render_mode);
+    let stroke = Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180));
 
     OverlayStrokePass {
         node_key,
-        tile_rect: rect,
-        rounding,
+        tile_rect,
+        rounding: policy.rounding,
         stroke,
-        style,
+        style: policy.style,
         render_mode,
     }
 }
@@ -819,6 +802,26 @@ mod tests {
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
+    }
+
+    #[test]
+    fn focus_overlay_for_placeholder_uses_rect_stroke_style() {
+        let node = NodeKey::new(44);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(50.0, 50.0), egui::pos2(150.0, 110.0));
+        let overlay = focus_overlay_for_mode(TileRenderMode::Placeholder, node, tile_rect, 1.0);
+
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
+        assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
+    }
+
+    #[test]
+    fn hover_overlay_for_embedded_egui_uses_rect_stroke_style() {
+        let node = NodeKey::new(45);
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(60.0, 60.0), egui::pos2(160.0, 120.0));
+        let overlay = hover_overlay_for_mode(TileRenderMode::EmbeddedEgui, node, tile_rect);
+
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
+        assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);
     }
 
     #[test]
