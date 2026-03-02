@@ -623,11 +623,14 @@ impl HeadedWindow {
         dialogs.retain(|_, dialogs| !dialogs.is_empty());
     }
 
-    fn has_active_dialog_for_webview(&self, webview_id: WebViewId) -> bool {
-        // First lazily clean up any empty dialog vectors.
+    fn has_any_active_dialog(&self) -> bool {
         let mut dialogs = self.dialogs.borrow_mut();
         dialogs.retain(|_, dialogs| !dialogs.is_empty());
-        dialogs.contains_key(&webview_id)
+        !dialogs.is_empty()
+    }
+
+    fn ui_or_dialog_capture_active(&self) -> bool {
+        self.gui.borrow().ui_overlay_active() || self.has_any_active_dialog()
     }
 
     fn toolbar_height(&self) -> Length<f32, DeviceIndependentPixel> {
@@ -654,14 +657,7 @@ impl HeadedWindow {
             if self.gui.borrow().is_graph_view() {
                 return true;
             }
-            if self.gui.borrow().ui_overlay_active() || self.gui.borrow().egui_wants_pointer_input()
-            {
-                return true;
-            }
-            if self
-                .preferred_input_webview_id(&window)
-                .is_some_and(|webview_id| self.has_active_dialog_for_webview(webview_id))
-            {
+            if self.ui_or_dialog_capture_active() || self.gui.borrow().egui_wants_pointer_input() {
                 return true;
             }
 
@@ -792,7 +788,7 @@ impl HeadedWindow {
                     state: ElementState::Pressed,
                     ..
                 } = event
-                    && !self.gui.borrow().ui_overlay_active()
+                    && !self.ui_or_dialog_capture_active()
                 {
                     let cursor_point = self.resolve_pointer_position(None);
                     if let Some(point) = cursor_point {
@@ -860,7 +856,7 @@ impl HeadedWindow {
 
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
-                    if !self.gui.borrow().ui_overlay_active() {
+                    if !self.ui_or_dialog_capture_active() {
                         if let Some(webview_id) = self.preferred_input_webview_id(&window) {
                             window.activate_webview(webview_id);
                         }
@@ -871,7 +867,7 @@ impl HeadedWindow {
                     self.modifiers_state.set(modifiers.state())
                 }
                 WindowEvent::MouseInput { state, button, .. } => {
-                    if !self.gui.borrow().ui_overlay_active()
+                    if !self.ui_or_dialog_capture_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
                     {
                         let pointer_position = self.resolve_pointer_position(None);
@@ -905,7 +901,7 @@ impl HeadedWindow {
                         / self.hidpi_scale_factor();
                     // Keep hit-test position fresh even when egui owns pointer this frame.
                     self.last_mouse_position.set(Some(point));
-                    if !self.gui.borrow().ui_overlay_active()
+                    if !self.ui_or_dialog_capture_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
                     {
                         let pointer_target = self.gui.borrow().webview_at_point(point);
@@ -921,7 +917,7 @@ impl HeadedWindow {
                     }
                 }
                 WindowEvent::CursorLeft { .. } => {
-                    if !self.gui.borrow().ui_overlay_active()
+                    if !self.ui_or_dialog_capture_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
                     {
                         let pointer_target = self
@@ -941,7 +937,7 @@ impl HeadedWindow {
                     }
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
-                    if !self.gui.borrow().ui_overlay_active()
+                    if !self.ui_or_dialog_capture_active()
                         && !self.gui.borrow().egui_wants_pointer_input()
                     {
                         let pointer_target = self
@@ -977,7 +973,7 @@ impl HeadedWindow {
                     }
                 }
                 WindowEvent::Touch(touch) => {
-                    if !self.gui.borrow().ui_overlay_active() {
+                    if !self.ui_or_dialog_capture_active() {
                         if let Some(webview_id) = self.preferred_input_webview_id(&window)
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
@@ -992,7 +988,7 @@ impl HeadedWindow {
                     }
                 }
                 WindowEvent::PinchGesture { delta, .. } => {
-                    if !self.gui.borrow().ui_overlay_active() {
+                    if !self.ui_or_dialog_capture_active() {
                         let pointer_target = self
                             .resolve_pointer_position(None)
                             .and_then(|point| self.gui.borrow().webview_at_point(point));
