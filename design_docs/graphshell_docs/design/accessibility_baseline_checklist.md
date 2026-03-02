@@ -10,6 +10,7 @@
 - `../implementation_strategy/subsystem_focus/focus_and_region_navigation_spec.md`
 - `../implementation_strategy/subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `../testing/2026-03-02_accessibility_closure_bundle_audit_301.md`
+- `../testing/2026-03-02_graph_canvas_keyboard_focus_audit_298.md`
 
 ---
 
@@ -64,7 +65,7 @@ Known-gap alignment from UX integration research:
 | 1.4.11 Non-text Contrast | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Visual indicators/focus rings require contrast validation. |
 | 1.4.12 Text Spacing | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Custom spacing tolerance not yet verified. |
 | 1.4.13 Content on Hover or Focus | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Tooltip/overlay persistence and dismissibility needs testing. |
-| 2.1.1 Keyboard | A | Fail | Untested | Untested | Untested | Untested | Untested | Untested | Graph node keyboard-focus path is incomplete (`G-A-1`). |
+| 2.1.1 Keyboard | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane baseline now includes deterministic keyboard traversal (`#298`). |
 | 2.1.2 No Keyboard Trap | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Keyboard-trap hardening is tracked in `#301`. |
 | 2.1.4 Character Key Shortcuts | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Single-key command behavior needs remap/disable verification. |
 | 2.2.1 Timing Adjustable | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No time-limited interaction currently declared for these surfaces. |
@@ -72,7 +73,7 @@ Known-gap alignment from UX integration research:
 | 2.3.1 Three Flashes or Below Threshold | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Motion/flash safety not yet audited in rendering effects. |
 | 2.4.1 Bypass Blocks | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Region cycling/skip semantics exist but need conformance verification. |
 | 2.4.2 Page Titled | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | Desktop app surface; criterion mapped as not directly page-scoped. |
-| 2.4.3 Focus Order | A | Fail | Untested | Untested | Untested | Untested | Untested | Untested | Predictability/focus-order gaps tracked by `#300`. |
+| 2.4.3 Focus Order | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane traversal order is now explicit and deterministic (`#298`). |
 | 2.4.4 Link Purpose (In Context) | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify actionable labels communicate purpose clearly. |
 | 2.4.5 Multiple Ways | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Requires evidence for alternate navigation/find paths. |
 | 2.4.6 Headings and Labels | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Label clarity work intersects IA closure (`#299`). |
@@ -80,7 +81,7 @@ Known-gap alignment from UX integration research:
 | 2.4.11 Focus Not Obscured (Minimum) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Overlay/popups may obscure focused controls; verify per surface. |
 | 2.5.1 Pointer Gestures | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Multi-point/gesture alternatives not fully verified. |
 | 2.5.2 Pointer Cancellation | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Drag/select/click cancellation semantics require audit evidence. |
-| 2.5.3 Label in Name | A | Fail | Untested | Untested | Untested | Untested | Untested | Untested | Graph node labels not consistently reflected in accessible naming (`G-A-3`). |
+| 2.5.3 Label in Name | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph canvas accessibility label now reflects focused node naming (`#298`). |
 | 2.5.4 Motion Actuation | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No motion-actuation controls are baseline-required. |
 | 2.5.7 Dragging Movements | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Keyboard/non-drag alternatives for drag interactions require validation. |
 | 2.5.8 Target Size (Minimum) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Target-size audit is explicitly pending (`G-A-9`). |
@@ -96,7 +97,7 @@ Known-gap alignment from UX integration research:
 | 3.3.3 Error Suggestion | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Recovery suggestion quality varies; requires per-surface tests. |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | N/A | N/A | N/A | N/A | N/A | N/A | N/A | Baseline UX does not currently include legal/financial irreversible forms. |
 | 3.3.6 Error Prevention (All) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Destructive-action confirmation behavior is not uniformly implemented (`G-FR-2`). |
-| 4.1.2 Name, Role, Value | A | Fail | Untested | Untested | Untested | Untested | Untested | Untested | Graph interactive controls require complete accessible name/role/value coverage. |
+| 4.1.2 Name, Role, Value | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane baseline naming model is implemented and verified in `#298` audit evidence. |
 | 4.1.3 Status Messages | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Status/error/loading announcements need AT verification. |
 
 ---
@@ -140,3 +141,15 @@ Delta source: `../testing/2026-03-02_accessibility_closure_bundle_audit_301.md`.
 | `G-A-11` Keyboard trap | Partially addressed | Host UI no-trap return-path validation complete | §5 in audit artifact |
 
 Maintenance rule: any accessibility behavior change that affects WCAG mapping must update this checklist and the UX parity trackers in the same PR.
+
+---
+
+## 6. Status delta update (`#298`)
+
+Delta source: `../testing/2026-03-02_graph_canvas_keyboard_focus_audit_298.md`.
+
+| Gap | Previous status | Updated status | Evidence |
+|---|---|---|---|
+| `G-A-1` Graph nodes keyboard focusability | Missing | Baseline deterministic traversal implemented (`Tab` / `Shift+Tab`) | §1.1 + §2 in audit artifact |
+| `G-A-3` Graph node accessible names | Missing | Baseline naming exposure added to graph canvas accessibility label | §1.2 + naming policy in audit artifact |
+| `G-A-4` Focus order in graph canvas | Missing | Deterministic `NodeKey` traversal order with wrap behavior | §1.1 + unit tests in audit artifact |

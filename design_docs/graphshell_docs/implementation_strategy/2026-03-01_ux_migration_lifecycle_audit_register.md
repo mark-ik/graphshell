@@ -63,7 +63,7 @@
 | UxScenario/UxHarness deterministic UX testing | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | CI-required core scenarios already specified |
 | UX integration deliverables (D1-D5) | Current | Pre-renderer/WGPU required | Green | UX integration research + canonical spec family | D1 (`#292`) through D5 (`#296`) canonical artifacts are merged and linked into the control-plane/parity triad |
 | IA/predictability/discoverability closure bundle | Current | Pre-renderer/WGPU required | Green | command/focus/workbench specs + UX research | `#297` discoverability, `#299` IA scope/label disambiguation, and `#300` predictability closure are implemented with canonical focus/workbench contracts and targeted deterministic-focus tests |
-| Accessibility closure bundle (beyond baseline) | Planned | Pre-renderer/WGPU required | Yellow | accessibility/focus/viewer specs + UX research | `#301` closure evidence is merged (reduced-motion guardrails, contrast/target-size audit artifact, keyboard-trap validation); remaining implementation closure tracked by `#298` |
+| Accessibility closure bundle (beyond baseline) | Current | Pre-renderer/WGPU required | Green | accessibility/focus/viewer specs + UX research | `#298` graph keyboard-focus + naming baseline evidence and `#301` closure evidence (reduced-motion guardrails, contrast/target-size audit artifact, keyboard-trap validation) are merged |
 | Canonical docs parity audit | Planned | Pre-renderer/WGPU required | Green | control-plane + coverage matrix + lifecycle register | Tracked by `#302`; keeps research/issues/specs synchronized |
 
 ---
@@ -109,7 +109,8 @@ observable, and contract-driven.
 `#292` command semantics matrix, `#293` focus/selection interaction contract, `#294` surface behavior policy, `#295` accessibility baseline checklist, and `#296` telemetry plan are present in canonical design/spec docs.
 - [x] IA/predictability/discoverability closure bundle: `#297`, `#299`, `#300`.
 `#297` discoverability closure (empty-state inventory + disabled-action explanations with regression checks), `#299` IA object-action scope/label disambiguation closure, and `#300` predictability closure (selection/focus mapping + return-path validation) are implemented and linked in canonical surface/command/workbench behavior docs.
-- [ ] Accessibility closure bundle: `#298`.
+- [x] Accessibility closure bundle: `#298`, `#301`.
+`#298` deterministic graph keyboard traversal + graph canvas naming baseline is implemented with targeted unit tests and checklist delta evidence; `#301` closure bundle evidence is already merged.
 - [ ] Canonical docs parity audit closure: `#302`.
 - [ ] Terminology reinterpretation pass complete in affected canonical docs:
 	- "Magnetic zones" language reframed to frame-affinity behavior.
@@ -132,7 +133,7 @@ observable, and contract-driven.
 | `workbench/workbench_frame_tile_interaction_spec.md` | `#293`, `#300` | Cross-tree focus/selection integration anchor for routing/activation semantics and return-path linkage |
 | `graphshell_docs/design/command_semantics_matrix.md` | `#292`, `#299` | D1 canonical action semantics matrix; IA scope clarity and future surface expansion remain linked to IA closure work |
 | `graphshell_docs/design/surface_behavior_spec.md` | `#294`, `#297` | D3 canonical surface behavior policy plus discoverability addendum (empty-state inventory + disabled-action explanation policy + implementation/test linkage) |
-| `graphshell_docs/design/accessibility_baseline_checklist.md` | `#295`, `#298`, `#301` | D4 canonical WCAG A/AA baseline checklist with initial screen-reader matrix; implementation hardening remains tracked by accessibility closure issues |
+| `graphshell_docs/design/accessibility_baseline_checklist.md` | `#295`, `#298`, `#301` | D4 canonical WCAG A/AA baseline checklist with initial screen-reader matrix; `#298` and `#301` closure evidence deltas are now recorded |
 | `graphshell_docs/design/ux_telemetry_plan.md` | `#296` | D5 canonical telemetry metric register with channel/probe mapping, baseline targets, and wired diagnostics evidence |
 | UX integration research deliverables (`D1`-`D5`) | `#292`, `#293`, `#294`, `#295`, `#296` | Command semantics, interaction contract, surface behavior, accessibility baseline, telemetry plan |
 | Canonical docs parity | `#302` | Keep control-plane/matrix/lifecycle synchronized with research and issue state |

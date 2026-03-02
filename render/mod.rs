@@ -381,6 +381,15 @@ pub fn render_graph_in_ui_collect_actions(
         )
     }; // Drop mutable borrow of app.workspace.egui_state here
 
+    if response.clicked() || response.secondary_clicked() {
+        response.request_focus();
+    }
+    response.widget_info(|| {
+        let mut info = egui::WidgetInfo::new(egui::WidgetType::Button);
+        info.label = Some(graph_canvas_accessibility_label(app));
+        info
+    });
+
     // Pull latest FR state from egui_graphs after this frame's layout step.
     let new_physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
     if let Some(view) = app.workspace.views.get_mut(&view_id)
@@ -498,6 +507,15 @@ pub fn render_graph_in_ui_collect_actions(
 
     let split_open_modifier = ui.input(|i| i.modifiers.shift);
     let mut actions = collect_graph_actions(app, &events, split_open_modifier, ctrl_pressed);
+    if let Some(keyboard_action) = collect_graph_keyboard_traversal_action(
+        ui,
+        &response,
+        app,
+        radial_open,
+        lasso.action.is_some(),
+    ) {
+        actions.push(keyboard_action);
+    }
     let edge_click_eligible = ui.input(|i| i.pointer.primary_clicked())
         && app.workspace.hovered_graph_node.is_none()
         && !radial_open
@@ -1809,6 +1827,87 @@ fn lasso_state_ids(metadata_id: egui::Id) -> (egui::Id, egui::Id) {
         metadata_id.with("lasso_start_screen"),
         metadata_id.with("lasso_moved"),
     )
+}
+
+fn node_key_traversal_order(app: &GraphBrowserApp) -> Vec<NodeKey> {
+    let mut keys: Vec<NodeKey> = app.workspace.graph.nodes().map(|(key, _)| key).collect();
+    keys.sort_by_key(|key| key.index());
+    keys
+}
+
+fn next_keyboard_traversal_node(app: &GraphBrowserApp, reverse: bool) -> Option<NodeKey> {
+    let ordered_keys = node_key_traversal_order(app);
+    if ordered_keys.is_empty() {
+        return None;
+    }
+
+    let current = app.workspace.selected_nodes.primary();
+    let len = ordered_keys.len();
+    let next_index = current
+        .and_then(|key| ordered_keys.iter().position(|candidate| *candidate == key))
+        .map(|idx| {
+            if reverse {
+                (idx + len - 1) % len
+            } else {
+                (idx + 1) % len
+            }
+        })
+        .unwrap_or_else(|| if reverse { len - 1 } else { 0 });
+
+    ordered_keys.get(next_index).copied()
+}
+
+fn collect_graph_keyboard_traversal_action(
+    ui: &Ui,
+    response: &egui::Response,
+    app: &GraphBrowserApp,
+    radial_open: bool,
+    lasso_active: bool,
+) -> Option<GraphAction> {
+    if radial_open || lasso_active || !response.has_focus() {
+        return None;
+    }
+
+    let cycle_backward = ui.input(|i| i.clone().consume_key(egui::Modifiers::SHIFT, egui::Key::Tab));
+    let cycle_forward = if cycle_backward {
+        false
+    } else {
+        ui.input(|i| i.clone().consume_key(egui::Modifiers::NONE, egui::Key::Tab))
+    };
+
+    if !(cycle_backward || cycle_forward) {
+        return None;
+    }
+
+    let reverse = cycle_backward;
+    let key = next_keyboard_traversal_node(app, reverse)?;
+    Some(GraphAction::SelectNode {
+        key,
+        multi_select: false,
+    })
+}
+
+fn graph_node_accessibility_name(node: &crate::graph::Node) -> String {
+    if !node.title.trim().is_empty() {
+        node.title.clone()
+    } else if !node.url.trim().is_empty() {
+        node.url.clone()
+    } else {
+        "Untitled node".to_string()
+    }
+}
+
+fn graph_canvas_accessibility_label(app: &GraphBrowserApp) -> String {
+    if let Some(primary) = app.workspace.selected_nodes.primary()
+        && let Some(node) = app.workspace.graph.get_node(primary)
+    {
+        return format!(
+            "Graph canvas. Focused node: {}. Press Tab or Shift+Tab to move between nodes.",
+            graph_node_accessibility_name(node)
+        );
+    }
+
+    "Graph canvas. No node focused. Press Tab to focus the first node.".to_string()
 }
 
 /// Convert egui_graphs events to resolved GraphActions and apply them.
@@ -3628,6 +3727,45 @@ mod tests {
         let k2 = NodeKey::new(2);
         let normalized = normalize_lasso_keys(vec![k2, k0, k1, k0, k2]);
         assert_eq!(normalized, vec![k0, k1, k2]);
+    }
+
+    #[test]
+    fn keyboard_traversal_advances_and_wraps_in_deterministic_order() {
+        let mut app = test_app();
+        let k0 = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
+        let k1 = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
+        let k2 = app.add_node_and_sync("c".into(), Point2D::new(20.0, 0.0));
+
+        assert_eq!(next_keyboard_traversal_node(&app, false), Some(k0));
+
+        app.select_node(k0, false);
+        assert_eq!(next_keyboard_traversal_node(&app, false), Some(k1));
+
+        app.select_node(k2, false);
+        assert_eq!(next_keyboard_traversal_node(&app, false), Some(k0));
+    }
+
+    #[test]
+    fn keyboard_traversal_reverse_wraps_to_last_when_unfocused() {
+        let mut app = test_app();
+        app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
+        let k1 = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
+
+        assert_eq!(next_keyboard_traversal_node(&app, true), Some(k1));
+    }
+
+    #[test]
+    fn graph_canvas_accessibility_label_includes_focused_node_name() {
+        let mut app = test_app();
+        let key = app.add_node_and_sync("https://example.com/path".into(), Point2D::new(0.0, 0.0));
+        if let Some(node) = app.workspace.graph.get_node_mut(key) {
+            node.title = "Example title".to_string();
+        }
+        app.select_node(key, false);
+
+        let label = graph_canvas_accessibility_label(&app);
+        assert!(label.contains("Focused node: Example title"));
+        assert!(label.contains("Tab"));
     }
 
     #[test]
