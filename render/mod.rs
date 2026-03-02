@@ -26,6 +26,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_FIT_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_FIT_SELECTION_FALLBACK_TO_FIT,
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED_NO_METADATA,
+    CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
@@ -79,8 +80,6 @@ pub enum GraphAction {
     Zoom(f32),
 }
 
-const CHANNEL_SELECTION_AMBIGUOUS_HIT: &str = "runtime.ui.graph.selection_ambiguous_hit";
-
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
         action,
@@ -113,7 +112,7 @@ fn should_clear_selection_on_background_click(
 fn node_key_or_emit_ambiguous_hit(node_key: Option<NodeKey>) -> Option<NodeKey> {
     if node_key.is_none() {
         emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_SELECTION_AMBIGUOUS_HIT,
+            channel_id: CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
             latency_us: 0,
         });
     }
@@ -3385,7 +3384,7 @@ mod tests {
         let channel_count = snapshot
             .get("channels")
             .and_then(|c| c.get("message_counts"))
-            .and_then(|m| m.get(CHANNEL_SELECTION_AMBIGUOUS_HIT))
+            .and_then(|m| m.get(CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT))
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
         assert_eq!(channel_count, 1);
@@ -3404,7 +3403,7 @@ mod tests {
         let channel_count = snapshot
             .get("channels")
             .and_then(|c| c.get("message_counts"))
-            .and_then(|m| m.get(CHANNEL_SELECTION_AMBIGUOUS_HIT))
+            .and_then(|m| m.get(CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT))
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
         assert_eq!(channel_count, 0);
