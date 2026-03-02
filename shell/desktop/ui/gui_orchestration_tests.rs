@@ -1,4 +1,8 @@
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
+    CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_VIOLATION,
+};
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::ui::gui_frame;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
@@ -198,19 +202,19 @@ fn workbench_intent_dispatch_emits_ux_dispatch_channels() {
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
     assert!(
-        snapshot.contains("ux:dispatch_started"),
+        snapshot.contains(CHANNEL_UX_DISPATCH_STARTED),
         "expected ux:dispatch_started channel"
     );
     assert!(
-        snapshot.contains("ux:dispatch_phase"),
+        snapshot.contains(CHANNEL_UX_DISPATCH_PHASE),
         "expected ux:dispatch_phase channel"
     );
     assert!(
-        snapshot.contains("ux:dispatch_consumed"),
+        snapshot.contains(CHANNEL_UX_DISPATCH_CONSUMED),
         "expected ux:dispatch_consumed channel"
     );
     assert!(
-        snapshot.contains("ux:dispatch_default_prevented"),
+        snapshot.contains(CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED),
         "expected ux:dispatch_default_prevented channel"
     );
 }
@@ -233,8 +237,31 @@ fn cycle_focus_region_failure_emits_ux_navigation_violation_channel() {
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
     assert!(
-        snapshot.contains("ux:navigation_violation"),
+        snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
         "expected ux:navigation_violation when focus cycle cannot resolve a target"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn cycle_focus_region_success_does_not_emit_ux_navigation_violation_channel() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_navigation_no_violation", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut intents = vec![GraphIntent::CycleFocusRegion];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
+        "did not expect ux:navigation_violation when focus cycle resolves successfully"
     );
 }
 
