@@ -1,9 +1,15 @@
-# Verse Tier 1: Direct P2P Sync — Implementation Plan
+# Verso Local Collaboration: Direct P2P Sync — Implementation Plan
+
+> **Branding update (2026-03-01)**: This capability is now branded under **Verso**, not Verse.
+> Verso is the native mod that provides both Servo/Wry web rendering *and* local iroh-based
+> bilateral sync — two capability families, one mod identity, one Ed25519 keypair.
+> **Verse** is reserved for the public community network (Tier 2, long-horizon research).
+> The implementation plan below is unchanged; only the brand name has moved.
 
 **Date**: 2026-02-23
 **Status**: Implementation-Ready
 **Phase**: Registry Phase 5
-**Context**: Defines Verse as a native mod that provides zero-cost P2P sync between trusted devices. This is the concrete deliverable for Phase 5 — iroh transport, identity, pairing, delta sync, and workspace access control.
+**Context**: Defines the local collaboration capability of Verso — a native mod that provides zero-cost P2P sync between trusted devices. This is the concrete deliverable for Phase 5 — iroh transport, identity, pairing, delta sync, and workspace access control.
 
 ---
 

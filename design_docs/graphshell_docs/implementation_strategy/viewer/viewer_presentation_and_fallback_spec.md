@@ -2,11 +2,11 @@
 
 **Date**: 2026-02-28  
 **Status**: Canonical interaction contract  
-**Priority**: Immediate implementation guidance
+**Priority**: Pre-renderer/WGPU required
 
 **Related**:
 - `../2026-02-28_ux_contract_register.md`
-- `../2026-02-27_ux_baseline_done_definition.md`
+- `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../research/2026-02-27_viewer_state_matrix.md`
 - `../2026-02-26_composited_viewer_pass_contract.md`

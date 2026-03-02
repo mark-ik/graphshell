@@ -5,10 +5,8 @@
 
 ## Canonical Companion Docs
 
-- [2026-02-27_ux_baseline_done_definition.md](2026-02-27_ux_baseline_done_definition.md) - UX baseline gate for “usable application” readiness.
-- [2026-02-28_current_milestone_ux_contract_checklist.md](2026-02-28_current_milestone_ux_contract_checklist.md) - Current milestone execution filter for the UX contract family.
+- [subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md](subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md) - Consolidated UX execution control-plane (baseline done-gate + milestone checklist + issue-domain mapping).
 - [2026-02-28_ux_contract_register.md](2026-02-28_ux_contract_register.md) - Cross-spec UX ownership map and contract register.
-- [2026-02-28_ux_issue_domain_map.md](2026-02-28_ux_issue_domain_map.md) - Active issue mapping to the UX contract family.
 
 ## Contents
 
@@ -668,7 +666,7 @@ This supersedes the earlier registry-closure-heavy priority table. The queue aud
 | 7 | **`lane:diagnostics` (`#94`)** | Diagnostics remains the leverage multiplier for every other lane and still lacks analyzer/test harness execution surfaces. | Implement `AnalyzerRegistry` scaffold, in-pane `TestHarness`, expanded invariants, better violation/health views, orphan-channel surfacing. | `SUBSYSTEM_DIAGNOSTICS.md`, `shell/desktop/runtime/diagnostics/*`, diagnostics pane code paths | Analyzer/TestHarness scaffolds exist and can be run in-pane (feature-gated if needed). |
 | 8 | **`lane:subsystem-hardening` (`#96`)** | Storage/history/security are documented but still missing closure slices that protect integrity and trust. | Add `persistence.*` / `history.*` / `security.identity.*` diagnostics, degradation wiring, traversal/archive correctness tests, grant matrix denial-path coverage. | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md`, persistence/history/security runtime code | Subsystem health summaries and critical integrity/denial-path tests are in CI or documented as explicit follow-ons. |
 | 9 | **`lane:test-infra` (`#97`)** | Test scaling friction is now slowing safe refactors and subsystem closure. | Land `ACTIVE_CAPABILITIES` test-safe path, `test-utils` feature, `[[test]] scenarios` binary, incremental scenario migration, CI job split. | `2026-02-26_test_infrastructure_improvement_plan.md`, `registries/infrastructure/mod_loader.rs`, `Cargo.toml`, `tests/scenarios/` (new) | New scenarios test binary runs in CI and high-value scenario cases start moving out of ad hoc placements. |
-| 10 | **`lane:knowledge-capture` (`#98`)** | UDC/semantic organization, badges/tags, import, and clipping are strategically aligned but mostly still design-level or partial. | UDC semantic physics/workbench grouping, layout injection hook + Magnetic Zones prerequisites, badges/tags MVP, import and clipping MVPs. | `2026-02-23_udc_semantic_tagging_plan.md`, `2026-02-24_layout_behaviors_plan.md`, `2026-02-20_node_badge_and_tagging_plan.md`, `2026-02-11_*_plan.md` | One end-to-end knowledge capture path (import/clip -> tag/UDC -> visible graph/workbench effect) is shipped. |
+| 10 | **`lane:knowledge-capture` (`#98`)** | UDC/semantic organization, badges/tags, import, and clipping are strategically aligned but mostly still design-level or partial. | UDC semantic physics/workbench grouping, layout injection hook + frame-affinity organizational behavior prerequisites (legacy alias: Magnetic Zones), badges/tags MVP, import and clipping MVPs. | `2026-02-23_udc_semantic_tagging_plan.md`, `2026-02-24_layout_behaviors_plan.md`, `2026-02-20_node_badge_and_tagging_plan.md`, `2026-02-11_*_plan.md` | One end-to-end knowledge capture path (import/clip -> tag/UDC -> visible graph/workbench effect) is shipped. |
 
 ### Core vs Incubation Note
 
@@ -706,7 +704,7 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
 | `lane:knowledge-capture` (`#98`) | UDC organization, import, clipping, badges/tags, visible graph effects | Prospective | `2026-02-23_udc_semantic_tagging_plan.md`, `2026-02-24_layout_behaviors_plan.md`, `2026-02-20_node_badge_and_tagging_plan.md`, `2026-02-11_*_plan.md` | Canonical “capture + classify + surface” lane. |
-| `lane:layout-semantics` | Layout injection hook, Magnetic Zones prerequisites and execution; workbench/workspace/tile semantic distinctions | Prospective (design pressure increasing) | `2026-02-24_layout_behaviors_plan.md`, `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` | User report surfaced unresolved tile vs workspace semantics and need for a root workbench overview UX. |
+| `lane:layout-semantics` | Layout injection hook, frame-affinity organizational behavior prerequisites/execution (legacy alias: Magnetic Zones); workbench/workspace/tile semantic distinctions | Prospective (design pressure increasing) | `2026-02-24_layout_behaviors_plan.md`, `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` | User report surfaced unresolved tile vs workspace semantics and need for a root workbench overview UX. |
 | `lane:performance-physics` | Culling, LOD, physics responsiveness/reheat, policy tuning | Partial / follow-on | `2026-02-24_performance_tuning_plan.md`, `2026-02-24_physics_engine_extensibility_plan.md` | Some slices landed; keep as follow-on lane for deeper performance + policy work. |
 | `lane:command-surface-parity` | Omnibar/palette/radial/menu trigger parity and command discoverability | Prospective | `GRAPHSHELL_AS_BROWSER.md`, control UI UX docs, `render/command_palette.rs` | Can remain under `control-ui-settings` unless scope expands. |
 | `lane:graph-ux-polish` | Multi-select, semantic tab titles, small high-leverage graph interactions | Prospective / quick-slice feeder | `2026-02-18_graph_ux_research_report.md`, `2026-02-23_graph_interaction_consistency_plan.md` | Good feeder lane for low-risk UX improvements between bigger slices. |
@@ -721,7 +719,7 @@ These are mostly sourced from the forgotten-concepts table and adopted strategy 
 | `lane:presence-collaboration` | Collaborative presence (ghost cursors, follow mode, remote selection) | Verse sync + identity/presence semantics stable | `design_docs/verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md` | Crosses Graphshell + Verse; likely needs dedicated hub. |
 | `lane:lens-physics` | Progressive lenses + lens/physics binding policy execution | Runtime lens resolution + distinct physics preset behavior | `2026-02-25_progressive_lens_and_physics_binding_plan.md`, interaction/physics docs | Can begin with policy wiring before full UX polish. |
 | `lane:doi-fisheye` | Semantic fisheye / DOI implementation | Basic LOD + viewport culling stable | `2026-02-25_doi_fisheye_plan.md`, graph UX research | Visual ergonomics lane; pair with diagnostics/perf instrumentation. |
-| `lane:visual-tombstones` | Ghost nodes/edges after deletion | Deletion/traversal/history UX stable | `2026-02-26_visual_tombstones_plan.md` | Adopted concept with strategy doc; candidate early roadmap lane. |
+| `lane:ghost-nodes` | Ghost Nodes/edges after deletion (formerly `lane:visual-tombstones`) | Deletion/traversal/history UX stable | `2026-02-26_visual_tombstones_plan.md` | Adopted concept with strategy doc; candidate early roadmap lane. |
 | `lane:omnibar` | Unified omnibar (URL + graph search + web search) | Command palette/input routing stabilized | `GRAPHSHELL_AS_BROWSER.md`, graph UX research | Core browser differentiator; keep distinct from palette cleanup. |
 | `lane:view-dimension` | 2D↔3D hotswitch + position parity | Pane/view model + graph view state stable | `2026-02-24_physics_engine_extensibility_plan.md`, `PROJECT_DESCRIPTION.md` | Future-facing but should remain visible in planning. |
 | `lane:html-export` | Interactive HTML export | Viewer/content model + snapshot/export shape defined | archived philosophy + browser docs | Strong shareability lane; non-core until model/export safety is defined. |
@@ -758,11 +756,11 @@ These are not "do now" items. They are concepts that should be explicitly adopte
 
 | Rank | Forgotten Concept | Adoption Value | Source Docs | Adoption Trigger |
 | --- | --- | --- | --- | --- |
-| 1 | **Visual Tombstones (ghost nodes/edges after deletion)** | Preserves structural memory and reduces disorientation after destructive edits. | `2026-02-24_visual_tombstones_research.md` | After traversal/history UI and deletion UX are stable. |
+| 1 | **Ghost Nodes (nodes/edges preserved after deletion)** | Preserves structural memory and reduces disorientation after destructive edits. Previously "Visual Tombstones"; canonical term is now Ghost Node. Code-level state: `NodeLifecycle::Tombstone`. | `2026-02-24_visual_tombstones_research.md` | After traversal/history UI and deletion UX are stable. |
 | 2 | **Temporal Navigation / Time-Travel Preview** | Makes traversal history and deterministic intent log materially useful to users (not just diagnostics). | `2026-02-20_edge_traversal_impl_plan.md` (Stage F), `GRAPHSHELL_AS_BROWSER.md`, `2026-02-18_graph_ux_research_report.md` | After Stage E History Manager closure and preview-mode effect isolation hardening. |
 | 3 | **Collaborative Presence (ghost cursors, remote selection, follow mode)** | Turns Verse sync from data sync into shared work. | `2026-02-18_graph_ux_research_report.md` §15.2, `GRAPHSHELL_AS_BROWSER.md`, Verse vision docs cited there | After Phase 5 done gates and identity/presence semantics are stable. |
 | 4 | **Semantic Fisheye + DOI (focus+context without geometric distortion)** | High-value readability improvement for dense graphs; preserves mental map while surfacing relevance. | `2026-02-18_graph_ux_research_report.md` §§13.2, 14.8, 14.9 | After basic LOD and viewport culling are in place. |
-| 5 | **Magnetic Zones / Group-in-a-Box / Query-to-Zone** | Adds spatial organization as a first-class workflow, not just emergent physics. | `2026-02-24_layout_behaviors_plan.md` Phase 3 (expanded with persistence scope, interaction model, and implementation sequence), `2026-02-18_graph_ux_research_report.md` §13.1 | **Prerequisites now documented** in `layout_behaviors_plan.md` §3.0–3.5. Implementation blocked on: (1) layout injection hook (Phase 2), (2) Canonical/Divergent scope settlement. Trigger: when both blockers are resolved, execute implementation sequence in §3.5. |
+| 5 | **Frame-affinity organizational behavior / Group-in-a-Box / Query-to-Zone** (legacy alias: Magnetic Zones) | Adds spatial organization as a first-class workflow, not just emergent physics. | `2026-02-24_layout_behaviors_plan.md` Phase 3 (expanded with persistence scope, interaction model, and implementation sequence), `2026-02-18_graph_ux_research_report.md` §13.1 | **Prerequisites now documented** in `layout_behaviors_plan.md` §3.0–3.5. Implementation blocked on: (1) layout injection hook (Phase 2), (2) Canonical/Divergent scope settlement. Trigger: when both blockers are resolved, execute implementation sequence in §3.5. |
 | 6 | **Graph Reader ("Room" + "Map" linearization) and list-view fallback** | Critical accessibility concept beyond the initial webview bridge; gives non-visual users graph comprehension. | `2026-02-24_spatial_accessibility_research.md`, `SUBSYSTEM_ACCESSIBILITY.md` §8 Phase 2 | After Phase 1 WebView Bridge lands. |
 | 7 | **Unified Omnibar (URL + graph search + web search heuristics)** | Core browser differentiator; unifies navigation and retrieval. | `GRAPHSHELL_AS_BROWSER.md` §7, `2026-02-18_graph_ux_research_report.md` §15.4 | After command palette/input routing stabilization. |
 | 8 | **Progressive Lenses + Lens/Physics binding policy** | Makes Lens abstraction feel native and semantic, not static presets. | `2026-02-24_interaction_and_semantic_design_schemes.md`, `2026-02-24_physics_engine_extensibility_plan.md` (lens-physics binding preference) | After Lens resolution is active runtime path and physics presets are distinct in behavior. |
@@ -770,12 +768,15 @@ These are not "do now" items. They are concepts that should be explicitly adopte
 | 10 | **Interactive HTML Export (self-contained graph artifact)** | Strong shareability and offline review workflow; distinctive output mode. | `design_docs/archive_docs/checkpoint_2026-01-29/PROJECT_PHILOSOPHY.md` (archived concept) | After viewer/content model and export-safe snapshot shape are defined. |
 
 Appended adoption note (preserved from PR `#55`, pending table refactor):
-- Visual Tombstones (`Rank 1`) is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-26_visual_tombstones_plan.md` and should be treated as `✅ adopted` in future table cleanup.
+
+- Ghost Nodes (`Rank 1`, formerly "Visual Tombstones") is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-26_visual_tombstones_plan.md` and should be treated as `✅ adopted` in future table cleanup.
 
 Appended adoption note (preserved from PR `#56`, pending table refactor):
+
 - Temporal Navigation / Time-Travel Preview (`Rank 2`) should be treated as `✅ adopted` and promoted to a tracked staged backlog item via `design_docs/graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md` Stage F.
 
 Appended staged backlog summary (preserved from PR `#56`, pending section refactor):
+
 - **Stage F: Temporal Navigation (Tracked Staged Backlog Item)** — Deferred until Stage E History Manager maturity (tiered storage, dissolution correctness, and stable WAL shape).
 - Deliverables preserved from PR summary: timeline index, `replay_to_timestamp(...)`, detached preview graph state, timeline slider/return-to-present UI, and preview ghost rendering.
 - Preview-mode effect isolation contract (preserved): no WAL writes, no webview lifecycle mutations, no live graph mutations, no persistence side effects, and clean return-to-present with no preview-state leakage.

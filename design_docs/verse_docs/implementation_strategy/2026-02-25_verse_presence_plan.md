@@ -1,10 +1,14 @@
-# Verse Presence UX — Implementation Plan
+# Verso Presence UX — Implementation Plan
+
+> **Branding update (2026-03-01)**: Presence is a feature of **Verso's** local collaboration
+> layer, not of the public Verse network. Presence events are scoped to trusted peers
+> connected via Verso's iroh transport. The implementation plan below is unchanged.
 
 **Date**: 2026-02-25
 **Status**: Deferred (blocked on Phase 5 done-gate closure)
 **Blocked by**: Phase 5.4 delta sync harness + Phase 5.5 access control harness
 **Phase**: Post-Phase-5 (Phase 6+)
-**Context**: Specifies the minimum presence layer for collaborative sessions — ghost cursors, remote selection highlights, and follow mode. Presence is a sync UX layer built on top of stable Verse semantics, not a substitute for them.
+**Context**: Specifies the minimum presence layer for collaborative sessions — ghost cursors, remote selection highlights, and follow mode. Presence is a sync UX layer built on top of stable Verso local collaboration semantics, not a substitute for them.
 
 ---
 

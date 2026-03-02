@@ -2,12 +2,12 @@
 
 **Date**: 2026-02-28  
 **Status**: Canonical interaction contract (graph-surface baseline)  
-**Priority**: Immediate implementation guidance
+**Priority**: Pre-renderer/WGPU required
 
 **Related**:
 - `PLANNING_REGISTER.md`
 - `2026-02-28_ux_contract_register.md`
-- `2026-02-27_ux_baseline_done_definition.md`
+- `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `CANVAS.md`
 - `../workbench/WORKBENCH.md`

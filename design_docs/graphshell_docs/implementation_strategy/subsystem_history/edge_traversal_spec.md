@@ -20,6 +20,7 @@ This spec defines the canonical contracts for:
 
 1. **Edge semantic model** — `EdgePayload`, `Traversal`, `NavigationTrigger`.
 2. **Traversal recording** — append rules, trigger classification, WAL entry format.
+3. **Event-stream projection** — directed traversal events reduced into durable edge state.
 3. **Edge visual presentation** — traversal-aware rendering.
 4. **History Manager surface** — Timeline and Dissolved tabs, archive queries.
 5. **Temporal navigation** — preview mode, scrubber contract (planned).
@@ -74,6 +75,22 @@ NavigationTrigger =
 ```
 
 Each navigation event between two nodes appends a `Traversal` record to the edge's `traversals` list. Repeated traversals are recorded (not deduplicated). The full traversal list within the rolling window is the recent history; older records are flushed to the archive and reflected in `metrics` (§2.4).
+
+### 2.3A Event-Stream Projection Model
+
+Canonical framing:
+
+- **Traversal is the directed event** in the temporal stream.
+- **Edge is the durable relationship record** (`EdgePayload`) produced and enriched by reducing traversal events.
+
+Projection rules:
+
+1. A navigation action appends a directed traversal event (`from`, `to`, `timestamp`, `trigger`, `direction`).
+2. Reducer logic updates or creates the corresponding `EdgePayload` state for the node pair.
+3. On first traversal for the pair, the edge gains `TraversalDerived`.
+4. Additional traversals update metrics/history and may change dominant-direction summary.
+
+Important distinction: direction is first-class on traversal events; edge-direction visuals are derived summaries at render time and are not edge identity fields.
 
 ### 2.4 EdgeMetrics and Rolling Window
 

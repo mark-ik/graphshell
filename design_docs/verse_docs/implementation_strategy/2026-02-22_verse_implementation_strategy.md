@@ -1,8 +1,13 @@
-# Verse Implementation Strategy: Quick Reference
+# Verso / Verse Implementation Strategy: Quick Reference
 
-**Date**: 2026-02-22 (original), 2026-02-23 (split)
+> **Branding update (2026-03-01)**: The local P2P sync layer (iroh bilateral sync, Tier 1)
+> is now branded under **Verso** — the same native mod that provides web rendering.
+> **Verse** is now solely the public community network (Tier 2, long-horizon research).
+> The Tier 1 implementation plan is unchanged; only the brand name has moved.
+
+**Date**: 2026-02-22 (original), 2026-02-23 (split), 2026-03-01 (branding update)
 **Status**: Index / Orientation Document
-**Context**: This document has been split into two focused files to separate implementation-ready engineering plans from long-horizon research architecture.
+**Context**: This document has been split into two focused files to separate implementation-ready engineering plans (Verso local collaboration) from long-horizon research architecture (Verse public network).
 
 ---
 

@@ -30,7 +30,7 @@ It exists to keep one boundary explicit:
 - command availability
 - command target resolution
 - command dispatch and execution routing
-- consistency across keyboard, palette, context menu, radial menu, and omnibar
+- consistency across keyboard, Search Palette Mode, Context Palette Mode, Radial Palette Mode, and omnibar
 
 ---
 

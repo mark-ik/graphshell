@@ -1,12 +1,12 @@
-# Visual Tombstones (Ghost Nodes) Research
+# Ghost Nodes Research
 
 **Status**: Research / Backlog
 **Context**: Extracted from `archive_docs/checkpoint_2026-01-29/COMPREHENSIVE_SYNTHESIS.md`.
-**Distinction**: Distinct from P2P "Ghost Nodes" (which are conflict artifacts). These are user-facing "deleted but remembered" placeholders.
+**Renamed**: Previously called "Visual Tombstones." **Ghost Node** is now the canonical user-facing term. The Rust lifecycle state `NodeLifecycle::Tombstone` is unchanged — it is a code-level enum variant, not a user-facing label.
 
 ## Concept
 
-When a user deletes a node, the graph structure (edges) is often lost, creating a hole in the mental map. "Visual Tombstones" preserve this structure without keeping the full node content.
+When a user deletes a node, the graph structure (edges) is often lost, creating a hole in the mental map. Ghost Nodes preserve this structure without keeping the full node content — deleted-but-remembered placeholders that maintain graph topology.
 
 > "Use ghost nodes to preserve structure when removing items. When node deleted, show ghost edges (dashed/faded) to preserve knowledge of connections."
 

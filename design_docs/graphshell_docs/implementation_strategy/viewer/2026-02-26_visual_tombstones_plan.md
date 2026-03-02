@@ -1,4 +1,6 @@
-# Visual Tombstones Implementation Plan
+# Ghost Nodes Implementation Plan
+
+> **Renamed (2026-03-01)**: Previously "Visual Tombstones." **Ghost Node** is now the canonical user-facing term. The Rust lifecycle state `NodeLifecycle::Tombstone` is unchanged.
 
 **Status**: Strategy / Phased Deliverable
 **Created**: 2026-02-26
@@ -9,7 +11,7 @@
 
 ## Executive Summary
 
-Visual tombstones (ghost nodes) preserve graph structure when users delete nodes, preventing topology loss during refactoring, pruning, or history operations. This plan elevates tombstones from research concept to a tracked, phased deliverable with explicit toggle/retention semantics and integration milestones.
+Ghost Nodes preserve graph structure when users delete nodes, preventing topology loss during refactoring, pruning, or history operations. This plan elevates the feature from research concept to a tracked, phased deliverable with explicit toggle/retention semantics and integration milestones.
 
 **Scope Alignment**: 
 - Feature tracks as a **Graph UX Polish** sub-feature, not a critical-path item.
@@ -313,5 +315,5 @@ If edge traversal (`lane:traversal`) is active, tombstones should appear in trav
 ## References
 
 - **Research**: `design_docs/graphshell_docs/research/2026-02-24_visual_tombstones_research.md`
-- **Issue**: #11 (Concept Adoption / Visual Tombstones)
+- **Issue**: #11 (Concept Adoption / Ghost Nodes)
 - **Related Lanes**: `lane:graph-ui`, `lane:ux-polish`

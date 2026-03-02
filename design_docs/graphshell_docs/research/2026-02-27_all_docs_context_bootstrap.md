@@ -49,7 +49,7 @@ Avoid deprecated names (for example legacy ontology naming and old history panel
 
 The active gate is the UX baseline in:
 
-- `design_docs/graphshell_docs/implementation_strategy/2026-02-27_ux_baseline_done_definition.md`
+- `design_docs/graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md` (§2)
 
 AI-facing work should not move above maintenance priority until this gate is satisfied.
 

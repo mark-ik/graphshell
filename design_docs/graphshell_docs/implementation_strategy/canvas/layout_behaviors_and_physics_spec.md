@@ -23,7 +23,7 @@ This spec defines the canonical contracts for:
 
 1. **Physics micro-behaviors** — reheat, new-node placement, gravity consistency.
 2. **Advanced force injection** — the post-physics force hook; degree repulsion; domain clustering.
-3. **Magnetic zones** — data model, force application, interaction model, persistence scope.
+3. **Frame-affinity organizational behavior** (legacy alias: Magnetic Zones) — data model, force application, interaction model, persistence scope.
 4. **Lens/physics binding** — how a `LensConfig` references a `PhysicsProfileId` and the `Always/Ask/Never` preference gate.
 5. **Progressive lens switching** — threshold-based triggers, hysteresis, preference chain.
 6. **Physics engine extension points** — `ExtraForce` hook contract and `LayoutRegistry` algorithm registration.
@@ -77,7 +77,9 @@ Applies weak attraction toward the centroid of nodes sharing the same eTLD+1.
 
 ---
 
-## 4. Magnetic Zones Contract
+## 4. Frame-Affinity Organizational Behavior Contract (Legacy Alias: Magnetic Zones)
+
+Terminology rule for this section: historical `Zone`/`MagneticZone` wording is retained only as a legacy alias. Canonical organizational framing is frame-affinity behavior under graph-first frame semantics.
 
 ### 4.1 Data Model
 
@@ -119,9 +121,9 @@ Zones are **workspace-scoped**: they live in `GraphWorkspace.zones` and are part
 | Interaction | Required behavior |
 |-------------|------------------|
 | Create Zone (≥1 nodes selected) | Derive centroid from selection bounding box center; assign all selected nodes to new zone |
-| Rename Zone | Double-click zone label or zone context menu → inline rename |
+| Rename Zone | Double-click zone label or Command Palette contextual mode → inline rename |
 | Add node to Zone | Drag node onto zone backdrop → node's `zone_id` updated; force bias shifts toward new centroid |
-| Remove node from Zone | Context menu "Remove from Zone" or drag entirely outside zone backdrop; `zone_id` cleared |
+| Remove node from Zone | Command Palette contextual mode "Remove from Zone" or drag entirely outside zone backdrop; `zone_id` cleared |
 | Drag Zone centroid | Centroid moves; zone members follow via soft force (not teleport) |
 | Delete Zone | Zone removed; all member nodes' `zone_id` fields cleared; node positions are preserved |
 | Merge Zones | Drag one zone backdrop onto another → combine membership under target; source zone deleted |

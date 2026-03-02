@@ -1,4 +1,6 @@
-# Visual Tombstones (Ghost Nodes) — Interaction Spec
+# Ghost Nodes — Interaction Spec
+
+> **Renamed (2026-03-01)**: Previously "Visual Tombstones (Ghost Nodes)." **Ghost Node** is now the canonical user-facing term. The Rust lifecycle state `NodeLifecycle::Tombstone` is unchanged.
 
 **Date**: 2026-02-28
 **Status**: Canonical interaction contract
@@ -19,11 +21,11 @@
 
 This spec defines the canonical contracts for:
 
-1. **Tombstone data model** — `NodeState::Tombstone`, `TombstoneNodeData`, persistence.
-2. **Tombstone rendering** — visual distinction, topology preservation.
-3. **Restoration** — restoring a tombstoned node to active state.
+1. **Ghost Node data model** — `NodeLifecycle::Tombstone` state, `TombstoneNodeData`, persistence.
+2. **Ghost Node rendering** — visual distinction, topology preservation.
+3. **Restoration** — restoring a Ghost Node to active state.
 4. **Garbage collection and retention policy** — expiry, threshold, user controls.
-5. **Toggle and visibility** — per-view and global tombstone display settings.
+5. **Toggle and visibility** — per-view and global Ghost Node display settings.
 
 ---
 

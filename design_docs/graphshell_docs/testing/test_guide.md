@@ -5,7 +5,7 @@
 **Purpose**: Canonical testing entry guide for Graphshell.
 
 **Related**:
-- `../implementation_strategy/2026-02-27_ux_baseline_done_definition.md`
+- `../implementation_strategy/subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `../implementation_strategy/workbench/workbench_frame_tile_interaction_spec.md`
 - `../../OPERATOR_GUIDE.md`
 

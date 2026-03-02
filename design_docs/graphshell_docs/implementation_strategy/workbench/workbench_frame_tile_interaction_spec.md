@@ -6,7 +6,7 @@
 
 **Related**:
 - `PLANNING_REGISTER.md`
-- `2026-02-27_ux_baseline_done_definition.md`
+- `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `2026-02-28_ux_contract_register.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `WORKBENCH.md`

@@ -2,7 +2,7 @@
 
 **Date**: 2026-03-01
 **Status**: Canonical interaction contract
-**Priority**: Immediate implementation guidance
+**Priority**: Pre-renderer/WGPU required
 
 **Related**:
 - `ASPECT_INPUT.md`

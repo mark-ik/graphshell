@@ -8,8 +8,8 @@
 *   **Graphshell**: The product name. A local-first, spatial browser combining a tile-tree and a file-tree.
 *   **Spatial Graph Browser**: The user-facing description of the interface. It emphasizes the force-directed graph and tiling window manager.
 *   **Knowledge User Agent**: The architectural philosophy. Unlike a passive "User Agent" that just renders what servers send, Graphshell actively crawls, indexes, cleans, and stores data on the user's behalf.
-*   **Verse**: The optional decentralized, peer-to-peer network component for sharing graph data.
-*   **Verso**: A native mod and user agent component packaging Servo/Wry web rendering. An homage.
+*   **Verso**: A native mod and user agent component packaging (1) Servo/Wry web rendering and (2) local peer-to-peer collaboration via iroh. An homage to Servo. The private, fast, device-local layer.
+*   **Verse**: The optional public community network for federated knowledge sharing. Long-horizon research. The public, community, federated layer. Distinct from Verso's local collaboration.
 
 ## Tile Tree Architecture
 
@@ -113,12 +113,13 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Scope Isolation**: Distinct graph scopes rendered in separate panes/frames within the same Workbench (`GraphId`) are interaction-isolated by default; selection, camera, gestures, and scope-local interactions do not implicitly affect sibling scopes unless an explicit bridge/sync rule is enabled.
 *   **Inter-Workbench Scope**: App-level scope used to switch between workbenches (and therefore between complete graphs/`GraphId`s).
 *   **Node**: A unit of content (webpage, note, file) identified by a stable UUID.
-*   **Edge**: A relationship between two nodes, represented as `EdgePayload`.
-*   **EdgePayload**: The canonical edge data type. Contains `kind: EdgeKind` and `traversals: Vec<Traversal>`. Replaces the deprecated `EdgeType`.
-*   **EdgeKind**: The structural classification of an edge. `UserGrouped` — explicit connection created by the user. `TraversalDerived` — implicit connection created by a navigation event.
-*   **Traversal**: A temporal record of a navigation event (timestamp, `NavigationTrigger`, direction) stored on an edge's `traversals` list. Repeated traversals are recorded; the full list is the history of all navigation over that edge.
+*   **Edge**: A durable relationship record between two nodes, represented as `EdgePayload`.
+*   **EdgePayload**: The canonical edge projection data type reduced from structural assertions and traversal events. Replaces the deprecated `EdgeType`.
+*   **EdgeKind**: The structural classification of an edge projection. `UserGrouped` — explicit connection created by the user. `TraversalDerived` — relationship state asserted when at least one traversal event exists for the node pair.
+*   **Traversal**: A directed temporal navigation event (`timestamp`, `NavigationTrigger`, direction) in the traversal event stream. Traversals are appended and then projected into edge state (`EdgePayload`) for rendering and inspection.
 *   **NavigationTrigger**: The cause of a `Traversal`. Canonical values: `LinkClick`, `BackButton`, `ForwardButton`, `AddressBarEntry`, `Programmatic`, `Unknown`.
-*   **Edge Traversal History**: The aggregate of all Traversal records, forming the complete navigation history of the graph.
+*   **Edge Traversal History**: The aggregate traversal event stream over node pairs, forming the complete navigation history of the graph.
+*   **Edge Direction Summary**: A render-time derived dominant direction computed from traversal records/metrics; not an identity field on the edge.
 *   **Workbench History Stream**: The ordered stream of workbench-structure operations (tile/frame/split/reorder/open/close) within one workbench context.
 *   **Frame History**: A merged timeline over Edge Traversal History and Workbench History Stream for frame-contextual replay/inspection.
 *   **Intent**: A data payload describing a desired state change routed through an explicit mutation authority. The canonical graph/workbench intent type is `GraphIntent`.
@@ -144,12 +145,13 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 
 ## Runtime Lifecycle
 
-Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombstone`. `Active`, `Warm`, and `Cold` are operational states; `Tombstone` is a deletion-with-preservation state.
+Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombstone`. `Active`, `Warm`, and `Cold` are operational states; `Tombstone` is the code-level name for the deletion-with-preservation state whose user-facing concept is the **Ghost Node**.
 
 *   **Active**: Node has a live webview and is rendering.
 *   **Warm**: Node has a live webview but is hidden/cached (optional optimization).
 *   **Cold**: Node has no webview; represented by metadata/snapshot only.
-*   **Tombstone**: Node has been deleted but is structurally preserved in the graph data model. A tombstoned node retains its `NodeKey`, spatial position, edges, and a deletion timestamp. Tombstones are filtered out of default graph queries; they are visible only when tombstone display is explicitly enabled. Permanent removal requires an explicit garbage-collection action. Restoration transitions a tombstone back to `Cold`.
+*   **Tombstone** (code-level: `NodeLifecycle::Tombstone`): The lifecycle state for a node that has been deleted but is structurally preserved in the graph data model. The user-facing name for a node in this state is **Ghost Node**. A Ghost Node retains its `NodeKey`, spatial position, edges, and a deletion timestamp. Ghost Nodes are filtered out of default graph queries; they are visible only when "Show Deleted" is enabled. Permanent removal requires an explicit garbage-collection action. Restoration transitions a Ghost Node back to `Cold`.
+*   **Ghost Node** (user-facing term): A deleted node rendered as a faint dashed placeholder that preserves graph topology — the structural memory of a deletion. Backed by `NodeLifecycle::Tombstone`. Ghost Nodes show reduced opacity, dashed borders, and ghost edges; they are excluded from physics simulation by default. A "Show Deleted" per-view toggle controls visibility (default: off). Spec: `implementation_strategy/viewer/visual_tombstones_spec.md`.
 
 ## Registry Architecture
 
@@ -183,7 +185,7 @@ Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombsto
     *   `Surface` is the UI presentation through which users interact with or observe a domain/aspect/subsystem.
     *   `Subsystem` is a cross-cutting guarantee framework (diagnostics, accessibility, focus, security, storage, history) applied across domains/aspects/surfaces.
 *   **Doc folder conventions** — implementation_strategy sub-folders use the following category prefixes:
-    *   `subsystem_*` — a cross-cutting guarantee subsystem (diagnostics, accessibility, focus, security, storage, history, mods).
+    *   `subsystem_*` — a cross-cutting guarantee subsystem (diagnostics, accessibility, focus, security, storage, history, mods, ux_semantics).
     *   `canvas/`, `workbench/`, `viewer/` — Layout Domain feature areas (no prefix; canonical registry names are sufficient).
     *   `aspect_*` — an Aspect (command, control, input, render).
     Plans and specs for prospective or unimplemented features stay in their category folder; removal requires explicit deferral or abandonment note, not just absence of implementation.
@@ -197,8 +199,8 @@ Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombsto
     *   **WASM Mod**: Dynamically loaded at runtime via `extism`. Sandboxed, capability-restricted. Used for third-party extensions.
     Both tiers use the same `ModManifest` format declaring `provides` and `requires`.
 *   **Core Seed**: The minimal registry population that ships without any mods, making the app functional as an offline document organizer (graph manipulation, local files, plaintext/metadata viewers, search, persistence).
-*   **Verso**: A native mod packaging Servo/Wry web rendering. Provides `viewer:webview`, `protocol:http`, `protocol:https`. Without Verso, nodes display as metadata cards.
-*   **Verse**: A native mod packaging P2P networking. Provides `protocol:verse-blobs` (iroh QUIC sync), `protocol:nostr` (signaling/invite relay), and `index:community` (federated tantivy search). Tier 1 (private device sync via iroh) and Tier 2 (public community swarms via libp2p) are distinct phases. Without Verse, the app is fully offline.
+*   **Verso**: A native mod providing two capability families under one identity: (1) **Web rendering** — packages Servo/Wry, provides `viewer:webview`, `protocol:http`, `protocol:https`; without Verso the app displays nodes as metadata cards. (2) **Local collaboration** — packages iroh-based bilateral device sync, provides `protocol:verso-sync`; enables private, offline-first peer-to-peer graph sharing between the user's own devices or trusted friends via QR/invite pairing, mDNS discovery, and QUIC transport. Both capabilities share a single Ed25519 keypair owned by Verso. The URL scheme `verso://pair/{NodeId}/{token}` is canonical for pairing. Without Verso, the app is fully offline and web-only (metadata cards only).
+*   **Verse**: A **public community network** (long-horizon research, Tier 2). Verse is the federated, multi-stakeholder P2P layer for community knowledge sharing, federated search, and optional economic incentives. It is **not** the local sync layer — that belongs to Verso. Verse builds on the same Ed25519 keypair as Verso (identity bridge: one keypair, both iroh NodeId and libp2p PeerId) but is a separate network, separate governance model, and separate implementation phase. Provides `protocol:verse-blobs` (VerseBlob content-addressed knowledge units), `protocol:nostr` (optional signaling/invite relay), and `index:community` (federated tantivy search). Without Verse, the app is a local-first knowledge tool with Verso's private sync only.
 *   **WorkbenchProfile**: The Workbench + Input configuration component of a Workflow. Captures active tile-tree layout policy, interaction bindings, and container behavior. Combined with a Lens to produce a full Workflow.
 *   **Workflow**: The full active session mode. `Workflow = Lens × WorkbenchProfile`. A Lens defines how the graph looks and moves; a WorkbenchProfile defines how the Workbench and input are configured. Managed by `WorkflowRegistry` (future).
 
@@ -211,7 +213,7 @@ A **Subsystem** is a concern that spans multiple registries and components, wher
 3. **Diagnostics** — Runtime channels, health metrics, and invariant violations emitted through the diagnostics system.
 4. **Validation** — Unit/integration/scenario tests + CI gates that enforce contract compliance over time.
 
-Graphshell defines seven cross-cutting runtime subsystems. For space-limited UI labels, the canonical short labels are: `diagnostics`, `accessibility`, `focus`, `security`, `storage`, `history`, `mods`.
+Graphshell defines eight cross-cutting runtime subsystems. For space-limited UI labels, the canonical short labels are: `diagnostics`, `accessibility`, `focus`, `security`, `storage`, `history`, `mods`, `ux_semantics`.
 
 *   **Diagnostics Subsystem**: Runtime observability infrastructure. The reference subsystem — channel schema, invariant watchdogs, analyzers, and the diagnostic inspector pane. The subsystem comprises three registries: **ChannelRegistry** (rename of `DiagnosticsRegistry`) — declarative schema layer: channel IDs, ownership, invariant contracts, severity, sampling config, no behavior; **AnalyzerRegistry** (planned) — continuous stream processors that consume the live event stream and produce derived signals (health scores, alert conditions, pane sections), ships ungated; **TestHarness** (planned, `diagnostics_tests` feature) — in-pane runner with named `TestSuite` structs, background execution, and panic isolation via `catch_unwind`.
 *   **TestRegistry**: The `cargo test` fixture struct in `shell/desktop/tests/harness.rs`. An app factory and assertion surface: constructs a fresh `GraphBrowserApp` + `DiagnosticsState` + tile tree for each test, and provides snapshot/channel-count helpers for observability-driven scenario assertions. Compiled only under `#[cfg(test)]` or `feature = "test-utils"`.
@@ -221,6 +223,33 @@ Graphshell defines seven cross-cutting runtime subsystems. For space-limited UI 
 *   **Storage Subsystem** (`storage`; long form: **Persistence & Data Integrity Subsystem**): Ensures committed state survives restart, serialization round-trips are lossless, data portability remains intact, and single-write-path boundaries remain inviolable.
 *   **History Subsystem** (`history`; long form: **Traversal & Temporal Integrity Subsystem**): Ensures traversal capture correctness, timeline/history integrity, replay/preview isolation, and temporal restoration semantics (including "return to present") remain correct as history features evolve.
 *   **Mods Subsystem** (`mods`; long form: **Mod Lifecycle Integrity Subsystem**): Guarantees that mod loading, activation, sandboxing, and unloading cannot silently corrupt registry state or violate capability grants. Owns manifest validation, activation sequencing, WASM sandbox enforcement, mod health diagnostics, and the core seed invariant (the app must remain functional with zero mods loaded). Native mods (`inventory::submit!`) and WASM mods (`extism`) share the same manifest format and activation pipeline.
+*   **UX Semantics Subsystem** (`ux_semantics`; long form: **UX Semantics Subsystem**): Provides a runtime-queryable semantic tree (**UxTree**) of Graphshell's own native UI, a per-frame structural invariant checker (**UxProbeSet**), a test-harness bridge (**UxBridge**), and a scenario-driven regression suite (**UxHarness**). Distinct from the web content accessibility tree exposed by Servo/AccessKit — the UxTree describes the *host* UI (workbench, panes, dialogs, radial menu) and maps to AccessKit nodes to serve as the single source of truth for both automated testing and OS screen reader integration. Canonical doc: `design_docs/graphshell_docs/implementation_strategy/subsystem_ux_semantics/SUBSYSTEM_UX_SEMANTICS.md`.
+
+### UX Semantics Subsystem Terms
+
+*   **UxTree**: A per-frame, read-only projection of Graphshell's native GUI state into a stable semantic node tree. Rebuilt each frame; not incrementally updated. Distinct from the web content AccessKit tree. Powers UxProbe checks, UxBridge queries, and the AccessKit host-UI bridge.
+*   **UxNode**: One node in the UxTree. May be a leaf (interactive or informational) or a branch (region or pane). Carries: `UxNodeId`, `UxRole`, `label`, `hint`, `UxState`, `value`, `UxAction` list, keyboard shortcuts, `tab_index`, optional `bounds`, children, and `UxMetadata`.
+*   **UxNodeId**: A stable, deterministic, path-based string identifier for a `UxNode`. Derived from stable app identities (`GraphViewId`, `NodeKey`, dialog name constants) — never from raw pointers, frame-local indices, or egui hashes. Format: `uxnode://{surface}/{...path segments}`. Stable across non-semantic re-renders.
+*   **UxRole**: The semantic role of a `UxNode`. Defines its accessibility semantics and maps to an AccessKit `Role`. Core roles: `Button`, `ToggleButton`, `TextInput`, `OmnibarField`, `SearchField`, `MenuItem`, `RadialSector`, `Tab`, `TabPanel`, `List`, `ListItem`, `Dialog`, `Toolbar`, `StatusBar`, `Landmark`, `Region`, `GraphView`, `NodePane`, `ToolPane`, `WorkbenchChrome`, `GraphNode`, `GraphEdge`, `GraphNodeGroup`, `Heading`, `Text`, `Badge`, `ProgressBar`, `StatusIndicator`.
+*   **UxState**: The dynamic observable state of a `UxNode`. Fields: `enabled`, `focused`, `selected`, `expanded` (Option), `hidden`, `blocked` (maps to `NodeLifecycle::RuntimeBlocked`), `degraded` (maps to `TileRenderMode::Placeholder`), `loading`.
+*   **UxAction**: A discrete action available on a `UxNode` in its current state. Only valid-in-state actions are listed. Values: `Invoke`, `Focus`, `Dismiss`, `SetValue`, `Open`, `Close`, `ScrollTo`, `Expand`, `Collapse`.
+*   **UxSnapshot**: A serializable, complete export of the full `UxTree` at a point in time. Format: YAML. Used for snapshot baseline storage and regression diffing in CI.
+*   **UxDiff**: A structured diff between two `UxSnapshot`s. Separates structural changes (node added/removed, role/label/actions changed — these block merge) from state changes (focus, loading, selection — these produce warnings only).
+*   **UxBaseline**: A stored `UxSnapshot` YAML file serving as the expected state for a given scenario checkpoint. Committed to `tests/scenarios/snapshots/`. Baseline updates require human review.
+*   **UxContract**: A machine-verifiable invariant over the UxTree or a UX flow. Three families: `UxInvariant` (holds at all times), `UxFlowContract` (holds over an input sequence), `UxScenario` (named test case exercising a flow contract).
+*   **UxContractSet**: A named, versioned collection of `UxContract`s applied to a specific surface or scenario. Registered in the UX contract register (`2026-02-28_ux_contract_register.md`).
+*   **UxContractViolation**: A structured failure report from a `UxContract` check. Contains: contract ID, violated node path, actual vs. expected value, and human-readable explanation.
+*   **UxInvariant**: A `UxContract` that must hold at every observable program state. Implemented as a `UxProbe` function. S-series: structural. N-series: navigation. M-series: state machine.
+*   **UxFlowContract**: A `UxContract` describing a specific interaction flow — starting state, input sequence, expected end state. Passes if the app reaches the expected state without invariant violations.
+*   **UxScenario**: A named, reusable test scenario exercising a `UxFlowContract`. Defined as a YAML file in `tests/scenarios/ux/`. Parsed and executed by the `UxHarness` scenario runner.
+*   **UxProbe**: A pure function registered at startup that runs every frame (under `ux-probes` feature) and emits `UxViolationEvent` on invariant breach. Signature: `fn(&UxTree) -> Option<UxContractViolation>`. Panic-isolated per probe.
+*   **UxProbeSet**: The registry of all registered `UxProbe` functions. Immutable after startup. Executes all probes each frame the UxTree is built.
+*   **UxViolation**: A first-class diagnostic event emitted when a `UxInvariant` is breached. Routed through the Diagnostics subsystem on `ux:structural_violation` (Error), `ux:navigation_violation` (Error), or `ux:contract_warning` (Warn) channels.
+*   **UxBridge**: The app-side handler that exposes the UxTree and accepts `UxBridgeCommand` messages from a `UxDriver` client. Implemented as custom WebDriver command extensions on the existing WebDriver HTTP server. No new IPC channel required.
+*   **UxBridgeCommand**: A discrete command accepted by the `UxBridge`. Core commands: `GetUxSnapshot`, `FindUxNode`, `InvokeUxAction`, `GetFocusPath`, `GetDiagnosticsState`, `StepPhysics`, `SetClock`, `SeedRng`, `SetInputMode`, `GetActiveContracts`.
+*   **UxDriver**: The test-side library that sends `UxBridgeCommand`s and evaluates assertions. Provides typed methods: `snapshot()`, `find_node()`, `invoke_action()`, `assert_snapshot_invariants()`, `assert_no_ux_violations()`, `step_physics()`, `set_clock()`, etc.
+*   **UxHarness**: The full test infrastructure stack: `UxDriver` + `UxBridge` + `UxProbeSet` + scenario runner + snapshot store. Compiled only under `feature = "test-utils"`.
+*   **UxSemantics Aspects**: The six dimensions of UX contract coverage — **Structural Aspect** (tree shape at a moment), **State Aspect** (dynamic state bits), **Navigation Aspect** (focus traversal graph), **Action Aspect** (available actions per node/state), **Flow Aspect** (temporal sequence of transitions), **Latency Aspect** (time between input and observable UxTree state change).
 
 ### Surface Capability Declarations (Folded Approach)
 
@@ -289,7 +318,7 @@ Each subsystem defines its own descriptor type (e.g., `AccessibilityCapabilities
 ## Legacy / Deprecated Terms
 
 *   *Context Menu*: Replaced by **Command Palette** (context-aware).
-*   *EdgeType*: Replaced by **EdgePayload** (`kind: EdgeKind` + `traversals: Vec<Traversal>`). The old `EdgeType` variants map to `EdgeKind::UserGrouped` and `EdgeKind::TraversalDerived`.
+*   *EdgeType*: Replaced by **EdgePayload** (edge projection with `kinds` + traversal records/metrics). The old `EdgeType` variants map to `EdgeKind::UserGrouped` and `EdgeKind::TraversalDerived`.
 *   *Navigation History Panel / Traversal History Panel*: Replaced by **History Manager** as the single history UI surface.
 *   *View Enum*: Replaced by **Workbench** tile state.
 *   *Servoshell*: The upstream project Graphshell forked from.
