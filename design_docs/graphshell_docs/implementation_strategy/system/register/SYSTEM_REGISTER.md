@@ -22,6 +22,14 @@
 **Policy authority**: This file is the canonical policy authority for Register hub rules and register-spec family coordination.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Register Hub Policies
+
+1. **Family-coordination policy**: Register-wide routing and boundary policy is coordinated here; component-local semantics remain in component specs.
+2. **Authority-routing policy**: Direct call vs signal vs intent routing must follow the canonical decision table and authority boundaries.
+3. **Misroute-visibility policy**: Boundary misroutes and no-op fallthroughs should surface during development via explicit warnings/diagnostics.
+4. **No-catch-all policy**: This hub does not replace subsystem or component authority docs; it reconciles them.
+5. **Convergence policy**: Transitional routing patterns must converge toward explicit typed signal and provider-routed contracts.
+
 ---
 
 ## Register Component Spec Family

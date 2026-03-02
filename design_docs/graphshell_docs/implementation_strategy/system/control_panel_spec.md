@@ -11,6 +11,14 @@
 **Policy authority**: This file is the canonical policy authority for `ControlPanel` behavior and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## ControlPanel Policies
+
+1. **Supervised-worker policy**: Background producers that emit intents/signals must run under supervised lifecycle management.
+2. **Sync-core policy**: `ControlPanel` is an async adapter; it must not turn reducer authority into async mutation logic.
+3. **Ingress-contract policy**: Background work enters core state only through explicit queues/contracts, never side-channel mutation.
+4. **Failure-visibility policy**: Worker failure, cancellation, and backpressure must be explicit and diagnosable.
+5. **Role-separation policy**: `ControlPanel` coordinates work around registries; it does not become a composition root.
+
 ## Purpose and Scope
 
 `ControlPanel` is the async coordination and process-host surface that allows background producers to feed the deterministic app core without compromising testability.

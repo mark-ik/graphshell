@@ -169,6 +169,7 @@ Rules:
 2. Supporting docs (plans/research/receipts/adjacent specs) may define local behavior detail, but must not establish conflicting construct policy authority.
 3. When changing construct policy (aspects/domains/registers/registries), update the canonical authority doc in the same PR/slice.
 4. If construct policy appears in multiple files, the canonical authority file wins and supporting files must be aligned.
+5. Authority docs must include **component-specific policy statements** distilled from that construct's own canonical spec content and accepted research conclusions (avoid generic boilerplate-only policy language).
 
 ### Workflow Documentation Rule
 

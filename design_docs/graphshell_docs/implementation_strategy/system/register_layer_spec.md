@@ -14,6 +14,14 @@
 **Policy authority**: This file is the canonical policy authority for Register-layer treatment and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Register Layer Policies
+
+1. **Composition-over-semantics policy**: Register layer owns capability composition/routing and never product semantic ownership.
+2. **Explicit-bridge policy**: Async/background ingress must cross explicit intent/signal contracts; hidden cross-registry calls are prohibited.
+3. **Diagnosable-routing policy**: Register-layer fallbacks, routing failures, and capability gaps must surface through diagnostics.
+4. **Extensibility-with-boundaries policy**: Mods/providers may extend registries but cannot bypass reducer/workbench mutation authorities.
+5. **Layer-subordination policy**: Register decisions remain subordinate to top-level system architecture ownership rules.
+
 ## Purpose and Scope
 
 The Register layer is the system-owned capability composition and routing layer.

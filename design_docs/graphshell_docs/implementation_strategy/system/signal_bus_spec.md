@@ -11,6 +11,14 @@
 **Policy authority**: This file is the canonical policy authority for `SignalBus` (or equivalent) behavior and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## SignalBus Policies
+
+1. **Signal-not-intent policy**: Signals notify observers; they do not request authoritative mutation.
+2. **Emitter-decoupling policy**: Publishers must not require knowledge of concrete subscribers.
+3. **Typed-envelope policy**: Signals must carry typed payload, source attribution, and routing metadata.
+4. **No-hidden-business-logic policy**: Listener handlers must not become undocumented mutation authorities.
+5. **Routing-health policy**: Drops, failures, throttling, and queue pressure must be diagnosable.
+
 ## Purpose and Scope
 
 `SignalBus` is the typed event-routing fabric for decoupled cross-registry and cross-subsystem notifications.

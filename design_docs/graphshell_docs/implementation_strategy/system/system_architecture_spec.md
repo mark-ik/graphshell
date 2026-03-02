@@ -13,6 +13,14 @@
 **Policy authority**: This file is the canonical policy authority for top-level system construct boundaries and cross-construct ownership.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## System Component Policies
+
+1. **Single-owner policy**: Each major behavior class has one subsystem authority; cross-subsystem implementation is allowed, cross-subsystem ownership is not.
+2. **Mutation-authority policy**: Graph/model mutation stays in reducer authority; tile-tree/layout mutation stays in workbench authority.
+3. **Routing policy**: Commands and framework events must route through Graphshell semantic authorities; host/widget layers cannot become policy owners.
+4. **Register-boundary policy**: Register infrastructure composes capabilities and routes signals/intents but must not absorb product-surface semantics.
+5. **Policy-change rule**: Any change to cross-construct ownership or boundaries must update this file in the same slice as affected child specs.
+
 ## Purpose and Scope
 
 This document defines the top-level architecture of Graphshell:

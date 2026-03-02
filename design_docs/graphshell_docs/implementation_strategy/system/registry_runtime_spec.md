@@ -11,6 +11,14 @@
 **Policy authority**: This file is the canonical policy authority for `RegistryRuntime` behavior and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## RegistryRuntime Policies
+
+1. **Composition-root policy**: `RegistryRuntime` is the canonical runtime composition root for registry capabilities.
+2. **No-ui-semantics policy**: `RegistryRuntime` may expose provider-routed paths but must not own UI/product-surface semantics.
+3. **Boundary-clarity policy**: `RegistryRuntime` does not assume `ControlPanel` worker supervision responsibilities.
+4. **Capability-visibility policy**: Runtime capability availability must be discoverable via explicit descriptors and diagnostics.
+5. **Provider-wiring policy**: Legacy direct dispatch paths should converge into explicit provider-routed runtime paths.
+
 ## Purpose and Scope
 
 `RegistryRuntime` is the system-owned runtime composition root for the Register layer.
