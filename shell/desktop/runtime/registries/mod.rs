@@ -104,6 +104,8 @@ pub(crate) const CHANNEL_UI_HISTORY_MANAGER_LIMIT: &str = "ui.history_manager.li
 pub(crate) const CHANNEL_UI_CLIPBOARD_COPY_FAILED: &str = "ui.clipboard.copy_failed";
 pub(crate) const CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR: &str =
     "runtime.ui.graph.wheel_zoom_blocked_invalid_factor";
+pub(crate) const CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW: &str =
+    "runtime.ui.graph.camera_command_blocked_missing_target_view";
 pub(crate) const CHANNEL_VERSE_PREINIT_CALL: &str = "verse.preinit.call";
 pub(crate) const CHANNEL_VERSE_SYNC_UNIT_SENT: &str = "verse.sync.unit_sent";
 pub(crate) const CHANNEL_VERSE_SYNC_UNIT_RECEIVED: &str = "verse.sync.unit_received";

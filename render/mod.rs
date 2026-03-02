@@ -20,6 +20,7 @@ use crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT;
 use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
 };
 use egui::{Color32, Stroke, Ui, Vec2, Window};
@@ -85,8 +86,6 @@ const CHANNEL_CAMERA_FIT_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.camera_fit_deferred_no_metadata";
 const CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
-const CHANNEL_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW: &str =
-    "runtime.ui.graph.camera_command_blocked_missing_target_view";
 
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
@@ -1198,7 +1197,7 @@ fn apply_pending_camera_command(
     if let Some(target_view) = app.pending_camera_command_target_raw() {
         if !app.workspace.views.contains_key(&target_view) {
             emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
+                channel_id: CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
                 latency_us: 0,
             });
             app.clear_pending_camera_command();
