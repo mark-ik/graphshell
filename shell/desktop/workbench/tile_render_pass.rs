@@ -25,6 +25,10 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+#[cfg(feature = "diagnostics")]
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
@@ -55,6 +59,19 @@ pub(crate) struct TileRenderPassArgs<'a> {
 fn open_mode_from_pending(mode: PendingOpenMode) -> TileOpenMode {
     match mode {
         PendingOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+fn emit_navigation_transition_when_focus_hint_changes(
+    previous_focus_hint: Option<NodeKey>,
+    current_focus_hint: Option<NodeKey>,
+) {
+    if previous_focus_hint != current_focus_hint {
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
     }
 }
 
@@ -161,6 +178,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         #[cfg(feature = "diagnostics")]
         diagnostics_state,
     } = args;
+    #[cfg(feature = "diagnostics")]
+    let focused_node_hint_before = *focused_node_hint;
 
     tile_runtime::refresh_node_pane_render_modes(tiles_tree, graph_app);
 
@@ -453,6 +472,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         *focused_node_hint = focused_node_key;
         focused_node_key
     };
+    #[cfg(feature = "diagnostics")]
+    emit_navigation_transition_when_focus_hint_changes(focused_node_hint_before, *focused_node_hint);
     if *focus_ring_node_key != focused_node_key {
         *focus_ring_node_key = focused_node_key;
         *focus_ring_started_at = focused_node_key.map(|_| Instant::now());
@@ -564,4 +585,23 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     );
 
     post_render_intents
+}
+
+#[cfg(all(test, feature = "diagnostics"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn focus_hint_change_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+
+        emit_navigation_transition_when_focus_hint_changes(None, Some(NodeKey::new(1)));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when tile render pass focus hint changes"
+        );
+    }
 }
