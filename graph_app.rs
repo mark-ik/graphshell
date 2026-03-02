@@ -1358,6 +1358,8 @@ pub struct GraphWorkspace {
     pending_wheel_zoom_delta: f32,
     /// Target graph view for pending wheel zoom delta.
     pending_wheel_zoom_target_view: Option<GraphViewId>,
+    /// Last pointer position captured with pending wheel zoom delta.
+    pending_wheel_zoom_anchor_screen: Option<(f32, f32)>,
 
     /// Active graph views, keyed by ID.
     pub views: HashMap<GraphViewId, GraphViewState>,
@@ -1608,6 +1610,7 @@ impl GraphBrowserApp {
                 }),
                 pending_wheel_zoom_delta: 0.0,
                 pending_wheel_zoom_target_view: None,
+                pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
@@ -1800,6 +1803,7 @@ impl GraphBrowserApp {
                 }),
                 pending_wheel_zoom_delta: 0.0,
                 pending_wheel_zoom_target_view: None,
+                pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
@@ -2006,12 +2010,21 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command = None;
     }
 
-    pub fn queue_pending_wheel_zoom_delta(&mut self, target_view: GraphViewId, delta: f32) {
+    pub fn queue_pending_wheel_zoom_delta(
+        &mut self,
+        target_view: GraphViewId,
+        delta: f32,
+        anchor_screen: Option<(f32, f32)>,
+    ) {
         if self.workspace.pending_wheel_zoom_target_view != Some(target_view) {
             self.workspace.pending_wheel_zoom_delta = 0.0;
+            self.workspace.pending_wheel_zoom_anchor_screen = None;
         }
         self.workspace.pending_wheel_zoom_target_view = Some(target_view);
         self.workspace.pending_wheel_zoom_delta += delta;
+        if let Some(anchor) = anchor_screen {
+            self.workspace.pending_wheel_zoom_anchor_screen = Some(anchor);
+        }
     }
 
     pub fn pending_wheel_zoom_delta(&self, view_id: GraphViewId) -> f32 {
@@ -2022,9 +2035,18 @@ impl GraphBrowserApp {
         }
     }
 
+    pub fn pending_wheel_zoom_anchor_screen(&self, view_id: GraphViewId) -> Option<(f32, f32)> {
+        if self.workspace.pending_wheel_zoom_target_view == Some(view_id) {
+            self.workspace.pending_wheel_zoom_anchor_screen
+        } else {
+            None
+        }
+    }
+
     pub fn clear_pending_wheel_zoom_delta(&mut self) {
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.pending_wheel_zoom_target_view = None;
+        self.workspace.pending_wheel_zoom_anchor_screen = None;
     }
 
     /// Set whether the user is actively interacting with the graph
@@ -3944,6 +3966,7 @@ impl GraphBrowserApp {
         });
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.pending_wheel_zoom_target_view = None;
+        self.workspace.pending_wheel_zoom_anchor_screen = None;
         self.workspace.node_workspace_membership.clear();
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
@@ -4012,6 +4035,7 @@ impl GraphBrowserApp {
         });
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.pending_wheel_zoom_target_view = None;
+        self.workspace.pending_wheel_zoom_anchor_screen = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
@@ -5535,6 +5559,7 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command = None;
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.pending_wheel_zoom_target_view = None;
+        self.workspace.pending_wheel_zoom_anchor_screen = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
@@ -5582,6 +5607,7 @@ impl GraphBrowserApp {
         self.workspace.pending_camera_command = None;
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.pending_wheel_zoom_target_view = None;
+        self.workspace.pending_wheel_zoom_anchor_screen = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.workspace.focused_view = None;
@@ -6071,13 +6097,23 @@ mod tests {
             .views
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
-        app.queue_pending_wheel_zoom_delta(view_a, 32.0);
+        app.queue_pending_wheel_zoom_delta(view_a, 32.0, Some((100.0, 120.0)));
         assert_eq!(app.pending_wheel_zoom_delta(view_a), 32.0);
         assert_eq!(app.pending_wheel_zoom_delta(view_b), 0.0);
+        assert_eq!(
+            app.pending_wheel_zoom_anchor_screen(view_a),
+            Some((100.0, 120.0))
+        );
+        assert_eq!(app.pending_wheel_zoom_anchor_screen(view_b), None);
 
-        app.queue_pending_wheel_zoom_delta(view_b, -12.0);
+        app.queue_pending_wheel_zoom_delta(view_b, -12.0, Some((300.0, 240.0)));
         assert_eq!(app.pending_wheel_zoom_delta(view_a), 0.0);
         assert_eq!(app.pending_wheel_zoom_delta(view_b), -12.0);
+        assert_eq!(app.pending_wheel_zoom_anchor_screen(view_a), None);
+        assert_eq!(
+            app.pending_wheel_zoom_anchor_screen(view_b),
+            Some((300.0, 240.0))
+        );
     }
 
     #[test]
@@ -6088,11 +6124,16 @@ mod tests {
             .views
             .insert(view, GraphViewState::new_with_id(view, "A"));
 
-        app.queue_pending_wheel_zoom_delta(view, 24.0);
+        app.queue_pending_wheel_zoom_delta(view, 24.0, Some((150.0, 80.0)));
         assert_eq!(app.pending_wheel_zoom_delta(view), 24.0);
+        assert_eq!(
+            app.pending_wheel_zoom_anchor_screen(view),
+            Some((150.0, 80.0))
+        );
 
         app.clear_pending_wheel_zoom_delta();
         assert_eq!(app.pending_wheel_zoom_delta(view), 0.0);
+        assert_eq!(app.pending_wheel_zoom_anchor_screen(view), None);
     }
 
     #[test]

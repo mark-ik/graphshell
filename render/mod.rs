@@ -309,7 +309,8 @@ pub fn render_graph_in_ui_collect_actions(
 
             if should_capture {
                 captured_wheel_zoom = true;
-                app.queue_pending_wheel_zoom_delta(view_id, scroll_delta);
+                let anchor = input.pointer.latest_pos().map(|p| (p.x, p.y));
+                app.queue_pending_wheel_zoom_delta(view_id, scroll_delta, anchor);
                 input.smooth_scroll_delta.y = 0.0;
                 input.raw_scroll_delta.y = 0.0;
             } else {
@@ -1353,17 +1354,20 @@ fn apply_pending_wheel_zoom(
         if factor > 0.0 {
             let graph_rect = response.rect;
             let local_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, graph_rect.size());
-            let pointer_pos = ui.input(|i| i.pointer.latest_pos());
-            let local_center = pointer_pos
+            let pointer_pos = app
+                .pending_wheel_zoom_anchor_screen(view_id)
+                .map(|(x, y)| egui::pos2(x, y))
+                .or_else(|| ui.input(|i| i.pointer.latest_pos()));
+            let local_anchor = pointer_pos
                 .map(|p| egui::pos2(p.x - graph_rect.min.x, p.y - graph_rect.min.y))
                 .unwrap_or(local_rect.center())
                 .to_vec2();
 
             ui.ctx().data_mut(|data| {
                 if let Some(mut meta) = data.get_persisted::<MetadataFrame>(metadata_id) {
-                    let graph_center_pos = (local_center - meta.pan) / meta.zoom;
+                    let graph_anchor_pos = (local_anchor - meta.pan) / meta.zoom;
                     let new_zoom = (meta.zoom * factor).clamp(zoom_min, zoom_max);
-                    let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
+                    let pan_delta = graph_anchor_pos * meta.zoom - graph_anchor_pos * new_zoom;
                     meta.pan += pan_delta;
                     meta.zoom = new_zoom;
                     data.insert_persisted(metadata_id, meta);
