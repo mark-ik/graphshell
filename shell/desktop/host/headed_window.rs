@@ -47,6 +47,8 @@ use {
 };
 
 use crate::prefs::AppPreferences;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::geometry::{
@@ -530,11 +532,12 @@ impl HeadedWindow {
         let Some(active_webview_id) = focused_input_webview_id else {
             return;
         };
-        let mut dialogs = self.dialogs.borrow_mut();
-        let Some(dialogs) = dialogs.get_mut(&active_webview_id) else {
+        let mut all_dialogs = self.dialogs.borrow_mut();
+        let had_any_active_dialog = all_dialogs.values().any(|entries| !entries.is_empty());
+        let Some(active_dialogs) = all_dialogs.get_mut(&active_webview_id) else {
             return;
         };
-        if dialogs.is_empty() {
+        if active_dialogs.is_empty() {
             if self.dialog_cursor_override_active.replace(false) {
                 self.apply_platform_cursor(self.last_servo_cursor.get());
             }
@@ -547,16 +550,20 @@ impl HeadedWindow {
             self.apply_platform_cursor(Cursor::Default);
         }
 
-        let length = dialogs.len();
-        dialogs.retain_mut(|dialog| {
+        let length = active_dialogs.len();
+        active_dialogs.retain_mut(|dialog| {
             dialog.set_toolbar_offset(toolbar_offset);
             callback(dialog)
         });
-        if dialogs.is_empty() && self.dialog_cursor_override_active.replace(false) {
+        if active_dialogs.is_empty() && self.dialog_cursor_override_active.replace(false) {
             self.apply_platform_cursor(self.last_servo_cursor.get());
         }
-        if length != dialogs.len() {
+        if length != active_dialogs.len() {
             window.set_needs_repaint();
+        }
+        let has_any_active_dialog = all_dialogs.values().any(|entries| !entries.is_empty());
+        if had_any_active_dialog != has_any_active_dialog {
+            emit_navigation_transition_host_dialog_capture();
         }
     }
 
@@ -608,19 +615,26 @@ impl HeadedWindow {
     }
 
     fn add_dialog(&self, webview_id: WebViewId, dialog: Dialog) {
-        self.dialogs
-            .borrow_mut()
-            .entry(webview_id)
-            .or_default()
-            .push(dialog)
+        let mut dialogs = self.dialogs.borrow_mut();
+        let had_any_active_dialog = dialogs.values().any(|entries| !entries.is_empty());
+        dialogs.entry(webview_id).or_default().push(dialog);
+        let has_any_active_dialog = dialogs.values().any(|entries| !entries.is_empty());
+        if had_any_active_dialog != has_any_active_dialog {
+            emit_navigation_transition_host_dialog_capture();
+        }
     }
 
     fn remove_dialog(&self, webview_id: WebViewId, embedder_control_id: EmbedderControlId) {
         let mut dialogs = self.dialogs.borrow_mut();
+        let had_any_active_dialog = dialogs.values().any(|entries| !entries.is_empty());
         if let Some(dialogs) = dialogs.get_mut(&webview_id) {
             dialogs.retain(|dialog| dialog.embedder_control_id() != Some(embedder_control_id));
         }
         dialogs.retain(|_, dialogs| !dialogs.is_empty());
+        let has_any_active_dialog = dialogs.values().any(|entries| !entries.is_empty());
+        if had_any_active_dialog != has_any_active_dialog {
+            emit_navigation_transition_host_dialog_capture();
+        }
     }
 
     fn has_any_active_dialog(&self) -> bool {
@@ -1065,6 +1079,13 @@ impl HeadedWindow {
             }
         }
     }
+}
+
+fn emit_navigation_transition_host_dialog_capture() {
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
 }
 
 impl PlatformWindow for HeadedWindow {
