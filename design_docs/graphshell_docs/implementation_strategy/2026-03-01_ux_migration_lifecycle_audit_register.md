@@ -43,7 +43,7 @@
 
 | Capability family | Lifecycle | Timing gate | UxTree readiness | Primary authority | Notes |
 |---|---|---|---|---|---|
-| Three-phase event dispatch | Planned | Pre-renderer/WGPU required | Yellow | `2026-03-01_ux_migration_design_spec.md` + `aspect_input/input_interaction_spec.md` | Needs dedicated dispatch contract in UX semantics or expanded canonical UxTree routing table |
+| Three-phase event dispatch | Current | Pre-renderer/WGPU required | Green | `2026-03-01_ux_migration_design_spec.md` + `aspect_input/input_interaction_spec.md` + `subsystem_ux_semantics/ux_event_dispatch_spec.md` | Baseline capture/target/bubble/default dispatch scaffolding and modal isolation diagnostics are implemented with targeted orchestration tests (`#261`, `#269`) |
 | UxTree authority trajectory (UX source of truth) | Planned | Pre-renderer/WGPU required | Yellow | `2026-03-01_ux_migration_design_spec.md` §3.3 + `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Requires staged convergence roadmap with explicit non-goals |
 | Faceted filter schema + operations | Planned | Pre-networking required | Red | `2026-03-01_ux_migration_design_spec.md` | Missing dedicated canonical Faceted Filter Surface spec |
 | Facet rail + Enter-to-pane routing | Planned | Pre-networking required | Red | `2026-03-01_ux_migration_design_spec.md` | Missing Facet Pane Routing spec (input/focus/pane-target semantics) |
@@ -97,7 +97,8 @@ observable, and contract-driven.
 
 ### 3.2 Pre-WGPU closure checklist (canonical gate)
 
-- [ ] Event dispatch contract closure: `#261`, `#269`.
+- [x] Event dispatch contract closure: `#261`, `#269`.
+`#261` + `#269` baseline dispatch contract closure is implemented with deterministic phase sequencing, modal isolation consumption behavior, and fallback diagnostics coverage.
 - [x] Radial geometry/overflow closure: `#263`, `#270`.
 - [ ] Canvas interaction invariants closure (selection/lasso/zoom/edge focus): `#271`, `#173`, `#185`, `#102`, `#104`, `#101`, `#103`.
 `#271` now contributes explicit canonical invariants for lasso/zoom/edge-focus and targeted diagnostics coverage; this grouped checklist item remains open pending companion issues.

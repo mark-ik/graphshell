@@ -42,7 +42,7 @@
 
 | UX migration feature | Primary source section | Current spec anchors | Coverage | Three-tree gate | Action needed |
 |---|---|---|---|---|---|
-| Three-phase event dispatch | UX migration §3.2, §7 | `aspect_input/input_interaction_spec.md`, `subsystem_ux_semantics/ux_tree_and_probe_spec.md`, `subsystem_ux_semantics/ux_event_dispatch_spec.md` | Yellow | Partial | Implement + validate dispatch spec via `#261` + `#269` |
+| Three-phase event dispatch | UX migration §3.2, §7 | `aspect_input/input_interaction_spec.md`, `subsystem_ux_semantics/ux_tree_and_probe_spec.md`, `subsystem_ux_semantics/ux_event_dispatch_spec.md` | Green | Pass | Baseline dispatch contract closure implemented and validated via `#261` + `#269` (phase sequencing, modal isolation, fallback diagnostics, shortcut capture tests) |
 | UxTree as UX source of truth trajectory | UX migration §3.3 | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Yellow | Partial (trajectory defined, migration gates not fully staged) | Add **UxTree Convergence Roadmap** spec with gated milestones and non-goals |
 | Faceted node schema (PMEST) | UX migration §4.1 | UX migration only | Red | Missing | Create **Faceted Filter Surface Spec** (schema, operators, index strategy, result model) |
 | Faceted filter operations | UX migration §4.2 | UX migration only | Red | Missing | Same as above; include acceptance tests and omnibar/palette integration |

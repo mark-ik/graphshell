@@ -122,7 +122,7 @@ Issue status classes:
 
 ### 4.4A UX Semantics and Automation
 
-- Primary: `#251`, `#257`, `#269`, `#272`, `#273`
+- Primary: `#251`, `#257`, `#261`, `#269`, `#272`, `#273`
 - Support: `#246`, `#247`, `#248`, `#249`, `#250`
 
 ### 4.5 Viewer Presentation and Fallback
@@ -144,7 +144,6 @@ Issue status classes:
 
 | Severity | Gap slice | Issue links |
 |---|---|---|
-| Critical | Three-phase UX event-dispatch closure and authority routing | `#261`, `#269` |
 | Critical | Core canvas interaction invariants full closure (selection/lasso/zoom/edge focus) | `#173`, `#185`, `#102`, `#104`, `#101`, `#103`, `#271` |
 | High | UxHarness critical-path evidence and UxTree authority trajectory gate | `#251`, `#257`, `#273`, `#272` |
 | High | Inter-workbench semantics and WorkbenchProfile composition contracts | `#174`, `#186`, `#187`, `#118`, `#119` |
