@@ -20,10 +20,14 @@ use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFA
 use crate::render;
 use crate::render::GraphAction;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_VIEWER_FALLBACK_USED,
+};
 use crate::shell::desktop::render_backend::{
     texture_id_from_token, texture_token_from_handle,
 };
-use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
+use crate::shell::desktop::workbench::pane_model::{ViewLayoutMode, ViewerId};
 use crate::util::truncate_with_ellipsis;
 
 use super::selection_range::inclusive_index_range;
@@ -674,11 +678,53 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
 
-                    if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id) {
-                    ui.label(format!(
-                        "Viewer '{}' is not yet embedded in this pane.",
-                        effective_viewer_id
-                    ));
+                if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id) {
+                    let is_placeholder_mode = matches!(state.render_mode, crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder);
+                    if is_placeholder_mode {
+                        emit_event(DiagnosticEvent::MessageSent {
+                            channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
+                            byte_len: effective_viewer_id.len(),
+                        });
+                        emit_event(DiagnosticEvent::MessageSent {
+                            channel_id: CHANNEL_VIEWER_FALLBACK_USED,
+                            byte_len: effective_viewer_id.len(),
+                        });
+                        ui.colored_label(
+                            egui::Color32::from_rgb(220, 180, 60),
+                            "Viewer fallback active (placeholder mode)",
+                        );
+                        ui.label(format!(
+                            "Reason: '{}' is unresolved for this build path and falls back to placeholder rendering.",
+                            effective_viewer_id
+                        ));
+                        ui.small("Recovery: switch this pane to WebView fallback or clear the override.");
+                        ui.horizontal(|ui| {
+                            if ui.button("Use WebView Fallback").clicked() {
+                                state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+                            }
+                            if ui.button("Clear Viewer Override").clicked() {
+                                state.viewer_id_override = None;
+                            }
+                        });
+                    } else {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(220, 180, 60),
+                            "Viewer path is currently degraded",
+                        );
+                        ui.label(format!(
+                            "Reason: '{}' is not rendered through this pane path yet.",
+                            effective_viewer_id
+                        ));
+                        ui.small("Recovery: use a supported embedded viewer or switch to WebView.");
+                        ui.horizontal(|ui| {
+                            if ui.button("Use WebView").clicked() {
+                                state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+                            }
+                            if ui.button("Clear Viewer Override").clicked() {
+                                state.viewer_id_override = None;
+                            }
+                        });
+                    }
                     ui.small(format!("URL: {}", node.url));
                     return UiResponse::None;
                 }
@@ -714,6 +760,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 }
                 if self.graph_app.get_webview_for_node(node_key).is_none() {
                     log::debug!("tile_behavior: node {:?} has no active node viewer runtime", node_key);
+                    let block_state = self.graph_app.runtime_block_state_for_node(node_key).cloned();
                     let lifecycle_hint = match node.lifecycle {
                         NodeLifecycle::Cold => {
                             "Node is cold. Reactivate to resume browsing in this pane."
@@ -725,6 +772,31 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                             "Node is active but no runtime viewer is mapped yet."
                         }
                     };
+                    if let Some(block_state) = block_state {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(220, 180, 60),
+                            "Degraded: runtime viewer currently blocked",
+                        );
+                        let reason = match block_state.reason {
+                            crate::app::RuntimeBlockReason::CreateRetryExhausted => {
+                                "WebView creation retries were exhausted and a cooldown is active."
+                            }
+                            crate::app::RuntimeBlockReason::Crash => {
+                                "Viewer crashed and runtime is temporarily blocked."
+                            }
+                        };
+                        ui.label(format!("Reason: {reason}"));
+                        if let Some(retry_at) = block_state.retry_at {
+                            let now = std::time::Instant::now();
+                            if retry_at > now {
+                                ui.small(format!(
+                                    "Recovery: retry available in ~{}s.",
+                                    retry_at.duration_since(now).as_secs()
+                                ));
+                            }
+                        }
+                    }
+
                     ui.label(format!("No active runtime viewer for {}", node.url));
                     ui.small(lifecycle_hint);
                     ui.horizontal(|ui| {

@@ -48,6 +48,15 @@ struct ScheduledPanePass {
     overlay: Option<ScheduledOverlay>,
 }
 
+#[derive(Clone, Copy)]
+struct DegradedReceipt {
+    tile_rect: egui::Rect,
+    message: &'static str,
+}
+
+const GPU_PRESSURE_DEGRADED_RECEIPT: &str =
+    "Degraded: content deferred due GPU pressure. Wait or reduce active viewers.";
+
 const DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -289,6 +298,7 @@ pub(crate) fn composite_active_node_pane_webviews(
     );
     let mut pass_tracker = CompositorPassTracker::new();
     let mut pending_overlay_passes: Vec<OverlayStrokePass> = Vec::new();
+    let mut degraded_receipts: Vec<DegradedReceipt> = Vec::new();
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
     let mut hovered_node_key: Option<NodeKey> = None;
     if let Some(pos) = hover_pos {
@@ -350,6 +360,10 @@ pub(crate) fn composite_active_node_pane_webviews(
                 emit_event(DiagnosticEvent::MessageSent {
                     channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
                     byte_len: 1,
+                });
+                degraded_receipts.push(DegradedReceipt {
+                    tile_rect,
+                    message: GPU_PRESSURE_DEGRADED_RECEIPT,
                 });
                 match pass.overlay {
                     Some(ScheduledOverlay::Focus) => {
@@ -467,12 +481,43 @@ pub(crate) fn composite_active_node_pane_webviews(
     });
     retain_composited_signature_cache(&active_composited_nodes);
     CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);
+    render_degraded_receipts(ctx, &degraded_receipts);
 
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_span_duration(
         "tile_compositor::composite_active_node_pane_webviews",
         composite_started.elapsed().as_micros() as u64,
     );
+}
+
+fn render_degraded_receipts(ctx: &egui::Context, receipts: &[DegradedReceipt]) {
+    if receipts.is_empty() {
+        return;
+    }
+
+    let layer = egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("graphshell.degraded_receipts"),
+    );
+    let painter = ctx.layer_painter(layer);
+    let font = egui::FontId::proportional(12.0);
+
+    for receipt in receipts {
+        let anchor = receipt.tile_rect.left_top() + egui::vec2(8.0, 8.0);
+        let box_rect = egui::Rect::from_min_size(anchor, egui::vec2(360.0, 22.0));
+        painter.rect_filled(
+            box_rect,
+            4.0,
+            egui::Color32::from_rgba_unmultiplied(45, 30, 20, 225),
+        );
+        painter.text(
+            box_rect.left_center() + egui::vec2(8.0, 0.0),
+            egui::Align2::LEFT_CENTER,
+            receipt.message,
+            font.clone(),
+            egui::Color32::from_rgb(255, 210, 120),
+        );
+    }
 }
 
 fn active_node_pane_key(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {

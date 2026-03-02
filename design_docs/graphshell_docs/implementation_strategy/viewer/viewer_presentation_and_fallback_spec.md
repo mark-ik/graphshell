@@ -155,6 +155,8 @@ Special route:
 
 - Native-overlay limitations must be documented in-surface.
 - Placeholder state must explain why content is not currently rendered.
+- Degraded/placeholder state must include a user-visible reason and a recovery affordance (for example: switch viewer, retry/reactivate, or wait for cooldown).
+- Degradation/fallback transitions should emit diagnostics receipts so parity can be audited over time.
 
 ### 4.3 Loading, Partial, and Deferred States
 
