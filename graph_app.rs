@@ -26,6 +26,7 @@ use crate::services::persistence::types::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
+    CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED,
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED, CHANNEL_UX_CONTRACT_WARNING,
 };
@@ -1945,6 +1946,16 @@ impl GraphBrowserApp {
         target_view: Option<GraphViewId>,
         command: CameraCommand,
     ) {
+        if let Some(target_view) = target_view
+            && !self.workspace.views.contains_key(&target_view)
+        {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
+                latency_us: 0,
+            });
+            return;
+        }
+
         self.workspace.pending_camera_command = Some(PendingCameraCommand {
             command,
             target_view,
@@ -6057,14 +6068,15 @@ mod tests {
     }
 
     #[test]
-    fn test_pending_camera_command_raw_target_preserves_stale_target_identity() {
+    fn test_request_camera_command_for_view_rejects_stale_target() {
         let mut app = GraphBrowserApp::new_for_testing();
         let stale_target = GraphViewId::new();
+        app.clear_pending_camera_command();
 
         app.request_camera_command_for_view(Some(stale_target), CameraCommand::Fit);
 
-        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
-        assert_eq!(app.pending_camera_command_target_raw(), Some(stale_target));
+        assert!(app.pending_camera_command().is_none());
+        assert!(app.pending_camera_command_target_raw().is_none());
         assert!(app.pending_camera_command_target().is_none());
     }
 
