@@ -326,6 +326,10 @@ fn close_tool_pane_restore_failure_emits_ux_navigation_violation_channel() {
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
     assert!(
+        !snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "did not expect ux:navigation_transition when restore path cannot resolve a focus target"
+    );
+    assert!(
         snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
         "expected ux:navigation_violation when restore path cannot resolve a focus target"
     );
@@ -359,6 +363,10 @@ fn close_tool_pane_restore_success_does_not_emit_ux_navigation_violation_channel
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "expected ux:navigation_transition when restore path resolves successfully"
+    );
     assert!(
         !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
         "did not expect ux:navigation_violation when restore path resolves successfully"

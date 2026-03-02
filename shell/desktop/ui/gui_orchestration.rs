@@ -948,7 +948,12 @@ fn handle_close_tool_pane_intent(
             kind,
         );
         if closed && restore_previous_focus {
-            restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree);
+            if restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree) {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                    latency_us: 0,
+                });
+            }
         } else if closed {
             graph_app.set_pending_tool_surface_return_target(None);
         } else if restore_previous_focus {
@@ -963,7 +968,7 @@ fn handle_close_tool_pane_intent(
 fn restore_tool_surface_focus_or_ensure_active_tile(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
-) {
+) -> bool {
     let resolved = if let Some(target) = graph_app.take_pending_tool_surface_return_target() {
         let restored = focus_tool_surface_return_target(tiles_tree, target);
         if restored {
@@ -981,6 +986,8 @@ fn restore_tool_surface_focus_or_ensure_active_tile(
             byte_len: 1,
         });
     }
+
+    resolved
 }
 
 fn handle_open_settings_url_intent(
