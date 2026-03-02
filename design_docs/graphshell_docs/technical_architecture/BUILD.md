@@ -244,6 +244,7 @@ cargo clean        # Remove build artifacts (next build will be a full rebuild)
 ### `build.rs`
 
 The build script (`build.rs`) runs automatically with cargo and handles:
+
 - Capturing git SHA for the version string
 - **Windows:** bundling the app icon and manifest via `winresource`
 - **macOS:** compiling a small C helper for thread counting

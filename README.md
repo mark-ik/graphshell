@@ -11,28 +11,24 @@
 
 Graphshell is **cargo-first**. The default cargo workflow is the canonical build path for most contributors and CI-like local validation.
 
-```bash
-# Build (debug profile)
-cargo build
+    # Build (debug profile)
+    cargo build
 
-# Run (debug profile)
-cargo run -- https://example.com
+    # Run (debug profile)
+    cargo run -- https://example.com
 
-# Test (debug profile by default)
-cargo test
+    # Test (debug profile by default)
+    cargo test
 
-# Check/format/lint
-cargo check
-cargo fmt
-cargo clippy
-```
+    # Check/format/lint
+    cargo check
+    cargo fmt
+    cargo clippy
 
 Use release profile only when you need runtime/perf parity:
 
-```bash
-cargo build --release
-cargo run --release -- https://example.com
-```
+    cargo build --release
+    cargo run --release -- https://example.com
 
 Optional helper scripts in `scripts/dev/` are wrappers around cargo for lane-safe target directories and convenience; they are not required for normal development.
 
