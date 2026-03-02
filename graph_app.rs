@@ -3955,6 +3955,17 @@ impl GraphBrowserApp {
             .is_some()
     }
 
+    fn set_workspace_focused_view_with_transition(&mut self, focused_view: Option<GraphViewId>) {
+        let previous_focused_view = self.workspace.focused_view;
+        self.workspace.focused_view = focused_view;
+        if self.workspace.focused_view != previous_focused_view {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                latency_us: 0,
+            });
+        }
+    }
+
     fn apply_loaded_graph(&mut self, graph: Graph) {
         self.workspace.graph = graph;
         self.workspace.selected_nodes.clear();
@@ -3987,7 +3998,7 @@ impl GraphBrowserApp {
         self.workspace.node_workspace_membership.clear();
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
-        self.workspace.focused_view = None;
+        self.set_workspace_focused_view_with_transition(None);
         self.workspace.current_workspace_is_synthesized = false;
         self.workspace.workspace_has_unsaved_changes = false;
         self.workspace.unsaved_workspace_prompt_warned = false;
@@ -4055,7 +4066,7 @@ impl GraphBrowserApp {
         self.workspace.pending_wheel_zoom_anchor_screen = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
-        self.workspace.focused_view = None;
+        self.set_workspace_focused_view_with_transition(None);
         self.workspace.next_placeholder_id = next_placeholder_id;
         self.workspace.egui_state = None;
         self.workspace.egui_state_dirty = true;
@@ -5604,7 +5615,7 @@ impl GraphBrowserApp {
         self.workspace.pending_wheel_zoom_anchor_screen = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
-        self.workspace.focused_view = None;
+        self.set_workspace_focused_view_with_transition(None);
         self.workspace.webview_to_node.clear();
         self.workspace.node_to_webview.clear();
         self.workspace.active_lru.clear();
@@ -5652,7 +5663,7 @@ impl GraphBrowserApp {
         self.workspace.pending_wheel_zoom_anchor_screen = None;
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
-        self.workspace.focused_view = None;
+        self.set_workspace_focused_view_with_transition(None);
         self.workspace.webview_to_node.clear();
         self.workspace.node_to_webview.clear();
         self.workspace.active_lru.clear();
@@ -9003,6 +9014,24 @@ mod tests {
         assert!(
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when radial menu focus surface toggles"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn clear_graph_focused_view_reset_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.focused_view = Some(GraphViewId::new());
+
+        app.clear_graph();
+
+        assert!(app.workspace.focused_view.is_none());
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when clear_graph resets focused view"
         );
     }
 
