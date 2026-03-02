@@ -77,6 +77,8 @@ const CHANNEL_CAMERA_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.camera_zoom_deferred_no_metadata";
 const CHANNEL_WHEEL_ZOOM_DEFERRED_NO_METADATA: &str =
     "runtime.ui.graph.wheel_zoom_deferred_no_metadata";
+const CHANNEL_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR: &str =
+    "runtime.ui.graph.wheel_zoom_blocked_invalid_factor";
 
 fn action_handles_primary_click(action: &GraphAction) -> bool {
     matches!(
@@ -1397,6 +1399,12 @@ fn apply_pending_wheel_zoom(
             {
                 view.camera.current_zoom = new_zoom;
             }
+        } else {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
+                latency_us: 0,
+            });
+            app.clear_pending_wheel_zoom_delta();
         }
     }
 
