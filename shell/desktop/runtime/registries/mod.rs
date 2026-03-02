@@ -203,6 +203,7 @@ pub(crate) const CHANNEL_UX_DISPATCH_STARTED: &str = "ux:dispatch_started";
 pub(crate) const CHANNEL_UX_DISPATCH_PHASE: &str = "ux:dispatch_phase";
 pub(crate) const CHANNEL_UX_DISPATCH_CONSUMED: &str = "ux:dispatch_consumed";
 pub(crate) const CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED: &str = "ux:dispatch_default_prevented";
+pub(crate) const CHANNEL_UX_NAVIGATION_TRANSITION: &str = "ux:navigation_transition";
 pub(crate) const CHANNEL_UX_NAVIGATION_VIOLATION: &str = "ux:navigation_violation";
 pub(crate) const CHANNEL_UX_CONTRACT_WARNING: &str = "ux:contract_warning";
 pub(crate) const CHANNEL_UX_RADIAL_OVERFLOW: &str = "ux:radial_overflow";

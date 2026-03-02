@@ -20,7 +20,8 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UX_DISPATCH_CONSUMED,
     CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE,
-    CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_TRANSITION,
+    CHANNEL_UX_NAVIGATION_VIOLATION,
 };
 use crate::shell::desktop::ui::graph_search_flow::{self, GraphSearchFlowArgs};
 use crate::shell::desktop::ui::graph_search_ui::{self, GraphSearchUiArgs};
@@ -851,7 +852,12 @@ fn dispatch_workbench_authority_intent(
 ) -> Option<GraphIntent> {
     match intent {
         WorkbenchAuthorityIntent::CycleFocusRegion => {
-            if !handle_cycle_focus_region_intent(tiles_tree) {
+            if handle_cycle_focus_region_intent(tiles_tree) {
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                    latency_us: 0,
+                });
+            } else {
                 emit_event(DiagnosticEvent::MessageSent {
                     channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
                     byte_len: 1,

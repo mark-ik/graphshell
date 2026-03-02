@@ -1,7 +1,8 @@
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, PendingTileOpenMode};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
-    CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED,
+    CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
 };
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::ui::gui_frame;
@@ -259,6 +260,10 @@ fn cycle_focus_region_success_does_not_emit_ux_navigation_violation_channel() {
 
     diagnostics.force_drain_for_tests();
     let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_NAVIGATION_TRANSITION),
+        "expected ux:navigation_transition when focus cycle resolves successfully"
+    );
     assert!(
         !snapshot.contains(CHANNEL_UX_NAVIGATION_VIOLATION),
         "did not expect ux:navigation_violation when focus cycle resolves successfully"
