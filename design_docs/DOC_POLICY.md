@@ -109,6 +109,26 @@ Checklists, task lists, and implementation planning documents should be organize
 - **Outputs**: Deliverables (documents, code, diagrams) that result from completing this target
 - **Success Criteria**: Knowledge validation questions that confirm deep understanding
 
+### 10. Scaffold Tagging Convention
+
+Use a single machine-readable marker format for implementation scaffolds that are present in code/docs but not fully integrated:
+
+- Canonical marker format: `[SCAFFOLD:<id>]`
+- `<id>` format: lowercase kebab-case scoped by domain (examples: `view-dimension-ui-wiring`, `verse-protocol-handler`, `wasm-mod-loader-runtime`)
+
+Where to apply markers:
+
+1. In canonical docs describing the scaffolded area.
+2. In the scaffold registry file at `graphshell_docs/implementation_strategy/2026-03-02_scaffold_registry.md`.
+3. Optionally in issue titles/bodies for traceability.
+
+Rules:
+
+- Do not mark fully integrated features as scaffolds.
+- When a scaffold is fully wired, remove or update the marker in the same session as the closing change.
+- Keep marker IDs stable; do not rename IDs unless the feature scope changes.
+- Prefer one marker per integration gap, even if multiple files are involved.
+
 ### Workflow Documentation Rule
 
 For AI assistants: store documentation (including memories, instructions, plans, etc.) in DOC_README.md per this file's rules. Refer to DOC_README.md first, then this file, for context when needed. This also means that the content of agent-specific instruction folders should exist in design_docs (such as .claude/ readme sending its updates to DOC_README.md, but also memory files that are useful for context should be copied and archived).

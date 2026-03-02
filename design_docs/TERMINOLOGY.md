@@ -205,6 +205,9 @@ Node lifecycle follows a four-state model: `Active → Warm → Cold → Tombsto
 *   **Verse**: A **public community network** (long-horizon research, Tier 2). Verse is the federated, multi-stakeholder P2P layer for community knowledge sharing, federated search, and optional economic incentives. It is **not** the local sync layer — that belongs to Verso. Verse builds on the same Ed25519 keypair as Verso (identity bridge: one keypair, both iroh NodeId and libp2p PeerId) but is a separate network, separate governance model, and separate implementation phase. Provides `protocol:verse-blobs` (VerseBlob content-addressed knowledge units), `protocol:nostr` (optional signaling/invite relay), and `index:community` (federated tantivy search). Without Verse, the app is a local-first knowledge tool with Verso's private sync only.
 *   **WorkbenchProfile**: The Workbench + Input configuration component of a Workflow. Captures active tile-tree layout policy, interaction bindings, and container behavior. Combined with a Lens to produce a full Workflow.
 *   **Workflow**: The full active session mode. `Workflow = Lens × WorkbenchProfile`. A Lens defines how the graph looks and moves; a WorkbenchProfile defines how the Workbench and input are configured. Managed by `WorkflowRegistry` (future).
+*   **Scaffold**: An implementation slice that is intentionally partial — core structures/intents/contracts exist, but one or more integration paths (UI wiring, runtime registration, lifecycle hookup, or automation coverage) are not fully closed yet.
+*   **Scaffold Marker**: The canonical machine-readable tag for scaffolds: `[SCAFFOLD:<id>]`.
+*   **Scaffold Registry**: The canonical index of active scaffolds and closure criteria at `design_docs/graphshell_docs/implementation_strategy/2026-03-02_scaffold_registry.md`.
 
 ## Subsystems
 

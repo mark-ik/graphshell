@@ -31,6 +31,7 @@ It serves three goals:
 - Keep this index aligned with folder structure and status in the same session as any doc changes.
 - If an AI note/memory adds a durable project principle, record it here under Working Principles.
 - If another index conflicts with this file, this file is authoritative and the others should be aligned.
+- Keep scaffold markers (`[SCAFFOLD:<id>]`) synchronized with the scaffold registry when integration status changes.
 - Migration Strategy: Iterative Replacement
 - - Since there are no active users, we prioritize **code cleanliness** over backward compatibility. We will replace subsystems directly rather than maintaining parallel legacy paths.
 - When designing a new feature, ask:
@@ -87,6 +88,7 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-03-01_webrender_readiness_gate_feature_guardrails.md](graphshell_docs/implementation_strategy/2026-03-01_webrender_readiness_gate_feature_guardrails.md) - WebRender readiness gate and feature guardrails for `#183`: keep Glow active for milestone delivery while requiring renderer-neutral feature slices and evidence-based switch gates.
 - [graphshell_docs/implementation_strategy/2026-03-01_ux_migration_lifecycle_audit_register.md](graphshell_docs/implementation_strategy/2026-03-01_ux_migration_lifecycle_audit_register.md) - UX migration lifecycle register: current/planned/speculative audit with pre/post renderer/WGPU and networking timing gates plus UxTree automation readiness.
 - [graphshell_docs/implementation_strategy/2026-03-01_complete_feature_inventory.md](graphshell_docs/implementation_strategy/2026-03-01_complete_feature_inventory.md) - Complete cross-doc feature inventory with implemented/planned/speculative status and WGPU migration issue categorization.
+- [graphshell_docs/implementation_strategy/2026-03-02_scaffold_registry.md](graphshell_docs/implementation_strategy/2026-03-02_scaffold_registry.md) - Canonical machine-readable scaffold inventory (`[SCAFFOLD:<id>]`) and closure criteria.
 - [graphshell_docs/implementation_strategy/aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md](graphshell_docs/implementation_strategy/aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md) - WebRender wgpu renderer implementation plan (P0–P12): phased execution from dependency audit through production cutover, with per-phase validation, rollback posture, and readiness gate mapping.
 - [graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md](graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md) - Canonical UxTree event dispatch contract (capture/target/bubble/default, modal isolation, authority routing, diagnostics/test gates).
 - [graphshell_docs/implementation_strategy/aspect_command/radial_menu_geometry_and_overflow_spec.md](graphshell_docs/implementation_strategy/aspect_command/radial_menu_geometry_and_overflow_spec.md) - Canonical radial geometry/overflow/readability contract with deterministic ring assignment and CI test expectations.
