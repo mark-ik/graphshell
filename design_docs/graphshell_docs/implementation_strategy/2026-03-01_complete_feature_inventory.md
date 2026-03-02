@@ -114,7 +114,7 @@ Status codes:
 | Camera sync between canonical views | 📋 Planned | |
 | Last-focused pane restoration | ✅ Done | `workbench/pane_presentation_and_locking_spec.md`; `subsystem_focus/focus_and_region_navigation_spec.md` |
 | Pane-close successor focus handoff | ✅ Done | Regression test coverage; `workbench/pane_presentation_and_locking_spec.md` |
-| WorkbenchProfile (keybindings + layout policy + mouse map) | 📋 Planned | Default profiles: Standard, Laptop, Accessibility, Touch, Power User |
+| WorkbenchProfile (keybindings + layout policy + mouse map) | 📋 Planned | Generalized under `GraphshellProfile`; default profile + user-created profiles in `aspect_control/2026-03-02_graphshell_profile_registry_spec.md` |
 | Workflow = Lens × WorkbenchProfile | 📋 Planned | `WorkflowRegistry` (future) |
 | Semantic gap principle (explicit registry/domain boundaries) | ✅ Done | Architectural governance rule |
 
