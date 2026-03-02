@@ -61,8 +61,8 @@
 | Viewer fallback/degraded-state clarity | Current | Pre-renderer/WGPU required | Yellow | `viewer/viewer_presentation_and_fallback_spec.md` | Placeholder-state UX and diagnostics messaging still needs scenario hardening |
 | UxTree/UxProbe runtime contracts | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Core C1–C5 + probe contracts are canonical |
 | UxScenario/UxHarness deterministic UX testing | Current | Pre-renderer/WGPU required | Green | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | CI-required core scenarios already specified |
-| UX integration deliverables (D1-D5) | Planned | Pre-renderer/WGPU required | Yellow | UX integration research + canonical spec family | Deliverables tracked by `#292`-`#296`; closures must remain spec-linked and testable |
-| IA/predictability/discoverability closure bundle | Planned | Pre-renderer/WGPU required | Yellow | command/focus/workbench specs + UX research | Tracked by `#297`, `#299`, `#300`; required for deterministic cross-tree UX behavior |
+| UX integration deliverables (D1-D5) | Planned | Pre-renderer/WGPU required | Yellow | UX integration research + canonical spec family | D1 (`#292`) now has canonical artifact (`graphshell_docs/design/command_semantics_matrix.md`); D2-D5 remain tracked by `#293`-`#296` |
+| IA/predictability/discoverability closure bundle | Planned | Pre-renderer/WGPU required | Yellow | command/focus/workbench specs + UX research | `#300` deterministic focus/selection mapping is codified in focus spec; remaining closure tracked by `#297` and `#299` |
 | Accessibility closure bundle (beyond baseline) | Planned | Pre-renderer/WGPU required | Yellow | accessibility/focus/viewer specs + UX research | Tracked by `#298`, `#301`; includes reduced-motion and keyboard-trap hardening |
 | Canonical docs parity audit | Planned | Pre-renderer/WGPU required | Green | control-plane + coverage matrix + lifecycle register | Tracked by `#302`; keeps research/issues/specs synchronized |
 
@@ -106,6 +106,7 @@ observable, and contract-driven.
 - [ ] UxHarness critical-path evidence closure: `#251`, `#257`, `#273`.
 - [ ] UxTree authority trajectory gate closure: `#272`.
 - [ ] UX integration deliverables closure: `#292`, `#293`, `#294`, `#295`, `#296`.
+`#292` command semantics matrix canonical doc is now present at `graphshell_docs/design/command_semantics_matrix.md`; grouped checklist remains open until D2-D5 close.
 - [ ] IA/predictability/discoverability closure bundle: `#297`, `#299`, `#300`.
 - [ ] Accessibility closure bundle: `#298`, `#301`.
 - [ ] Canonical docs parity audit closure: `#302`.
@@ -127,6 +128,7 @@ observable, and contract-driven.
 | `subsystem_ux_semantics/ux_scenario_and_harness_spec.md` | `#251`, `#257`, `#273` | Critical-path UxHarness gate evidence |
 | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | `#272`, `#251`, `#257`, `#273` | UxTree authority trajectory and probe/harness closure |
 | `subsystem_focus/focus_and_region_navigation_spec.md` | `#140`, `#174`, `#187`, `#189`, `#103` | Focus-domain primary/support mapping from UX control-plane; represented in milestone domains, not as a separate checklist bullet |
+| `graphshell_docs/design/command_semantics_matrix.md` | `#292`, `#299` | D1 canonical action semantics matrix; IA scope clarity and future surface expansion remain linked to IA closure work |
 | UX integration research deliverables (`D1`-`D5`) | `#292`, `#293`, `#294`, `#295`, `#296` | Command semantics, interaction contract, surface behavior, accessibility baseline, telemetry plan |
 | Canonical docs parity | `#302` | Keep control-plane/matrix/lifecycle synchronized with research and issue state |
 

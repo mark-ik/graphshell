@@ -242,6 +242,75 @@ Graphshell has these primary navigable regions:
 - Focus order must be deterministic.
 - Screen-reader and keyboard users must be able to recover to a known region without pointer input.
 
+### 4.7 Deterministic Focus/Selection Interaction Contract
+
+This section is the canonical deterministic mapping used for predictability closure (`#300`) and deliverable D2 alignment.
+
+#### 4.7.1 Selection scope model
+
+- **Selection truth owner** is the active Graph View (`GraphViewId`) within the active Frame.
+- Workbench/global surfaces may inspect selection state but must not mutate selection without routing through Graph/Workbench authority intents.
+- Frame switches preserve runtime focus context (`active region`, `active pane`, `last focused control`) and per-view selection/camera as runtime memory for the target Frame.
+- Frame Snapshot persistence remains a storage concern; runtime focus/selection restoration is a focus-router concern and must be deterministic even when no persistence write occurs.
+
+#### 4.7.2 Focus ownership map
+
+| Region | Semantic owner | Local focus owner | Selection authority | Return-path anchor |
+|---|---|---|---|---|
+| Workbench Chrome | Focus router | Workbar/toolbar widgets | None | Active Frame root |
+| Active Graph Pane | Focus router | Graph canvas interaction target | Active `GraphViewId` | Last focused graph pane |
+| Node/Content Pane | Focus router | Viewer widget/webview local focus | Node-pane bound graph context | Parent tile slot |
+| Tool Pane | Focus router | Tool pane controls | Tool-defined (non-graph) | Previously active region |
+| Command Surface | Focus router | Palette/radial list cursor | Reads context; does not own selection truth | Captured return target |
+| Omnibar/Search Surface | Focus router | Text entry control | Reads selection context | Captured return target |
+| Modal/Blocking Surface | Focus router | Modal controls | None | Captured return target |
+
+#### 4.7.3 Deterministic handoff algorithms
+
+1. **Spawn/open**
+   - Resolve destination region from invocation source and payload.
+   - Store current region as return target.
+   - Set semantic owner to destination region.
+   - Set local focus to destination primary control.
+   - Emit focus-transition diagnostic event.
+
+2. **Close/dismiss**
+   - If explicit return target exists and is visible/valid, restore it.
+   - Else restore last valid visible region in this order: Active Graph Pane -> Node/Content Pane -> Workbench Chrome.
+   - Restore local focus token for that region if still valid, else fallback to region primary control.
+   - Emit restore diagnostic event.
+
+3. **Frame switch**
+   - Persist outgoing Frame runtime focus token (`region`, `pane`, `local control`) and active view selection/camera in runtime memory.
+   - Activate target Frame.
+   - Rehydrate target Frame runtime token if valid.
+   - If invalid/missing, default to target Frame primary graph region.
+   - Emit frame-switch focus event with fallback reason when applicable.
+
+4. **Modal capture enter/exit**
+   - Enter: push current semantic owner as capture return target and grant modal exclusive semantic focus.
+   - Exit: pop and validate capture return target; if invalid, use close/dismiss fallback order.
+
+#### 4.7.4 Input arbitration (pointer vs keyboard)
+
+- Keyboard commands target semantic owner region, not hovered pointer region.
+- Pointer hover may update local hover state only.
+- Pointer click may transfer semantic focus only when clicking an interactable in a focus-owning region.
+- If keyboard target and pointer hover disagree, semantic owner wins until explicit pointer activation.
+
+#### 4.7.5 Active-pane indicator contract
+
+- Exactly one pane region renders active-pane indicator at a time.
+- Indicator must be legible in all `TileRenderMode` affordance paths.
+- Indicator transitions occur in the same frame as semantic-owner change.
+- When command surfaces are open, command-surface focus indicator is primary and pane indicator is retained as contextual secondary state.
+
+#### 4.7.6 Failure handling
+
+- Unresolvable return target must emit diagnostics and fallback via deterministic order.
+- Focus traps are correctness violations and must be observable in UX probes/harness scenarios.
+- Any fallback that changes intended return target must include explicit reason metadata in diagnostics.
+
 ---
 
 ## 5. Planned Extensions

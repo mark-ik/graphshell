@@ -122,6 +122,7 @@ Project status source: [../README.md](../README.md)
 ### Graphshell Design
 
 - [graphshell_docs/design/KEYBINDINGS.md](graphshell_docs/design/KEYBINDINGS.md) - Keyboard interaction reference.
+- [graphshell_docs/design/command_semantics_matrix.md](graphshell_docs/design/command_semantics_matrix.md) - Canonical D1 command semantics matrix across keyboard, palette, radial, toolbar, and omnibar surfaces.
 
 ### Graphshell Testing
 
