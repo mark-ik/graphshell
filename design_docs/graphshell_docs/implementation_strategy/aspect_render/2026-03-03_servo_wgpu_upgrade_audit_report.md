@@ -39,7 +39,7 @@ All branches below live in the sibling fork repository `../servo-graphshell`.
 - `renderer-webrender-wgpu-27-post-upgrade`
   - reserved follow-on branch for WebRender renderer work after the `wgpu 27` audit is stable enough
 
-**Current active branch during this report revision**: `renderer-wgpu-27-upgrade-audit`
+**Current active branch during this report revision**: `renderer-webrender-wgpu-27-post-upgrade`
 
 ---
 
@@ -129,6 +129,53 @@ Meaning:
 - the first-order Servo WebGPU compatibility layer now compiles against `wgpu 27`
 - the direct `wgpu 27` fallout is real but so far manageable and localized
 
+### 4.5 Post-upgrade branch handoff created
+
+After the audit patch set was committed on `renderer-wgpu-27-upgrade-audit`, the same commit was
+carried forward into:
+
+- `renderer-webrender-wgpu-27-post-upgrade`
+
+Current post-upgrade branch base:
+
+- branch: `renderer-webrender-wgpu-27-post-upgrade`
+- head commit: `1f9acedd366` (`Audit Servo wgpu 27 compatibility`)
+
+This means the next renderer work does **not** need to replay the pure `wgpu 27` API audit.
+It can start directly from the already-upgraded Servo-side WebGPU baseline.
+
+### 4.6 Local WebRender patch path activated and verified
+
+On `renderer-webrender-wgpu-27-post-upgrade`, Servo's root manifest now routes the crates.io
+WebRender crates through a local sibling checkout:
+
+- `webrender = { path = "../webrender/webrender" }`
+- `webrender_api = { path = "../webrender/webrender_api" }`
+- `wr_malloc_size_of = { path = "../webrender/wr_malloc_size_of" }`
+
+This was activated in Servo's existing `[patch.crates-io]` section, not by adding a second
+duplicate patch table.
+
+The local editable checkout currently lives in:
+
+- `../webrender/webrender`
+- `../webrender/webrender_api`
+- `../webrender/wr_malloc_size_of`
+
+Verification command:
+
+```powershell
+cargo check --manifest-path components\shared\webgpu\Cargo.toml --message-format short
+```
+
+Observed confirmation:
+
+- Cargo now checks `webrender`, `webrender_api`, and `wr_malloc_size_of` from `../webrender`
+- the path override resolves cleanly on the post-upgrade branch
+
+This closes the "can Servo be pointed at a local editable WebRender checkout on the `wgpu 27`
+branch?" question enough to begin the actual renderer-side fork work.
+
 ---
 
 ## 5. What This Does And Does Not Prove
@@ -201,10 +248,11 @@ It is "WebRender renderer and compositor integration churn."
 
 ## 8. Recommended Next Steps
 
-1. Commit the current `renderer-wgpu-27-upgrade-audit` patch set in `../servo-graphshell`.
-2. Switch to `renderer-webrender-wgpu-27-post-upgrade`.
-3. Start the actual WebRender-side renderer patching there.
-4. Append new findings from that branch to this report under a new dated subsection instead of
+1. Start the first WebRender-side backend seam extraction on `renderer-webrender-wgpu-27-post-upgrade`
+   now that the local editable checkout is in the build graph.
+2. Focus the first renderer edits in WebRender's `device` / `renderer::init` boundary, where the
+   current GL-backed `Device::new(...)` path is constructed.
+3. Append new findings from that branch to this report under a new dated subsection instead of
    scattering notes across unrelated docs.
 
 ---
