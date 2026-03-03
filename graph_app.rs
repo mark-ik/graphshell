@@ -33,7 +33,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_NAVIGATION_TRANSITION,
 };
 use crate::util::{
-    GraphAddress, GraphshellAddress, GraphshellSettingsPath, NoteAddress, VersoViewTarget,
+    GraphAddress, GraphshellAddress, GraphshellSettingsPath, NodeAddress, NoteAddress,
+    VersoViewTarget,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
@@ -1003,6 +1004,9 @@ pub enum GraphIntent {
         url: String,
     },
     OpenGraphUrl {
+        url: String,
+    },
+    OpenNodeUrl {
         url: String,
     },
     OpenClipUrl {
@@ -2650,6 +2654,9 @@ impl GraphBrowserApp {
             }
             GraphIntent::OpenGraphUrl { url } => {
                 self.open_graph_url(&url);
+            }
+            GraphIntent::OpenNodeUrl { url } => {
+                self.open_node_url(&url);
             }
             GraphIntent::OpenClipUrl { url } => {
                 self.open_clip_url(&url);
@@ -4917,6 +4924,27 @@ impl GraphBrowserApp {
 
     pub fn resolve_graph_route(url: &str) -> Option<String> {
         GraphAddress::parse(url).map(|address| address.graph_id)
+    }
+
+    /// Open a `node://<NodeId>` URL.
+    ///
+    /// Node-domain routes should be intercepted in workbench orchestration before
+    /// reducer application.
+    pub fn open_node_url(&mut self, url: &str) {
+        let Some(node_id) = Self::resolve_node_route(url) else {
+            return;
+        };
+
+        log::warn!(
+            "OpenNodeUrl('{}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            node_id
+        );
+    }
+
+    pub fn resolve_node_route(url: &str) -> Option<Uuid> {
+        let address = NodeAddress::parse(url)?;
+        Uuid::parse_str(&address.node_id).ok()
     }
 
     pub fn resolve_clip_route(url: &str) -> Option<String> {
@@ -9974,6 +10002,14 @@ mod tests {
             Some("graph-main")
         );
         assert!(GraphBrowserApp::resolve_graph_route("graph://").is_none());
+    }
+
+    #[test]
+    fn resolve_node_route_accepts_node_scheme_with_uuid() {
+        let node_id = Uuid::new_v4();
+        let route = format!("node://{}", node_id);
+        assert_eq!(GraphBrowserApp::resolve_node_route(&route), Some(node_id));
+        assert!(GraphBrowserApp::resolve_node_route("node://not-a-uuid").is_none());
     }
 
     #[test]

@@ -20,7 +20,7 @@ use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::registries;
-use crate::util::{GraphAddress, GraphshellAddress};
+use crate::util::{GraphAddress, GraphshellAddress, NodeAddress, NoteAddress};
 #[cfg(any(test, not(feature = "diagnostics")))]
 use euclid::default::Point2D;
 
@@ -179,6 +179,18 @@ fn workbench_route_intent_for_graphshell_url(normalized_url: &str) -> Option<Gra
 fn route_intent_for_internal_or_domain_url(normalized_url: &str) -> Option<GraphIntent> {
     if let Some(intent) = workbench_route_intent_for_graphshell_url(normalized_url) {
         return Some(intent);
+    }
+
+    if let Some(address) = NoteAddress::parse(normalized_url) {
+        return Some(GraphIntent::OpenNoteUrl {
+            url: address.to_string(),
+        });
+    }
+
+    if let Some(address) = NodeAddress::parse(normalized_url) {
+        return Some(GraphIntent::OpenNodeUrl {
+            url: address.to_string(),
+        });
     }
 
     if let Some(address) = GraphAddress::parse(normalized_url) {
@@ -631,6 +643,28 @@ mod tests {
     }
 
     #[test]
+    fn route_intent_is_emitted_for_note_domain_url_with_canonicalization() {
+        let note_id = uuid::Uuid::new_v4().to_string();
+        let raw = format!("notes://{note_id}");
+        let intent = route_intent_for_internal_or_domain_url(raw.as_str());
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenNoteUrl { ref url }) if url == &raw
+        ));
+    }
+
+    #[test]
+    fn route_intent_is_emitted_for_node_domain_url_with_canonicalization() {
+        let node_id = uuid::Uuid::new_v4().to_string();
+        let raw = format!("node://{node_id}");
+        let intent = route_intent_for_internal_or_domain_url(raw.as_str());
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenNodeUrl { ref url }) if url == &raw
+        ));
+    }
+
+    #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_clip_url_with_canonicalization() {
         let intent = workbench_route_intent_for_graphshell_url("graphshell://clip/clip-123");
         assert!(matches!(
@@ -656,6 +690,26 @@ mod tests {
         assert!(matches!(
             intents.first(),
             Some(GraphIntent::OpenFrameUrl { url }) if url == "verso://frame/demo-frame"
+        ));
+    }
+
+    #[test]
+    fn graph_view_note_domain_submit_does_not_emit_graph_mutation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+        let note_url = format!("notes://{}", uuid::Uuid::new_v4());
+
+        let (open_selected_tile, intents) = intents_for_graph_view_address_submit(&app, &note_url);
+
+        assert!(!open_selected_tile);
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::OpenNoteUrl { url }) if url == &note_url
         ));
     }
 }

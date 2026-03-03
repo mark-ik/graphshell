@@ -918,6 +918,7 @@ fn ux_event_kind_for_intent(intent: &GraphIntent) -> UxEventKind {
         | GraphIntent::OpenToolUrl { .. }
         | GraphIntent::OpenViewUrl { .. }
         | GraphIntent::OpenGraphUrl { .. }
+        | GraphIntent::OpenNodeUrl { .. }
         | GraphIntent::OpenClipUrl { .. }
         | GraphIntent::SetPaneView { .. }
         | GraphIntent::SplitPane { .. }
@@ -938,6 +939,7 @@ fn ux_dispatch_path_for_intent(intent: &GraphIntent) -> UxDispatchPath {
         | GraphIntent::OpenToolUrl { .. }
         | GraphIntent::OpenViewUrl { .. }
         | GraphIntent::OpenGraphUrl { .. }
+        | GraphIntent::OpenNodeUrl { .. }
         | GraphIntent::OpenClipUrl { .. }
         | GraphIntent::SetPaneView { .. }
         | GraphIntent::SplitPane { .. }
@@ -977,6 +979,9 @@ enum WorkbenchAuthorityIntent {
     OpenGraphUrl {
         url: String,
     },
+    OpenNodeUrl {
+        url: String,
+    },
     OpenClipUrl {
         url: String,
     },
@@ -1014,6 +1019,7 @@ fn classify_workbench_authority_intent(
         GraphIntent::OpenToolUrl { url } => Ok(WorkbenchAuthorityIntent::OpenToolUrl { url }),
         GraphIntent::OpenViewUrl { url } => Ok(WorkbenchAuthorityIntent::OpenViewUrl { url }),
         GraphIntent::OpenGraphUrl { url } => Ok(WorkbenchAuthorityIntent::OpenGraphUrl { url }),
+        GraphIntent::OpenNodeUrl { url } => Ok(WorkbenchAuthorityIntent::OpenNodeUrl { url }),
         GraphIntent::OpenClipUrl { url } => Ok(WorkbenchAuthorityIntent::OpenClipUrl { url }),
         GraphIntent::OpenNodeInPane { node, pane } => {
             Ok(WorkbenchAuthorityIntent::OpenNodeInPane { node, pane })
@@ -1078,6 +1084,9 @@ fn dispatch_workbench_authority_intent(
         WorkbenchAuthorityIntent::OpenGraphUrl { url } => {
             dispatch_open_graph_url_workbench_intent(graph_app, tiles_tree, url)
         }
+        WorkbenchAuthorityIntent::OpenNodeUrl { url } => {
+            dispatch_open_node_url_workbench_intent(graph_app, tiles_tree, url)
+        }
         WorkbenchAuthorityIntent::OpenClipUrl { url } => {
             dispatch_open_clip_url_workbench_intent(graph_app, tiles_tree, url)
         }
@@ -1140,6 +1149,14 @@ fn dispatch_open_graph_url_workbench_intent(
     url: String,
 ) -> Option<GraphIntent> {
     handle_open_graph_url_intent(graph_app, tiles_tree, url)
+}
+
+fn dispatch_open_node_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_node_url_intent(graph_app, tiles_tree, url)
 }
 
 fn dispatch_open_clip_url_workbench_intent(
@@ -1389,6 +1406,30 @@ fn handle_open_graph_url_intent(
     }
 
     graph_app.request_restore_graph_snapshot_named(graph_id);
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+
+    None
+}
+
+fn handle_open_node_url_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    let Some(node_id) = GraphBrowserApp::resolve_node_route(&url) else {
+        return Some(GraphIntent::OpenNodeUrl { url });
+    };
+
+    let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(node_id) else {
+        return Some(GraphIntent::OpenNodeUrl { url });
+    };
+
+    crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+        tiles_tree, graph_app, node_key,
+    );
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,

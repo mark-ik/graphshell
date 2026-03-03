@@ -332,6 +332,55 @@ fn graph_url_intent_queues_named_graph_restore_when_snapshot_exists() {
 }
 
 #[test]
+fn node_url_intent_opens_node_pane_via_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node_key = app.add_node_and_sync(
+        "https://example.com/node".to_string(),
+        euclid::default::Point2D::new(16.0, 24.0),
+    );
+    let node_id = app
+        .workspace
+        .graph
+        .get_node(node_key)
+        .expect("node should exist")
+        .id;
+
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![GraphIntent::OpenNodeUrl {
+        url: crate::util::NodeAddress::node(node_id.to_string()).to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(active_node_key(&tree), Some(node_key));
+}
+
+#[test]
+fn invalid_node_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = "node://not-a-uuid".to_string();
+    let mut intents = vec![GraphIntent::OpenNodeUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenNodeUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenNodeUrl intent, got {other:?}"),
+    }
+}
+
+#[test]
 fn non_workbench_intent_is_preserved_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
