@@ -631,6 +631,30 @@ pub(crate) fn handle_pending_open_node_after_intents(
     }
 }
 
+pub(crate) fn handle_pending_open_note_after_intents(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+) {
+    let Some(note_id) = graph_app.take_pending_open_note_request() else {
+        return;
+    };
+
+    let linked_node = graph_app.note_record(note_id).and_then(|note| note.linked_node);
+    if let Some(node_key) = linked_node
+        && graph_app.workspace.graph.get_node(node_key).is_some()
+    {
+        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+            tiles_tree, graph_app, node_key,
+        );
+    }
+
+    open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::HistoryManager);
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+}
+
 fn take_pending_open_node_request_selection(
     graph_app: &mut GraphBrowserApp,
 ) -> Option<(NodeKey, TileOpenMode)> {
@@ -1655,6 +1679,7 @@ fn apply_semantic_intents_and_pending_open(
         open_node_tile_after_intents,
         frame_intents,
     );
+    handle_pending_open_note_after_intents(graph_app, tiles_tree);
 }
 
 fn open_pending_child_webview_nodes(

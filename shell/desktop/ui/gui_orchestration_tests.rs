@@ -399,6 +399,44 @@ fn unresolved_graph_url_intent_is_not_consumed_by_orchestration_authority() {
 }
 
 #[test]
+fn pending_note_open_request_is_consumed_by_orchestration_semantic_phase() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let node_key = app.add_node_and_sync(
+        "https://example.com/semantic-note".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let note_id = app
+        .create_note_for_node(node_key, Some("Semantic Note".to_string()))
+        .expect("note should be created");
+    let _ = app.take_pending_open_node_request();
+    let _ = app.take_pending_open_note_request();
+    app.request_open_note_by_id(note_id);
+
+    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree);
+
+    assert!(app.take_pending_open_note_request().is_none());
+    assert!(node_pane_count(&tree) >= 1);
+}
+
+#[test]
+fn pending_unknown_note_open_request_is_cleared_by_orchestration_semantic_phase() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    app.request_open_note_by_id(crate::app::NoteId::new());
+
+    gui_orchestration::handle_pending_open_note_after_intents(&mut app, &mut tree);
+
+    assert!(app.take_pending_open_note_request().is_none());
+}
+
+#[test]
 fn node_url_intent_opens_node_pane_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let node_key = app.add_node_and_sync(
