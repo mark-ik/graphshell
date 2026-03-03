@@ -424,6 +424,7 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 - `notes://<NoteId>` and `node://<NodeId>` are now emitted directly from address-bar domain routing; `notes` resolves into note-open queueing and `node` is intercepted by workbench authority.
 - `OpenNoteUrl` is now intercepted in workbench authority (with reducer-side leak warning parity to `OpenGraphUrl`/`OpenNodeUrl`/`OpenClipUrl`).
 - Pending note-open requests are now consumed in the semantic lifecycle (open linked node pane when available and focus History manager as an interim note surface path).
+- Graph-view address submission now has explicit non-mutation route parity for `verso://view/node/<NodeId>`, `verso://view/note/<NoteId>`, and `verso://view/graph/<GraphId>` (all emitted as workbench route intents).
 - `verso://clip/<id>` now routes through workbench authority to queue a clip-open request and focus the history-manager tool pane when resolvable.
 
 **Current practical blocker after Phase 4 docs**:

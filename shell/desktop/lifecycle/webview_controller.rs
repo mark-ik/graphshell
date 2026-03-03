@@ -773,4 +773,45 @@ mod tests {
             Some(GraphIntent::OpenViewUrl { url }) if url == &node_url
         ));
     }
+
+    #[test]
+    fn graph_view_note_view_route_submit_does_not_emit_graph_mutation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+        let note_url = format!("verso://view/note/{}", uuid::Uuid::new_v4());
+
+        let (open_selected_tile, intents) = intents_for_graph_view_address_submit(&app, &note_url);
+
+        assert!(!open_selected_tile);
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::OpenViewUrl { url }) if url == &note_url
+        ));
+    }
+
+    #[test]
+    fn graph_view_graph_view_route_submit_does_not_emit_graph_mutation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+        let graph_url = "verso://view/graph/graph-main".to_string();
+
+        let (open_selected_tile, intents) =
+            intents_for_graph_view_address_submit(&app, graph_url.as_str());
+
+        assert!(!open_selected_tile);
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::OpenViewUrl { url }) if url == &graph_url
+        ));
+    }
 }
