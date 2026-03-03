@@ -762,6 +762,66 @@ mod tests {
     }
 
     #[test]
+    fn graph_view_settings_route_submit_does_not_emit_graph_mutation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+
+        let (open_selected_tile, intents) =
+            intents_for_graph_view_address_submit(&app, "graphshell://settings/history");
+
+        assert!(!open_selected_tile);
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::OpenSettingsUrl { url }) if url == "verso://settings/history"
+        ));
+    }
+
+    #[test]
+    fn graph_view_tool_route_submit_does_not_emit_graph_mutation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+
+        let (open_selected_tile, intents) =
+            intents_for_graph_view_address_submit(&app, "graphshell://tool/history/2");
+
+        assert!(!open_selected_tile);
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::OpenToolUrl { url }) if url == "verso://tool/history/2"
+        ));
+    }
+
+    #[test]
+    fn graph_view_clip_route_submit_does_not_emit_graph_mutation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+
+        let (open_selected_tile, intents) =
+            intents_for_graph_view_address_submit(&app, "graphshell://clip/clip-123");
+
+        assert!(!open_selected_tile);
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::OpenClipUrl { url }) if url == "verso://clip/clip-123"
+        ));
+    }
+
+    #[test]
     fn graph_view_note_domain_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
