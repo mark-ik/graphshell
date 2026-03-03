@@ -319,18 +319,22 @@ fn open_node_url_is_not_reducer_owned() {
 }
 
 #[test]
-fn open_note_url_queues_existing_note_request() {
+fn open_note_url_is_not_reducer_owned() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
+    harness.app.select_node(node, false);
     let note_id = harness
         .app
         .create_note_for_node(node, Some("Routing note".to_string()))
         .expect("note should exist");
     let _ = harness.app.take_pending_open_note_request();
+    let node_count_before = harness.app.workspace.graph.node_count();
+    let note_url = NoteAddress::note(note_id.as_uuid().to_string()).to_string();
 
     harness.app.apply_intents([GraphIntent::OpenNoteUrl {
-        url: NoteAddress::note(note_id.as_uuid().to_string()).to_string(),
+        url: note_url.clone(),
     }]);
 
-    assert_eq!(harness.app.take_pending_open_note_request(), Some(note_id));
+    assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
+    assert!(harness.app.take_pending_open_note_request().is_none());
 }

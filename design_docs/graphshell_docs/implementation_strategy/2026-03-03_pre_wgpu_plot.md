@@ -422,6 +422,7 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 - Durable note scaffolding is landed in code (`notes://<NoteId>`, in-memory `NoteRecord`, note creation/open routing), but a real note pane/editor surface is still pending.
 - `graph://<GraphId>` and `node://<NodeId>` now participate in explicit route-intent handling (`graph` snapshot restore; `node` pane open/focus when resolvable).
 - `notes://<NoteId>` and `node://<NodeId>` are now emitted directly from address-bar domain routing; `notes` resolves into note-open queueing and `node` is intercepted by workbench authority.
+- `OpenNoteUrl` is now intercepted in workbench authority (with reducer-side leak warning parity to `OpenGraphUrl`/`OpenNodeUrl`/`OpenClipUrl`).
 - `verso://clip/<id>` now routes through workbench authority to queue a clip-open request and focus the history-manager tool pane when resolvable.
 
 **Current practical blocker after Phase 4 docs**:

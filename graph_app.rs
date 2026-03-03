@@ -4960,16 +4960,18 @@ impl GraphBrowserApp {
 
     /// Open a `notes://<NoteId>` URL.
     ///
-    /// Notes are durable content records; opening a note URL resolves the note identity
-    /// and queues a note-open request for a future note surface.
+    /// Note-domain routes should be intercepted in workbench orchestration before
+    /// reducer application.
     pub fn open_note_url(&mut self, url: &str) {
         let Some(note_id) = Self::resolve_note_route(url) else {
             return;
         };
 
-        if self.workspace.notes.contains_key(&note_id) {
-            self.workspace.pending_open_note_request = Some(note_id);
-        }
+        log::warn!(
+            "OpenNoteUrl('{:?}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            note_id
+        );
     }
 
     pub fn resolve_note_route(url: &str) -> Option<NoteId> {
@@ -5012,6 +5014,10 @@ impl GraphBrowserApp {
 
     pub fn take_pending_open_note_request(&mut self) -> Option<NoteId> {
         self.workspace.pending_open_note_request.take()
+    }
+
+    pub fn request_open_note_by_id(&mut self, note_id: NoteId) {
+        self.workspace.pending_open_note_request = Some(note_id);
     }
 
     pub fn take_pending_open_clip_request(&mut self) -> Option<String> {
@@ -6526,7 +6532,7 @@ mod tests {
     }
 
     #[test]
-    fn open_note_url_queues_existing_note() {
+    fn open_note_url_is_not_reducer_owned() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key =
             app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
@@ -6539,7 +6545,7 @@ mod tests {
         let note_url = NoteAddress::note(note_id.0.to_string()).to_string();
         app.open_note_url(&note_url);
 
-        assert_eq!(app.take_pending_open_note_request(), Some(note_id));
+        assert_eq!(app.take_pending_open_note_request(), None);
     }
 
     #[test]
@@ -6550,6 +6556,16 @@ mod tests {
         app.open_note_url(&note_url);
 
         assert_eq!(app.take_pending_open_note_request(), None);
+    }
+
+    #[test]
+    fn request_open_note_by_id_queues_note_open() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let note_id = NoteId::new();
+
+        app.request_open_note_by_id(note_id);
+
+        assert_eq!(app.take_pending_open_note_request(), Some(note_id));
     }
 
     #[test]

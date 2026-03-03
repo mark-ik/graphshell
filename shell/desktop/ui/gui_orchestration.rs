@@ -1444,7 +1444,7 @@ fn handle_open_note_url_intent(
         return Some(GraphIntent::OpenNoteUrl { url });
     }
 
-    graph_app.open_note_url(&url);
+    graph_app.request_open_note_by_id(note_id);
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
