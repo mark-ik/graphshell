@@ -359,3 +359,19 @@ fn open_graph_url_is_not_reducer_owned() {
             .is_none()
     );
 }
+
+#[test]
+fn open_view_url_is_not_reducer_owned() {
+    let mut harness = TestRegistry::new();
+    let node = harness.add_node("https://example.com");
+    harness.app.select_node(node, false);
+    let node_count_before = harness.app.workspace.graph.node_count();
+    let view_url = crate::util::GraphshellAddress::view_node(uuid::Uuid::new_v4().to_string())
+        .to_string();
+
+    harness.app.apply_intents([GraphIntent::OpenViewUrl { url: view_url }]);
+
+    assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
+    assert!(harness.app.take_pending_open_node_request().is_none());
+    assert!(harness.app.take_pending_open_note_request().is_none());
+}
