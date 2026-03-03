@@ -914,6 +914,11 @@ fn ux_event_kind_for_intent(intent: &GraphIntent) -> UxEventKind {
         GraphIntent::OpenToolPane { .. }
         | GraphIntent::CloseToolPane { .. }
         | GraphIntent::OpenSettingsUrl { .. }
+        | GraphIntent::OpenFrameUrl { .. }
+        | GraphIntent::OpenToolUrl { .. }
+        | GraphIntent::OpenViewUrl { .. }
+        | GraphIntent::OpenGraphUrl { .. }
+        | GraphIntent::OpenClipUrl { .. }
         | GraphIntent::SetPaneView { .. }
         | GraphIntent::SplitPane { .. }
         | GraphIntent::OpenNodeInPane { .. }
@@ -929,6 +934,11 @@ fn ux_dispatch_path_for_intent(intent: &GraphIntent) -> UxDispatchPath {
         GraphIntent::OpenToolPane { .. }
         | GraphIntent::CloseToolPane { .. }
         | GraphIntent::OpenSettingsUrl { .. }
+        | GraphIntent::OpenFrameUrl { .. }
+        | GraphIntent::OpenToolUrl { .. }
+        | GraphIntent::OpenViewUrl { .. }
+        | GraphIntent::OpenGraphUrl { .. }
+        | GraphIntent::OpenClipUrl { .. }
         | GraphIntent::SetPaneView { .. }
         | GraphIntent::SplitPane { .. }
         | GraphIntent::OpenNodeInPane { .. } => UX_DISPATCH_NODE_TOOL_SURFACE,
@@ -953,6 +963,21 @@ enum WorkbenchAuthorityIntent {
         restore_previous_focus: bool,
     },
     OpenSettingsUrl {
+        url: String,
+    },
+    OpenFrameUrl {
+        url: String,
+    },
+    OpenToolUrl {
+        url: String,
+    },
+    OpenViewUrl {
+        url: String,
+    },
+    OpenGraphUrl {
+        url: String,
+    },
+    OpenClipUrl {
         url: String,
     },
     OpenNodeInPane {
@@ -985,6 +1010,11 @@ fn classify_workbench_authority_intent(
         GraphIntent::OpenSettingsUrl { url } => {
             Ok(WorkbenchAuthorityIntent::OpenSettingsUrl { url })
         }
+        GraphIntent::OpenFrameUrl { url } => Ok(WorkbenchAuthorityIntent::OpenFrameUrl { url }),
+        GraphIntent::OpenToolUrl { url } => Ok(WorkbenchAuthorityIntent::OpenToolUrl { url }),
+        GraphIntent::OpenViewUrl { url } => Ok(WorkbenchAuthorityIntent::OpenViewUrl { url }),
+        GraphIntent::OpenGraphUrl { url } => Ok(WorkbenchAuthorityIntent::OpenGraphUrl { url }),
+        GraphIntent::OpenClipUrl { url } => Ok(WorkbenchAuthorityIntent::OpenClipUrl { url }),
         GraphIntent::OpenNodeInPane { node, pane } => {
             Ok(WorkbenchAuthorityIntent::OpenNodeInPane { node, pane })
         }
@@ -1036,6 +1066,21 @@ fn dispatch_workbench_authority_intent(
         WorkbenchAuthorityIntent::OpenSettingsUrl { url } => {
             dispatch_open_settings_url_workbench_intent(graph_app, tiles_tree, url)
         }
+        WorkbenchAuthorityIntent::OpenFrameUrl { url } => {
+            dispatch_open_frame_url_workbench_intent(graph_app, url)
+        }
+        WorkbenchAuthorityIntent::OpenToolUrl { url } => {
+            dispatch_open_tool_url_workbench_intent(graph_app, tiles_tree, url)
+        }
+        WorkbenchAuthorityIntent::OpenViewUrl { url } => {
+            dispatch_open_view_url_workbench_intent(graph_app, tiles_tree, url)
+        }
+        WorkbenchAuthorityIntent::OpenGraphUrl { url } => {
+            dispatch_open_graph_url_workbench_intent(graph_app, tiles_tree, url)
+        }
+        WorkbenchAuthorityIntent::OpenClipUrl { url } => {
+            dispatch_open_clip_url_workbench_intent(graph_app, tiles_tree, url)
+        }
         WorkbenchAuthorityIntent::OpenNodeInPane { node, pane } => {
             handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
             None
@@ -1064,6 +1109,45 @@ fn dispatch_open_settings_url_workbench_intent(
     url: String,
 ) -> Option<GraphIntent> {
     handle_open_settings_url_intent(graph_app, tiles_tree, url)
+}
+
+fn dispatch_open_frame_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_frame_url_intent(graph_app, url)
+}
+
+fn dispatch_open_tool_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_tool_url_intent(graph_app, tiles_tree, url)
+}
+
+fn dispatch_open_view_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_view_url_intent(graph_app, tiles_tree, url)
+}
+
+fn dispatch_open_graph_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_graph_url_intent(graph_app, tiles_tree, url)
+}
+
+fn dispatch_open_clip_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_clip_url_intent(graph_app, tiles_tree, url)
 }
 
 fn maybe_capture_tool_surface_return_target(
@@ -1195,6 +1279,140 @@ fn handle_open_settings_url_intent(
             latency_us: 0,
         });
     }
+
+    None
+}
+
+fn handle_open_frame_url_intent(
+    graph_app: &mut GraphBrowserApp,
+    url: String,
+) -> Option<GraphIntent> {
+    let Some(frame_name) = GraphBrowserApp::resolve_frame_route(&url) else {
+        return Some(GraphIntent::OpenFrameUrl { url });
+    };
+
+    graph_app.request_restore_frame_snapshot_named(frame_name);
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+
+    None
+}
+
+fn handle_open_tool_url_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    let Some(tool_kind) = GraphBrowserApp::resolve_tool_route(&url) else {
+        return Some(GraphIntent::OpenToolUrl { url });
+    };
+
+    if matches!(tool_kind, ToolPaneState::Settings | ToolPaneState::HistoryManager) {
+        maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
+    }
+    open_or_focus_tool_pane_if_available(tiles_tree, tool_kind);
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+
+    None
+}
+
+fn handle_open_view_url_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    let Some(route) = GraphBrowserApp::resolve_view_route(&url) else {
+        return Some(GraphIntent::OpenViewUrl { url });
+    };
+
+    match route {
+        crate::app::ViewRouteTarget::GraphPane(view_id) => {
+            crate::shell::desktop::workbench::tile_view_ops::open_or_focus_graph_pane(
+                tiles_tree, view_id,
+            );
+        }
+        crate::app::ViewRouteTarget::Graph(graph_id) => {
+            let has_snapshot = graph_app
+                .list_named_graph_snapshot_names()
+                .into_iter()
+                .any(|name| name == graph_id);
+            if !has_snapshot {
+                return Some(GraphIntent::OpenViewUrl { url });
+            }
+            graph_app.request_restore_graph_snapshot_named(graph_id);
+        }
+        crate::app::ViewRouteTarget::Note(note_id) => {
+            if graph_app.note_record(note_id).is_none() {
+                return Some(GraphIntent::OpenViewUrl { url });
+            }
+            graph_app.open_note_url(
+                &crate::util::NoteAddress::note(note_id.as_uuid().to_string()).to_string(),
+            );
+        }
+        crate::app::ViewRouteTarget::Node(node_id) => {
+            let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(node_id) else {
+                return Some(GraphIntent::OpenViewUrl { url });
+            };
+            crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+                tiles_tree, graph_app, node_key,
+            );
+        }
+    }
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+
+    None
+}
+
+fn handle_open_graph_url_intent(
+    graph_app: &mut GraphBrowserApp,
+    _tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    let Some(graph_id) = GraphBrowserApp::resolve_graph_route(&url) else {
+        return Some(GraphIntent::OpenGraphUrl { url });
+    };
+
+    let has_snapshot = graph_app
+        .list_named_graph_snapshot_names()
+        .into_iter()
+        .any(|name| name == graph_id);
+    if !has_snapshot {
+        return Some(GraphIntent::OpenGraphUrl { url });
+    }
+
+    graph_app.request_restore_graph_snapshot_named(graph_id);
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+
+    None
+}
+
+fn handle_open_clip_url_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    let Some(clip_id) = GraphBrowserApp::resolve_clip_route(&url) else {
+        return Some(GraphIntent::OpenClipUrl { url });
+    };
+
+    maybe_capture_tool_surface_return_target(graph_app, tiles_tree);
+    graph_app.request_open_clip_by_id(clip_id);
+    open_or_focus_tool_pane_if_available(tiles_tree, ToolPaneState::HistoryManager);
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
 
     None
 }

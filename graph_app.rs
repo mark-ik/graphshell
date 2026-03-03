@@ -32,7 +32,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED, CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_UX_NAVIGATION_TRANSITION,
 };
-use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+use crate::util::{
+    GraphAddress, GraphshellAddress, GraphshellSettingsPath, NoteAddress, VersoViewTarget,
+};
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
@@ -105,6 +107,26 @@ impl GraphViewId {
 }
 
 impl Default for GraphViewId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Durable identifier for a rich note document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct NoteId(Uuid);
+
+impl NoteId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for NoteId {
     fn default() -> Self {
         Self::new()
     }
@@ -394,6 +416,25 @@ impl GraphViewState {
     pub fn new(name: impl Into<String>) -> Self {
         Self::new_with_id(GraphViewId::new(), name)
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct NoteRecord {
+    pub id: NoteId,
+    pub title: String,
+    pub linked_node: Option<NodeKey>,
+    pub source_url: Option<String>,
+    pub body: String,
+    pub created_at: SystemTime,
+    pub updated_at: SystemTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ViewRouteTarget {
+    GraphPane(GraphViewId),
+    Graph(String),
+    Note(NoteId),
+    Node(Uuid),
 }
 
 /// Canonical node-selection state.
@@ -955,6 +996,25 @@ pub enum GraphIntent {
     OpenFrameUrl {
         url: String,
     },
+    OpenToolUrl {
+        url: String,
+    },
+    OpenViewUrl {
+        url: String,
+    },
+    OpenGraphUrl {
+        url: String,
+    },
+    OpenClipUrl {
+        url: String,
+    },
+    OpenNoteUrl {
+        url: String,
+    },
+    CreateNoteForNode {
+        key: NodeKey,
+        title: Option<String>,
+    },
     Undo,
     Redo,
     CreateNodeNearCenter,
@@ -1423,6 +1483,13 @@ pub struct GraphWorkspace {
     /// Pending clipboard copy request for node-derived values.
     pending_clipboard_copy: Option<ClipboardCopyRequest>,
 
+    /// Durable note documents keyed by note identity.
+    notes: HashMap<NoteId, NoteRecord>,
+    /// Pending UI command: open a specific note surface when available.
+    pending_open_note_request: Option<NoteId>,
+    /// Pending UI command: open/focus clip utility surface for a clip identifier.
+    pending_open_clip_request: Option<String>,
+
     /// Pending UI command: switch persistence data directory.
     pending_switch_data_dir: Option<PathBuf>,
 
@@ -1693,6 +1760,9 @@ impl GraphBrowserApp {
                 pending_prune_empty_workspaces: false,
                 pending_keep_latest_named_workspaces: None,
                 pending_clipboard_copy: None,
+                notes: HashMap::new(),
+                pending_open_note_request: None,
+                pending_open_clip_request: None,
                 pending_switch_data_dir: None,
                 pending_keyboard_zoom_request: None,
                 pending_camera_command: Some(PendingCameraCommand {
@@ -1891,6 +1961,9 @@ impl GraphBrowserApp {
                 pending_prune_empty_workspaces: false,
                 pending_keep_latest_named_workspaces: None,
                 pending_clipboard_copy: None,
+                notes: HashMap::new(),
+                pending_open_note_request: None,
+                pending_open_clip_request: None,
                 pending_switch_data_dir: None,
                 pending_keyboard_zoom_request: None,
                 pending_camera_command: Some(PendingCameraCommand {
@@ -2568,6 +2641,24 @@ impl GraphBrowserApp {
             }
             GraphIntent::OpenFrameUrl { url } => {
                 self.open_frame_url(&url);
+            }
+            GraphIntent::OpenToolUrl { url } => {
+                self.open_tool_url(&url);
+            }
+            GraphIntent::OpenViewUrl { url } => {
+                self.open_view_url(&url);
+            }
+            GraphIntent::OpenGraphUrl { url } => {
+                self.open_graph_url(&url);
+            }
+            GraphIntent::OpenClipUrl { url } => {
+                self.open_clip_url(&url);
+            }
+            GraphIntent::OpenNoteUrl { url } => {
+                self.open_note_url(&url);
+            }
+            GraphIntent::CreateNoteForNode { key, title } => {
+                let _ = self.create_note_for_node(key, title);
             }
             GraphIntent::RemoveSelectedNodes => self.remove_selected_nodes(),
             GraphIntent::ClearGraph => self.clear_graph(),
@@ -4330,6 +4421,8 @@ impl GraphBrowserApp {
         self.workspace.pending_add_exact_to_workspace = None;
         self.workspace.pending_prune_empty_workspaces = false;
         self.workspace.pending_keep_latest_named_workspaces = None;
+        self.workspace.pending_open_note_request = None;
+        self.workspace.pending_open_clip_request = None;
         self.workspace.pending_keyboard_zoom_request = None;
         self.workspace.pending_camera_command = Some(PendingCameraCommand {
             command: CameraCommand::Fit,
@@ -4341,6 +4434,7 @@ impl GraphBrowserApp {
         self.workspace.node_workspace_membership.clear();
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
+        self.workspace.notes.clear();
         self.set_workspace_focused_view_with_transition(None);
         self.workspace.current_workspace_is_synthesized = false;
         self.workspace.workspace_has_unsaved_changes = false;
@@ -4399,6 +4493,8 @@ impl GraphBrowserApp {
         self.workspace.pending_add_exact_to_workspace = None;
         self.workspace.pending_prune_empty_workspaces = false;
         self.workspace.pending_keep_latest_named_workspaces = None;
+        self.workspace.pending_open_note_request = None;
+        self.workspace.pending_open_clip_request = None;
         self.workspace.pending_keyboard_zoom_request = None;
         self.workspace.pending_camera_command = Some(PendingCameraCommand {
             command: CameraCommand::Fit,
@@ -4407,6 +4503,7 @@ impl GraphBrowserApp {
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.pending_wheel_zoom_target_view = None;
         self.workspace.pending_wheel_zoom_anchor_screen = None;
+        self.workspace.notes.clear();
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.set_workspace_focused_view_with_transition(None);
@@ -4632,7 +4729,7 @@ impl GraphBrowserApp {
         });
     }
 
-    /// Open a `graphshell://settings/*` URL.
+    /// Open a `verso://settings/*` URL.
     ///
     /// Settings routes are workbench-authority and should be intercepted before
     /// reducer application (`Gui::handle_tool_pane_intents`).
@@ -4681,7 +4778,7 @@ impl GraphBrowserApp {
         }
     }
 
-    /// Open a `graphshell://frame/<FrameId>` URL.
+    /// Open a `verso://frame/<FrameId>` URL.
     ///
     /// Frame routes are workbench-authority and should be intercepted before
     /// reducer application (`Gui::handle_tool_pane_intents`).
@@ -4706,6 +4803,195 @@ impl GraphBrowserApp {
             | GraphshellAddress::Clip(_)
             | GraphshellAddress::Other { .. } => None,
         }
+    }
+
+    /// Open a `verso://tool/<ToolName>` URL.
+    ///
+    /// Tool routes are workbench-authority and should be intercepted before
+    /// reducer application (`Gui::handle_tool_pane_intents`).
+    pub fn open_tool_url(&mut self, url: &str) {
+        let Some(tool_kind) = Self::resolve_tool_route(url) else {
+            return;
+        };
+
+        log::warn!(
+            "OpenToolUrl('{:?}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            tool_kind
+        );
+    }
+
+    pub fn resolve_tool_route(
+        url: &str,
+    ) -> Option<crate::shell::desktop::workbench::pane_model::ToolPaneState> {
+        match GraphshellAddress::parse(url)? {
+            GraphshellAddress::Tool { name, .. } => match name.as_str() {
+                "diagnostics" => Some(crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics),
+                "history" => Some(crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager),
+                "accessibility" => Some(
+                    crate::shell::desktop::workbench::pane_model::ToolPaneState::AccessibilityInspector,
+                ),
+                "settings" => Some(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings),
+                _ => None,
+            },
+            GraphshellAddress::Settings(_)
+            | GraphshellAddress::Frame(_)
+            | GraphshellAddress::View(_)
+            | GraphshellAddress::Clip(_)
+            | GraphshellAddress::Other { .. } => None,
+        }
+    }
+
+    /// Open a `verso://view/<kind>/<id>` URL.
+    ///
+    /// View routes are workbench-authority and should be intercepted before
+    /// reducer application (`Gui::handle_tool_pane_intents`).
+    pub fn open_view_url(&mut self, url: &str) {
+        let Some(route) = Self::resolve_view_route(url) else {
+            return;
+        };
+
+        log::warn!(
+            "OpenViewUrl('{:?}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            route
+        );
+    }
+
+    /// Open a `verso://clip/<ClipId>` URL.
+    ///
+    /// Clip routes are workbench-authority and should be intercepted before
+    /// reducer application (`Gui::handle_tool_pane_intents`).
+    pub fn open_clip_url(&mut self, url: &str) {
+        let Some(clip_id) = Self::resolve_clip_route(url) else {
+            return;
+        };
+
+        log::warn!(
+            "OpenClipUrl('{}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            clip_id
+        );
+    }
+
+    pub fn resolve_view_route(url: &str) -> Option<ViewRouteTarget> {
+        match GraphshellAddress::parse(url)? {
+            GraphshellAddress::View(VersoViewTarget::Legacy(view_id)) => {
+                let parsed = Uuid::parse_str(&view_id).ok()?;
+                Some(ViewRouteTarget::GraphPane(GraphViewId(parsed)))
+            }
+            GraphshellAddress::View(VersoViewTarget::Graph(graph_id)) => {
+                Some(ViewRouteTarget::Graph(graph_id))
+            }
+            GraphshellAddress::View(VersoViewTarget::Note(note_id)) => {
+                let parsed = Uuid::parse_str(&note_id).ok()?;
+                Some(ViewRouteTarget::Note(NoteId(parsed)))
+            }
+            GraphshellAddress::View(VersoViewTarget::Node(node_id)) => {
+                let parsed = Uuid::parse_str(&node_id).ok()?;
+                Some(ViewRouteTarget::Node(parsed))
+            }
+            GraphshellAddress::Settings(_)
+            | GraphshellAddress::Frame(_)
+            | GraphshellAddress::Tool { .. }
+            | GraphshellAddress::Clip(_)
+            | GraphshellAddress::Other { .. } => None,
+        }
+    }
+
+    /// Open a `graph://<GraphId>` URL.
+    ///
+    /// Graph-domain routes resolve durable graph records and are intercepted in
+    /// workbench orchestration before reducer application.
+    pub fn open_graph_url(&mut self, url: &str) {
+        let Some(graph_id) = Self::resolve_graph_route(url) else {
+            return;
+        };
+
+        log::warn!(
+            "OpenGraphUrl('{}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            graph_id
+        );
+    }
+
+    pub fn resolve_graph_route(url: &str) -> Option<String> {
+        GraphAddress::parse(url).map(|address| address.graph_id)
+    }
+
+    pub fn resolve_clip_route(url: &str) -> Option<String> {
+        match GraphshellAddress::parse(url)? {
+            GraphshellAddress::Clip(clip_id) => Some(clip_id),
+            GraphshellAddress::Settings(_)
+            | GraphshellAddress::Frame(_)
+            | GraphshellAddress::View(_)
+            | GraphshellAddress::Tool { .. }
+            | GraphshellAddress::Other { .. } => None,
+        }
+    }
+
+    /// Open a `notes://<NoteId>` URL.
+    ///
+    /// Notes are durable content records; opening a note URL resolves the note identity
+    /// and queues a note-open request for a future note surface.
+    pub fn open_note_url(&mut self, url: &str) {
+        let Some(note_id) = Self::resolve_note_route(url) else {
+            return;
+        };
+
+        if self.workspace.notes.contains_key(&note_id) {
+            self.workspace.pending_open_note_request = Some(note_id);
+        }
+    }
+
+    pub fn resolve_note_route(url: &str) -> Option<NoteId> {
+        let address = NoteAddress::parse(url)?;
+        let parsed = Uuid::parse_str(&address.note_id).ok()?;
+        Some(NoteId(parsed))
+    }
+
+    pub fn request_open_clip_by_id(&mut self, clip_id: impl Into<String>) {
+        self.workspace.pending_open_clip_request = Some(clip_id.into());
+    }
+
+    pub fn create_note_for_node(&mut self, key: NodeKey, title: Option<String>) -> Option<NoteId> {
+        let node = self.workspace.graph.get_node(key)?;
+        let now = SystemTime::now();
+        let note_id = NoteId::new();
+        let resolved_title = title.unwrap_or_else(|| {
+            let base = node.title.trim();
+            if base.is_empty() {
+                format!("Note for {}", node.url)
+            } else {
+                format!("Note for {base}")
+            }
+        });
+        let note = NoteRecord {
+            id: note_id,
+            title: resolved_title,
+            linked_node: Some(key),
+            source_url: Some(node.url.clone()),
+            body: String::new(),
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.workspace.notes.insert(note_id, note);
+        self.workspace.pending_open_note_request = Some(note_id);
+        self.request_open_node_tile_mode(key, PendingTileOpenMode::SplitHorizontal);
+        Some(note_id)
+    }
+
+    pub fn take_pending_open_note_request(&mut self) -> Option<NoteId> {
+        self.workspace.pending_open_note_request.take()
+    }
+
+    pub fn take_pending_open_clip_request(&mut self) -> Option<String> {
+        self.workspace.pending_open_clip_request.take()
+    }
+
+    pub fn note_record(&self, note_id: NoteId) -> Option<&NoteRecord> {
+        self.workspace.notes.get(&note_id)
     }
 
     pub fn set_pending_tool_surface_return_target(
@@ -6006,6 +6292,8 @@ impl GraphBrowserApp {
         self.workspace.pending_wheel_zoom_delta = 0.0;
         self.workspace.pending_wheel_zoom_target_view = None;
         self.workspace.pending_wheel_zoom_anchor_screen = None;
+        self.workspace.pending_open_note_request = None;
+        self.workspace.notes.clear();
         self.workspace.views.clear();
         self.workspace.graph_view_frames.clear();
         self.set_workspace_focused_view_with_transition(None);
@@ -6150,6 +6438,7 @@ impl Default for GraphBrowserApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::NoteAddress;
     use euclid::default::Point2D;
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -6174,6 +6463,65 @@ mod tests {
             static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
             RendererId(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
         }
+    }
+
+    #[test]
+    fn create_note_for_node_creates_record_and_queues_note_open() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://example.com/article".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        if let Some(node) = app.workspace.graph.get_node_mut(node_key) {
+            node.title = "Example Article".to_string();
+        }
+
+        let note_id = app
+            .create_note_for_node(node_key, None)
+            .expect("note should be created for an existing node");
+        let note = app.note_record(note_id).expect("note record should exist");
+
+        assert_eq!(note.title, "Note for Example Article");
+        assert_eq!(note.linked_node, Some(node_key));
+        assert_eq!(
+            note.source_url.as_deref(),
+            Some("https://example.com/article")
+        );
+        assert_eq!(app.take_pending_open_note_request(), Some(note_id));
+        assert_eq!(
+            app.take_pending_open_node_request(),
+            Some(PendingNodeOpenRequest {
+                key: node_key,
+                mode: PendingTileOpenMode::SplitHorizontal,
+            })
+        );
+    }
+
+    #[test]
+    fn open_note_url_queues_existing_note() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key =
+            app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+        let note_id = app
+            .create_note_for_node(node_key, Some("Research".to_string()))
+            .expect("note should be created");
+        let _ = app.take_pending_open_note_request();
+        let _ = app.take_pending_open_node_request();
+
+        let note_url = NoteAddress::note(note_id.0.to_string()).to_string();
+        app.open_note_url(&note_url);
+
+        assert_eq!(app.take_pending_open_note_request(), Some(note_id));
+    }
+
+    #[test]
+    fn open_note_url_ignores_unknown_note_id() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let note_url = NoteAddress::note(Uuid::new_v4().to_string()).to_string();
+
+        app.open_note_url(&note_url);
+
+        assert_eq!(app.take_pending_open_note_request(), None);
     }
 
     #[test]
@@ -9592,6 +9940,50 @@ mod tests {
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when edge highlight focus clears"
         );
+    }
+
+    #[test]
+    fn resolve_clip_route_accepts_both_canonical_and_legacy_internal_schemes() {
+        assert_eq!(
+            GraphBrowserApp::resolve_clip_route("verso://clip/clip-a").as_deref(),
+            Some("clip-a")
+        );
+        assert_eq!(
+            GraphBrowserApp::resolve_clip_route("graphshell://clip/clip-b").as_deref(),
+            Some("clip-b")
+        );
+        assert!(GraphBrowserApp::resolve_clip_route("verso://clip").is_none());
+    }
+
+    #[test]
+    fn pending_clip_request_queue_roundtrips_single_value() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.request_open_clip_by_id("clip-roundtrip");
+
+        assert_eq!(
+            app.take_pending_open_clip_request().as_deref(),
+            Some("clip-roundtrip")
+        );
+        assert!(app.take_pending_open_clip_request().is_none());
+    }
+
+    #[test]
+    fn resolve_graph_route_accepts_graph_scheme() {
+        assert_eq!(
+            GraphBrowserApp::resolve_graph_route("graph://graph-main").as_deref(),
+            Some("graph-main")
+        );
+        assert!(GraphBrowserApp::resolve_graph_route("graph://").is_none());
+    }
+
+    #[test]
+    fn resolve_view_route_accepts_graph_target_variant() {
+        let route = GraphBrowserApp::resolve_view_route("verso://view/graph/graph-main")
+            .expect("view graph route should parse");
+        assert!(matches!(
+            route,
+            ViewRouteTarget::Graph(graph_id) if graph_id == "graph-main"
+        ));
     }
 
     #[test]
