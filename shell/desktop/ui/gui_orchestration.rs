@@ -1384,9 +1384,7 @@ fn handle_open_view_url_intent(
             if graph_app.note_record(note_id).is_none() {
                 return Some(GraphIntent::OpenViewUrl { url });
             }
-            graph_app.open_note_url(
-                &crate::util::NoteAddress::note(note_id.as_uuid().to_string()).to_string(),
-            );
+            graph_app.request_open_note_by_id(note_id);
         }
         crate::app::ViewRouteTarget::Node(node_id) => {
             let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(node_id) else {
