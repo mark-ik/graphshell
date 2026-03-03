@@ -428,6 +428,7 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 - Graph-view address submission now also has explicit non-mutation parity for internal `settings`, `tool`, and `clip` routes (legacy `graphshell://...` canonicalized to `verso://...` intent emission).
 - Legacy `graphshell://view/node/<NodeId>` submissions now have explicit canonicalization parity (`verso://view/node/<NodeId>`) with non-mutation route-intent coverage.
 - Legacy `graphshell://view/note/<NoteId>` and `graphshell://view/graph/<GraphId>` now also have explicit canonicalization parity tests (`verso://view/note/...`, `verso://view/graph/...`).
+- Legacy `graphshell://view/<GraphViewId>` submissions now also have explicit canonicalization parity (`verso://view/<GraphViewId>`) with non-mutation route-intent coverage.
 - `OpenViewUrl` now has explicit reducer-boundary scenario coverage (`OpenViewUrl` remains workbench-authority and does not mutate graph state when reducer-applied).
 - `resolve_view_route(...)` parser coverage now explicitly includes node/note/graph target variants for canonical `verso://view/<kind>/<id>` routes.
 - Legacy `graphshell://frame/...` and `graphshell://tool/...` routes now have explicit canonicalization parity tests (`verso://frame/...`, `verso://tool/...`).

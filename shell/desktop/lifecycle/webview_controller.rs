@@ -702,6 +702,18 @@ mod tests {
     }
 
     #[test]
+    fn workbench_route_intent_canonicalizes_legacy_graphshell_view_uuid_url() {
+        let view_id = uuid::Uuid::new_v4();
+        let legacy_url = format!("graphshell://view/{view_id}");
+        let expected_url = format!("verso://view/{view_id}");
+        let intent = workbench_route_intent_for_graphshell_url(legacy_url.as_str());
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenViewUrl { ref url }) if url == &expected_url
+        ));
+    }
+
+    #[test]
     fn route_intent_is_emitted_for_graph_domain_url_with_canonicalization() {
         let intent = route_intent_for_internal_or_domain_url("graph://graph-main");
         assert!(matches!(
@@ -999,6 +1011,29 @@ mod tests {
         app.select_node(key, false);
         let legacy_url = "graphshell://view/graph/graph-main".to_string();
         let expected_url = "verso://view/graph/graph-main".to_string();
+
+        let (open_selected_tile, intents) =
+            intents_for_graph_view_address_submit(&app, legacy_url.as_str());
+
+        assert!(!open_selected_tile);
+        assert_eq!(intents.len(), 1);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::OpenViewUrl { url }) if url == &expected_url
+        ));
+    }
+
+    #[test]
+    fn graph_view_legacy_view_uuid_submit_does_not_emit_graph_mutation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
+        app.select_node(key, false);
+        let view_id = uuid::Uuid::new_v4();
+        let legacy_url = format!("graphshell://view/{view_id}");
+        let expected_url = format!("verso://view/{view_id}");
 
         let (open_selected_tile, intents) =
             intents_for_graph_view_address_submit(&app, legacy_url.as_str());
