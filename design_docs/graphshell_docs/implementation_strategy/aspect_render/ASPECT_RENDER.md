@@ -9,6 +9,7 @@
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../viewer/2026-02-26_composited_viewer_pass_contract.md`
 - `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
+- `2026-03-03_servo_wgpu_upgrade_audit_report.md`
 - `../2026-02-28_ux_contract_register.md`
 
 **Policy authority**: This file is the canonical policy authority for the Render aspect. Supporting render docs refine contracts/implementation detail and must defer policy authority to this file.
@@ -113,4 +114,3 @@ This spec is blocked on the `gui.rs` decomposition completing enough that GPU su
 lifecycle is owned by a discrete module (not the gui monolith). Until then, the
 surface lifecycle is co-located with frame orchestration and cannot be separately
 specified without creating a misleading boundary.
-

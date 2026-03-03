@@ -4,6 +4,7 @@
 **Status**: Implementation strategy
 **Author**: Arc
 **Source research**: `research/2026-03-01_webrender_wgpu_renderer_research.md`
+**Active audit log**: `2026-03-03_servo_wgpu_upgrade_audit_report.md`
 **Feeds into**:
 - `2026-03-01_webrender_readiness_gate_feature_guardrails.md` (readiness gates G1–G5)
 - `2026-03-01_backend_bridge_contract_c_plus_f_receipt.md` (C+F closure policy)
@@ -31,6 +32,11 @@ save/restore chaos mode and closing `#180`.
 **Current-state constraint**: Glow remains the active runtime composition policy for the
 current milestone. This plan runs as Track B (WebRender readiness) in parallel with
 Track A (milestone delivery on Glow), per the readiness gate contract.
+
+**Current audit note (2026-03-03)**: Servo-side `wgpu 26 -> 27` compatibility work is active
+in the sibling `servo-graphshell` fork. The direct `components/webgpu` compatibility pass now
+checks cleanly on the audit branch; follow-on WebRender renderer churn remains a separate
+post-audit branch concern. See `2026-03-03_servo_wgpu_upgrade_audit_report.md`.
 
 ---
 
