@@ -12,6 +12,7 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use egui_tiles::{Tile, Tiles, Tree};
 use servo::WebViewId;
+use tempfile::TempDir;
 
 fn active_graph_count(tree: &Tree<TileKind>) -> usize {
     tree.active_tiles()
@@ -66,7 +67,10 @@ fn settings_history_url_intent_is_consumed_by_orchestration_authority() {
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![GraphIntent::OpenSettingsUrl {
-        url: "graphshell://settings/history".to_string(),
+        url: crate::util::GraphshellAddress::settings(
+            crate::util::GraphshellSettingsPath::History,
+        )
+        .to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -81,7 +85,11 @@ fn unknown_settings_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
-    let unresolved_url = "graphshell://settings/not-a-real-route".to_string();
+    let unresolved_url =
+        crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::Other(
+            "not-a-real-route".to_string(),
+        ))
+        .to_string();
     let mut intents = vec![GraphIntent::OpenSettingsUrl {
         url: unresolved_url.clone(),
     }];
@@ -93,6 +101,234 @@ fn unknown_settings_url_intent_is_not_consumed_by_orchestration_authority() {
         GraphIntent::OpenSettingsUrl { url } => assert_eq!(url, &unresolved_url),
         other => panic!("expected unresolved OpenSettingsUrl intent, got {other:?}"),
     }
+}
+
+#[test]
+fn frame_url_intent_queues_frame_restore_via_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![GraphIntent::OpenFrameUrl {
+        url: crate::util::GraphshellAddress::frame("frame-123").to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(
+        app.take_pending_restore_frame_snapshot_named().as_deref(),
+        Some("frame-123")
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn tool_url_intent_opens_history_tool_via_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![GraphIntent::OpenToolUrl {
+        url: crate::util::GraphshellAddress::tool("history", Some(2)).to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
+}
+
+#[test]
+fn unknown_tool_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = crate::util::GraphshellAddress::tool("unknown-tool", None).to_string();
+    let mut intents = vec![GraphIntent::OpenToolUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenToolUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenToolUrl intent, got {other:?}"),
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn clip_url_intent_is_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![GraphIntent::OpenClipUrl {
+        url: crate::util::GraphshellAddress::clip("clip-42").to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(app.take_pending_open_clip_request().as_deref(), Some("clip-42"));
+    assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
+}
+
+#[test]
+fn invalid_clip_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = "verso://clip".to_string();
+    let mut intents = vec![GraphIntent::OpenClipUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenClipUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenClipUrl intent, got {other:?}"),
+    }
+}
+
+#[test]
+fn view_url_intent_opens_graph_view_via_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let route_uuid = uuid::Uuid::new_v4().to_string();
+    let view_url = crate::util::GraphshellAddress::view(route_uuid).to_string();
+    let expected_view = match GraphBrowserApp::resolve_view_route(&view_url)
+        .expect("view url should resolve")
+    {
+        crate::app::ViewRouteTarget::GraphPane(view_id) => view_id,
+        other => panic!("expected legacy graph-pane route, got {other:?}"),
+    };
+    let mut intents = vec![GraphIntent::OpenViewUrl { url: view_url }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(
+        crate::shell::desktop::workbench::tile_view_ops::active_graph_view_id(&tree),
+        Some(expected_view)
+    );
+}
+
+#[test]
+fn invalid_view_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = crate::util::GraphshellAddress::view("not-a-uuid").to_string();
+    let mut intents = vec![GraphIntent::OpenViewUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenViewUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenViewUrl intent, got {other:?}"),
+    }
+}
+
+#[test]
+fn note_view_url_intent_queues_note_open_via_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let node_key = app.add_node_and_sync(
+        "https://example.com/article".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let note_id = app
+        .create_note_for_node(node_key, Some("Article Note".to_string()))
+        .expect("note should be created");
+    let _ = app.take_pending_open_note_request();
+    let _ = app.take_pending_open_node_request();
+    let mut intents = vec![GraphIntent::OpenViewUrl {
+        url: crate::util::GraphshellAddress::view_note(note_id.as_uuid().to_string()).to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(app.take_pending_open_note_request(), Some(note_id));
+}
+
+#[test]
+fn graph_view_url_intent_queues_named_graph_restore_when_snapshot_exists() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+    app.add_node_and_sync(
+        "https://example.com/graph-seed".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    app.save_named_graph_snapshot("graph-main")
+        .expect("named graph snapshot should save");
+
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![GraphIntent::OpenViewUrl {
+        url: crate::util::GraphshellAddress::view_graph("graph-main").to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(
+        app.take_pending_restore_graph_snapshot_named().as_deref(),
+        Some("graph-main")
+    );
+}
+
+#[test]
+fn graph_url_intent_queues_named_graph_restore_when_snapshot_exists() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+    app.add_node_and_sync(
+        "https://example.com/graph-seed".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    app.save_named_graph_snapshot("graph-main")
+        .expect("named graph snapshot should save");
+
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![GraphIntent::OpenGraphUrl {
+        url: crate::util::GraphAddress::graph("graph-main").to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(
+        app.take_pending_restore_graph_snapshot_named().as_deref(),
+        Some("graph-main")
+    );
 }
 
 #[test]
@@ -121,7 +357,10 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
     let mut open_intents = vec![GraphIntent::OpenSettingsUrl {
-        url: "graphshell://settings/general".to_string(),
+        url: crate::util::GraphshellAddress::settings(
+            crate::util::GraphshellSettingsPath::General,
+        )
+        .to_string(),
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
     assert!(open_intents.is_empty());
@@ -475,7 +714,10 @@ fn open_settings_url_emits_ux_navigation_transition_channel() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     let mut intents = vec![GraphIntent::OpenSettingsUrl {
-        url: "graphshell://settings/history".to_string(),
+        url: crate::util::GraphshellAddress::settings(
+            crate::util::GraphshellSettingsPath::History,
+        )
+        .to_string(),
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
@@ -511,7 +753,10 @@ fn open_settings_url_already_focused_does_not_emit_ux_navigation_transition_chan
     );
 
     let mut intents = vec![GraphIntent::OpenSettingsUrl {
-        url: "graphshell://settings/general".to_string(),
+        url: crate::util::GraphshellAddress::settings(
+            crate::util::GraphshellSettingsPath::General,
+        )
+        .to_string(),
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
