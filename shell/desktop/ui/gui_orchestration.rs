@@ -918,6 +918,7 @@ fn ux_event_kind_for_intent(intent: &GraphIntent) -> UxEventKind {
         | GraphIntent::OpenToolUrl { .. }
         | GraphIntent::OpenViewUrl { .. }
         | GraphIntent::OpenGraphUrl { .. }
+        | GraphIntent::OpenNoteUrl { .. }
         | GraphIntent::OpenNodeUrl { .. }
         | GraphIntent::OpenClipUrl { .. }
         | GraphIntent::SetPaneView { .. }
@@ -939,6 +940,7 @@ fn ux_dispatch_path_for_intent(intent: &GraphIntent) -> UxDispatchPath {
         | GraphIntent::OpenToolUrl { .. }
         | GraphIntent::OpenViewUrl { .. }
         | GraphIntent::OpenGraphUrl { .. }
+        | GraphIntent::OpenNoteUrl { .. }
         | GraphIntent::OpenNodeUrl { .. }
         | GraphIntent::OpenClipUrl { .. }
         | GraphIntent::SetPaneView { .. }
@@ -977,6 +979,9 @@ enum WorkbenchAuthorityIntent {
         url: String,
     },
     OpenGraphUrl {
+        url: String,
+    },
+    OpenNoteUrl {
         url: String,
     },
     OpenNodeUrl {
@@ -1019,6 +1024,7 @@ fn classify_workbench_authority_intent(
         GraphIntent::OpenToolUrl { url } => Ok(WorkbenchAuthorityIntent::OpenToolUrl { url }),
         GraphIntent::OpenViewUrl { url } => Ok(WorkbenchAuthorityIntent::OpenViewUrl { url }),
         GraphIntent::OpenGraphUrl { url } => Ok(WorkbenchAuthorityIntent::OpenGraphUrl { url }),
+        GraphIntent::OpenNoteUrl { url } => Ok(WorkbenchAuthorityIntent::OpenNoteUrl { url }),
         GraphIntent::OpenNodeUrl { url } => Ok(WorkbenchAuthorityIntent::OpenNodeUrl { url }),
         GraphIntent::OpenClipUrl { url } => Ok(WorkbenchAuthorityIntent::OpenClipUrl { url }),
         GraphIntent::OpenNodeInPane { node, pane } => {
@@ -1083,6 +1089,9 @@ fn dispatch_workbench_authority_intent(
         }
         WorkbenchAuthorityIntent::OpenGraphUrl { url } => {
             dispatch_open_graph_url_workbench_intent(graph_app, tiles_tree, url)
+        }
+        WorkbenchAuthorityIntent::OpenNoteUrl { url } => {
+            dispatch_open_note_url_workbench_intent(graph_app, tiles_tree, url)
         }
         WorkbenchAuthorityIntent::OpenNodeUrl { url } => {
             dispatch_open_node_url_workbench_intent(graph_app, tiles_tree, url)
@@ -1149,6 +1158,14 @@ fn dispatch_open_graph_url_workbench_intent(
     url: String,
 ) -> Option<GraphIntent> {
     handle_open_graph_url_intent(graph_app, tiles_tree, url)
+}
+
+fn dispatch_open_note_url_workbench_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    handle_open_note_url_intent(graph_app, tiles_tree, url)
 }
 
 fn dispatch_open_node_url_workbench_intent(
@@ -1406,6 +1423,28 @@ fn handle_open_graph_url_intent(
     }
 
     graph_app.request_restore_graph_snapshot_named(graph_id);
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        latency_us: 0,
+    });
+
+    None
+}
+
+fn handle_open_note_url_intent(
+    graph_app: &mut GraphBrowserApp,
+    _tiles_tree: &mut Tree<TileKind>,
+    url: String,
+) -> Option<GraphIntent> {
+    let Some(note_id) = GraphBrowserApp::resolve_note_route(&url) else {
+        return Some(GraphIntent::OpenNoteUrl { url });
+    };
+
+    if graph_app.note_record(note_id).is_none() {
+        return Some(GraphIntent::OpenNoteUrl { url });
+    }
+
+    graph_app.open_note_url(&url);
     emit_event(DiagnosticEvent::MessageReceived {
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,

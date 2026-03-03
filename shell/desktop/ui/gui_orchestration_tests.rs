@@ -276,6 +276,52 @@ fn note_view_url_intent_queues_note_open_via_orchestration_authority() {
 }
 
 #[test]
+fn note_url_intent_queues_note_open_via_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let node_key = app.add_node_and_sync(
+        "https://example.com/note-url".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let note_id = app
+        .create_note_for_node(node_key, Some("Routed Note".to_string()))
+        .expect("note should be created");
+    let _ = app.take_pending_open_note_request();
+    let mut intents = vec![GraphIntent::OpenNoteUrl {
+        url: crate::util::NoteAddress::note(note_id.as_uuid().to_string()).to_string(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(app.take_pending_open_note_request(), Some(note_id));
+}
+
+#[test]
+fn invalid_note_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = "notes://not-a-uuid".to_string();
+    let mut intents = vec![GraphIntent::OpenNoteUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenNoteUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenNoteUrl intent, got {other:?}"),
+    }
+}
+
+#[test]
 fn graph_view_url_intent_queues_named_graph_restore_when_snapshot_exists() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
