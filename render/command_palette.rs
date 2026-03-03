@@ -18,6 +18,7 @@ use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionId, InputMode, list_actions_for_context,
 };
+use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -89,7 +90,8 @@ pub fn render_command_palette_panel(
 
     let pair_context = super::resolve_pair_command_context(app, hovered_node, focused_pane_node);
     let source_context = super::resolve_source_node_context(app, hovered_node, focused_pane_node);
-    let any_selected = !app.workspace.selected_nodes.is_empty();
+    let focused_selection = app.focused_selection().clone();
+    let any_selected = !focused_selection.is_empty();
     let graph_node_count = app.workspace.graph.node_count();
 
     let action_context = ActionContext {
@@ -205,7 +207,8 @@ pub(super) fn execute_action(
     intents: &mut Vec<GraphIntent>,
     focused_pane_node: Option<NodeKey>,
 ) {
-    let open_target = source_context.or_else(|| app.workspace.selected_nodes.primary());
+    let focused_selection = app.focused_selection().clone();
+    let open_target = source_context.or_else(|| focused_selection.primary());
 
     match action_id {
         ActionId::NodeNew => intents.push(GraphIntent::CreateNodeNearCenter),
@@ -213,7 +216,7 @@ pub(super) fn execute_action(
             mode: PendingTileOpenMode::Tab,
         }),
         ActionId::NodePinToggle => {
-            if app.workspace.selected_nodes.iter().copied().all(|key| {
+            if focused_selection.iter().copied().all(|key| {
                 app.workspace
                     .graph
                     .get_node(key)
@@ -330,7 +333,7 @@ pub(super) fn execute_action(
         ActionId::GraphFit => intents.push(GraphIntent::RequestFitToScreen),
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
         ActionId::GraphPhysicsConfig => intents.push(GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/physics".to_string(),
+            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
         }),
         ActionId::GraphCommandPalette => intents.push(GraphIntent::ToggleCommandPalette),
         ActionId::PersistUndo => intents.push(GraphIntent::Undo),

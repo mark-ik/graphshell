@@ -145,7 +145,7 @@ pub fn render_radial_command_menu(
 
     let pair_context = super::resolve_pair_command_context(app, hovered_node, focused_pane_node);
     let source_context = super::resolve_source_node_context(app, hovered_node, focused_pane_node);
-    let any_selected = !app.workspace.selected_nodes.is_empty();
+    let any_selected = !app.focused_selection().is_empty();
     let mut intents = Vec::new();
     let mut should_close = false;
 

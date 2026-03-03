@@ -198,13 +198,10 @@ impl<'a> GraphshellTileBehavior<'a> {
     fn accessibility_inspector_snapshot(
         graph_app: &GraphBrowserApp,
     ) -> AccessibilityInspectorSnapshot {
-        let selected_node_count = graph_app.workspace.selected_nodes.len();
+        let focused_selection = graph_app.focused_selection();
+        let selected_node_count = focused_selection.len();
         let total_nodes = graph_app.workspace.graph.node_count();
-        let selected_node = graph_app
-            .workspace
-            .selected_nodes
-            .primary()
-            .and_then(|node_key| {
+        let selected_node = focused_selection.primary().and_then(|node_key| {
                 let node = graph_app.workspace.graph.get_node(node_key)?;
                 let viewer_registry = crate::registries::atomic::viewer::ViewerRegistry::default();
                 let viewer_id = viewer_registry.select_for(node.mime_hint.as_deref(), node.address_kind);
@@ -587,7 +584,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 });
                         }
                         GraphAction::FocusNodeSplit(key) => {
-                            if let Some(primary) = self.graph_app.workspace.selected_nodes.primary()
+                            if let Some(primary) = self.graph_app.focused_selection().primary()
                                 && primary != key
                             {
                                 self.pending_graph_intents.push(

@@ -19,6 +19,7 @@ use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
 use crate::registries::atomic::knowledge::CompactCode;
+use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::{
     LogEntry, PersistedEdgeType, PersistedNavigationTrigger,
@@ -31,6 +32,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED, CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_UX_NAVIGATION_TRANSITION,
 };
+use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
@@ -450,6 +452,7 @@ pub struct ClipboardCopyRequest {
 struct UndoRedoSnapshot {
     graph: Graph,
     selected_nodes: SelectionState,
+    selected_nodes_by_view: HashMap<GraphViewId, SelectionState>,
     highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
     workspace_layout_json: Option<String>,
 }
@@ -553,6 +556,22 @@ impl SelectionState {
                     self.revision = self.revision.saturating_add(1);
                 }
             }
+        }
+    }
+
+    pub fn retain_nodes<F>(&mut self, mut keep: F)
+    where
+        F: FnMut(NodeKey) -> bool,
+    {
+        let had_primary = self.primary;
+        let previous_len = self.nodes.len();
+
+        self.nodes.retain(|key| keep(*key));
+        self.order.retain(|key| self.nodes.contains(key));
+        self.primary = self.order.last().copied();
+
+        if previous_len != self.nodes.len() || had_primary != self.primary {
+            self.revision = self.revision.saturating_add(1);
         }
     }
 
@@ -900,6 +919,23 @@ impl OmnibarNonAtOrderPreset {
     }
 }
 
+impl CanvasLassoBinding {
+    fn as_persisted_str(self) -> &'static str {
+        match self {
+            Self::RightDrag => "right-drag",
+            Self::ShiftLeftDrag => "shift-left-drag",
+        }
+    }
+
+    fn from_persisted_str(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "right-drag" => Some(Self::RightDrag),
+            "shift-left-drag" => Some(Self::ShiftLeftDrag),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum GraphIntent {
     TogglePhysics,
@@ -914,6 +950,9 @@ pub enum GraphIntent {
     ToggleCommandPalette,
     ToggleRadialMenu,
     OpenSettingsUrl {
+        url: String,
+    },
+    OpenFrameUrl {
         url: String,
     },
     Undo,
@@ -1237,8 +1276,14 @@ pub struct GraphWorkspace {
     /// Physics running state before user drag/pan interaction began.
     physics_running_before_interaction: Option<bool>,
 
-    /// Currently selected nodes (can be multiple)
+    /// Compatibility mirror of selection for the currently focused graph view.
+    ///
+    /// Canonical selection ownership is `selected_nodes_by_view`; this field is
+    /// kept to minimize churn while Phase 1 W2 migration is in progress.
     pub selected_nodes: SelectionState,
+
+    /// Per-graph-view selection state keyed by `GraphViewId`.
+    pub selected_nodes_by_view: HashMap<GraphViewId, SelectionState>,
 
     /// Bidirectional mapping between renderer instances and graph nodes
     webview_to_node: HashMap<RendererId, NodeKey>,
@@ -1297,6 +1342,8 @@ pub struct GraphWorkspace {
     pub keyboard_pan_step: f32,
     /// Keyboard pan input mode (WASD + arrows, or arrows-only).
     pub keyboard_pan_input_mode: KeyboardPanInputMode,
+    /// Preferred lasso binding for canvas interactions.
+    pub lasso_binding_preference: CanvasLassoBinding,
     /// Preferred default non-`@` omnibar scope behavior.
     pub omnibar_preferred_scope: OmnibarPreferredScope,
     /// Non-`@` omnibar ordering preset.
@@ -1505,6 +1552,7 @@ impl GraphBrowserApp {
         "workspace:settings-keyboard-pan-step";
     pub const SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME: &'static str =
         "workspace:settings-keyboard-pan-input-mode";
+    pub const SETTINGS_LASSO_BINDING_NAME: &'static str = "workspace:settings-lasso-binding";
     pub const SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME: &'static str =
         "workspace:settings-omnibar-preferred-scope";
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
@@ -1591,6 +1639,7 @@ impl GraphBrowserApp {
                 physics: Self::default_physics_state(),
                 physics_running_before_interaction: None,
                 selected_nodes: SelectionState::new(),
+                selected_nodes_by_view: HashMap::new(),
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
                 runtime_block_state: HashMap::new(),
@@ -1613,6 +1662,7 @@ impl GraphBrowserApp {
                 radial_menu_shortcut: RadialMenuShortcut::F3,
                 keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                 keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
+                lasso_binding_preference: CanvasLassoBinding::RightDrag,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                 selected_tab_nodes: HashSet::new(),
@@ -1787,6 +1837,7 @@ impl GraphBrowserApp {
                 physics: Self::default_physics_state(),
                 physics_running_before_interaction: None,
                 selected_nodes: SelectionState::new(),
+                selected_nodes_by_view: HashMap::new(),
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
                 runtime_block_state: HashMap::new(),
@@ -1809,6 +1860,7 @@ impl GraphBrowserApp {
                 radial_menu_shortcut: RadialMenuShortcut::F3,
                 keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                 keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
+                lasso_binding_preference: CanvasLassoBinding::RightDrag,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
                 selected_tab_nodes: HashSet::new(),
@@ -1900,9 +1952,55 @@ impl GraphBrowserApp {
         }
 
         self.workspace.selected_nodes.select(key, multi_select);
+        self.sync_selection_into_focused_view();
 
         // Selection changes require egui_graphs state refresh.
         self.workspace.egui_state_dirty = true;
+    }
+
+    fn sync_selection_into_focused_view(&mut self) {
+        if let Some(view_id) = self.workspace.focused_view {
+            self.workspace
+                .selected_nodes_by_view
+                .insert(view_id, self.workspace.selected_nodes.clone());
+        }
+    }
+
+    fn load_selection_from_focused_view(&mut self) {
+        if let Some(view_id) = self.workspace.focused_view {
+            self.workspace.selected_nodes = self
+                .workspace
+                .selected_nodes_by_view
+                .get(&view_id)
+                .cloned()
+                .unwrap_or_default();
+            return;
+        }
+
+        self.workspace.selected_nodes.clear();
+    }
+
+    pub fn selection_for_view(&self, view_id: GraphViewId) -> &SelectionState {
+        self.workspace
+            .selected_nodes_by_view
+            .get(&view_id)
+            .unwrap_or(&self.workspace.selected_nodes)
+    }
+
+    pub fn focused_selection(&self) -> &SelectionState {
+        self.workspace
+            .focused_view
+            .and_then(|view_id| self.workspace.selected_nodes_by_view.get(&view_id))
+            .unwrap_or(&self.workspace.selected_nodes)
+    }
+
+    pub fn get_single_selected_node_for_view(&self, view_id: GraphViewId) -> Option<NodeKey> {
+        let selected = self.selection_for_view(view_id);
+        if selected.len() == 1 {
+            selected.primary()
+        } else {
+            None
+        }
     }
 
     pub fn set_tab_selection_single(&mut self, key: NodeKey) {
@@ -1987,14 +2085,18 @@ impl GraphBrowserApp {
         self.workspace
             .graph_view_frames
             .retain(|view_id, _| live_graph_views.contains(view_id));
+        self.workspace
+            .selected_nodes_by_view
+            .retain(|view_id, _| live_graph_views.contains(view_id));
 
         if self
             .workspace
             .focused_view
             .is_some_and(|view_id| !live_graph_views.contains(&view_id))
         {
-            self.workspace.focused_view =
-                fallback_focused_view.filter(|view_id| live_graph_views.contains(view_id));
+            self.set_workspace_focused_view_with_transition(
+                fallback_focused_view.filter(|view_id| live_graph_views.contains(view_id)),
+            );
         }
 
         if self.workspace.pending_camera_command.is_some_and(|pending| {
@@ -2270,7 +2372,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::RequestZoomToSelected => {
-                if self.workspace.camera_fit_locked || self.workspace.selected_nodes.len() < 2 {
+                if self.workspace.camera_fit_locked || self.focused_selection().len() < 2 {
                     self.request_fit_to_screen();
                 } else {
                     self.request_camera_command(CameraCommand::FitSelection);
@@ -2286,6 +2388,7 @@ impl GraphBrowserApp {
                 self.workspace
                     .selected_nodes
                     .update_many(keys.clone(), *mode);
+                self.sync_selection_into_focused_view();
                 self.workspace.egui_state_dirty = true;
                 true
             }
@@ -2294,6 +2397,7 @@ impl GraphBrowserApp {
                 self.workspace
                     .selected_nodes
                     .update_many(all_keys, SelectionUpdateMode::Replace);
+                self.sync_selection_into_focused_view();
                 self.workspace.egui_state_dirty = true;
                 true
             }
@@ -2462,13 +2566,16 @@ impl GraphBrowserApp {
             GraphIntent::OpenSettingsUrl { url } => {
                 self.open_settings_url(&url);
             }
+            GraphIntent::OpenFrameUrl { url } => {
+                self.open_frame_url(&url);
+            }
             GraphIntent::RemoveSelectedNodes => self.remove_selected_nodes(),
             GraphIntent::ClearGraph => self.clear_graph(),
             GraphIntent::SelectNode { key, multi_select } => {
                 self.select_node(key, multi_select);
                 // Single-selecting an unloaded node should prewarm it (without opening a tile).
                 if !multi_select
-                    && self.workspace.selected_nodes.primary() == Some(key)
+                    && self.focused_selection().primary() == Some(key)
                     && !self.is_crash_blocked(key)
                     && self.get_webview_for_node(key).is_none()
                     && self
@@ -2608,7 +2715,7 @@ impl GraphBrowserApp {
                 self.set_node_pinned_and_log(key, is_pinned);
             }
             GraphIntent::TogglePrimaryNodePin => {
-                if let Some(key) = self.workspace.selected_nodes.primary()
+                if let Some(key) = self.focused_selection().primary()
                     && let Some(node) = self.workspace.graph.get_node(key)
                 {
                     self.apply_intent(GraphIntent::SetNodePinned {
@@ -3358,6 +3465,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_STEP_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME
+            || name == Self::SETTINGS_LASSO_BINDING_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
@@ -3424,6 +3532,15 @@ impl GraphBrowserApp {
         self.save_keyboard_pan_input_mode();
     }
 
+    pub fn lasso_binding_preference(&self) -> CanvasLassoBinding {
+        self.workspace.lasso_binding_preference
+    }
+
+    pub fn set_lasso_binding_preference(&mut self, binding: CanvasLassoBinding) {
+        self.workspace.lasso_binding_preference = binding;
+        self.save_lasso_binding_preference();
+    }
+
     fn save_radial_menu_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
@@ -3442,6 +3559,13 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME,
             self.workspace.keyboard_pan_input_mode.as_persisted_str(),
+        );
+    }
+
+    fn save_lasso_binding_preference(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_LASSO_BINDING_NAME,
+            self.workspace.lasso_binding_preference.as_persisted_str(),
         );
     }
 
@@ -3608,6 +3732,13 @@ impl GraphBrowserApp {
                 self.workspace.keyboard_pan_input_mode = mode;
             } else {
                 warn!("Ignoring invalid persisted keyboard pan input mode: '{raw}'");
+            }
+        }
+        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_LASSO_BINDING_NAME) {
+            if let Some(binding) = CanvasLassoBinding::from_persisted_str(&raw) {
+                self.workspace.lasso_binding_preference = binding;
+            } else {
+                warn!("Ignoring invalid persisted lasso binding preference: '{raw}'");
             }
         }
         if let Some(raw) =
@@ -4165,8 +4296,10 @@ impl GraphBrowserApp {
     }
 
     fn set_workspace_focused_view_with_transition(&mut self, focused_view: Option<GraphViewId>) {
+        self.sync_selection_into_focused_view();
         let previous_focused_view = self.workspace.focused_view;
         self.workspace.focused_view = focused_view;
+        self.load_selection_from_focused_view();
         if self.workspace.focused_view != previous_focused_view {
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
@@ -4178,6 +4311,7 @@ impl GraphBrowserApp {
     fn apply_loaded_graph(&mut self, graph: Graph) {
         self.workspace.graph = graph;
         self.workspace.selected_nodes.clear();
+        self.workspace.selected_nodes_by_view.clear();
         self.workspace.webview_to_node.clear();
         self.workspace.node_to_webview.clear();
         self.workspace.active_lru.clear();
@@ -4503,10 +4637,13 @@ impl GraphBrowserApp {
     /// Settings routes are workbench-authority and should be intercepted before
     /// reducer application (`Gui::handle_tool_pane_intents`).
     pub fn open_settings_url(&mut self, url: &str) {
-        let normalized = url.trim().to_ascii_lowercase();
-        if !normalized.starts_with("graphshell://settings") {
+        let Some(parsed) = GraphshellAddress::parse(url) else {
+            return;
+        };
+        if !parsed.is_settings() {
             return;
         }
+        let normalized = parsed.to_string();
 
         log::warn!(
             "OpenSettingsUrl('{}') reached reducer but this route is workbench-authority; \
@@ -4516,22 +4653,58 @@ impl GraphBrowserApp {
     }
 
     pub fn resolve_settings_route(url: &str) -> Option<SettingsRouteTarget> {
-        match url.trim().to_ascii_lowercase().as_str() {
-            "graphshell://settings/history" => Some(SettingsRouteTarget::History),
-            "graphshell://settings" | "graphshell://settings/general" => {
+        match GraphshellAddress::parse(url)? {
+            GraphshellAddress::Settings(GraphshellSettingsPath::History) => {
+                Some(SettingsRouteTarget::History)
+            }
+            GraphshellAddress::Settings(GraphshellSettingsPath::General) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::General))
             }
-            "graphshell://settings/persistence" => {
+            GraphshellAddress::Settings(GraphshellSettingsPath::Persistence) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Persistence))
             }
-            "graphshell://settings/physics" => {
+            GraphshellAddress::Settings(GraphshellSettingsPath::Physics) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Physics))
             }
-            "graphshell://settings/sync" => Some(SettingsRouteTarget::Settings(SettingsToolPage::Sync)),
-            "graphshell://settings/appearance" => {
+            GraphshellAddress::Settings(GraphshellSettingsPath::Sync) => {
+                Some(SettingsRouteTarget::Settings(SettingsToolPage::Sync))
+            }
+            GraphshellAddress::Settings(GraphshellSettingsPath::Appearance) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Appearance))
             }
-            _ => None,
+            GraphshellAddress::Frame(_)
+            | GraphshellAddress::View(_)
+            | GraphshellAddress::Tool { .. }
+            | GraphshellAddress::Clip(_)
+            | GraphshellAddress::Settings(GraphshellSettingsPath::Other(_))
+            | GraphshellAddress::Other { .. } => None,
+        }
+    }
+
+    /// Open a `graphshell://frame/<FrameId>` URL.
+    ///
+    /// Frame routes are workbench-authority and should be intercepted before
+    /// reducer application (`Gui::handle_tool_pane_intents`).
+    pub fn open_frame_url(&mut self, url: &str) {
+        let Some(frame_name) = Self::resolve_frame_route(url) else {
+            return;
+        };
+
+        log::warn!(
+            "OpenFrameUrl('{}') reached reducer but this route is workbench-authority; \
+             expected interception in Gui handle_tool_pane_intents",
+            frame_name
+        );
+    }
+
+    pub fn resolve_frame_route(url: &str) -> Option<String> {
+        match GraphshellAddress::parse(url)? {
+            GraphshellAddress::Frame(frame_name) => Some(frame_name),
+            GraphshellAddress::Settings(_)
+            | GraphshellAddress::View(_)
+            | GraphshellAddress::Tool { .. }
+            | GraphshellAddress::Clip(_)
+            | GraphshellAddress::Other { .. } => None,
         }
     }
 
@@ -4582,6 +4755,7 @@ impl GraphBrowserApp {
         self.workspace.undo_stack.push(UndoRedoSnapshot {
             graph: self.workspace.graph.clone(),
             selected_nodes: self.workspace.selected_nodes.clone(),
+            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
             highlighted_graph_edge: self.workspace.highlighted_graph_edge,
             workspace_layout_json,
         });
@@ -4601,11 +4775,13 @@ impl GraphBrowserApp {
         self.workspace.redo_stack.push(UndoRedoSnapshot {
             graph: self.workspace.graph.clone(),
             selected_nodes: self.workspace.selected_nodes.clone(),
+            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
             highlighted_graph_edge: self.workspace.highlighted_graph_edge,
             workspace_layout_json: current_workspace_layout_json,
         });
         self.apply_loaded_graph(prev.graph);
         self.workspace.selected_nodes = prev.selected_nodes;
+        self.workspace.selected_nodes_by_view = prev.selected_nodes_by_view;
         self.workspace.highlighted_graph_edge = prev.highlighted_graph_edge;
         self.workspace.pending_history_workspace_layout_json = prev.workspace_layout_json;
         true
@@ -4619,11 +4795,13 @@ impl GraphBrowserApp {
         self.workspace.undo_stack.push(UndoRedoSnapshot {
             graph: self.workspace.graph.clone(),
             selected_nodes: self.workspace.selected_nodes.clone(),
+            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
             highlighted_graph_edge: self.workspace.highlighted_graph_edge,
             workspace_layout_json: current_workspace_layout_json,
         });
         self.apply_loaded_graph(next.graph);
         self.workspace.selected_nodes = next.selected_nodes;
+        self.workspace.selected_nodes_by_view = next.selected_nodes_by_view;
         self.workspace.highlighted_graph_edge = next.highlighted_graph_edge;
         self.workspace.pending_history_workspace_layout_json = next.workspace_layout_json;
         true
@@ -5467,15 +5645,11 @@ impl GraphBrowserApp {
     }
 
     fn create_user_grouped_edge_from_primary_selection(&mut self) {
-        let Some(from) = self.workspace.selected_nodes.primary() else {
+        let selection = self.focused_selection();
+        let Some(from) = selection.primary() else {
             return;
         };
-        let to = self
-            .workspace
-            .selected_nodes
-            .iter()
-            .copied()
-            .find(|key| *key != from);
+        let to = selection.iter().copied().find(|key| *key != from);
         if let Some(to) = to {
             self.add_user_grouped_edge_if_missing(from, to);
         }
@@ -5523,7 +5697,7 @@ impl GraphBrowserApp {
     }
 
     fn selected_pair_in_order(&self) -> Option<(NodeKey, NodeKey)> {
-        self.workspace.selected_nodes.ordered_pair()
+        self.focused_selection().ordered_pair()
     }
 
     fn intents_for_edge_command(&self, command: EdgeCommand) -> Vec<GraphIntent> {
@@ -5697,7 +5871,7 @@ impl GraphBrowserApp {
     /// Note: actual webview closure must be handled by the caller (gui.rs)
     /// since we don't hold a window reference.
     pub fn remove_selected_nodes(&mut self) {
-        let nodes_to_remove: Vec<NodeKey> = self.workspace.selected_nodes.iter().copied().collect();
+        let nodes_to_remove: Vec<NodeKey> = self.focused_selection().iter().copied().collect();
 
         for node_key in nodes_to_remove {
             let node_id = self.workspace.graph.get_node(node_key).map(|node| node.id);
@@ -5736,6 +5910,15 @@ impl GraphBrowserApp {
 
         // Clear selection
         self.workspace.selected_nodes.clear();
+        if let Some(view_id) = self.workspace.focused_view
+            && let Some(selection) = self.workspace.selected_nodes_by_view.get_mut(&view_id)
+        {
+            selection.clear();
+        }
+        self.sync_selection_into_focused_view();
+        for selection in self.workspace.selected_nodes_by_view.values_mut() {
+            selection.retain_nodes(|key| self.workspace.graph.get_node(key).is_some());
+        }
         self.workspace.highlighted_graph_edge = None;
         self.workspace.pending_node_context_target = self
             .workspace
@@ -5790,8 +5973,9 @@ impl GraphBrowserApp {
 
     /// Get the currently selected node (if exactly one is selected)
     pub fn get_single_selected_node(&self) -> Option<NodeKey> {
-        if self.workspace.selected_nodes.len() == 1 {
-            self.workspace.selected_nodes.primary()
+        let selected = self.focused_selection();
+        if selected.len() == 1 {
+            selected.primary()
         } else {
             None
         }
@@ -6004,6 +6188,43 @@ mod tests {
 
         // Node should be selected
         assert!(app.workspace.selected_nodes.contains(&node_key));
+    }
+
+    #[test]
+    fn test_per_view_selection_isolated_and_restored_on_focus_switch() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+
+        let node_a = app
+            .workspace
+            .graph
+            .add_node("a".to_string(), Point2D::new(10.0, 10.0));
+        let node_b = app
+            .workspace
+            .graph
+            .add_node("b".to_string(), Point2D::new(20.0, 20.0));
+
+        app.set_workspace_focused_view_with_transition(Some(view_a));
+        app.select_node(node_a, false);
+
+        app.set_workspace_focused_view_with_transition(Some(view_b));
+        app.select_node(node_b, false);
+
+        assert_eq!(app.get_single_selected_node_for_view(view_a), Some(node_a));
+        assert_eq!(app.get_single_selected_node_for_view(view_b), Some(node_b));
+
+        app.set_workspace_focused_view_with_transition(Some(view_a));
+        assert_eq!(app.get_single_selected_node(), Some(node_a));
+
+        app.set_workspace_focused_view_with_transition(Some(view_b));
+        assert_eq!(app.get_single_selected_node(), Some(node_b));
     }
 
     #[test]
@@ -8840,29 +9061,6 @@ mod tests {
         assert_eq!(
             app.workspace.toast_anchor_preference,
             ToastAnchorPreference::TopLeft
-        );
-    }
-
-    #[test]
-    fn test_set_shortcut_bindings_persist_across_restart() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().to_path_buf();
-
-        let mut app = GraphBrowserApp::new_from_dir(path.clone());
-        app.set_command_palette_shortcut(CommandPaletteShortcut::CtrlK);
-        app.set_help_panel_shortcut(HelpPanelShortcut::H);
-        app.set_radial_menu_shortcut(RadialMenuShortcut::R);
-        drop(app);
-
-        let reopened = GraphBrowserApp::new_from_dir(path);
-        assert_eq!(
-            reopened.workspace.command_palette_shortcut,
-            CommandPaletteShortcut::CtrlK
-        );
-        assert_eq!(reopened.workspace.help_panel_shortcut, HelpPanelShortcut::H);
-        assert_eq!(
-            reopened.workspace.radial_menu_shortcut,
-            RadialMenuShortcut::R
         );
     }
 

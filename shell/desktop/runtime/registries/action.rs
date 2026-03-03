@@ -140,7 +140,7 @@ fn execute_graph_view_submit_action(
             new_url: input.to_string(),
         }]
     } else {
-        let position = new_node_position_for_context(app, app.workspace.selected_nodes.primary());
+        let position = new_node_position_for_context(app, app.focused_selection().primary());
         vec![GraphIntent::CreateNodeAtUrl {
             url: input.to_string(),
             position,
@@ -172,7 +172,7 @@ fn execute_detail_view_submit_action(
 
     vec![GraphIntent::CreateNodeAtUrl {
         url: normalized_url.clone(),
-        position: new_node_position_for_context(app, app.workspace.selected_nodes.primary()),
+        position: new_node_position_for_context(app, app.focused_selection().primary()),
     }]
 }
 

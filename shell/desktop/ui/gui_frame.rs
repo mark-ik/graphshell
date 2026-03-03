@@ -626,7 +626,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         keyboard_actions.toggle_view = false;
     }
     if keyboard_actions.delete_selected {
-        let nodes_to_close: Vec<_> = graph_app.workspace.selected_nodes.iter().copied().collect();
+        let nodes_to_close: Vec<_> = graph_app.focused_selection().iter().copied().collect();
         frame_intents.extend(webview_controller::close_webviews_for_nodes(
             graph_app,
             &nodes_to_close,

@@ -37,6 +37,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
     CHANNEL_UX_NAVIGATION_TRANSITION,
 };
+use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
@@ -206,6 +207,8 @@ pub fn render_graph_in_ui_collect_actions(
     search_display_mode: SearchDisplayMode,
     search_query_active: bool,
 ) -> Vec<GraphAction> {
+    let view_selection = app.selection_for_view(view_id).clone();
+
     // Ensure a GraphViewState exists for this pane so per-view camera, lens,
     // and layout mode can be stored independently.
     if !app.workspace.views.contains_key(&view_id) {
@@ -277,8 +280,8 @@ pub fn render_graph_in_ui_collect_actions(
             .collect();
         app.workspace.egui_state = Some(EguiGraphState::from_graph_with_memberships(
             graph_for_render,
-            &app.workspace.selected_nodes,
-            app.workspace.selected_nodes.primary(),
+            &view_selection,
+            view_selection.primary(),
             &crashed_nodes,
             &memberships_by_uuid,
         ));
@@ -287,6 +290,7 @@ pub fn render_graph_in_ui_collect_actions(
 
     apply_search_node_visuals(
         app,
+        &view_selection,
         search_matches,
         active_search_match,
         search_query_active,
@@ -388,7 +392,7 @@ pub fn render_graph_in_ui_collect_actions(
     }
     response.widget_info(|| {
         let mut info = egui::WidgetInfo::new(egui::WidgetType::Button);
-        info.label = Some(graph_canvas_accessibility_label(app));
+        info.label = Some(graph_canvas_accessibility_label(app, &view_selection));
         info
     });
 
@@ -423,7 +427,7 @@ pub fn render_graph_in_ui_collect_actions(
         app,
         !radial_open,
         metadata_id,
-        canvas_profile.interaction.lasso_binding,
+        app.lasso_binding_preference(),
     );
 
     if ui.input(|i| i.pointer.secondary_clicked())
@@ -513,6 +517,7 @@ pub fn render_graph_in_ui_collect_actions(
         ui,
         &response,
         app,
+        &view_selection,
         radial_open,
         lasso.action.is_some(),
     ) {
@@ -947,6 +952,7 @@ fn lifecycle_color(lifecycle: NodeLifecycle) -> Color32 {
 
 fn apply_search_node_visuals(
     app: &mut GraphBrowserApp,
+    selection: &crate::app::SelectionState,
     search_matches: &HashSet<NodeKey>,
     active_search_match: Option<NodeKey>,
     search_query_active: bool,
@@ -989,9 +995,9 @@ fn apply_search_node_visuals(
             {
                 color = Color32::from_rgb(80, 220, 255);
             }
-            if app.workspace.selected_nodes.primary() == Some(key) {
+            if selection.primary() == Some(key) {
                 color = Color32::from_rgb(255, 200, 100);
-            } else if app.workspace.selected_nodes.contains(&key) && hovered != Some(key) {
+            } else if selection.contains(&key) && hovered != Some(key) {
                 color = if app.is_crash_blocked(key) {
                     Color32::from_rgb(205, 112, 82)
                 } else {
@@ -1108,8 +1114,7 @@ fn handle_custom_navigation(
     let pointer_inside = response.contains_pointer() || response.dragged();
     let (primary_down, shift_down) = ui.input(|i| (i.pointer.primary_down(), i.modifiers.shift));
     let lasso_primary_drag_active =
-        matches!(canvas_profile.interaction.lasso_binding, CanvasLassoBinding::ShiftLeftDrag)
-            && shift_down;
+        matches!(app.lasso_binding_preference(), CanvasLassoBinding::ShiftLeftDrag) && shift_down;
 
     let wants_keyboard_input = ui.ctx().wants_keyboard_input();
     let keyboard_pan_allowed = keyboard_pan_allowed_for_view(app, view_id);
@@ -1488,7 +1493,7 @@ fn apply_pending_camera_command(
             }
 
             let bounds = if matches!(command, CameraCommand::FitSelection) {
-                node_bounds_for_selection(app)
+                node_bounds_for_selection(app, app.selection_for_view(view_id))
             } else {
                 node_bounds_for_all(app)
             };
@@ -1704,13 +1709,16 @@ fn node_bounds_for_all(app: &GraphBrowserApp) -> Option<(f32, f32, f32, f32)> {
     Some((min_x, max_x, min_y, max_y))
 }
 
-fn node_bounds_for_selection(app: &GraphBrowserApp) -> Option<(f32, f32, f32, f32)> {
+fn node_bounds_for_selection(
+    app: &GraphBrowserApp,
+    selection: &crate::app::SelectionState,
+) -> Option<(f32, f32, f32, f32)> {
     let mut min_x = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
     let mut min_y = f32::INFINITY;
     let mut max_y = f32::NEG_INFINITY;
 
-    for key in app.workspace.selected_nodes.iter().copied() {
+    for key in selection.iter().copied() {
         if let Some(node) = app.workspace.graph.get_node(key) {
             min_x = min_x.min(node.position.x);
             max_x = max_x.max(node.position.x);
@@ -1906,13 +1914,17 @@ fn node_key_traversal_order(app: &GraphBrowserApp) -> Vec<NodeKey> {
     keys
 }
 
-fn next_keyboard_traversal_node(app: &GraphBrowserApp, reverse: bool) -> Option<NodeKey> {
+fn next_keyboard_traversal_node(
+    app: &GraphBrowserApp,
+    selection: &crate::app::SelectionState,
+    reverse: bool,
+) -> Option<NodeKey> {
     let ordered_keys = node_key_traversal_order(app);
     if ordered_keys.is_empty() {
         return None;
     }
 
-    let current = app.workspace.selected_nodes.primary();
+    let current = selection.primary();
     let len = ordered_keys.len();
     let next_index = current
         .and_then(|key| ordered_keys.iter().position(|candidate| *candidate == key))
@@ -1932,6 +1944,7 @@ fn collect_graph_keyboard_traversal_action(
     ui: &Ui,
     response: &egui::Response,
     app: &GraphBrowserApp,
+    selection: &crate::app::SelectionState,
     radial_open: bool,
     lasso_active: bool,
 ) -> Option<GraphAction> {
@@ -1951,7 +1964,7 @@ fn collect_graph_keyboard_traversal_action(
     }
 
     let reverse = cycle_backward;
-    let key = next_keyboard_traversal_node(app, reverse)?;
+    let key = next_keyboard_traversal_node(app, selection, reverse)?;
     Some(GraphAction::SelectNode {
         key,
         multi_select: false,
@@ -1968,8 +1981,11 @@ fn graph_node_accessibility_name(node: &crate::graph::Node) -> String {
     }
 }
 
-fn graph_canvas_accessibility_label(app: &GraphBrowserApp) -> String {
-    if let Some(primary) = app.workspace.selected_nodes.primary()
+fn graph_canvas_accessibility_label(
+    app: &GraphBrowserApp,
+    selection: &crate::app::SelectionState,
+) -> String {
+    if let Some(primary) = selection.primary()
         && let Some(node) = app.workspace.graph.get_node(primary)
     {
         return format!(
@@ -2184,10 +2200,11 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     // Detect group drag: during active interaction with 2+ selected nodes, find
     // the node whose egui_graphs position diverged from app.workspace.graph this frame.
     // This is the node the user is physically dragging.
+    let focused_selection = app.focused_selection().clone();
     let group_drag_delta: Option<(NodeKey, egui::Vec2)> =
-        if app.workspace.is_interacting && app.workspace.selected_nodes.len() > 1 {
+        if app.workspace.is_interacting && focused_selection.len() > 1 {
             layout_positions.iter().find_map(|(key, egui_pos)| {
-                if !app.workspace.selected_nodes.contains(key) {
+                if !focused_selection.contains(key) {
                     return None;
                 }
                 let app_pos = app.workspace.graph.get_node(*key)?.position;
@@ -2216,9 +2233,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
 
     // Propagate the drag delta to secondary selected nodes.
     if let Some((dragged_key, delta)) = group_drag_delta {
-        let secondary_keys: Vec<NodeKey> = app
-            .workspace
-            .selected_nodes
+        let secondary_keys: Vec<NodeKey> = focused_selection
             .iter()
             .filter(|&&k| k != dragged_key)
             .copied()
@@ -2380,14 +2395,7 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     );
 
     // Draw controls hint
-    let layout_domain = LayoutDomainRegistry::default();
-    let layout_profile = layout_domain.resolve_profile(
-        CANVAS_PROFILE_DEFAULT,
-        WORKBENCH_SURFACE_DEFAULT,
-        VIEWER_SURFACE_DEFAULT,
-    );
-    let lasso_hint =
-        canvas_lasso_binding_label(layout_profile.canvas.profile.interaction.lasso_binding);
+    let lasso_hint = canvas_lasso_binding_label(app.lasso_binding_preference());
     let command_hint = match app.workspace.command_palette_shortcut {
         crate::app::CommandPaletteShortcut::F2 => "F2 Commands",
         crate::app::CommandPaletteShortcut::CtrlK => "Ctrl+K Commands",
@@ -2514,13 +2522,6 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
         return;
     }
 
-    let layout_domain = LayoutDomainRegistry::default();
-    let layout_profile = layout_domain.resolve_profile(
-        CANVAS_PROFILE_DEFAULT,
-        WORKBENCH_SURFACE_DEFAULT,
-        VIEWER_SURFACE_DEFAULT,
-    );
-
     let mut open = app.workspace.show_help_panel;
     Window::new("Keyboard Shortcuts")
         .open(&mut open)
@@ -2535,7 +2536,7 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                         .num_columns(2)
                         .spacing([20.0, 6.0])
                         .show(ui, |ui| {
-                            let lasso_binding = layout_profile.canvas.profile.interaction.lasso_binding;
+                            let lasso_binding = app.lasso_binding_preference();
                             let lasso_base = match lasso_binding {
                                 CanvasLassoBinding::RightDrag => "Right+Drag",
                                 CanvasLassoBinding::ShiftLeftDrag => "Shift+LeftDrag",
@@ -2625,7 +2626,7 @@ pub fn render_history_manager_in_ui(
     ui.horizontal(|ui| {
         if ui.button("Settings").clicked() {
             intents.push(GraphIntent::OpenSettingsUrl {
-                url: "graphshell://settings/general".to_string(),
+                url: GraphshellAddress::settings(GraphshellSettingsPath::General).to_string(),
             });
         }
         if ui.button("Done").clicked() {
@@ -2702,7 +2703,8 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
             ui.horizontal(|ui| {
                 if ui.button("History").clicked() {
                     intents.push(GraphIntent::OpenSettingsUrl {
-                        url: "graphshell://settings/history".to_string(),
+                        url: GraphshellAddress::settings(GraphshellSettingsPath::History)
+                            .to_string(),
                     });
                 }
                 if ui.button("Done").clicked() {
@@ -2751,7 +2753,8 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
             ui.add_space(8.0);
             if ui.button("Open History Surface").clicked() {
                 intents.push(GraphIntent::OpenSettingsUrl {
-                    url: "graphshell://settings/history".to_string(),
+                    url: GraphshellAddress::settings(GraphshellSettingsPath::History)
+                        .to_string(),
                 });
             }
         }
@@ -2899,6 +2902,20 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                 ui.radio_value(&mut mode, KeyboardPanInputMode::ArrowsOnly, "Arrows only");
                 if mode != app.keyboard_pan_input_mode() {
                     app.set_keyboard_pan_input_mode(mode);
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Lasso binding");
+                let mut binding = app.lasso_binding_preference();
+                ui.radio_value(&mut binding, CanvasLassoBinding::RightDrag, "Right Drag");
+                ui.radio_value(
+                    &mut binding,
+                    CanvasLassoBinding::ShiftLeftDrag,
+                    "Shift + Left Drag",
+                );
+                if binding != app.lasso_binding_preference() {
+                    app.set_lasso_binding_preference(binding);
                 }
             });
         }
@@ -3444,10 +3461,11 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
                 app.request_add_node_to_frame(target, name);
             }
             ChooseFramePickerMode::AddConnectedSelectionToFrame => {
-                let mut seed_nodes: Vec<NodeKey> = if app.workspace.selected_nodes.is_empty() {
+                let focused_selection = app.focused_selection();
+                let mut seed_nodes: Vec<NodeKey> = if focused_selection.is_empty() {
                     vec![target]
                 } else {
-                    app.workspace.selected_nodes.iter().copied().collect()
+                    focused_selection.iter().copied().collect()
                 };
                 if !seed_nodes.contains(&target) {
                     seed_nodes.push(target);
@@ -3528,12 +3546,14 @@ fn resolve_pair_command_context(
     hovered_node: Option<NodeKey>,
     focused_pane_node: Option<NodeKey>,
 ) -> Option<(NodeKey, NodeKey)> {
-    if let Some((from, to)) = app.workspace.selected_nodes.ordered_pair() {
+    let selection = app.focused_selection();
+
+    if let Some((from, to)) = selection.ordered_pair() {
         return Some((from, to));
     }
 
-    if app.workspace.selected_nodes.len() == 1 {
-        let from = app.workspace.selected_nodes.primary()?;
+    if selection.len() == 1 {
+        let from = selection.primary()?;
         if let Some(to) = app.pending_node_context_target().filter(|to| *to != from) {
             return Some((from, to));
         }
@@ -3554,7 +3574,7 @@ fn resolve_source_node_context(
     focused_pane_node: Option<NodeKey>,
 ) -> Option<NodeKey> {
     app.pending_node_context_target()
-        .or(app.workspace.selected_nodes.primary())
+        .or(app.focused_selection().primary())
         .or(hovered_node)
         .or(focused_pane_node)
 }
@@ -3847,13 +3867,22 @@ mod tests {
         let k1 = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
         let k2 = app.add_node_and_sync("c".into(), Point2D::new(20.0, 0.0));
 
-        assert_eq!(next_keyboard_traversal_node(&app, false), Some(k0));
+        assert_eq!(
+            next_keyboard_traversal_node(&app, &app.workspace.selected_nodes, false),
+            Some(k0)
+        );
 
         app.select_node(k0, false);
-        assert_eq!(next_keyboard_traversal_node(&app, false), Some(k1));
+        assert_eq!(
+            next_keyboard_traversal_node(&app, &app.workspace.selected_nodes, false),
+            Some(k1)
+        );
 
         app.select_node(k2, false);
-        assert_eq!(next_keyboard_traversal_node(&app, false), Some(k0));
+        assert_eq!(
+            next_keyboard_traversal_node(&app, &app.workspace.selected_nodes, false),
+            Some(k0)
+        );
     }
 
     #[test]
@@ -3862,7 +3891,10 @@ mod tests {
         app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
         let k1 = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
 
-        assert_eq!(next_keyboard_traversal_node(&app, true), Some(k1));
+        assert_eq!(
+            next_keyboard_traversal_node(&app, &app.workspace.selected_nodes, true),
+            Some(k1)
+        );
     }
 
     #[test]
@@ -3874,7 +3906,7 @@ mod tests {
         }
         app.select_node(key, false);
 
-        let label = graph_canvas_accessibility_label(&app);
+        let label = graph_canvas_accessibility_label(&app, &app.workspace.selected_nodes);
         assert!(label.contains("Focused node: Example title"));
         assert!(label.contains("Tab"));
     }
@@ -4170,6 +4202,12 @@ mod tests {
     #[test]
     fn test_multiple_actions_sequence() {
         let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new_with_id(view_id, "Focused"),
+        );
+        app.workspace.focused_view = Some(view_id);
         let k1 = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
         let k2 = app.add_node_and_sync("b".into(), Point2D::new(100.0, 100.0));
 
@@ -4188,7 +4226,7 @@ mod tests {
             app.workspace.graph.get_node(k2).unwrap().position,
             Point2D::new(200.0, 300.0)
         );
-        assert!((app.workspace.camera.current_zoom - 1.5).abs() < 0.01);
+        assert!((app.workspace.views[&view_id].camera.current_zoom - 1.5).abs() < 0.01);
     }
 
     #[test]
@@ -4335,7 +4373,8 @@ mod tests {
             &HashSet::new(),
         ));
         let matches = HashSet::from([a]);
-        apply_search_node_visuals(&mut app, &matches, Some(a), true);
+        let selection = app.workspace.selected_nodes.clone();
+        apply_search_node_visuals(&mut app, &selection, &matches, Some(a), true);
 
         let state = app.workspace.egui_state.as_ref().unwrap();
         assert!(state.graph.node(a).is_some());

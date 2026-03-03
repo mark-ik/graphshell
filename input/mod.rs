@@ -11,6 +11,7 @@ use crate::app::{
     CommandPaletteShortcut, EdgeCommand, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
     RadialMenuShortcut,
 };
+use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::Key;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 
@@ -276,7 +277,7 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     }
     if actions.open_physics_settings {
         intents.push(GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/physics".to_string(),
+            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
         });
     }
     if actions.toggle_history_manager {
@@ -402,6 +403,12 @@ mod tests {
     #[test]
     fn test_fit_to_screen_action() {
         let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new_with_id(view_id, "Focused"),
+        );
+        app.workspace.focused_view = Some(view_id);
         assert!(app.pending_camera_command().is_some());
         app.clear_pending_camera_command();
 
@@ -492,7 +499,8 @@ mod tests {
             matches!(
                 i,
                 GraphIntent::OpenSettingsUrl { url }
-                    if url == "graphshell://settings/physics"
+                    if url
+                        == &GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string()
             )
         }));
     }

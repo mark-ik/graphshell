@@ -176,7 +176,7 @@ fn connected_nodes_matches_for_query(
     query: &str,
     exclude: &HashSet<NodeKey>,
 ) -> Vec<OmnibarMatch> {
-    let Some(context) = graph_app.workspace.selected_nodes.primary() else {
+    let Some(context) = graph_app.focused_selection().primary() else {
         return Vec::new();
     };
     let hop_distances = connected_hop_distances_for_context(graph_app, context);

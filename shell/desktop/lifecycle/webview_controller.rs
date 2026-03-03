@@ -20,6 +20,7 @@ use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::registries;
+use crate::util::GraphshellAddress;
 #[cfg(any(test, not(feature = "diagnostics")))]
 use euclid::default::Point2D;
 
@@ -71,7 +72,7 @@ fn intents_for_graph_view_address_submit(
             }],
         )
     } else {
-        let position = new_node_position_for_context(app, app.workspace.selected_nodes.primary());
+        let position = new_node_position_for_context(app, app.focused_selection().primary());
         (
             true,
             vec![GraphIntent::CreateNodeAtUrl {
@@ -158,13 +159,19 @@ pub(crate) struct AddressBarIntentOutcome {
     pub intents: Vec<GraphIntent>,
 }
 
-fn settings_intent_for_viewer(viewer_id: &str, normalized_url: &str) -> Option<GraphIntent> {
-    if viewer_id == "viewer:settings" {
-        return Some(GraphIntent::OpenSettingsUrl {
+fn workbench_route_intent_for_graphshell_url(normalized_url: &str) -> Option<GraphIntent> {
+    match GraphshellAddress::parse(normalized_url)? {
+        GraphshellAddress::Settings(_) => Some(GraphIntent::OpenSettingsUrl {
             url: normalized_url.to_string(),
-        });
+        }),
+        GraphshellAddress::Frame(_) => Some(GraphIntent::OpenFrameUrl {
+            url: normalized_url.to_string(),
+        }),
+        GraphshellAddress::View(_)
+        | GraphshellAddress::Tool { .. }
+        | GraphshellAddress::Clip(_)
+        | GraphshellAddress::Other { .. } => None,
     }
-    None
 }
 
 pub(crate) fn handle_address_bar_submit_intents(
@@ -189,7 +196,7 @@ pub(crate) fn handle_address_bar_submit_intents(
     }
 
     if is_graph_view {
-        let (normalized_input, settings_intent) = match location_bar_input_to_url(input, searchpage)
+        let (normalized_input, workbench_intent) = match location_bar_input_to_url(input, searchpage)
         {
             Some(parsed_url) => {
                 let decision = registries::phase0_decide_navigation_with_control(
@@ -208,18 +215,15 @@ pub(crate) fn handle_address_bar_submit_intents(
                 };
                 (
                     decision.normalized_url.as_str().to_string(),
-                    settings_intent_for_viewer(
-                        decision.viewer.viewer_id,
-                        decision.normalized_url.as_str(),
-                    ),
+                    workbench_route_intent_for_graphshell_url(decision.normalized_url.as_str()),
                 )
             }
             None => (input.to_string(), None),
         };
         let (open_selected_tile, mut intents) =
             registries::phase2_execute_graph_view_submit_action(app, &normalized_input);
-        if let Some(settings_intent) = settings_intent {
-            intents.push(settings_intent);
+        if let Some(workbench_intent) = workbench_intent {
+            intents.push(workbench_intent);
         }
 
         AddressBarIntentOutcome {
@@ -242,7 +246,7 @@ pub(crate) fn handle_address_bar_submit_intents(
             };
         };
 
-        let (parsed_url, selected_viewer_id, viewer_surface, settings_intent) = {
+        let (parsed_url, selected_viewer_id, viewer_surface, workbench_intent) = {
             let decision = registries::phase0_decide_navigation_with_control(
                 parsed_url,
                 None,
@@ -265,21 +269,18 @@ pub(crate) fn handle_address_bar_submit_intents(
                 decision.normalized_url,
                 selected_viewer_id,
                 viewer_surface,
-                settings_intent_for_viewer(
-                    decision.viewer.viewer_id,
-                    normalized_url_string.as_str(),
-                ),
+                workbench_route_intent_for_graphshell_url(normalized_url_string.as_str()),
             )
         };
 
-        if let Some(settings_intent) = settings_intent {
+        if let Some(workbench_intent) = workbench_intent {
             let (open_selected_tile, mut intents) =
                 registries::phase2_execute_detail_view_submit_action(
                     app,
                     parsed_url.as_str(),
                     focused_node,
                 );
-            intents.push(settings_intent);
+            intents.push(workbench_intent);
             return AddressBarIntentOutcome {
                 outcome: AddressBarSubmitOutcome {
                     mark_clean: true,
@@ -561,14 +562,27 @@ mod tests {
     }
 
     #[test]
-    fn settings_intent_is_emitted_for_settings_viewer() {
-        let intent = settings_intent_for_viewer("viewer:settings", "graphshell://settings/history");
+    fn workbench_route_intent_is_emitted_for_graphshell_settings_url() {
+        let settings_history =
+            crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::History)
+                .to_string();
+        let intent = workbench_route_intent_for_graphshell_url(&settings_history);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenSettingsUrl { ref url }) if url == "graphshell://settings/history"
+            Some(GraphIntent::OpenSettingsUrl { ref url }) if url == &settings_history
         ));
 
-        let none_intent = settings_intent_for_viewer("viewer:webview", "https://example.com");
+        let none_intent = workbench_route_intent_for_graphshell_url("https://example.com");
         assert!(none_intent.is_none());
+    }
+
+    #[test]
+    fn workbench_route_intent_is_emitted_for_graphshell_frame_url() {
+        let frame_url = crate::util::GraphshellAddress::frame("frame-123").to_string();
+        let intent = workbench_route_intent_for_graphshell_url(&frame_url);
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenFrameUrl { ref url }) if url == &frame_url
+        ));
     }
 }
