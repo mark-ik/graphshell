@@ -614,12 +614,34 @@ mod tests {
     }
 
     #[test]
+    fn workbench_route_intent_canonicalizes_legacy_graphshell_frame_url() {
+        let legacy_url = "graphshell://frame/frame-legacy";
+        let expected_url = "verso://frame/frame-legacy";
+        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenFrameUrl { ref url }) if url == expected_url
+        ));
+    }
+
+    #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_tool_url() {
         let tool_url = crate::util::GraphshellAddress::tool("history", Some(2)).to_string();
         let intent = workbench_route_intent_for_graphshell_url(&tool_url);
         assert!(matches!(
             intent,
             Some(GraphIntent::OpenToolUrl { ref url }) if url == &tool_url
+        ));
+    }
+
+    #[test]
+    fn workbench_route_intent_canonicalizes_legacy_graphshell_tool_url() {
+        let legacy_url = "graphshell://tool/history/2";
+        let expected_url = "verso://tool/history/2";
+        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenToolUrl { ref url }) if url == expected_url
         ));
     }
 

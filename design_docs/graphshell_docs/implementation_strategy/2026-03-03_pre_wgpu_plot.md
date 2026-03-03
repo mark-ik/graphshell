@@ -427,6 +427,8 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 - Graph-view address submission now has explicit non-mutation route parity for `verso://view/node/<NodeId>`, `verso://view/note/<NoteId>`, and `verso://view/graph/<GraphId>` (all emitted as workbench route intents).
 - Legacy `graphshell://view/node/<NodeId>` submissions now have explicit canonicalization parity (`verso://view/node/<NodeId>`) with non-mutation route-intent coverage.
 - `OpenViewUrl` now has explicit reducer-boundary scenario coverage (`OpenViewUrl` remains workbench-authority and does not mutate graph state when reducer-applied).
+- Legacy `graphshell://frame/...` and `graphshell://tool/...` routes now have explicit canonicalization parity tests (`verso://frame/...`, `verso://tool/...`).
+- `OpenFrameUrl` and `OpenToolUrl` now have explicit reducer-boundary scenario coverage (workbench-authority only; no reducer graph mutation).
 - `verso://clip/<id>` now routes through workbench authority and its queued clip-open requests are consumed during the semantic lifecycle (History manager focus as interim clip surface path).
 
 **Current practical blocker after Phase 4 docs**:
