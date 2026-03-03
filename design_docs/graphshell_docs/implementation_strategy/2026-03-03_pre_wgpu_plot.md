@@ -254,19 +254,19 @@ From `2026-03-03_spec_conflict_resolution_register.md`. P1–P2 must be resolved
 | Priority | Item | Status | v0.0.2 required? |
 | --- | --- | --- | --- |
 | **P1** | Rewrite `pane_chrome_and_promotion_spec.md` (separate Pane Opening Mode from chrome/promotion) | `landed` | **Yes** |
-| **P2.2** | Add `graphshell://frame/<FrameId>` address semantics to `graph_first_frame_semantics_spec.md` | `landed` | **Yes** |
+| **P2.2** | Add internal frame address semantics (`graphshell://frame/<FrameId>` spec basis; `verso://frame/<FrameId>` runtime canonical alias) to `graph_first_frame_semantics_spec.md` | `landed` | **Yes** |
 | **P2.3** | Add `NavigationTrigger::PanePromotion` to `edge_traversal_spec.md` | `landed` | **Yes** |
 | **P3.4** | Terminology cleanup in `workbench_tab_semantics_overlay_and_promotion_plan.md` | `landed` | Recommended |
 | **P3.5** | Add demotion-driven Tombstone path to `node_lifecycle_and_runtime_reconcile_spec.md` | `landed` | Recommended |
 | **P3.6** | Clarify address-as-identity impact on `storage_and_persistence_integrity_spec.md` | `landed` | Recommended |
 | **P4.7** | New plan: Pane Opening Mode + SimplificationSuppressed | `landed` | **Yes** (D1) |
-| **P4.8** | New plan: `graphshell://` address scheme implementation | `landed` | **Yes** (D3) |
+| **P4.8** | New plan: internal address scheme implementation (`graphshell://` original plan basis; `verso://` runtime canonical namespace) | `landed` | **Yes** (D3) |
 
 Key decisions backing this resolution order:
 
 - **D1**: Pane Opening Mode is a separate plan (not folded into tab-semantics plan).
 - **D2**: "Promotion" reserved exclusively for graph-enrollment semantics.
-- **D3**: `graphshell://` address scheme implementation is a closure prerequisite.
+- **D3**: Internal address scheme implementation is a closure prerequisite (`graphshell://` as original spec baseline; `verso://` as current runtime canonical namespace with compatibility parsing).
 
 ---
 
@@ -407,7 +407,26 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 1. P1 rewrite landed (`pane_chrome_and_promotion_spec.md`).
 2. P2.2 and P2.3 landed (frame address semantics, navigation trigger).
 3. P3 terminology/lifecycle clarifications landed.
-4. P4 new plan docs landed (Pane Opening Mode, `graphshell://` address scheme).
+4. P4 new plan docs landed (Pane Opening Mode, internal address scheme), and the implementation has since advanced to `verso://` as the canonical system namespace with legacy `graphshell://` compatibility plus initial `notes://`, `graph://`, and `node://` domain-address scaffolds.
+
+**Post-P4 implementation delta (2026-03-03)**:
+
+- Typed internal address parsing/formatting is live, with canonical `verso://` emission and legacy `graphshell://` parse compatibility.
+- Workbench authority routing is live for `verso://settings/...`, `verso://frame/...`, `verso://tool/...`, and `verso://view/...`.
+- `verso://view/...` is no longer just a raw single-ID route:
+  - legacy `verso://view/<id>` remains as a compatibility graph-pane alias,
+  - canonical routing shape is now `verso://view/<kind>/<id>`,
+  - `verso://view/note/<NoteId>` routes to the note-open path,
+  - `verso://view/node/<NodeId>` routes to node-pane opening,
+  - `verso://view/graph/<GraphId>` now queues named graph restore when a matching snapshot exists.
+- Durable note scaffolding is landed in code (`notes://<NoteId>`, in-memory `NoteRecord`, note creation/open routing), but a real note pane/editor surface is still pending.
+- `graph://<GraphId>` and `node://<NodeId>` now participate in explicit route-intent handling (`graph` snapshot restore; `node` pane open/focus when resolvable).
+- `notes://<NoteId>` and `node://<NodeId>` are now emitted directly from address-bar domain routing; `notes` resolves into note-open queueing and `node` is intercepted by workbench authority.
+- `verso://clip/<id>` now routes through workbench authority to queue a clip-open request and focus the history-manager tool pane when resolvable.
+
+**Current practical blocker after Phase 4 docs**:
+
+- The next meaningful closure is a durable note pane/editor authority so `notes://<NoteId>` routes resolve into a first-class note surface rather than queue-only scaffolding.
 
 **Exit criteria**: P1–P2 closed; P3–P4 landed or explicitly deferred.
 
