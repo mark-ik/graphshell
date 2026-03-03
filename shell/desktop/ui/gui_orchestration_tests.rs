@@ -398,6 +398,49 @@ fn graph_view_url_intent_queues_named_graph_restore_when_snapshot_exists() {
 }
 
 #[test]
+fn unresolved_graph_view_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = crate::util::GraphshellAddress::view_graph("missing-graph").to_string();
+    let mut intents = vec![GraphIntent::OpenViewUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenViewUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenViewUrl intent, got {other:?}"),
+    }
+}
+
+#[test]
+fn unresolved_note_view_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url =
+        crate::util::GraphshellAddress::view_note(uuid::Uuid::new_v4().to_string()).to_string();
+    let mut intents = vec![GraphIntent::OpenViewUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenViewUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenViewUrl intent, got {other:?}"),
+    }
+}
+
+#[test]
 fn graph_url_intent_queues_named_graph_restore_when_snapshot_exists() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
