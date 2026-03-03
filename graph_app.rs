@@ -1954,6 +1954,14 @@ impl GraphBrowserApp {
         self.workspace.camera_fit_locked = locked;
         if locked {
             self.request_fit_to_screen();
+        } else if matches!(
+            self.workspace.pending_camera_command,
+            Some(PendingCameraCommand {
+                command: CameraCommand::Fit | CameraCommand::StartupFit,
+                ..
+            })
+        ) {
+            self.workspace.pending_camera_command = None;
         }
     }
 
@@ -6042,6 +6050,29 @@ mod tests {
         assert!(app.camera_fit_locked());
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
         assert_eq!(app.pending_camera_command_target(), Some(view_id));
+    }
+
+    #[test]
+    fn test_unlock_camera_fit_lock_clears_pending_fit_and_restores_zoom_requests() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
+
+        app.set_camera_fit_locked(true);
+        assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
+
+        app.set_camera_fit_locked(false);
+        assert!(!app.camera_fit_locked());
+        assert!(app.pending_camera_command().is_none());
+
+        app.apply_intents([GraphIntent::RequestZoomIn]);
+        assert_eq!(
+            app.take_pending_keyboard_zoom_request(view_id),
+            Some(KeyboardZoomRequest::In)
+        );
     }
 
     #[test]
