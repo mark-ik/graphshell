@@ -12,15 +12,20 @@ permissions:
 
 jobs:
   scenarios:
+    name: scenarios (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+        include:
+          - os: ubuntu-latest
+            allow_failure: false
+          - os: windows-latest
+            allow_failure: false
+          - os: macos-latest
+            allow_failure: true
 
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow_failure }}
 
     steps:
       - name: Checkout

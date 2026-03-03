@@ -1,0 +1,48 @@
+name: Nightly Full Matrix
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-matrix:
+    name: nightly-full (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo check (locked)
+        run: cargo check --locked
+
+      - name: Run full diagnostics scenario suite
+        run: cargo test shell::desktop::tests::scenarios:: -- --nocapture
+
+      - name: Run smoke quick (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh -NoProfile -File scripts/dev/smoke-matrix.ps1 quick
+
+      - name: Run smoke quick (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: bash scripts/dev/smoke-matrix.sh quick

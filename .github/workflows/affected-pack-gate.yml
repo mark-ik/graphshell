@@ -1,0 +1,43 @@
+name: Affected Pack Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  affected-pack-gate:
+    name: affected-pack-gate (ubuntu)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Linux system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo check (locked)
+        run: cargo check --locked
+
+      - name: Fetch PR base branch
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.base_ref }} --depth=1
+
+      - name: Run affected validation packs (PR)
+        if: github.event_name == 'pull_request'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --base origin/${{ github.base_ref }} --quiet
+
+      - name: Run core validation packs (main push)
+        if: github.event_name != 'pull_request'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-many camera-lock focus-routing input-routing navigation-history --quiet
