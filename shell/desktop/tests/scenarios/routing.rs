@@ -1,6 +1,6 @@
 use super::super::harness::TestRegistry;
 use crate::app::{GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkspaceOpenAction};
-use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+use crate::util::{GraphshellAddress, GraphshellSettingsPath, NodeAddress, NoteAddress};
 use std::collections::{BTreeSet, HashMap};
 
 #[test]
@@ -283,4 +283,54 @@ fn resolve_clip_route_accepts_legacy_scheme_and_normalizes() {
 
     let unresolved = crate::app::GraphBrowserApp::resolve_clip_route("verso://clip");
     assert!(unresolved.is_none());
+}
+
+#[test]
+fn open_node_url_is_not_reducer_owned() {
+    let mut harness = TestRegistry::new();
+    let node = harness.add_node("https://example.com");
+    harness.app.select_node(node, false);
+    let node_id = harness
+        .app
+        .workspace
+        .graph
+        .get_node(node)
+        .expect("node exists")
+        .id;
+    let node_count_before = harness.app.workspace.graph.node_count();
+    let node_url = NodeAddress::node(node_id.to_string()).to_string();
+
+    harness.app.apply_intents([
+        GraphIntent::SetNodeUrl {
+            key: node,
+            new_url: node_url.clone(),
+        },
+        GraphIntent::OpenNodeUrl {
+            url: node_url.clone(),
+        },
+    ]);
+
+    assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.graph.get_node(node).expect("node exists").url,
+        node_url
+    );
+    assert!(harness.app.take_pending_open_node_request().is_none());
+}
+
+#[test]
+fn open_note_url_queues_existing_note_request() {
+    let mut harness = TestRegistry::new();
+    let node = harness.add_node("https://example.com");
+    let note_id = harness
+        .app
+        .create_note_for_node(node, Some("Routing note".to_string()))
+        .expect("note should exist");
+    let _ = harness.app.take_pending_open_note_request();
+
+    harness.app.apply_intents([GraphIntent::OpenNoteUrl {
+        url: NoteAddress::note(note_id.as_uuid().to_string()).to_string(),
+    }]);
+
+    assert_eq!(harness.app.take_pending_open_note_request(), Some(note_id));
 }
