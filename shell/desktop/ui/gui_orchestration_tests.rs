@@ -528,6 +528,34 @@ fn pending_unknown_note_open_request_is_cleared_by_orchestration_semantic_phase(
 }
 
 #[test]
+fn pending_clip_open_request_is_consumed_by_orchestration_semantic_phase() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    app.request_open_clip_by_id("clip-semantic");
+
+    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree);
+
+    assert!(app.take_pending_open_clip_request().is_none());
+    assert!(active_tool_pane(&tree, ToolPaneState::HistoryManager));
+}
+
+#[test]
+fn pending_clip_open_request_is_noop_when_queue_empty() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+
+    gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree);
+
+    assert!(app.take_pending_open_clip_request().is_none());
+}
+
+#[test]
 fn node_url_intent_opens_node_pane_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let node_key = app.add_node_and_sync(
