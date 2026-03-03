@@ -426,6 +426,7 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 - Pending note-open requests are now consumed in the semantic lifecycle (open linked node pane when available and focus History manager as an interim note surface path).
 - Graph-view address submission now has explicit non-mutation route parity for `verso://view/node/<NodeId>`, `verso://view/note/<NoteId>`, and `verso://view/graph/<GraphId>` (all emitted as workbench route intents).
 - Legacy `graphshell://view/node/<NodeId>` submissions now have explicit canonicalization parity (`verso://view/node/<NodeId>`) with non-mutation route-intent coverage.
+- Legacy `graphshell://view/note/<NoteId>` and `graphshell://view/graph/<GraphId>` now also have explicit canonicalization parity tests (`verso://view/note/...`, `verso://view/graph/...`).
 - `OpenViewUrl` now has explicit reducer-boundary scenario coverage (`OpenViewUrl` remains workbench-authority and does not mutate graph state when reducer-applied).
 - Legacy `graphshell://frame/...` and `graphshell://tool/...` routes now have explicit canonicalization parity tests (`verso://frame/...`, `verso://tool/...`).
 - `OpenFrameUrl` and `OpenToolUrl` now have explicit reducer-boundary scenario coverage (workbench-authority only; no reducer graph mutation).

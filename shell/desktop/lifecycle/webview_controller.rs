@@ -679,6 +679,29 @@ mod tests {
     }
 
     #[test]
+    fn workbench_route_intent_canonicalizes_legacy_graphshell_view_note_url() {
+        let note_id = uuid::Uuid::new_v4().to_string();
+        let legacy_url = format!("graphshell://view/note/{note_id}");
+        let expected_url = format!("verso://view/note/{note_id}");
+        let intent = workbench_route_intent_for_graphshell_url(&legacy_url);
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenViewUrl { ref url }) if url == &expected_url
+        ));
+    }
+
+    #[test]
+    fn workbench_route_intent_canonicalizes_legacy_graphshell_view_graph_url() {
+        let legacy_url = "graphshell://view/graph/graph-main";
+        let expected_url = "verso://view/graph/graph-main";
+        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenViewUrl { ref url }) if url == expected_url
+        ));
+    }
+
+    #[test]
     fn route_intent_is_emitted_for_graph_domain_url_with_canonicalization() {
         let intent = route_intent_for_internal_or_domain_url("graph://graph-main");
         assert!(matches!(
