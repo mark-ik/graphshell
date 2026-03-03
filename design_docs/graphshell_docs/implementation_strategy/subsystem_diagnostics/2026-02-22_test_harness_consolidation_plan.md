@@ -352,6 +352,7 @@ Run at stage boundaries:
 
 Policy-driven selectors (CI/local):
 
+- `pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform linux --base origin/main`
 - `pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --affected --base origin/main --quiet`
 - `pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform windows --quiet`
 

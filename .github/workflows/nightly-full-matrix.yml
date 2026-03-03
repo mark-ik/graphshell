@@ -36,6 +36,18 @@ jobs:
       - name: Cargo check (locked)
         run: cargo check --locked
 
+      - name: Policy lint (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform windows
+
+      - name: Policy lint (Linux)
+        if: runner.os == 'Linux'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform linux
+
+      - name: Policy lint (macOS)
+        if: runner.os == 'macOS'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform macos
+
       - name: Run nightly policy packs (Windows)
         if: runner.os == 'Windows'
         run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform windows --quiet

@@ -53,6 +53,9 @@ Commands:
   run-policy --tier <pr-required|pr-optional|nightly> [--platform <linux|windows|macos>] [--affected] [--base <git-ref>] [--scope <all|base|worktree|staged|unstaged|untracked>] [--dry-run] [--quiet]
       Run packs selected by manifest policy metadata.
 
+  lint-policy [--platform <linux|windows|macos>] [--base <git-ref>] [--scope <all|base|worktree|staged|unstaged|untracked>]
+      Validate policy metadata and scenario coverage invariants.
+
 Examples:
   pwsh -NoProfile -File scripts/dev/test-select.ps1 list
   pwsh -NoProfile -File scripts/dev/test-select.ps1 show camera-lock
@@ -61,6 +64,7 @@ Examples:
     pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --scope staged
         pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope worktree --dry-run --quiet
     pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --affected --base origin/main --quiet
+    pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform linux --base origin/main
 '@ | Write-Host
 }
 
@@ -258,6 +262,57 @@ function Resolve-PolicyOptionsFromArgs([string[]]$arguments) {
     }
 }
 
+function Resolve-LintOptionsFromArgs([string[]]$arguments) {
+    $platform = Get-HostPolicyPlatform
+    $baseRef = $null
+    $scope = 'all'
+    $validScopes = @('all', 'base', 'worktree', 'staged', 'unstaged', 'untracked')
+    $validPlatforms = @('linux', 'windows', 'macos')
+    $cleaned = New-Object System.Collections.Generic.List[string]
+
+    for ($i = 0; $i -lt $arguments.Count; $i++) {
+        $arg = [string]$arguments[$i]
+        switch ($arg) {
+            '--platform' {
+                if ($i + 1 -ge $arguments.Count) { throw 'Expected value after --platform' }
+                $candidate = [string]$arguments[$i + 1]
+                if ($validPlatforms -notcontains $candidate) {
+                    throw ("Invalid --platform '{0}'. Valid values: {1}" -f $candidate, ($validPlatforms -join ', '))
+                }
+                $platform = $candidate
+                $i++
+                continue
+            }
+            '--base' {
+                if ($i + 1 -ge $arguments.Count) { throw 'Expected value after --base' }
+                $baseRef = [string]$arguments[$i + 1]
+                $i++
+                continue
+            }
+            '--scope' {
+                if ($i + 1 -ge $arguments.Count) { throw 'Expected value after --scope' }
+                $candidate = [string]$arguments[$i + 1]
+                if ($validScopes -notcontains $candidate) {
+                    throw ("Invalid --scope '{0}'. Valid values: {1}" -f $candidate, ($validScopes -join ', '))
+                }
+                $scope = $candidate
+                $i++
+                continue
+            }
+            default {
+                [void]$cleaned.Add($arg)
+                continue
+            }
+        }
+    }
+
+    if ($cleaned.Count -gt 0) {
+        throw ("Unknown arguments for lint-policy: {0}" -f ($cleaned -join ' '))
+    }
+
+    return @{ Platform = $platform; BaseRef = $baseRef; Scope = $scope }
+}
+
 function Get-ChangedPaths([string]$baseRef, [string]$scope) {
     $paths = New-Object 'System.Collections.Generic.HashSet[string]'
 
@@ -380,6 +435,95 @@ function Get-PolicyPacks([string]$tier, [string]$platform, [string[]]$changedPat
     }
 
     return @($selected)
+}
+
+function Test-PackMatchesPath([object]$pack, [string]$path) {
+    return Test-PackMatchesChangedPaths -pack $pack -changedPaths @($path)
+}
+
+function Invoke-PolicyLint([string]$platform, [string]$baseRef, [string]$scope) {
+    $errors = New-Object System.Collections.Generic.List[string]
+    $validTiers = @('pr-required', 'pr-optional', 'nightly')
+    $validPlatforms = @('linux', 'windows', 'macos')
+
+    $seenIds = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($pack in $manifest.packs) {
+        $packId = [string]$pack.id
+        if ([string]::IsNullOrWhiteSpace($packId)) {
+            [void]$errors.Add('Pack with empty id found in manifest.')
+            continue
+        }
+
+        if (-not $seenIds.Add($packId)) {
+            [void]$errors.Add(("Duplicate pack id in manifest: {0}" -f $packId))
+        }
+
+        if (@($pack.commands).Count -eq 0) {
+            [void]$errors.Add(("Pack '{0}' has no commands." -f $packId))
+        }
+
+        if (-not $pack.policy) {
+            [void]$errors.Add(("Pack '{0}' is missing policy metadata." -f $packId))
+            continue
+        }
+
+        $tiers = @($pack.policy.tiers)
+        if ($tiers.Count -eq 0) {
+            [void]$errors.Add(("Pack '{0}' has empty policy.tiers." -f $packId))
+        }
+        foreach ($tier in $tiers) {
+            if ($validTiers -notcontains [string]$tier) {
+                [void]$errors.Add(("Pack '{0}' has invalid tier '{1}'." -f $packId, $tier))
+            }
+        }
+
+        $packPlatforms = @($pack.policy.platforms)
+        if ($packPlatforms.Count -eq 0) {
+            [void]$errors.Add(("Pack '{0}' has empty policy.platforms." -f $packId))
+        }
+        foreach ($packPlatform in $packPlatforms) {
+            if ($validPlatforms -notcontains [string]$packPlatform) {
+                [void]$errors.Add(("Pack '{0}' has invalid platform '{1}'." -f $packId, $packPlatform))
+            }
+        }
+    }
+
+    $scenarioRoot = Join-Path $RootDir 'shell/desktop/tests/scenarios'
+    $scenarioFiles = @(Get-ChildItem -Path $scenarioRoot -Filter '*.rs' -File | Where-Object { $_.Name -ne 'mod.rs' })
+    foreach ($scenarioFile in $scenarioFiles) {
+        $relativePath = $scenarioFile.FullName.Substring($RootDir.Length + 1) -replace '\\', '/'
+        $coveredNightly = @($manifest.packs | Where-Object {
+            $_.policy -and @($_.policy.tiers) -contains 'nightly' -and @($_.policy.platforms) -contains $platform -and (Test-PackMatchesPath -pack $_ -path $relativePath)
+        }).Count -gt 0
+        if (-not $coveredNightly) {
+            [void]$errors.Add(("Scenario file '{0}' is not covered by any nightly policy pack for platform '{1}'." -f $relativePath, $platform))
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($baseRef)) {
+        $changed = @(Get-ChangedPaths -baseRef $baseRef -scope $scope)
+        $changedScenarioFiles = @($changed | Where-Object { $_ -like 'shell/desktop/tests/scenarios/*.rs' -and $_ -ne 'shell/desktop/tests/scenarios/mod.rs' })
+
+        foreach ($path in $changedScenarioFiles) {
+            $coveredForPr = @($manifest.packs | Where-Object {
+                $_.policy -and (@($_.policy.tiers) -contains 'pr-required' -or @($_.policy.tiers) -contains 'pr-optional') -and @($_.policy.platforms) -contains $platform -and (Test-PackMatchesPath -pack $_ -path $path)
+            }).Count -gt 0
+
+            if (-not $coveredForPr) {
+                [void]$errors.Add(("Changed scenario file '{0}' is not covered by any PR policy pack for platform '{1}'." -f $path, $platform))
+            }
+        }
+    }
+
+    if ($errors.Count -gt 0) {
+        Write-Host 'policy-lint failed:'
+        foreach ($errorLine in $errors) {
+            Write-Host ("- {0}" -f $errorLine)
+        }
+        throw ("policy-lint found {0} issue(s)." -f $errors.Count)
+    }
+
+    Write-Host ("policy-lint passed (platform={0}{1})." -f $platform, $(if ([string]::IsNullOrWhiteSpace($baseRef)) { '' } else { ", base=$baseRef" }))
 }
 
 $command = if ($args.Count -gt 0) { $args[0] } else { 'list' }
@@ -584,6 +728,10 @@ switch ($command) {
         foreach ($pack in $selected) {
             Invoke-Pack -pack $pack -dryRun $dryRun -quiet $quiet
         }
+    }
+    'lint-policy' {
+        $parsed = Resolve-LintOptionsFromArgs -arguments $rest
+        Invoke-PolicyLint -platform ([string]$parsed.Platform) -baseRef ([string]$parsed.BaseRef) -scope ([string]$parsed.Scope)
     }
     'help' { Show-Usage }
     '-h' { Show-Usage }

@@ -52,6 +52,7 @@ pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope base --ba
 pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --scope worktree --quiet
 pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope worktree --dry-run --quiet
 pwsh -NoProfile -File scripts/dev/test-select.ps1 list-policy
+pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform linux --base origin/main
 pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --affected --base origin/main --quiet
 pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform windows --dry-run --quiet
 ```
@@ -66,6 +67,7 @@ Use `--quiet` to suppress changed-file listings and show pack-focused output for
 - Each pack may declare `policy.tiers`, `policy.platforms`, and `policy.alwaysRun`.
 - CI workflows should invoke `run-policy` instead of hard-coding pack IDs, so new packs are auto-adopted by policy metadata.
 - `pr-required` tier is the blocking PR gate baseline; `pr-optional` is informative PR signal; `nightly` is full confidence sweep.
+- `lint-policy` is a required guardrail in CI: it validates policy metadata and fails if any scenario file lacks nightly coverage, or if changed scenario files lack PR-tier coverage.
 
 If diagnostics-focused checks are needed, use existing diagnostics test targets already referenced in strategy docs.
 
