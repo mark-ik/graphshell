@@ -1562,7 +1562,10 @@ mod tests {
         assert!(custom.fallback_used);
         assert_eq!(custom.matched_scheme, "https");
 
-        let graphshell = registry.resolve("graphshell://settings");
+        let graphshell = registry.resolve(
+            &crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::General)
+                .to_string(),
+        );
         assert!(graphshell.supported);
         assert_eq!(graphshell.matched_scheme, "graphshell");
         assert_eq!(
@@ -1586,7 +1589,11 @@ mod tests {
         assert!(fallback.fallback_used);
         assert_eq!(fallback.viewer_id, "viewer:webview");
 
-        let internal = registry.select_for_uri("graphshell://settings/history", None);
+        let internal = registry.select_for_uri(
+            &crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::History)
+                .to_string(),
+            None,
+        );
         assert_eq!(internal.viewer_id, "viewer:settings");
         assert_eq!(internal.matched_by, "internal");
     }

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::registries::domain::layout::{
     AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
 };
+use crate::util::GraphshellAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSubsystemCapabilities {
@@ -100,12 +101,14 @@ impl ViewerRegistry {
     }
 
     pub(crate) fn select_for_uri(&self, uri: &str, mime_hint: Option<&str>) -> ViewerSelection {
-        if uri.eq_ignore_ascii_case("graphshell://settings")
-            || uri
-                .to_ascii_lowercase()
-                .starts_with("graphshell://settings/")
-        {
-            return self.selection("viewer:settings", false, "internal");
+        if let Some(address) = GraphshellAddress::parse(uri) {
+            if address.is_settings() {
+                return self.selection("viewer:settings", false, "internal");
+            }
+
+            if let Some(viewer_id) = self.mime_handlers.get(address.inferred_mime_hint()) {
+                return self.selection(viewer_id, false, "internal");
+            }
         }
 
         if let Some(mime) = mime_hint.map(|m| m.to_ascii_lowercase())
@@ -280,11 +283,15 @@ mod tests {
     use super::*;
     use crate::graph::AddressKind;
     use crate::registries::domain::layout::ConformanceLevel;
+    use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 
     #[test]
     fn viewer_registry_selects_internal_settings_viewer_for_graphshell_settings_url() {
         let registry = ViewerRegistry::default();
-        let selection = registry.select_for_uri("graphshell://settings/history", None);
+        let selection = registry.select_for_uri(
+            &GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
+            None,
+        );
 
         assert_eq!(selection.viewer_id, "viewer:settings");
         assert!(!selection.fallback_used);
@@ -293,6 +300,29 @@ mod tests {
             selection.capabilities.accessibility.level,
             ConformanceLevel::Full
         );
+    }
+
+    #[test]
+    fn viewer_registry_uses_internal_mime_for_graphshell_frame_route() {
+        let registry = ViewerRegistry::default();
+        let selection = registry.select_for_uri(
+            &GraphshellAddress::frame("frame-123").to_string(),
+            Some("application/x-graphshell-internal"),
+        );
+
+        assert_eq!(selection.viewer_id, "viewer:webview");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "internal");
+    }
+
+    #[test]
+    fn viewer_registry_selects_internal_viewer_for_graphshell_frame_route_without_mime_hint() {
+        let registry = ViewerRegistry::default();
+        let selection = registry.select_for_uri(&GraphshellAddress::frame("frame-123").to_string(), None);
+
+        assert_eq!(selection.viewer_id, "viewer:webview");
+        assert!(!selection.fallback_used);
+        assert_eq!(selection.matched_by, "internal");
     }
 
     #[test]

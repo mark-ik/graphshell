@@ -1,4 +1,5 @@
 use crate::shell::desktop::runtime::protocols::registry as scaffold;
+use crate::util::GraphshellAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProtocolResolution {
@@ -121,6 +122,7 @@ impl Default for ProtocolRegistry {
             "about",
             "resource",
             "data",
+            "verso",
             "graphshell",
         ] {
             registry.register_scheme(scheme);
@@ -130,7 +132,7 @@ impl Default for ProtocolRegistry {
 }
 
 fn infer_mime_hint(uri: &str, scheme: &str) -> Option<String> {
-    if scheme == "graphshell" {
+    if matches!(scheme, "verso" | "graphshell") {
         return infer_graphshell_mime_hint(uri);
     }
 
@@ -170,21 +172,14 @@ fn infer_data_uri_mime_hint(uri: &str) -> Option<String> {
 }
 
 fn infer_graphshell_mime_hint(uri: &str) -> Option<String> {
-    let tail = uri
-        .strip_prefix("graphshell://")
-        .unwrap_or(uri)
-        .to_ascii_lowercase();
-
-    if tail == "settings" || tail.starts_with("settings/") {
-        return Some("application/x-graphshell-settings".to_string());
-    }
-
-    Some("application/x-graphshell-internal".to_string())
+    let parsed = GraphshellAddress::parse(uri)?;
+    Some(parsed.inferred_mime_hint().to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 
     #[test]
     fn protocol_resolution_returns_cancelled_outcome_when_control_cancelled() {
@@ -230,6 +225,35 @@ mod tests {
 
     #[test]
     fn protocol_resolution_supports_graphshell_scheme_with_settings_hint() {
+        let registry = ProtocolRegistry::default();
+        let resolution =
+            registry.resolve(&GraphshellAddress::settings(GraphshellSettingsPath::History).to_string());
+
+        assert!(resolution.supported);
+        assert!(!resolution.fallback_used);
+        assert_eq!(resolution.matched_scheme, "verso");
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("application/x-graphshell-settings")
+        );
+    }
+
+    #[test]
+    fn protocol_resolution_supports_graphshell_frame_route_with_internal_hint() {
+        let registry = ProtocolRegistry::default();
+        let resolution = registry.resolve(&GraphshellAddress::frame("frame-123").to_string());
+
+        assert!(resolution.supported);
+        assert!(!resolution.fallback_used);
+        assert_eq!(resolution.matched_scheme, "verso");
+        assert_eq!(
+            resolution.inferred_mime_hint.as_deref(),
+            Some("application/x-graphshell-internal")
+        );
+    }
+
+    #[test]
+    fn protocol_resolution_supports_legacy_graphshell_scheme_with_settings_hint() {
         let registry = ProtocolRegistry::default();
         let resolution = registry.resolve("graphshell://settings/history");
 

@@ -1978,7 +1978,10 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/history".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::History,
+            )
+            .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -1997,7 +2000,10 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/physics".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::Physics,
+            )
+            .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2016,7 +2022,10 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/persistence".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::Persistence,
+            )
+            .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2035,7 +2044,10 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/sync".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::Sync,
+            )
+            .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2054,7 +2066,10 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::General,
+            )
+            .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2080,7 +2095,10 @@ mod graph_split_intent_tests {
             )
         });
         let mut intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/sync".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::Sync,
+            )
+            .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2102,7 +2120,10 @@ mod graph_split_intent_tests {
             matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings)))
         });
         let mut intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/history".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::History,
+            )
+            .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2122,7 +2143,10 @@ mod graph_split_intent_tests {
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
         let mut open_intents = vec![GraphIntent::OpenSettingsUrl {
-            url: "graphshell://settings/general".to_string(),
+            url: crate::util::GraphshellAddress::settings(
+                crate::util::GraphshellSettingsPath::General,
+            )
+            .to_string(),
         }];
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
         assert!(open_intents.is_empty());

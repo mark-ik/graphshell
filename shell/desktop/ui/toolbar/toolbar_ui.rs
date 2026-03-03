@@ -48,6 +48,7 @@ use crate::app::{
     ToastAnchorPreference,
 };
 use crate::graph::NodeKey;
+use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::search::{fuzzy_match_items, fuzzy_match_node_keys};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -204,6 +205,13 @@ fn radial_shortcut_label(shortcut: RadialMenuShortcut) -> &'static str {
     match shortcut {
         RadialMenuShortcut::F3 => "F3 (Default)",
         RadialMenuShortcut::R => "R",
+    }
+}
+
+fn lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
+    match binding {
+        CanvasLassoBinding::RightDrag => "Right Drag (Default)",
+        CanvasLassoBinding::ShiftLeftDrag => "Shift + Left Drag",
     }
 }
 

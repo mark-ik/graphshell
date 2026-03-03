@@ -2,9 +2,11 @@ use crate::app::{
     CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
     OmnibarNonAtOrderPreset, OmnibarPreferredScope, RadialMenuShortcut, ToastAnchorPreference,
 };
+use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::host::running_app_state::{RunningAppState, UserInterfaceCommand};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 
 pub(super) fn render_settings_menu(
     ui: &mut egui::Ui,
@@ -29,7 +31,8 @@ pub(super) fn render_settings_menu(
                 }
                 if ui.button("Open Physics Settings").clicked() {
                     frame_intents.push(GraphIntent::OpenSettingsUrl {
-                        url: "graphshell://settings/physics".to_string(),
+                        url: GraphshellAddress::settings(GraphshellSettingsPath::Physics)
+                            .to_string(),
                     });
                     ui.close();
                 }
@@ -116,6 +119,21 @@ pub(super) fn render_settings_menu(
                         .clicked()
                     {
                         graph_app.set_radial_menu_shortcut(shortcut);
+                    }
+                }
+                ui.label(format!(
+                    "Lasso: {}",
+                    super::lasso_binding_label(graph_app.lasso_binding_preference())
+                ));
+                for binding in [CanvasLassoBinding::RightDrag, CanvasLassoBinding::ShiftLeftDrag] {
+                    if ui
+                        .selectable_label(
+                            graph_app.lasso_binding_preference() == binding,
+                            super::lasso_binding_label(binding),
+                        )
+                        .clicked()
+                    {
+                        graph_app.set_lasso_binding_preference(binding);
                     }
                 }
                 ui.separator();

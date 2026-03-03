@@ -1,7 +1,11 @@
 use super::super::harness::TestRegistry;
+use crate::app::CommandPaletteShortcut;
 use crate::app::GraphBrowserApp;
 use crate::app::GraphIntent;
+use crate::app::HelpPanelShortcut;
+use crate::app::RadialMenuShortcut;
 use crate::app::ToastAnchorPreference;
+use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
 use std::collections::{BTreeSet, HashMap};
@@ -298,5 +302,41 @@ fn set_toast_anchor_preference_persists_across_restart() {
     assert_eq!(
         reopened.workspace.toast_anchor_preference,
         ToastAnchorPreference::TopRight
+    );
+}
+
+#[test]
+fn set_shortcut_bindings_persist_across_restart() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let path = dir.path().to_path_buf();
+
+    let mut app = GraphBrowserApp::new_from_dir(path.clone());
+    app.set_command_palette_shortcut(CommandPaletteShortcut::CtrlK);
+    app.set_help_panel_shortcut(HelpPanelShortcut::H);
+    app.set_radial_menu_shortcut(RadialMenuShortcut::R);
+    drop(app);
+
+    let reopened = GraphBrowserApp::new_from_dir(path);
+    assert_eq!(
+        reopened.workspace.command_palette_shortcut,
+        CommandPaletteShortcut::CtrlK
+    );
+    assert_eq!(reopened.workspace.help_panel_shortcut, HelpPanelShortcut::H);
+    assert_eq!(reopened.workspace.radial_menu_shortcut, RadialMenuShortcut::R);
+}
+
+#[test]
+fn set_lasso_binding_preference_persists_across_restart() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let path = dir.path().to_path_buf();
+
+    let mut app = GraphBrowserApp::new_from_dir(path.clone());
+    app.set_lasso_binding_preference(CanvasLassoBinding::ShiftLeftDrag);
+    drop(app);
+
+    let reopened = GraphBrowserApp::new_from_dir(path);
+    assert_eq!(
+        reopened.lasso_binding_preference(),
+        CanvasLassoBinding::ShiftLeftDrag
     );
 }
