@@ -39,4 +39,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run scenarios binary
-        run: cargo test --features test-utils --test scenarios
+        if: runner.os == 'Linux'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform linux --quiet
+
+      - name: Run scenarios binary (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform windows --quiet
+
+      - name: Run scenarios binary (macOS)
+        if: runner.os == 'macOS'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform macos --quiet

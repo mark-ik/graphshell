@@ -23,6 +23,9 @@ Commands:
   list
       List available validation packs.
 
+    list-policy
+            List policy-enabled packs with tiers/platform metadata.
+
   show <pack-id>
       Show description + exact commands for one pack.
 
@@ -47,6 +50,9 @@ Commands:
   run-affected [--dry-run] [--scope <all|base|worktree|staged|unstaged|untracked>] [--base <git-ref>] [--quiet]
       Run packs suggested by changed files in the working tree.
 
+  run-policy --tier <pr-required|pr-optional|nightly> [--platform <linux|windows|macos>] [--affected] [--base <git-ref>] [--scope <all|base|worktree|staged|unstaged|untracked>] [--dry-run] [--quiet]
+      Run packs selected by manifest policy metadata.
+
 Examples:
   pwsh -NoProfile -File scripts/dev/test-select.ps1 list
   pwsh -NoProfile -File scripts/dev/test-select.ps1 show camera-lock
@@ -54,6 +60,7 @@ Examples:
     pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --base origin/main
     pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --scope staged
         pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope worktree --dry-run --quiet
+    pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --affected --base origin/main --quiet
 '@ | Write-Host
 }
 
@@ -154,6 +161,103 @@ function Resolve-SelectorOptionsFromArgs([string[]]$arguments) {
     return @{ BaseRef = $baseRef; Scope = $scope; Quiet = $quiet; Args = @($cleaned) }
 }
 
+function Get-HostPolicyPlatform {
+    if ($IsWindows) { return 'windows' }
+    if ($IsMacOS) { return 'macos' }
+    if ($IsLinux) { return 'linux' }
+    return 'linux'
+}
+
+function Resolve-PolicyOptionsFromArgs([string[]]$arguments) {
+    $tier = $null
+    $platform = Get-HostPolicyPlatform
+    $baseRef = $null
+    $scope = 'all'
+    $quiet = $false
+    $dryRun = $false
+    $affected = $false
+    $validScopes = @('all', 'base', 'worktree', 'staged', 'unstaged', 'untracked')
+    $validTiers = @('pr-required', 'pr-optional', 'nightly')
+    $validPlatforms = @('linux', 'windows', 'macos')
+    $cleaned = New-Object System.Collections.Generic.List[string]
+
+    for ($i = 0; $i -lt $arguments.Count; $i++) {
+        $arg = [string]$arguments[$i]
+        switch ($arg) {
+            '--tier' {
+                if ($i + 1 -ge $arguments.Count) { throw 'Expected value after --tier' }
+                $candidate = [string]$arguments[$i + 1]
+                if ($validTiers -notcontains $candidate) {
+                    throw ("Invalid --tier '{0}'. Valid values: {1}" -f $candidate, ($validTiers -join ', '))
+                }
+                $tier = $candidate
+                $i++
+                continue
+            }
+            '--platform' {
+                if ($i + 1 -ge $arguments.Count) { throw 'Expected value after --platform' }
+                $candidate = [string]$arguments[$i + 1]
+                if ($validPlatforms -notcontains $candidate) {
+                    throw ("Invalid --platform '{0}'. Valid values: {1}" -f $candidate, ($validPlatforms -join ', '))
+                }
+                $platform = $candidate
+                $i++
+                continue
+            }
+            '--base' {
+                if ($i + 1 -ge $arguments.Count) { throw 'Expected value after --base' }
+                $baseRef = [string]$arguments[$i + 1]
+                $i++
+                continue
+            }
+            '--scope' {
+                if ($i + 1 -ge $arguments.Count) { throw 'Expected value after --scope' }
+                $candidate = [string]$arguments[$i + 1]
+                if ($validScopes -notcontains $candidate) {
+                    throw ("Invalid --scope '{0}'. Valid values: {1}" -f $candidate, ($validScopes -join ', '))
+                }
+                $scope = $candidate
+                $i++
+                continue
+            }
+            '--quiet' {
+                $quiet = $true
+                continue
+            }
+            '--dry-run' {
+                $dryRun = $true
+                continue
+            }
+            '--affected' {
+                $affected = $true
+                continue
+            }
+            default {
+                [void]$cleaned.Add($arg)
+                continue
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($tier)) {
+        throw 'run-policy requires --tier <pr-required|pr-optional|nightly>'
+    }
+
+    if ($cleaned.Count -gt 0) {
+        throw ("Unknown arguments for run-policy: {0}" -f ($cleaned -join ' '))
+    }
+
+    return @{
+        Tier = $tier
+        Platform = $platform
+        BaseRef = $baseRef
+        Scope = $scope
+        Quiet = $quiet
+        DryRun = $dryRun
+        Affected = $affected
+    }
+}
+
 function Get-ChangedPaths([string]$baseRef, [string]$scope) {
     $paths = New-Object 'System.Collections.Generic.HashSet[string]'
 
@@ -221,29 +325,61 @@ function Get-ChangeSetLabel([string]$scope, [string]$baseRef) {
 function Get-AffectedPacks([string[]]$changedPaths) {
     $affected = @()
     foreach ($pack in $manifest.packs) {
-        $matches = @($pack.matchPaths)
-        if ($matches.Count -eq 0) {
-            continue
-        }
-
-        $hit = $false
-        foreach ($changed in $changedPaths) {
-            foreach ($needle in $matches) {
-                $needleNorm = ($needle -replace '\\', '/')
-                if ($changed -like "*$needleNorm*") {
-                    $hit = $true
-                    break
-                }
-            }
-            if ($hit) { break }
-        }
-
-        if ($hit) {
+        if (Test-PackMatchesChangedPaths -pack $pack -changedPaths $changedPaths) {
             $affected += $pack
         }
     }
 
     return @($affected)
+}
+
+function Test-PackMatchesChangedPaths([object]$pack, [string[]]$changedPaths) {
+    $matches = @($pack.matchPaths)
+    if ($matches.Count -eq 0) {
+        return $false
+    }
+
+    foreach ($changed in $changedPaths) {
+        foreach ($needle in $matches) {
+            $needleNorm = ($needle -replace '\\', '/')
+            if ($changed -like "*$needleNorm*") {
+                return $true
+            }
+        }
+    }
+
+    return $false
+}
+
+function Get-PolicyPacks([string]$tier, [string]$platform, [string[]]$changedPaths, [bool]$affectedOnly) {
+    $selected = @()
+
+    foreach ($pack in $manifest.packs) {
+        if (-not $pack.policy) {
+            continue
+        }
+
+        $tiers = @($pack.policy.tiers)
+        if ($tiers.Count -eq 0 -or $tiers -notcontains $tier) {
+            continue
+        }
+
+        $platforms = @($pack.policy.platforms)
+        if ($platforms.Count -gt 0 -and $platforms -notcontains $platform) {
+            continue
+        }
+
+        $alwaysRun = [bool]$pack.policy.alwaysRun
+        if ($affectedOnly) {
+            if ($alwaysRun -or (Test-PackMatchesChangedPaths -pack $pack -changedPaths $changedPaths)) {
+                $selected += $pack
+            }
+        } else {
+            $selected += $pack
+        }
+    }
+
+    return @($selected)
 }
 
 $command = if ($args.Count -gt 0) { $args[0] } else { 'list' }
@@ -276,6 +412,16 @@ switch ($command) {
         Write-Host 'commands:'
         foreach ($cmd in $item.commands) {
             Write-Host "- $cmd"
+        }
+    }
+    'list-policy' {
+        Write-Host 'Policy packs:'
+        foreach ($pack in $manifest.packs) {
+            if (-not $pack.policy) { continue }
+            $tiers = @($pack.policy.tiers) -join ','
+            $platforms = @($pack.policy.platforms) -join ','
+            $alwaysRun = [bool]$pack.policy.alwaysRun
+            Write-Host ("- {0}: tiers=[{1}] platforms=[{2}] alwaysRun={3}" -f $pack.id, $tiers, $platforms, $alwaysRun)
         }
     }
     'run' {
@@ -394,6 +540,48 @@ switch ($command) {
         }
 
         foreach ($pack in $affected) {
+            Invoke-Pack -pack $pack -dryRun $dryRun -quiet $quiet
+        }
+    }
+    'run-policy' {
+        $parsed = Resolve-PolicyOptionsFromArgs -arguments $rest
+        $tier = [string]$parsed.Tier
+        $platform = [string]$parsed.Platform
+        $baseRef = [string]$parsed.BaseRef
+        $scope = [string]$parsed.Scope
+        $quiet = [bool]$parsed.Quiet
+        $dryRun = [bool]$parsed.DryRun
+        $affectedOnly = [bool]$parsed.Affected
+
+        $changed = @()
+        if ($affectedOnly) {
+            $changed = @(Get-ChangedPaths -baseRef $baseRef -scope $scope)
+            if (-not $quiet) {
+                Write-Host (Get-ChangeSetLabel -scope $scope -baseRef $baseRef)
+                if ($changed.Count -eq 0) {
+                    Write-Host '- <none>'
+                } else {
+                    foreach ($path in $changed) {
+                        Write-Host "- $path"
+                    }
+                }
+            }
+        }
+
+        $selected = @(Get-PolicyPacks -tier $tier -platform $platform -changedPaths $changed -affectedOnly $affectedOnly)
+        if ($selected.Count -eq 0) {
+            Write-Host ("No policy packs selected (tier={0}, platform={1}, affected={2})." -f $tier, $platform, $affectedOnly)
+            break
+        }
+
+        if (-not $quiet) {
+            Write-Host ("Policy selection: tier={0} platform={1} affected={2}" -f $tier, $platform, $affectedOnly)
+            foreach ($pack in $selected) {
+                Write-Host ("- {0}: {1}" -f $pack.id, $pack.description)
+            }
+        }
+
+        foreach ($pack in $selected) {
             Invoke-Pack -pack $pack -dryRun $dryRun -quiet $quiet
         }
     }

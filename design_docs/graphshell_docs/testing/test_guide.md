@@ -1,6 +1,6 @@
 # Test Guide
 
-**Last Updated**: 2026-02-27  
+**Last Updated**: 2026-03-03  
 **Status**: Active  
 **Purpose**: Canonical testing entry guide for Graphshell.
 
@@ -51,11 +51,21 @@ pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --scope worktree
 pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope base --base origin/main
 pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --scope worktree --quiet
 pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope worktree --dry-run --quiet
+pwsh -NoProfile -File scripts/dev/test-select.ps1 list-policy
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --affected --base origin/main --quiet
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform windows --dry-run --quiet
 ```
 
 `test-select.ps1` supports `--scope all|base|worktree|staged|unstaged|untracked` on `changed`, `suggest`, and `run-affected`.
 Default scope is `all` (base delta, if provided, plus working tree).
 Use `--quiet` to suppress changed-file listings and show pack-focused output for CI logs.
+
+### Policy-Driven CI Contract (canonical)
+
+- `scripts/dev/test-contracts.json` is the canonical source of truth for routine validation packs.
+- Each pack may declare `policy.tiers`, `policy.platforms`, and `policy.alwaysRun`.
+- CI workflows should invoke `run-policy` instead of hard-coding pack IDs, so new packs are auto-adopted by policy metadata.
+- `pr-required` tier is the blocking PR gate baseline; `pr-optional` is informative PR signal; `nightly` is full confidence sweep.
 
 If diagnostics-focused checks are needed, use existing diagnostics test targets already referenced in strategy docs.
 

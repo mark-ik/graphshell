@@ -36,8 +36,8 @@ jobs:
 
       - name: Run affected validation packs (PR)
         if: github.event_name == 'pull_request'
-        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --base origin/${{ github.base_ref }} --quiet
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --affected --base origin/${{ github.base_ref }} --quiet
 
       - name: Run core validation packs (main push)
         if: github.event_name != 'pull_request'
-        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-many camera-lock focus-routing input-routing navigation-history --quiet
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --quiet

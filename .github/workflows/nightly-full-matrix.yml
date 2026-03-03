@@ -36,13 +36,14 @@ jobs:
       - name: Cargo check (locked)
         run: cargo check --locked
 
-      - name: Run full diagnostics scenario suite
-        run: cargo test shell::desktop::tests::scenarios:: -- --nocapture
-
-      - name: Run smoke quick (Windows)
+      - name: Run nightly policy packs (Windows)
         if: runner.os == 'Windows'
-        run: pwsh -NoProfile -File scripts/dev/smoke-matrix.ps1 quick
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform windows --quiet
 
-      - name: Run smoke quick (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: bash scripts/dev/smoke-matrix.sh quick
+      - name: Run nightly policy packs (Linux)
+        if: runner.os == 'Linux'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform linux --quiet
+
+      - name: Run nightly policy packs (macOS)
+        if: runner.os == 'macOS'
+        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform macos --quiet

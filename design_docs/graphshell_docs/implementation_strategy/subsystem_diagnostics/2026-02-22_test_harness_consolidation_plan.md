@@ -332,6 +332,8 @@ This inventory maps all functional areas to migration stages.
 
 ## Command Matrix (authoritative)
 
+> **Policy note (2026-03-03)**: The canonical command source is now `scripts/dev/test-contracts.json` consumed via `scripts/dev/test-select.ps1 run-policy`. The explicit commands below remain as diagnostic examples and migration checkpoints.
+
 Run after each migration increment:
 
 - `cargo test shell::desktop::tests::scenarios::layout:: -- --nocapture`
@@ -347,6 +349,11 @@ Run after each migration increment:
 Run at stage boundaries:
 
 - `cargo test shell::desktop::tests::scenarios:: -- --nocapture`
+
+Policy-driven selectors (CI/local):
+
+- `pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform linux --affected --base origin/main --quiet`
+- `pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier nightly --platform windows --quiet`
 
 ---
 

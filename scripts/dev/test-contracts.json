@@ -4,6 +4,18 @@
     {
       "id": "camera-lock",
       "description": "Camera fit-lock reducer + input + orchestration modal passthrough",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
       "matchPaths": [
         "graph_app.rs",
         "input/mod.rs",
@@ -20,6 +32,18 @@
     {
       "id": "focus-routing",
       "description": "Host/UI focus routing shortcuts and workbench focus cycle",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
       "matchPaths": [
         "shell/desktop/host/headed_window.rs",
         "shell/desktop/ui/gui.rs",
@@ -37,6 +61,18 @@
     {
       "id": "input-routing",
       "description": "Scenario-level input routing conformance bundle",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
       "matchPaths": [
         "shell/desktop/tests/scenarios/input_routing.rs",
         "scripts/dev/test-contracts.json",
@@ -49,6 +85,18 @@
     {
       "id": "navigation-history",
       "description": "Scenario-level navigation/history callback ordering and traversal semantics",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
       "matchPaths": [
         "graph_app.rs",
         "shell/desktop/tests/harness.rs",
@@ -62,15 +110,96 @@
       ]
     },
     {
+      "id": "scenarios-binary",
+      "description": "tests/scenarios binary target (feature-gated CI canary)",
+      "policy": {
+        "tiers": [
+          "pr-optional",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "tests/scenarios/main.rs",
+        "Cargo.toml",
+        ".github/workflows/scenarios-test.yml"
+      ],
+      "commands": [
+        "cargo test --features test-utils --test scenarios -- --nocapture"
+      ]
+    },
+    {
+      "id": "scenarios-full",
+      "description": "Full diagnostics harness scenario suite",
+      "policy": {
+        "tiers": [
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "shell/desktop/tests/scenarios/",
+        "shell/desktop/tests/harness.rs",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1"
+      ],
+      "commands": [
+        "cargo test shell::desktop::tests::scenarios:: -- --nocapture"
+      ]
+    },
+    {
       "id": "smoke-quick",
-      "description": "Fast baseline check + targeted UI smoke",
+      "description": "Fast baseline check + targeted UI smoke (Windows lane)",
+      "policy": {
+        "tiers": [
+          "nightly"
+        ],
+        "platforms": [
+          "windows"
+        ],
+        "alwaysRun": true
+      },
       "matchPaths": [
         "scripts/dev/smoke-matrix.ps1",
-        "scripts/dev/smoke-matrix.sh",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1",
         "Cargo.toml"
       ],
       "commands": [
         "pwsh -NoProfile -File scripts/dev/smoke-matrix.ps1 quick"
+      ]
+    },
+    {
+      "id": "smoke-quick-unix",
+      "description": "Fast baseline check + targeted UI smoke (Linux/macOS lanes)",
+      "policy": {
+        "tiers": [
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "scripts/dev/smoke-matrix.sh",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1",
+        "Cargo.toml"
+      ],
+      "commands": [
+        "bash scripts/dev/smoke-matrix.sh quick"
       ]
     }
   ]
