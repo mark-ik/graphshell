@@ -3,6 +3,7 @@ mod diagnostics_startup;
 mod grouping;
 mod input_routing;
 mod layout;
+mod navigation;
 mod persistence;
 mod registries;
 mod routing;

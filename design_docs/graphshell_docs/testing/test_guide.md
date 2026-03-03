@@ -41,6 +41,7 @@ Selective validation packs (run behavior-specific slices only when needed):
 pwsh -NoProfile -File scripts/dev/test-select.ps1 list
 pwsh -NoProfile -File scripts/dev/test-select.ps1 show camera-lock
 pwsh -NoProfile -File scripts/dev/test-select.ps1 run input-routing
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run navigation-history
 pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest
 pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected
 pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --base origin/main

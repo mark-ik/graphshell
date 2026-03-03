@@ -49,7 +49,13 @@ impl TestRegistry {
     }
 
     pub(crate) fn map_test_webview(&mut self, key: NodeKey) {
-        self.app.map_webview_to_node(test_webview_id(), key);
+        let _ = self.map_test_webview_with_id(key);
+    }
+
+    pub(crate) fn map_test_webview_with_id(&mut self, key: NodeKey) -> crate::app::RendererId {
+        let webview_id = test_webview_id();
+        self.app.map_webview_to_node(webview_id, key);
+        webview_id
     }
 
     pub(crate) fn step_with_tile_sample(

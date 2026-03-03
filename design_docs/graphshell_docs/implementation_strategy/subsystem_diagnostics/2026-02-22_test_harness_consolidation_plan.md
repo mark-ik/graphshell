@@ -254,10 +254,17 @@ This inventory maps all functional areas to migration stages.
     - [x] Verify drag-to-group creates `UserGrouped` edges (via intent inspection).
 
 ### Phase C: Interaction & Control Plane (Stage 4)
-- [ ] **Navigation & History**
+- [~] **Navigation & History**
     - Verify `Back`/`Forward` intents update history index correctly.
     - Verify `WebViewUrlChanged` triggers correct node updates.
     - **Validation**: Replaces manual "Navigation: Back/Forward Delegate Event Ordering" checks.
+    - [x] Added harness scenario module: `shell/desktop/tests/scenarios/navigation.rs`.
+    - [x] Added scenarios:
+        - `webview_url_changed_updates_existing_mapping`
+        - `webview_url_changed_appends_traversal_between_known_nodes_without_self_loop`
+        - `webview_history_changed_clamps_index_to_entry_bounds`
+        - `webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts`
+        - `history_callback_is_authoritative_when_url_callback_stays_on_latest_entry`
 - [~] **Graph Interactions & Semantic Tagging**
     - Verify `SelectNode` (single/multi) updates selection state.
     - Verify `CreateUserGroupedEdge` intents are emitted on grouping actions.
@@ -334,6 +341,7 @@ Run after each migration increment:
 - `cargo test shell::desktop::tests::scenarios::tags:: -- --nocapture`
 - `cargo test shell::desktop::tests::scenarios::black_tile:: -- --nocapture`
 - `cargo test shell::desktop::tests::scenarios::input_routing:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::navigation:: -- --nocapture`
 - `cargo check`
 
 Run at stage boundaries:

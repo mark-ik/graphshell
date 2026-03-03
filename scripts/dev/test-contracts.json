@@ -47,6 +47,21 @@
       ]
     },
     {
+      "id": "navigation-history",
+      "description": "Scenario-level navigation/history callback ordering and traversal semantics",
+      "matchPaths": [
+        "graph_app.rs",
+        "shell/desktop/tests/harness.rs",
+        "shell/desktop/tests/scenarios/navigation.rs",
+        "shell/desktop/tests/scenarios/mod.rs",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1"
+      ],
+      "commands": [
+        "cargo test shell::desktop::tests::scenarios::navigation:: -- --nocapture"
+      ]
+    },
+    {
       "id": "smoke-quick",
       "description": "Fast baseline check + targeted UI smoke",
       "matchPaths": [
