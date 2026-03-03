@@ -10039,6 +10039,29 @@ mod tests {
     }
 
     #[test]
+    fn resolve_view_route_accepts_node_target_variant() {
+        let node_id = Uuid::new_v4();
+        let route = GraphBrowserApp::resolve_view_route(
+            format!("verso://view/node/{node_id}").as_str(),
+        )
+        .expect("view node route should parse");
+        assert!(matches!(route, ViewRouteTarget::Node(parsed) if parsed == node_id));
+    }
+
+    #[test]
+    fn resolve_view_route_accepts_note_target_variant() {
+        let note_id = Uuid::new_v4();
+        let route = GraphBrowserApp::resolve_view_route(
+            format!("verso://view/note/{note_id}").as_str(),
+        )
+        .expect("view note route should parse");
+        assert!(matches!(
+            route,
+            ViewRouteTarget::Note(parsed) if parsed.as_uuid() == note_id
+        ));
+    }
+
+    #[test]
     fn opening_help_panel_closes_other_capture_surfaces() {
         let mut app = GraphBrowserApp::new_for_testing();
         app.workspace.show_command_palette = true;
