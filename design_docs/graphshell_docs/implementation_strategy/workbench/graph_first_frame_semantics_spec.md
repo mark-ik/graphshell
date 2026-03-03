@@ -12,7 +12,7 @@
 - `../aspect_input/input_interaction_spec.md`
 - `../subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `../2026-03-01_ux_migration_design_spec.md`
-- `../../TERMINOLOGY.md`
+- `../../../TERMINOLOGY.md`
 
 ---
 
@@ -24,10 +24,11 @@ graph-first organizational object.
 It establishes:
 
 1. Frame identity and lifecycle in graph scope.
-2. Workbench handles as open views over graph frames.
-3. Membership synchronization between graph truth and workbench interactions.
-4. Close vs delete semantics (non-destructive close by default).
-5. UxTree exposure requirements for frame-aware automation and accessibility.
+2. Frame address semantics under the internal address-as-identity model (`verso://` runtime canonical namespace, legacy `graphshell://` compatibility alias).
+3. Workbench handles as open views over graph frames.
+4. Membership synchronization between graph truth and workbench interactions.
+5. Close vs delete semantics (non-destructive close by default).
+6. UxTree exposure requirements for frame-aware automation and accessibility.
 
 This is a semantic authority spec. It does not define rendering geometry.
 
@@ -78,6 +79,31 @@ struct NodeFrameMembership {
 }
 ```
 
+### 3.0 Frame address identity
+
+Every frame has a canonical internal address:
+
+`verso://frame/<FrameId>`
+
+Legacy note:
+
+- Older docs may still refer to `graphshell://frame/<FrameId>` as the original spec basis.
+- Runtime canonical formatting should emit `verso://frame/<FrameId>`.
+
+Address rules:
+
+- The address is issued when the frame identity is created.
+- The address is stable for the lifetime of that frame.
+- The address resolves to the frame's graph node under the address-as-identity rule in `TERMINOLOGY.md`.
+- Closing a workbench handle does not invalidate the address, because handle closure is not graph deletion.
+- `DeleteFrame(frame_id)` removes the frame identity and therefore removes the live resolution of `verso://frame/<FrameId>`.
+
+The frame address is the canonical identity bridge between:
+
+- graph storage (`GraphFrame`),
+- workbench handles (`OpenFrameHandle` / `CloseFrameHandle`),
+- frame-membership visualization on the canvas.
+
 ### 3.1 Membership cardinality
 
 - Nodes may be members of zero, one, or many frames.
@@ -87,9 +113,14 @@ struct NodeFrameMembership {
 
 ### 3.2 Terminology rule
 
-`MagneticZone` is not a runtime implementation authority in current Graphshell.
-Use `Frame`, `Frame membership`, and `Frame-affinity region` as canonical terms
-for organization semantics.
+`Frame` is the semantic authority. `MagneticZone` is legacy visualization wording and, where retained, refers only to the canvas presentation of a frame-affinity region.
+
+Canonical wording:
+
+- Use `Frame` for the graph object.
+- Use `Frame membership` for node-to-frame organizational links.
+- Use `Frame-affinity region` for the visual/layout projection of a frame on the graph canvas.
+- If `MagneticZone` appears in older docs, read it as a legacy alias for the visual frame-affinity region, not a separate semantic object.
 
 ---
 
@@ -134,6 +165,8 @@ Frames may project a visual region on graph canvas for orientation:
 - affinity is a visual/layout hint only,
 - no implied identity duplication.
 
+The frame-affinity region is a visual projection of the same frame identified by `verso://frame/<FrameId>`. It is not a second frame-like object and must not drift into a separate storage identity.
+
 ### 5.2 Multiple memberships
 
 If a node belongs to multiple frames:
@@ -167,11 +200,12 @@ UxTree must expose frame semantics for automation/accessibility:
 ## 7. Acceptance Criteria
 
 1. Closing a frame handle does not remove graph frame identity.
-2. Frame membership mutations in workbench are reflected in graph state.
-3. Node can belong to multiple frames and memberships persist across restart.
-4. Deleting frame is explicit and separate from close.
-5. UxTree surfaces frame handles and frame-membership actions.
-6. Canonical docs in this lane use frame-first terminology.
+2. `verso://frame/<FrameId>` remains stable while the frame exists and stops resolving only after `DeleteFrame` (with legacy `graphshell://frame/<FrameId>` accepted only as a compatibility alias while migration remains active).
+3. Frame membership mutations in workbench are reflected in graph state.
+4. Node can belong to multiple frames and memberships persist across restart.
+5. Deleting frame is explicit and separate from close.
+6. UxTree surfaces frame handles and frame-membership actions.
+7. Canonical docs in this lane use frame-first terminology.
 
 ---
 

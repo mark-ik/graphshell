@@ -10,7 +10,7 @@
 - `history_timeline_and_temporal_navigation_spec.md`
 - `2026-02-20_edge_traversal_impl_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
-- `../../TERMINOLOGY.md` — `Traversal`, `Edge Traversal History`, `EdgePayload`, `EdgeType`, `AgentRegistry`
+- `../../../TERMINOLOGY.md` — `Traversal`, `Edge Traversal History`, `EdgePayload`, `EdgeType`, `AgentRegistry`
 
 ---
 
@@ -70,11 +70,14 @@ NavigationTrigger =
   | BackButton
   | ForwardButton
   | AddressBarEntry
+  | PanePromotion
   | Programmatic
   | Unknown
 ```
 
 Each navigation event between two nodes appends a `Traversal` record to the edge's `traversals` list. Repeated traversals are recorded (not deduplicated). The full traversal list within the rolling window is the recent history; older records are flushed to the archive and reflected in `metrics` (§2.4).
+
+`PanePromotion` is the trigger used when an already-open ephemeral pane becomes graph-backed and that transition should materialize a navigation edge in history. It is not used for mere chrome-state changes (`Docked <-> Tiled`) and it is not used for internal surfaces that are graph-backed at creation time (`verso://*` routes that never pass through an ephemeral pre-graph state; older docs may still refer to these as `graphshell://*` compatibility aliases).
 
 ### 2.3A Event-Stream Projection Model
 
@@ -135,6 +138,13 @@ Skip rules — a traversal is **not** recorded when:
 - Source and destination nodes are the same (self-loop navigation).
 - The destination node is unknown (not yet in the graph).
 - The navigation event has `#nohistory` tag on the source or destination node.
+
+Deferred edge-assertion rule for `PanePromotion`:
+
+- If the promotion flow has identified both endpoints but the destination node/address write has not completed yet, the reducer must enqueue a deferred edge assertion rather than creating a partial edge immediately.
+- The deferred path resolves only after the promoted pane has a stable node identity and address.
+- Once the destination node exists, append the `Traversal { trigger: PanePromotion, ... }` through the same `push_traversal` reducer path used by all other triggers.
+- If the pane never reaches graph-backed state, the deferred assertion is dropped and no traversal is recorded.
 
 **Invariant**: UI and render code must not mutate traversal state directly. All mutations route through the reducer via `AppendTraversal` intent or its WAL equivalent.
 
@@ -259,6 +269,7 @@ This section is a placeholder for future spec expansion.
 | Self-loop navigation is not recorded | Test: navigate A → A → no traversal appended to any edge |
 | `#nohistory` node suppresses traversal | Test: navigate to node with `#nohistory` → no traversal recorded |
 | Repeated traversal A → B appends multiple records | Test: navigate A → B three times → edge has 3 traversal records |
+| `PanePromotion` waits for node identity before append | Test: promote pane with deferred node creation -> no edge until destination node exists; then one traversal appended with `trigger = PanePromotion` |
 | WAL replay produces identical traversal list | Test: replay WAL from empty state → `traversals` list matches original |
 | Stroke width reflects traversal count | Test: 1 traversal vs 10 traversals on same edge → measurable width difference |
 | Dominant direction computed at render time | Test: `EdgePayload` has no `dominant_direction` field |

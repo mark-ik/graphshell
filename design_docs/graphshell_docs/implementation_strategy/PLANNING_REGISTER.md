@@ -7,6 +7,8 @@
 
 - [subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md](subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md) - Consolidated UX execution control-plane (baseline done-gate + milestone checklist + issue-domain mapping).
 - [2026-02-28_ux_contract_register.md](2026-02-28_ux_contract_register.md) - Cross-spec UX ownership map and contract register.
+- [2026-03-03_pre_wgpu_feature_validation_gate_checklist.md](2026-03-03_pre_wgpu_feature_validation_gate_checklist.md) - Feature/validation-gate-only closure checklist for pre-wgpu readiness.
+- [2026-03-03_spec_conflict_resolution_register.md](2026-03-03_spec_conflict_resolution_register.md) - Priority-ordered spec conflict and terminology resolution register for pre-wgpu closure.
 
 ## Contents
 
@@ -684,7 +686,7 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
 | `lane:stabilization` (`#88`) | User-visible regressions, control responsiveness, focus affordances, camera/lasso correctness | Active when regressions exist | `render/mod.rs`, `app.rs`, `gui.rs`, `input/mod.rs`, `tile_compositor.rs` | Preempts other lanes while an active repro exists. |
-| `lane:roadmap` | Remaining docs/planning follow-on `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch, blocked) | Active merge-safe default (docs-only execution) | `PLANNING_REGISTER.md`, `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` | Use readiness plan `R1`..`R4` to advance issue-shaping without touching runtime hotspots. |
+| `lane:roadmap` | Merge-safe docs/planning follow-on: `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch, blocked) plus pre-wgpu spec conflict closure slices | Active merge-safe default (docs-only execution) | `PLANNING_REGISTER.md`, `2026-03-03_spec_conflict_resolution_register.md`, `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` | Use this lane for merge-safe canonical doc work, including P1–P4 spec conflict closure, without touching runtime hotspots. |
 | `lane:control-ui-settings` (`#89`) | Command surfaces + settings IA/surface execution | Active planning / queued (high priority) | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs` | User report now provides concrete issue-ready slices (palette/context unification, theme toggle, omnibar/radial polish). |
 | `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority, active child slices) | `aspect_render/aspect_render/2026-02-20_embedder_decomposition_plan.md`, `gui.rs`, `gui_frame.rs`, `host/*` | Includes compositor callback pass contract and legacy webview context-menu/new-tab path retirement/bridging. |
 | `lane:runtime-followon` (`#91`) | SR2/SR3 signal routing contract/fabric + observability | Prospective (ticket first) | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md` | Requires fresh child issues; do not reuse queue-cleanup issues. |

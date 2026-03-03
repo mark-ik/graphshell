@@ -242,7 +242,8 @@ This inventory maps all functional areas to migration stages.
 - [~] **Persistence Switching & Preferences**
 - [x] `test_switch_persistence_dir_reloads_graph_state`
 - [x] Preference persistence (toast anchor)
-- [ ] Remaining preference persistence (lasso binding, shortcuts)
+- [x] Preference persistence (shortcut bindings)
+- [x] Preference persistence (lasso binding)
 
 ### Phase B: Layout & Compositor (Stage 3) - **Active**
 - [x] **Tile Geometry Invariants**
@@ -379,6 +380,8 @@ Policy-driven selectors (CI/local):
 - Phase A Session Autosave & Retention migration complete (scenarios authoritative; `app.rs` duplicates removed).
 - Phase A Persistence Switching migration complete (`switch_persistence_dir_reloads_graph_state`).
 - Phase A Preference Persistence: toast anchor migrated.
+- Phase A Preference Persistence: shortcut bindings migrated (`set_shortcut_bindings_persist_across_restart`).
+- Phase A Preference Persistence: lasso binding migrated (`set_lasso_binding_preference_persists_across_restart`).
 - Semantic tagging scenarios added: `#pin` tag sync and `TagNode`/`UntagNode` state (2 tests in `tags.rs`).
 - First grouping-intent scenario: `create_user_grouped_edge_from_primary_selection_creates_grouped_edge` (1 test in `grouping.rs`).
 - Registries scenarios passing (`cargo test shell::desktop::tests::scenarios::registries -- --nocapture`).
@@ -386,7 +389,6 @@ Policy-driven selectors (CI/local):
 
 **Remaining**
 
-- Phase A: remaining preference persistence tests (lasso binding, shortcut bindings).
 - Phase C.1: Undo/Redo stack mechanics and state restoration scenarios.
 - Phase C.2: Workspace routing explainability (resolver trace, membership affordance, batch observability).
 - Phase C: Navigation & History scenarios (`Back`/`Forward` intent ordering).
@@ -399,10 +401,9 @@ Policy-driven selectors (CI/local):
 
 Immediate next batch:
 
-1. Migrate remaining preference persistence tests (lasso binding + shortcut bindings) into `shell/desktop/tests/scenarios/persistence.rs`.
-2. Add Phase C.1 Undo/Redo scenarios (`stack_mechanics` + `state_restoration` sub-modules or inline in a new `undo.rs`).
-3. Extend grouping coverage to split/container hierarchy semantics in harness-observable outputs.
-4. Run full stage-boundary matrix and append evidence: `cargo test shell::desktop::tests::scenarios:: -- --nocapture`.
+1. Add Phase C.1 Undo/Redo scenarios (`stack_mechanics` + `state_restoration` sub-modules or inline in a new `undo.rs`).
+2. Extend grouping coverage to split/container hierarchy semantics in harness-observable outputs.
+3. Run full stage-boundary matrix and append evidence: `cargo test shell::desktop::tests::scenarios:: -- --nocapture`.
 
 ---
 

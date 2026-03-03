@@ -2,7 +2,7 @@
      License, v. 2.0. If a copy of the MPL was not distributed with this
      file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
 
-# Workbench Tab Semantics Overlay and Promotion Plan
+# Workbench Tab Semantics Overlay and Restore/Collapse Plan
 
 **Date**: 2026-02-22
 **Status**: Implementation-Ready (updated 2026-02-23)
@@ -17,7 +17,7 @@
 
 Add a thin tab-semantics overlay subsystem on top of the workbench (`egui_tiles`) so Graphshell
 can preserve tab-specific behavior through structural normalization (including `simplify()`), while
-supporting pane rest states and on-demand promotion/demotion back into tab containers.
+supporting pane rest states and on-demand restoration back into tab containers.
 
 Stage 8A (design lock) is complete — this document is the design. The remaining stages are
 implementation work.
@@ -28,10 +28,14 @@ implementation work.
 
 - **Visual tabs**: current `egui_tiles::Container::Tabs` shape in the live workbench tree
 - **Semantic tabs**: Graphshell tab/group meaning persisted in overlay metadata
-- **Pane rest state**: a valid pane-only representation of a semantic tab/group after demotion or `simplify()`
+- **Pane rest state**: a valid pane-only representation of a semantic tab/group after collapse or `simplify()`
 - **Hoist / Unhoist**: structural workbench tree transforms only (egui_tiles operations)
-- **Promote / Demote**: semantic + structural lifecycle actions that may trigger hoist/unhoist
+- **Restore Tabs / Collapse to Pane Rest**: semantic + structural lifecycle actions in this plan that may trigger hoist/unhoist
 - **PaneId**: stable pane identity from the manifest-backed frame bundle model (defined in `2026-02-22_workbench_workspace_manifest_persistence_plan.md`)
+
+Terminology guardrail:
+
+- **Promotion** remains reserved for graph-enrollment / graph-citizenship semantics elsewhere in Graphshell and is intentionally not used as the canonical lifecycle term in this plan.
 
 Resolved semantics:
 
@@ -47,7 +51,7 @@ Resolved semantics:
 - The `egui_tiles` workbench tree is structural state, not semantic truth.
 - Semantic metadata is optional and additive.
 - Restore prioritizes content availability first, semantic exactness second, exact structural shape third.
-- Promotion/demotion between pane and tab-container forms is first-class behavior, not an exception path.
+- Restore/collapse transitions between pane and tab-container forms are first-class behavior, not an exception path.
 - Graphshell remains compatible with dependency-native transforms (`simplify()`) by persisting semantics explicitly instead of relying on incidental tree shape.
 
 ---
@@ -58,7 +62,7 @@ Resolved semantics:
 
 The `WorkbenchSurfaceRegistry` layout policy section owns simplification options and tab container
 rules. When `egui_tiles::simplify()` runs, it should consult the registry's `SimplificationOptions`
-rather than using hardcoded defaults. The overlay's promote/demote operations must remain consistent
+rather than using hardcoded defaults. The overlay's restore/collapse operations must remain consistent
 with whatever simplification policy is active.
 
 ### GraphWorkspace / AppServices (Phase 6 — planned)
@@ -70,9 +74,9 @@ fields) — it is serializable state only.
 ### Intent Boundary
 
 - `render/*` captures UI events only; it must not directly mutate overlay semantics.
-- `app.rs` is the authority for semantic decisions (promotion/demotion intents, repair policy, warning creation).
+- `app.rs` is the authority for semantic decisions (restore/collapse intents, repair policy, warning creation).
 - `desktop/*` applies workbench tree mutations and runtime effects in response to app-level intents.
-- Promotion/demotion are explicit `GraphIntent` variants, not ad hoc tree rewrites at UI callsites.
+- Restore/collapse actions are explicit `GraphIntent` variants, not ad hoc tree rewrites at UI callsites.
 
 ---
 
@@ -102,7 +106,7 @@ Optional future additions (schema-additive, not breaking):
 
 - Group-level UI metadata: label, color, collapsed/rest preference
 - Pane-level metadata: title override, pin state
-- Timestamps: `last_promoted_at`, `last_demoted_at`
+- Timestamps: `last_restored_at`, `last_collapsed_at`
 - Diagnostics: `last_repair_at`, `last_repair_reason`
 
 ---
@@ -140,16 +144,16 @@ fn pane_semantic_tab_state(pane_id: PaneId, semantics: Option<&FrameTabSemantics
 
 ---
 
-## Promotion / Demotion Semantics
+## Restore / Collapse Semantics
 
-### Demote: semantic tab/group → pane rest state
+### Collapse to pane rest state: semantic tab/group -> pane rest state
 
 - Persist/refresh overlay metadata before structural change.
 - Allow tabs container to be simplified/unhoisted into pane rest state.
 - Preserve content visibility (last paint / thumbnail fallback when runtime content suspends).
 - Keep pane fully usable while tab chrome is hidden.
 
-### Promote: pane rest state → semantic tab/group
+### Restore tabs: pane rest state -> semantic tab/group
 
 - Re-wrap pane into tabs container (egui_tiles structural operation).
 - Reload/reapply overlay metadata: group membership, order, active pane.
@@ -162,17 +166,17 @@ Ordering invariant (must not be violated):
 3. Lifecycle/runtime dispatch — resume/suspend webviews as needed
 4. UI readiness update — on runtime confirmation
 
-Both promote and demote must be idempotent. Pane rest state is a valid intermediate state while
+Both restore and collapse operations must be idempotent. Pane rest state is a valid intermediate state while
 runtime content is suspended or resuming.
 
 ### Intent Variants
 
 ```rust
-GraphIntent::PromotePaneToSemanticTabGroup {
+GraphIntent::RestorePaneToSemanticTabGroup {
     pane_id: PaneId,
     group_id: TabGroupId,   // existing group to rejoin, or new
 }
-GraphIntent::DemoteSemanticTabGroupToPaneRest {
+GraphIntent::CollapseSemanticTabGroupToPaneRest {
     group_id: TabGroupId,
 }
 GraphIntent::RepairFrameTabSemantics {
@@ -187,12 +191,12 @@ to these intents.
 
 ## Single-Pane On-Demand Affordance
 
-When a semantic tab group has been demoted to pane rest state, expose a small inverted-tab control:
+When a semantic tab group has been collapsed to pane rest state, expose a small inverted-tab control:
 
 - Anchored near the pane viewport margin (upper-left, configurable via `WorkbenchSurfaceRegistry`
   interaction policy).
 - Hidden by default; revealed when cursor approaches the tab region.
-- Click dispatches `PromotePaneToSemanticTabGroup` intent.
+- Click dispatches `RestorePaneToSemanticTabGroup` intent.
 - Keyboard-accessible equivalent command must exist (not mouse-only); registered in `InputRegistry`.
 
 ---
@@ -260,21 +264,21 @@ Done gate: tab-aware feature behavior is stable under tree-shape normalization. 
 direct `Tree<TileKind>` access outside `desktop/workbench_semantics.rs` returns no new callsites
 for tab-semantic queries.
 
-### Stage 8D: Promotion / Demotion + Pane Rest State
+### Stage 8D: Restore / Collapse + Pane Rest State
 
 Goal: implement semantic lifecycle transitions and on-demand rewrap affordance.
 
-- Add `PromotePaneToSemanticTabGroup`, `DemoteSemanticTabGroupToPaneRest` intent variants and
+- Add `RestorePaneToSemanticTabGroup`, `CollapseSemanticTabGroupToPaneRest` intent variants and
   reducer handling.
 - Desktop apply layer: implement tree rewrap (hoist/unhoist), runtime lifecycle dispatch
   (resume/suspend), UI readiness update on confirmation.
-- Implement idempotency: applying promote/demote twice has same effect as once.
+- Implement idempotency: applying restore/collapse twice has same effect as once.
 - Implement single-pane inverted-tab affordance in `desktop/ui/toolbar/` or pane chrome render
   (exact location TBD by render pass structure). Register keyboard equivalent in `InputRegistry`.
-- Connect lifecycle ordering: promote waits for runtime confirmation before updating UI readiness.
+- Connect lifecycle ordering: restore waits for runtime confirmation before updating UI readiness.
 
-Done gate: demoted semantic tabs can be promoted back with metadata fully restored. Pane rest state
-is usable while runtime content is suspended or resuming. Promote/demote are idempotent under
+Done gate: collapsed semantic tabs can be restored with metadata fully restored. Pane rest state
+is usable while runtime content is suspended or resuming. Restore/collapse operations are idempotent under
 repeated application.
 
 ### Stage 8E: Simplify-Safe Restore Integration
@@ -302,10 +306,10 @@ or tab metadata loss under supported transforms.
 - Roundtrip tests with/without overlay metadata
 - Repair invariant tests: duplicate pane, invalid active pane, missing pane
 - Query precedence tests: overlay first, shape fallback, pane-only fallback
-- Promote/demote idempotency tests
+- Restore/collapse idempotency tests
 - Simplify/reapply equivalence tests: semantic invariants preserved across simplify
 - Warning aggregation tests: at most one user-facing warning per restore operation
-- Lifecycle ordering tests: promote while runtime is suspended or resuming
+- Lifecycle ordering tests: restore while runtime is suspended or resuming
 
 ---
 
@@ -320,11 +324,11 @@ tab-aware queries. Migrate high-risk consumers first (omnibar, pin UI).
 Repair warnings creating user confusion: exact aggregated messages with content-preservation-first
 repair policy. Debug logs for detail.
 
-Async races during promote/demote: explicit intent ordering, idempotent operations, pane rest state
+Async races during restore/collapse: explicit intent ordering, idempotent operations, pane rest state
 as valid intermediate state.
 
 `WorkbenchSurfaceRegistry` diverging from overlay assumptions: simplification options live in the
-registry; overlay promote/demote reads those options. If simplify policy changes, the
+registry; overlay restore/collapse logic reads those options. If simplify policy changes, the
 simplify-reapply pipeline (Stage 8E) must be re-validated.
 
 ---

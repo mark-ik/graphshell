@@ -216,7 +216,7 @@ Goals:
 Done gates:
 - [ ] Legacy dispatch callsites removed or wrapped behind Register APIs
 - [x] Legacy dispatch callsites removed or wrapped behind Register APIs (phase0 navigation/provider-wired runtime dispatch slice; see `#82`)
-- [x] `graphshell://settings/*` workbench routes (history/persistence/sync/physics) are pane-authority and no longer reducer-panel owned
+- [x] Internal settings workbench routes (`verso://settings/*` canonical, legacy `graphshell://settings/*` alias) are pane-authority and no longer reducer-panel owned
 - [ ] `RegistryRuntime` + signal routing layer responsibilities are documented and tested
 - [ ] `ControlPanel` API surface reflects coordinator/process-host role only
 
@@ -662,4 +662,3 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 - [presentation_domain_registry_spec.md](presentation_domain_registry_spec.md)
 - [lens_compositor_spec.md](lens_compositor_spec.md)
 - [workflow_registry_spec.md](workflow_registry_spec.md)
-

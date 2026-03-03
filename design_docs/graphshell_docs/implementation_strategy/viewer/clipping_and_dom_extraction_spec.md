@@ -15,6 +15,14 @@
 
 ---
 
+**Status note (2026-03-03):**
+
+- This spec preserves the original `graphshell://clip/<uuid>` wording as the historical clip-address proposal.
+- Runtime canonical internal routing has moved to `verso://...`, but clip authority is not yet finalized.
+- Until clip authority is explicitly defined, treat all `graphshell://clip/<uuid>` references here as provisional design intent rather than as the current canonical runtime namespace.
+
+---
+
 ## 1. Scope
 
 This spec defines the canonical contracts for:

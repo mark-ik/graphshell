@@ -11,6 +11,7 @@
 
 **Related**:
 - `2026-02-28_ux_contract_register.md`
+- `../2026-03-03_spec_conflict_resolution_register.md`
 - `../../research/2026-03-02_ux_integration_research.md`
 - `../../design/surface_behavior_spec.md`
 - `../../design/accessibility_baseline_checklist.md`
@@ -170,5 +171,6 @@ For any UX issue/PR touching current milestone semantics:
 2. Update `../2026-03-01_ux_migration_feature_spec_coverage_matrix.md` for spec ownership + three-tree status.
 3. Update `../2026-03-01_ux_migration_lifecycle_audit_register.md` for lifecycle stage + timing gate.
 4. Keep parity mapping current when UX research deliverables or closure statuses change (`#302` establishes the baseline audit pass).
+5. If a UX behavior contract changes because a spec-conflict authority doc lands (P1–P4), keep this control-plane doc aligned with the conflict register instead of preserving older terminology by inertia.
 
 A UX slice is not considered done until all three artifacts agree.

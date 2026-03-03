@@ -6,6 +6,7 @@
 
 **Related**:
 - `2026-03-01_ux_migration_design_spec.md`
+- `2026-03-03_spec_conflict_resolution_register.md`
 - `../research/2026-03-02_ux_integration_research.md`
 - `subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `subsystem_ux_semantics/ux_scenario_and_harness_spec.md`
@@ -117,7 +118,7 @@ UX migration is complete when:
 ## 6. Immediate Next Doc Passes
 
 1. Patch `canvas/layout_behaviors_and_physics_spec.md` to replace organizational `MagneticZone` wording with frame-affinity terminology where applicable.
-2. Add explicit cross-links from canonical specs to `workbench/graph_first_frame_semantics_spec.md`.
+2. Propagate the landed Phase 4 authority docs (`graph_first_frame_semantics_spec.md`, `edge_traversal_spec.md`, Pane Opening Mode / internal address plans) into remaining canonical cross-links that still rely on older wording (`graphshell://` historical references vs `verso://` runtime canonical namespace).
 3. Create the three Red specs listed in §3.
 4. Add a recurring checklist item in PR review templates: “feature row updated in UX migration coverage matrix.”
 

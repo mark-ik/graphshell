@@ -53,7 +53,7 @@ AddressKind =
   | Http           -- http:// or https:// URL
   | File           -- file:// URL or local path
   | Data           -- data: URL
-  | GraphshellClip -- graphshell://clip/<uuid>  (see clipping spec)
+  | GraphshellClip -- legacy clip-address family (historically `graphshell://clip/<uuid>`; final canonical clip namespace pending clip-authority resolution)
   | Directory      -- local filesystem directory path
   | Unknown        -- address type not determined
 ```
@@ -119,7 +119,7 @@ The `ViewerRegistry` resolves which `Viewer` backend handles a given node. Selec
 | Step | Condition | Result |
 |------|-----------|--------|
 | 1 | `address_kind == Http` or `address_kind == Data` | Select `ServoViewer` |
-| 2 | `address_kind == GraphshellClip` | Select `ClipViewer` (renders `graphshell://clip/` content) |
+| 2 | `address_kind == GraphshellClip` | Select `ClipViewer` (renders the legacy clip-address family; exact canonical namespace remains pending clip-authority resolution) |
 | 3 | `mime_hint` is set and a registered viewer claims it | Select that viewer |
 | 4 | MIME detection pipeline (§5) produces a MIME type with a registered viewer | Select that viewer |
 | 5 | No viewer matched | Select `FallbackViewer` (placeholder surface) |
@@ -164,7 +164,7 @@ The following viewer backends are defined for non-HTTP content. Each is an `Embe
 | `PdfViewer` | `application/pdf` | `pdf` | Uses `pdfium-render`; disabled if feature flag off → falls back to FallbackViewer |
 | `DirectoryViewer` | `AddressKind::Directory` | none (always on) | File browser widget; emits `NavigateTo` intent on file selection |
 | `AudioViewer` | `audio/*` (MP3, OGG, FLAC, WAV) | `audio` | Uses `symphonia` + `rodio`; minimal transport controls; disabled if feature flag off |
-| `ClipViewer` | `AddressKind::GraphshellClip` | none (always on) | Renders clipped content stored in `graphshell://clip/` address space |
+| `ClipViewer` | `AddressKind::GraphshellClip` | none (always on) | Renders clipped content stored in the clip-address family defined by the clipping spec; legacy docs use `graphshell://clip/`, but canonical clip authority is still pending |
 | `FallbackViewer` | anything unmatched | n/a | Placeholder surface; shows address, detected MIME, and "No viewer available" message |
 
 **Invariant**: All non-web viewers use `TileRenderMode::EmbeddedEgui`. No non-web viewer may use `NativeOverlay` or `CompositedTexture`.

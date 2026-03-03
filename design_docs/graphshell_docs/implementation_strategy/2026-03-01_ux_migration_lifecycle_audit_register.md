@@ -7,6 +7,7 @@
 **Related**:
 - `2026-03-01_ux_migration_design_spec.md`
 - `2026-03-01_ux_migration_feature_spec_coverage_matrix.md`
+- `2026-03-03_spec_conflict_resolution_register.md`
 - `../research/2026-03-02_ux_integration_research.md`
 - `subsystem_ux_semantics/ux_tree_and_probe_spec.md`
 - `subsystem_ux_semantics/ux_scenario_and_harness_spec.md`
@@ -118,6 +119,7 @@ observable, and contract-driven.
 	- "Magnetic zones" language reframed to frame-affinity behavior.
 	- Context-menu-primary language reframed to Command Palette contextual mode.
 	- Edge semantics framed as traversal-event projection.
+Phase 4 spec-conflict authority docs for frame semantics, traversal semantics, opening-mode boundaries, and address semantics are now landed; this checklist item stays open until the remaining older canonical docs inherit that terminology.
 
 ### 3.2A Pre-WGPU Spec → Issue Linkage (audit table)
 

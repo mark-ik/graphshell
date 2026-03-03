@@ -42,7 +42,12 @@ It explains:
 ### 2.2 Canonical architectural rule
 
 - Settings are nodes, not dialogs.
-- Internal routes such as `graphshell://settings/...` are page-backed, pane-composable app surfaces.
+- Internal routes such as `verso://settings/...` are page-backed, pane-composable app surfaces.
+
+Compatibility note:
+
+- Historical planning docs may still reference `graphshell://settings/...` as the original scheme.
+- Runtime canonical formatting is `verso://settings/...`; `graphshell://settings/...` is a legacy alias only.
 
 ### 2.3 Ownership model
 

@@ -4,6 +4,9 @@
 **Phase**: Registry Phase X (Feature Target 9)
 **Architecture**: Extension of `Verso` Native Mod + `GraphSemanticEvent`.
 
+**Compatibility note (2026-03-03):**
+This plan preserves the original `graphshell://clip/<uuid>` wording as the historical address proposal. Runtime canonical internal routing is now `verso://...`, but clip authority remains intentionally unresolved, so the exact clip address family should be treated as pending rather than final.
+
 ## Context
 Clipping allows a user to right-click a DOM element in a webview and extract it into a new, independent graph node. This node preserves the content (HTML/Image) even if the original source changes or goes offline.
 

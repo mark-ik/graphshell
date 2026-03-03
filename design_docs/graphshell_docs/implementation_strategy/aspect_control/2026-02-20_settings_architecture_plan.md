@@ -6,11 +6,12 @@
 
 **Status**: Draft (Not Started)
 
-**Bridge note (2026-02-20, updated 2026-02-23):**
+**Bridge note (2026-02-20, updated 2026-02-23, 2026-03-03):**
 Current in-app `Settings` menu work is implemented in `desktop/toolbar_ui/toolbar_settings_menu.rs` (decomposed from main toolbar module as of 2026-02-23):
 persisted preferences, input bindings, and omnibar controls are already user-configurable there.
 This plan is the structural next step to unify those controls behind a page-based settings model,
 not a replacement claim that settings do not exist today.
+This document preserves the original `graphshell://` naming because it is the historical planning basis, but runtime canonical internal routing now emits `verso://settings/...` and treats `graphshell://settings/...` as a compatibility alias.
 
 ---
 
@@ -23,10 +24,10 @@ search, `Persistence Hub` for data management) and egui dialogs. There is no uni
 model, no consistent navigation between settings surfaces, and no way to persist which panel a
 user prefers for a given category.
 
-This plan introduces a `graphshell://` internal URL scheme where each settings category is a
+This plan introduces an internal URL scheme (originally authored as `graphshell://`, now canonically emitted as `verso://`) where each settings category is a
 named page. Settings pages can be opened like any URL in the detail view, making them composable
 with the rest of the workspace model: a settings page is just a node that happens to have a
-`graphshell://` URL. Users can pin settings pages to workspaces, open them in split panes, and
+system-owned internal URL. Users can pin settings pages to workspaces, open them in split panes, and
 configure whether each category prefers a full-page, sidebar, or floating panel display.
 
 The core architectural claim: **settings are nodes, not dialogs.**
