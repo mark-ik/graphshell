@@ -123,6 +123,27 @@ fn frame_url_intent_queues_frame_restore_via_orchestration_authority() {
     );
 }
 
+#[test]
+fn invalid_frame_url_intent_is_not_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let unresolved_url = "verso://frame".to_string();
+    let mut intents = vec![GraphIntent::OpenFrameUrl {
+        url: unresolved_url.clone(),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert_eq!(intents.len(), 1);
+    match &intents[0] {
+        GraphIntent::OpenFrameUrl { url } => assert_eq!(url, &unresolved_url),
+        other => panic!("expected unresolved OpenFrameUrl intent, got {other:?}"),
+    }
+}
+
 #[cfg(feature = "diagnostics")]
 #[test]
 fn tool_url_intent_opens_history_tool_via_orchestration_authority() {

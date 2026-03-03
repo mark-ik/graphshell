@@ -604,6 +604,17 @@ mod tests {
     }
 
     #[test]
+    fn workbench_route_intent_canonicalizes_legacy_graphshell_settings_url() {
+        let legacy_url = "graphshell://settings/history";
+        let expected_url = "verso://settings/history";
+        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::OpenSettingsUrl { ref url }) if url == expected_url
+        ));
+    }
+
+    #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_frame_url() {
         let frame_url = crate::util::GraphshellAddress::frame("frame-123").to_string();
         let intent = workbench_route_intent_for_graphshell_url(&frame_url);
