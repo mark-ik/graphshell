@@ -182,6 +182,7 @@ impl Gui {
         tiles_tree: &mut Tree<TileKind>,
     ) {
         graph_app.tick_frame();
+        Self::reconcile_workspace_graph_views_from_tiles(graph_app, tiles_tree);
 
         Self::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
         Self::maybe_toggle_diagnostics_tool_pane(ctx, tiles_tree);

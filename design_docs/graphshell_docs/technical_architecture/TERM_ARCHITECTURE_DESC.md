@@ -33,7 +33,8 @@ Graphshell's architecture is a layered system of `Tile Tree` UI hosting, `The Re
   - tool/subsystem surface
 - Pane payloads are represented by `TileKind`:
   - `TileKind::Graph(GraphViewId)`
-  - `TileKind::Node(NodePaneState)`
+  - `TileKind::Pane(PaneState)` for unenrolled/ephemeral content panes
+  - `TileKind::Node(NodePaneState)` for promoted graph-enrolled node panes
   - `TileKind::Tool(ToolPaneState)`
 
 ## 3. Workbench / Workspace / Workflow

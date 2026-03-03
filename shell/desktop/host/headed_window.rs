@@ -242,6 +242,20 @@ impl HeadedWindow {
         state == ElementState::Pressed
     }
 
+    fn is_graph_control_shortcut(key_code: KeyCode) -> bool {
+        matches!(
+            key_code,
+            KeyCode::KeyT
+                | KeyCode::KeyP
+                | KeyCode::KeyC
+                | KeyCode::Home
+                | KeyCode::Escape
+                | KeyCode::F2
+                | KeyCode::F6
+                | KeyCode::F9
+        )
+    }
+
     fn resolve_pointer_position(
         &self,
         event_position: Option<PhysicalPosition<f64>>,
@@ -764,6 +778,8 @@ impl HeadedWindow {
                     | KeyCode::Home
                     | KeyCode::Escape
                     | KeyCode::F2
+                    | KeyCode::F6
+                    | KeyCode::F9
             ) =>
             {
                 // Graph control shortcuts always go to GUI, even when webview has focus
@@ -1627,5 +1643,17 @@ mod tests {
         assert!(!HeadedWindow::should_retarget_webview_focus(
             ElementState::Released
         ));
+    }
+
+    #[test]
+    fn test_graph_control_shortcut_includes_focus_and_camera_lock_keys() {
+        assert!(HeadedWindow::is_graph_control_shortcut(KeyCode::F6));
+        assert!(HeadedWindow::is_graph_control_shortcut(KeyCode::F9));
+    }
+
+    #[test]
+    fn test_graph_control_shortcut_excludes_regular_text_entry_keys() {
+        assert!(!HeadedWindow::is_graph_control_shortcut(KeyCode::Enter));
+        assert!(!HeadedWindow::is_graph_control_shortcut(KeyCode::KeyQ));
     }
 }

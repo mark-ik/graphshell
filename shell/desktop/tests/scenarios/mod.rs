@@ -1,6 +1,7 @@
 mod black_tile;
 mod diagnostics_startup;
 mod grouping;
+mod input_routing;
 mod layout;
 mod persistence;
 mod registries;

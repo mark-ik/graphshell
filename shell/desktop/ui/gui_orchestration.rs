@@ -895,7 +895,10 @@ fn modal_surface_active(graph_app: &GraphBrowserApp) -> bool {
 fn modal_allows_intent(intent: &GraphIntent) -> bool {
     matches!(
         intent,
-        GraphIntent::ToggleCommandPalette | GraphIntent::ToggleRadialMenu | GraphIntent::ToggleHelpPanel
+        GraphIntent::ToggleCommandPalette
+            | GraphIntent::ToggleRadialMenu
+            | GraphIntent::ToggleHelpPanel
+            | GraphIntent::ToggleCameraFitLock
     )
 }
 

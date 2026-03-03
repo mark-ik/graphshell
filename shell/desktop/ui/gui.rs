@@ -944,6 +944,28 @@ impl Gui {
         Self::active_node_pane_node(tiles_tree).is_some()
     }
 
+    fn graph_view_ids_from_tiles(tiles_tree: &Tree<TileKind>) -> HashSet<GraphViewId> {
+        tiles_tree
+            .tiles
+            .iter()
+            .filter_map(|(_, tile)| match tile {
+                Tile::Pane(TileKind::Graph(view_id)) => Some(*view_id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn reconcile_workspace_graph_views_from_tiles(
+        graph_app: &mut GraphBrowserApp,
+        tiles_tree: &Tree<TileKind>,
+    ) {
+        let live_graph_views = Self::graph_view_ids_from_tiles(tiles_tree);
+        graph_app.reconcile_workspace_graph_views(
+            &live_graph_views,
+            tile_view_ops::active_graph_view_id(tiles_tree),
+        );
+    }
+
     /// Paint the GUI, as of the last update.
     pub(crate) fn paint(&mut self, window: &Window) {
         self.begin_paint_pass();
@@ -1866,7 +1888,7 @@ mod graph_split_intent_tests {
     use super::{apply_graph_surface_focus_state, apply_node_focus_state};
     use super::gui_orchestration;
     use crate::shell::desktop::ui::gui_state::GuiRuntimeState;
-    use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, SettingsToolPage};
+    use crate::app::{CameraCommand, GraphBrowserApp, GraphIntent, GraphViewFrame, GraphViewId, GraphViewState, SettingsToolPage};
     use crate::graph::NodeKey;
     use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -2180,6 +2202,52 @@ mod graph_split_intent_tests {
         assert_eq!(runtime_state.focused_node_hint, None);
         assert!(runtime_state.graph_surface_focused);
         assert_eq!(app.workspace.focused_view, Some(graph_view));
+    }
+
+    #[test]
+    fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let stale_view = GraphViewId::new();
+        let live_view = GraphViewId::new();
+
+        app.workspace
+            .views
+            .insert(stale_view, GraphViewState::new_with_id(stale_view, "Stale"));
+        app.workspace
+            .views
+            .insert(live_view, GraphViewState::new_with_id(live_view, "Live"));
+        app.workspace.graph_view_frames.insert(
+            stale_view,
+            GraphViewFrame {
+                zoom: 1.0,
+                pan_x: -100.0,
+                pan_y: -100.0,
+            },
+        );
+
+        app.workspace.focused_view = Some(stale_view);
+        app.request_camera_command_for_view(Some(stale_view), CameraCommand::Fit);
+        app.apply_intents(vec![GraphIntent::RequestZoomIn]);
+        app.queue_pending_wheel_zoom_delta(stale_view, 1.0, Some((10.0, 20.0)));
+
+        let mut tiles = Tiles::default();
+        let live_graph_tile = tiles.insert_pane(TileKind::Graph(live_view));
+        let mut tree = Tree::new("graphshell_tiles", live_graph_tile, tiles);
+        let _ = tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == live_view)
+        });
+
+        super::Gui::reconcile_workspace_graph_views_from_tiles(&mut app, &tree);
+
+        assert!(app.workspace.views.contains_key(&live_view));
+        assert!(!app.workspace.views.contains_key(&stale_view));
+        assert!(!app.workspace.graph_view_frames.contains_key(&stale_view));
+        assert_eq!(app.workspace.focused_view, Some(live_view));
+        assert!(app.pending_camera_command().is_none());
+        assert!(app
+            .take_pending_keyboard_zoom_request(stale_view)
+            .is_none());
+        assert_eq!(app.pending_wheel_zoom_delta(stale_view), 0.0);
     }
 }
 

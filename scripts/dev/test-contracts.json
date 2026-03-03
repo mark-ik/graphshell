@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "packs": [
+    {
+      "id": "camera-lock",
+      "description": "Camera fit-lock reducer + input + orchestration modal passthrough",
+      "matchPaths": [
+        "graph_app.rs",
+        "input/mod.rs",
+        "render/mod.rs",
+        "shell/desktop/ui/gui_orchestration.rs",
+        "shell/desktop/ui/gui_orchestration_tests.rs",
+        "shell/desktop/tests/scenarios/input_routing.rs"
+      ],
+      "commands": [
+        "cargo test camera_fit_lock",
+        "cargo test --features diagnostics modal_is_active"
+      ]
+    },
+    {
+      "id": "focus-routing",
+      "description": "Host/UI focus routing shortcuts and workbench focus cycle",
+      "matchPaths": [
+        "shell/desktop/host/headed_window.rs",
+        "shell/desktop/ui/gui.rs",
+        "shell/desktop/ui/gui_update_coordinator.rs",
+        "shell/desktop/ui/gui_orchestration.rs",
+        "shell/desktop/ui/gui_orchestration_tests.rs",
+        "shell/desktop/workbench/tile_render_pass.rs",
+        "shell/desktop/tests/scenarios/input_routing.rs"
+      ],
+      "commands": [
+        "cargo test headed_window::tests::test_graph_control_shortcut",
+        "cargo test --features diagnostics cycle_focus_region"
+      ]
+    },
+    {
+      "id": "input-routing",
+      "description": "Scenario-level input routing conformance bundle",
+      "matchPaths": [
+        "shell/desktop/tests/scenarios/input_routing.rs",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1"
+      ],
+      "commands": [
+        "cargo test shell::desktop::tests::scenarios::input_routing:: -- --nocapture"
+      ]
+    },
+    {
+      "id": "smoke-quick",
+      "description": "Fast baseline check + targeted UI smoke",
+      "matchPaths": [
+        "scripts/dev/smoke-matrix.ps1",
+        "scripts/dev/smoke-matrix.sh",
+        "Cargo.toml"
+      ],
+      "commands": [
+        "pwsh -NoProfile -File scripts/dev/smoke-matrix.ps1 quick"
+      ]
+    }
+  ]
+}

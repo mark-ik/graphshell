@@ -71,6 +71,13 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             actions.toggle_view = true;
         }
 
+        // F9: Toggle camera fit-lock mode (global shortcut)
+        // Keep this available even while egui text fields own keyboard focus,
+        // matching Escape/Home behavior.
+        if i.key_pressed(Key::F9) {
+            actions.toggle_camera_fit_lock = true;
+        }
+
         // Skip remaining shortcuts while egui is consuming keyboard input.
         if keyboard_captured_by_egui {
             return;
@@ -79,11 +86,6 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         // T: Toggle physics
         if i.key_pressed(Key::T) {
             actions.toggle_physics = true;
-        }
-
-        // F9: Toggle camera fit-lock mode
-        if i.key_pressed(Key::F9) {
-            actions.toggle_camera_fit_lock = true;
         }
 
         // + / - / 0: keyboard zoom controls

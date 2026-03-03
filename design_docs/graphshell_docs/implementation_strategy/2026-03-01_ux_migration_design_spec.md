@@ -327,7 +327,7 @@ Graphshell has three distinct tree structures that the UX layer must relate:
 │  Root TileId                                             │
 │  ├── Split (Vertical)                                    │
 │  │   ├── TabGroup → Graph(GraphViewId-A)                 │
-│  │   └── TabGroup → Node(NodePaneState)                  │
+│  │   └── TabGroup → Pane(PaneState) / Node(NodePaneState)│
 │  └── TabGroup → Tool(ToolPaneState::Diagnostics)         │
 └──────────────────────┬──────────────────────────────────┘
                        │ renders data from
@@ -349,8 +349,8 @@ Graphshell has three distinct tree structures that the UX layer must relate:
 |------|----|-------------|-----------|
 | UxTree | Tile Tree | Read-only projection (C1). Each visible `TileKind` pane → at least one `UxNode` (C3). | UxTreeBuilder |
 | UxTree | Graph Data | Graph nodes at LOD ≥ Compact are emitted as `UxNode` children of their `GraphView` parent (C5). | UxTreeBuilder |
-| Tile Tree | Graph Data | `TileKind::Graph(GraphViewId)` → renders a view of the graph. `TileKind::Node(NodePaneState)` → renders a specific `NodeKey`. | Workbench Authority |
-| Graph Data | Tile Tree | `GraphIntent::OpenNode` → Workbench Authority creates new `TileKind::Node` pane. | Two-authority routing |
+| Tile Tree | Graph Data | `TileKind::Graph(GraphViewId)` → renders a view of the graph. `TileKind::Pane(PaneState)` → no graph node yet. `TileKind::Node(NodePaneState)` → renders a specific `NodeKey`. | Workbench Authority |
+| Graph Data | Tile Tree | `GraphIntent::OpenNode` → Workbench Authority creates new `TileKind::Node` pane. `Pane` promotion creates the `Node`, then upgrades `TileKind::Pane` to `TileKind::Node`. | Two-authority routing |
 | Tile Tree | UxTree | No direct dependency. Tile Tree does not read UxTree. | — |
 | Graph Data | UxTree | No direct dependency. Graph does not read UxTree. | — |
 

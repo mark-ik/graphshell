@@ -60,9 +60,11 @@ The UxTree is rebuilt from scratch every frame it is needed. It is not an increm
 updated data structure. Caching is permitted within one frame only.
 
 **C3 — Completeness under feature gate**
-When `ux-semantics` is active, every visible pane (`TileKind::Graph`, `TileKind::Node`,
-`TileKind::Tool`) must produce at least one `UxNode` in the tree. Invisible or hidden
-tiles (outside the viewport, collapsed by egui_tiles simplification) may be omitted.
+When `ux-semantics` is active, every visible pane (`TileKind::Graph`, `TileKind::Pane`,
+`TileKind::Node`, `TileKind::Tool`) must produce at least one `UxNode` in the tree.
+`TileKind::Pane` payloads are pane-only semantic surfaces; they must not be treated as
+graph-enrolled node panes. Invisible or hidden tiles (outside the viewport, collapsed
+by egui_tiles simplification) may be omitted.
 
 **C4 — No partial-construction panics**
 If a pane's internal state is inconsistent (e.g., a `NodePaneState` references a
@@ -80,6 +82,7 @@ node carries a `StatusIndicator` child with label "Zoom in to interact with node
 **ID1 — Path derivation**
 `UxNodeId`s are derived from stable app identity sources:
 - `GraphViewId` (opaque UUID, stable across pane reorder and split)
+- pane instance id (opaque UUID or equivalent, stable for the lifetime of the pane)
 - `NodeKey` (u32, stable for the lifetime of the node)
 - `TileId` (u64, stable within one tile tree session)
 - Named dialog identifiers (string constants, not frame-local handles)
@@ -94,8 +97,8 @@ node carries a `StatusIndicator` child with label "Zoom in to interact with node
 **ID2 — Stability across non-semantic refreshes**
 A `UxNode` whose semantic identity has not changed between frame N and frame N+1 must
 have the same `UxNodeId` in both snapshots. "Semantic identity" means: same pane type,
-same content binding (same `NodeKey`, `GraphViewId`, or dialog name), same structural
-role in its parent region.
+same content binding (same pane instance id, `NodeKey`, `GraphViewId`, or dialog name),
+same structural role in its parent region.
 
 **ID3 — Uniqueness within snapshot**
 No two `UxNode`s in the same `UxSnapshot` may share the same `UxNodeId`. This is
@@ -108,8 +111,8 @@ Format: `uxnode://{surface}/{...path segments}`
 
 Path segment rules:
 - Surface root: `workbench`, `dialog[{name}]`, `radial-menu`, `tooltip[{id}]`
-- Tile segment: `tile[{kind}:{stable-id}]` where kind is `graph`, `node`, or `tool`
-  and stable-id is the `GraphViewId` UUID, `NodeKey` decimal, or tool name string
+- Tile segment: `tile[{kind}:{stable-id}]` where kind is `graph`, `pane`, `node`, or `tool`
+  and stable-id is the `GraphViewId` UUID, pane instance id, `NodeKey` decimal, or tool name string
 - Leaf segments: kebab-case semantic names (`back-button`, `location-field`,
   `confirm-button`, `sector[{action-id}]`, `node[{key}]`)
 
@@ -117,6 +120,7 @@ Examples:
 ```
 uxnode://workbench/omnibar/location-field
 uxnode://workbench/workbar/tab[frame-0]
+uxnode://workbench/tile[pane:a1b2c3d4-e5f6-...]/viewer-content
 uxnode://workbench/tile[graph:a1b2c3d4-e5f6-...]/graph-canvas
 uxnode://workbench/tile[graph:a1b2c3d4-e5f6-...]/graph-node[42]
 uxnode://workbench/tile[node:42]/nav-bar/back-button

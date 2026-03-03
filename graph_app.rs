@@ -1951,8 +1951,10 @@ impl GraphBrowserApp {
         if self.workspace.camera_fit_locked == locked {
             return;
         }
+        let was_locked = self.workspace.camera_fit_locked;
         self.workspace.camera_fit_locked = locked;
         if locked {
+            self.workspace.drag_release_frames_remaining = 0;
             self.request_fit_to_screen();
         } else if matches!(
             self.workspace.pending_camera_command,
@@ -1962,6 +1964,61 @@ impl GraphBrowserApp {
             })
         ) {
             self.workspace.pending_camera_command = None;
+        }
+        log::debug!(
+            "camera_fit_lock: {} -> {} (pending_camera={:?}, pending_target={:?}, physics_running={}, interacting={})",
+            was_locked,
+            self.workspace.camera_fit_locked,
+            self.pending_camera_command(),
+            self.pending_camera_command_target_raw(),
+            self.workspace.physics.base.is_running,
+            self.workspace.is_interacting,
+        );
+    }
+
+    pub fn reconcile_workspace_graph_views(
+        &mut self,
+        live_graph_views: &HashSet<GraphViewId>,
+        fallback_focused_view: Option<GraphViewId>,
+    ) {
+        self.workspace
+            .views
+            .retain(|view_id, _| live_graph_views.contains(view_id));
+        self.workspace
+            .graph_view_frames
+            .retain(|view_id, _| live_graph_views.contains(view_id));
+
+        if self
+            .workspace
+            .focused_view
+            .is_some_and(|view_id| !live_graph_views.contains(&view_id))
+        {
+            self.workspace.focused_view =
+                fallback_focused_view.filter(|view_id| live_graph_views.contains(view_id));
+        }
+
+        if self.workspace.pending_camera_command.is_some_and(|pending| {
+            pending
+                .target_view
+                .is_some_and(|view_id| !live_graph_views.contains(&view_id))
+        }) {
+            self.workspace.pending_camera_command = None;
+        }
+
+        if self
+            .workspace
+            .pending_keyboard_zoom_request
+            .is_some_and(|pending| !live_graph_views.contains(&pending.target_view))
+        {
+            self.workspace.pending_keyboard_zoom_request = None;
+        }
+
+        if self
+            .workspace
+            .pending_wheel_zoom_target_view
+            .is_some_and(|view_id| !live_graph_views.contains(&view_id))
+        {
+            self.clear_pending_wheel_zoom_delta();
         }
     }
 
@@ -2145,6 +2202,9 @@ impl GraphBrowserApp {
         } else if let Some(was_running) = self.workspace.physics_running_before_interaction.take() {
             if was_running {
                 self.workspace.physics.base.is_running = true;
+                self.workspace.drag_release_frames_remaining = 0;
+            } else if self.workspace.camera_fit_locked {
+                self.workspace.physics.base.is_running = false;
                 self.workspace.drag_release_frames_remaining = 0;
             } else {
                 self.workspace.physics.base.is_running = true;
@@ -7443,6 +7503,30 @@ mod tests {
         app.apply_intents([GraphIntent::ReheatPhysics]);
 
         assert!(app.workspace.physics.base.is_running);
+        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
+    }
+
+    #[test]
+    fn test_set_camera_fit_lock_clears_pending_drag_release_decay() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.drag_release_frames_remaining = 7;
+
+        app.set_camera_fit_locked(true);
+
+        assert!(app.camera_fit_locked());
+        assert_eq!(app.workspace.drag_release_frames_remaining, 0);
+    }
+
+    #[test]
+    fn test_drag_release_keeps_physics_paused_when_camera_fit_lock_enabled() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.physics.base.is_running = false;
+        app.set_camera_fit_locked(true);
+
+        app.set_interacting(true);
+        app.set_interacting(false);
+
+        assert!(!app.workspace.physics.base.is_running);
         assert_eq!(app.workspace.drag_release_frames_remaining, 0);
     }
 

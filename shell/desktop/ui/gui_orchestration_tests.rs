@@ -357,6 +357,34 @@ fn global_shortcut_undo_is_consumed_when_modal_is_active() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn camera_fit_lock_toggle_is_not_consumed_when_modal_is_active() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_camera_lock_modal_passthrough", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    app.workspace.show_radial_menu = true;
+
+    let mut intents = vec![GraphIntent::ToggleCameraFitLock];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        !snapshot.contains(CHANNEL_UX_DISPATCH_CONSUMED),
+        "camera lock toggle should not be consumed by modal isolation"
+    );
+    assert!(
+        intents.len() == 1 && matches!(intents[0], GraphIntent::ToggleCameraFitLock),
+        "camera lock toggle intent should remain for reducer default handling"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn cycle_focus_region_failure_emits_ux_navigation_violation_channel() {
     let mut diagnostics =
         crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();

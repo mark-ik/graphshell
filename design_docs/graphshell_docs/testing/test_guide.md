@@ -35,6 +35,27 @@ cargo test
 pwsh -NoProfile -File scripts/dev/smoke-matrix.ps1 quick
 ```
 
+Selective validation packs (run behavior-specific slices only when needed):
+
+```powershell
+pwsh -NoProfile -File scripts/dev/test-select.ps1 list
+pwsh -NoProfile -File scripts/dev/test-select.ps1 show camera-lock
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run input-routing
+pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected
+pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --base origin/main
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --base origin/main
+pwsh -NoProfile -File scripts/dev/test-select.ps1 changed --scope staged
+pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --scope worktree
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope base --base origin/main
+pwsh -NoProfile -File scripts/dev/test-select.ps1 suggest --scope worktree --quiet
+pwsh -NoProfile -File scripts/dev/test-select.ps1 run-affected --scope worktree --dry-run --quiet
+```
+
+`test-select.ps1` supports `--scope all|base|worktree|staged|unstaged|untracked` on `changed`, `suggest`, and `run-affected`.
+Default scope is `all` (base delta, if provided, plus working tree).
+Use `--quiet` to suppress changed-file listings and show pack-focused output for CI logs.
+
 If diagnostics-focused checks are needed, use existing diagnostics test targets already referenced in strategy docs.
 
 ---

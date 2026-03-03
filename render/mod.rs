@@ -1070,7 +1070,7 @@ fn handle_custom_navigation(
 
     let camera_fit_locked = app.camera_fit_locked();
 
-    if camera_fit_locked {
+    if should_auto_fit_locked_camera(app) {
         app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
         app.clear_pending_wheel_zoom_delta();
     }
@@ -1171,6 +1171,12 @@ fn handle_custom_navigation(
     });
 
     camera_zoom.or(keyboard_zoom).or(wheel_zoom)
+}
+
+fn should_auto_fit_locked_camera(app: &GraphBrowserApp) -> bool {
+    app.camera_fit_locked()
+        && !app.workspace.is_interacting
+        && app.workspace.physics.base.is_running
 }
 
 fn keyboard_pan_allowed_for_view(app: &GraphBrowserApp, view_id: crate::app::GraphViewId) -> bool {
@@ -3616,6 +3622,46 @@ mod tests {
         assert!(!app.workspace.is_interacting);
         let node = app.workspace.graph.get_node(key).unwrap();
         assert_eq!(node.position, Point2D::new(150.0, 250.0));
+    }
+
+    #[test]
+    fn locked_camera_autofit_requires_physics_running_and_not_dragging() {
+        let mut app = test_app();
+        app.set_camera_fit_locked(true);
+
+        app.workspace.physics.base.is_running = false;
+        app.workspace.is_interacting = false;
+        assert!(
+            !should_auto_fit_locked_camera(&app),
+            "fit-lock should not auto-fit when physics is idle"
+        );
+
+        app.workspace.physics.base.is_running = true;
+        app.workspace.is_interacting = true;
+        assert!(
+            !should_auto_fit_locked_camera(&app),
+            "fit-lock should not auto-fit during active drag interaction"
+        );
+
+        app.workspace.physics.base.is_running = true;
+        app.workspace.is_interacting = false;
+        assert!(
+            should_auto_fit_locked_camera(&app),
+            "fit-lock should auto-fit while physics is running and interaction is idle"
+        );
+    }
+
+    #[test]
+    fn unlocked_camera_never_autofits() {
+        let mut app = test_app();
+        app.set_camera_fit_locked(false);
+        app.workspace.physics.base.is_running = true;
+        app.workspace.is_interacting = false;
+
+        assert!(
+            !should_auto_fit_locked_camera(&app),
+            "unlocked camera should never auto-fit from lock-mode path"
+        );
     }
 
     #[test]

@@ -268,6 +268,24 @@ This inventory maps all functional areas to migration stages.
     - Verify Omnibar `@` scopes filter results correctly (using harness snapshot of matches).
     - Verify Graph Search (Ctrl+F) highlights/filters nodes.
 
+### Phase C.3: Input Routing Conformance (new, priority)
+- [ ] **Focus-owner matrix**
+    - Add deterministic scenarios for focus owners: graph surface, omnibar field, node webview tile, and modal-active surface.
+    - Verify each scenario emits expected dispatch diagnostics (`ux:dispatch_*`) and preserves two-authority routing boundaries.
+- [ ] **Global shortcut survivability**
+    - Verify `F9` (camera fit lock) and `F6` (focus cycle) survive host/webview focus routing and reach reducer/workbench authority paths.
+    - Verify modal isolation does not consume `ToggleCameraFitLock` while still consuming explicitly blocked intents (e.g., `Undo`).
+- [ ] **Graph interaction liveness under focus churn**
+    - Verify pan/zoom/drag remain available when camera lock is disabled and graph surface regains focus after omnibar/modal activity.
+    - Verify fit-lock toggles via both settings pane and keyboard shortcut produce observable state transitions.
+- [ ] **First scenario bundle (minimum 6)**
+    - `camera_lock_toggle_survives_webview_focus_routing`
+    - `camera_lock_toggle_survives_omnibar_focus_routing`
+    - `focus_cycle_survives_webview_focus_routing`
+    - `modal_isolation_preserves_camera_lock_toggle`
+    - `graph_pan_zoom_liveness_after_omnibar_focus_release`
+    - `settings_and_f9_toggle_paths_produce_identical_lock_state_transition`
+
 ### Phase C.1: Undo/Redo Logic (Consolidated)
 - [ ] **Stack Mechanics**
     - `test_capture_undo_checkpoint_pushes_and_clears_redo`
@@ -315,6 +333,7 @@ Run after each migration increment:
 - `cargo test shell::desktop::tests::scenarios::registries:: -- --nocapture`
 - `cargo test shell::desktop::tests::scenarios::tags:: -- --nocapture`
 - `cargo test shell::desktop::tests::scenarios::black_tile:: -- --nocapture`
+- `cargo test shell::desktop::tests::scenarios::input_routing:: -- --nocapture`
 - `cargo check`
 
 Run at stage boundaries:
