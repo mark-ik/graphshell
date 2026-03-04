@@ -278,6 +278,7 @@ Validation gate:
 - Omnibar submit-dispatch helper coverage now includes queued-submit behavior after focus loss, alongside focused-enter and ignored lost-focus-enter paths, tightening keyboard submission semantics evidence for AG0.
 - Omnibar submit-dispatch helper coverage now also includes an explicit no-implicit-submit case (`submit_dispatch_does_not_trigger_without_enter_or_queue`), reinforcing deterministic `On Focus` behavior (focus transitions alone do not trigger context changes).
 - Dialog clear-data destructive action flow now has explicit confirmation-window regressions (`clear_data_confirm_is_not_armed_without_deadline`, `clear_data_confirm_is_armed_until_deadline_inclusive`, `clear_data_confirm_expires_after_deadline_passes`) proving deterministic two-step confirmation and expiry behavior.
+- Dialog and omnibar instruction text invariants now have explicit regressions (`clear_data_confirm_warning_text_includes_instruction_and_timing`, `location_input_hint_text_provides_search_and_address_instruction`) to preserve baseline Labels/Instructions semantics for destructive confirmation and primary input affordance copy.
 - AG0 remains open pending full WCAG 2.2 Level A coverage evidence across all seven surface classes (non-radial surfaces still have unverified rows).
 
 ---

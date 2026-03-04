@@ -169,6 +169,16 @@ Clear-data destructive confirmation timing now has explicit unit coverage in `di
 
 This validates deterministic two-step confirmation semantics (arm on first activation, execute only while armed, require re-arm after expiry), which contributes direct error-prevention evidence for destructive dialog actions.
 
+### 5.8 Labels/Instructions baseline addendum (2026-03-04)
+
+Instructional copy invariants now have explicit regression coverage:
+
+- `clear_data_confirm_warning_text_includes_instruction_and_timing`
+- `clear_data_confirm_success_text_describes_completed_action`
+- `location_input_hint_text_provides_search_and_address_instruction`
+
+These tests preserve baseline instruction clarity for destructive dialogs and the omnibar primary text-entry affordance, providing concrete partial evidence for WCAG 3.3.2 mapping while broader multi-surface validation remains pending.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

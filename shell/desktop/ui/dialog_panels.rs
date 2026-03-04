@@ -16,6 +16,9 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
 const CLEAR_DATA_CONFIRM_WINDOW_SECS: f64 = 3.0;
+const CLEAR_DATA_CONFIRM_WARNING_TEXT: &str =
+    "Press Clr again within 3 seconds to clear graph and saved data";
+const CLEAR_DATA_CONFIRM_SUCCESS_TEXT: &str = "Cleared graph and saved data";
 
 pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
@@ -56,13 +59,12 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
             *args.location_dirty = false;
             *args.location_submitted = false;
             args.ctx.data_mut(|d| d.remove::<f64>(confirm_deadline_id));
-            args.toasts.success("Cleared graph and saved data");
+            args.toasts.success(CLEAR_DATA_CONFIRM_SUCCESS_TEXT);
         } else {
             args.ctx.data_mut(|d| {
                 d.insert_temp(confirm_deadline_id, next_clear_data_confirm_deadline(now))
             });
-            args.toasts
-                .warning("Press Clr again within 3 seconds to clear graph and saved data");
+            args.toasts.warning(CLEAR_DATA_CONFIRM_WARNING_TEXT);
         }
         *args.show_clear_data_confirm = false;
     }
@@ -80,6 +82,7 @@ fn next_clear_data_confirm_deadline(now: f64) -> f64 {
 mod tests {
     use super::{
         clear_data_confirm_is_armed, next_clear_data_confirm_deadline,
+        CLEAR_DATA_CONFIRM_SUCCESS_TEXT, CLEAR_DATA_CONFIRM_WARNING_TEXT,
         CLEAR_DATA_CONFIRM_WINDOW_SECS,
     };
 
@@ -107,5 +110,16 @@ mod tests {
             next_clear_data_confirm_deadline(now),
             now + CLEAR_DATA_CONFIRM_WINDOW_SECS
         );
+    }
+
+    #[test]
+    fn clear_data_confirm_warning_text_includes_instruction_and_timing() {
+        assert!(CLEAR_DATA_CONFIRM_WARNING_TEXT.contains("Press Clr again"));
+        assert!(CLEAR_DATA_CONFIRM_WARNING_TEXT.contains("within 3 seconds"));
+    }
+
+    #[test]
+    fn clear_data_confirm_success_text_describes_completed_action() {
+        assert!(CLEAR_DATA_CONFIRM_SUCCESS_TEXT.contains("Cleared graph"));
     }
 }

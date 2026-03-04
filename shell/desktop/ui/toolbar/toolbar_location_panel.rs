@@ -1,6 +1,8 @@
 use super::toolbar_location_dropdown;
 use super::*;
 
+const LOCATION_INPUT_HINT_TEXT: &str = "Search or enter address";
+
 fn should_dispatch_location_submit(
     enter_while_focused: bool,
     location_submitted: bool,
@@ -33,7 +35,7 @@ pub(super) fn render_location_search_panel(
         ui.available_size(),
         egui::TextEdit::singleline(location)
             .id(location_id)
-            .hint_text("Search or enter address"),
+            .hint_text(LOCATION_INPUT_HINT_TEXT),
     );
 
     if location_field.changed() {
@@ -327,7 +329,7 @@ pub(super) fn render_location_search_panel(
 
 #[cfg(test)]
 mod tests {
-    use super::should_dispatch_location_submit;
+    use super::{should_dispatch_location_submit, LOCATION_INPUT_HINT_TEXT};
 
     #[test]
     fn submit_dispatch_triggers_for_focused_enter() {
@@ -352,5 +354,11 @@ mod tests {
     #[test]
     fn submit_dispatch_does_not_trigger_without_enter_or_queue() {
         assert!(!should_dispatch_location_submit(false, false, false));
+    }
+
+    #[test]
+    fn location_input_hint_text_provides_search_and_address_instruction() {
+        assert!(LOCATION_INPUT_HINT_TEXT.contains("Search"));
+        assert!(LOCATION_INPUT_HINT_TEXT.contains("address"));
     }
 }
