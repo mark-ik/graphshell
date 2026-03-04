@@ -11,6 +11,33 @@
 - `../research/2026-02-27_viewer_state_matrix.md`
 - `../2026-02-26_composited_viewer_pass_contract.md`
 - `../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
+- `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
+- `../../TERMINOLOGY.md`
+
+**Adopted standards** (see [standards report](../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6, 3.7):
+
+- **WCAG 2.2 Level AA** — SC 1.3.1 (info/structure accessible), SC 4.1.2 (name/role/value for viewer states), SC 1.4.1 (placeholder/degraded states not color-only)
+- **OSGi R8** — viewer capability registration and selection vocabulary
+- **OpenTelemetry Semantic Conventions** — viewer selection, fallback, and degradation diagnostics
+
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+This spec defines viewer-surface presentation semantics and must not redefine graph-truth or workbench-arrangement ownership.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative viewer contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
 
 ---
 
@@ -241,7 +268,8 @@ Special route:
 - dedicated embedded PDF and CSV viewer paths,
 - richer viewer-state badges and diagnostics summaries,
 - stronger thumbnail and prewarm strategies,
-- more explicit viewer override controls.
+- more explicit viewer override controls,
+- per-domain Viewer settings page: default viewer overrides, placeholder explanation verbosity, prewarm strategy — exposed via the **General** settings category in `aspect_control/settings_and_control_surfaces_spec.md §4.2`.
 
 ---
 

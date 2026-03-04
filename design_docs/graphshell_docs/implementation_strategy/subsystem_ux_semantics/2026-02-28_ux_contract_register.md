@@ -640,3 +640,11 @@ Contract-slice issues use `.github/ISSUE_TEMPLATE/ux_contract_slice.md`.
 ### 9.4 Remaining work
 
 1. WCAG 2.2 AA conformance checklist per domain — gated on accessibility subsystem work (`design_docs/graphshell_docs/design/accessibility_baseline_checklist.md` has the structure; per-surface pass/fail status pending implementation).
+
+### 9.5 Per-control audit artifact
+
+Control-level coverage is tracked in:
+
+- `2026-03-04_per_control_audit_grid.md`
+
+This artifact is the canonical surface/region/object/trigger audit grid with implementation status (`Implemented` / `Partial` / `Missing` / `Nonstandard`) bounded to adopted standards.

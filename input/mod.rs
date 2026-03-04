@@ -22,7 +22,8 @@ use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 #[derive(Default)]
 pub struct KeyboardActions {
     pub toggle_physics: bool,
-    pub toggle_camera_fit_lock: bool,
+    pub toggle_camera_position_fit_lock: bool,
+    pub toggle_camera_zoom_fit_lock: bool,
     pub toggle_view: bool,
     pub fit_to_screen: bool,
     pub open_physics_settings: bool,
@@ -72,13 +73,6 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             actions.toggle_view = true;
         }
 
-        // F9: Toggle camera fit-lock mode (global shortcut)
-        // Keep this available even while egui text fields own keyboard focus,
-        // matching Escape/Home behavior.
-        if i.key_pressed(Key::F9) {
-            actions.toggle_camera_fit_lock = true;
-        }
-
         // Skip remaining shortcuts while egui is consuming keyboard input.
         if keyboard_captured_by_egui {
             return;
@@ -115,14 +109,14 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             actions.create_node = true;
         }
 
-        // Z: focus selection (or fit when selection is small)
+        // Z: toggle zoom-fit lock for active graph pane
         if i.key_pressed(Key::Z) && !i.modifiers.ctrl {
-            actions.zoom_to_selected = true;
+            actions.toggle_camera_zoom_fit_lock = true;
         }
 
-        // C: camera fit
+        // C: toggle position-fit lock for active graph pane
         if i.key_pressed(Key::C) && !i.modifiers.ctrl {
-            actions.fit_to_screen = true;
+            actions.toggle_camera_position_fit_lock = true;
         }
 
         // R: manual physics reheat (no modifiers).
@@ -253,8 +247,10 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     if actions.toggle_physics {
         intents.push(GraphIntent::TogglePhysics);
     }
-    if actions.toggle_camera_fit_lock {
+    if actions.toggle_camera_position_fit_lock {
         intents.push(GraphIntent::ToggleCameraPositionFitLock);
+    }
+    if actions.toggle_camera_zoom_fit_lock {
         intents.push(GraphIntent::ToggleCameraZoomFitLock);
     }
     // View toggling is owned by GUI tile logic.
@@ -390,9 +386,9 @@ mod tests {
     }
 
     #[test]
-    fn test_toggle_camera_fit_lock_action_maps_to_split_intents() {
+    fn test_toggle_camera_position_fit_lock_action_maps_to_intent() {
         let intents = intents_from_actions(&KeyboardActions {
-            toggle_camera_fit_lock: true,
+            toggle_camera_position_fit_lock: true,
             ..Default::default()
         });
         assert!(
@@ -401,9 +397,27 @@ mod tests {
                 .any(|i| matches!(i, GraphIntent::ToggleCameraPositionFitLock))
         );
         assert!(
+            !intents
+                .iter()
+                .any(|i| matches!(i, GraphIntent::ToggleCameraZoomFitLock))
+        );
+    }
+
+    #[test]
+    fn test_toggle_camera_zoom_fit_lock_action_maps_to_intent() {
+        let intents = intents_from_actions(&KeyboardActions {
+            toggle_camera_zoom_fit_lock: true,
+            ..Default::default()
+        });
+        assert!(
             intents
                 .iter()
                 .any(|i| matches!(i, GraphIntent::ToggleCameraZoomFitLock))
+        );
+        assert!(
+            !intents
+                .iter()
+                .any(|i| matches!(i, GraphIntent::ToggleCameraPositionFitLock))
         );
     }
 
@@ -467,19 +481,6 @@ mod tests {
             intents
                 .iter()
                 .any(|i| matches!(i, GraphIntent::RequestZoomReset))
-        );
-    }
-
-    #[test]
-    fn test_zoom_to_selected_action_maps_to_intent() {
-        let intents = intents_from_actions(&KeyboardActions {
-            zoom_to_selected: true,
-            ..Default::default()
-        });
-        assert!(
-            intents
-                .iter()
-                .any(|i| matches!(i, GraphIntent::RequestZoomToSelected))
         );
     }
 
@@ -787,20 +788,25 @@ mod tests {
     }
 
     #[test]
-    fn collect_actions_keeps_f9_global_when_keyboard_is_captured() {
-        let actions = collect_actions_with_key_event(Key::F9, Modifiers::default(), true);
-        assert!(
-            actions.toggle_camera_fit_lock,
-            "F9 camera-fit-lock should remain global even when text input captures keyboard"
-        );
-    }
-
-    #[test]
     fn collect_actions_allows_f6_when_keyboard_is_not_captured() {
         let actions = collect_actions_with_key_event(Key::F6, Modifiers::default(), false);
         assert!(
             actions.cycle_focus_region,
             "F6 cycle-focus should be available when keyboard input is not captured"
+        );
+    }
+
+    #[test]
+    fn collect_actions_maps_c_and_z_to_split_camera_lock_shortcuts_when_not_captured() {
+        let c_actions = collect_actions_with_key_event(Key::C, Modifiers::default(), false);
+        assert!(
+            c_actions.toggle_camera_position_fit_lock,
+            "C should toggle position-fit lock when keyboard input is not captured"
+        );
+        let z_actions = collect_actions_with_key_event(Key::Z, Modifiers::default(), false);
+        assert!(
+            z_actions.toggle_camera_zoom_fit_lock,
+            "Z should toggle zoom-fit lock when keyboard input is not captured"
         );
     }
 

@@ -41,7 +41,8 @@ fn camera_lock_toggle_survives_omnibar_focus_routing() {
     assert!(!harness.app.camera_zoom_fit_locked());
 
     let intents = intents_from_actions(&KeyboardActions {
-        toggle_camera_fit_lock: true,
+        toggle_camera_position_fit_lock: true,
+        toggle_camera_zoom_fit_lock: true,
         ..Default::default()
     });
     harness.app.apply_intents(intents);
@@ -108,7 +109,7 @@ fn graph_pan_zoom_liveness_after_omnibar_focus_release() {
 }
 
 #[test]
-fn settings_and_f9_toggle_paths_produce_identical_lock_state_transition() {
+fn settings_and_split_shortcut_paths_produce_identical_lock_state_transition() {
     let mut via_settings = TestRegistry::new();
     let mut via_shortcut = TestRegistry::new();
     let view_id = GraphViewId::new();
@@ -129,7 +130,8 @@ fn settings_and_f9_toggle_paths_produce_identical_lock_state_transition() {
     via_settings.app.set_camera_fit_locked(true);
 
     let intents = intents_from_actions(&KeyboardActions {
-        toggle_camera_fit_lock: true,
+        toggle_camera_position_fit_lock: true,
+        toggle_camera_zoom_fit_lock: true,
         ..Default::default()
     });
     via_shortcut.app.apply_intents(intents);
