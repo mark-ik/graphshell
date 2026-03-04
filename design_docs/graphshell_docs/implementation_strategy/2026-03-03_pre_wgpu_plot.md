@@ -559,7 +559,7 @@ From the pre-wgpu gate checklist, unchanged:
 | Gate | Status | Blocking lanes | Key open items |
 | --- | --- | --- | --- |
 | AG0 | `open` | stabilization, accessibility | All-surfaces WCAG A, a11y checklist desync |
-| AG1 | `partial` | stabilization | Camera/lasso/selection reliability, per-view selection (W2) |
+| AG1 | `partial` | stabilization | Camera/lasso/selection reliability evidence in multi-pane paths (W2 complete) |
 | AG2 | `partial` | stabilization, embedder-debt | Focus activation race, close-successor handoff |
 | AG3 | `open` | embedder-debt | Legacy context-menu bypass retirement |
 | AG4 | `open` | control-ui-settings | Command unification, undo/redo (W1) |
