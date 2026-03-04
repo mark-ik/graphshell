@@ -550,6 +550,7 @@ const CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT: &str = "Copied title";
 const CLIPBOARD_STATUS_UNAVAILABLE_TEXT: &str = "Clipboard unavailable";
 const CLIPBOARD_STATUS_EMPTY_TEXT: &str = "Nothing to copy";
 const CLIPBOARD_STATUS_FAILURE_PREFIX: &str = "Copy failed";
+const CLIPBOARD_STATUS_MISSING_NODE_SUGGESTION_TEXT: &str = "select a node and try again";
 
 fn clipboard_copy_value_for_node(
     graph_app: &GraphBrowserApp,
@@ -613,7 +614,9 @@ fn clipboard_copy_failure_text(detail: &str) -> String {
 }
 
 fn clipboard_copy_missing_node_failure_text() -> String {
-    clipboard_copy_failure_text("node no longer exists")
+    clipboard_copy_failure_text(format!(
+        "node no longer exists; {CLIPBOARD_STATUS_MISSING_NODE_SUGGESTION_TEXT}"
+    ).as_str())
 }
 
 pub(crate) fn handle_pending_open_node_after_intents(

@@ -1867,3 +1867,10 @@ fn clipboard_missing_node_failure_message_is_explicit() {
     assert!(text.contains("node no longer exists"));
     assert!(text.contains(super::CLIPBOARD_STATUS_FAILURE_PREFIX));
 }
+
+#[test]
+fn clipboard_missing_node_failure_message_includes_recovery_suggestion() {
+    let text = super::clipboard_copy_missing_node_failure_text();
+    assert!(text.contains("try again"));
+    assert!(text.contains("select a node"));
+}

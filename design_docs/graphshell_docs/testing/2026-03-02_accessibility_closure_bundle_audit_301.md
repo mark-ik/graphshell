@@ -235,6 +235,14 @@ Clipboard failure wording now has targeted regression coverage in `gui_orchestra
 
 This coverage preserves explicit error identification semantics by enforcing a stable failure prefix and concrete missing-node failure wording in clipboard command feedback, providing partial evidence for WCAG 3.3.1 mapping while broader multi-surface error-state audit remains pending.
 
+### 5.15 Error-suggestion wording addendum (2026-03-04)
+
+Clipboard missing-node failure guidance now has targeted regression coverage in `gui_orchestration`:
+
+- `clipboard_missing_node_failure_message_includes_recovery_suggestion`
+
+The missing-node failure path now includes explicit recovery guidance (`select a node and try again`), providing partial evidence for WCAG 3.3.3 mapping in command-surface error feedback while broader multi-surface suggestion quality validation remains pending.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)
