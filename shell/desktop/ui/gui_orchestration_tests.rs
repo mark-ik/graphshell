@@ -959,6 +959,42 @@ fn global_shortcut_undo_is_consumed_when_command_palette_modal_is_active() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn global_shortcut_undo_is_consumed_when_clear_confirm_modal_is_active() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_global_shortcut_undo_clear_confirm_modal", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut intents = vec![GraphIntent::Undo];
+    gui_orchestration::handle_tool_pane_intents_with_modal_state(
+        &mut app,
+        &mut tree,
+        &mut intents,
+        true,
+    );
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_CONSUMED),
+        "expected modal capture to consume global undo shortcut intent"
+    );
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED),
+        "expected modal capture to prevent default handling for consumed undo intent"
+    );
+    assert!(
+        intents.is_empty(),
+        "undo intent should be consumed while clear-confirm modal surface is active"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn camera_fit_lock_toggle_is_not_consumed_when_modal_is_active() {
     let mut diagnostics =
         crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
@@ -1533,12 +1569,14 @@ fn deferred_child_webview_retries_and_opens_via_frame_routed_intent() {
     super::apply_semantic_intents_and_pending_open(
         &mut app,
         &mut tree,
+        false,
         &mut open_node_tile_after_intents,
         &mut frame_intents,
     );
     super::apply_semantic_intents_and_pending_open(
         &mut app,
         &mut tree,
+        false,
         &mut open_node_tile_after_intents,
         &mut frame_intents,
     );

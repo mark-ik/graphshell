@@ -125,12 +125,20 @@ impl Gui {
             open_node_tile_after_intents: &mut open_node_tile_after_intents,
         });
 
+        let modal_surface_active = ui_overlay_active_from_flags(
+            graph_app.workspace.show_command_palette,
+            graph_app.workspace.show_help_panel,
+            graph_app.workspace.show_radial_menu,
+            toolbar_state.show_clear_data_confirm,
+        );
+
         Self::run_semantic_and_post_render_phases(SemanticAndPostRenderPhaseArgs {
             ctx,
             graph_app,
             window,
             headed_window,
             tiles_tree,
+            modal_surface_active,
             toolbar_height,
             tile_rendering_contexts,
             tile_favicon_textures,
@@ -408,6 +416,7 @@ impl Gui {
             window,
             headed_window,
             tiles_tree,
+            modal_surface_active,
             toolbar_height,
             tile_rendering_contexts,
             tile_favicon_textures,
@@ -440,6 +449,7 @@ impl Gui {
         Self::run_semantic_lifecycle_phase(SemanticLifecyclePhaseArgs {
             graph_app,
             tiles_tree,
+            modal_surface_active,
             window,
             app_state,
             rendering_context,
@@ -502,6 +512,7 @@ impl Gui {
         let SemanticLifecyclePhaseArgs {
             graph_app,
             tiles_tree,
+            modal_surface_active,
             window,
             app_state,
             rendering_context,
@@ -520,6 +531,7 @@ impl Gui {
         *deferred_open_child_webviews = gui_orchestration::run_semantic_lifecycle_phase(
             graph_app,
             tiles_tree,
+            modal_surface_active,
             window,
             app_state,
             rendering_context,

@@ -117,6 +117,9 @@ Additional regression coverage now verifies global undo shortcut modal isolation
 - `global_shortcut_undo_is_consumed_when_modal_is_active` (radial)
 - `global_shortcut_undo_is_consumed_when_command_palette_modal_is_active`
 - `global_shortcut_undo_is_consumed_when_help_panel_modal_is_active`
+- `global_shortcut_undo_is_consumed_when_clear_confirm_modal_is_active` (clear-data confirm dialog path)
+
+This path now routes through a unified modal-surface dispatch gate shared with UI overlay state, so clear-confirm dialog activation participates in the same no-trap shortcut isolation contract as command overlays.
 
 All pass and provide evidence that active modal overlays consume non-modal global shortcut handling instead of trapping focus/dispatch in ambiguous paths.
 

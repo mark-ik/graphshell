@@ -127,6 +127,7 @@ struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
 struct SemanticLifecyclePhaseArgs<'a> {
     graph_app: &'a mut GraphBrowserApp,
     tiles_tree: &'a mut Tree<TileKind>,
+    modal_surface_active: bool,
     window: &'a EmbedderWindow,
     app_state: &'a Option<Rc<RunningAppState>>,
     rendering_context: &'a Rc<OffscreenRenderingContext>,
@@ -149,6 +150,7 @@ struct SemanticAndPostRenderPhaseArgs<'a> {
     window: &'a EmbedderWindow,
     headed_window: &'a headed_window::HeadedWindow,
     tiles_tree: &'a mut Tree<TileKind>,
+    modal_surface_active: bool,
     toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
     tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,

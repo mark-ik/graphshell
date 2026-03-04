@@ -271,6 +271,7 @@ Validation gate:
 - Radial disabled-state text contrast remediation is landed in `render/radial_menu.rs` and guarded by regression test `radial_disabled_text_contrast_meets_wcag_minimum_for_text`.
 - `#301` keyboard no-trap validation commands were re-run and remain green (`cycle_focus_region_intent_cycles_graph_node_tool_regions`, `close_settings_tool_pane_restores_previous_graph_focus_via_orchestration`, `cycle_focus_region_success_does_not_emit_ux_navigation_violation_channel`).
 - Modal isolation no-trap evidence now covers multiple floating command overlays (`radial`, `command palette`, `help panel`) via global undo-shortcut consumption regressions in `gui_orchestration_tests`.
+- Semantic dispatch now consumes a unified modal-surface flag sourced from UI overlay state (including `show_clear_data_confirm`), and regression coverage now includes clear-confirm modal shortcut consumption (`global_shortcut_undo_is_consumed_when_clear_confirm_modal_is_active`).
 - Input-layer keyboard capture behavior now has explicit AG0 regressions proving `F6` focus-cycle suppression while text input is active and `F9` global shortcut survivability under capture in `input::tests`.
 - Workbar command-surface keyboard operability now has explicit input-layer evidence for `F1`/`F2`/`F3` shortcut detection (help, command palette, radial menu toggles).
 - AG0 remains open pending full WCAG 2.2 Level A coverage evidence across all seven surface classes (non-radial surfaces still have unverified rows).

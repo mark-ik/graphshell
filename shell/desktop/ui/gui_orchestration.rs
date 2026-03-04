@@ -855,6 +855,20 @@ pub(crate) fn handle_tool_pane_intents(
     tiles_tree: &mut Tree<TileKind>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
+    handle_tool_pane_intents_with_modal_state(
+        graph_app,
+        tiles_tree,
+        frame_intents,
+        modal_surface_active(graph_app),
+    );
+}
+
+pub(crate) fn handle_tool_pane_intents_with_modal_state(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    frame_intents: &mut Vec<GraphIntent>,
+    modal_surface_active: bool,
+) {
     let mut remaining = Vec::with_capacity(frame_intents.len());
     for intent in frame_intents.drain(..) {
         let event_kind = ux_event_kind_for_intent(&intent);
@@ -875,7 +889,7 @@ pub(crate) fn handle_tool_pane_intents(
 
         emit_dispatch_phase(UxDispatchPhase::Capture);
         let mut control = UxDispatchControl::default();
-        if modal_surface_active(graph_app) && !modal_allows_intent(&intent) {
+        if modal_surface_active && !modal_allows_intent(&intent) {
             control.stop_propagation = true;
             control.stop_immediate_propagation = true;
             control.prevent_default = true;
@@ -1684,6 +1698,7 @@ fn handle_split_pane_intent(
 pub(crate) fn run_semantic_lifecycle_phase(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    modal_surface_active: bool,
     window: &EmbedderWindow,
     app_state: &Option<Rc<RunningAppState>>,
     rendering_context: &Rc<OffscreenRenderingContext>,
@@ -1700,6 +1715,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
     apply_semantic_intents_and_pending_open(
         graph_app,
         tiles_tree,
+        modal_surface_active,
         open_node_tile_after_intents,
         frame_intents,
     );
@@ -1713,6 +1729,7 @@ pub(crate) fn run_semantic_lifecycle_phase(
     apply_semantic_intents_and_pending_open(
         graph_app,
         tiles_tree,
+        modal_surface_active,
         open_node_tile_after_intents,
         frame_intents,
     );
@@ -1738,10 +1755,16 @@ pub(crate) fn run_semantic_lifecycle_phase(
 fn apply_semantic_intents_and_pending_open(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
+    modal_surface_active: bool,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    handle_tool_pane_intents(graph_app, tiles_tree, frame_intents);
+    handle_tool_pane_intents_with_modal_state(
+        graph_app,
+        tiles_tree,
+        frame_intents,
+        modal_surface_active,
+    );
     gui_frame::apply_intents_if_any(graph_app, tiles_tree, frame_intents);
     handle_pending_open_node_after_intents(
         graph_app,
