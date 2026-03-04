@@ -130,6 +130,16 @@ Input-layer shortcut capture behavior is now explicitly covered with tests in `i
 
 This validates that focus-cycling shortcuts are suppressed while text-edit surfaces own keyboard focus, while designated global safety/escape controls remain available.
 
+### 5.5 Workbar keyboard-operability addendum (2026-03-04)
+
+Keyboard operability coverage now explicitly includes workbar command-surface toggles through input-layer key-detection tests:
+
+- `collect_actions_maps_f1_to_help_panel_toggle_when_not_captured`
+- `collect_actions_maps_f2_to_command_palette_toggle_when_not_captured`
+- `collect_actions_maps_f3_to_radial_menu_toggle_when_not_captured`
+
+Together with existing intent-application tests (`test_toggle_help_panel_action`, `test_toggle_command_palette_action`), this provides direct evidence that core workbar command surfaces are keyboard-invokable.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

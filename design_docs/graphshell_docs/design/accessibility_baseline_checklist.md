@@ -65,7 +65,7 @@ Known-gap alignment from UX integration research:
 | 1.4.11 Non-text Contrast | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Visual indicators/focus rings require contrast validation. |
 | 1.4.12 Text Spacing | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Custom spacing tolerance not yet verified. |
 | 1.4.13 Content on Hover or Focus | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Tooltip/overlay persistence and dismissibility needs testing. |
-| 2.1.1 Keyboard | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane baseline now includes deterministic keyboard traversal (`#298`). |
+| 2.1.1 Keyboard | A | Pass | Untested | Untested | Untested | Untested | Untested | Pass | Graph-pane baseline includes deterministic keyboard traversal (`#298`), and workbar command-surface keyboard invocations (`F1`/`F2`/`F3`) now have explicit test evidence (2026-03-04 addendum). |
 | 2.1.2 No Keyboard Trap | A | Pass | Untested | Untested | Pass | Untested | Untested | Untested | Host focus-cycle return-path validation is complete for graph-pane routing (`#301`), floating command overlays (radial/command palette/help panel) have explicit modal-isolation shortcut-consumption regressions, and input-layer capture tests now verify text-input shortcut suppression/allow-list behavior (2026-03-04 addendum). |
 | 2.1.4 Character Key Shortcuts | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Single-key command behavior needs remap/disable verification. |
 | 2.2.1 Timing Adjustable | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No time-limited interaction currently declared for these surfaces. |

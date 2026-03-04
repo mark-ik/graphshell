@@ -797,4 +797,31 @@ mod tests {
             "F6 cycle-focus should be available when keyboard input is not captured"
         );
     }
+
+    #[test]
+    fn collect_actions_maps_f1_to_help_panel_toggle_when_not_captured() {
+        let actions = collect_actions_with_key_event(Key::F1, Modifiers::default(), false);
+        assert!(
+            actions.toggle_help_panel,
+            "F1 should trigger help panel toggle when keyboard input is not captured"
+        );
+    }
+
+    #[test]
+    fn collect_actions_maps_f2_to_command_palette_toggle_when_not_captured() {
+        let actions = collect_actions_with_key_event(Key::F2, Modifiers::default(), false);
+        assert!(
+            actions.toggle_command_palette,
+            "F2 should trigger command palette toggle when keyboard input is not captured"
+        );
+    }
+
+    #[test]
+    fn collect_actions_maps_f3_to_radial_menu_toggle_when_not_captured() {
+        let actions = collect_actions_with_key_event(Key::F3, Modifiers::default(), false);
+        assert!(
+            actions.toggle_radial_menu,
+            "F3 should trigger radial menu toggle when keyboard input is not captured"
+        );
+    }
 }
