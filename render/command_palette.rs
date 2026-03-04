@@ -409,4 +409,44 @@ mod tests {
         );
         assert_eq!(empty_graph_message(1), None);
     }
+
+    #[test]
+    fn all_disabled_actions_expose_textual_precondition_reason_in_default_context() {
+        let context = default_action_context();
+        let entries = list_actions_for_context(&context);
+
+        for entry in entries.into_iter().filter(|entry| !entry.enabled) {
+            let reason = disabled_action_reason(entry.id, &context);
+            assert!(
+                reason.is_some(),
+                "disabled action {:?} should expose a textual precondition reason",
+                entry.id
+            );
+        }
+    }
+
+    #[test]
+    fn disabled_action_reasons_use_actionable_text_not_color_cues() {
+        let context = default_action_context();
+        let entries = list_actions_for_context(&context);
+        let disallowed_color_terms = [" color", "colour", "color ", "colour "];
+
+        for entry in entries.into_iter().filter(|entry| !entry.enabled) {
+            let reason = disabled_action_reason(entry.id, &context)
+                .expect("disabled action should expose reason text");
+            let reason_lower = reason.to_ascii_lowercase();
+            assert!(
+                reason.contains("Requires")
+                    || reason.contains("unavailable")
+                    || reason.contains("Perform"),
+                "reason should provide actionable precondition guidance: {reason}"
+            );
+            assert!(
+                !disallowed_color_terms
+                    .iter()
+                    .any(|term| reason_lower.contains(term)),
+                "reason should not rely on color terms: {reason}"
+            );
+        }
+    }
 }

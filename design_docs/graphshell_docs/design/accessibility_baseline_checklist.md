@@ -53,10 +53,10 @@ Known-gap alignment from UX integration research:
 | 1.2.5 Audio Description (Prerecorded) | AA | N/A | N/A | N/A | N/A | N/A | N/A | N/A | Not applicable without prerecorded media path. |
 | 1.3.1 Info and Relationships | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Requires semantic structure verification across panes and chrome. |
 | 1.3.2 Meaningful Sequence | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Focus/reading order requires test confirmation per surface. |
-| 1.3.3 Sensory Characteristics | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify instructions do not depend only on position/color/shape cues. |
+| 1.3.3 Sensory Characteristics | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify instructions do not depend only on position/color/shape cues. Command palette disabled-state regressions now assert textual, actionable precondition guidance for disabled actions (2026-03-04 addendum); broader multi-surface validation remains pending. |
 | 1.3.4 Orientation | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Orientation constraints unverified for responsive/workbench layouts. |
 | 1.3.5 Identify Input Purpose | AA | N/A | Untested | Untested | Untested | Untested | Untested | N/A | Primarily applies to input fields (omnibar/settings/dialog controls). |
-| 1.4.1 Use of Color | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Contrast-independent state cues need explicit verification. |
+| 1.4.1 Use of Color | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Contrast-independent state cues need explicit verification. Command palette disabled-state guidance is now regression-tested to ensure non-color textual reasons are present (2026-03-04 addendum), with wider surface coverage still pending. |
 | 1.4.2 Audio Control | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No auto-playing audio controls in current baseline. |
 | 1.4.3 Contrast (Minimum) | AA | Untested | Untested | Untested | Pass | Untested | Untested | Untested | Floating command surface (radial menu) contrast audited and remediated (`#301` + 2026-03-04 follow-up); remaining surfaces still require explicit audit evidence. |
 | 1.4.4 Resize Text | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Text scaling behavior requires dedicated verification sweep. |

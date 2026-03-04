@@ -199,6 +199,15 @@ Dialog clear-confirm input processing now has explicit action-classification reg
 
 Together with existing omnibar submit-dispatch tests (`submit_dispatch_*`), this provides concrete evidence that input-side effects are deterministic and state-dependent rather than surprising implicit context changes.
 
+### 5.11 Sensory-independent disabled-state guidance addendum (2026-03-04)
+
+Command-surface disabled precondition guidance now has explicit regressions:
+
+- `all_disabled_actions_expose_textual_precondition_reason_in_default_context`
+- `disabled_action_reasons_use_actionable_text_not_color_cues`
+
+These tests provide partial evidence that disabled-state communication is conveyed via textual/actionable guidance rather than relying on color-only cues, supporting WCAG 1.3.3 and 1.4.1 mapping in command surfaces.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

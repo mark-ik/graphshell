@@ -281,6 +281,7 @@ Validation gate:
 - Dialog and omnibar instruction text invariants now have explicit regressions (`clear_data_confirm_warning_text_includes_instruction_and_timing`, `location_input_hint_text_provides_search_and_address_instruction`) to preserve baseline Labels/Instructions semantics for destructive confirmation and primary input affordance copy.
 - Input-layer regressions now explicitly cover character-key shortcut suppression under text capture (`N`, `T`, `?`), adding concrete AG0 evidence for deterministic Character Key Shortcut behavior in editing contexts.
 - Dialog clear-confirm flow now uses a deterministic input-action classifier (`Arm` vs `Execute`) with regression coverage for active-deadline execution, initial arm, and expired-deadline re-arm paths, strengthening AG0 `On Input` semantics evidence for destructive actions.
+- Command palette disabled-state policy now has explicit regressions proving every disabled action in default context exposes a textual precondition reason and that reason text is actionable/non-color-dependent, adding partial AG0 evidence for Sensory Characteristics and Use of Color criteria.
 - AG0 remains open pending full WCAG 2.2 Level A coverage evidence across all seven surface classes (non-radial surfaces still have unverified rows).
 
 ---
