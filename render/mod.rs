@@ -2704,6 +2704,9 @@ pub fn render_file_tree_tool_pane_in_ui(
                 restore_previous_focus: true,
             });
         }
+        if ui.button("Refresh").clicked() {
+            intents.push(GraphIntent::RebuildFileTreeProjection);
+        }
     });
     ui.add_space(4.0);
 
@@ -2732,6 +2735,7 @@ pub fn render_file_tree_tool_pane_in_ui(
         intents.push(GraphIntent::SetFileTreeContainmentRelationSource {
             source: relation_source,
         });
+        intents.push(GraphIntent::RebuildFileTreeProjection);
     }
 
     let mut sort_mode = app.file_tree_projection_state().sort_mode;

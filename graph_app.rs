@@ -1385,6 +1385,7 @@ pub enum GraphIntent {
     SetFileTreeExpandedRows {
         rows: Vec<String>,
     },
+    RebuildFileTreeProjection,
 }
 
 #[derive(Default)]
@@ -2197,6 +2198,7 @@ impl GraphBrowserApp {
         source: FileTreeContainmentRelationSource,
     ) {
         self.workspace.file_tree_projection_state.containment_relation_source = source;
+        self.rebuild_file_tree_projection_rows();
     }
 
     pub fn set_file_tree_sort_mode(&mut self, sort_mode: FileTreeSortMode) {
@@ -2207,7 +2209,8 @@ impl GraphBrowserApp {
         self.workspace.file_tree_projection_state.root_filter = root_filter;
     }
 
-    pub fn upsert_file_tree_row_target(
+    #[cfg(test)]
+    fn upsert_file_tree_row_target(
         &mut self,
         row_key: impl Into<String>,
         target: FileTreeProjectionTarget,
@@ -2229,6 +2232,58 @@ impl GraphBrowserApp {
             .file_tree_projection_state
             .collapsed_rows
             .retain(|row| !expanded_rows.contains(row));
+    }
+
+    pub fn rebuild_file_tree_projection_rows(&mut self) {
+        use FileTreeContainmentRelationSource as Source;
+
+        let mut row_targets: HashMap<String, FileTreeProjectionTarget> = HashMap::new();
+
+        match self.workspace.file_tree_projection_state.containment_relation_source {
+            Source::GraphContainment => {
+                let mut nodes: Vec<(NodeKey, Uuid)> = self
+                    .workspace
+                    .graph
+                    .nodes()
+                    .map(|(key, node)| (key, node.id))
+                    .collect();
+                nodes.sort_by_key(|(_, node_id)| *node_id);
+                for (key, node_id) in nodes {
+                    row_targets.insert(
+                        format!("node:{node_id}"),
+                        FileTreeProjectionTarget::Node(key),
+                    );
+                }
+            }
+            Source::SavedViewCollections => {
+                let mut view_ids: Vec<GraphViewId> = self.workspace.views.keys().copied().collect();
+                view_ids.sort_by_key(|view_id| view_id.as_uuid());
+                for view_id in view_ids {
+                    row_targets.insert(
+                        format!("view:{}", view_id.as_uuid()),
+                        FileTreeProjectionTarget::SavedView(view_id),
+                    );
+                }
+            }
+            Source::ImportedFilesystemProjection => {
+                // Reserved source: no importer-backed rows are wired yet.
+            }
+        }
+
+        let valid_rows: HashSet<String> = row_targets.keys().cloned().collect();
+        self.workspace.file_tree_projection_state.row_targets = row_targets;
+        self.workspace
+            .file_tree_projection_state
+            .selected_rows
+            .retain(|row| valid_rows.contains(row));
+        self.workspace
+            .file_tree_projection_state
+            .expanded_rows
+            .retain(|row| valid_rows.contains(row));
+        self.workspace
+            .file_tree_projection_state
+            .collapsed_rows
+            .retain(|row| valid_rows.contains(row));
     }
 
     /// Request camera fit on next render frame.
@@ -2759,6 +2814,10 @@ impl GraphBrowserApp {
                 self.set_file_tree_expanded_rows(rows.clone());
                 true
             }
+            GraphIntent::RebuildFileTreeProjection => {
+                self.rebuild_file_tree_projection_rows();
+                true
+            }
             _ => false,
         }
     }
@@ -2816,7 +2875,8 @@ impl GraphBrowserApp {
             | GraphIntent::SetFileTreeSortMode { .. }
             | GraphIntent::SetFileTreeRootFilter { .. }
             | GraphIntent::SetFileTreeSelectedRows { .. }
-            | GraphIntent::SetFileTreeExpandedRows { .. } => {
+            | GraphIntent::SetFileTreeExpandedRows { .. }
+            | GraphIntent::RebuildFileTreeProjection => {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
             }
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
@@ -8949,25 +9009,63 @@ mod tests {
     }
 
     #[test]
-    fn test_file_tree_projection_row_targets_can_resolve_node_and_saved_view() {
+    fn test_file_tree_projection_rebuild_populates_node_rows_for_graph_source() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key = app
             .workspace
             .graph
             .add_node("https://example.com/tree-node".to_string(), Point2D::new(0.0, 0.0));
-        let view_id = GraphViewId::new();
+        let node_id = app
+            .workspace
+            .graph
+            .get_node(node_key)
+            .map(|node| node.id)
+            .expect("node must exist");
 
-        app.upsert_file_tree_row_target("row:node", FileTreeProjectionTarget::Node(node_key));
-        app.upsert_file_tree_row_target("row:view", FileTreeProjectionTarget::SavedView(view_id));
+        app.apply_intents([GraphIntent::RebuildFileTreeProjection]);
 
         assert_eq!(
-            app.file_tree_projection_state().row_targets.get("row:node"),
+            app.file_tree_projection_state()
+                .row_targets
+                .get(&format!("node:{node_id}")),
             Some(&FileTreeProjectionTarget::Node(node_key))
         );
+    }
+
+    #[test]
+    fn test_file_tree_projection_rebuild_populates_saved_view_rows_for_saved_view_source() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Saved View"));
+
+        app.apply_intents([
+            GraphIntent::SetFileTreeContainmentRelationSource {
+                source: FileTreeContainmentRelationSource::SavedViewCollections,
+            },
+            GraphIntent::RebuildFileTreeProjection,
+        ]);
+
         assert_eq!(
-            app.file_tree_projection_state().row_targets.get("row:view"),
+            app.file_tree_projection_state()
+                .row_targets
+                .get(&format!("view:{}", view_id.as_uuid())),
             Some(&FileTreeProjectionTarget::SavedView(view_id))
         );
+    }
+
+    #[test]
+    fn test_file_tree_projection_rebuild_prunes_stale_selection_and_expansion_rows() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.set_file_tree_selected_rows(["row:stale".to_string()]);
+        app.set_file_tree_expanded_rows(["row:stale".to_string()]);
+
+        app.apply_intents([GraphIntent::RebuildFileTreeProjection]);
+
+        assert!(app.file_tree_projection_state().selected_rows.is_empty());
+        assert!(app.file_tree_projection_state().expanded_rows.is_empty());
     }
 
     #[test]
