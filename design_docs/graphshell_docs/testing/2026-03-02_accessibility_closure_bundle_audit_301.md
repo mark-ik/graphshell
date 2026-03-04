@@ -189,6 +189,16 @@ Input-layer shortcut suppression under text capture now explicitly includes char
 
 This extends keyboard-capture evidence beyond function keys, showing that single-character command shortcuts are not triggered while text-entry controls own keyboard focus.
 
+### 5.10 On-Input deterministic side-effects addendum (2026-03-04)
+
+Dialog clear-confirm input processing now has explicit action-classification regressions:
+
+- `clear_data_confirm_action_arms_when_no_deadline_is_present`
+- `clear_data_confirm_action_executes_when_deadline_is_active`
+- `clear_data_confirm_action_rearms_when_deadline_expired`
+
+Together with existing omnibar submit-dispatch tests (`submit_dispatch_*`), this provides concrete evidence that input-side effects are deterministic and state-dependent rather than surprising implicit context changes.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

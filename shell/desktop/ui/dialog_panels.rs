@@ -20,6 +20,12 @@ const CLEAR_DATA_CONFIRM_WARNING_TEXT: &str =
     "Press Clr again within 3 seconds to clear graph and saved data";
 const CLEAR_DATA_CONFIRM_SUCCESS_TEXT: &str = "Cleared graph and saved data";
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ClearDataConfirmAction {
+    Arm { next_deadline: f64 },
+    Execute,
+}
+
 pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
@@ -43,28 +49,30 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
         let armed_deadline = args
             .ctx
             .data_mut(|d| d.get_temp::<f64>(confirm_deadline_id));
-        if clear_data_confirm_is_armed(now, armed_deadline) {
-            args.frame_intents
-                .extend(webview_controller::close_all_webviews(
-                    args.graph_app,
-                    args.window,
-                ));
-            tile_runtime::reset_runtime_webview_state(
-                args.tiles_tree,
-                args.tile_rendering_contexts,
-                args.tile_favicon_textures,
-                args.favicon_textures,
-            );
-            args.graph_app.clear_graph_and_persistence();
-            *args.location_dirty = false;
-            *args.location_submitted = false;
-            args.ctx.data_mut(|d| d.remove::<f64>(confirm_deadline_id));
-            args.toasts.success(CLEAR_DATA_CONFIRM_SUCCESS_TEXT);
-        } else {
-            args.ctx.data_mut(|d| {
-                d.insert_temp(confirm_deadline_id, next_clear_data_confirm_deadline(now))
-            });
-            args.toasts.warning(CLEAR_DATA_CONFIRM_WARNING_TEXT);
+        match classify_clear_data_confirm_action(now, armed_deadline) {
+            ClearDataConfirmAction::Execute => {
+                args.frame_intents
+                    .extend(webview_controller::close_all_webviews(
+                        args.graph_app,
+                        args.window,
+                    ));
+                tile_runtime::reset_runtime_webview_state(
+                    args.tiles_tree,
+                    args.tile_rendering_contexts,
+                    args.tile_favicon_textures,
+                    args.favicon_textures,
+                );
+                args.graph_app.clear_graph_and_persistence();
+                *args.location_dirty = false;
+                *args.location_submitted = false;
+                args.ctx.data_mut(|d| d.remove::<f64>(confirm_deadline_id));
+                args.toasts.success(CLEAR_DATA_CONFIRM_SUCCESS_TEXT);
+            }
+            ClearDataConfirmAction::Arm { next_deadline } => {
+                args.ctx
+                    .data_mut(|d| d.insert_temp(confirm_deadline_id, next_deadline));
+                args.toasts.warning(CLEAR_DATA_CONFIRM_WARNING_TEXT);
+            }
         }
         *args.show_clear_data_confirm = false;
     }
@@ -78,10 +86,22 @@ fn next_clear_data_confirm_deadline(now: f64) -> f64 {
     now + CLEAR_DATA_CONFIRM_WINDOW_SECS
 }
 
+fn classify_clear_data_confirm_action(now: f64, armed_deadline: Option<f64>) -> ClearDataConfirmAction {
+    if clear_data_confirm_is_armed(now, armed_deadline) {
+        ClearDataConfirmAction::Execute
+    } else {
+        ClearDataConfirmAction::Arm {
+            next_deadline: next_clear_data_confirm_deadline(now),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        clear_data_confirm_is_armed, next_clear_data_confirm_deadline,
+        classify_clear_data_confirm_action, clear_data_confirm_is_armed,
+        next_clear_data_confirm_deadline,
+        ClearDataConfirmAction,
         CLEAR_DATA_CONFIRM_SUCCESS_TEXT, CLEAR_DATA_CONFIRM_WARNING_TEXT,
         CLEAR_DATA_CONFIRM_WINDOW_SECS,
     };
@@ -121,5 +141,36 @@ mod tests {
     #[test]
     fn clear_data_confirm_success_text_describes_completed_action() {
         assert!(CLEAR_DATA_CONFIRM_SUCCESS_TEXT.contains("Cleared graph"));
+    }
+
+    #[test]
+    fn clear_data_confirm_action_arms_when_no_deadline_is_present() {
+        let now = 13.0;
+        assert_eq!(
+            classify_clear_data_confirm_action(now, None),
+            ClearDataConfirmAction::Arm {
+                next_deadline: now + CLEAR_DATA_CONFIRM_WINDOW_SECS,
+            }
+        );
+    }
+
+    #[test]
+    fn clear_data_confirm_action_executes_when_deadline_is_active() {
+        let now = 13.0;
+        assert_eq!(
+            classify_clear_data_confirm_action(now, Some(now + 0.1)),
+            ClearDataConfirmAction::Execute
+        );
+    }
+
+    #[test]
+    fn clear_data_confirm_action_rearms_when_deadline_expired() {
+        let now = 13.0;
+        assert_eq!(
+            classify_clear_data_confirm_action(now, Some(now - 0.001)),
+            ClearDataConfirmAction::Arm {
+                next_deadline: now + CLEAR_DATA_CONFIRM_WINDOW_SECS,
+            }
+        );
     }
 }
