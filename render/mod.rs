@@ -2693,6 +2693,27 @@ pub fn render_file_tree_tool_pane_in_ui(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
 ) -> Vec<GraphIntent> {
+    fn file_tree_row_label(row_key: &str) -> String {
+        if let Some(rest) = row_key.strip_prefix("fs:") {
+            let path = rest.split('#').next().unwrap_or(rest);
+            let name = path.rsplit('/').next().unwrap_or(path);
+            if !name.is_empty() && name != path {
+                return format!("{name} ({path})");
+            }
+            return path.to_string();
+        }
+
+        if let Some(rest) = row_key.strip_prefix("node:") {
+            return format!("Node {}", &rest.chars().take(8).collect::<String>());
+        }
+
+        if let Some(rest) = row_key.strip_prefix("view:") {
+            return format!("Saved View {}", &rest.chars().take(8).collect::<String>());
+        }
+
+        row_key.to_string()
+    }
+
     let mut intents = Vec::new();
     ui.heading("File Tree");
     ui.separator();
@@ -2825,11 +2846,13 @@ pub fn render_file_tree_tool_pane_in_ui(
                         }
 
                         let is_selected = selected_rows_current.contains(row_key);
-                        if ui.selectable_label(is_selected, row_key).clicked() {
+                        let response = ui.selectable_label(is_selected, file_tree_row_label(row_key));
+                        if response.clicked() {
                             intents.push(GraphIntent::SetFileTreeSelectedRows {
                                 rows: vec![row_key.clone()],
                             });
                         }
+                        response.on_hover_text(row_key);
                     });
                 }
             });
