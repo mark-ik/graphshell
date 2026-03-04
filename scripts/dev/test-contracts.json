@@ -110,6 +110,32 @@
       ]
     },
     {
+      "id": "registries-scenario",
+      "description": "Targeted registries scenario guard for internal settings URL normalization and viewer selection",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "shell/desktop/tests/scenarios/registries.rs",
+        "shell/desktop/runtime/registries/",
+        "util.rs",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1"
+      ],
+      "commands": [
+        "cargo test -q phase0_registry_decision_selects_settings_viewer_for_graphshell_settings_url"
+      ]
+    },
+    {
       "id": "scenarios-binary",
       "description": "tests/scenarios binary target (feature-gated CI canary)",
       "policy": {
@@ -200,6 +226,72 @@
       ],
       "commands": [
         "bash scripts/dev/smoke-matrix.sh quick"
+      ]
+    },
+    {
+      "id": "uxtree-gate",
+      "description": "UxTree semantic/presentation/trace boundary + diff-gate contract checks",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "shell/desktop/workbench/ux_tree.rs",
+        "shell/desktop/workbench/tile_post_render.rs",
+        "shell/desktop/runtime/registries/mod.rs",
+        "shell/desktop/tests/scenarios/ux_tree.rs",
+        "shell/desktop/tests/scenarios/ux_tree_diff_gate.rs",
+        "design_docs/graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_tree_and_probe_spec.md",
+        "design_docs/graphshell_docs/implementation_strategy/subsystem_ux_semantics/2026-02-28_ux_contract_register.md",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1"
+      ],
+      "commands": [
+        "cargo test -q snapshot_uses_single_canonical_id_space_across_layers",
+        "cargo test -q consistency_probe_flags_missing_semantic_id_for_presentation_node",
+        "cargo test -q diff_gate_semantic_changes_are_blocking_by_default",
+        "cargo test -q diff_gate_presentation_changes_are_informational_by_default",
+        "cargo test -q diff_gate_can_promote_presentation_changes_to_blocking",
+        "cargo test -q uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow",
+        "cargo test -q ux_tree_diff_gate_policy_matches_contract_defaults"
+      ]
+    },
+    {
+      "id": "graph-parity-gate",
+      "description": "Graph model to UxTree semantic parity checks",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "model/graph/mod.rs",
+        "graph/mod.rs",
+        "shell/desktop/workbench/ux_tree.rs",
+        "shell/desktop/workbench/tile_behavior.rs",
+        "shell/desktop/tests/scenarios/graph_parity.rs",
+        "shell/desktop/tests/scenarios/mod.rs",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1"
+      ],
+      "commands": [
+        "cargo test -q snapshot_projects_graph_nodes_into_semantic_layer",
+        "cargo test -q uxtree_graph_semantic_parity_matches_graph_model_count"
       ]
     }
   ]

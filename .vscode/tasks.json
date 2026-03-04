@@ -60,6 +60,20 @@
 				"--",
 				"--nocapture"
 			]
+		},
+		{
+			"label": "UxTree Gate Pack",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-File",
+				"scripts/dev/test-select.ps1",
+				"run",
+				"uxtree-gate"
+			],
+			"group": "test",
+			"problemMatcher": []
 		}
 	]
 }

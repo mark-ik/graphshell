@@ -28,10 +28,13 @@ jobs:
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libudev-dev pkg-config
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
 
       - name: Cargo check (locked)
         run: cargo check --locked
