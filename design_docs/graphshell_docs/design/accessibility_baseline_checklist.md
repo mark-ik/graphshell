@@ -74,7 +74,7 @@ Known-gap alignment from UX integration research:
 | 2.4.1 Bypass Blocks | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Region cycling/skip semantics exist but need conformance verification. |
 | 2.4.2 Page Titled | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | Desktop app surface; criterion mapped as not directly page-scoped. |
 | 2.4.3 Focus Order | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane traversal order is now explicit and deterministic (`#298`). |
-| 2.4.4 Link Purpose (In Context) | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify actionable labels communicate purpose clearly. |
+| 2.4.4 Link Purpose (In Context) | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify actionable labels communicate purpose clearly. Action-registry regressions now assert representative command labels include explicit purpose terms (open/copy/connect/delete/save/restore) for command surfaces (2026-03-04 addendum); broader multi-surface validation remains pending. |
 | 2.4.5 Multiple Ways | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Requires evidence for alternate navigation/find paths. |
 | 2.4.6 Headings and Labels | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Label clarity work intersects IA closure (`#299`). |
 | 2.4.7 Focus Visible | AA | Fail | Untested | Untested | Untested | Untested | Untested | Untested | Graph focus indication needs full keyboard-visibility closure. |

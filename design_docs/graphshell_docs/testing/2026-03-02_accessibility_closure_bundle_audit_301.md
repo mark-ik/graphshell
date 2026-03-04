@@ -208,6 +208,14 @@ Command-surface disabled precondition guidance now has explicit regressions:
 
 These tests provide partial evidence that disabled-state communication is conveyed via textual/actionable guidance rather than relying on color-only cues, supporting WCAG 1.3.3 and 1.4.1 mapping in command surfaces.
 
+### 5.12 Link-purpose label clarity addendum (2026-03-04)
+
+Action label purpose clarity now has targeted regression coverage in `action_registry.rs`:
+
+- `test_representative_action_labels_convey_purpose_in_context`
+
+The test verifies representative Open/Copy/Connect/Delete/Save/Restore command labels contain explicit purpose terms, providing partial evidence for WCAG 2.4.4 mapping on command surfaces.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

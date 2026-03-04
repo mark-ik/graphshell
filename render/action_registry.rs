@@ -563,4 +563,26 @@ mod tests {
         assert!(undo.enabled);
         assert!(redo.enabled);
     }
+
+    #[test]
+    fn test_representative_action_labels_convey_purpose_in_context() {
+        let cases = [
+            (ActionId::NodeCopyUrl, ["Copy", "URL"].as_slice()),
+            (ActionId::NodeDelete, ["Delete", "Node"].as_slice()),
+            (ActionId::NodeOpenFrame, ["Open", "Frame"].as_slice()),
+            (ActionId::EdgeConnectPair, ["Connect", "Target"].as_slice()),
+            (ActionId::PersistSaveGraph, ["Save", "Graph"].as_slice()),
+            (ActionId::PersistRestoreLatestGraph, ["Restore", "Graph"].as_slice()),
+        ];
+
+        for (action_id, required_terms) in cases {
+            let label = action_id.label();
+            for term in required_terms {
+                assert!(
+                    label.contains(term),
+                    "{action_id:?} label should include '{term}' to communicate purpose, got: {label}"
+                );
+            }
+        }
+    }
 }
