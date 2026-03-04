@@ -208,6 +208,8 @@ pub(crate) enum ToolPaneState {
     HistoryManager,
     /// Accessibility inspection surface.
     AccessibilityInspector,
+    /// Graph-backed hierarchical projection surface.
+    FileTree,
     /// Application and workspace settings.
     Settings,
 }
@@ -218,6 +220,7 @@ impl ToolPaneState {
             Self::Diagnostics => "Diagnostics",
             Self::HistoryManager => "History",
             Self::AccessibilityInspector => "Accessibility",
+            Self::FileTree => "File Tree",
             Self::Settings => "Settings",
         }
     }
@@ -339,6 +342,7 @@ mod tests {
             ToolPaneState::AccessibilityInspector.title(),
             "Accessibility"
         );
+        assert_eq!(ToolPaneState::FileTree.title(), "File Tree");
         assert_eq!(ToolPaneState::Settings.title(), "Settings");
     }
 

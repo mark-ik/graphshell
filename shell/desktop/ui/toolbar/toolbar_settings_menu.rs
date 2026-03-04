@@ -53,6 +53,12 @@ pub(super) fn render_settings_menu(
                     });
                     ui.close();
                 }
+                if ui.button("Open File Tree").clicked() {
+                    frame_intents.push(GraphIntent::OpenToolPane {
+                        kind: ToolPaneState::FileTree,
+                    });
+                    ui.close();
+                }
                 ui.separator();
                 ui.label(format!(
                     "Toasts: {}",

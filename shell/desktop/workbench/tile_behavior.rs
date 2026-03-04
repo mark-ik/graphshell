@@ -836,6 +836,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     ToolPaneState::AccessibilityInspector => {
                         Self::render_accessibility_inspector_scaffold(ui, self.graph_app);
                     }
+                    ToolPaneState::FileTree => {
+                        let intents = render::render_file_tree_tool_pane_in_ui(ui, self.graph_app);
+                        self.pending_graph_intents.extend(intents);
+                    }
                     ToolPaneState::Settings => {
                         let intents = render::render_settings_tool_pane_in_ui_with_control_panel(
                             ui,

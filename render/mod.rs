@@ -2689,6 +2689,103 @@ pub fn render_history_manager_in_ui(
     intents
 }
 
+pub fn render_file_tree_tool_pane_in_ui(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+) -> Vec<GraphIntent> {
+    let mut intents = Vec::new();
+    ui.heading("File Tree");
+    ui.separator();
+
+    ui.horizontal(|ui| {
+        if ui.button("Done").clicked() {
+            intents.push(GraphIntent::CloseToolPane {
+                kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::FileTree,
+                restore_previous_focus: true,
+            });
+        }
+    });
+    ui.add_space(4.0);
+
+    ui.label("Graph-owned hierarchical projection (pane-hosted surface).");
+
+    let mut relation_source = app.file_tree_projection_state().containment_relation_source;
+    ui.horizontal(|ui| {
+        ui.label("Containment source:");
+        ui.selectable_value(
+            &mut relation_source,
+            crate::app::FileTreeContainmentRelationSource::GraphContainment,
+            "Graph",
+        );
+        ui.selectable_value(
+            &mut relation_source,
+            crate::app::FileTreeContainmentRelationSource::SavedViewCollections,
+            "Saved Views",
+        );
+        ui.selectable_value(
+            &mut relation_source,
+            crate::app::FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+            "Imported FS",
+        );
+    });
+    app.set_file_tree_containment_relation_source(relation_source);
+
+    let mut sort_mode = app.file_tree_projection_state().sort_mode;
+    ui.horizontal(|ui| {
+        ui.label("Sort:");
+        ui.selectable_value(
+            &mut sort_mode,
+            crate::app::FileTreeSortMode::Manual,
+            "Manual",
+        );
+        ui.selectable_value(
+            &mut sort_mode,
+            crate::app::FileTreeSortMode::NameAscending,
+            "Name ↑",
+        );
+        ui.selectable_value(
+            &mut sort_mode,
+            crate::app::FileTreeSortMode::NameDescending,
+            "Name ↓",
+        );
+    });
+    app.set_file_tree_sort_mode(sort_mode);
+
+    ui.horizontal(|ui| {
+        ui.label("Root filter:");
+        let mut root_filter = app
+            .file_tree_projection_state()
+            .root_filter
+            .clone()
+            .unwrap_or_default();
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut root_filter)
+                    .desired_width(240.0)
+                    .hint_text("optional projection root"),
+            )
+            .changed()
+        {
+            let trimmed = root_filter.trim().to_string();
+            if trimmed.is_empty() {
+                app.set_file_tree_root_filter(None);
+            } else {
+                app.set_file_tree_root_filter(Some(trimmed));
+            }
+        }
+    });
+
+    ui.separator();
+    ui.label(format!(
+        "Rows: {} mapped, {} selected, {} expanded",
+        app.file_tree_projection_state().row_targets.len(),
+        app.file_tree_projection_state().selected_rows.len(),
+        app.file_tree_projection_state().expanded_rows.len(),
+    ));
+
+    intents
+}
+
 pub fn render_settings_tool_pane_in_ui_with_control_panel(
     ui: &mut Ui,
     app: &mut GraphBrowserApp,
