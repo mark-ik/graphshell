@@ -87,7 +87,7 @@ Known-gap alignment from UX integration research:
 | 2.5.8 Target Size (Minimum) | AA | Untested | Untested | Untested | Pass | Untested | Untested | Untested | Floating command surface controls with explicit constants are audited (radial command + domain buttons in `#301`); other surfaces remain pending measurement sweep. |
 | 3.1.1 Language of Page | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify language metadata at host/UI accessibility tree layer. |
 | 3.1.2 Language of Parts | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Mixed-language content handling not yet audited. |
-| 3.2.1 On Focus | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Focus should not trigger unexpected context changes; verify. |
+| 3.2.1 On Focus | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Focus should not trigger unexpected context changes; verify. Omnibar submit-dispatch helper regressions now explicitly cover non-submit behavior without Enter/queued submit and focus-loss Enter guard paths (2026-03-04 addendum), while broader surface validation remains pending. |
 | 3.2.2 On Input | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Input-change side effects need confirmation across settings/filters. |
 | 3.2.3 Consistent Navigation | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Navigation order consistency requires dedicated audit pass. |
 | 3.2.4 Consistent Identification | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Same controls need stable naming across panes/surfaces. |

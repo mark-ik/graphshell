@@ -154,6 +154,7 @@ Omnibar submit-dispatch behavior now has explicit helper-level coverage in `tool
 - `submit_dispatch_triggers_for_queued_submit`
 - `submit_dispatch_ignores_enter_after_focus_loss`
 - `submit_dispatch_triggers_for_queued_submit_after_focus_loss`
+- `submit_dispatch_does_not_trigger_without_enter_or_queue`
 
 This confirms keyboard-submit semantics remain deterministic (focused Enter and queued-submit paths dispatch; passive Enter after focus loss does not), reducing no-trap/accidental-submit ambiguity for omnibar workflows.
 
