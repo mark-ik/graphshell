@@ -1366,6 +1366,15 @@ pub enum GraphIntent {
         key: NodeKey,
         kind: crate::graph::AddressKind,
     },
+    SetFileTreeContainmentRelationSource {
+        source: FileTreeContainmentRelationSource,
+    },
+    SetFileTreeSortMode {
+        sort_mode: FileTreeSortMode,
+    },
+    SetFileTreeRootFilter {
+        root_filter: Option<String>,
+    },
 }
 
 #[derive(Default)]
@@ -2711,6 +2720,18 @@ impl GraphBrowserApp {
                 }
                 true
             }
+            GraphIntent::SetFileTreeContainmentRelationSource { source } => {
+                self.set_file_tree_containment_relation_source(*source);
+                true
+            }
+            GraphIntent::SetFileTreeSortMode { sort_mode } => {
+                self.set_file_tree_sort_mode(*sort_mode);
+                true
+            }
+            GraphIntent::SetFileTreeRootFilter { root_filter } => {
+                self.set_file_tree_root_filter(root_filter.clone());
+                true
+            }
             _ => false,
         }
     }
@@ -2763,7 +2784,10 @@ impl GraphBrowserApp {
             | GraphIntent::ClearHighlightedEdge
             | GraphIntent::SetNodeFormDraft { .. }
             | GraphIntent::SetNodeThumbnail { .. }
-            | GraphIntent::SetNodeFavicon { .. } => {
+            | GraphIntent::SetNodeFavicon { .. }
+            | GraphIntent::SetFileTreeContainmentRelationSource { .. }
+            | GraphIntent::SetFileTreeSortMode { .. }
+            | GraphIntent::SetFileTreeRootFilter { .. } => {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
             }
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
@@ -8914,6 +8938,36 @@ mod tests {
         assert_eq!(
             app.file_tree_projection_state().row_targets.get("row:view"),
             Some(&FileTreeProjectionTarget::SavedView(view_id))
+        );
+    }
+
+    #[test]
+    fn test_file_tree_projection_intents_apply_in_workspace_reducer() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_intents([
+            GraphIntent::SetFileTreeContainmentRelationSource {
+                source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+            },
+            GraphIntent::SetFileTreeSortMode {
+                sort_mode: FileTreeSortMode::NameDescending,
+            },
+            GraphIntent::SetFileTreeRootFilter {
+                root_filter: Some("root:tests".to_string()),
+            },
+        ]);
+
+        assert_eq!(
+            app.file_tree_projection_state().containment_relation_source,
+            FileTreeContainmentRelationSource::ImportedFilesystemProjection
+        );
+        assert_eq!(
+            app.file_tree_projection_state().sort_mode,
+            FileTreeSortMode::NameDescending
+        );
+        assert_eq!(
+            app.file_tree_projection_state().root_filter.as_deref(),
+            Some("root:tests")
         );
     }
 

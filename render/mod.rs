@@ -2728,7 +2728,11 @@ pub fn render_file_tree_tool_pane_in_ui(
             "Imported FS",
         );
     });
-    app.set_file_tree_containment_relation_source(relation_source);
+    if relation_source != app.file_tree_projection_state().containment_relation_source {
+        intents.push(GraphIntent::SetFileTreeContainmentRelationSource {
+            source: relation_source,
+        });
+    }
 
     let mut sort_mode = app.file_tree_projection_state().sort_mode;
     ui.horizontal(|ui| {
@@ -2749,7 +2753,9 @@ pub fn render_file_tree_tool_pane_in_ui(
             "Name ↓",
         );
     });
-    app.set_file_tree_sort_mode(sort_mode);
+    if sort_mode != app.file_tree_projection_state().sort_mode {
+        intents.push(GraphIntent::SetFileTreeSortMode { sort_mode });
+    }
 
     ui.horizontal(|ui| {
         ui.label("Root filter:");
@@ -2768,9 +2774,11 @@ pub fn render_file_tree_tool_pane_in_ui(
         {
             let trimmed = root_filter.trim().to_string();
             if trimmed.is_empty() {
-                app.set_file_tree_root_filter(None);
+                intents.push(GraphIntent::SetFileTreeRootFilter { root_filter: None });
             } else {
-                app.set_file_tree_root_filter(Some(trimmed));
+                intents.push(GraphIntent::SetFileTreeRootFilter {
+                    root_filter: Some(trimmed),
+                });
             }
         }
     });
