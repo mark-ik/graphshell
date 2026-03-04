@@ -1826,3 +1826,30 @@ fn orchestration_preserves_semantic_intents_until_reducer_applies_them() {
         "https://after.example"
     );
 }
+
+#[test]
+fn clipboard_success_status_text_is_deterministic_per_copy_kind() {
+    assert_eq!(
+        super::clipboard_copy_success_text(crate::app::ClipboardCopyKind::Url),
+        super::CLIPBOARD_STATUS_SUCCESS_URL_TEXT
+    );
+    assert_eq!(
+        super::clipboard_copy_success_text(crate::app::ClipboardCopyKind::Title),
+        super::CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT
+    );
+}
+
+#[test]
+fn clipboard_status_messages_describe_outcomes_explicitly() {
+    assert!(super::CLIPBOARD_STATUS_SUCCESS_URL_TEXT.contains("Copied"));
+    assert!(super::CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT.contains("Copied"));
+    assert!(super::CLIPBOARD_STATUS_UNAVAILABLE_TEXT.contains("unavailable"));
+    assert!(super::CLIPBOARD_STATUS_EMPTY_TEXT.contains("Nothing"));
+    assert!(super::CLIPBOARD_STATUS_FAILURE_PREFIX.contains("failed"));
+}
+
+#[test]
+fn clipboard_status_success_messages_identify_copied_subject() {
+    assert!(super::CLIPBOARD_STATUS_SUCCESS_URL_TEXT.contains("URL"));
+    assert!(super::CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT.contains("title"));
+}

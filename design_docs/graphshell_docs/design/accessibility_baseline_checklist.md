@@ -98,7 +98,7 @@ Known-gap alignment from UX integration research:
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | N/A | N/A | N/A | N/A | N/A | N/A | N/A | Baseline UX does not currently include legal/financial irreversible forms. |
 | 3.3.6 Error Prevention (All) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Destructive-action confirmation behavior is not uniformly implemented (`G-FR-2`); dialog clear-data flow now has deterministic two-step confirmation + expiry unit coverage (2026-03-04 addendum), with broader surface evidence still pending. |
 | 4.1.2 Name, Role, Value | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane baseline naming model is implemented and verified in `#298` audit evidence. |
-| 4.1.3 Status Messages | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Status/error/loading announcements need AT verification. |
+| 4.1.3 Status Messages | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Status/error/loading announcements need AT verification. Partial evidence now covers deterministic clipboard status/toast wording and explicit outcome semantics in `gui_orchestration` regressions (2026-03-04 addendum); full assistive-technology announcement validation remains pending. |
 
 ---
 

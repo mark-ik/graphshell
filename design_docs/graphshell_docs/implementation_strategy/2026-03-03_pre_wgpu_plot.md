@@ -283,6 +283,7 @@ Validation gate:
 - Dialog clear-confirm flow now uses a deterministic input-action classifier (`Arm` vs `Execute`) with regression coverage for active-deadline execution, initial arm, and expired-deadline re-arm paths, strengthening AG0 `On Input` semantics evidence for destructive actions.
 - Command palette disabled-state policy now has explicit regressions proving every disabled action in default context exposes a textual precondition reason and that reason text is actionable/non-color-dependent, adding partial AG0 evidence for Sensory Characteristics and Use of Color criteria.
 - Action registry label semantics now include targeted regressions asserting representative command labels convey purpose in context (open/copy/connect/delete/save/restore), adding partial AG0 evidence for Link Purpose clarity.
+- Clipboard status/toast semantics now include deterministic message-contract regressions in `gui_orchestration` asserting stable success mapping by copy kind (URL/title) and explicit outcome wording for success/warning/error/unavailable states, adding partial AG0 evidence for `4.1.3 Status Messages` while AT announcement verification remains pending.
 - AG0 remains open pending full WCAG 2.2 Level A coverage evidence across all seven surface classes (non-radial surfaces still have unverified rows).
 
 ---

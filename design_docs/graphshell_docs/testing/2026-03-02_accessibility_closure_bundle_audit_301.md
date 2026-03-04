@@ -216,6 +216,16 @@ Action label purpose clarity now has targeted regression coverage in `action_reg
 
 The test verifies representative Open/Copy/Connect/Delete/Save/Restore command labels contain explicit purpose terms, providing partial evidence for WCAG 2.4.4 mapping on command surfaces.
 
+### 5.13 Status-message wording determinism addendum (2026-03-04)
+
+Clipboard status/toast wording now has targeted regression coverage in `gui_orchestration`:
+
+- `clipboard_success_status_text_is_deterministic_per_copy_kind`
+- `clipboard_status_messages_describe_outcomes_explicitly`
+- `clipboard_status_success_messages_identify_copied_subject`
+
+This coverage locks deterministic success mapping (URL/title) and explicit success/warning/error/unavailable wording, providing partial evidence for WCAG 4.1.3 mapping on command-surface status feedback while screen-reader announcement verification remains pending.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

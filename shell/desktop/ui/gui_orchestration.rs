@@ -532,7 +532,7 @@ fn handle_pending_clipboard_copy_request(
     ensure_clipboard_initialized(clipboard);
     let Some(cb) = clipboard.as_mut() else {
         emit_clipboard_copy_failure("clipboard unavailable".len());
-        toasts.error("Clipboard unavailable");
+        toasts.error(CLIPBOARD_STATUS_UNAVAILABLE_TEXT);
         return;
     };
 
@@ -540,10 +540,16 @@ fn handle_pending_clipboard_copy_request(
         Ok(()) => emit_clipboard_copy_success_toast(toasts, kind),
         Err(e) => {
             emit_clipboard_copy_failure(e.to_string().len());
-            toasts.error(format!("Copy failed: {e}"));
+            toasts.error(format!("{CLIPBOARD_STATUS_FAILURE_PREFIX}: {e}"));
         }
     }
 }
+
+const CLIPBOARD_STATUS_SUCCESS_URL_TEXT: &str = "Copied URL";
+const CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT: &str = "Copied title";
+const CLIPBOARD_STATUS_UNAVAILABLE_TEXT: &str = "Clipboard unavailable";
+const CLIPBOARD_STATUS_EMPTY_TEXT: &str = "Nothing to copy";
+const CLIPBOARD_STATUS_FAILURE_PREFIX: &str = "Copy failed";
 
 fn clipboard_copy_value_for_node(
     graph_app: &GraphBrowserApp,
@@ -552,7 +558,9 @@ fn clipboard_copy_value_for_node(
     toasts: &mut egui_notify::Toasts,
 ) -> Option<String> {
     let Some(node) = graph_app.workspace.graph.get_node(key) else {
-        toasts.error("Copy failed: node no longer exists");
+        toasts.error(format!(
+            "{CLIPBOARD_STATUS_FAILURE_PREFIX}: node no longer exists"
+        ));
         return None;
     };
 
@@ -562,7 +570,7 @@ fn clipboard_copy_value_for_node(
     };
 
     if value.trim().is_empty() {
-        toasts.warning("Nothing to copy");
+        toasts.warning(CLIPBOARD_STATUS_EMPTY_TEXT);
         return None;
     }
 
@@ -592,13 +600,13 @@ fn emit_clipboard_copy_failure(byte_len: usize) {
 }
 
 fn emit_clipboard_copy_success_toast(toasts: &mut egui_notify::Toasts, kind: ClipboardCopyKind) {
+    toasts.success(clipboard_copy_success_text(kind));
+}
+
+fn clipboard_copy_success_text(kind: ClipboardCopyKind) -> &'static str {
     match kind {
-        ClipboardCopyKind::Url => {
-            toasts.success("Copied URL");
-        }
-        ClipboardCopyKind::Title => {
-            toasts.success("Copied title");
-        }
+        ClipboardCopyKind::Url => CLIPBOARD_STATUS_SUCCESS_URL_TEXT,
+        ClipboardCopyKind::Title => CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT,
     }
 }
 
