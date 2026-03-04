@@ -154,6 +154,8 @@ pub fn render_radial_command_menu(
         pair_context,
         any_selected,
         focused_pane_available: focused_pane_node.is_some(),
+        undo_available: app.undo_stack_len() > 0,
+        redo_available: app.redo_stack_len() > 0,
         input_mode: InputMode::Gamepad,
         view_id: app
             .workspace

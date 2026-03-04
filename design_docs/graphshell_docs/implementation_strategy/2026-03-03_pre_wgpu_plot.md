@@ -259,6 +259,12 @@ Validation gate:
 - Added AG3 regression coverage for both routed and unresolved open-graph flows to assert decision diagnostics emission and fallback-path contract warning behavior.
 - Semantic child-webview open routing now emits the same open-decision diagnostics and classifies deferred unmapped child-webview opens as target-missing, with regression coverage for both routed and deferred outcomes.
 
+### AG4 Command Surface Notes (2026-03-04)
+
+- Command-surface disabled-state parity now enforces `PersistUndo`/`PersistRedo` availability via shared `ActionRegistry` context (`undo_available`/`redo_available`), rather than leaving both actions always enabled.
+- Command palette now emits explicit disabled hover reasons for unavailable undo/redo paths, matching matrix preconditions (`undo stack available` / `redo stack available`) while retaining shared `ActionId` dispatch semantics.
+- Added registry regression coverage asserting undo/redo disabled when stacks are empty and enabled when stack entries exist; validated in `action_registry`, `command_palette`, and `gui_orchestration` test packs.
+
 ---
 
 ## 5) Spec Conflict Resolution Status

@@ -24,6 +24,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn disabled_action_reason(action_id: ActionId, action_context: &ActionContext) -> Option<&'static str> {
     match action_id {
+        ActionId::PersistUndo => {
+            if !action_context.undo_available {
+                Some("Undo unavailable. No prior graph mutation is available to revert.")
+            } else {
+                None
+            }
+        }
+        ActionId::PersistRedo => {
+            if !action_context.redo_available {
+                Some("Redo unavailable. Perform an undo first to create redo history.")
+            } else {
+                None
+            }
+        }
         ActionId::EdgeConnectPair | ActionId::EdgeConnectBoth | ActionId::EdgeRemoveUser => {
             if action_context.pair_context.is_none() {
                 Some("Requires exactly two nodes selected. Select a source and target node first.")
@@ -99,6 +113,8 @@ pub fn render_command_palette_panel(
         pair_context,
         any_selected,
         focused_pane_available: focused_pane_node.is_some(),
+        undo_available: app.undo_stack_len() > 0,
+        redo_available: app.redo_stack_len() > 0,
         input_mode: InputMode::MouseKeyboard,
         view_id: app
             .workspace
@@ -369,6 +385,8 @@ mod tests {
             pair_context: None,
             any_selected: false,
             focused_pane_available: false,
+            undo_available: false,
+            redo_available: false,
             input_mode: InputMode::MouseKeyboard,
             view_id: GraphViewId::new(),
         }

@@ -217,6 +217,10 @@ pub struct ActionContext {
     pub any_selected: bool,
     /// Whether a focused pane node is available (for detach-to-split).
     pub focused_pane_available: bool,
+    /// Whether undo stack has an available entry.
+    pub undo_available: bool,
+    /// Whether redo stack has an available entry.
+    pub redo_available: bool,
     /// Preferred input mode (layout hint).
     pub input_mode: InputMode,
     /// Active view (for future per-view action customisation).
@@ -272,8 +276,8 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (GraphPhysicsConfig, true),
         (GraphCommandPalette, true),
         // Persistence
-        (PersistUndo, true),
-        (PersistRedo, true),
+        (PersistUndo, context.undo_available),
+        (PersistRedo, context.redo_available),
         (PersistSaveSnapshot, true),
         (PersistRestoreSession, true),
         (PersistSaveGraph, true),
@@ -352,6 +356,8 @@ mod tests {
             pair_context: None,
             any_selected: false,
             focused_pane_available: false,
+            undo_available: false,
+            redo_available: false,
             input_mode: InputMode::MouseKeyboard,
             view_id: GraphViewId::new(),
         }
@@ -512,16 +518,49 @@ mod tests {
     }
 
     #[test]
-    fn test_graph_and_persistence_always_enabled() {
+    fn test_graph_actions_always_enabled() {
         let ctx = default_context();
         let entries = list_actions_for_context(&ctx);
         for entry in entries.iter().filter(|e| {
-            matches!(
-                e.id.category(),
-                ActionCategory::Graph | ActionCategory::Persistence
-            )
+            matches!(e.id.category(), ActionCategory::Graph)
         }) {
             assert!(entry.enabled, "{:?} should always be enabled", entry.id);
         }
+    }
+
+    #[test]
+    fn test_persistence_undo_redo_disabled_without_stack_entries() {
+        let ctx = default_context();
+        let entries = list_actions_for_context(&ctx);
+        let undo = entries
+            .iter()
+            .find(|e| e.id == ActionId::PersistUndo)
+            .unwrap();
+        let redo = entries
+            .iter()
+            .find(|e| e.id == ActionId::PersistRedo)
+            .unwrap();
+        assert!(!undo.enabled);
+        assert!(!redo.enabled);
+    }
+
+    #[test]
+    fn test_persistence_undo_redo_enabled_with_stack_entries() {
+        let ctx = ActionContext {
+            undo_available: true,
+            redo_available: true,
+            ..default_context()
+        };
+        let entries = list_actions_for_context(&ctx);
+        let undo = entries
+            .iter()
+            .find(|e| e.id == ActionId::PersistUndo)
+            .unwrap();
+        let redo = entries
+            .iter()
+            .find(|e| e.id == ActionId::PersistRedo)
+            .unwrap();
+        assert!(undo.enabled);
+        assert!(redo.enabled);
     }
 }
