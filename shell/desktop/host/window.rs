@@ -33,13 +33,6 @@ pub(crate) trait WebViewCreationContext {
     fn servo(&self) -> &Servo;
     fn user_content_manager(&self) -> Rc<UserContentManager>;
     fn webview_delegate(self: Rc<Self>) -> Rc<dyn WebViewDelegate>;
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    fn gamepad_provider(
-        &self,
-    ) -> Option<Rc<crate::shell::desktop::host::gamepad::AppGamepadProvider>>;
 }
 
 // This should vary by zoom level and maybe actual text size (focused or under cursor)
@@ -189,14 +182,6 @@ impl EmbedderWindow {
             .user_content_manager(state.user_content_manager())
             .delegate(state.clone().webview_delegate())
             .build();
-
-        #[cfg(all(
-            feature = "gamepad",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        if let Some(gamepad_provider) = state.gamepad_provider() {
-            webview.set_gamepad_provider(gamepad_provider);
-        }
 
         webview.notify_theme_change(self.platform_window.theme());
         self.add_webview(webview.clone());

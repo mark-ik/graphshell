@@ -245,6 +245,14 @@ Validation gate:
 - Runtime viewer bridge precondition (`#180`) evidenced as solved.
 - Application readiness conditions from `egui_wgpu_custom_canvas_migration_strategy.md` §Application Readiness Gate all true.
 
+### AG1/AG2 Stabilization Notes (2026-03-03)
+
+- Detail-view omnibar submit routing now resolves target deterministically by preferring focused node mapping, then preferred input webview mapping, before create-node fallback.
+- Toolbar submit dispatch now ignores `lost_focus + Enter` as an implicit submit trigger; submission requires focused-enter or explicit queued submit state.
+- Added regression tests for detail-submit target resolution and toolbar submit-dispatch gating to guard against focus/routing regressions.
+- Added pane-transition focus handoff regression coverage to verify that frame activation retargets to the remaining mapped node after close transitions.
+- Remaining AG2 follow-up: validate that tile focus handoff after pane/tab transitions keeps `preferred_input_webview_id` aligned with expected toolbar target in multi-pane scenarios.
+
 ---
 
 ## 5) Spec Conflict Resolution Status

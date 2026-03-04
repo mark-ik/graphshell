@@ -38,14 +38,28 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run scenarios binary
-        if: runner.os == 'Linux'
-        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform linux --quiet
+      - name: Configure platform test environment
+        shell: pwsh
+        run: |
+          $lane = switch ("${{ runner.os }}") {
+            'Linux' { 'linux' }
+            'Windows' { 'windows' }
+            'macOS' { 'macos' }
+            default { throw "Unsupported runner OS: ${{ runner.os }}" }
+          }
 
-      - name: Run scenarios binary (Windows)
-        if: runner.os == 'Windows'
-        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform windows --quiet
+          "GRAPHSHELL_CARGO_LANE=$lane" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_DIR=${{ github.workspace }}/target/${lane}_target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Run scenarios binary (macOS)
-        if: runner.os == 'macOS'
-        run: pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform macos --quiet
+      - name: Lint + run scenario policy pack
+        shell: pwsh
+        run: |
+          $platform = switch ("${{ runner.os }}") {
+            'Linux' { 'linux' }
+            'Windows' { 'windows' }
+            'macOS' { 'macos' }
+            default { throw "Unsupported runner OS: ${{ runner.os }}" }
+          }
+
+          pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform $platform
+          pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform $platform --quiet

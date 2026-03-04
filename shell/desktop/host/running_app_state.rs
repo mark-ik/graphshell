@@ -27,9 +27,9 @@ use log::{error, info, warn};
 use servo::{
     AllowOrDenyRequest, AuthenticationRequest, CSSPixel, ConsoleLogLevel, CreateNewWebViewRequest,
     DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId, EventLoopWaker,
-    GenericSender, InputEvent, InputEventId, InputEventResult, JSValue, LoadStatus,
-    MediaSessionEvent, PermissionRequest, PrefValue, Preferences, ScreenshotCaptureError, Servo,
-    ServoDelegate, ServoError, TraversalId, UserContentManager, WebDriverCommandMsg,
+    GamepadHapticEffectType, GenericSender, InputEvent, InputEventId, InputEventResult, JSValue,
+    LoadStatus, MediaSessionEvent, PermissionRequest, PrefValue, Preferences,
+    ScreenshotCaptureError, Servo, ServoDelegate, ServoError, TraversalId, UserContentManager, WebDriverCommandMsg,
     WebDriverJSResult, WebDriverLoadStatus, WebDriverScriptCommand, WebDriverSenders, WebView,
     WebViewDelegate, WebViewId, pref,
 };
@@ -742,14 +742,6 @@ impl WebViewCreationContext for RunningAppState {
     fn webview_delegate(self: Rc<Self>) -> Rc<dyn WebViewDelegate> {
         Rc::new(RunningAppStateWebViewDelegate { state: self })
     }
-
-    #[cfg(all(
-        feature = "gamepad",
-        not(any(target_os = "android", target_env = "ohos"))
-    ))]
-    fn gamepad_provider(&self) -> Option<Rc<AppGamepadProvider>> {
-        self.gamepad_provider()
-    }
 }
 
 struct RunningAppStateWebViewDelegate {
@@ -904,6 +896,44 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
 
     fn notify_new_frame_ready(&self, webview: WebView) {
         self.window_for_webview_id(webview.id()).set_needs_repaint();
+    }
+
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    fn play_gamepad_haptic_effect(
+        &self,
+        _webview: WebView,
+        index: usize,
+        effect_type: GamepadHapticEffectType,
+        effect_complete_callback: Box<dyn FnOnce(bool)>,
+    ) {
+        match self.gamepad_provider.as_ref() {
+            Some(gamepad_provider) => {
+                gamepad_provider.play_haptic_effect(index, effect_type, effect_complete_callback);
+            }
+            None => {
+                effect_complete_callback(false);
+            }
+        }
+    }
+
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    fn stop_gamepad_haptic_effect(
+        &self,
+        _webview: WebView,
+        index: usize,
+        haptic_stop_callback: Box<dyn FnOnce(bool)>,
+    ) {
+        let stopped = match self.gamepad_provider.as_ref() {
+            Some(gamepad_provider) => gamepad_provider.stop_haptic_effect(index),
+            None => false,
+        };
+        haptic_stop_callback(stopped);
     }
 
     fn show_embedder_control(&self, webview: WebView, embedder_control: EmbedderControl) {

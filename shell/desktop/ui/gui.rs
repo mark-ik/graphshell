@@ -1632,7 +1632,7 @@ mod accessibility_bridge_tests {
     use std::collections::HashMap;
 
     use super::Gui;
-    use accesskit::{Node, NodeId, Role, Tree, TreeId, TreeUpdate};
+    use accesskit::{Node, NodeId, Role, Tree, TreeUpdate};
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use servo::WebViewId;
 
@@ -1664,7 +1664,6 @@ mod accessibility_bridge_tests {
         let update = TreeUpdate {
             nodes: vec![(NodeId(1), other), (NodeId(2), focused)],
             tree: Some(Tree::new(NodeId(1))),
-            tree_id: TreeId::ROOT,
             focus: NodeId(2),
         };
 
@@ -1678,7 +1677,6 @@ mod accessibility_bridge_tests {
         let update = TreeUpdate {
             nodes: vec![(NodeId(5), Node::new(Role::Document))],
             tree: Some(Tree::new(NodeId(5))),
-            tree_id: TreeId::ROOT,
             focus: NodeId(5),
         };
 
@@ -1695,7 +1693,6 @@ mod accessibility_bridge_tests {
         let update = TreeUpdate {
             nodes: vec![(NodeId(9), update_node)],
             tree: Some(Tree::new(NodeId(9))),
-            tree_id: TreeId::ROOT,
             focus: NodeId(9),
         };
 
@@ -1724,7 +1721,6 @@ mod accessibility_bridge_tests {
         let update = TreeUpdate {
             nodes: vec![(NodeId(11), root), (NodeId(22), child)],
             tree: Some(Tree::new(NodeId(11))),
-            tree_id: TreeId::ROOT,
             focus: NodeId(11),
         };
 
@@ -1744,7 +1740,6 @@ mod accessibility_bridge_tests {
         let update = TreeUpdate {
             nodes: vec![(NodeId(0), reserved_root)],
             tree: Some(Tree::new(NodeId(0))),
-            tree_id: TreeId::ROOT,
             focus: NodeId(0),
         };
 
@@ -1763,7 +1758,6 @@ mod accessibility_bridge_tests {
         let update = TreeUpdate {
             nodes: vec![(NodeId(44), node)],
             tree: Some(Tree::new(NodeId(44))),
-            tree_id: TreeId::ROOT,
             focus: NodeId(44),
         };
 

@@ -702,6 +702,33 @@ mod tests {
     }
 
     #[test]
+    fn frame_activation_targets_switch_to_remaining_node_after_pane_close() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = NodeKey::new(11);
+        let b = NodeKey::new(12);
+        let a_webview = test_webview_id();
+        let b_webview = test_webview_id();
+        app.map_webview_to_node(a_webview, a);
+        app.map_webview_to_node(b_webview, b);
+
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![graph, b_tile]);
+        let mut tree = Tree::new("tile_compositor_focus_after_close", root, tiles);
+        let _ = tree.make_active(|_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b)
+        });
+
+        app.unmap_webview(a_webview);
+
+        let (primary, fallback) = frame_activation_targets(&tree, &app, Some(a));
+
+        assert_eq!(primary, Some(b));
+        assert_eq!(fallback, None);
+    }
+
+    #[test]
     fn deferred_focus_activation_emits_diagnostics_channel() {
         let mut app = GraphBrowserApp::new_for_testing();
         let primary = NodeKey::new(7);

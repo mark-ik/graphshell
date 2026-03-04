@@ -163,6 +163,22 @@ pub(crate) struct AddressBarIntentOutcome {
     pub intents: Vec<GraphIntent>,
 }
 
+fn resolve_detail_submit_target(
+    app: &GraphBrowserApp,
+    focused_node: Option<NodeKey>,
+    preferred_webview: Option<WebViewId>,
+) -> (Option<NodeKey>, Option<WebViewId>) {
+    if let Some(node_key) = focused_node {
+        return (Some(node_key), app.get_webview_for_node(node_key));
+    }
+
+    if let Some(webview_id) = preferred_webview {
+        return (app.get_node_for_webview(webview_id), Some(webview_id));
+    }
+
+    (None, None)
+}
+
 fn workbench_route_intent_for_graphshell_url(normalized_url: &str) -> Option<GraphIntent> {
     let parsed = GraphshellAddress::parse(normalized_url)?;
     let canonical_url = parsed.to_string();
@@ -343,7 +359,11 @@ pub(crate) fn handle_address_bar_submit_intents(
             };
         }
 
-        if let Some(webview_id) = focused_node.and_then(|node_key| app.get_webview_for_node(node_key))
+        let preferred_input_webview = window.platform_window().preferred_input_webview_id(window);
+        let (target_node, target_webview) =
+            resolve_detail_submit_target(app, focused_node, preferred_input_webview);
+
+        if let Some(webview_id) = target_webview
             && let Some(webview) = window.webview_by_id(webview_id)
         {
             window.activate_webview(webview_id);
@@ -361,11 +381,8 @@ pub(crate) fn handle_address_bar_submit_intents(
         // No focused live webview in detail mode:
         // if we still have a focused node/pane target, update/reactivate it;
         // otherwise create a new node as a fallback.
-        let (open_selected_tile, intents) = registries::phase2_execute_detail_view_submit_action(
-            app,
-            parsed_url.as_str(),
-            focused_node,
-        );
+        let (open_selected_tile, intents) =
+            registries::phase2_execute_detail_view_submit_action(app, parsed_url.as_str(), target_node);
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
                 mark_clean: true,
@@ -1044,5 +1061,45 @@ mod tests {
             intents.first(),
             Some(GraphIntent::OpenViewUrl { url }) if url == &expected_url
         ));
+    }
+
+    #[test]
+    fn resolve_detail_submit_target_prefers_focused_node_mapping() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let focused = app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
+        let other = app.add_node_and_sync("https://other.example".into(), Point2D::new(20.0, 0.0));
+        let focused_webview = test_webview_id();
+        let preferred_webview = test_webview_id();
+        app.map_webview_to_node(focused_webview, focused);
+        app.map_webview_to_node(preferred_webview, other);
+
+        let (target_node, target_webview) =
+            resolve_detail_submit_target(&app, Some(focused), Some(preferred_webview));
+        assert_eq!(target_node, Some(focused));
+        assert_eq!(target_webview, Some(focused_webview));
+    }
+
+    #[test]
+    fn resolve_detail_submit_target_falls_back_to_preferred_webview_mapping() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync("https://preferred.example".into(), Point2D::new(0.0, 0.0));
+        let preferred_webview = test_webview_id();
+        app.map_webview_to_node(preferred_webview, node);
+
+        let (target_node, target_webview) =
+            resolve_detail_submit_target(&app, None, Some(preferred_webview));
+        assert_eq!(target_node, Some(node));
+        assert_eq!(target_webview, Some(preferred_webview));
+    }
+
+    #[test]
+    fn resolve_detail_submit_target_uses_preferred_webview_without_mapping() {
+        let app = GraphBrowserApp::new_for_testing();
+        let preferred_webview = test_webview_id();
+
+        let (target_node, target_webview) =
+            resolve_detail_submit_target(&app, None, Some(preferred_webview));
+        assert_eq!(target_node, None);
+        assert_eq!(target_webview, Some(preferred_webview));
     }
 }

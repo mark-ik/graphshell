@@ -1,6 +1,14 @@
 use super::toolbar_location_dropdown;
 use super::*;
 
+fn should_dispatch_location_submit(
+    enter_while_focused: bool,
+    location_submitted: bool,
+    _enter_after_focus_loss: bool,
+) -> bool {
+    enter_while_focused || location_submitted
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_location_search_panel(
     ui: &mut egui::Ui,
@@ -288,13 +296,16 @@ pub(super) fn render_location_search_panel(
     );
 
     let enter_while_focused = location_field.has_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+    let enter_after_focus_loss =
+        location_field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
     if enter_while_focused {
         *location_submitted = true;
     }
-    if enter_while_focused
-        || *location_submitted
-        || (location_field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)))
-    {
+    if should_dispatch_location_submit(
+        enter_while_focused,
+        *location_submitted,
+        enter_after_focus_loss,
+    ) {
         super::toolbar_location_submit::handle_location_submit(
             ui,
             state,
@@ -311,5 +322,25 @@ pub(super) fn render_location_search_panel(
             frame_intents,
             open_selected_mode_after_submit,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_dispatch_location_submit;
+
+    #[test]
+    fn submit_dispatch_triggers_for_focused_enter() {
+        assert!(should_dispatch_location_submit(true, false, false));
+    }
+
+    #[test]
+    fn submit_dispatch_triggers_for_queued_submit() {
+        assert!(should_dispatch_location_submit(false, true, false));
+    }
+
+    #[test]
+    fn submit_dispatch_ignores_enter_after_focus_loss() {
+        assert!(!should_dispatch_location_submit(false, false, true));
     }
 }

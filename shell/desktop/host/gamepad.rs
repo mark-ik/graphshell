@@ -9,14 +9,13 @@ use gilrs::ff::{BaseEffect, BaseEffectType, Effect, EffectBuilder, Repeat, Repla
 use gilrs::{EventType, Gilrs};
 use log::{debug, warn};
 use servo::{
-    GamepadEvent, GamepadHapticEffectRequest, GamepadHapticEffectRequestType,
-    GamepadHapticEffectType, GamepadIndex, GamepadInputBounds, GamepadProvider,
+    GamepadEvent, GamepadHapticEffectType, GamepadIndex, GamepadInputBounds,
     GamepadSupportedHapticEffects, GamepadUpdateType, InputEvent, WebView,
 };
 
 pub struct HapticEffect {
     pub effect: Effect,
-    pub request: GamepadHapticEffectRequest,
+    pub callback: Option<Box<dyn FnOnce(bool)>>,
 }
 
 pub(crate) struct AppGamepadProvider {
@@ -119,7 +118,9 @@ impl AppGamepadProvider {
                     if let Some(haptic_effect) =
                         self.haptic_effects.borrow_mut().remove(&event.id.into())
                     {
-                        haptic_effect.request.succeeded();
+                        if let Some(callback) = haptic_effect.callback {
+                            callback(true);
+                        }
                     } else {
                         warn!("Failed to find haptic effect for id {}", event.id);
                     }
@@ -158,12 +159,12 @@ impl AppGamepadProvider {
         }
     }
 
-    fn play_haptic_effect(
+    pub(crate) fn play_haptic_effect(
         &self,
-        effect_type: &GamepadHapticEffectType,
-        request: GamepadHapticEffectRequest,
+        index: usize,
+        effect_type: GamepadHapticEffectType,
+        callback: Box<dyn FnOnce(bool)>,
     ) {
-        let index = request.gamepad_index();
         let GamepadHapticEffectType::DualRumble(params) = effect_type;
 
         let mut handle = self.handle.borrow_mut();
@@ -172,7 +173,7 @@ impl AppGamepadProvider {
             .find(|gamepad| usize::from(gamepad.0) == index)
         else {
             debug!("Couldn't find connected gamepad to play haptic effect on");
-            request.failed();
+            callback(false);
             return;
         };
 
@@ -209,20 +210,24 @@ impl AppGamepadProvider {
             );
 
         let mut haptic_effects = self.haptic_effects.borrow_mut();
-        haptic_effects.insert(index, HapticEffect { effect, request });
+        haptic_effects.insert(
+            index,
+            HapticEffect {
+                effect,
+                callback: Some(callback),
+            },
+        );
         haptic_effects[&index]
             .effect
             .play()
             .expect("Failed to play haptic effect.");
     }
 
-    fn stop_haptic_effect(&self, request: GamepadHapticEffectRequest) {
-        let index = request.gamepad_index();
+    pub(crate) fn stop_haptic_effect(&self, index: usize) -> bool {
 
         let mut haptic_effects = self.haptic_effects.borrow_mut();
         let Some(haptic_effect) = haptic_effects.get(&index) else {
-            request.failed();
-            return;
+            return false;
         };
 
         let stopped_successfully = match haptic_effect.effect.stop() {
@@ -233,24 +238,6 @@ impl AppGamepadProvider {
             }
         };
         haptic_effects.remove(&index);
-
-        if stopped_successfully {
-            request.succeeded();
-        } else {
-            request.failed();
-        }
-    }
-}
-
-impl GamepadProvider for AppGamepadProvider {
-    fn handle_haptic_effect_request(&self, request: GamepadHapticEffectRequest) {
-        match request.request_type() {
-            GamepadHapticEffectRequestType::Play(effect_type) => {
-                self.play_haptic_effect(&effect_type.clone(), request);
-            }
-            GamepadHapticEffectRequestType::Stop => {
-                self.stop_haptic_effect(request);
-            }
-        }
+        stopped_successfully
     }
 }
