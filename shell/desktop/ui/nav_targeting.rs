@@ -17,9 +17,7 @@ pub(crate) fn focused_toolbar_node(
     focused_node_key: Option<NodeKey>,
     selected_node: Option<NodeKey>,
 ) -> Option<NodeKey> {
-    focused_node_key
-        .or(active_runtime_node)
-        .or(selected_node)
+    focused_node_key.or(active_runtime_node).or(selected_node)
 }
 
 /// Resolve the explicit target runtime viewer for navigation commands.

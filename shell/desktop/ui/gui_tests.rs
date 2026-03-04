@@ -8,9 +8,9 @@ mod tests {
     use servo::WebViewId;
 
     use crate::app::GraphBrowserApp;
+    use crate::prefs::AppPreferences;
     use crate::shell::desktop::host::headless_window::HeadlessWindow;
     use crate::shell::desktop::host::window::{EmbedderWindow, GraphSemanticEventKind};
-    use crate::prefs::AppPreferences;
 
     fn test_webview_id() -> WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -86,7 +86,7 @@ mod tests {
             .clone();
         assert_eq!(still_before, "https://before.example");
 
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
         let after = app
             .workspace
             .graph

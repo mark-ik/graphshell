@@ -86,7 +86,10 @@ fn next_clear_data_confirm_deadline(now: f64) -> f64 {
     now + CLEAR_DATA_CONFIRM_WINDOW_SECS
 }
 
-fn classify_clear_data_confirm_action(now: f64, armed_deadline: Option<f64>) -> ClearDataConfirmAction {
+fn classify_clear_data_confirm_action(
+    now: f64,
+    armed_deadline: Option<f64>,
+) -> ClearDataConfirmAction {
     if clear_data_confirm_is_armed(now, armed_deadline) {
         ClearDataConfirmAction::Execute
     } else {
@@ -99,11 +102,9 @@ fn classify_clear_data_confirm_action(now: f64, armed_deadline: Option<f64>) -> 
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_clear_data_confirm_action, clear_data_confirm_is_armed,
-        next_clear_data_confirm_deadline,
-        ClearDataConfirmAction,
         CLEAR_DATA_CONFIRM_SUCCESS_TEXT, CLEAR_DATA_CONFIRM_WARNING_TEXT,
-        CLEAR_DATA_CONFIRM_WINDOW_SECS,
+        CLEAR_DATA_CONFIRM_WINDOW_SECS, ClearDataConfirmAction, classify_clear_data_confirm_action,
+        clear_data_confirm_is_armed, next_clear_data_confirm_deadline,
     };
 
     #[test]

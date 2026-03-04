@@ -17,32 +17,28 @@ use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
 use crate::graph::NodeKey;
 use crate::registries::atomic::diagnostics as diagnostics_registry;
 use crate::services::persistence::GraphStore;
-use crate::shell::desktop::workbench::compositor_adapter::{
-    CompositorReplaySample, replay_samples_snapshot,
-};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
-    CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+    CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT, CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
-    CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
-    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
-    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
-    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
-    CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
-    CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
+    CHANNEL_INVARIANT_TIMEOUT, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
     CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
+};
+use crate::shell::desktop::workbench::compositor_adapter::{
+    CompositorReplaySample, replay_samples_snapshot,
 };
 
 static GLOBAL_DIAGNOSTICS_TX: OnceLock<Sender<DiagnosticEvent>> = OnceLock::new();
@@ -392,8 +388,7 @@ fn analyze_startup_structural_selfcheck(
     if registries_loaded > 0 && channels_complete > 0 {
         return AnalyzerResult {
             signal: AnalyzerSignal::Active,
-            summary: "startup self-check passed (registries loaded, channels complete)"
-                .to_string(),
+            summary: "startup self-check passed (registries loaded, channels complete)".to_string(),
         };
     }
 
@@ -488,8 +483,14 @@ const CHANNELS_COMPOSITOR_OVERLAY_MODE: [(&str, &str); 4] = [
         "CompositedTexture",
         CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     ),
-    ("NativeOverlay", CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY),
-    ("EmbeddedEgui", CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI),
+    (
+        "NativeOverlay",
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+    ),
+    (
+        "EmbeddedEgui",
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI,
+    ),
     ("Placeholder", CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER),
 ];
 
@@ -746,10 +747,7 @@ impl DiagnosticsState {
 
     fn bridge_spike_measurement_value_from_samples(samples: &[CompositorReplaySample]) -> Value {
         let sample_count = samples.len() as u64;
-        let failed_frame_count = samples
-            .iter()
-            .filter(|sample| sample.violation)
-            .count() as u64;
+        let failed_frame_count = samples.iter().filter(|sample| sample.violation).count() as u64;
         let callback_total_us: u64 = samples.iter().map(|sample| sample.callback_us).sum();
         let presentation_total_us: u64 = samples.iter().map(|sample| sample.presentation_us).sum();
         let avg_callback_us = if sample_count == 0 {
@@ -764,8 +762,10 @@ impl DiagnosticsState {
         };
         let chaos_enabled_sample_count =
             samples.iter().filter(|sample| sample.chaos_enabled).count() as u64;
-        let restore_verification_fail_count =
-            samples.iter().filter(|sample| !sample.restore_verified).count() as u64;
+        let restore_verification_fail_count = samples
+            .iter()
+            .filter(|sample| !sample.restore_verified)
+            .count() as u64;
         let mut failed_by_reason: HashMap<&'static str, u64> = HashMap::new();
         for sample in samples.iter().filter(|sample| sample.violation) {
             if sample.viewport_changed {
@@ -906,7 +906,8 @@ impl DiagnosticsState {
             self.channel_count(CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT);
         let resource_reuse_context_miss_count =
             self.channel_count(CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS);
-        let overlay_batch_sample_count = self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE);
+        let overlay_batch_sample_count =
+            self.channel_count(CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE);
         let avg_skip_rate_basis_points = if skip_rate_sample_count == 0 {
             0
         } else {
@@ -1539,7 +1540,10 @@ impl DiagnosticsState {
 
     pub(crate) fn export_bridge_spike_json(&self) -> Result<PathBuf, String> {
         let dir = Self::export_dir()?;
-        let path = dir.join(format!("bridge-spike-{}.json", Self::export_timestamp_secs()));
+        let path = dir.join(format!(
+            "bridge-spike-{}.json",
+            Self::export_timestamp_secs()
+        ));
         let payload = serde_json::to_string_pretty(&self.bridge_spike_measurement_value())
             .map_err(|e| format!("failed to serialize bridge spike JSON: {e}"))?;
         fs::write(&path, payload)
@@ -1786,8 +1790,8 @@ impl DiagnosticsState {
                                 });
                         });
                 }
-                        #[cfg(feature = "diagnostics_tests")]
-                        self.render_test_harness_scaffold(ui);
+                #[cfg(feature = "diagnostics_tests")]
+                self.render_test_harness_scaffold(ui);
                 let active_tile_violations = self.channel_count(CHANNEL_ACTIVE_TILE_VIOLATION);
                 if active_tile_violations > 0 {
                     ui.colored_label(
@@ -2101,7 +2105,9 @@ impl DiagnosticsState {
                         ui.monospace(replay_summary["avg_bridge_presentation_us"].to_string());
                         ui.end_row();
                     });
-                ui.small("Save Snapshot JSON includes compositor replay artifacts and path details.");
+                ui.small(
+                    "Save Snapshot JSON includes compositor replay artifacts and path details.",
+                );
                 ui.separator();
 
                 let Some(last) = self.compositor_state.frames.back() else {
@@ -2140,27 +2146,19 @@ impl DiagnosticsState {
                         ui.end_row();
 
                         ui.monospace("fallback_signature_changed_count");
-                        ui.monospace(
-                            differential["fallback_signature_changed_count"].to_string(),
-                        );
+                        ui.monospace(differential["fallback_signature_changed_count"].to_string());
                         ui.end_row();
 
                         ui.monospace("computed_skip_rate_basis_points");
-                        ui.monospace(
-                            differential["computed_skip_rate_basis_points"].to_string(),
-                        );
+                        ui.monospace(differential["computed_skip_rate_basis_points"].to_string());
                         ui.end_row();
 
                         ui.monospace("content_culled_offviewport_count");
-                        ui.monospace(
-                            differential["content_culled_offviewport_count"].to_string(),
-                        );
+                        ui.monospace(differential["content_culled_offviewport_count"].to_string());
                         ui.end_row();
 
                         ui.monospace("degradation_gpu_pressure_count");
-                        ui.monospace(
-                            differential["degradation_gpu_pressure_count"].to_string(),
-                        );
+                        ui.monospace(differential["degradation_gpu_pressure_count"].to_string());
                         ui.end_row();
 
                         ui.monospace("degradation_placeholder_mode_count");
@@ -2170,15 +2168,11 @@ impl DiagnosticsState {
                         ui.end_row();
 
                         ui.monospace("resource_reuse_context_hit_count");
-                        ui.monospace(
-                            differential["resource_reuse_context_hit_count"].to_string(),
-                        );
+                        ui.monospace(differential["resource_reuse_context_hit_count"].to_string());
                         ui.end_row();
 
                         ui.monospace("resource_reuse_context_miss_count");
-                        ui.monospace(
-                            differential["resource_reuse_context_miss_count"].to_string(),
-                        );
+                        ui.monospace(differential["resource_reuse_context_miss_count"].to_string());
                         ui.end_row();
 
                         ui.monospace("overlay_batch_sample_count");
@@ -2947,7 +2941,10 @@ Object {
         ];
 
         let payload = DiagnosticsState::bridge_spike_measurement_value_from_samples(&samples);
-        assert_eq!(payload["measurement_contract"]["sample_count"].as_u64(), Some(2));
+        assert_eq!(
+            payload["measurement_contract"]["sample_count"].as_u64(),
+            Some(2)
+        );
         assert_eq!(
             payload["measurement_contract"]["failed_frame_count"].as_u64(),
             Some(1)

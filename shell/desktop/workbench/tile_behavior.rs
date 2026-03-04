@@ -13,19 +13,20 @@ use egui_tiles::{
     Behavior, Container, SimplificationOptions, TabState, Tile, TileId, Tiles, UiResponse,
 };
 
-use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, SearchDisplayMode};
+use crate::app::{
+    GraphBrowserApp, GraphIntent, LifecycleCause, SearchDisplayMode, WorkbenchIntent,
+};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::domain::layout::LayoutDomainRegistry;
 use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use crate::render;
 use crate::render::GraphAction;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
+use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token_from_handle};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_VIEWER_FALLBACK_USED,
-};
-use crate::shell::desktop::render_backend::{
-    texture_id_from_token, texture_token_from_handle,
+    CHANNEL_UX_CONTRACT_WARNING,
 };
 use crate::shell::desktop::workbench::pane_model::{ViewLayoutMode, ViewerId};
 use crate::util::truncate_with_ellipsis;
@@ -33,6 +34,7 @@ use crate::util::truncate_with_ellipsis;
 use super::selection_range::inclusive_index_range;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
+use super::ux_tree;
 
 const PLAINTEXT_HEX_PREVIEW_BYTES: usize = 4096;
 
@@ -202,22 +204,23 @@ impl<'a> GraphshellTileBehavior<'a> {
         let selected_node_count = focused_selection.len();
         let total_nodes = graph_app.workspace.graph.node_count();
         let selected_node = focused_selection.primary().and_then(|node_key| {
-                let node = graph_app.workspace.graph.get_node(node_key)?;
-                let viewer_registry = crate::registries::atomic::viewer::ViewerRegistry::default();
-                let viewer_id = viewer_registry.select_for(node.mime_hint.as_deref(), node.address_kind);
-                let capabilities = viewer_registry.capabilities_for(viewer_id);
+            let node = graph_app.workspace.graph.get_node(node_key)?;
+            let viewer_registry = crate::registries::atomic::viewer::ViewerRegistry::default();
+            let viewer_id =
+                viewer_registry.select_for(node.mime_hint.as_deref(), node.address_kind);
+            let capabilities = viewer_registry.capabilities_for(viewer_id);
 
-                Some(AccessibilityInspectorSelectedNodeSnapshot {
-                    node_key,
-                    node_url: node.url.clone(),
-                    viewer_id,
-                    accessibility_level: format!("{:?}", capabilities.accessibility.level),
-                    accessibility_reason: capabilities.accessibility.reason.clone(),
-                    runtime_webview_mapped: graph_app.get_webview_for_node(node_key).is_some(),
-                    runtime_blocked: graph_app.runtime_block_state_for_node(node_key).is_some(),
-                    runtime_crashed: graph_app.runtime_crash_state_for_node(node_key).is_some(),
-                })
-            });
+            Some(AccessibilityInspectorSelectedNodeSnapshot {
+                node_key,
+                node_url: node.url.clone(),
+                viewer_id,
+                accessibility_level: format!("{:?}", capabilities.accessibility.level),
+                accessibility_reason: capabilities.accessibility.reason.clone(),
+                runtime_webview_mapped: graph_app.get_webview_for_node(node_key).is_some(),
+                runtime_blocked: graph_app.runtime_block_state_for_node(node_key).is_some(),
+                runtime_crashed: graph_app.runtime_crash_state_for_node(node_key).is_some(),
+            })
+        });
 
         AccessibilityInspectorSnapshot {
             total_nodes,
@@ -234,11 +237,11 @@ impl<'a> GraphshellTileBehavior<'a> {
         // In production, these would be populated by querying the bridge subsystem,
         // diagnostics channels, and runtime health state.
         // For now, we surface the structure so bridge health observability is visible.
-        
-        let update_queue_size = 0;  // Would query bridge pending updates queue
-        let anchor_count = 0;       // Would count active WebView → egui::Id anchors
+
+        let update_queue_size = 0; // Would query bridge pending updates queue
+        let anchor_count = 0; // Would count active WebView → egui::Id anchors
         let dropped_update_count = 0; // Would query cumulative dropped update counter
-        let focus_target = None;    // Would query current focus target in tree
+        let focus_target = None; // Would query current focus target in tree
         let degradation_state = "none".to_string(); // Would query bridge health status
 
         AccessibilityBridgeHealthSnapshot {
@@ -251,9 +254,7 @@ impl<'a> GraphshellTileBehavior<'a> {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn graph_reader_snapshot(
-        _graph_app: &GraphBrowserApp,
-    ) -> GraphReaderSnapshot {
+    fn graph_reader_snapshot(_graph_app: &GraphBrowserApp) -> GraphReaderSnapshot {
         GraphReaderSnapshot {
             mode: GraphReaderMode::Off,
             entry_point_reachable: true,
@@ -269,10 +270,27 @@ impl<'a> GraphshellTileBehavior<'a> {
         let snapshot = Self::accessibility_inspector_snapshot(graph_app);
         let bridge_health = Self::accessibility_bridge_health_snapshot(graph_app);
         let graph_reader = Self::graph_reader_snapshot(graph_app);
+        let uxtree_snapshot = ux_tree::latest_snapshot();
+        let uxtree_roots = uxtree_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.semantic_nodes.len())
+            .unwrap_or(0);
+        let uxtree_violation = uxtree_snapshot
+            .as_ref()
+            .and_then(ux_tree::presentation_id_consistency_violation);
+
+        if let Some(message) = uxtree_violation.as_deref() {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_UX_CONTRACT_WARNING,
+                byte_len: message.len(),
+            });
+        }
 
         ui.heading("Accessibility Inspector");
         ui.separator();
-        ui.small("Functional scaffold for bridge/tree diagnostics and future accessibility controls.");
+        ui.small(
+            "Functional scaffold for bridge/tree diagnostics and future accessibility controls.",
+        );
 
         egui::Grid::new("accessibility_inspector_summary")
             .num_columns(2)
@@ -284,6 +302,18 @@ impl<'a> GraphshellTileBehavior<'a> {
 
                 ui.strong("Selected nodes");
                 ui.monospace(snapshot.selected_node_count.to_string());
+                ui.end_row();
+
+                ui.strong("UxTree semantic nodes");
+                ui.monospace(uxtree_roots.to_string());
+                ui.end_row();
+
+                ui.strong("UxTree probe");
+                ui.monospace(if uxtree_violation.is_some() {
+                    "violation"
+                } else {
+                    "ok"
+                });
                 ui.end_row();
             });
 
@@ -342,7 +372,7 @@ impl<'a> GraphshellTileBehavior<'a> {
         ui.separator();
         ui.strong("WebView bridge health diagnostics");
         ui.small("Accessibility tree injection state and degradation indicators.");
-        
+
         egui::Grid::new("accessibility_bridge_health")
             .num_columns(2)
             .striped(true)
@@ -360,12 +390,7 @@ impl<'a> GraphshellTileBehavior<'a> {
                 ui.end_row();
 
                 ui.label("Focus target");
-                ui.label(
-                    bridge_health
-                        .focus_target
-                        .as_deref()
-                        .unwrap_or("none"),
-                );
+                ui.label(bridge_health.focus_target.as_deref().unwrap_or("none"));
                 ui.end_row();
 
                 ui.label("Bridge health");
@@ -382,7 +407,9 @@ impl<'a> GraphshellTileBehavior<'a> {
         ui.add_space(8.0);
         ui.separator();
         ui.strong("Graph Reader (phase-1 scaffold)");
-        ui.small("Entry point is reachable with explicit degraded status while Room/Map semantics land.");
+        ui.small(
+            "Entry point is reachable with explicit degraded status while Room/Map semantics land.",
+        );
 
         egui::Grid::new("accessibility_graph_reader_scaffold")
             .num_columns(2)
@@ -401,12 +428,7 @@ impl<'a> GraphshellTileBehavior<'a> {
                 ui.end_row();
 
                 ui.label("Degradation reason");
-                ui.label(
-                    graph_reader
-                        .degraded_reason
-                        .as_deref()
-                        .unwrap_or("none"),
-                );
+                ui.label(graph_reader.degraded_reason.as_deref().unwrap_or("none"));
                 ui.end_row();
             });
 
@@ -469,8 +491,8 @@ impl<'a> GraphshellTileBehavior<'a> {
             handle
         };
 
-            let texture_token = texture_token_from_handle(&handle);
-            Some(texture_id_from_token(texture_token))
+        let texture_token = texture_token_from_handle(&handle);
+        Some(texture_id_from_token(texture_token))
     }
 
     fn should_detach_tab_on_drag_stop(
@@ -509,10 +531,7 @@ impl<'a> GraphshellTileBehavior<'a> {
         None
     }
 
-    fn activate_successor_tab_in_parent_before_close(
-        tiles: &mut Tiles<TileKind>,
-        tile_id: TileId,
-    ) {
+    fn activate_successor_tab_in_parent_before_close(tiles: &mut Tiles<TileKind>, tile_id: TileId) {
         let Some(parent_id) = tiles.parent_of(tile_id) else {
             return;
         };
@@ -526,11 +545,11 @@ impl<'a> GraphshellTileBehavior<'a> {
         let Some(index) = tabs.children.iter().position(|child| *child == tile_id) else {
             return;
         };
-        let successor = tabs
-            .children
-            .get(index + 1)
-            .copied()
-            .or_else(|| index.checked_sub(1).and_then(|left| tabs.children.get(left).copied()));
+        let successor = tabs.children.get(index + 1).copied().or_else(|| {
+            index
+                .checked_sub(1)
+                .and_then(|left| tabs.children.get(left).copied())
+        });
         if let Some(next_active) = successor {
             tabs.set_active(next_active);
         }
@@ -676,7 +695,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 }
 
                 if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id) {
-                    let is_placeholder_mode = matches!(state.render_mode, crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder);
+                    let is_placeholder_mode = matches!(
+                        state.render_mode,
+                        crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder
+                    );
                     if is_placeholder_mode {
                         emit_event(DiagnosticEvent::MessageSent {
                             channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
@@ -694,7 +716,9 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                             "Reason: '{}' is unresolved for this build path and falls back to placeholder rendering.",
                             effective_viewer_id
                         ));
-                        ui.small("Recovery: switch this pane to WebView fallback or clear the override.");
+                        ui.small(
+                            "Recovery: switch this pane to WebView fallback or clear the override.",
+                        );
                         ui.horizontal(|ui| {
                             if ui.button("Use WebView Fallback").clicked() {
                                 state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
@@ -756,8 +780,14 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
                 if self.graph_app.get_webview_for_node(node_key).is_none() {
-                    log::debug!("tile_behavior: node {:?} has no active node viewer runtime", node_key);
-                    let block_state = self.graph_app.runtime_block_state_for_node(node_key).cloned();
+                    log::debug!(
+                        "tile_behavior: node {:?} has no active node viewer runtime",
+                        node_key
+                    );
+                    let block_state = self
+                        .graph_app
+                        .runtime_block_state_for_node(node_key)
+                        .cloned();
                     let lifecycle_hint = match node.lifecycle {
                         NodeLifecycle::Cold => {
                             "Node is cold. Reactivate to resume browsing in this pane."
@@ -1181,7 +1211,7 @@ fn render_graph_pane_overlay(
                             .on_hover_text("Create a split graph pane with a new graph view")
                             .clicked()
                         {
-                            pending_intents.push(GraphIntent::SplitPane {
+                            app.enqueue_workbench_intent(WorkbenchIntent::SplitPane {
                                 source_pane: crate::shell::desktop::workbench::pane_model::PaneId::new(),
                                 direction: crate::shell::desktop::workbench::pane_model::SplitDirection::Horizontal,
                             });
@@ -1375,13 +1405,15 @@ struct GraphReaderSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::{GraphshellTileBehavior, PlaintextContent, decode_plaintext_content};
     #[cfg(feature = "diagnostics")]
     use super::GraphReaderMode;
+    use super::{GraphshellTileBehavior, PlaintextContent, decode_plaintext_content};
     use crate::app::GraphViewId;
     use crate::graph::NodeKey;
+    use crate::shell::desktop::tests::harness::TestRegistry;
     use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use crate::shell::desktop::workbench::ux_tree::{self, UxNodeRole};
     use egui_tiles::{Container, Tile, Tiles};
 
     #[test]
@@ -1446,8 +1478,7 @@ mod tests {
         }
 
         GraphshellTileBehavior::activate_successor_tab_in_parent_before_close(
-            &mut tiles,
-            tool_tile,
+            &mut tiles, tool_tile,
         );
 
         let active = match tiles.get(root) {
@@ -1469,7 +1500,9 @@ mod tests {
         assert_eq!(snapshot.total_nodes, 1);
         assert_eq!(snapshot.selected_node_count, 1);
 
-        let selected = snapshot.selected_node.expect("selected node snapshot expected");
+        let selected = snapshot
+            .selected_node
+            .expect("selected node snapshot expected");
         assert_eq!(selected.node_key, key);
         assert_eq!(selected.node_url, "https://example.com");
         assert!(!selected.viewer_id.is_empty());
@@ -1500,5 +1533,40 @@ mod tests {
         assert_eq!(snapshot.mode, GraphReaderMode::Off);
         assert!(snapshot.entry_point_reachable);
         assert!(snapshot.degraded_reason.is_some());
+    }
+
+    #[test]
+    fn uxtree_snapshot_reports_roots_and_selection_projection() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://uxtree.example");
+        harness.open_node_tab(node);
+        harness.app.workspace.selected_nodes.select(node, false);
+
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 10);
+        let graph_surface_count = snapshot
+            .semantic_nodes
+            .iter()
+            .filter(|entry| entry.role == UxNodeRole::GraphSurface)
+            .count();
+        let graph_node_count = snapshot
+            .semantic_nodes
+            .iter()
+            .filter(|entry| entry.role == UxNodeRole::GraphNode)
+            .count();
+
+        assert!(graph_surface_count > 0, "expected at least one graph surface semantic node");
+        assert_eq!(graph_node_count, 1, "expected graph semantic parity for one graph node");
+    }
+
+    #[test]
+    fn uxtree_probe_returns_no_violation_for_minimal_healthy_state() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://uxtree-probe.example");
+        harness.open_node_tab(node);
+        harness.app.workspace.selected_nodes.select(node, false);
+
+        let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 8);
+        let violation = ux_tree::presentation_id_consistency_violation(&snapshot);
+        assert!(violation.is_none(), "healthy uxtree projection should not violate probe invariant");
     }
 }

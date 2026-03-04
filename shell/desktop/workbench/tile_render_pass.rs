@@ -257,15 +257,18 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
     }
     for node_key in pending_closed_nodes {
-           if *focused_node_hint == Some(node_key) {
+        if *focused_node_hint == Some(node_key) {
             log::debug!(
                 "tile_render_pass: clearing focused_node_hint for closed node {:?}",
                 node_key
             );
             *focused_node_hint = None;
         }
-           log::debug!("tile_render_pass: releasing runtime for closed node {:?}", node_key);
-           tile_runtime::release_node_runtime_for_pane(
+        log::debug!(
+            "tile_render_pass: releasing runtime for closed node {:?}",
+            node_key
+        );
+        tile_runtime::release_node_runtime_for_pane(
             graph_app,
             window,
             tile_rendering_contexts,
@@ -275,18 +278,18 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     }
 
     for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
-           if *focused_node_hint == Some(node_key) {
+        if *focused_node_hint == Some(node_key) {
             log::debug!(
                 "tile_render_pass: clearing focused_node_hint for unmapped node {:?}",
                 node_key
             );
             *focused_node_hint = None;
         }
-           log::debug!(
+        log::debug!(
             "tile_render_pass: releasing mapped runtime without tile for node {:?}",
             node_key
         );
-           tile_runtime::release_node_runtime_for_pane(
+        tile_runtime::release_node_runtime_for_pane(
             graph_app,
             window,
             tile_rendering_contexts,
@@ -419,7 +422,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     if !runtime_viewer_creation_intents.is_empty() {
         #[cfg(feature = "diagnostics")]
         let apply_started = Instant::now();
-        graph_app.apply_intents(runtime_viewer_creation_intents);
+        graph_app.apply_reducer_intents(runtime_viewer_creation_intents);
         #[cfg(feature = "diagnostics")]
         diagnostics_state.record_span_duration(
             "app::apply_intents",
@@ -473,7 +476,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         focused_node_key
     };
     #[cfg(feature = "diagnostics")]
-    emit_navigation_transition_when_focus_hint_changes(focused_node_hint_before, *focused_node_hint);
+    emit_navigation_transition_when_focus_hint_changes(
+        focused_node_hint_before,
+        *focused_node_hint,
+    );
     if *focus_ring_node_key != focused_node_key {
         *focus_ring_node_key = focused_node_key;
         *focus_ring_started_at = focused_node_key.map(|_| Instant::now());
@@ -524,20 +530,25 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                     .tiles
                     .iter()
                     .find_map(|(_, tile)| match tile {
-                        egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == *node_key => {
+                        egui_tiles::Tile::Pane(TileKind::Node(state))
+                            if state.node == *node_key =>
+                        {
                             Some(state.render_mode)
                         }
                         _ => None,
                     })
-                    .unwrap_or(crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder);
+                    .unwrap_or(
+                        crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder,
+                    );
                 let mapped_webview = graph_app.get_webview_for_node(*node_key).is_some();
                 let has_context = tile_rendering_contexts.contains_key(node_key);
                 let paint_callback_registered = mapped_webview && has_context;
-                let render_path_hint = crate::shell::desktop::workbench::tile_runtime::render_path_hint_for_mode(
-                    render_mode,
-                    mapped_webview,
-                    has_context,
-                );
+                let render_path_hint =
+                    crate::shell::desktop::workbench::tile_runtime::render_path_hint_for_mode(
+                        render_mode,
+                        mapped_webview,
+                        has_context,
+                    );
                 crate::shell::desktop::runtime::diagnostics::CompositorTileSample {
                     node_key: *node_key,
                     rect: *rect,

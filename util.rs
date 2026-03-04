@@ -92,7 +92,9 @@ impl VersoAddress {
             }
             "tool" => {
                 let name = segments.next()?;
-                let instance = segments.next().and_then(|segment| segment.parse::<u32>().ok());
+                let instance = segments
+                    .next()
+                    .and_then(|segment| segment.parse::<u32>().ok());
                 Some(Self::Tool { name, instance })
             }
             "clip" => Some(Self::Clip(segments.next()?)),
@@ -145,9 +147,11 @@ impl VersoAddress {
     pub(crate) fn inferred_mime_hint(&self) -> &'static str {
         match self {
             Self::Settings(_) => "application/x-graphshell-settings",
-            Self::Frame(_) | Self::View(_) | Self::Tool { .. } | Self::Clip(_) | Self::Other { .. } => {
-                "application/x-graphshell-internal"
-            }
+            Self::Frame(_)
+            | Self::View(_)
+            | Self::Tool { .. }
+            | Self::Clip(_)
+            | Self::Other { .. } => "application/x-graphshell-internal",
         }
     }
 }
@@ -392,10 +396,7 @@ mod tests {
     #[test]
     fn parse_graphshell_tool_route_with_instance() {
         let parsed = GraphshellAddress::parse("graphshell://tool/history/2");
-        assert_eq!(
-            parsed,
-            Some(GraphshellAddress::tool("history", Some(2)))
-        );
+        assert_eq!(parsed, Some(GraphshellAddress::tool("history", Some(2))));
     }
 
     #[test]
@@ -427,7 +428,8 @@ mod tests {
 
     #[test]
     fn parse_note_address_strips_query_and_fragment() {
-        let parsed = NoteAddress::parse(" notes://550e8400-e29b-41d4-a716-446655440000?mode=edit#top ");
+        let parsed =
+            NoteAddress::parse(" notes://550e8400-e29b-41d4-a716-446655440000?mode=edit#top ");
         assert_eq!(
             parsed,
             Some(NoteAddress::note("550e8400-e29b-41d4-a716-446655440000"))

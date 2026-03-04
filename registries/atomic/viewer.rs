@@ -318,7 +318,8 @@ mod tests {
     #[test]
     fn viewer_registry_selects_internal_viewer_for_graphshell_frame_route_without_mime_hint() {
         let registry = ViewerRegistry::default();
-        let selection = registry.select_for_uri(&GraphshellAddress::frame("frame-123").to_string(), None);
+        let selection =
+            registry.select_for_uri(&GraphshellAddress::frame("frame-123").to_string(), None);
 
         assert_eq!(selection.viewer_id, "viewer:webview");
         assert!(!selection.fallback_used);

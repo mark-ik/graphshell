@@ -354,8 +354,7 @@ fn saved_tab_node_keys(graph_app: &GraphBrowserApp) -> HashSet<NodeKey> {
         if GraphBrowserApp::is_reserved_workspace_layout_name(&frame_name) {
             continue;
         }
-        let Ok(bundle) = persistence_ops::load_named_frame_bundle(graph_app, &frame_name)
-        else {
+        let Ok(bundle) = persistence_ops::load_named_frame_bundle(graph_app, &frame_name) else {
             continue;
         };
         if let Ok((tree, _)) =
@@ -961,7 +960,7 @@ mod tests {
             let _ = app.add_edge_and_sync(context, key, EdgeType::Hyperlink);
             connected_nodes.push(key);
         }
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context,
             multi_select: false,
         }]);
@@ -1067,7 +1066,7 @@ mod tests {
         );
         app.add_edge_and_sync(context_key, related_tab, EdgeType::Hyperlink)
             .expect("edge should be valid");
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
         }]);
@@ -1099,7 +1098,7 @@ mod tests {
         let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(hop2, hop3, EdgeType::Hyperlink);
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
         }]);
@@ -1134,7 +1133,7 @@ mod tests {
         );
         let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink);
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
         }]);
@@ -1197,12 +1196,8 @@ mod tests {
         let tab_leaf = frame_tiles.insert_pane(TileKind::Node(tab_key.into()));
         let tabs_root = frame_tiles.insert_tab_tile(vec![tab_leaf]);
         let frame_tree = Tree::new("saved_frame", tabs_root, frame_tiles);
-        persistence_ops::save_named_frame_bundle(
-            &mut app,
-            "frame:saved-tabs",
-            &frame_tree,
-        )
-        .expect("save frame bundle");
+        persistence_ops::save_named_frame_bundle(&mut app, "frame:saved-tabs", &frame_tree)
+            .expect("save frame bundle");
 
         let mut current_tiles = egui_tiles::Tiles::default();
         let current_root = current_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
@@ -1238,12 +1233,8 @@ mod tests {
         let saved_leaf = frame_tiles.insert_pane(TileKind::Node(saved_tab.into()));
         let saved_root = frame_tiles.insert_tab_tile(vec![saved_leaf]);
         let frame_tree = Tree::new("saved_frame", saved_root, frame_tiles);
-        persistence_ops::save_named_frame_bundle(
-            &mut app,
-            "frame:saved-alpha",
-            &frame_tree,
-        )
-        .expect("save frame bundle");
+        persistence_ops::save_named_frame_bundle(&mut app, "frame:saved-alpha", &frame_tree)
+            .expect("save frame bundle");
 
         let matches =
             omnibar_matches_for_query(&app, &current_tree, OmnibarSearchMode::Mixed, "alpha", true);
@@ -1288,7 +1279,7 @@ mod tests {
             &mut intents,
             &mut open_mode,
         );
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.highlighted_graph_edge, Some((from, to)));
         assert!(app.workspace.selected_nodes.contains(&from));

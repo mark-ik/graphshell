@@ -18,8 +18,7 @@ use crate::render::action_registry::{
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_NAVIGATION_TRANSITION,
-    CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
+    CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
     CHANNEL_UX_RADIAL_OVERFLOW,
 };
 use egui::{Color32, Key, Stroke, Window};
@@ -342,7 +341,8 @@ pub fn render_radial_command_menu(
                     } else {
                         page = 0;
                     }
-                    let visible_cmds = paged_ring_entries(&cmds, page, MAX_VISIBLE_ACTIONS_PER_RING);
+                    let visible_cmds =
+                        paged_ring_entries(&cmds, page, MAX_VISIBLE_ACTIONS_PER_RING);
                     if cmds.len() > visible_cmds.len() {
                         emit_event(DiagnosticEvent::MessageSent {
                             channel_id: CHANNEL_UX_RADIAL_OVERFLOW,
@@ -430,7 +430,8 @@ pub fn render_radial_command_menu(
                         }
                     }
 
-                    let visible_cmds = paged_ring_entries(&cmds, page, MAX_VISIBLE_ACTIONS_PER_RING);
+                    let visible_cmds =
+                        paged_ring_entries(&cmds, page, MAX_VISIBLE_ACTIONS_PER_RING);
                     if cmds.len() > visible_cmds.len() {
                         emit_event(DiagnosticEvent::MessageSent {
                             channel_id: CHANNEL_UX_RADIAL_OVERFLOW,
@@ -471,7 +472,8 @@ pub fn render_radial_command_menu(
                         );
 
                         if is_hovered {
-                            let label_text = bounded_hover_label(entry.id.label(), HOVER_LABEL_MAX_CHARS);
+                            let label_text =
+                                bounded_hover_label(entry.id.label(), HOVER_LABEL_MAX_CHARS);
                             let label_pos = radial_label_anchor(anchor, center, HOVER_LABEL_OFFSET);
                             draw_radial_hover_label(painter, label_pos, &label_text);
                         }
@@ -571,7 +573,11 @@ fn command_anchor(center: egui::Pos2, domain: RadialDomain, idx: usize, len: usi
         idx as f32 / (len.saturating_sub(1) as f32) - 0.5
     };
     let angle = base + t * spread;
-    center + egui::vec2(angle.cos() * COMMAND_RING_RADIUS, angle.sin() * COMMAND_RING_RADIUS)
+    center
+        + egui::vec2(
+            angle.cos() * COMMAND_RING_RADIUS,
+            angle.sin() * COMMAND_RING_RADIUS,
+        )
 }
 
 fn command_spread_for_len(len: usize, radius: f32, min_center_spacing: f32) -> f32 {
@@ -733,7 +739,10 @@ fn count_rect_collisions(rects: &[egui::Rect]) -> usize {
     collisions
 }
 
-fn resolve_label_rect_collisions(mut rects: Vec<egui::Rect>, center: egui::Pos2) -> Vec<egui::Rect> {
+fn resolve_label_rect_collisions(
+    mut rects: Vec<egui::Rect>,
+    center: egui::Pos2,
+) -> Vec<egui::Rect> {
     if rects.len() <= 1 {
         return rects;
     }
@@ -806,18 +815,54 @@ mod tests {
     fn sample_entries() -> Vec<ActionEntry> {
         use crate::render::action_registry::ActionId;
         vec![
-            ActionEntry { id: ActionId::NodeNew, enabled: true },
-            ActionEntry { id: ActionId::NodeOpenFrame, enabled: true },
-            ActionEntry { id: ActionId::NodeOpenNeighbors, enabled: true },
-            ActionEntry { id: ActionId::NodeOpenConnected, enabled: true },
-            ActionEntry { id: ActionId::NodeOpenSplit, enabled: true },
-            ActionEntry { id: ActionId::NodeCopyUrl, enabled: true },
-            ActionEntry { id: ActionId::NodeCopyTitle, enabled: true },
-            ActionEntry { id: ActionId::NodePinToggle, enabled: true },
-            ActionEntry { id: ActionId::GraphFit, enabled: true },
-            ActionEntry { id: ActionId::GraphTogglePhysics, enabled: true },
-            ActionEntry { id: ActionId::PersistUndo, enabled: true },
-            ActionEntry { id: ActionId::PersistRedo, enabled: true },
+            ActionEntry {
+                id: ActionId::NodeNew,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::NodeOpenFrame,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::NodeOpenNeighbors,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::NodeOpenConnected,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::NodeOpenSplit,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::NodeCopyUrl,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::NodeCopyTitle,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::NodePinToggle,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::GraphFit,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::GraphTogglePhysics,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::PersistUndo,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::PersistRedo,
+                enabled: true,
+            },
         ]
     }
 

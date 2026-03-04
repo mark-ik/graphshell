@@ -5,14 +5,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use egui::{
     Area, Button, CornerRadius, Frame, Id, Modal, Order, RichText, Sense, Stroke, Vec2, pos2,
 };
 use egui_file_dialog::{DialogState, FileDialog as EguiFileDialog};
 use euclid::Length;
 use log::warn;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use servo::{
     AlertDialog, AuthenticationRequest, ColorPicker, ConfirmDialog, ContextMenu, ContextMenuItem,
     DeviceIndependentPixel, EmbedderControlId, FilePicker, GenericSender, PermissionRequest,
@@ -699,25 +699,33 @@ impl Dialog {
                                                             ui.visuals().strong_text_color(),
                                                             Sense::click(),
                                                         ),
-                                                        false => {
-                                                            (ui.visuals().weak_text_color(), Sense::empty())
-                                                        }
+                                                        false => (
+                                                            ui.visuals().weak_text_color(),
+                                                            Sense::empty(),
+                                                        ),
                                                     };
 
-                                                    ui.style_mut().visuals.widgets.inactive.weak_bg_fill =
-                                                        ui.visuals().panel_fill;
-                                                    ui.style_mut().visuals.widgets.inactive.bg_fill =
-                                                        ui.visuals().panel_fill;
-                                                    let button =
-                                                        Button::new(RichText::new(label).color(color))
-                                                            .sense(sense)
-                                                            .corner_radius(CornerRadius::ZERO)
-                                                            .stroke(Stroke::NONE)
-                                                            .wrap_mode(egui::TextWrapMode::Extend)
-                                                            .min_size(Vec2 {
-                                                                x: MINIMUM_UI_ELEMENT_WIDTH,
-                                                                y: 0.0,
-                                                            });
+                                                    ui.style_mut()
+                                                        .visuals
+                                                        .widgets
+                                                        .inactive
+                                                        .weak_bg_fill = ui.visuals().panel_fill;
+                                                    ui.style_mut()
+                                                        .visuals
+                                                        .widgets
+                                                        .inactive
+                                                        .bg_fill = ui.visuals().panel_fill;
+                                                    let button = Button::new(
+                                                        RichText::new(label).color(color),
+                                                    )
+                                                    .sense(sense)
+                                                    .corner_radius(CornerRadius::ZERO)
+                                                    .stroke(Stroke::NONE)
+                                                    .wrap_mode(egui::TextWrapMode::Extend)
+                                                    .min_size(Vec2 {
+                                                        x: MINIMUM_UI_ELEMENT_WIDTH,
+                                                        y: 0.0,
+                                                    });
 
                                                     if ui.add(button).clicked() {
                                                         selected_action = Some(*action);

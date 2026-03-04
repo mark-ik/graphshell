@@ -12,7 +12,7 @@ use std::collections::HashSet;
 
 use servo::WebViewId;
 
-use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, WorkbenchIntent};
 use crate::graph::NodeKey;
 use crate::parser::location_bar_input_to_url;
 #[cfg(any(test, not(feature = "diagnostics")))]
@@ -57,14 +57,14 @@ fn reconcile_mappings_and_selection(
 fn intents_for_graph_view_address_submit(
     app: &GraphBrowserApp,
     input: &str,
-) -> (bool, Vec<GraphIntent>) {
+) -> (bool, Vec<GraphIntent>, Vec<WorkbenchIntent>) {
     let input = input.trim();
     if input.is_empty() {
-        return (false, Vec::new());
+        return (false, Vec::new(), Vec::new());
     }
 
     if let Some(workbench_intent) = route_intent_for_internal_or_domain_url(input) {
-        return (false, vec![workbench_intent]);
+        return (false, Vec::new(), vec![workbench_intent]);
     }
 
     if let Some(selected_node) = app.get_single_selected_node() {
@@ -74,6 +74,7 @@ fn intents_for_graph_view_address_submit(
                 key: selected_node,
                 new_url: input.to_string(),
             }],
+            Vec::new(),
         )
     } else {
         let position = new_node_position_for_context(app, app.focused_selection().primary());
@@ -83,6 +84,7 @@ fn intents_for_graph_view_address_submit(
                 url: input.to_string(),
                 position,
             }],
+            Vec::new(),
         )
     }
 }
@@ -161,6 +163,7 @@ pub(crate) struct AddressBarSubmitOutcome {
 pub(crate) struct AddressBarIntentOutcome {
     pub outcome: AddressBarSubmitOutcome,
     pub intents: Vec<GraphIntent>,
+    pub workbench_intents: Vec<WorkbenchIntent>,
 }
 
 fn resolve_detail_submit_target(
@@ -179,38 +182,40 @@ fn resolve_detail_submit_target(
     (None, None)
 }
 
-fn workbench_route_intent_for_graphshell_url(normalized_url: &str) -> Option<GraphIntent> {
+fn workbench_route_intent_for_graphshell_url(normalized_url: &str) -> Option<WorkbenchIntent> {
     let parsed = GraphshellAddress::parse(normalized_url)?;
     let canonical_url = parsed.to_string();
     match parsed {
-        GraphshellAddress::Settings(_) => Some(GraphIntent::OpenSettingsUrl { url: canonical_url }),
-        GraphshellAddress::Frame(_) => Some(GraphIntent::OpenFrameUrl { url: canonical_url }),
-        GraphshellAddress::Tool { .. } => Some(GraphIntent::OpenToolUrl { url: canonical_url }),
-        GraphshellAddress::View(_) => Some(GraphIntent::OpenViewUrl { url: canonical_url }),
-        GraphshellAddress::Clip(_) => Some(GraphIntent::OpenClipUrl { url: canonical_url }),
+        GraphshellAddress::Settings(_) => Some(WorkbenchIntent::OpenSettingsUrl {
+            url: canonical_url,
+        }),
+        GraphshellAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
+        GraphshellAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
+        GraphshellAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),
+        GraphshellAddress::Clip(_) => Some(WorkbenchIntent::OpenClipUrl { url: canonical_url }),
         GraphshellAddress::Other { .. } => None,
     }
 }
 
-fn route_intent_for_internal_or_domain_url(normalized_url: &str) -> Option<GraphIntent> {
+fn route_intent_for_internal_or_domain_url(normalized_url: &str) -> Option<WorkbenchIntent> {
     if let Some(intent) = workbench_route_intent_for_graphshell_url(normalized_url) {
         return Some(intent);
     }
 
     if let Some(address) = NoteAddress::parse(normalized_url) {
-        return Some(GraphIntent::OpenNoteUrl {
+        return Some(WorkbenchIntent::OpenNoteUrl {
             url: address.to_string(),
         });
     }
 
     if let Some(address) = NodeAddress::parse(normalized_url) {
-        return Some(GraphIntent::OpenNodeUrl {
+        return Some(WorkbenchIntent::OpenNodeUrl {
             url: address.to_string(),
         });
     }
 
     if let Some(address) = GraphAddress::parse(normalized_url) {
-        return Some(GraphIntent::OpenGraphUrl {
+        return Some(WorkbenchIntent::OpenGraphUrl {
             url: address.to_string(),
         });
     }
@@ -236,41 +241,44 @@ pub(crate) fn handle_address_bar_submit_intents(
                 open_selected_tile: false,
             },
             intents,
+            workbench_intents: Vec::new(),
         };
     }
 
     if is_graph_view {
-        let (normalized_input, workbench_intent) = match location_bar_input_to_url(input, searchpage)
-        {
-            Some(parsed_url) => {
-                let decision = registries::phase0_decide_navigation_with_control(
-                    parsed_url,
-                    None,
-                    registries::protocol::ProtocolResolveControl::default(),
-                );
-                let Some(decision) = decision else {
-                    return AddressBarIntentOutcome {
-                        outcome: AddressBarSubmitOutcome {
-                            mark_clean: false,
-                            open_selected_tile: false,
-                        },
-                        intents: Vec::new(),
+        let (normalized_input, workbench_intent) =
+            match location_bar_input_to_url(input, searchpage) {
+                Some(parsed_url) => {
+                    let decision = registries::phase0_decide_navigation_with_control(
+                        parsed_url,
+                        None,
+                        registries::protocol::ProtocolResolveControl::default(),
+                    );
+                    let Some(decision) = decision else {
+                        return AddressBarIntentOutcome {
+                            outcome: AddressBarSubmitOutcome {
+                                mark_clean: false,
+                                open_selected_tile: false,
+                            },
+                            intents: Vec::new(),
+                            workbench_intents: Vec::new(),
+                        };
                     };
-                };
-                (
-                    decision.normalized_url.as_str().to_string(),
-                    route_intent_for_internal_or_domain_url(decision.normalized_url.as_str()),
-                )
-            }
-            None => (input.to_string(), None),
-        };
+                    (
+                        decision.normalized_url.as_str().to_string(),
+                        route_intent_for_internal_or_domain_url(decision.normalized_url.as_str()),
+                    )
+                }
+                None => (input.to_string(), None),
+            };
         if let Some(workbench_intent) = workbench_intent {
             return AddressBarIntentOutcome {
                 outcome: AddressBarSubmitOutcome {
                     mark_clean: true,
                     open_selected_tile: false,
                 },
-                intents: vec![workbench_intent],
+                intents: Vec::new(),
+                workbench_intents: vec![workbench_intent],
             };
         }
         let (open_selected_tile, intents) =
@@ -282,6 +290,7 @@ pub(crate) fn handle_address_bar_submit_intents(
                 open_selected_tile,
             },
             intents,
+            workbench_intents: Vec::new(),
         }
     } else {
         // Parse URL first before attempting to navigate.
@@ -293,6 +302,7 @@ pub(crate) fn handle_address_bar_submit_intents(
                     open_selected_tile: false,
                 },
                 intents: Vec::new(),
+                workbench_intents: Vec::new(),
             };
         };
 
@@ -309,6 +319,7 @@ pub(crate) fn handle_address_bar_submit_intents(
                         open_selected_tile: false,
                     },
                     intents: Vec::new(),
+                    workbench_intents: Vec::new(),
                 };
             };
             let normalized_url_string = decision.normalized_url.as_str().to_string();
@@ -329,7 +340,8 @@ pub(crate) fn handle_address_bar_submit_intents(
                     mark_clean: true,
                     open_selected_tile: false,
                 },
-                intents: vec![workbench_intent],
+                intents: Vec::new(),
+                workbench_intents: vec![workbench_intent],
             };
         }
 
@@ -356,6 +368,7 @@ pub(crate) fn handle_address_bar_submit_intents(
                     open_selected_tile,
                 },
                 intents,
+                workbench_intents: Vec::new(),
             };
         }
 
@@ -375,20 +388,25 @@ pub(crate) fn handle_address_bar_submit_intents(
                     open_selected_tile: false,
                 },
                 intents: Vec::new(),
+                workbench_intents: Vec::new(),
             };
         }
 
         // No focused live webview in detail mode:
         // if we still have a focused node/pane target, update/reactivate it;
         // otherwise create a new node as a fallback.
-        let (open_selected_tile, intents) =
-            registries::phase2_execute_detail_view_submit_action(app, parsed_url.as_str(), target_node);
+        let (open_selected_tile, intents) = registries::phase2_execute_detail_view_submit_action(
+            app,
+            parsed_url.as_str(),
+            target_node,
+        );
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
                 mark_clean: true,
                 open_selected_tile,
             },
             intents,
+            workbench_intents: Vec::new(),
         }
     }
 }
@@ -496,7 +514,7 @@ mod tests {
         let mut seen = HashSet::new();
         seen.insert(w1);
         let intents = reconcile_mappings_and_selection(&mut app, &seen, Some(w1));
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.get_node_for_webview(w1), Some(n1));
         assert_eq!(app.get_node_for_webview(w2), None);
@@ -512,9 +530,10 @@ mod tests {
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, "https://new.com");
-        app.apply_intents(intents);
+        assert!(workbench_intents.is_empty());
+        app.apply_reducer_intents(intents);
 
         let node = app.workspace.graph.get_node(key).unwrap();
         assert_eq!(node.url, "https://new.com");
@@ -526,9 +545,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let before = app.workspace.graph.node_count();
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, "https://created.com");
-        app.apply_intents(intents);
+        assert!(workbench_intents.is_empty());
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.graph.node_count(), before + 1);
         let selected = app.get_single_selected_node().unwrap();
@@ -552,7 +572,7 @@ mod tests {
         let original_url = app.workspace.graph.get_node(key).unwrap().url.clone();
 
         let (open_selected_tile, intents) = intents_for_omnibox_node_search(&app, "example handle");
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.get_single_selected_node(), Some(key));
         assert_eq!(app.workspace.graph.get_node(key).unwrap().url, original_url);
@@ -613,7 +633,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(&settings_history);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenSettingsUrl { ref url }) if url == &settings_history
+            Some(WorkbenchIntent::OpenSettingsUrl { ref url }) if url == &settings_history
         ));
 
         let none_intent = workbench_route_intent_for_graphshell_url("https://example.com");
@@ -627,7 +647,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(legacy_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenSettingsUrl { ref url }) if url == expected_url
+            Some(WorkbenchIntent::OpenSettingsUrl { ref url }) if url == expected_url
         ));
     }
 
@@ -637,7 +657,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(&frame_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenFrameUrl { ref url }) if url == &frame_url
+            Some(WorkbenchIntent::OpenFrameUrl { ref url }) if url == &frame_url
         ));
     }
 
@@ -648,7 +668,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(legacy_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenFrameUrl { ref url }) if url == expected_url
+            Some(WorkbenchIntent::OpenFrameUrl { ref url }) if url == expected_url
         ));
     }
 
@@ -658,7 +678,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(&tool_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenToolUrl { ref url }) if url == &tool_url
+            Some(WorkbenchIntent::OpenToolUrl { ref url }) if url == &tool_url
         ));
     }
 
@@ -669,17 +689,18 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(legacy_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenToolUrl { ref url }) if url == expected_url
+            Some(WorkbenchIntent::OpenToolUrl { ref url }) if url == expected_url
         ));
     }
 
     #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_view_url() {
-        let view_url = crate::util::GraphshellAddress::view(uuid::Uuid::new_v4().to_string()).to_string();
+        let view_url =
+            crate::util::GraphshellAddress::view(uuid::Uuid::new_v4().to_string()).to_string();
         let intent = workbench_route_intent_for_graphshell_url(&view_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenViewUrl { ref url }) if url == &view_url
+            Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &view_url
         ));
     }
 
@@ -691,7 +712,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(&legacy_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenViewUrl { ref url }) if url == &expected_url
+            Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &expected_url
         ));
     }
 
@@ -703,7 +724,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(&legacy_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenViewUrl { ref url }) if url == &expected_url
+            Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &expected_url
         ));
     }
 
@@ -714,7 +735,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(legacy_url);
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenViewUrl { ref url }) if url == expected_url
+            Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == expected_url
         ));
     }
 
@@ -726,7 +747,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url(legacy_url.as_str());
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenViewUrl { ref url }) if url == &expected_url
+            Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &expected_url
         ));
     }
 
@@ -735,7 +756,7 @@ mod tests {
         let intent = route_intent_for_internal_or_domain_url("graph://graph-main");
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenGraphUrl { ref url }) if url == "graph://graph-main"
+            Some(WorkbenchIntent::OpenGraphUrl { ref url }) if url == "graph://graph-main"
         ));
     }
 
@@ -746,7 +767,7 @@ mod tests {
         let intent = route_intent_for_internal_or_domain_url(raw.as_str());
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenNoteUrl { ref url }) if url == &raw
+            Some(WorkbenchIntent::OpenNoteUrl { ref url }) if url == &raw
         ));
     }
 
@@ -757,7 +778,7 @@ mod tests {
         let intent = route_intent_for_internal_or_domain_url(raw.as_str());
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenNodeUrl { ref url }) if url == &raw
+            Some(WorkbenchIntent::OpenNodeUrl { ref url }) if url == &raw
         ));
     }
 
@@ -766,7 +787,7 @@ mod tests {
         let intent = workbench_route_intent_for_graphshell_url("graphshell://clip/clip-123");
         assert!(matches!(
             intent,
-            Some(GraphIntent::OpenClipUrl { ref url }) if url == "verso://clip/clip-123"
+            Some(WorkbenchIntent::OpenClipUrl { ref url }) if url == "verso://clip/clip-123"
         ));
     }
 
@@ -779,14 +800,15 @@ mod tests {
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, "graphshell://frame/demo-frame");
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenFrameUrl { url }) if url == "verso://frame/demo-frame"
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenFrameUrl { url }) if url == "verso://frame/demo-frame"
         ));
     }
 
@@ -799,14 +821,15 @@ mod tests {
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, "graphshell://settings/history");
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenSettingsUrl { url }) if url == "verso://settings/history"
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenSettingsUrl { url }) if url == "verso://settings/history"
         ));
     }
 
@@ -819,14 +842,15 @@ mod tests {
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, "graphshell://tool/history/2");
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenToolUrl { url }) if url == "verso://tool/history/2"
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenToolUrl { url }) if url == "verso://tool/history/2"
         ));
     }
 
@@ -839,14 +863,15 @@ mod tests {
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, "graphshell://clip/clip-123");
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenClipUrl { url }) if url == "verso://clip/clip-123"
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenClipUrl { url }) if url == "verso://clip/clip-123"
         ));
     }
 
@@ -860,13 +885,15 @@ mod tests {
         app.select_node(key, false);
         let note_url = format!("notes://{}", uuid::Uuid::new_v4());
 
-        let (open_selected_tile, intents) = intents_for_graph_view_address_submit(&app, &note_url);
+        let (open_selected_tile, intents, workbench_intents) =
+            intents_for_graph_view_address_submit(&app, &note_url);
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenNoteUrl { url }) if url == &note_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenNoteUrl { url }) if url == &note_url
         ));
     }
 
@@ -880,13 +907,15 @@ mod tests {
         app.select_node(key, false);
         let node_url = format!("node://{}", uuid::Uuid::new_v4());
 
-        let (open_selected_tile, intents) = intents_for_graph_view_address_submit(&app, &node_url);
+        let (open_selected_tile, intents, workbench_intents) =
+            intents_for_graph_view_address_submit(&app, &node_url);
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenNodeUrl { url }) if url == &node_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenNodeUrl { url }) if url == &node_url
         ));
     }
 
@@ -900,14 +929,15 @@ mod tests {
         app.select_node(key, false);
         let graph_url = "graph://graph-main".to_string();
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, graph_url.as_str());
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenGraphUrl { url }) if url == &graph_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenGraphUrl { url }) if *url == graph_url
         ));
     }
 
@@ -921,13 +951,15 @@ mod tests {
         app.select_node(key, false);
         let node_url = format!("verso://view/node/{}", uuid::Uuid::new_v4());
 
-        let (open_selected_tile, intents) = intents_for_graph_view_address_submit(&app, &node_url);
+        let (open_selected_tile, intents, workbench_intents) =
+            intents_for_graph_view_address_submit(&app, &node_url);
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenViewUrl { url }) if url == &node_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenViewUrl { url }) if url == &node_url
         ));
     }
 
@@ -941,13 +973,15 @@ mod tests {
         app.select_node(key, false);
         let note_url = format!("verso://view/note/{}", uuid::Uuid::new_v4());
 
-        let (open_selected_tile, intents) = intents_for_graph_view_address_submit(&app, &note_url);
+        let (open_selected_tile, intents, workbench_intents) =
+            intents_for_graph_view_address_submit(&app, &note_url);
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenViewUrl { url }) if url == &note_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenViewUrl { url }) if url == &note_url
         ));
     }
 
@@ -961,14 +995,15 @@ mod tests {
         app.select_node(key, false);
         let graph_url = "verso://view/graph/graph-main".to_string();
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, graph_url.as_str());
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenViewUrl { url }) if url == &graph_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenViewUrl { url }) if url == &graph_url
         ));
     }
 
@@ -984,14 +1019,15 @@ mod tests {
         let legacy_url = format!("graphshell://view/node/{node_id}");
         let expected_url = format!("verso://view/node/{node_id}");
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, legacy_url.as_str());
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenViewUrl { url }) if url == &expected_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenViewUrl { url }) if url == &expected_url
         ));
     }
 
@@ -1007,14 +1043,15 @@ mod tests {
         let legacy_url = format!("graphshell://view/note/{note_id}");
         let expected_url = format!("verso://view/note/{note_id}");
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, legacy_url.as_str());
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenViewUrl { url }) if url == &expected_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenViewUrl { url }) if url == &expected_url
         ));
     }
 
@@ -1029,14 +1066,15 @@ mod tests {
         let legacy_url = "graphshell://view/graph/graph-main".to_string();
         let expected_url = "verso://view/graph/graph-main".to_string();
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, legacy_url.as_str());
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenViewUrl { url }) if url == &expected_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenViewUrl { url }) if url == &expected_url
         ));
     }
 
@@ -1052,21 +1090,23 @@ mod tests {
         let legacy_url = format!("graphshell://view/{view_id}");
         let expected_url = format!("verso://view/{view_id}");
 
-        let (open_selected_tile, intents) =
+        let (open_selected_tile, intents, workbench_intents) =
             intents_for_graph_view_address_submit(&app, legacy_url.as_str());
 
         assert!(!open_selected_tile);
-        assert_eq!(intents.len(), 1);
+        assert!(intents.is_empty());
+        assert_eq!(workbench_intents.len(), 1);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::OpenViewUrl { url }) if url == &expected_url
+            workbench_intents.first(),
+            Some(WorkbenchIntent::OpenViewUrl { url }) if url == &expected_url
         ));
     }
 
     #[test]
     fn resolve_detail_submit_target_prefers_focused_node_mapping() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let focused = app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
+        let focused =
+            app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
         let other = app.add_node_and_sync("https://other.example".into(), Point2D::new(20.0, 0.0));
         let focused_webview = test_webview_id();
         let preferred_webview = test_webview_id();
@@ -1082,7 +1122,8 @@ mod tests {
     #[test]
     fn resolve_detail_submit_target_falls_back_to_preferred_webview_mapping() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node = app.add_node_and_sync("https://preferred.example".into(), Point2D::new(0.0, 0.0));
+        let node =
+            app.add_node_and_sync("https://preferred.example".into(), Point2D::new(0.0, 0.0));
         let preferred_webview = test_webview_id();
         app.map_webview_to_node(preferred_webview, node);
 
@@ -1106,8 +1147,12 @@ mod tests {
     #[test]
     fn resolve_detail_submit_target_falls_back_when_focused_node_is_stale_after_transition() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let stale_focused = app.add_node_and_sync("https://stale-focused.example".into(), Point2D::new(0.0, 0.0));
-        let remaining = app.add_node_and_sync("https://remaining.example".into(), Point2D::new(20.0, 0.0));
+        let stale_focused = app.add_node_and_sync(
+            "https://stale-focused.example".into(),
+            Point2D::new(0.0, 0.0),
+        );
+        let remaining =
+            app.add_node_and_sync("https://remaining.example".into(), Point2D::new(20.0, 0.0));
         let remaining_webview = test_webview_id();
         app.map_webview_to_node(remaining_webview, remaining);
 
@@ -1119,8 +1164,7 @@ mod tests {
             "focused node remains authoritative even when its webview mapping is absent"
         );
         assert_eq!(
-            target_webview,
-            None,
+            target_webview, None,
             "stale focused mapping should not force a stale webview target"
         );
 
@@ -1133,7 +1177,8 @@ mod tests {
     #[test]
     fn resolve_detail_submit_target_prefers_focused_mapping_when_preferred_webview_is_stale() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let focused = app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
+        let focused =
+            app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
         let focused_webview = test_webview_id();
         let stale_preferred_webview = test_webview_id();
         app.map_webview_to_node(focused_webview, focused);

@@ -155,9 +155,7 @@ pub(crate) fn derive_membership_from_manifest(manifest: &FrameManifest) -> BTree
         .collect()
 }
 
-pub(crate) fn validate_frame_bundle(
-    bundle: &PersistedWorkspace,
-) -> Result<(), FrameBundleError> {
+pub(crate) fn validate_frame_bundle(bundle: &PersistedWorkspace) -> Result<(), FrameBundleError> {
     for pane_id in persisted_layout_referenced_pane_ids(&bundle.layout) {
         if !bundle.manifest.panes.contains_key(&pane_id) {
             return Err(FrameBundleError::MissingManifestPane { pane_id });
@@ -202,7 +200,10 @@ fn runtime_tree_to_bundle(
                     .graph
                     .get_node(state.node)
                     .ok_or_else(|| {
-                        format!("frame snapshot contains stale node key {}", state.node.index())
+                        format!(
+                            "frame snapshot contains stale node key {}",
+                            state.node.index()
+                        )
                     })?;
                 let pane_id = tile_id.0;
                 panes.insert(pane_id, PaneContent::NodePane { node_uuid: node.id });

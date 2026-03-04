@@ -151,13 +151,23 @@ fn healthy_composited_overlay_emits_style_and_mode_without_pass_order_violation(
         .emit_message_sent_for_tests(CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE, 1);
 
     let snapshot = harness.snapshot();
-    let style_count = TestRegistry::channel_count(&snapshot, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE);
-    let mode_count =
-        TestRegistry::channel_count(&snapshot, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE);
-    let violation_count = TestRegistry::channel_count(&snapshot, "tile_compositor.pass_order_violation");
+    let style_count =
+        TestRegistry::channel_count(&snapshot, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE);
+    let mode_count = TestRegistry::channel_count(
+        &snapshot,
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+    );
+    let violation_count =
+        TestRegistry::channel_count(&snapshot, "tile_compositor.pass_order_violation");
 
-    assert!(style_count > 0, "expected overlay style channel in healthy path");
-    assert!(mode_count > 0, "expected overlay mode channel in healthy path");
+    assert!(
+        style_count > 0,
+        "expected overlay style channel in healthy path"
+    );
+    assert!(
+        mode_count > 0,
+        "expected overlay mode channel in healthy path"
+    );
     assert_eq!(
         violation_count, 0,
         "healthy composited overlay path should not emit pass-order violations"

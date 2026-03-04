@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use egui_tiles::Tree;
 
@@ -10,8 +11,13 @@ use super::tile_behavior::{GraphshellTileBehavior, PendingOpenNode};
 use super::tile_grouping;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
+use super::ux_tree;
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+};
 
 pub(crate) struct TileRenderOutputs {
     pub(crate) pending_open_nodes: Vec<PendingOpenNode>,
@@ -32,6 +38,7 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) -> TileRenderOutputs {
+    let uxtree_build_started = Instant::now();
     let tab_groups_before = tile_grouping::node_pane_tab_group_memberships(tiles_tree);
     let mut behavior = GraphshellTileBehavior::new(
         graph_app,
@@ -50,6 +57,25 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     let pending_closed_nodes = behavior.take_pending_closed_nodes();
     let tab_drag_stopped_nodes = behavior.take_pending_tab_drag_stopped_nodes();
     let mut post_render_intents = behavior.take_pending_graph_intents();
+
+    drop(behavior);
+
+    let uxtree_snapshot = ux_tree::build_snapshot(
+        tiles_tree,
+        graph_app,
+        uxtree_build_started.elapsed().as_micros() as u64,
+    );
+    ux_tree::publish_snapshot(&uxtree_snapshot);
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+        byte_len: uxtree_snapshot.semantic_nodes.len(),
+    });
+    if let Some(message) = ux_tree::presentation_id_consistency_violation(&uxtree_snapshot) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_CONTRACT_WARNING,
+            byte_len: message.len(),
+        });
+    }
 
     let tab_groups_after = tile_grouping::node_pane_tab_group_memberships(tiles_tree);
     let tab_group_nodes_after = tile_grouping::tab_group_nodes(tiles_tree);

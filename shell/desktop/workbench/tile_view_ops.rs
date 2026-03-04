@@ -68,9 +68,12 @@ pub(crate) fn ensure_active_tile(tiles_tree: &mut Tree<TileKind>) -> bool {
     #[cfg(feature = "diagnostics")]
     {
         has_active_pane = has_active_pane
-            || tiles_tree.active_tiles().into_iter().any(
-                |tile_id| matches!(tiles_tree.tiles.get(tile_id), Some(Tile::Pane(TileKind::Tool(_)))),
-            );
+            || tiles_tree.active_tiles().into_iter().any(|tile_id| {
+                matches!(
+                    tiles_tree.tiles.get(tile_id),
+                    Some(Tile::Pane(TileKind::Tool(_)))
+                )
+            });
     }
 
     if has_active_pane {
@@ -116,16 +119,22 @@ fn active_focus_cycle_region(tiles_tree: &Tree<TileKind>) -> Option<FocusCycleRe
 }
 
 fn focus_cycle_region_is_present(tiles_tree: &Tree<TileKind>, region: FocusCycleRegion) -> bool {
-    tiles_tree.tiles.iter().any(|(_, tile)| match (region, tile) {
-        (FocusCycleRegion::Graph, Tile::Pane(TileKind::Graph(_))) => true,
-        (FocusCycleRegion::Node, Tile::Pane(TileKind::Node(_))) => true,
-        #[cfg(feature = "diagnostics")]
-        (FocusCycleRegion::Tool, Tile::Pane(TileKind::Tool(_))) => true,
-        _ => false,
-    })
+    tiles_tree
+        .tiles
+        .iter()
+        .any(|(_, tile)| match (region, tile) {
+            (FocusCycleRegion::Graph, Tile::Pane(TileKind::Graph(_))) => true,
+            (FocusCycleRegion::Node, Tile::Pane(TileKind::Node(_))) => true,
+            #[cfg(feature = "diagnostics")]
+            (FocusCycleRegion::Tool, Tile::Pane(TileKind::Tool(_))) => true,
+            _ => false,
+        })
 }
 
-fn make_focus_cycle_region_active(tiles_tree: &mut Tree<TileKind>, region: FocusCycleRegion) -> bool {
+fn make_focus_cycle_region_active(
+    tiles_tree: &mut Tree<TileKind>,
+    region: FocusCycleRegion,
+) -> bool {
     match region {
         FocusCycleRegion::Graph => {
             tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Graph(_))))
@@ -258,13 +267,10 @@ pub(crate) fn open_or_focus_node_pane(
 
 #[cfg(feature = "diagnostics")]
 pub(crate) fn open_or_focus_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneState) {
-    if tiles_tree.make_active(
-        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind),
-    ) {
-        log::debug!(
-            "tile_view_ops: focused existing tool pane {:?}",
-            kind
-        );
+    if tiles_tree
+        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind))
+    {
+        log::debug!("tile_view_ops: focused existing tool pane {:?}", kind);
         return;
     }
 
@@ -280,11 +286,12 @@ pub(crate) fn open_or_focus_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: Too
         return;
     }
 
-    let tabs_root = tiles_tree.tiles.insert_tab_tile(vec![root_id, tool_tile_id]);
+    let tabs_root = tiles_tree
+        .tiles
+        .insert_tab_tile(vec![root_id, tool_tile_id]);
     tiles_tree.root = Some(tabs_root);
-    let _ = tiles_tree.make_active(
-        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind),
-    );
+    let _ = tiles_tree
+        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind));
 }
 
 #[cfg(not(feature = "diagnostics"))]
@@ -296,10 +303,13 @@ pub(crate) fn open_or_focus_tool_pane(
 
 #[cfg(feature = "diagnostics")]
 pub(crate) fn close_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneState) -> bool {
-    let tool_tile_id = tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
-        Tile::Pane(TileKind::Tool(existing)) if *existing == kind => Some(*tile_id),
-        _ => None,
-    });
+    let tool_tile_id = tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(tile_id, tile)| match tile {
+            Tile::Pane(TileKind::Tool(existing)) if *existing == kind => Some(*tile_id),
+            _ => None,
+        });
 
     let Some(tile_id) = tool_tile_id else {
         return false;
@@ -631,12 +641,7 @@ mod tests {
         let root_graph = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
         let mut tree = Tree::new("node_split_wrap", root_graph, tiles);
 
-        open_or_focus_node_pane_with_mode(
-            &mut tree,
-            &app,
-            node_key,
-            TileOpenMode::SplitHorizontal,
-        );
+        open_or_focus_node_pane_with_mode(&mut tree, &app, node_key, TileOpenMode::SplitHorizontal);
 
         let root_id = tree.root().expect("split root should exist");
         let linear = match tree.tiles.get(root_id) {

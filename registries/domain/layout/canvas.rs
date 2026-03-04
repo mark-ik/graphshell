@@ -355,27 +355,33 @@ mod tests {
     fn canvas_surface_profile_allows_background_pan_when_conditions_met() {
         let registry = CanvasRegistry::default();
         let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
-        assert!(resolution.profile.allows_background_pan(
-            true, true, true, false, false, false,
-        ));
+        assert!(
+            resolution
+                .profile
+                .allows_background_pan(true, true, true, false, false, false,)
+        );
     }
 
     #[test]
     fn canvas_surface_profile_blocks_background_pan_for_active_lasso_drag() {
         let registry = CanvasRegistry::default();
         let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
-        assert!(!resolution.profile.allows_background_pan(
-            true, true, true, true, false, false,
-        ));
+        assert!(
+            !resolution
+                .profile
+                .allows_background_pan(true, true, true, true, false, false,)
+        );
     }
 
     #[test]
     fn canvas_surface_profile_allows_background_pan_when_radial_menu_open() {
         let registry = CanvasRegistry::default();
         let resolution = registry.resolve(CANVAS_PROFILE_DEFAULT);
-        assert!(resolution.profile.allows_background_pan(
-            true, true, true, false, true, false,
-        ));
+        assert!(
+            resolution
+                .profile
+                .allows_background_pan(true, true, true, false, true, false,)
+        );
     }
 
     #[test]

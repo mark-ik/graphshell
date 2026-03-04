@@ -475,8 +475,10 @@ mod tests {
             ViewerId::new("viewer:webview"),
         ));
 
-        let http_hosts =
-            TileCoordinator::all_node_pane_keys_using_composited_runtime(&http_plaintext_tree, &app);
+        let http_hosts = TileCoordinator::all_node_pane_keys_using_composited_runtime(
+            &http_plaintext_tree,
+            &app,
+        );
         let file_hosts =
             TileCoordinator::all_node_pane_keys_using_composited_runtime(&file_webview_tree, &app);
 

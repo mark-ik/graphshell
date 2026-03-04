@@ -53,7 +53,8 @@ fn history_manager_limit_env_emits_channel() {
 
         let snapshot = harness.snapshot();
         assert!(
-            TestRegistry::channel_count(&snapshot, registries::CHANNEL_UI_HISTORY_MANAGER_LIMIT) > 0,
+            TestRegistry::channel_count(&snapshot, registries::CHANNEL_UI_HISTORY_MANAGER_LIMIT)
+                > 0,
             "history manager limit should emit diagnostic channel"
         );
     });

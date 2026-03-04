@@ -9,11 +9,10 @@
 
 use crate::app::{
     CommandPaletteShortcut, EdgeCommand, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
-    RadialMenuShortcut,
+    RadialMenuShortcut, WorkbenchIntent,
 };
 use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::Key;
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 
 /// Keyboard actions collected from egui input events.
 ///
@@ -24,6 +23,7 @@ pub struct KeyboardActions {
     pub toggle_physics: bool,
     pub toggle_camera_position_fit_lock: bool,
     pub toggle_camera_zoom_fit_lock: bool,
+    pub open_camera_controls: bool,
     pub toggle_view: bool,
     pub fit_to_screen: bool,
     pub open_physics_settings: bool,
@@ -71,6 +71,11 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
         // Home: Toggle view (always works)
         if i.key_pressed(Key::Home) {
             actions.toggle_view = true;
+        }
+
+        // F9: open camera controls settings (global shortcut).
+        if i.key_pressed(Key::F9) {
+            actions.open_camera_controls = true;
         }
 
         // Skip remaining shortcuts while egui is consuming keyboard input.
@@ -272,16 +277,6 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     if actions.reheat_physics {
         intents.push(GraphIntent::ReheatPhysics);
     }
-    if actions.open_physics_settings {
-        intents.push(GraphIntent::OpenSettingsUrl {
-            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-        });
-    }
-    if actions.toggle_history_manager {
-        intents.push(GraphIntent::OpenToolPane {
-            kind: ToolPaneState::HistoryManager,
-        });
-    }
     if actions.toggle_help_panel {
         intents.push(GraphIntent::ToggleHelpPanel);
     }
@@ -337,8 +332,28 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
     if actions.select_all {
         intents.push(GraphIntent::SelectAll);
     }
+    intents
+}
+
+pub fn workbench_intents_from_actions(actions: &KeyboardActions) -> Vec<WorkbenchIntent> {
+    let mut intents = Vec::new();
+    if actions.open_physics_settings {
+        intents.push(WorkbenchIntent::OpenSettingsUrl {
+            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+        });
+    }
+    if actions.open_camera_controls {
+        intents.push(WorkbenchIntent::OpenSettingsUrl {
+            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+        });
+    }
+    if actions.toggle_history_manager {
+        intents.push(WorkbenchIntent::OpenToolPane {
+            kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager,
+        });
+    }
     if actions.cycle_focus_region {
-        intents.push(GraphIntent::CycleFocusRegion);
+        intents.push(WorkbenchIntent::CycleFocusRegion);
     }
     intents
 }
@@ -365,7 +380,7 @@ mod tests {
             toggle_view: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.selected_nodes, selected_before);
         assert_eq!(app.workspace.graph.node_count(), count_before);
@@ -380,7 +395,7 @@ mod tests {
             toggle_physics: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_ne!(app.workspace.physics.base.is_running, was_running);
     }
@@ -437,7 +452,7 @@ mod tests {
             fit_to_screen: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert!(matches!(
             app.pending_camera_command(),
@@ -499,16 +514,32 @@ mod tests {
 
     #[test]
     fn test_open_physics_settings_action() {
-        let intents = intents_from_actions(&KeyboardActions {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
             open_physics_settings: true,
             ..Default::default()
         });
         assert!(intents.iter().any(|i| {
             matches!(
                 i,
-                GraphIntent::OpenSettingsUrl { url }
+                WorkbenchIntent::OpenSettingsUrl { url }
                     if url
                         == &GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string()
+            )
+        }));
+    }
+
+    #[test]
+    fn test_open_camera_controls_action_maps_to_settings_url() {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
+            open_camera_controls: true,
+            ..Default::default()
+        });
+        assert!(intents.iter().any(|i| {
+            matches!(
+                i,
+                WorkbenchIntent::OpenSettingsUrl { url }
+                    if url == &GraphshellAddress::settings(GraphshellSettingsPath::Physics)
+                            .to_string()
             )
         }));
     }
@@ -522,7 +553,7 @@ mod tests {
             toggle_help_panel: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert!(app.workspace.show_help_panel);
 
@@ -530,7 +561,7 @@ mod tests {
             toggle_help_panel: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert!(!app.workspace.show_help_panel);
     }
@@ -544,7 +575,7 @@ mod tests {
             toggle_command_palette: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert!(app.workspace.show_command_palette);
 
@@ -552,7 +583,7 @@ mod tests {
             toggle_command_palette: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert!(!app.workspace.show_command_palette);
     }
@@ -566,7 +597,7 @@ mod tests {
             create_node: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.graph.node_count(), 1);
     }
@@ -666,7 +697,7 @@ mod tests {
             delete_selected: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.graph.node_count(), 0);
     }
@@ -683,7 +714,7 @@ mod tests {
             clear_graph: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.graph.node_count(), 0);
     }
@@ -698,7 +729,7 @@ mod tests {
         let before_physics = app.workspace.physics.base.is_running;
 
         let intents = intents_from_actions(&KeyboardActions::default());
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.graph.node_count(), before_count);
         assert_eq!(app.workspace.physics.base.is_running, before_physics);
@@ -716,7 +747,7 @@ mod tests {
             select_all: true,
             ..Default::default()
         });
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
 
         assert!(app.workspace.selected_nodes.contains(&a));
         assert!(app.workspace.selected_nodes.contains(&b));
@@ -735,14 +766,14 @@ mod tests {
 
     #[test]
     fn test_cycle_focus_region_maps_to_intent() {
-        let intents = intents_from_actions(&KeyboardActions {
+        let intents = workbench_intents_from_actions(&KeyboardActions {
             cycle_focus_region: true,
             ..Default::default()
         });
         assert!(
             intents
                 .iter()
-                .any(|i| matches!(i, GraphIntent::CycleFocusRegion))
+                .any(|i| matches!(i, WorkbenchIntent::CycleFocusRegion))
         );
     }
 
@@ -807,6 +838,15 @@ mod tests {
         assert!(
             z_actions.toggle_camera_zoom_fit_lock,
             "Z should toggle zoom-fit lock when keyboard input is not captured"
+        );
+    }
+
+    #[test]
+    fn collect_actions_keeps_f9_global_for_camera_controls_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::F9, Modifiers::default(), true);
+        assert!(
+            actions.open_camera_controls,
+            "F9 should open camera controls even when text input captures keyboard"
         );
     }
 

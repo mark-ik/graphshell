@@ -135,8 +135,7 @@ fn restore_named_frame_snapshot(
                     apply_intents_if_any(graph_app, &restored_tree, &mut restore_intents);
                 }
                 graph_app.note_frame_activated(name, restored_nodes);
-                if let Err(e) =
-                    persistence_ops::mark_named_frame_bundle_activated(graph_app, name)
+                if let Err(e) = persistence_ops::mark_named_frame_bundle_activated(graph_app, name)
                 {
                     warn!("Failed to mark frame bundle '{name}' activated: {e}");
                 }
@@ -200,7 +199,9 @@ fn add_nodes_to_named_frame_snapshot(
             match persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle) {
                 Ok((tree, _)) => tree,
                 Err(e) => {
-                    warn!("Failed to restore named frame snapshot '{name}' for add-tab operation: {e}");
+                    warn!(
+                        "Failed to restore named frame snapshot '{name}' for add-tab operation: {e}"
+                    );
                     frame_tree_with_single_node(live_nodes[0])
                 }
             }
@@ -226,10 +227,7 @@ fn add_nodes_to_named_frame_snapshot(
     }
 }
 
-fn connected_frame_import_nodes(
-    graph_app: &GraphBrowserApp,
-    seeds: &[NodeKey],
-) -> Vec<NodeKey> {
+fn connected_frame_import_nodes(graph_app: &GraphBrowserApp, seeds: &[NodeKey]) -> Vec<NodeKey> {
     let mut out = HashSet::new();
     for seed in seeds {
         if graph_app.workspace.graph.get_node(*seed).is_none() {
@@ -471,7 +469,7 @@ pub(crate) fn apply_intents_if_any(
             channel_id: "graph_intents.apply",
             byte_len: apply_count,
         });
-        graph_app.apply_intents(apply_list);
+        graph_app.apply_reducer_intents(apply_list);
         #[cfg(feature = "diagnostics")]
         {
             let elapsed = apply_started.elapsed().as_micros() as u64;
@@ -643,6 +641,7 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
         );
     }
     frame_intents.extend(input::intents_from_actions(&keyboard_actions));
+    graph_app.extend_workbench_intents(input::workbench_intents_from_actions(&keyboard_actions));
 }
 
 pub(crate) fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
@@ -828,8 +827,7 @@ fn ensure_webviews_for_active_prewarm_nodes(
                     if tile_runtime::node_pane_uses_composited_runtime(
                         &default_node_pane,
                         graph_app,
-                    )
-                    {
+                    ) {
                         crate::shell::desktop::lifecycle::webview_backpressure::ensure_webview_for_node(
                             graph_app,
                             window,
@@ -1132,15 +1130,14 @@ fn handle_unsaved_workspace_prompt_resolution(
                 let open_request = pending_open_request_from_focus_node(focus_node);
                 restore_named_frame_snapshot(graph_app, tiles_tree, &name, open_request);
             }
-            (
-                UnsavedFramePromptRequest::FrameSwitch { .. },
-                UnsavedFramePromptAction::Cancel,
-            ) => {}
+            (UnsavedFramePromptRequest::FrameSwitch { .. }, UnsavedFramePromptAction::Cancel) => {}
         }
     }
 }
 
-fn pending_open_request_from_focus_node(focus_node: Option<NodeKey>) -> Option<PendingNodeOpenRequest> {
+fn pending_open_request_from_focus_node(
+    focus_node: Option<NodeKey>,
+) -> Option<PendingNodeOpenRequest> {
     focus_node.map(|key| PendingNodeOpenRequest {
         key,
         mode: PendingTileOpenMode::Tab,

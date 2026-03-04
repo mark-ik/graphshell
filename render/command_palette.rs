@@ -10,19 +10,23 @@
 
 use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, PendingConnectedOpenScope, PendingTileOpenMode,
+    WorkbenchIntent,
 };
 use crate::graph::NodeKey;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionId, InputMode, list_actions_for_context,
 };
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn disabled_action_reason(action_id: ActionId, action_context: &ActionContext) -> Option<&'static str> {
+fn disabled_action_reason(
+    action_id: ActionId,
+    action_context: &ActionContext,
+) -> Option<&'static str> {
     match action_id {
         ActionId::PersistUndo => {
             if !action_context.undo_available {
@@ -348,9 +352,11 @@ pub(super) fn execute_action(
         }
         ActionId::GraphFit => intents.push(GraphIntent::RequestFitToScreen),
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
-        ActionId::GraphPhysicsConfig => intents.push(GraphIntent::OpenSettingsUrl {
-            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-        }),
+        ActionId::GraphPhysicsConfig => {
+            app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+                url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+            });
+        }
         ActionId::GraphCommandPalette => intents.push(GraphIntent::ToggleCommandPalette),
         ActionId::PersistUndo => intents.push(GraphIntent::Undo),
         ActionId::PersistRedo => intents.push(GraphIntent::Redo),
@@ -368,7 +374,7 @@ pub(super) fn execute_action(
             app.request_save_graph_snapshot_named(format!("radial-graph-{now}"));
         }
         ActionId::PersistRestoreLatestGraph => app.request_restore_graph_snapshot_latest(),
-        ActionId::PersistOpenHub => intents.push(GraphIntent::OpenToolPane {
+        ActionId::PersistOpenHub => app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
             kind: ToolPaneState::Settings,
         }),
     }

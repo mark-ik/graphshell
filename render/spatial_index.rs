@@ -72,7 +72,10 @@ impl NodeSpatialIndex {
     pub fn nodes_with_center_in_canvas_rect(&self, rect: egui::Rect) -> Vec<NodeKey> {
         const EDGE_EPSILON: f32 = 1e-3;
         let expanded = rect.expand(EDGE_EPSILON);
-        let aabb = AABB::from_corners([expanded.min.x, expanded.min.y], [expanded.max.x, expanded.max.y]);
+        let aabb = AABB::from_corners(
+            [expanded.min.x, expanded.min.y],
+            [expanded.max.x, expanded.max.y],
+        );
         self.tree
             .locate_in_envelope_intersecting(&aabb)
             .filter(|n| {

@@ -8,7 +8,7 @@ fn webview_url_changed_updates_existing_mapping() {
     let key = harness.add_node("https://before.example");
     let webview_id = harness.map_test_webview_with_id(key);
 
-    harness.app.apply_intents([GraphIntent::WebViewUrlChanged {
+    harness.app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
         webview_id,
         new_url: "https://after.example".to_string(),
     }]);
@@ -30,7 +30,7 @@ fn webview_url_changed_appends_traversal_between_known_nodes_without_self_loop()
     let to = harness.add_node("https://b.example");
     let webview_id = harness.map_test_webview_with_id(from);
 
-    harness.app.apply_intents([GraphIntent::WebViewUrlChanged {
+    harness.app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
         webview_id,
         new_url: "https://b.example".to_string(),
     }]);
@@ -61,11 +61,16 @@ fn webview_history_changed_clamps_index_to_entry_bounds() {
     let key = harness.add_node("https://a.example");
     let webview_id = harness.map_test_webview_with_id(key);
 
-    harness.app.apply_intents([GraphIntent::WebViewHistoryChanged {
-        webview_id,
-        entries: vec!["https://a.example".to_string(), "https://b.example".to_string()],
-        current: 99,
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+            webview_id,
+            entries: vec![
+                "https://a.example".to_string(),
+                "https://b.example".to_string(),
+            ],
+            current: 99,
+        }]);
 
     let node = harness
         .app
@@ -91,27 +96,45 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
             .graph
             .get_node_mut(b)
             .expect("destination node should exist");
-        node.history_entries = vec!["https://a.example".to_string(), "https://b.example".to_string()];
+        node.history_entries = vec![
+            "https://a.example".to_string(),
+            "https://b.example".to_string(),
+        ];
         node.history_index = 1;
     }
 
-    harness.app.apply_intents([GraphIntent::WebViewHistoryChanged {
-        webview_id,
-        entries: vec!["https://a.example".to_string(), "https://b.example".to_string()],
-        current: 0,
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+            webview_id,
+            entries: vec![
+                "https://a.example".to_string(),
+                "https://b.example".to_string(),
+            ],
+            current: 0,
+        }]);
 
-    harness.app.apply_intents([GraphIntent::WebViewHistoryChanged {
-        webview_id,
-        entries: vec!["https://a.example".to_string(), "https://b.example".to_string()],
-        current: 1,
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+            webview_id,
+            entries: vec![
+                "https://a.example".to_string(),
+                "https://b.example".to_string(),
+            ],
+            current: 1,
+        }]);
 
-    harness.app.apply_intents([GraphIntent::WebViewHistoryChanged {
-        webview_id,
-        entries: vec!["https://a.example".to_string(), "https://b.example".to_string()],
-        current: 0,
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
+            webview_id,
+            entries: vec![
+                "https://a.example".to_string(),
+                "https://b.example".to_string(),
+            ],
+            current: 0,
+        }]);
 
     let back_edge_key = harness
         .app
@@ -125,9 +148,14 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         .graph
         .get_edge(back_edge_key)
         .expect("back edge payload should exist");
-    assert!(harness.app.workspace.graph.edges().any(|edge| {
-        edge.edge_type == EdgeType::History && edge.from == b && edge.to == a
-    }));
+    assert!(
+        harness
+            .app
+            .workspace
+            .graph
+            .edges()
+            .any(|edge| { edge.edge_type == EdgeType::History && edge.from == b && edge.to == a })
+    );
     assert_eq!(back_edge.traversals.len(), 2);
     assert_eq!(back_edge.traversals[0].trigger, NavigationTrigger::Back);
     assert_eq!(back_edge.traversals[1].trigger, NavigationTrigger::Back);
@@ -144,11 +172,19 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         .graph
         .get_edge(forward_edge_key)
         .expect("forward edge payload should exist");
-    assert!(harness.app.workspace.graph.edges().any(|edge| {
-        edge.edge_type == EdgeType::History && edge.from == a && edge.to == b
-    }));
+    assert!(
+        harness
+            .app
+            .workspace
+            .graph
+            .edges()
+            .any(|edge| { edge.edge_type == EdgeType::History && edge.from == a && edge.to == b })
+    );
     assert_eq!(forward_edge.traversals.len(), 1);
-    assert_eq!(forward_edge.traversals[0].trigger, NavigationTrigger::Forward);
+    assert_eq!(
+        forward_edge.traversals[0].trigger,
+        NavigationTrigger::Forward
+    );
 }
 
 #[test]
@@ -173,7 +209,7 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
         node.history_index = 2;
     }
 
-    harness.app.apply_intents([
+    harness.app.apply_reducer_intents([
         GraphIntent::WebViewUrlChanged {
             webview_id,
             new_url: "https://site.example/?step=2".to_string(),
@@ -197,9 +233,10 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
         .expect("step2 node should exist");
     assert_eq!(node.history_index, 1);
 
-    let has_history_edge = harness.app.workspace.graph.edges().any(|edge| {
-        edge.edge_type == EdgeType::History && edge.from == step2 && edge.to == step1
-    });
+    let has_history_edge =
+        harness.app.workspace.graph.edges().any(|edge| {
+            edge.edge_type == EdgeType::History && edge.from == step2 && edge.to == step1
+        });
     assert!(
         has_history_edge,
         "history callback should produce back traversal even when URL callback stays on latest"

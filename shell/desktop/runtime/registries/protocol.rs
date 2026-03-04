@@ -226,8 +226,8 @@ mod tests {
     #[test]
     fn protocol_resolution_supports_graphshell_scheme_with_settings_hint() {
         let registry = ProtocolRegistry::default();
-        let resolution =
-            registry.resolve(&GraphshellAddress::settings(GraphshellSettingsPath::History).to_string());
+        let resolution = registry
+            .resolve(&GraphshellAddress::settings(GraphshellSettingsPath::History).to_string());
 
         assert!(resolution.supported);
         assert!(!resolution.fallback_used);

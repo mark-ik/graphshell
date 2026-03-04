@@ -1,5 +1,7 @@
 use super::super::harness::TestRegistry;
-use crate::app::{GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkspaceOpenAction};
+use crate::app::{
+    GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkbenchIntent, WorkspaceOpenAction,
+};
 use crate::util::{GraphshellAddress, GraphshellSettingsPath, NodeAddress, NoteAddress};
 use std::collections::{BTreeSet, HashMap};
 
@@ -10,7 +12,7 @@ fn open_node_frame_routed_falls_back_to_current_frame_for_zero_membership() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenNodeFrameRouted {
+        .apply_reducer_intents([GraphIntent::OpenNodeFrameRouted {
             key,
             prefer_frame: None,
         }]);
@@ -53,7 +55,7 @@ fn open_node_frame_routed_with_preferred_frame_requests_restore() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenNodeFrameRouted {
+        .apply_reducer_intents([GraphIntent::OpenNodeFrameRouted {
             key,
             prefer_frame: Some("alpha".to_string()),
         }]);
@@ -170,7 +172,7 @@ fn set_node_url_preserves_frame_membership() {
     );
     harness.app.init_membership_index(index);
 
-    harness.app.apply_intents([GraphIntent::SetNodeUrl {
+    harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key,
         new_url: "https://after.example".to_string(),
     }]);
@@ -198,15 +200,15 @@ fn open_settings_url_history_does_not_use_legacy_history_flag() {
     harness.app.select_node(node, false);
     let was_running = harness.app.workspace.physics.base.is_running;
 
-    harness.app.apply_intents([
-        GraphIntent::SetNodeUrl {
-            key: node,
-            new_url: GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
-        },
-        GraphIntent::OpenSettingsUrl {
+    harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+        key: node,
+        new_url: GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
+    }]);
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
             url: GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
-        },
-    ]);
+        });
 
     assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
 }
@@ -218,15 +220,15 @@ fn open_settings_url_physics_is_not_reducer_owned() {
     harness.app.select_node(node, false);
     let was_running = harness.app.workspace.physics.base.is_running;
 
-    harness.app.apply_intents([
-        GraphIntent::SetNodeUrl {
-            key: node,
-            new_url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-        },
-        GraphIntent::OpenSettingsUrl {
+    harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+        key: node,
+        new_url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+    }]);
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
             url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
-        },
-    ]);
+        });
 
     assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
 }
@@ -238,15 +240,15 @@ fn open_settings_url_persistence_does_not_use_legacy_persistence_flag() {
     harness.app.select_node(node, false);
     let was_running = harness.app.workspace.physics.base.is_running;
 
-    harness.app.apply_intents([
-        GraphIntent::SetNodeUrl {
-            key: node,
-            new_url: GraphshellAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
-        },
-        GraphIntent::OpenSettingsUrl {
+    harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+        key: node,
+        new_url: GraphshellAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+    }]);
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
             url: GraphshellAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
-        },
-    ]);
+        });
 
     assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
 }
@@ -258,19 +260,23 @@ fn open_clip_url_is_not_reducer_owned() {
     harness.app.select_node(node, false);
     let node_count_before = harness.app.workspace.graph.node_count();
 
-    harness.app.apply_intents([
-        GraphIntent::SetNodeUrl {
-            key: node,
-            new_url: GraphshellAddress::clip("clip-123").to_string(),
-        },
-        GraphIntent::OpenClipUrl {
-            url: GraphshellAddress::clip("clip-123").to_string(),
-        },
-    ]);
+    harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+        key: node,
+        new_url: GraphshellAddress::clip("clip-123").to_string(),
+    }]);
+    harness.app.enqueue_workbench_intent(WorkbenchIntent::OpenClipUrl {
+        url: GraphshellAddress::clip("clip-123").to_string(),
+    });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert_eq!(
-        harness.app.workspace.graph.get_node(node).expect("node exists").url,
+        harness
+            .app
+            .workspace
+            .graph
+            .get_node(node)
+            .expect("node exists")
+            .url,
         GraphshellAddress::clip("clip-123").to_string()
     );
     assert!(harness.app.take_pending_open_clip_request().is_none());
@@ -300,19 +306,25 @@ fn open_node_url_is_not_reducer_owned() {
     let node_count_before = harness.app.workspace.graph.node_count();
     let node_url = NodeAddress::node(node_id.to_string()).to_string();
 
-    harness.app.apply_intents([
-        GraphIntent::SetNodeUrl {
-            key: node,
-            new_url: node_url.clone(),
-        },
-        GraphIntent::OpenNodeUrl {
+    harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+        key: node,
+        new_url: node_url.clone(),
+    }]);
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenNodeUrl {
             url: node_url.clone(),
-        },
-    ]);
+        });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert_eq!(
-        harness.app.workspace.graph.get_node(node).expect("node exists").url,
+        harness
+            .app
+            .workspace
+            .graph
+            .get_node(node)
+            .expect("node exists")
+            .url,
         node_url
     );
     assert!(harness.app.take_pending_open_node_request().is_none());
@@ -331,9 +343,9 @@ fn open_note_url_is_not_reducer_owned() {
     let node_count_before = harness.app.workspace.graph.node_count();
     let note_url = NoteAddress::note(note_id.as_uuid().to_string()).to_string();
 
-    harness.app.apply_intents([GraphIntent::OpenNoteUrl {
+    harness.app.enqueue_workbench_intent(WorkbenchIntent::OpenNoteUrl {
         url: note_url.clone(),
-    }]);
+    });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(harness.app.take_pending_open_note_request().is_none());
@@ -347,9 +359,9 @@ fn open_graph_url_is_not_reducer_owned() {
     let node_count_before = harness.app.workspace.graph.node_count();
     let graph_url = crate::util::GraphAddress::graph("graph-main").to_string();
 
-    harness.app.apply_intents([GraphIntent::OpenGraphUrl {
+    harness.app.enqueue_workbench_intent(WorkbenchIntent::OpenGraphUrl {
         url: graph_url.clone(),
-    }]);
+    });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(
@@ -366,10 +378,12 @@ fn open_view_url_is_not_reducer_owned() {
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
     let node_count_before = harness.app.workspace.graph.node_count();
-    let view_url = crate::util::GraphshellAddress::view_node(uuid::Uuid::new_v4().to_string())
-        .to_string();
+    let view_url =
+        crate::util::GraphshellAddress::view_node(uuid::Uuid::new_v4().to_string()).to_string();
 
-    harness.app.apply_intents([GraphIntent::OpenViewUrl { url: view_url }]);
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl { url: view_url });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(harness.app.take_pending_open_node_request().is_none());
@@ -386,7 +400,7 @@ fn open_view_note_url_is_not_reducer_owned() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenViewUrl { url: view_url }]);
+        .enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl { url: view_url });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(harness.app.take_pending_open_note_request().is_none());
@@ -402,7 +416,7 @@ fn open_view_graph_url_is_not_reducer_owned() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenViewUrl { url: view_url }]);
+        .enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl { url: view_url });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(
@@ -423,10 +437,15 @@ fn open_frame_url_is_not_reducer_owned() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenFrameUrl { url: frame_url }]);
+        .enqueue_workbench_intent(WorkbenchIntent::OpenFrameUrl { url: frame_url });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
-    assert!(harness.app.take_pending_restore_workspace_snapshot_named().is_none());
+    assert!(
+        harness
+            .app
+            .take_pending_restore_workspace_snapshot_named()
+            .is_none()
+    );
 }
 
 #[test]
@@ -439,7 +458,7 @@ fn open_tool_url_is_not_reducer_owned() {
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenToolUrl { url: tool_url }]);
+        .enqueue_workbench_intent(WorkbenchIntent::OpenToolUrl { url: tool_url });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(harness.app.take_pending_open_node_request().is_none());

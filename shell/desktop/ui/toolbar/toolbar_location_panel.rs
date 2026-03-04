@@ -329,7 +329,7 @@ pub(super) fn render_location_search_panel(
 
 #[cfg(test)]
 mod tests {
-    use super::{should_dispatch_location_submit, LOCATION_INPUT_HINT_TEXT};
+    use super::{LOCATION_INPUT_HINT_TEXT, should_dispatch_location_submit};
 
     #[test]
     fn submit_dispatch_triggers_for_focused_enter() {

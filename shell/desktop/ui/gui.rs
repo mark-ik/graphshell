@@ -23,33 +23,37 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::Window;
 
-use super::gui_orchestration;
-use super::gui_frame;
 use super::graph_search_flow;
+use super::gui_frame;
+use super::gui_orchestration;
 use super::gui_state::{GuiRuntimeState, ToolbarState};
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
-use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId, SearchDisplayMode, ToastAnchorPreference};
+use crate::app::{
+    GraphBrowserApp, GraphIntent, GraphViewId, SearchDisplayMode, ToastAnchorPreference,
+};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::headed_window;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::render_backend::{
-    UiRenderBackendContract, UiRenderBackendHandle, create_ui_render_backend,
-};
 #[cfg(test)]
 use crate::shell::desktop::host::window::GraphSemanticEvent;
 #[cfg(test)]
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::lifecycle::webview_status_sync;
+use crate::shell::desktop::render_backend::{
+    UiRenderBackendContract, UiRenderBackendHandle, create_ui_render_backend,
+};
 use crate::shell::desktop::runtime::control_panel::ControlPanel;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics;
-use crate::shell::desktop::runtime::registries::{CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, knowledge};
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, knowledge,
+};
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::tile_compositor;
@@ -81,8 +85,7 @@ struct GraphSearchAndKeyboardPhaseArgs<'a> {
     toolbar_state: &'a mut ToolbarState,
     tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures:
-        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     app_state: &'a Option<Rc<RunningAppState>>,
     rendering_context: &'a Rc<OffscreenRenderingContext>,
     window_rendering_context: &'a Rc<WindowRenderingContext>,
@@ -107,8 +110,7 @@ struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
     toasts: &'a mut egui_notify::Toasts,
     tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures:
-        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     app_state: &'a Option<Rc<RunningAppState>>,
     rendering_context: &'a Rc<OffscreenRenderingContext>,
     window_rendering_context: &'a Rc<WindowRenderingContext>,
@@ -134,8 +136,7 @@ struct SemanticLifecyclePhaseArgs<'a> {
     window_rendering_context: &'a Rc<WindowRenderingContext>,
     tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures:
-        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     responsive_webviews: &'a HashSet<WebViewId>,
     pending_open_child_webviews: Vec<WebViewId>,
     deferred_open_child_webviews: &'a mut Vec<WebViewId>,
@@ -154,8 +155,7 @@ struct SemanticAndPostRenderPhaseArgs<'a> {
     toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
     tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures:
-        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     app_state: &'a Option<Rc<RunningAppState>>,
     rendering_context: &'a Rc<OffscreenRenderingContext>,
     window_rendering_context: &'a Rc<WindowRenderingContext>,
@@ -186,8 +186,7 @@ struct PreFrameAndIntentInitArgs<'a> {
     graph_app: &'a mut GraphBrowserApp,
     state: &'a RunningAppState,
     window: &'a EmbedderWindow,
-    favicon_textures:
-        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
     thumbnail_capture_rx: &'a Receiver<ThumbnailCaptureResult>,
     thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
@@ -208,8 +207,7 @@ struct ExecuteUpdateFrameArgs<'a> {
     toolbar_state: &'a mut ToolbarState,
     toasts: &'a mut egui_notify::Toasts,
     clipboard: &'a mut Option<Clipboard>,
-    favicon_textures:
-        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
@@ -494,9 +492,7 @@ impl Gui {
             persistence_ops::build_membership_index_from_frame_manifests(&graph_app);
         graph_app.init_membership_index(membership_index);
         let (workspace_recency, workspace_activation_seq) =
-            persistence_ops::build_frame_activation_recency_from_frame_manifests(
-                &graph_app,
-            );
+            persistence_ops::build_frame_activation_recency_from_frame_manifests(&graph_app);
         graph_app.init_frame_activation_recency(workspace_recency, workspace_activation_seq);
         let (thumbnail_capture_tx, thumbnail_capture_rx) = channel();
         let initial_search_filter_mode = matches!(
@@ -935,7 +931,9 @@ impl Gui {
         Self::node_key_from_node_pane_tile(tile)
     }
 
-    fn node_key_from_node_pane_tile(tile: Option<&Tile<TileKind>>) -> Option<crate::graph::NodeKey> {
+    fn node_key_from_node_pane_tile(
+        tile: Option<&Tile<TileKind>>,
+    ) -> Option<crate::graph::NodeKey> {
         match tile {
             Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
             _ => None,
@@ -1059,24 +1057,12 @@ impl Gui {
         graph_app: &GraphBrowserApp,
         window: &EmbedderWindow,
     ) -> bool {
-        let load_status_changed = Self::sync_toolbar_load_status(
-            toolbar_state,
-            focused_node_key,
-            graph_app,
-            window,
-        );
-        let status_text_changed = Self::sync_toolbar_status_text(
-            toolbar_state,
-            focused_node_key,
-            graph_app,
-            window,
-        );
-        let nav_state_changed = Self::sync_toolbar_navigation_state(
-            toolbar_state,
-            focused_node_key,
-            graph_app,
-            window,
-        );
+        let load_status_changed =
+            Self::sync_toolbar_load_status(toolbar_state, focused_node_key, graph_app, window);
+        let status_text_changed =
+            Self::sync_toolbar_status_text(toolbar_state, focused_node_key, graph_app, window);
+        let nav_state_changed =
+            Self::sync_toolbar_navigation_state(toolbar_state, focused_node_key, graph_app, window);
 
         load_status_changed | status_text_changed | nav_state_changed
     }
@@ -1155,7 +1141,9 @@ impl Gui {
     }
 
     fn node_url_in_workspace_graph(graph: &crate::graph::Graph, key: NodeKey) -> Option<String> {
-        graph.get_node(key).map(|node| Self::clone_node_url(&node.url))
+        graph
+            .get_node(key)
+            .map(|node| Self::clone_node_url(&node.url))
     }
 
     fn clone_node_url(url: &str) -> String {
@@ -1192,10 +1180,7 @@ impl Gui {
         true
     }
 
-    fn handle_accesskit_action_requested(
-        &mut self,
-        req: &egui::accesskit::ActionRequest,
-    ) -> bool {
+    fn handle_accesskit_action_requested(&mut self, req: &egui::accesskit::ActionRequest) -> bool {
         Self::forward_accesskit_action_request(self.context.egui_winit_state_mut(), req);
         true
     }
@@ -1319,10 +1304,7 @@ impl Gui {
         tree_update
             .nodes
             .iter()
-            .find_map(|(_, node)| {
-                node.label()
-                    .filter(|label| !label.trim().is_empty())
-            })
+            .find_map(|(_, node)| node.label().filter(|label| !label.trim().is_empty()))
     }
 
     fn format_webview_accessibility_fallback_label(
@@ -1344,9 +1326,7 @@ impl Gui {
         }
     }
 
-    fn map_known_webview_accessibility_role_name(
-        role_name: &str,
-    ) -> Option<egui::accesskit::Role> {
+    fn map_known_webview_accessibility_role_name(role_name: &str) -> Option<egui::accesskit::Role> {
         match role_name {
             "Document" => Some(egui::accesskit::Role::Document),
             "Paragraph" => Some(egui::accesskit::Role::Paragraph),
@@ -1380,11 +1360,8 @@ impl Gui {
         let (nodes, conversion_fallback_count) =
             Self::build_webview_a11y_node_plans(tree_update, &allowed_node_ids);
 
-        let root_node_id = Self::select_webview_a11y_root_node_id(
-            &allowed_node_ids,
-            tree_update.focus,
-            &nodes,
-        );
+        let root_node_id =
+            Self::select_webview_a11y_root_node_id(&allowed_node_ids, tree_update.focus, &nodes);
 
         Self::compose_webview_a11y_graft_plan(
             webview_id,
@@ -1881,11 +1858,14 @@ mod tool_pane_routing_tests {
 
 #[cfg(test)]
 mod graph_split_intent_tests {
-    use super::{apply_graph_surface_focus_state, apply_node_focus_state};
     use super::gui_orchestration;
-    use crate::shell::desktop::ui::gui_state::GuiRuntimeState;
-    use crate::app::{CameraCommand, GraphBrowserApp, GraphIntent, GraphViewFrame, GraphViewId, GraphViewState, SettingsToolPage};
+    use super::{apply_graph_surface_focus_state, apply_node_focus_state};
+    use crate::app::{
+        CameraCommand, GraphBrowserApp, GraphIntent, GraphViewFrame, GraphViewId, GraphViewState,
+        SettingsToolPage, WorkbenchIntent,
+    };
     use crate::graph::NodeKey;
+    use crate::shell::desktop::ui::gui_state::GuiRuntimeState;
     use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use egui_tiles::{Tile, Tiles, Tree};
@@ -1932,7 +1912,7 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
-        let mut intents = vec![GraphIntent::SplitPane {
+        let mut intents = vec![WorkbenchIntent::SplitPane {
             source_pane: PaneId::new(),
             direction: SplitDirection::Horizontal,
         }];
@@ -1973,7 +1953,7 @@ mod graph_split_intent_tests {
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
-        let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::History,
             )
@@ -1995,7 +1975,7 @@ mod graph_split_intent_tests {
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
-        let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::Physics,
             )
@@ -2017,7 +1997,7 @@ mod graph_split_intent_tests {
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
-        let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::Persistence,
             )
@@ -2039,7 +2019,7 @@ mod graph_split_intent_tests {
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
-        let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::Sync,
             )
@@ -2061,7 +2041,7 @@ mod graph_split_intent_tests {
         let mut tiles = Tiles::default();
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
-        let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::General,
             )
@@ -2090,7 +2070,7 @@ mod graph_split_intent_tests {
                 Tile::Pane(TileKind::Tool(ToolPaneState::HistoryManager))
             )
         });
-        let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::Sync,
             )
@@ -2115,7 +2095,7 @@ mod graph_split_intent_tests {
         let _ = tree.make_active(|_, tile| {
             matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings)))
         });
-        let mut intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::History,
             )
@@ -2138,7 +2118,7 @@ mod graph_split_intent_tests {
         let root = tiles.insert_tab_tile(vec![graph]);
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
-        let mut open_intents = vec![GraphIntent::OpenSettingsUrl {
+        let mut open_intents = vec![WorkbenchIntent::OpenSettingsUrl {
             url: crate::util::GraphshellAddress::settings(
                 crate::util::GraphshellSettingsPath::General,
             )
@@ -2147,7 +2127,7 @@ mod graph_split_intent_tests {
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
         assert!(open_intents.is_empty());
 
-        let mut close_intents = vec![GraphIntent::CloseToolPane {
+        let mut close_intents = vec![WorkbenchIntent::CloseToolPane {
             kind: ToolPaneState::Settings,
             restore_previous_focus: true,
         }];
@@ -2165,11 +2145,21 @@ mod graph_split_intent_tests {
 
     #[test]
     fn ui_overlay_active_flags_include_radial_menu_capture() {
-        assert!(!super::ui_overlay_active_from_flags(false, false, false, false));
-        assert!(super::ui_overlay_active_from_flags(true, false, false, false));
-        assert!(super::ui_overlay_active_from_flags(false, true, false, false));
-        assert!(super::ui_overlay_active_from_flags(false, false, true, false));
-        assert!(super::ui_overlay_active_from_flags(false, false, false, true));
+        assert!(!super::ui_overlay_active_from_flags(
+            false, false, false, false
+        ));
+        assert!(super::ui_overlay_active_from_flags(
+            true, false, false, false
+        ));
+        assert!(super::ui_overlay_active_from_flags(
+            false, true, false, false
+        ));
+        assert!(super::ui_overlay_active_from_flags(
+            false, false, true, false
+        ));
+        assert!(super::ui_overlay_active_from_flags(
+            false, false, false, true
+        ));
     }
 
     #[test]
@@ -2247,7 +2237,7 @@ mod graph_split_intent_tests {
 
         app.workspace.focused_view = Some(stale_view);
         app.request_camera_command_for_view(Some(stale_view), CameraCommand::Fit);
-        app.apply_intents(vec![GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents(vec![GraphIntent::RequestZoomIn]);
         app.queue_pending_wheel_zoom_delta(stale_view, 1.0, Some((10.0, 20.0)));
 
         let mut tiles = Tiles::default();
@@ -2264,9 +2254,7 @@ mod graph_split_intent_tests {
         assert!(!app.workspace.graph_view_frames.contains_key(&stale_view));
         assert_eq!(app.workspace.focused_view, Some(live_view));
         assert!(app.pending_camera_command().is_none());
-        assert!(app
-            .take_pending_keyboard_zoom_request(stale_view)
-            .is_none());
+        assert!(app.take_pending_keyboard_zoom_request(stale_view).is_none());
         assert_eq!(app.pending_wheel_zoom_delta(stale_view), 0.0);
     }
 }

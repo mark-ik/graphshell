@@ -1,5 +1,6 @@
 mod black_tile;
 mod diagnostics_startup;
+mod graph_parity;
 mod grouping;
 mod input_routing;
 mod layout;
@@ -9,5 +10,7 @@ mod registries;
 mod routing;
 mod tags;
 mod undo_redo;
+mod ux_tree;
+mod ux_tree_diff_gate;
 mod verse;
 mod verse_delta_sync_basic;

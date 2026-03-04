@@ -47,8 +47,6 @@ use {
 };
 
 use crate::prefs::AppPreferences;
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::geometry::{
@@ -61,6 +59,8 @@ use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE,
     PlatformWindow,
 };
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::ui::dialog::Dialog;
 use crate::shell::desktop::ui::gui::Gui;
 

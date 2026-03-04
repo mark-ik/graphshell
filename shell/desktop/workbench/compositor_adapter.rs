@@ -12,43 +12,36 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::graph::NodeKey;
+use crate::shell::desktop::render_backend::{
+    BackendContentBridge, BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext,
+    BackendParentRenderCallback, BackendParentRenderRegionInPixels, BackendViewportInPixels,
+    backend_active_texture, backend_bind_framebuffer, backend_chaos_alternate_texture_unit,
+    backend_chaos_framebuffer_handle, backend_content_bridge_mode_label,
+    backend_content_bridge_path, backend_framebuffer_binding, backend_framebuffer_from_binding,
+    backend_is_blend_enabled, backend_is_scissor_enabled, backend_primary_texture_unit,
+    backend_scissor_box, backend_set_active_texture, backend_set_blend_enabled,
+    backend_set_scissor_box, backend_set_scissor_enabled, backend_set_viewport, backend_viewport,
+    custom_pass_from_backend_viewport, register_custom_paint_callback,
+    select_content_bridge_from_render_context,
+};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
     CHANNEL_COMPOSITOR_GL_STATE_VIOLATION, CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
     CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
 };
-use crate::shell::desktop::render_backend::{
-    backend_content_bridge_mode_label,
-    backend_content_bridge_path,
-    backend_active_texture, backend_bind_framebuffer, backend_framebuffer_binding,
-    backend_chaos_alternate_texture_unit, backend_chaos_framebuffer_handle,
-    BackendContentBridge,
-    backend_framebuffer_from_binding,
-    backend_is_blend_enabled,
-    BackendCustomPass, BackendFramebufferHandle, BackendGraphicsContext,
-    BackendParentRenderCallback, BackendParentRenderRegionInPixels, BackendViewportInPixels,
-    backend_is_scissor_enabled, backend_scissor_box, backend_set_scissor_box,
-    backend_primary_texture_unit,
-    backend_set_active_texture, backend_set_blend_enabled,
-    backend_set_scissor_enabled, custom_pass_from_backend_viewport,
-    backend_set_viewport, backend_viewport,
-    select_content_bridge_from_render_context,
-    register_custom_paint_callback,
-};
+use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use dpi::PhysicalSize;
-use euclid::{Scale, Size2D, UnknownUnit};
 use egui::{Context, Id, LayerId, Rect as EguiRect, Stroke, StrokeKind};
+use euclid::{Scale, Size2D, UnknownUnit};
 use log::warn;
 use servo::{DevicePixel, OffscreenRenderingContext, RenderingContext, WebView};
-use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 
 const CHANNEL_CONTENT_PASS_REGISTERED: &str = "tile_compositor.content_pass_registered";
 const CHANNEL_OVERLAY_PASS_REGISTERED: &str = "tile_compositor.overlay_pass_registered";
@@ -94,12 +87,17 @@ pub(crate) struct BridgeProbeContext {
 }
 
 fn replay_ring() -> &'static Mutex<std::collections::VecDeque<CompositorReplaySample>> {
-    COMPOSITOR_REPLAY_RING
-        .get_or_init(|| Mutex::new(std::collections::VecDeque::with_capacity(COMPOSITOR_REPLAY_RING_CAPACITY)))
+    COMPOSITOR_REPLAY_RING.get_or_init(|| {
+        Mutex::new(std::collections::VecDeque::with_capacity(
+            COMPOSITOR_REPLAY_RING_CAPACITY,
+        ))
+    })
 }
 
 fn push_replay_sample(sample: CompositorReplaySample) {
-    let mut ring = replay_ring().lock().expect("compositor replay ring mutex poisoned");
+    let mut ring = replay_ring()
+        .lock()
+        .expect("compositor replay ring mutex poisoned");
     if ring.len() >= COMPOSITOR_REPLAY_RING_CAPACITY {
         ring.pop_front();
     }
@@ -137,7 +135,10 @@ fn gl_state_violated(before: GlStateSnapshot, after: GlStateSnapshot) -> bool {
     before != after
 }
 
-fn gl_state_change_flags(before: GlStateSnapshot, after: GlStateSnapshot) -> (bool, bool, bool, bool, bool) {
+fn gl_state_change_flags(
+    before: GlStateSnapshot,
+    after: GlStateSnapshot,
+) -> (bool, bool, bool, bool, bool) {
     (
         before.viewport != after.viewport,
         before.scissor_enabled != after.scissor_enabled,
@@ -457,12 +458,9 @@ impl CompositorAdapter {
         render_context: &OffscreenRenderingContext,
         webview: &WebView,
     ) -> CompositedContentPassOutcome {
-        let Some((size, target_size)) = Self::prepare_composited_target(
-            node_key,
-            tile_rect,
-            pixels_per_point,
-            render_context,
-        ) else {
+        let Some((size, target_size)) =
+            Self::prepare_composited_target(node_key, tile_rect, pixels_per_point, render_context)
+        else {
             return CompositedContentPassOutcome::InvalidTileRect;
         };
 
@@ -611,43 +609,42 @@ impl CompositorAdapter {
         bridge_mode: &'static str,
         render_to_parent: BackendParentRenderCallback,
     ) {
-        let callback = custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
-            #[cfg(feature = "diagnostics")]
-            let started = std::time::Instant::now();
+        let callback =
+            custom_pass_from_backend_viewport(move |gl, clip: BackendViewportInPixels| {
+                #[cfg(feature = "diagnostics")]
+                let started = std::time::Instant::now();
 
-            let rect_in_parent = BackendParentRenderRegionInPixels {
-                left_px: clip.left_px,
-                from_bottom_px: clip.from_bottom_px,
-                width_px: clip.width_px,
-                height_px: clip.height_px,
-            };
-            let probe_context = BridgeProbeContext {
-                bridge_path,
-                bridge_mode,
-                tile_rect_px: [
-                    rect_in_parent.left_px,
-                    rect_in_parent.from_bottom_px,
-                    rect_in_parent.width_px,
-                    rect_in_parent.height_px,
-                ],
-                render_size_px: [clip.width_px as u32, clip.height_px as u32],
-            };
+                let rect_in_parent = BackendParentRenderRegionInPixels {
+                    left_px: clip.left_px,
+                    from_bottom_px: clip.from_bottom_px,
+                    width_px: clip.width_px,
+                    height_px: clip.height_px,
+                };
+                let probe_context = BridgeProbeContext {
+                    bridge_path,
+                    bridge_mode,
+                    tile_rect_px: [
+                        rect_in_parent.left_px,
+                        rect_in_parent.from_bottom_px,
+                        rect_in_parent.width_px,
+                        rect_in_parent.height_px,
+                    ],
+                    render_size_px: [clip.width_px as u32, clip.height_px as u32],
+                };
 
-            CompositorAdapter::run_content_callback_with_guardrails(
-                node_key,
-                gl,
-                probe_context,
-                || {
-                    render_to_parent(gl, rect_in_parent)
-                },
-            );
+                CompositorAdapter::run_content_callback_with_guardrails(
+                    node_key,
+                    gl,
+                    probe_context,
+                    || render_to_parent(gl, rect_in_parent),
+                );
 
-            #[cfg(feature = "diagnostics")]
-            crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-                "tile_compositor::content_pass_callback",
-                started.elapsed().as_micros() as u64,
-            );
-        });
+                #[cfg(feature = "diagnostics")]
+                crate::shell::desktop::runtime::diagnostics::emit_span_duration(
+                    "tile_compositor::content_pass_callback",
+                    started.elapsed().as_micros() as u64,
+                );
+            });
 
         Self::register_content_pass(ctx, node_key, tile_rect, callback);
     }
@@ -693,15 +690,15 @@ impl CompositorAdapter {
 
         let (violated, before, after, restore_verified) =
             run_guarded_callback_with_snapshots_and_perturbation(
-            || capture_gl_state(gl),
-            || run_render_with_scissor_isolation(gl, render),
-            || {
-                if chaos_enabled {
-                    inject_chaos_gl_perturbation(gl, chaos_seed);
-                }
-            },
-            |snapshot| restore_gl_state(gl, snapshot),
-        );
+                || capture_gl_state(gl),
+                || run_render_with_scissor_isolation(gl, render),
+                || {
+                    if chaos_enabled {
+                        inject_chaos_gl_perturbation(gl, chaos_seed);
+                    }
+                },
+                |snapshot| restore_gl_state(gl, snapshot),
+            );
         let scissor_box_after = capture_scissor_box(gl);
         let scissor_box_changed = scissor_box_before != scissor_box_after;
         let mut restore_verified = restore_verified;
@@ -710,8 +707,7 @@ impl CompositorAdapter {
             restore_verified = restore_verified && capture_scissor_box(gl) == scissor_box_before;
         }
         let violation_detected = violated || scissor_box_changed;
-        let chaos_passed =
-            chaos_probe_passed(chaos_enabled, violation_detected, restore_verified);
+        let chaos_passed = chaos_probe_passed(chaos_enabled, violation_detected, restore_verified);
         emit_chaos_probe_outcome(chaos_enabled, chaos_passed);
         let (
             viewport_changed,
@@ -848,10 +844,7 @@ impl CompositorAdapter {
         let right = tile_rect.right() - inset;
         let marker_len = 12.0_f32.min((tile_rect.height() - inset * 2.0).max(0.0));
 
-        painter.line_segment(
-            [egui::pos2(left, top), egui::pos2(right, top)],
-            stroke,
-        );
+        painter.line_segment([egui::pos2(left, top), egui::pos2(right, top)], stroke);
         painter.line_segment(
             [egui::pos2(left, top), egui::pos2(left, top + marker_len)],
             stroke,
@@ -935,29 +928,27 @@ mod tests {
     use crate::graph::NodeKey;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::{
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
+        CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
+        CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+        CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
         CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
-        CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
-        CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
-        CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
-        CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
-        CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
     };
     use crate::shell::desktop::workbench::pane_model::TileRenderMode;
     use egui::Stroke;
 
     use super::{
-        CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION, CompositorAdapter,
-        CompositorPassTracker, GlStateSnapshot, OverlayAffordanceStyle, OverlayStrokePass,
-        COMPOSITOR_REPLAY_RING_CAPACITY, clear_replay_samples_for_tests,
-        chaos_mode_enabled_from_raw, chaos_probe_passed, emit_chaos_probe_outcome,
-        framebuffer_binding_target, gl_state_violated, push_replay_sample, replay_samples_snapshot,
-        run_guarded_callback, run_guarded_callback_with_snapshots,
-        run_guarded_callback_with_snapshots_and_perturbation,
+        CHANNEL_OVERLAY_PASS_REGISTERED, CHANNEL_PASS_ORDER_VIOLATION,
+        COMPOSITOR_REPLAY_RING_CAPACITY, CompositorAdapter, CompositorPassTracker, GlStateSnapshot,
+        OverlayAffordanceStyle, OverlayStrokePass, chaos_mode_enabled_from_raw, chaos_probe_passed,
+        clear_replay_samples_for_tests, emit_chaos_probe_outcome, framebuffer_binding_target,
+        gl_state_violated, push_replay_sample, replay_samples_snapshot, run_guarded_callback,
+        run_guarded_callback_with_snapshots, run_guarded_callback_with_snapshots_and_perturbation,
     };
 
     #[test]
@@ -1002,7 +993,10 @@ mod tests {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        assert!(overlay_count > 0, "expected overlay pass registration channel");
+        assert!(
+            overlay_count > 0,
+            "expected overlay pass registration channel"
+        );
         assert!(
             violation_count > 0,
             "expected pass-order violation channel when content pass was missing"
@@ -1032,7 +1026,10 @@ mod tests {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        assert!(overlay_count > 0, "expected overlay pass registration channel");
+        assert!(
+            overlay_count > 0,
+            "expected overlay pass registration channel"
+        );
         assert_eq!(
             violation_count, 0,
             "native overlay should not require composited content-pass ordering"
@@ -1126,7 +1123,10 @@ mod tests {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        assert!(style_count > 0, "expected overlay style diagnostics emission");
+        assert!(
+            style_count > 0,
+            "expected overlay style diagnostics emission"
+        );
         assert!(mode_count > 0, "expected overlay mode diagnostics emission");
     }
 
@@ -1170,8 +1170,14 @@ mod tests {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        assert!(style_count > 0, "expected chrome-only overlay style diagnostics emission");
-        assert!(mode_count > 0, "expected native-overlay mode diagnostics emission");
+        assert!(
+            style_count > 0,
+            "expected chrome-only overlay style diagnostics emission"
+        );
+        assert!(
+            mode_count > 0,
+            "expected native-overlay mode diagnostics emission"
+        );
         assert_eq!(
             violation_count, 0,
             "native-overlay path should not emit composited pass-order violation"

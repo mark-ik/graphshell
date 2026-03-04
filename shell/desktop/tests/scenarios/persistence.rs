@@ -31,13 +31,13 @@ fn open_node_frame_routed_preserves_unsaved_prompt_state_until_restore() {
     harness.app.mark_current_workspace_synthesized();
     harness
         .app
-        .apply_intents([GraphIntent::CreateNodeNearCenter]);
+        .apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 
     harness
         .app
-        .apply_intents([GraphIntent::OpenNodeFrameRouted {
+        .apply_reducer_intents([GraphIntent::OpenNodeFrameRouted {
             key,
             prefer_frame: None,
         }]);
@@ -56,7 +56,7 @@ fn frame_has_unsaved_changes_for_graph_mutations() {
 
     harness
         .app
-        .apply_intents([GraphIntent::CreateNodeNearCenter]);
+        .apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 }
@@ -68,7 +68,7 @@ fn frame_modified_for_graph_mutations_even_when_not_synthesized() {
     assert!(!harness.app.should_prompt_unsaved_workspace_save());
     harness
         .app
-        .apply_intents([GraphIntent::CreateNodeNearCenter]);
+        .apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 }
@@ -79,14 +79,14 @@ fn unsaved_prompt_warning_resets_on_additional_graph_mutation() {
     harness.app.mark_current_workspace_synthesized();
     harness
         .app
-        .apply_intents([GraphIntent::CreateNodeNearCenter]);
+        .apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.consume_unsaved_workspace_prompt_warning());
     assert!(!harness.app.consume_unsaved_workspace_prompt_warning());
 
     harness
         .app
-        .apply_intents([GraphIntent::CreateNodeNearCenter]);
+        .apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(harness.app.consume_unsaved_workspace_prompt_warning());
 }
@@ -96,7 +96,7 @@ fn save_named_frame_clears_unsaved_prompt_state() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
     app.mark_current_workspace_synthesized();
-    app.apply_intents([GraphIntent::CreateNodeNearCenter]);
+    app.apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
 
     assert!(app.should_prompt_unsaved_workspace_save());
     assert!(app.consume_unsaved_workspace_prompt_warning());
@@ -113,7 +113,7 @@ fn frame_not_modified_for_non_graph_mutations() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::SelectNode {
+    harness.app.apply_reducer_intents([GraphIntent::SelectNode {
         key,
         multi_select: false,
     }]);
@@ -127,7 +127,7 @@ fn frame_not_modified_for_set_node_position() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::SetNodePosition {
+    harness.app.apply_reducer_intents([GraphIntent::SetNodePosition {
         key,
         position: euclid::Point2D::new(42.0, 24.0),
     }]);
@@ -141,7 +141,7 @@ fn frame_has_unsaved_changes_for_set_node_pinned() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_intents([GraphIntent::SetNodePinned {
+    harness.app.apply_reducer_intents([GraphIntent::SetNodePinned {
         key,
         is_pinned: true,
     }]);
@@ -322,7 +322,10 @@ fn set_shortcut_bindings_persist_across_restart() {
         CommandPaletteShortcut::CtrlK
     );
     assert_eq!(reopened.workspace.help_panel_shortcut, HelpPanelShortcut::H);
-    assert_eq!(reopened.workspace.radial_menu_shortcut, RadialMenuShortcut::R);
+    assert_eq!(
+        reopened.workspace.radial_menu_shortcut,
+        RadialMenuShortcut::R
+    );
 }
 
 #[test]

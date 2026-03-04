@@ -224,7 +224,6 @@ impl AppGamepadProvider {
     }
 
     pub(crate) fn stop_haptic_effect(&self, index: usize) -> bool {
-
         let mut haptic_effects = self.haptic_effects.borrow_mut();
         let Some(haptic_effect) = haptic_effects.get(&index) else {
             return false;

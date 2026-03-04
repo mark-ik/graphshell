@@ -17,8 +17,7 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
-    CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
+    CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT, CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
@@ -77,11 +76,11 @@ enum DifferentialContentDecision {
     SkipUnchanged,
 }
 
-static COMPOSITED_CONTENT_SIGNATURES: OnceLock<Mutex<HashMap<NodeKey, CompositedContentSignature>>> =
-    OnceLock::new();
+static COMPOSITED_CONTENT_SIGNATURES: OnceLock<
+    Mutex<HashMap<NodeKey, CompositedContentSignature>>,
+> = OnceLock::new();
 
-fn composited_content_signatures(
-) -> &'static Mutex<HashMap<NodeKey, CompositedContentSignature>> {
+fn composited_content_signatures() -> &'static Mutex<HashMap<NodeKey, CompositedContentSignature>> {
     COMPOSITED_CONTENT_SIGNATURES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -199,9 +198,9 @@ pub(crate) fn focused_node_key_for_node_panes(
     focused_hint: Option<NodeKey>,
 ) -> Option<NodeKey> {
     if let Some(node_key) = focused_hint {
-        let hint_present_in_tree = tiles_tree.tiles.iter().any(|(_, tile)| {
-            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key)
-        });
+        let hint_present_in_tree = tiles_tree.tiles.iter().any(
+            |(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
+        );
         if hint_present_in_tree {
             return Some(node_key);
         }
@@ -215,8 +214,11 @@ pub(crate) fn node_for_frame_activation(
     graph_app: &GraphBrowserApp,
     focused_hint: Option<NodeKey>,
 ) -> Option<NodeKey> {
-    focused_node_key_for_node_panes(tiles_tree, graph_app, focused_hint)
-        .or_else(|| active_node_pane_rects(tiles_tree).first().map(|(node_key, _)| *node_key))
+    focused_node_key_for_node_panes(tiles_tree, graph_app, focused_hint).or_else(|| {
+        active_node_pane_rects(tiles_tree)
+            .first()
+            .map(|(node_key, _)| *node_key)
+    })
 }
 
 fn mapped_active_node_for_activation_fallback(
@@ -338,12 +340,16 @@ pub(crate) fn composite_active_node_pane_webviews(
 
         if render_mode == TileRenderMode::CompositedTexture {
             let Some(webview_id) = node_webview_id else {
-                log::debug!("composite: no runtime viewer mapped for node {:?}", node_key);
+                log::debug!(
+                    "composite: no runtime viewer mapped for node {:?}",
+                    node_key
+                );
                 continue;
             };
             active_composited_nodes.insert(node_key);
 
-            let signature = content_signature_for_tile(webview_id, tile_rect, ctx.pixels_per_point());
+            let signature =
+                content_signature_for_tile(webview_id, tile_rect, ctx.pixels_per_point());
             evaluated_composited_passes += 1;
             let differential_decision = differential_content_decision(node_key, signature);
 
@@ -374,13 +380,9 @@ pub(crate) fn composite_active_node_pane_webviews(
                             focus_ring_alpha,
                         ))
                     }
-                    Some(ScheduledOverlay::Hover) => {
-                        pending_overlay_passes.push(hover_overlay_for_mode(
-                            TileRenderMode::Placeholder,
-                            node_key,
-                            tile_rect,
-                        ))
-                    }
+                    Some(ScheduledOverlay::Hover) => pending_overlay_passes.push(
+                        hover_overlay_for_mode(TileRenderMode::Placeholder, node_key, tile_rect),
+                    ),
                     None => {}
                 }
                 continue;
@@ -451,7 +453,6 @@ pub(crate) fn composite_active_node_pane_webviews(
                     continue;
                 }
             }
-
         }
 
         match pass.overlay {
@@ -461,15 +462,17 @@ pub(crate) fn composite_active_node_pane_webviews(
                 tile_rect,
                 focus_ring_alpha,
             )),
-            Some(ScheduledOverlay::Hover) => {
-                pending_overlay_passes
-                    .push(hover_overlay_for_mode(render_mode, node_key, tile_rect))
-            }
+            Some(ScheduledOverlay::Hover) => pending_overlay_passes.push(hover_overlay_for_mode(
+                render_mode,
+                node_key,
+                tile_rect,
+            )),
             None => {}
         }
     }
     if evaluated_composited_passes > 0 {
-        let skip_rate_basis_points = (skipped_composited_passes * 10_000) / evaluated_composited_passes;
+        let skip_rate_basis_points =
+            (skipped_composited_passes * 10_000) / evaluated_composited_passes;
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE,
             byte_len: skip_rate_basis_points,
@@ -595,7 +598,10 @@ fn hover_overlay_for_mode(
     tile_rect: egui::Rect,
 ) -> OverlayStrokePass {
     let policy = overlay_affordance_policy_for_render_mode(render_mode);
-    let stroke = Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180));
+    let stroke = Stroke::new(
+        1.5,
+        egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180),
+    );
 
     OverlayStrokePass {
         node_key,
@@ -635,12 +641,12 @@ mod tests {
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
         let root = tiles.insert_tab_tile(vec![graph, a_tile, b_tile]);
         let mut tree = Tree::new("tile_compositor_focus_targets", root, tiles);
-        let _ = tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == a)
-        });
-        let _ = tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b)
-        });
+        let _ = tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == a),
+        );
+        let _ = tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b),
+        );
         tree
     }
 
@@ -664,12 +670,12 @@ mod tests {
 
         let root = tiles.insert_tab_tile(vec![graph, a_tile, b_tile]);
         let mut tree = Tree::new("tile_compositor_render_mode_schedule", root, tiles);
-        let _ = tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == a)
-        });
-        let _ = tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b)
-        });
+        let _ = tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == a),
+        );
+        let _ = tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b),
+        );
         tree
     }
 
@@ -716,9 +722,9 @@ mod tests {
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
         let root = tiles.insert_tab_tile(vec![graph, b_tile]);
         let mut tree = Tree::new("tile_compositor_focus_after_close", root, tiles);
-        let _ = tree.make_active(|_, tile| {
-            matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b)
-        });
+        let _ = tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b),
+        );
 
         app.unmap_webview(a_webview);
 
@@ -796,7 +802,10 @@ mod tests {
             .find(|pass| pass.node_key == focused)
             .expect("focused node pass should be scheduled");
         assert_eq!(focused_pass.render_mode, TileRenderMode::CompositedTexture);
-        assert!(matches!(focused_pass.overlay, Some(ScheduledOverlay::Focus)));
+        assert!(matches!(
+            focused_pass.overlay,
+            Some(ScheduledOverlay::Focus)
+        ));
     }
 
     #[test]
@@ -831,7 +840,10 @@ mod tests {
             .find(|pass| pass.node_key == hovered)
             .expect("hovered node pass should be scheduled");
         assert_eq!(hovered_pass.render_mode, TileRenderMode::NativeOverlay);
-        assert!(matches!(hovered_pass.overlay, Some(ScheduledOverlay::Hover)));
+        assert!(matches!(
+            hovered_pass.overlay,
+            Some(ScheduledOverlay::Hover)
+        ));
     }
 
     #[test]
@@ -869,8 +881,7 @@ mod tests {
     fn hover_overlay_for_composited_texture_uses_rect_stroke_style() {
         let node = NodeKey::new(43);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(140.0, 100.0));
-        let overlay =
-            hover_overlay_for_mode(TileRenderMode::CompositedTexture, node, tile_rect);
+        let overlay = hover_overlay_for_mode(TileRenderMode::CompositedTexture, node, tile_rect);
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
@@ -983,7 +994,10 @@ mod tests {
             .iter()
             .find(|pass| pass.node_key == focused)
             .expect("focused node pass should be scheduled");
-        assert!(matches!(focused_pass.overlay, Some(ScheduledOverlay::Focus)));
+        assert!(matches!(
+            focused_pass.overlay,
+            Some(ScheduledOverlay::Focus)
+        ));
     }
 
     #[test]
@@ -1030,7 +1044,10 @@ mod tests {
             .iter()
             .find(|pass| pass.node_key == hovered)
             .expect("hovered node pass should be scheduled");
-        assert!(matches!(hovered_pass.overlay, Some(ScheduledOverlay::Hover)));
+        assert!(matches!(
+            hovered_pass.overlay,
+            Some(ScheduledOverlay::Hover)
+        ));
     }
 
     #[test]
@@ -1045,8 +1062,7 @@ mod tests {
 
     #[test]
     fn should_not_cull_tile_content_when_visible_in_viewport() {
-        let tile_rect =
-            egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(140.0, 100.0));
+        let tile_rect = egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(140.0, 100.0));
         let viewport_rect =
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0));
 

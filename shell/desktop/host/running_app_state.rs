@@ -29,9 +29,9 @@ use servo::{
     DeviceIntPoint, DeviceIntSize, EmbedderControl, EmbedderControlId, EventLoopWaker,
     GamepadHapticEffectType, GenericSender, InputEvent, InputEventId, InputEventResult, JSValue,
     LoadStatus, MediaSessionEvent, PermissionRequest, PrefValue, Preferences,
-    ScreenshotCaptureError, Servo, ServoDelegate, ServoError, TraversalId, UserContentManager, WebDriverCommandMsg,
-    WebDriverJSResult, WebDriverLoadStatus, WebDriverScriptCommand, WebDriverSenders, WebView,
-    WebViewDelegate, WebViewId, pref,
+    ScreenshotCaptureError, Servo, ServoDelegate, ServoError, TraversalId, UserContentManager,
+    WebDriverCommandMsg, WebDriverJSResult, WebDriverLoadStatus, WebDriverScriptCommand,
+    WebDriverSenders, WebView, WebViewDelegate, WebViewId, pref,
 };
 use url::Url;
 

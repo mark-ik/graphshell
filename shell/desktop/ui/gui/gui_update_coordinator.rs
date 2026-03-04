@@ -6,9 +6,9 @@ use super::*;
 
 impl Gui {
     pub(super) fn execute_update_frame(args: ExecuteUpdateFrameArgs<'_>) {
-        debug_assert!(
-            Self::is_canonical_update_frame_stage_sequence(&UPDATE_FRAME_STAGE_SEQUENCE)
-        );
+        debug_assert!(Self::is_canonical_update_frame_stage_sequence(
+            &UPDATE_FRAME_STAGE_SEQUENCE
+        ));
         let ExecuteUpdateFrameArgs {
             ctx,
             winit_window,
@@ -52,8 +52,8 @@ impl Gui {
         } = args;
 
         Self::run_update_frame_prelude(ctx, graph_app, pending_webview_a11y_updates, tiles_tree);
-        let (pre_frame, mut frame_intents) = Self::run_pre_frame_and_initialize_intents(
-            PreFrameAndIntentInitArgs {
+        let (pre_frame, mut frame_intents) =
+            Self::run_pre_frame_and_initialize_intents(PreFrameAndIntentInitArgs {
                 ctx,
                 graph_app,
                 state,
@@ -64,13 +64,12 @@ impl Gui {
                 thumbnail_capture_in_flight,
                 command_palette_toggle_requested,
                 control_panel,
-            },
-        );
+            });
 
         let mut open_node_tile_after_intents: Option<TileOpenMode> = None;
 
-        let mut graph_search_output = Self::run_graph_search_and_keyboard_phases(
-            GraphSearchAndKeyboardPhaseArgs {
+        let mut graph_search_output =
+            Self::run_graph_search_and_keyboard_phases(GraphSearchAndKeyboardPhaseArgs {
                 ctx,
                 graph_app,
                 window,
@@ -90,8 +89,7 @@ impl Gui {
                 responsive_webviews: &pre_frame.responsive_webviews,
                 webview_creation_backpressure,
                 frame_intents: &mut frame_intents,
-            },
-        );
+            });
 
         Self::run_toolbar_and_graph_search_window_phases(ToolbarAndGraphSearchWindowPhaseArgs {
             ctx,
@@ -305,9 +303,7 @@ impl Gui {
         graph_search_output
     }
 
-    fn run_toolbar_and_graph_search_window_phases(
-        args: ToolbarAndGraphSearchWindowPhaseArgs<'_>,
-    ) {
+    fn run_toolbar_and_graph_search_window_phases(args: ToolbarAndGraphSearchWindowPhaseArgs<'_>) {
         let ToolbarAndGraphSearchWindowPhaseArgs {
             ctx,
             winit_window,
@@ -403,11 +399,7 @@ impl Gui {
     }
 
     #[cfg(not(feature = "diagnostics"))]
-    fn maybe_toggle_diagnostics_tool_pane(
-        _ctx: &egui::Context,
-        _tiles_tree: &mut Tree<TileKind>,
-    ) {
-    }
+    fn maybe_toggle_diagnostics_tool_pane(_ctx: &egui::Context, _tiles_tree: &mut Tree<TileKind>) {}
 
     fn run_semantic_and_post_render_phases(args: SemanticAndPostRenderPhaseArgs<'_>) {
         let SemanticAndPostRenderPhaseArgs {

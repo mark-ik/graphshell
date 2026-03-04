@@ -521,9 +521,10 @@ mod tests {
     fn test_graph_actions_always_enabled() {
         let ctx = default_context();
         let entries = list_actions_for_context(&ctx);
-        for entry in entries.iter().filter(|e| {
-            matches!(e.id.category(), ActionCategory::Graph)
-        }) {
+        for entry in entries
+            .iter()
+            .filter(|e| matches!(e.id.category(), ActionCategory::Graph))
+        {
             assert!(entry.enabled, "{:?} should always be enabled", entry.id);
         }
     }
@@ -572,7 +573,10 @@ mod tests {
             (ActionId::NodeOpenFrame, ["Open", "Frame"].as_slice()),
             (ActionId::EdgeConnectPair, ["Connect", "Target"].as_slice()),
             (ActionId::PersistSaveGraph, ["Save", "Graph"].as_slice()),
-            (ActionId::PersistRestoreLatestGraph, ["Restore", "Graph"].as_slice()),
+            (
+                ActionId::PersistRestoreLatestGraph,
+                ["Restore", "Graph"].as_slice(),
+            ),
         ];
 
         for (action_id, required_terms) in cases {

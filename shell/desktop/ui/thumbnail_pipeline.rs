@@ -13,9 +13,7 @@ use servo::{Image, PixelFormat, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::host::window::EmbedderWindow;
-use crate::shell::desktop::render_backend::{
-    texture_id_from_token, texture_token_from_handle,
-};
+use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token_from_handle};
 
 const NODE_THUMBNAIL_WIDTH: u32 = 256;
 const NODE_THUMBNAIL_HEIGHT: u32 = 192;

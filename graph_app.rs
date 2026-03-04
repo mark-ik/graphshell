@@ -27,19 +27,19 @@ use crate::services::persistence::types::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
+    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
-    CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED,
-    CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED, CHANNEL_UX_CONTRACT_WARNING,
+    CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED, CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
     CHANNEL_UX_NAVIGATION_TRANSITION,
-};
-use crate::util::{
-    GraphAddress, GraphshellAddress, GraphshellSettingsPath, NodeAddress, NoteAddress,
-    VersoViewTarget,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
+};
+use crate::util::{
+    GraphAddress, GraphshellAddress, GraphshellSettingsPath, NodeAddress, NoteAddress,
+    VersoViewTarget,
 };
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
@@ -1036,19 +1036,15 @@ impl CanvasLassoBinding {
 }
 
 #[derive(Debug, Clone)]
-pub enum GraphIntent {
-    TogglePhysics,
-    ToggleCameraPositionFitLock,
-    ToggleCameraZoomFitLock,
-    RequestFitToScreen,
-    RequestZoomIn,
-    RequestZoomOut,
-    RequestZoomReset,
-    RequestZoomToSelected,
-    ReheatPhysics,
-    ToggleHelpPanel,
-    ToggleCommandPalette,
-    ToggleRadialMenu,
+pub enum WorkbenchIntent {
+    CycleFocusRegion,
+    OpenToolPane {
+        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    },
+    CloseToolPane {
+        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+        restore_previous_focus: bool,
+    },
     OpenSettingsUrl {
         url: String,
     },
@@ -1073,6 +1069,34 @@ pub enum GraphIntent {
     OpenNoteUrl {
         url: String,
     },
+    OpenNodeInPane {
+        node: NodeKey,
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+    },
+    SetPaneView {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        view: crate::shell::desktop::workbench::pane_model::PaneViewState,
+    },
+    SplitPane {
+        source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum GraphIntent {
+    TogglePhysics,
+    ToggleCameraPositionFitLock,
+    ToggleCameraZoomFitLock,
+    RequestFitToScreen,
+    RequestZoomIn,
+    RequestZoomOut,
+    RequestZoomReset,
+    RequestZoomToSelected,
+    ReheatPhysics,
+    ToggleHelpPanel,
+    ToggleCommandPalette,
+    ToggleRadialMenu,
     CreateNoteForNode {
         key: NodeKey,
         title: Option<String>,
@@ -1297,62 +1321,6 @@ pub enum GraphIntent {
         peer_id: String,
         workspace_id: String,
     },
-    /// Split an existing pane, creating a new pane in the given direction.
-    ///
-    /// **Workbench-authority intent** — intercepted by the Gui frame loop
-    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
-    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
-    #[allow(dead_code)]
-    SplitPane {
-        source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
-        direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
-    },
-    /// Change the view payload of an existing pane.
-    ///
-    /// **Workbench-authority intent** — intercepted by the Gui frame loop
-    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
-    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
-    #[allow(dead_code)]
-    SetPaneView {
-        pane: crate::shell::desktop::workbench::pane_model::PaneId,
-        view: crate::shell::desktop::workbench::pane_model::PaneViewState,
-    },
-    /// Open a node in a specific pane (node viewer pane).
-    ///
-    /// **Workbench-authority intent** — intercepted by the Gui frame loop
-    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
-    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
-    #[allow(dead_code)]
-    OpenNodeInPane {
-        node: NodeKey,
-        pane: crate::shell::desktop::workbench::pane_model::PaneId,
-    },
-    /// Open a tool pane of the given kind.
-    ///
-    /// **Workbench-authority intent** — intercepted by the Gui frame loop
-    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
-    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
-    #[allow(dead_code)]
-    OpenToolPane {
-        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
-    },
-    /// Close a tool pane of the given kind.
-    ///
-    /// **Workbench-authority intent** — intercepted by the Gui frame loop
-    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
-    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
-    #[allow(dead_code)]
-    CloseToolPane {
-        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
-        restore_previous_focus: bool,
-    },
-    /// Cycle semantic focus across top-level regions.
-    ///
-    /// **Workbench-authority intent** — intercepted by the Gui frame loop
-    /// (`handle_tool_pane_intents`) before `apply_intents()`. Must never reach
-    /// the graph reducer; if it does, `apply_intents` will emit a `log::warn!`.
-    #[allow(dead_code)]
-    CycleFocusRegion,
     /// Set (or clear) the MIME type hint on a node.
     ///
     /// Emitted after extension sniffing at node creation time, or after content-byte
@@ -1386,6 +1354,21 @@ pub enum GraphIntent {
         rows: Vec<String>,
     },
     RebuildFileTreeProjection,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphReducerIntent(GraphIntent);
+
+impl From<GraphIntent> for GraphReducerIntent {
+    fn from(value: GraphIntent) -> Self {
+        Self(value)
+    }
+}
+
+impl GraphReducerIntent {
+    fn into_graph_intent(self) -> GraphIntent {
+        self.0
+    }
 }
 
 #[derive(Default)]
@@ -1505,6 +1488,8 @@ pub struct GraphWorkspace {
     pub highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
     /// Pending return target for settings/history tool-surface exit actions.
     pending_tool_surface_return_target: Option<ToolSurfaceReturnTarget>,
+    /// Pending workbench-authority intents staged for frame-loop orchestration.
+    pending_workbench_intents: Vec<WorkbenchIntent>,
 
     /// Pending UI command: open connected nodes for this source, tile mode, and scope.
     pending_open_connected_from: Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)>,
@@ -1820,6 +1805,7 @@ impl GraphBrowserApp {
                 pending_node_context_target: None,
                 highlighted_graph_edge: None,
                 pending_tool_surface_return_target: None,
+                pending_workbench_intents: Vec::new(),
                 pending_open_connected_from: None,
                 pending_open_node_request: None,
                 pending_save_workspace_snapshot: false,
@@ -2021,6 +2007,7 @@ impl GraphBrowserApp {
                 pending_node_context_target: None,
                 highlighted_graph_edge: None,
                 pending_tool_surface_return_target: None,
+                pending_workbench_intents: Vec::new(),
                 pending_open_connected_from: None,
                 pending_open_node_request: None,
                 pending_save_workspace_snapshot: false,
@@ -2197,7 +2184,9 @@ impl GraphBrowserApp {
         &mut self,
         source: FileTreeContainmentRelationSource,
     ) {
-        self.workspace.file_tree_projection_state.containment_relation_source = source;
+        self.workspace
+            .file_tree_projection_state
+            .containment_relation_source = source;
         self.rebuild_file_tree_projection_rows();
     }
 
@@ -2240,7 +2229,11 @@ impl GraphBrowserApp {
 
         let mut row_targets: HashMap<String, FileTreeProjectionTarget> = HashMap::new();
 
-        match self.workspace.file_tree_projection_state.containment_relation_source {
+        match self
+            .workspace
+            .file_tree_projection_state
+            .containment_relation_source
+        {
             Source::GraphContainment => {
                 let mut nodes: Vec<(NodeKey, Uuid)> = self
                     .workspace
@@ -2287,7 +2280,9 @@ impl GraphBrowserApp {
                     })
                     .collect();
                 file_rows.sort_by(|(left_path, _, left_id), (right_path, _, right_id)| {
-                    left_path.cmp(right_path).then_with(|| left_id.cmp(right_id))
+                    left_path
+                        .cmp(right_path)
+                        .then_with(|| left_id.cmp(right_id))
                 });
                 for (row_key, key, node_id) in file_rows {
                     row_targets.insert(
@@ -2298,7 +2293,12 @@ impl GraphBrowserApp {
             }
         }
 
-        if let Some(root_filter) = self.workspace.file_tree_projection_state.root_filter.as_deref() {
+        if let Some(root_filter) = self
+            .workspace
+            .file_tree_projection_state
+            .root_filter
+            .as_deref()
+        {
             let filter = root_filter.trim();
             if !filter.is_empty() {
                 row_targets.retain(|row_key, _| row_key.contains(filter));
@@ -2445,11 +2445,15 @@ impl GraphBrowserApp {
             );
         }
 
-        if self.workspace.pending_camera_command.is_some_and(|pending| {
-            pending
-                .target_view
-                .is_some_and(|view_id| !live_graph_views.contains(&view_id))
-        }) {
+        if self
+            .workspace
+            .pending_camera_command
+            .is_some_and(|pending| {
+                pending
+                    .target_view
+                    .is_some_and(|view_id| !live_graph_views.contains(&view_id))
+            })
+        {
             self.workspace.pending_camera_command = None;
         }
 
@@ -2561,8 +2565,7 @@ impl GraphBrowserApp {
     }
 
     fn queue_keyboard_zoom_request(&mut self, request: KeyboardZoomRequest) {
-        let Some(target_view) = self.resolve_camera_target_view()
-        else {
+        let Some(target_view) = self.resolve_camera_target_view() else {
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
                 latency_us: 0,
@@ -2673,14 +2676,24 @@ impl GraphBrowserApp {
         }
     }
 
-    /// Apply a batch of intents deterministically in insertion order.
-    pub fn apply_intents<I>(&mut self, intents: I)
+    /// Apply a batch of reducer intents deterministically in insertion order.
+    pub fn apply_reducer_intents<I, T>(&mut self, intents: I)
     where
-        I: IntoIterator<Item = GraphIntent>,
+        I: IntoIterator<Item = T>,
+        T: Into<GraphReducerIntent>,
     {
         for intent in intents {
-            self.apply_intent(intent);
+            self.apply_reducer_intent(intent.into());
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply_intents<I, T>(&mut self, intents: I)
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<GraphReducerIntent>,
+    {
+        self.apply_reducer_intents(intents);
     }
 
     fn apply_workspace_only_intent(&mut self, intent: &GraphIntent) -> bool {
@@ -2830,7 +2843,12 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetFileTreeContainmentRelationSource { source } => {
-                if self.workspace.file_tree_projection_state.containment_relation_source != *source {
+                if self
+                    .workspace
+                    .file_tree_projection_state
+                    .containment_relation_source
+                    != *source
+                {
                     self.set_file_tree_containment_relation_source(*source);
                     emit_event(DiagnosticEvent::MessageReceived {
                         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
@@ -2870,7 +2888,9 @@ impl GraphBrowserApp {
         }
     }
 
-    fn apply_intent(&mut self, intent: GraphIntent) {
+    fn apply_reducer_intent(&mut self, intent: GraphReducerIntent) {
+        let intent = intent.into_graph_intent();
+
         if matches!(
             intent,
             GraphIntent::CreateNodeNearCenter
@@ -2959,30 +2979,6 @@ impl GraphBrowserApp {
                 let key = self.add_node_and_sync(url, position);
                 self.select_node(key, false);
                 self.request_open_node_tile_mode(key, mode);
-            }
-            GraphIntent::OpenSettingsUrl { url } => {
-                self.open_settings_url(&url);
-            }
-            GraphIntent::OpenFrameUrl { url } => {
-                self.open_frame_url(&url);
-            }
-            GraphIntent::OpenToolUrl { url } => {
-                self.open_tool_url(&url);
-            }
-            GraphIntent::OpenViewUrl { url } => {
-                self.open_view_url(&url);
-            }
-            GraphIntent::OpenGraphUrl { url } => {
-                self.open_graph_url(&url);
-            }
-            GraphIntent::OpenNodeUrl { url } => {
-                self.open_node_url(&url);
-            }
-            GraphIntent::OpenClipUrl { url } => {
-                self.open_clip_url(&url);
-            }
-            GraphIntent::OpenNoteUrl { url } => {
-                self.open_note_url(&url);
             }
             GraphIntent::CreateNoteForNode { key, title } => {
                 let _ = self.create_note_for_node(key, title);
@@ -3127,7 +3123,7 @@ impl GraphBrowserApp {
             }
             GraphIntent::ExecuteEdgeCommand { command } => {
                 let intents = self.intents_for_edge_command(command);
-                self.apply_intents(intents);
+                self.apply_reducer_intents(intents);
             }
             GraphIntent::SetNodePinned { key, is_pinned } => {
                 self.set_node_pinned_and_log(key, is_pinned);
@@ -3136,10 +3132,10 @@ impl GraphBrowserApp {
                 if let Some(key) = self.focused_selection().primary()
                     && let Some(node) = self.workspace.graph.get_node(key)
                 {
-                    self.apply_intent(GraphIntent::SetNodePinned {
+                    self.apply_reducer_intents([GraphIntent::SetNodePinned {
                         key,
                         is_pinned: !node.is_pinned,
-                    });
+                    }]);
                 }
             }
             GraphIntent::PromoteNodeToActive { key, cause } => {
@@ -3196,14 +3192,14 @@ impl GraphBrowserApp {
                     .filter(|url| !url.is_empty() && url != "about:blank")
                     .unwrap_or_else(|| self.next_placeholder_url());
                 let child_node = self.add_node_and_sync(node_url, position);
-                self.apply_intent(GraphIntent::MapWebviewToNode {
+                self.apply_reducer_intents([GraphIntent::MapWebviewToNode {
                     webview_id: child_webview_id,
                     key: child_node,
-                });
-                self.apply_intent(GraphIntent::PromoteNodeToActive {
+                }]);
+                self.apply_reducer_intents([GraphIntent::PromoteNodeToActive {
                     key: child_node,
                     cause: LifecycleCause::Restore,
-                });
+                }]);
                 if let Some(parent_key) = parent_node {
                     let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
                 }
@@ -3322,10 +3318,10 @@ impl GraphBrowserApp {
             } => {
                 if let Some(node_key) = self.get_node_for_webview(webview_id) {
                     self.mark_runtime_crash_blocked(node_key, reason.clone(), has_backtrace);
-                    self.apply_intent(GraphIntent::DemoteNodeToCold {
+                    self.apply_reducer_intents([GraphIntent::DemoteNodeToCold {
                         key: node_key,
                         cause: LifecycleCause::Crash,
-                    });
+                    }]);
                 } else {
                     let _ = self.unmap_webview(webview_id);
                 }
@@ -3478,26 +3474,6 @@ impl GraphBrowserApp {
                     log::warn!("invalid peer id for revoke-workspace-access '{peer_id}': {error}");
                 }
             },
-            // Workbench-authority intents: tile-tree shape mutations owned by the Gui
-            // frame loop (handle_tool_pane_intents / tile_view_ops), NOT the graph reducer.
-            // Reaching this arm means an intent was queued but not intercepted by the
-            // frame-loop before apply_intents — that is a routing bug.
-            GraphIntent::SplitPane { .. }
-            | GraphIntent::SetPaneView { .. }
-            | GraphIntent::OpenNodeInPane { .. }
-            | GraphIntent::OpenToolPane { .. }
-            | GraphIntent::CloseToolPane { .. }
-            | GraphIntent::CycleFocusRegion => {
-                emit_event(DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_UX_CONTRACT_WARNING,
-                    byte_len: 1,
-                });
-                log::warn!(
-                    "workbench-authority intent reached graph reducer — \
-                     should have been intercepted by Gui frame-loop before apply_intents(); \
-                     check handle_tool_pane_intents() call order"
-                );
-            }
             GraphIntent::UpdateNodeMimeHint { key, mime_hint } => {
                 if let Some(node) = self.workspace.graph.get_node_mut(key) {
                     if node.mime_hint != mime_hint {
@@ -4135,8 +4111,7 @@ impl GraphBrowserApp {
                 warn!("Ignoring invalid persisted radial-menu shortcut: '{raw}'");
             }
         }
-        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_STEP_NAME)
-        {
+        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_STEP_NAME) {
             if let Ok(step) = raw.trim().parse::<f32>() {
                 self.workspace.keyboard_pan_step = step.clamp(1.0, 200.0);
             } else {
@@ -4570,37 +4545,24 @@ impl GraphBrowserApp {
     }
 
     /// Resolve workspace-aware node-open behavior with deterministic fallback.
-    pub fn resolve_frame_open(
-        &self,
-        node: NodeKey,
-        prefer_frame: Option<&str>,
-    ) -> FrameOpenAction {
+    pub fn resolve_frame_open(&self, node: NodeKey, prefer_frame: Option<&str>) -> FrameOpenAction {
         let node_uuid = self.workspace.graph.get_node(node).map(|n| n.id);
         let (action, reason) = self.resolve_frame_open_with_reason(node, prefer_frame);
         match (&action, reason) {
             // Note: These debug logs are crucial for diagnosing routing decisions.
-            (
-                FrameOpenAction::OpenInCurrentFrame { .. },
-                FrameOpenReason::MissingNode,
-            ) => {
+            (FrameOpenAction::OpenInCurrentFrame { .. }, FrameOpenReason::MissingNode) => {
                 debug!(
                     "frame routing: node {:?} missing in graph; falling back to current frame",
                     node
                 );
             }
-            (
-                FrameOpenAction::RestoreFrame { name, .. },
-                FrameOpenReason::PreferredFrame,
-            ) => {
+            (FrameOpenAction::RestoreFrame { name, .. }, FrameOpenReason::PreferredFrame) => {
                 debug!(
                     "frame routing: node {:?} ({:?}) using explicit preferred frame '{}'",
                     node, node_uuid, name
                 );
             }
-            (
-                FrameOpenAction::RestoreFrame { name, .. },
-                FrameOpenReason::RecentMembership,
-            ) => {
+            (FrameOpenAction::RestoreFrame { name, .. }, FrameOpenReason::RecentMembership) => {
                 debug!(
                     "frame routing: node {:?} ({:?}) selected recent frame '{}'",
                     node, node_uuid, name
@@ -4615,10 +4577,7 @@ impl GraphBrowserApp {
                     node, node_uuid, name
                 );
             }
-            (
-                FrameOpenAction::OpenInCurrentFrame { .. },
-                FrameOpenReason::NoMembership,
-            ) => {
+            (FrameOpenAction::OpenInCurrentFrame { .. }, FrameOpenReason::NoMembership) => {
                 debug!(
                     "frame routing: node {:?} ({:?}) has no memberships; opening in current frame",
                     node, node_uuid
@@ -5056,26 +5015,6 @@ impl GraphBrowserApp {
         });
     }
 
-    /// Open a `verso://settings/*` URL.
-    ///
-    /// Settings routes are workbench-authority and should be intercepted before
-    /// reducer application (`Gui::handle_tool_pane_intents`).
-    pub fn open_settings_url(&mut self, url: &str) {
-        let Some(parsed) = GraphshellAddress::parse(url) else {
-            return;
-        };
-        if !parsed.is_settings() {
-            return;
-        }
-        let normalized = parsed.to_string();
-
-        log::warn!(
-            "OpenSettingsUrl('{}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            normalized
-        );
-    }
-
     pub fn resolve_settings_route(url: &str) -> Option<SettingsRouteTarget> {
         match GraphshellAddress::parse(url)? {
             GraphshellAddress::Settings(GraphshellSettingsPath::History) => {
@@ -5105,22 +5044,6 @@ impl GraphBrowserApp {
         }
     }
 
-    /// Open a `verso://frame/<FrameId>` URL.
-    ///
-    /// Frame routes are workbench-authority and should be intercepted before
-    /// reducer application (`Gui::handle_tool_pane_intents`).
-    pub fn open_frame_url(&mut self, url: &str) {
-        let Some(frame_name) = Self::resolve_frame_route(url) else {
-            return;
-        };
-
-        log::warn!(
-            "OpenFrameUrl('{}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            frame_name
-        );
-    }
-
     pub fn resolve_frame_route(url: &str) -> Option<String> {
         match GraphshellAddress::parse(url)? {
             GraphshellAddress::Frame(frame_name) => Some(frame_name),
@@ -5130,22 +5053,6 @@ impl GraphBrowserApp {
             | GraphshellAddress::Clip(_)
             | GraphshellAddress::Other { .. } => None,
         }
-    }
-
-    /// Open a `verso://tool/<ToolName>` URL.
-    ///
-    /// Tool routes are workbench-authority and should be intercepted before
-    /// reducer application (`Gui::handle_tool_pane_intents`).
-    pub fn open_tool_url(&mut self, url: &str) {
-        let Some(tool_kind) = Self::resolve_tool_route(url) else {
-            return;
-        };
-
-        log::warn!(
-            "OpenToolUrl('{:?}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            tool_kind
-        );
     }
 
     pub fn resolve_tool_route(
@@ -5167,38 +5074,6 @@ impl GraphBrowserApp {
             | GraphshellAddress::Clip(_)
             | GraphshellAddress::Other { .. } => None,
         }
-    }
-
-    /// Open a `verso://view/<kind>/<id>` URL.
-    ///
-    /// View routes are workbench-authority and should be intercepted before
-    /// reducer application (`Gui::handle_tool_pane_intents`).
-    pub fn open_view_url(&mut self, url: &str) {
-        let Some(route) = Self::resolve_view_route(url) else {
-            return;
-        };
-
-        log::warn!(
-            "OpenViewUrl('{:?}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            route
-        );
-    }
-
-    /// Open a `verso://clip/<ClipId>` URL.
-    ///
-    /// Clip routes are workbench-authority and should be intercepted before
-    /// reducer application (`Gui::handle_tool_pane_intents`).
-    pub fn open_clip_url(&mut self, url: &str) {
-        let Some(clip_id) = Self::resolve_clip_route(url) else {
-            return;
-        };
-
-        log::warn!(
-            "OpenClipUrl('{}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            clip_id
-        );
     }
 
     pub fn resolve_view_route(url: &str) -> Option<ViewRouteTarget> {
@@ -5226,40 +5101,8 @@ impl GraphBrowserApp {
         }
     }
 
-    /// Open a `graph://<GraphId>` URL.
-    ///
-    /// Graph-domain routes resolve durable graph records and are intercepted in
-    /// workbench orchestration before reducer application.
-    pub fn open_graph_url(&mut self, url: &str) {
-        let Some(graph_id) = Self::resolve_graph_route(url) else {
-            return;
-        };
-
-        log::warn!(
-            "OpenGraphUrl('{}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            graph_id
-        );
-    }
-
     pub fn resolve_graph_route(url: &str) -> Option<String> {
         GraphAddress::parse(url).map(|address| address.graph_id)
-    }
-
-    /// Open a `node://<NodeId>` URL.
-    ///
-    /// Node-domain routes should be intercepted in workbench orchestration before
-    /// reducer application.
-    pub fn open_node_url(&mut self, url: &str) {
-        let Some(node_id) = Self::resolve_node_route(url) else {
-            return;
-        };
-
-        log::warn!(
-            "OpenNodeUrl('{}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            node_id
-        );
     }
 
     pub fn resolve_node_route(url: &str) -> Option<Uuid> {
@@ -5276,22 +5119,6 @@ impl GraphBrowserApp {
             | GraphshellAddress::Tool { .. }
             | GraphshellAddress::Other { .. } => None,
         }
-    }
-
-    /// Open a `notes://<NoteId>` URL.
-    ///
-    /// Note-domain routes should be intercepted in workbench orchestration before
-    /// reducer application.
-    pub fn open_note_url(&mut self, url: &str) {
-        let Some(note_id) = Self::resolve_note_route(url) else {
-            return;
-        };
-
-        log::warn!(
-            "OpenNoteUrl('{:?}') reached reducer but this route is workbench-authority; \
-             expected interception in Gui handle_tool_pane_intents",
-            note_id
-        );
     }
 
     pub fn resolve_note_route(url: &str) -> Option<NoteId> {
@@ -5361,6 +5188,26 @@ impl GraphBrowserApp {
 
     pub fn pending_tool_surface_return_target(&self) -> Option<ToolSurfaceReturnTarget> {
         self.workspace.pending_tool_surface_return_target.clone()
+    }
+
+    pub fn enqueue_workbench_intent(&mut self, intent: WorkbenchIntent) {
+        self.workspace.pending_workbench_intents.push(intent);
+    }
+
+    pub fn extend_workbench_intents<I>(&mut self, intents: I)
+    where
+        I: IntoIterator<Item = WorkbenchIntent>,
+    {
+        self.workspace.pending_workbench_intents.extend(intents);
+    }
+
+    pub fn take_pending_workbench_intents(&mut self) -> Vec<WorkbenchIntent> {
+        std::mem::take(&mut self.workspace.pending_workbench_intents)
+    }
+
+    #[cfg(test)]
+    pub fn pending_workbench_intent_count_for_tests(&self) -> usize {
+        self.workspace.pending_workbench_intents.len()
     }
 
     /// Return recent traversal archive entries (descending, newest first).
@@ -5489,10 +5336,7 @@ impl GraphBrowserApp {
 
     /// Request opening the frame picker to open a node in a frame.
     pub fn request_choose_frame_picker(&mut self, key: NodeKey) {
-        self.request_choose_frame_picker_for_mode(
-            key,
-            ChooseFramePickerMode::OpenNodeInFrame,
-        );
+        self.request_choose_frame_picker_for_mode(key, ChooseFramePickerMode::OpenNodeInFrame);
     }
 
     /// Request opening the "Choose Workspace..." picker to open a node in a workspace.
@@ -5502,10 +5346,7 @@ impl GraphBrowserApp {
 
     /// Request opening the frame picker to add node tab membership.
     pub fn request_add_node_to_frame_picker(&mut self, key: NodeKey) {
-        self.request_choose_frame_picker_for_mode(
-            key,
-            ChooseFramePickerMode::AddNodeToFrame,
-        );
+        self.request_choose_frame_picker_for_mode(key, ChooseFramePickerMode::AddNodeToFrame);
     }
 
     pub fn request_add_node_to_workspace_picker(&mut self, key: NodeKey) {
@@ -5566,11 +5407,7 @@ impl GraphBrowserApp {
     }
 
     /// Request adding `node` to named frame snapshot `frame_name`.
-    pub fn request_add_node_to_frame(
-        &mut self,
-        node: NodeKey,
-        frame_name: impl Into<String>,
-    ) {
+    pub fn request_add_node_to_frame(&mut self, node: NodeKey, frame_name: impl Into<String>) {
         self.workspace.pending_add_node_to_workspace = Some((node, frame_name.into()));
     }
 
@@ -5599,8 +5436,7 @@ impl GraphBrowserApp {
         seed_nodes: Vec<NodeKey>,
         frame_name: impl Into<String>,
     ) {
-        self.workspace.pending_add_connected_to_workspace =
-            Some((seed_nodes, frame_name.into()));
+        self.workspace.pending_add_connected_to_workspace = Some((seed_nodes, frame_name.into()));
     }
 
     /// Request adding nodes connected to `seed_nodes` into named frame snapshot `workspace_name`.
@@ -6854,30 +6690,17 @@ mod tests {
     }
 
     #[test]
-    fn open_note_url_is_not_reducer_owned() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let node_key =
-            app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        let note_id = app
-            .create_note_for_node(node_key, Some("Research".to_string()))
-            .expect("note should be created");
-        let _ = app.take_pending_open_note_request();
-        let _ = app.take_pending_open_node_request();
-
+    fn resolve_note_route_parses_note_url() {
+        let note_id = NoteId::new();
         let note_url = NoteAddress::note(note_id.0.to_string()).to_string();
-        app.open_note_url(&note_url);
 
-        assert_eq!(app.take_pending_open_note_request(), None);
+        assert_eq!(GraphBrowserApp::resolve_note_route(&note_url), Some(note_id));
     }
 
     #[test]
-    fn open_note_url_ignores_unknown_note_id() {
-        let mut app = GraphBrowserApp::new_for_testing();
-        let note_url = NoteAddress::note(Uuid::new_v4().to_string()).to_string();
-
-        app.open_note_url(&note_url);
-
-        assert_eq!(app.take_pending_open_note_request(), None);
+    fn resolve_note_route_rejects_invalid_note_url() {
+        let note_url = "notes://not-a-uuid";
+        assert_eq!(GraphBrowserApp::resolve_note_route(note_url), None);
     }
 
     #[test]
@@ -7040,7 +6863,7 @@ mod tests {
         app.workspace.focused_view = Some(view_id);
         app.clear_pending_camera_command();
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::ToggleCameraPositionFitLock,
             GraphIntent::ToggleCameraZoomFitLock,
         ]);
@@ -7095,7 +6918,7 @@ mod tests {
         assert!(!app.camera_fit_locked());
         assert!(app.pending_camera_command().is_none());
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::In)
@@ -7114,14 +6937,27 @@ mod tests {
         app.set_camera_fit_locked(true);
         app.clear_pending_camera_command();
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
         assert_eq!(app.take_pending_keyboard_zoom_request(view_id), None);
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
 
         app.clear_pending_camera_command();
-        app.workspace.views.get_mut(&view_id).unwrap().camera.current_zoom = 2.0;
-        app.apply_intents([GraphIntent::SetZoom { zoom: 0.25 }]);
-        assert_eq!(app.workspace.views.get(&view_id).unwrap().camera.current_zoom, 2.0);
+        app.workspace
+            .views
+            .get_mut(&view_id)
+            .unwrap()
+            .camera
+            .current_zoom = 2.0;
+        app.apply_reducer_intents([GraphIntent::SetZoom { zoom: 0.25 }]);
+        assert_eq!(
+            app.workspace
+                .views
+                .get(&view_id)
+                .unwrap()
+                .camera
+                .current_zoom,
+            2.0
+        );
     }
 
     #[test]
@@ -7137,7 +6973,7 @@ mod tests {
         app.set_camera_zoom_fit_locked(false);
         app.clear_pending_camera_command();
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::In)
@@ -7173,20 +7009,20 @@ mod tests {
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
         app.workspace.focused_view = Some(view_id);
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::In)
         );
         assert_eq!(app.take_pending_keyboard_zoom_request(view_id), None);
 
-        app.apply_intents([GraphIntent::RequestZoomOut]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomOut]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::Out)
         );
 
-        app.apply_intents([GraphIntent::RequestZoomReset]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomReset]);
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
             Some(KeyboardZoomRequest::Reset)
@@ -7202,7 +7038,7 @@ mod tests {
             .insert(view_id, GraphViewState::new_with_id(view_id, "OnlyView"));
         app.workspace.focused_view = None;
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
 
         assert_eq!(
             app.take_pending_keyboard_zoom_request(view_id),
@@ -7219,7 +7055,7 @@ mod tests {
             .insert(view_id, GraphViewState::new_with_id(view_id, "RetryView"));
         app.workspace.focused_view = Some(view_id);
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
         let consumed = app.take_pending_keyboard_zoom_request(view_id);
         assert_eq!(consumed, Some(KeyboardZoomRequest::In));
         assert_eq!(app.take_pending_keyboard_zoom_request(view_id), None);
@@ -7244,7 +7080,7 @@ mod tests {
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
         app.workspace.focused_view = None;
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
 
         assert_eq!(app.take_pending_keyboard_zoom_request(view_a), None);
         assert_eq!(app.take_pending_keyboard_zoom_request(view_b), None);
@@ -7272,7 +7108,7 @@ mod tests {
             },
         );
 
-        app.apply_intents([GraphIntent::RequestZoomIn]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
 
         assert_eq!(app.take_pending_keyboard_zoom_request(view_a), None);
         assert_eq!(
@@ -7293,7 +7129,7 @@ mod tests {
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
-        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
         assert_eq!(app.pending_camera_command_target(), Some(view_id));
@@ -7315,7 +7151,7 @@ mod tests {
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
-        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
         assert_eq!(app.pending_camera_command_target(), Some(view_id));
@@ -7343,7 +7179,7 @@ mod tests {
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
-        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomToSelected]);
 
         assert_eq!(
             app.pending_camera_command(),
@@ -7376,7 +7212,7 @@ mod tests {
         app.select_node(key_b, true);
         app.clear_pending_camera_command();
 
-        app.apply_intents([GraphIntent::RequestZoomToSelected]);
+        app.apply_reducer_intents([GraphIntent::RequestZoomToSelected]);
 
         assert!(app.pending_camera_command().is_none());
         assert!(app.pending_camera_command_target().is_none());
@@ -7406,7 +7242,10 @@ mod tests {
 
         app.request_camera_command_for_view(Some(view_id), CameraCommand::FitSelection);
 
-        assert_eq!(app.pending_camera_command(), Some(CameraCommand::FitSelection));
+        assert_eq!(
+            app.pending_camera_command(),
+            Some(CameraCommand::FitSelection)
+        );
         assert_eq!(app.pending_camera_command_target_raw(), Some(view_id));
         assert_eq!(app.pending_camera_command_target(), Some(view_id));
     }
@@ -7509,7 +7348,10 @@ mod tests {
         app.queue_pending_wheel_zoom_delta(view, 10.0, None);
 
         assert_eq!(app.pending_wheel_zoom_delta(view), 30.0);
-        assert_eq!(app.pending_wheel_zoom_anchor_screen(view), Some((40.0, 55.0)));
+        assert_eq!(
+            app.pending_wheel_zoom_anchor_screen(view),
+            Some((40.0, 55.0))
+        );
     }
 
     #[test]
@@ -7525,7 +7367,10 @@ mod tests {
         app.queue_pending_wheel_zoom_delta(view, 5.0, Some((90.0, 120.0)));
 
         assert_eq!(app.pending_wheel_zoom_delta(view), 20.0);
-        assert_eq!(app.pending_wheel_zoom_anchor_screen(view), Some((90.0, 120.0)));
+        assert_eq!(
+            app.pending_wheel_zoom_anchor_screen(view),
+            Some((90.0, 120.0))
+        );
     }
 
     #[test]
@@ -7542,7 +7387,10 @@ mod tests {
             .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
 
         app.queue_pending_wheel_zoom_delta(view_a, 10.0, Some((25.0, 35.0)));
-        assert_eq!(app.pending_wheel_zoom_anchor_screen(view_a), Some((25.0, 35.0)));
+        assert_eq!(
+            app.pending_wheel_zoom_anchor_screen(view_a),
+            Some((25.0, 35.0))
+        );
 
         app.queue_pending_wheel_zoom_delta(view_b, 6.0, None);
 
@@ -7733,7 +7581,7 @@ mod tests {
             NodeLifecycle::Cold
         );
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -7754,7 +7602,7 @@ mod tests {
             .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -7765,7 +7613,7 @@ mod tests {
         );
 
         // Clicking the already-selected node toggles it off and should not re-promote.
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -7791,7 +7639,7 @@ mod tests {
             .graph
             .add_node("b".to_string(), Point2D::new(10.0, 0.0));
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key: key1,
             multi_select: false,
         }]);
@@ -7805,7 +7653,7 @@ mod tests {
             NodeLifecycle::Cold
         );
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key: key2,
             multi_select: true,
         }]);
@@ -7827,7 +7675,7 @@ mod tests {
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let webview_id = test_webview_id();
         app.map_webview_to_node(webview_id, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_reducer_intents([GraphIntent::WebViewCrashed {
             webview_id,
             reason: "boom".to_string(),
             has_backtrace: false,
@@ -7838,7 +7686,7 @@ mod tests {
         );
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::SelectNode {
+        app.apply_reducer_intents([GraphIntent::SelectNode {
             key,
             multi_select: false,
         }]);
@@ -7888,7 +7736,7 @@ mod tests {
         let c = app.add_node_and_sync("c".to_string(), Point2D::new(20.0, 0.0));
         app.select_node(a, false);
 
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_reducer_intents([GraphIntent::UpdateSelection {
             keys: vec![b, c],
             mode: SelectionUpdateMode::Replace,
         }]);
@@ -7905,11 +7753,11 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let a = app.add_node_and_sync("a".to_string(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("b".to_string(), Point2D::new(10.0, 0.0));
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_reducer_intents([GraphIntent::UpdateSelection {
             keys: vec![a],
             mode: SelectionUpdateMode::Replace,
         }]);
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_reducer_intents([GraphIntent::UpdateSelection {
             keys: vec![b],
             mode: SelectionUpdateMode::Add,
         }]);
@@ -7917,7 +7765,7 @@ mod tests {
         assert!(app.workspace.selected_nodes.contains(&b));
         assert_eq!(app.workspace.selected_nodes.primary(), Some(b));
 
-        app.apply_intents([GraphIntent::UpdateSelection {
+        app.apply_reducer_intents([GraphIntent::UpdateSelection {
             keys: vec![a],
             mode: SelectionUpdateMode::Toggle,
         }]);
@@ -7937,7 +7785,7 @@ mod tests {
         app.map_webview_to_node(parent_wv, parent);
 
         let edges_before = app.workspace.graph.edge_count();
-        app.apply_intents([GraphIntent::WebViewCreated {
+        app.apply_reducer_intents([GraphIntent::WebViewCreated {
             parent_webview_id: parent_wv,
             child_webview_id: child_wv,
             initial_url: Some("https://child.com".into()),
@@ -7963,7 +7811,7 @@ mod tests {
         let child_wv = test_webview_id();
         app.map_webview_to_node(parent_wv, parent);
 
-        app.apply_intents([GraphIntent::WebViewCreated {
+        app.apply_reducer_intents([GraphIntent::WebViewCreated {
             parent_webview_id: parent_wv,
             child_webview_id: child_wv,
             initial_url: Some("https://child.com".into()),
@@ -7983,7 +7831,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let child_wv = test_webview_id();
 
-        app.apply_intents([GraphIntent::WebViewCreated {
+        app.apply_reducer_intents([GraphIntent::WebViewCreated {
             parent_webview_id: test_webview_id(),
             child_webview_id: child_wv,
             initial_url: Some("about:blank".into()),
@@ -8010,7 +7858,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
 
-        app.apply_intents([GraphIntent::WebViewUrlChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
             webview_id: wv,
             new_url: "https://after.com".into(),
         }]);
@@ -8040,7 +7888,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, a);
 
-        app.apply_intents([GraphIntent::WebViewUrlChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
             webview_id: wv,
             new_url: "https://b.com".into(),
         }]);
@@ -8063,7 +7911,7 @@ mod tests {
         let wv = test_webview_id();
         let before = app.workspace.graph.node_count();
 
-        app.apply_intents([GraphIntent::WebViewUrlChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
             webview_id: wv,
             new_url: "https://ignored.com".into(),
         }]);
@@ -8082,7 +7930,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 99,
@@ -8103,7 +7951,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
 
-        app.apply_intents([GraphIntent::WebViewScrollChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewScrollChanged {
             webview_id: wv,
             scroll_x: 15.0,
             scroll_y: 320.0,
@@ -8122,7 +7970,7 @@ mod tests {
             .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
 
         app.set_form_draft_capture_enabled_for_testing(false);
-        app.apply_intents([GraphIntent::SetNodeFormDraft {
+        app.apply_reducer_intents([GraphIntent::SetNodeFormDraft {
             key,
             form_draft: Some("draft text".to_string()),
         }]);
@@ -8136,7 +7984,7 @@ mod tests {
         );
 
         app.set_form_draft_capture_enabled_for_testing(true);
-        app.apply_intents([GraphIntent::SetNodeFormDraft {
+        app.apply_reducer_intents([GraphIntent::SetNodeFormDraft {
             key,
             form_draft: Some("draft text".to_string()),
         }]);
@@ -8168,7 +8016,7 @@ mod tests {
             node.history_index = 1;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 0,
@@ -8196,7 +8044,7 @@ mod tests {
             node.history_index = 1;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec![
                 "https://a.com".into(),
@@ -8233,7 +8081,7 @@ mod tests {
             node.history_index = 0;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 1,
@@ -8265,13 +8113,13 @@ mod tests {
             node.history_index = 1;
         }
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 0,
         }]);
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 1,
@@ -8298,7 +8146,7 @@ mod tests {
             NavigationTrigger::Forward
         );
 
-        app.apply_intents([GraphIntent::WebViewHistoryChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewHistoryChanged {
             webview_id: wv,
             entries: vec!["https://a.com".into(), "https://b.com".into()],
             current: 0,
@@ -8321,7 +8169,7 @@ mod tests {
             .graph
             .add_node("https://to.com".into(), Point2D::new(10.0, 0.0));
 
-        app.apply_intents([GraphIntent::CreateUserGroupedEdge { from, to }]);
+        app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge { from, to }]);
 
         let count = app
             .workspace
@@ -8344,7 +8192,7 @@ mod tests {
             .graph
             .add_node("https://to.com".into(), Point2D::new(10.0, 0.0));
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::CreateUserGroupedEdge { from, to },
             GraphIntent::CreateUserGroupedEdge { from, to },
         ]);
@@ -8367,7 +8215,7 @@ mod tests {
             .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(a, false);
 
-        app.apply_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
+        app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
 
         let count = app
             .workspace
@@ -8394,7 +8242,7 @@ mod tests {
         app.select_node(to, true);
         app.workspace.physics.base.is_running = false;
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::ConnectSelectedPair,
         }]);
 
@@ -8446,7 +8294,7 @@ mod tests {
         app.select_node(to, true);
         app.workspace.physics.base.is_running = false;
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::RemoveUserEdge,
         }]);
 
@@ -8468,7 +8316,7 @@ mod tests {
             .add_node("https://pin.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::PinSelected,
         }]);
         assert!(
@@ -8478,7 +8326,7 @@ mod tests {
                 .is_some_and(|node| node.is_pinned)
         );
 
-        app.apply_intents([GraphIntent::ExecuteEdgeCommand {
+        app.apply_reducer_intents([GraphIntent::ExecuteEdgeCommand {
             command: EdgeCommand::UnpinSelected,
         }]);
         assert!(
@@ -8507,7 +8355,7 @@ mod tests {
         app.workspace.physics.base.is_running = false;
         app.workspace.drag_release_frames_remaining = 5;
 
-        app.apply_intents([GraphIntent::ReheatPhysics]);
+        app.apply_reducer_intents([GraphIntent::ReheatPhysics]);
 
         assert!(app.workspace.physics.base.is_running);
         assert_eq!(app.workspace.drag_release_frames_remaining, 0);
@@ -8546,7 +8394,7 @@ mod tests {
             .add_node("https://pin.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
-        app.apply_intents([GraphIntent::TogglePrimaryNodePin]);
+        app.apply_reducer_intents([GraphIntent::TogglePrimaryNodePin]);
         assert!(
             app.workspace
                 .graph
@@ -8554,7 +8402,7 @@ mod tests {
                 .is_some_and(|node| node.is_pinned)
         );
 
-        app.apply_intents([GraphIntent::TogglePrimaryNodePin]);
+        app.apply_reducer_intents([GraphIntent::TogglePrimaryNodePin]);
         assert!(
             app.workspace
                 .graph
@@ -8572,7 +8420,7 @@ mod tests {
         let _ = app.add_edge_and_sync(from, to, EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped);
 
-        app.apply_intents([GraphIntent::RemoveEdge {
+        app.apply_reducer_intents([GraphIntent::RemoveEdge {
             from,
             to,
             edge_type: EdgeType::UserGrouped,
@@ -8637,7 +8485,7 @@ mod tests {
 
         // Mirrors observed delegate behavior: URL callback can stay at the latest route
         // while history callback index moves backward.
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::WebViewUrlChanged {
                 webview_id: wv,
                 new_url: "https://site.example/?step=2".into(),
@@ -8675,7 +8523,7 @@ mod tests {
         app.map_webview_to_node(wv, key);
         let original_title = app.workspace.graph.get_node(key).unwrap().title.clone();
 
-        app.apply_intents([GraphIntent::WebViewTitleChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewTitleChanged {
             webview_id: wv,
             title: Some("".into()),
         }]);
@@ -8684,7 +8532,7 @@ mod tests {
             original_title
         );
 
-        app.apply_intents([GraphIntent::WebViewTitleChanged {
+        app.apply_reducer_intents([GraphIntent::WebViewTitleChanged {
             webview_id: wv,
             title: Some("Hello".into()),
         }]);
@@ -8699,7 +8547,7 @@ mod tests {
             .graph
             .add_node("https://assets.com".into(), Point2D::new(0.0, 0.0));
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::SetNodeThumbnail {
                 key,
                 png_bytes: vec![1, 2, 3],
@@ -8733,7 +8581,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
         app.select_node(key, false);
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::RemoveSelectedNodes,
             GraphIntent::WebViewTitleChanged {
                 webview_id: wv,
@@ -8750,7 +8598,7 @@ mod tests {
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
         app.select_node(key, false);
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::WebViewTitleChanged {
                 webview_id: wv,
                 title: Some("updated".into()),
@@ -8771,7 +8619,7 @@ mod tests {
         app.map_webview_to_node(wv, key);
         app.select_node(key, false);
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::RemoveSelectedNodes,
             GraphIntent::WebViewHistoryChanged {
                 webview_id: wv,
@@ -8806,7 +8654,7 @@ mod tests {
             .workspace
             .graph
             .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::SetNodeUrl {
                 key,
                 new_url: "https://first.com".into(),
@@ -8834,7 +8682,7 @@ mod tests {
             });
         }
         let start = std::time::Instant::now();
-        app.apply_intents(intents);
+        app.apply_reducer_intents(intents);
         let elapsed = start.elapsed();
         assert_eq!(app.workspace.graph.node_count(), 10_000);
         assert!(
@@ -9059,10 +8907,10 @@ mod tests {
     #[test]
     fn test_file_tree_projection_rebuild_populates_node_rows_for_graph_source() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node_key = app
-            .workspace
-            .graph
-            .add_node("https://example.com/tree-node".to_string(), Point2D::new(0.0, 0.0));
+        let node_key = app.workspace.graph.add_node(
+            "https://example.com/tree-node".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
         let node_id = app
             .workspace
             .graph
@@ -9070,7 +8918,7 @@ mod tests {
             .map(|node| node.id)
             .expect("node must exist");
 
-        app.apply_intents([GraphIntent::RebuildFileTreeProjection]);
+        app.apply_reducer_intents([GraphIntent::RebuildFileTreeProjection]);
 
         assert_eq!(
             app.file_tree_projection_state()
@@ -9088,7 +8936,7 @@ mod tests {
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Saved View"));
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::SetFileTreeContainmentRelationSource {
                 source: FileTreeContainmentRelationSource::SavedViewCollections,
             },
@@ -9110,7 +8958,7 @@ mod tests {
         app.set_file_tree_selected_rows(["row:stale".to_string()]);
         app.set_file_tree_expanded_rows(["row:stale".to_string()]);
 
-        app.apply_intents([GraphIntent::RebuildFileTreeProjection]);
+        app.apply_reducer_intents([GraphIntent::RebuildFileTreeProjection]);
 
         assert!(app.file_tree_projection_state().selected_rows.is_empty());
         assert!(app.file_tree_projection_state().expanded_rows.is_empty());
@@ -9127,14 +8975,18 @@ mod tests {
             Point2D::new(1.0, 0.0),
         );
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::SetFileTreeContainmentRelationSource {
                 source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
             },
             GraphIntent::RebuildFileTreeProjection,
         ]);
 
-        let keys: Vec<&String> = app.file_tree_projection_state().row_targets.keys().collect();
+        let keys: Vec<&String> = app
+            .file_tree_projection_state()
+            .row_targets
+            .keys()
+            .collect();
         assert_eq!(keys.len(), 1);
         assert!(keys[0].starts_with("fs:/tmp/a.txt#"));
     }
@@ -9149,7 +9001,7 @@ mod tests {
             .graph
             .add_node("file:///tmp/b.log".to_string(), Point2D::new(1.0, 0.0));
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::SetFileTreeContainmentRelationSource {
                 source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
             },
@@ -9159,7 +9011,11 @@ mod tests {
             GraphIntent::RebuildFileTreeProjection,
         ]);
 
-        let keys: Vec<&String> = app.file_tree_projection_state().row_targets.keys().collect();
+        let keys: Vec<&String> = app
+            .file_tree_projection_state()
+            .row_targets
+            .keys()
+            .collect();
         assert_eq!(keys.len(), 1);
         assert!(keys[0].contains("a.txt"));
     }
@@ -9168,7 +9024,7 @@ mod tests {
     fn test_file_tree_projection_intents_apply_in_workspace_reducer() {
         let mut app = GraphBrowserApp::new_for_testing();
 
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::SetFileTreeContainmentRelationSource {
                 source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
             },
@@ -9356,7 +9212,7 @@ mod tests {
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_reducer_intents([GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
@@ -9367,7 +9223,7 @@ mod tests {
         );
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_reducer_intents([GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::ActiveTileVisible,
         }]);
@@ -9390,13 +9246,13 @@ mod tests {
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_reducer_intents([GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
         }]);
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_reducer_intents([GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::UserSelect,
         }]);
@@ -9419,13 +9275,13 @@ mod tests {
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_reducer_intents([GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
         }]);
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_reducer_intents([GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::ActiveTileVisible,
         }]);
@@ -9435,7 +9291,7 @@ mod tests {
         );
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_reducer_intents([GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::UserSelect,
         }]);
@@ -9455,14 +9311,14 @@ mod tests {
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_reducer_intents([GraphIntent::WebViewCrashed {
             webview_id: wv,
             reason: "boom".to_string(),
             has_backtrace: false,
         }]);
         assert!(app.runtime_crash_state_for_node(key).is_some());
 
-        app.apply_intents([GraphIntent::DemoteNodeToCold {
+        app.apply_reducer_intents([GraphIntent::DemoteNodeToCold {
             key,
             cause: LifecycleCause::ExplicitClose,
         }]);
@@ -9478,7 +9334,7 @@ mod tests {
             .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let retry_at = Instant::now() + Duration::from_millis(5);
-        app.apply_intents([GraphIntent::MarkRuntimeBlocked {
+        app.apply_reducer_intents([GraphIntent::MarkRuntimeBlocked {
             key,
             reason: RuntimeBlockReason::CreateRetryExhausted,
             retry_at: Some(retry_at),
@@ -9497,7 +9353,7 @@ mod tests {
             .workspace
             .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
-        app.apply_intents([
+        app.apply_reducer_intents([
             GraphIntent::MarkRuntimeBlocked {
                 key,
                 reason: RuntimeBlockReason::CreateRetryExhausted,
@@ -9669,7 +9525,7 @@ mod tests {
             NodeLifecycle::Active
         ));
 
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_reducer_intents([GraphIntent::WebViewCrashed {
             webview_id: wv_id,
             reason: "gpu reset".to_string(),
             has_backtrace: false,
@@ -9687,7 +9543,7 @@ mod tests {
         assert!(app.get_node_for_webview(wv_id).is_none());
         assert!(app.get_webview_for_node(key).is_none());
 
-        app.apply_intents([GraphIntent::PromoteNodeToActive {
+        app.apply_reducer_intents([GraphIntent::PromoteNodeToActive {
             key,
             cause: LifecycleCause::Restore,
         }]);
@@ -9707,7 +9563,7 @@ mod tests {
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
         app.map_webview_to_node(wv_id, key);
-        app.apply_intents([GraphIntent::WebViewCrashed {
+        app.apply_reducer_intents([GraphIntent::WebViewCrashed {
             webview_id: wv_id,
             reason: "boom".to_string(),
             has_backtrace: true,
@@ -10160,7 +10016,7 @@ mod tests {
             filters: Vec::new(),
         };
 
-        app.apply_intents([GraphIntent::SetViewLens { view_id, lens }]);
+        app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
 
         let resolved = &app.workspace.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.physics_id.as_deref(), Some("physics:gas"));
@@ -10196,7 +10052,7 @@ mod tests {
             filters: Vec::new(),
         };
 
-        app.apply_intents([GraphIntent::SetViewLens { view_id, lens }]);
+        app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
 
         let resolved = &app.workspace.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.lens_id.as_deref(), Some("lens:default"));
@@ -10224,7 +10080,7 @@ mod tests {
         );
         assert!(app.workspace.views[&view_id].local_simulation.is_none());
 
-        app.apply_intents([GraphIntent::SetViewLayoutMode {
+        app.apply_reducer_intents([GraphIntent::SetViewLayoutMode {
             view_id,
             mode: ViewLayoutMode::Divergent,
         }]);
@@ -10249,7 +10105,7 @@ mod tests {
         });
         app.workspace.views.insert(view_id, view_state);
 
-        app.apply_intents([GraphIntent::SetViewLayoutMode {
+        app.apply_reducer_intents([GraphIntent::SetViewLayoutMode {
             view_id,
             mode: ViewLayoutMode::Canonical,
         }]);
@@ -10270,7 +10126,7 @@ mod tests {
             .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
 
         // Applying Canonical -> Canonical should not create a local simulation.
-        app.apply_intents([GraphIntent::SetViewLayoutMode {
+        app.apply_reducer_intents([GraphIntent::SetViewLayoutMode {
             view_id,
             mode: ViewLayoutMode::Canonical,
         }]);
@@ -10297,7 +10153,7 @@ mod tests {
         app.workspace.views.insert(view_id, view_state);
 
         let before = app.workspace.graph.get_node(node_key).unwrap().position;
-        app.apply_intents([GraphIntent::CommitDivergentLayout { view_id }]);
+        app.apply_reducer_intents([GraphIntent::CommitDivergentLayout { view_id }]);
         let after = app.workspace.graph.get_node(node_key).unwrap().position;
 
         assert_eq!(
@@ -10316,7 +10172,7 @@ mod tests {
             .graph
             .add_node("file:///doc.pdf".to_string(), Point2D::new(0.0, 0.0));
 
-        app.apply_intents([GraphIntent::UpdateNodeMimeHint {
+        app.apply_reducer_intents([GraphIntent::UpdateNodeMimeHint {
             key,
             mime_hint: Some("application/pdf".to_string()),
         }]);
@@ -10334,7 +10190,7 @@ mod tests {
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
         app.workspace.focused_view = Some(view_id);
 
-        app.apply_intents([GraphIntent::SetZoom { zoom: 2.5 }]);
+        app.apply_reducer_intents([GraphIntent::SetZoom { zoom: 2.5 }]);
 
         assert!((app.workspace.views[&view_id].camera.current_zoom - 2.5).abs() < 0.0001);
         assert!((app.workspace.camera.current_zoom - Camera::new().current_zoom).abs() < 0.0001);
@@ -10347,7 +10203,7 @@ mod tests {
         app.workspace.focused_view = Some(missing_view_id);
         let before = app.workspace.camera.current_zoom;
 
-        app.apply_intents([GraphIntent::SetZoom { zoom: 3.0 }]);
+        app.apply_reducer_intents([GraphIntent::SetZoom { zoom: 3.0 }]);
 
         assert!((app.workspace.camera.current_zoom - before).abs() < 0.0001);
     }
@@ -10361,11 +10217,11 @@ mod tests {
             .add_node("file:///doc.pdf".to_string(), Point2D::new(0.0, 0.0));
 
         // Set then clear.
-        app.apply_intents([GraphIntent::UpdateNodeMimeHint {
+        app.apply_reducer_intents([GraphIntent::UpdateNodeMimeHint {
             key,
             mime_hint: Some("application/pdf".to_string()),
         }]);
-        app.apply_intents([GraphIntent::UpdateNodeMimeHint {
+        app.apply_reducer_intents([GraphIntent::UpdateNodeMimeHint {
             key,
             mime_hint: None,
         }]);
@@ -10382,7 +10238,7 @@ mod tests {
             .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
 
-        app.apply_intents([GraphIntent::UpdateNodeAddressKind {
+        app.apply_reducer_intents([GraphIntent::UpdateNodeAddressKind {
             key,
             kind: crate::graph::AddressKind::Custom,
         }]);
@@ -10455,19 +10311,42 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "diagnostics")]
     #[test]
-    fn leaked_workbench_intent_emits_ux_contract_warning_channel() {
-        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    fn pending_workbench_intent_queue_is_explicit_and_drainable() {
         let mut app = GraphBrowserApp::new_for_testing();
 
-        app.apply_intents([GraphIntent::CycleFocusRegion]);
+        app.enqueue_workbench_intent(WorkbenchIntent::CycleFocusRegion);
+        assert_eq!(app.pending_workbench_intent_count_for_tests(), 1);
 
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
-        assert!(
-            snapshot.contains("ux:contract_warning"),
-            "expected ux:contract_warning when workbench intent leaks to reducer"
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::CycleFocusRegion]
+        ));
+        assert_eq!(app.pending_workbench_intent_count_for_tests(), 0);
+    }
+
+    #[test]
+    fn workbench_intents_do_not_bypass_reducer_mutation_entry() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let before_count = app.workspace.graph.node_count();
+
+        app.enqueue_workbench_intent(WorkbenchIntent::OpenGraphUrl {
+            url: GraphAddress::graph("missing-graph").to_string(),
+        });
+
+        assert_eq!(
+            app.workspace.graph.node_count(),
+            before_count,
+            "enqueuing a workbench intent must not mutate reducer-owned graph state"
+        );
+
+        app.apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
+
+        assert_eq!(
+            app.workspace.graph.node_count(),
+            before_count + 1,
+            "graph mutation must flow through apply_reducer_intents"
         );
     }
 
@@ -10478,7 +10357,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         assert!(!app.workspace.show_command_palette);
 
-        app.apply_intents([GraphIntent::ToggleCommandPalette]);
+        app.apply_reducer_intents([GraphIntent::ToggleCommandPalette]);
 
         assert!(app.workspace.show_command_palette);
         diagnostics.force_drain_for_tests();
@@ -10496,7 +10375,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         assert!(!app.workspace.show_help_panel);
 
-        app.apply_intents([GraphIntent::ToggleHelpPanel]);
+        app.apply_reducer_intents([GraphIntent::ToggleHelpPanel]);
 
         assert!(app.workspace.show_help_panel);
         diagnostics.force_drain_for_tests();
@@ -10514,7 +10393,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         assert!(!app.workspace.show_radial_menu);
 
-        app.apply_intents([GraphIntent::ToggleRadialMenu]);
+        app.apply_reducer_intents([GraphIntent::ToggleRadialMenu]);
 
         assert!(app.workspace.show_radial_menu);
         diagnostics.force_drain_for_tests();
@@ -10531,7 +10410,7 @@ mod tests {
         let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
         let mut app = GraphBrowserApp::new_for_testing();
 
-        app.apply_intents([GraphIntent::SetFileTreeSelectedRows {
+        app.apply_reducer_intents([GraphIntent::SetFileTreeSelectedRows {
             rows: vec!["row:test".to_string()],
         }]);
 
@@ -10569,7 +10448,7 @@ mod tests {
         let from = app.add_node_and_sync("from".into(), Point2D::new(0.0, 0.0));
         let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
 
-        app.apply_intents([GraphIntent::SetHighlightedEdge { from, to }]);
+        app.apply_reducer_intents([GraphIntent::SetHighlightedEdge { from, to }]);
 
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests().to_string();
@@ -10588,7 +10467,7 @@ mod tests {
         let to = app.add_node_and_sync("to".into(), Point2D::new(10.0, 0.0));
         app.workspace.highlighted_graph_edge = Some((from, to));
 
-        app.apply_intents([GraphIntent::ClearHighlightedEdge]);
+        app.apply_reducer_intents([GraphIntent::ClearHighlightedEdge]);
 
         diagnostics.force_drain_for_tests();
         let snapshot = diagnostics.snapshot_json_for_tests().to_string();
@@ -10653,20 +10532,18 @@ mod tests {
     #[test]
     fn resolve_view_route_accepts_node_target_variant() {
         let node_id = Uuid::new_v4();
-        let route = GraphBrowserApp::resolve_view_route(
-            format!("verso://view/node/{node_id}").as_str(),
-        )
-        .expect("view node route should parse");
+        let route =
+            GraphBrowserApp::resolve_view_route(format!("verso://view/node/{node_id}").as_str())
+                .expect("view node route should parse");
         assert!(matches!(route, ViewRouteTarget::Node(parsed) if parsed == node_id));
     }
 
     #[test]
     fn resolve_view_route_accepts_note_target_variant() {
         let note_id = Uuid::new_v4();
-        let route = GraphBrowserApp::resolve_view_route(
-            format!("verso://view/note/{note_id}").as_str(),
-        )
-        .expect("view note route should parse");
+        let route =
+            GraphBrowserApp::resolve_view_route(format!("verso://view/note/{note_id}").as_str())
+                .expect("view note route should parse");
         assert!(matches!(
             route,
             ViewRouteTarget::Note(parsed) if parsed.as_uuid() == note_id
@@ -10680,7 +10557,7 @@ mod tests {
         app.workspace.show_radial_menu = true;
         app.workspace.pending_node_context_target = Some(NodeKey::new(9));
 
-        app.apply_intents([GraphIntent::ToggleHelpPanel]);
+        app.apply_reducer_intents([GraphIntent::ToggleHelpPanel]);
 
         assert!(app.workspace.show_help_panel);
         assert!(!app.workspace.show_command_palette);
@@ -10695,7 +10572,7 @@ mod tests {
         app.workspace.show_radial_menu = true;
         app.workspace.pending_node_context_target = Some(NodeKey::new(10));
 
-        app.apply_intents([GraphIntent::ToggleCommandPalette]);
+        app.apply_reducer_intents([GraphIntent::ToggleCommandPalette]);
 
         assert!(app.workspace.show_command_palette);
         assert!(!app.workspace.show_help_panel);
@@ -10709,7 +10586,7 @@ mod tests {
         app.workspace.show_help_panel = true;
         app.workspace.show_command_palette = true;
 
-        app.apply_intents([GraphIntent::ToggleRadialMenu]);
+        app.apply_reducer_intents([GraphIntent::ToggleRadialMenu]);
 
         assert!(app.workspace.show_radial_menu);
         assert!(!app.workspace.show_help_panel);

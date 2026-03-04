@@ -13,7 +13,7 @@ fn create_user_grouped_edge_from_primary_selection_creates_grouped_edge() {
 
     harness
         .app
-        .apply_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
+        .apply_reducer_intents([GraphIntent::CreateUserGroupedEdgeFromPrimarySelection]);
 
     let grouped_edge_count = harness
         .app

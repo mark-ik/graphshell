@@ -143,22 +143,21 @@ fn phase0_registry_decision_uses_protocol_inferred_mime_hint_when_available() {
 #[test]
 fn phase0_registry_decision_selects_settings_viewer_for_graphshell_settings_url() {
     let mut harness = TestRegistry::new();
-    let parsed = ServoUrl::parse(
-        &GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
-    )
-    .expect("url should parse");
+    let parsed =
+        ServoUrl::parse(&GraphshellAddress::settings(GraphshellSettingsPath::History).to_string())
+            .expect("url should parse");
 
     let decision =
         registries::phase0_decide_navigation_for_tests(&harness.diagnostics, parsed, None);
 
-    assert_eq!(decision.normalized_url.scheme(), "graphshell");
+    assert_eq!(decision.normalized_url.scheme(), "verso");
     assert_eq!(decision.viewer.viewer_id, "viewer:settings");
     assert_eq!(decision.viewer.matched_by, "internal");
 
     let snapshot = harness.snapshot();
     assert!(
         TestRegistry::channel_count(&snapshot, "registry.protocol.resolve_succeeded") > 0,
-        "graphshell scheme should emit protocol resolve success channel"
+        "verso scheme should emit protocol resolve success channel"
     );
     assert!(
         TestRegistry::channel_count(&snapshot, "registry.viewer.select_succeeded") > 0,
