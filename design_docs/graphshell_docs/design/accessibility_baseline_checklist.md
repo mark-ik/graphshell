@@ -96,7 +96,7 @@ Known-gap alignment from UX integration research:
 | 3.3.2 Labels or Instructions | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify forms/inputs provide explicit labels and instructions. |
 | 3.3.3 Error Suggestion | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Recovery suggestion quality varies; requires per-surface tests. |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | AA | N/A | N/A | N/A | N/A | N/A | N/A | N/A | Baseline UX does not currently include legal/financial irreversible forms. |
-| 3.3.6 Error Prevention (All) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Destructive-action confirmation behavior is not uniformly implemented (`G-FR-2`). |
+| 3.3.6 Error Prevention (All) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Destructive-action confirmation behavior is not uniformly implemented (`G-FR-2`); dialog clear-data flow now has deterministic two-step confirmation + expiry unit coverage (2026-03-04 addendum), with broader surface evidence still pending. |
 | 4.1.2 Name, Role, Value | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane baseline naming model is implemented and verified in `#298` audit evidence. |
 | 4.1.3 Status Messages | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Status/error/loading announcements need AT verification. |
 

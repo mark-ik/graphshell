@@ -15,6 +15,8 @@ use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
+const CLEAR_DATA_CONFIRM_WINDOW_SECS: f64 = 3.0;
+
 pub(crate) struct DialogPanelsArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a mut GraphBrowserApp,
@@ -38,7 +40,7 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
         let armed_deadline = args
             .ctx
             .data_mut(|d| d.get_temp::<f64>(confirm_deadline_id));
-        if armed_deadline.is_some_and(|deadline| deadline >= now) {
+        if clear_data_confirm_is_armed(now, armed_deadline) {
             args.frame_intents
                 .extend(webview_controller::close_all_webviews(
                     args.graph_app,
@@ -56,11 +58,54 @@ pub(crate) fn render_dialog_panels(args: DialogPanelsArgs<'_>) {
             args.ctx.data_mut(|d| d.remove::<f64>(confirm_deadline_id));
             args.toasts.success("Cleared graph and saved data");
         } else {
-            args.ctx
-                .data_mut(|d| d.insert_temp(confirm_deadline_id, now + 3.0));
+            args.ctx.data_mut(|d| {
+                d.insert_temp(confirm_deadline_id, next_clear_data_confirm_deadline(now))
+            });
             args.toasts
                 .warning("Press Clr again within 3 seconds to clear graph and saved data");
         }
         *args.show_clear_data_confirm = false;
+    }
+}
+
+fn clear_data_confirm_is_armed(now: f64, armed_deadline: Option<f64>) -> bool {
+    armed_deadline.is_some_and(|deadline| deadline >= now)
+}
+
+fn next_clear_data_confirm_deadline(now: f64) -> f64 {
+    now + CLEAR_DATA_CONFIRM_WINDOW_SECS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        clear_data_confirm_is_armed, next_clear_data_confirm_deadline,
+        CLEAR_DATA_CONFIRM_WINDOW_SECS,
+    };
+
+    #[test]
+    fn clear_data_confirm_is_not_armed_without_deadline() {
+        assert!(!clear_data_confirm_is_armed(10.0, None));
+    }
+
+    #[test]
+    fn clear_data_confirm_is_armed_until_deadline_inclusive() {
+        let now = 10.0;
+        assert!(clear_data_confirm_is_armed(now, Some(now + 0.5)));
+        assert!(clear_data_confirm_is_armed(now, Some(now)));
+    }
+
+    #[test]
+    fn clear_data_confirm_expires_after_deadline_passes() {
+        assert!(!clear_data_confirm_is_armed(10.001, Some(10.0)));
+    }
+
+    #[test]
+    fn next_clear_data_confirm_deadline_uses_expected_window() {
+        let now = 7.25;
+        assert_eq!(
+            next_clear_data_confirm_deadline(now),
+            now + CLEAR_DATA_CONFIRM_WINDOW_SECS
+        );
     }
 }

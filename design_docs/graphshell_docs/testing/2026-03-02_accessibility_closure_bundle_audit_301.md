@@ -157,6 +157,17 @@ Omnibar submit-dispatch behavior now has explicit helper-level coverage in `tool
 
 This confirms keyboard-submit semantics remain deterministic (focused Enter and queued-submit paths dispatch; passive Enter after focus loss does not), reducing no-trap/accidental-submit ambiguity for omnibar workflows.
 
+### 5.7 Dialog destructive-confirmation addendum (2026-03-04)
+
+Clear-data destructive confirmation timing now has explicit unit coverage in `dialog_panels.rs`:
+
+- `clear_data_confirm_is_not_armed_without_deadline`
+- `clear_data_confirm_is_armed_until_deadline_inclusive`
+- `clear_data_confirm_expires_after_deadline_passes`
+- `next_clear_data_confirm_deadline_uses_expected_window`
+
+This validates deterministic two-step confirmation semantics (arm on first activation, execute only while armed, require re-arm after expiry), which contributes direct error-prevention evidence for destructive dialog actions.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)
