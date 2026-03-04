@@ -540,7 +540,7 @@ fn handle_pending_clipboard_copy_request(
         Ok(()) => emit_clipboard_copy_success_toast(toasts, kind),
         Err(e) => {
             emit_clipboard_copy_failure(e.to_string().len());
-            toasts.error(format!("{CLIPBOARD_STATUS_FAILURE_PREFIX}: {e}"));
+            toasts.error(clipboard_copy_failure_text(e.to_string().as_str()));
         }
     }
 }
@@ -558,9 +558,7 @@ fn clipboard_copy_value_for_node(
     toasts: &mut egui_notify::Toasts,
 ) -> Option<String> {
     let Some(node) = graph_app.workspace.graph.get_node(key) else {
-        toasts.error(format!(
-            "{CLIPBOARD_STATUS_FAILURE_PREFIX}: node no longer exists"
-        ));
+        toasts.error(clipboard_copy_missing_node_failure_text());
         return None;
     };
 
@@ -608,6 +606,14 @@ fn clipboard_copy_success_text(kind: ClipboardCopyKind) -> &'static str {
         ClipboardCopyKind::Url => CLIPBOARD_STATUS_SUCCESS_URL_TEXT,
         ClipboardCopyKind::Title => CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT,
     }
+}
+
+fn clipboard_copy_failure_text(detail: &str) -> String {
+    format!("{CLIPBOARD_STATUS_FAILURE_PREFIX}: {detail}")
+}
+
+fn clipboard_copy_missing_node_failure_text() -> String {
+    clipboard_copy_failure_text("node no longer exists")
 }
 
 pub(crate) fn handle_pending_open_node_after_intents(

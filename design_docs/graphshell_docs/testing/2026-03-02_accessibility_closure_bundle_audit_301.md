@@ -226,6 +226,15 @@ Clipboard status/toast wording now has targeted regression coverage in `gui_orch
 
 This coverage locks deterministic success mapping (URL/title) and explicit success/warning/error/unavailable wording, providing partial evidence for WCAG 4.1.3 mapping on command-surface status feedback while screen-reader announcement verification remains pending.
 
+### 5.14 Error-identification wording addendum (2026-03-04)
+
+Clipboard failure wording now has targeted regression coverage in `gui_orchestration`:
+
+- `clipboard_failure_message_prefix_is_stable_and_identifiable`
+- `clipboard_missing_node_failure_message_is_explicit`
+
+This coverage preserves explicit error identification semantics by enforcing a stable failure prefix and concrete missing-node failure wording in clipboard command feedback, providing partial evidence for WCAG 3.3.1 mapping while broader multi-surface error-state audit remains pending.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

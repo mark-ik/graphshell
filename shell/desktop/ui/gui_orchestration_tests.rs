@@ -1853,3 +1853,17 @@ fn clipboard_status_success_messages_identify_copied_subject() {
     assert!(super::CLIPBOARD_STATUS_SUCCESS_URL_TEXT.contains("URL"));
     assert!(super::CLIPBOARD_STATUS_SUCCESS_TITLE_TEXT.contains("title"));
 }
+
+#[test]
+fn clipboard_failure_message_prefix_is_stable_and_identifiable() {
+    let text = super::clipboard_copy_failure_text("permission denied");
+    assert!(text.starts_with(super::CLIPBOARD_STATUS_FAILURE_PREFIX));
+    assert!(text.contains("permission denied"));
+}
+
+#[test]
+fn clipboard_missing_node_failure_message_is_explicit() {
+    let text = super::clipboard_copy_missing_node_failure_text();
+    assert!(text.contains("node no longer exists"));
+    assert!(text.contains(super::CLIPBOARD_STATUS_FAILURE_PREFIX));
+}
