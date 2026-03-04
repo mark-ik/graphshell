@@ -2207,6 +2207,7 @@ impl GraphBrowserApp {
 
     pub fn set_file_tree_root_filter(&mut self, root_filter: Option<String>) {
         self.workspace.file_tree_projection_state.root_filter = root_filter;
+        self.rebuild_file_tree_projection_rows();
     }
 
     #[cfg(test)]
@@ -2266,7 +2267,41 @@ impl GraphBrowserApp {
                 }
             }
             Source::ImportedFilesystemProjection => {
-                // Reserved source: no importer-backed rows are wired yet.
+                let mut file_rows: Vec<(String, NodeKey, Uuid)> = self
+                    .workspace
+                    .graph
+                    .nodes()
+                    .filter_map(|(key, node)| {
+                        let parsed = url::Url::parse(&node.url).ok()?;
+                        if parsed.scheme() != "file" {
+                            return None;
+                        }
+                        let mut path = parsed.path().to_string();
+                        if path.is_empty() {
+                            return None;
+                        }
+                        while path.len() > 1 && path.ends_with('/') {
+                            path.pop();
+                        }
+                        Some((format!("fs:{path}"), key, node.id))
+                    })
+                    .collect();
+                file_rows.sort_by(|(left_path, _, left_id), (right_path, _, right_id)| {
+                    left_path.cmp(right_path).then_with(|| left_id.cmp(right_id))
+                });
+                for (row_key, key, node_id) in file_rows {
+                    row_targets.insert(
+                        format!("{row_key}#{node_id}"),
+                        FileTreeProjectionTarget::Node(key),
+                    );
+                }
+            }
+        }
+
+        if let Some(root_filter) = self.workspace.file_tree_projection_state.root_filter.as_deref() {
+            let filter = root_filter.trim();
+            if !filter.is_empty() {
+                row_targets.retain(|row_key, _| row_key.contains(filter));
             }
         }
 
@@ -9066,6 +9101,54 @@ mod tests {
 
         assert!(app.file_tree_projection_state().selected_rows.is_empty());
         assert!(app.file_tree_projection_state().expanded_rows.is_empty());
+    }
+
+    #[test]
+    fn test_file_tree_projection_rebuild_populates_imported_filesystem_rows_from_file_urls() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace
+            .graph
+            .add_node("file:///tmp/a.txt".to_string(), Point2D::new(0.0, 0.0));
+        app.workspace.graph.add_node(
+            "https://example.com/not-imported".to_string(),
+            Point2D::new(1.0, 0.0),
+        );
+
+        app.apply_intents([
+            GraphIntent::SetFileTreeContainmentRelationSource {
+                source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+            },
+            GraphIntent::RebuildFileTreeProjection,
+        ]);
+
+        let keys: Vec<&String> = app.file_tree_projection_state().row_targets.keys().collect();
+        assert_eq!(keys.len(), 1);
+        assert!(keys[0].starts_with("fs:/tmp/a.txt#"));
+    }
+
+    #[test]
+    fn test_file_tree_projection_root_filter_limits_imported_filesystem_rows() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace
+            .graph
+            .add_node("file:///tmp/a.txt".to_string(), Point2D::new(0.0, 0.0));
+        app.workspace
+            .graph
+            .add_node("file:///tmp/b.log".to_string(), Point2D::new(1.0, 0.0));
+
+        app.apply_intents([
+            GraphIntent::SetFileTreeContainmentRelationSource {
+                source: FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+            },
+            GraphIntent::SetFileTreeRootFilter {
+                root_filter: Some("a.txt".to_string()),
+            },
+            GraphIntent::RebuildFileTreeProjection,
+        ]);
+
+        let keys: Vec<&String> = app.file_tree_projection_state().row_targets.keys().collect();
+        assert_eq!(keys.len(), 1);
+        assert!(keys[0].contains("a.txt"));
     }
 
     #[test]
