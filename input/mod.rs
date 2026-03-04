@@ -851,4 +851,31 @@ mod tests {
             "F3 should be suppressed while text input captures keyboard"
         );
     }
+
+    #[test]
+    fn collect_actions_suppresses_character_shortcut_n_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::N, Modifiers::default(), true);
+        assert!(
+            !actions.create_node,
+            "single-key N shortcut should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_suppresses_character_shortcut_t_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::T, Modifiers::default(), true);
+        assert!(
+            !actions.toggle_physics,
+            "single-key T shortcut should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_suppresses_character_shortcut_questionmark_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::Questionmark, Modifiers::default(), true);
+        assert!(
+            !actions.toggle_help_panel,
+            "single-key ? shortcut should be suppressed while text input captures keyboard"
+        );
+    }
 }

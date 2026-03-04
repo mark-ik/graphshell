@@ -179,6 +179,16 @@ Instructional copy invariants now have explicit regression coverage:
 
 These tests preserve baseline instruction clarity for destructive dialogs and the omnibar primary text-entry affordance, providing concrete partial evidence for WCAG 3.3.2 mapping while broader multi-surface validation remains pending.
 
+### 5.9 Character-key shortcut capture addendum (2026-03-04)
+
+Input-layer shortcut suppression under text capture now explicitly includes character-key shortcuts:
+
+- `collect_actions_suppresses_character_shortcut_n_when_keyboard_is_captured`
+- `collect_actions_suppresses_character_shortcut_t_when_keyboard_is_captured`
+- `collect_actions_suppresses_character_shortcut_questionmark_when_keyboard_is_captured`
+
+This extends keyboard-capture evidence beyond function keys, showing that single-character command shortcuts are not triggered while text-entry controls own keyboard focus.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)
