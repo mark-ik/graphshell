@@ -448,6 +448,49 @@ pub enum ViewRouteTarget {
     Node(Uuid),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileTreeContainmentRelationSource {
+    GraphContainment,
+    SavedViewCollections,
+    ImportedFilesystemProjection,
+}
+
+impl Default for FileTreeContainmentRelationSource {
+    fn default() -> Self {
+        Self::GraphContainment
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileTreeSortMode {
+    Manual,
+    NameAscending,
+    NameDescending,
+}
+
+impl Default for FileTreeSortMode {
+    fn default() -> Self {
+        Self::Manual
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileTreeProjectionTarget {
+    Node(NodeKey),
+    SavedView(GraphViewId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FileTreeProjectionState {
+    pub containment_relation_source: FileTreeContainmentRelationSource,
+    pub expanded_rows: HashSet<String>,
+    pub collapsed_rows: HashSet<String>,
+    pub selected_rows: HashSet<String>,
+    pub sort_mode: FileTreeSortMode,
+    pub root_filter: Option<String>,
+    pub row_targets: HashMap<String, FileTreeProjectionTarget>,
+}
+
 /// Canonical node-selection state.
 ///
 /// This wraps the selected-node set with explicit metadata so consumers can
@@ -1431,6 +1474,11 @@ pub struct GraphWorkspace {
     pub hovered_graph_node: Option<NodeKey>,
     /// Graph search display mode (context-preserving highlight vs strict filter).
     pub search_display_mode: SearchDisplayMode,
+    /// Graph-owned hierarchical projection runtime state for file-tree navigation.
+    ///
+    /// This is semantic view-projection state and must not be owned by workbench
+    /// arrangement structures.
+    pub file_tree_projection_state: FileTreeProjectionState,
     /// Explicit node context target (e.g. right-click) for open commands.
     pending_node_context_target: Option<NodeKey>,
     /// Explicit highlighted edge in graph view (for edge-search targeting).
@@ -1748,6 +1796,7 @@ impl GraphBrowserApp {
                 tab_selection_anchor: None,
                 hovered_graph_node: None,
                 search_display_mode: SearchDisplayMode::Highlight,
+                file_tree_projection_state: FileTreeProjectionState::default(),
                 pending_node_context_target: None,
                 highlighted_graph_edge: None,
                 pending_tool_surface_return_target: None,
@@ -1948,6 +1997,7 @@ impl GraphBrowserApp {
                 tab_selection_anchor: None,
                 hovered_graph_node: None,
                 search_display_mode: SearchDisplayMode::Highlight,
+                file_tree_projection_state: FileTreeProjectionState::default(),
                 pending_node_context_target: None,
                 highlighted_graph_edge: None,
                 pending_tool_surface_return_target: None,
@@ -2117,6 +2167,40 @@ impl GraphBrowserApp {
         if let Some(key) = last {
             self.workspace.tab_selection_anchor = Some(key);
         }
+    }
+
+    pub fn file_tree_projection_state(&self) -> &FileTreeProjectionState {
+        &self.workspace.file_tree_projection_state
+    }
+
+    pub fn set_file_tree_containment_relation_source(
+        &mut self,
+        source: FileTreeContainmentRelationSource,
+    ) {
+        self.workspace.file_tree_projection_state.containment_relation_source = source;
+    }
+
+    pub fn set_file_tree_sort_mode(&mut self, sort_mode: FileTreeSortMode) {
+        self.workspace.file_tree_projection_state.sort_mode = sort_mode;
+    }
+
+    pub fn set_file_tree_root_filter(&mut self, root_filter: Option<String>) {
+        self.workspace.file_tree_projection_state.root_filter = root_filter;
+    }
+
+    pub fn upsert_file_tree_row_target(
+        &mut self,
+        row_key: impl Into<String>,
+        target: FileTreeProjectionTarget,
+    ) {
+        self.workspace
+            .file_tree_projection_state
+            .row_targets
+            .insert(row_key.into(), target);
+    }
+
+    pub fn set_file_tree_selected_rows(&mut self, rows: impl IntoIterator<Item = String>) {
+        self.workspace.file_tree_projection_state.selected_rows = rows.into_iter().collect();
     }
 
     /// Request camera fit on next render frame.
@@ -6386,6 +6470,7 @@ impl GraphBrowserApp {
         self.workspace.graph = Graph::new();
         self.workspace.selected_nodes.clear();
         self.workspace.highlighted_graph_edge = None;
+        self.workspace.file_tree_projection_state = FileTreeProjectionState::default();
         self.workspace.pending_node_context_target = None;
         self.workspace.pending_choose_workspace_picker_request = None;
         self.workspace.pending_add_node_to_workspace = None;
@@ -6436,6 +6521,7 @@ impl GraphBrowserApp {
         self.workspace.graph = Graph::new();
         self.workspace.selected_nodes.clear();
         self.workspace.highlighted_graph_edge = None;
+        self.workspace.file_tree_projection_state = FileTreeProjectionState::default();
         self.workspace.pending_node_context_target = None;
         self.workspace.pending_choose_workspace_picker_request = None;
         self.workspace.pending_add_node_to_workspace = None;
@@ -8791,6 +8877,74 @@ mod tests {
         assert!(app.workspace.warm_cache_lru.is_empty());
         assert!(!app.workspace.workspace_has_unsaved_changes);
         assert!(!app.should_prompt_unsaved_workspace_save());
+    }
+
+    #[test]
+    fn test_file_tree_projection_state_defaults_are_graph_owned() {
+        let app = GraphBrowserApp::new_for_testing();
+
+        assert_eq!(
+            app.file_tree_projection_state().containment_relation_source,
+            FileTreeContainmentRelationSource::GraphContainment
+        );
+        assert_eq!(
+            app.file_tree_projection_state().sort_mode,
+            FileTreeSortMode::Manual
+        );
+        assert!(app.file_tree_projection_state().row_targets.is_empty());
+        assert!(app.file_tree_projection_state().selected_rows.is_empty());
+    }
+
+    #[test]
+    fn test_file_tree_projection_row_targets_can_resolve_node_and_saved_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app
+            .workspace
+            .graph
+            .add_node("https://example.com/tree-node".to_string(), Point2D::new(0.0, 0.0));
+        let view_id = GraphViewId::new();
+
+        app.upsert_file_tree_row_target("row:node", FileTreeProjectionTarget::Node(node_key));
+        app.upsert_file_tree_row_target("row:view", FileTreeProjectionTarget::SavedView(view_id));
+
+        assert_eq!(
+            app.file_tree_projection_state().row_targets.get("row:node"),
+            Some(&FileTreeProjectionTarget::Node(node_key))
+        );
+        assert_eq!(
+            app.file_tree_projection_state().row_targets.get("row:view"),
+            Some(&FileTreeProjectionTarget::SavedView(view_id))
+        );
+    }
+
+    #[test]
+    fn test_clear_graph_resets_file_tree_projection_state() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.set_file_tree_containment_relation_source(
+            FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+        );
+        app.set_file_tree_sort_mode(FileTreeSortMode::NameAscending);
+        app.set_file_tree_root_filter(Some("root:collections".to_string()));
+        app.upsert_file_tree_row_target(
+            "row:stale",
+            FileTreeProjectionTarget::SavedView(GraphViewId::new()),
+        );
+        app.set_file_tree_selected_rows(["row:stale".to_string()]);
+
+        app.clear_graph();
+
+        assert_eq!(
+            app.file_tree_projection_state().containment_relation_source,
+            FileTreeContainmentRelationSource::GraphContainment
+        );
+        assert_eq!(
+            app.file_tree_projection_state().sort_mode,
+            FileTreeSortMode::Manual
+        );
+        assert!(app.file_tree_projection_state().root_filter.is_none());
+        assert!(app.file_tree_projection_state().row_targets.is_empty());
+        assert!(app.file_tree_projection_state().selected_rows.is_empty());
     }
 
     // --- TEST-1: create_new_node_near_center ---
