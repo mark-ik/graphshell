@@ -274,6 +274,8 @@ Validation gate:
 - Semantic dispatch now consumes a unified modal-surface flag sourced from UI overlay state (including `show_clear_data_confirm`), and regression coverage now includes clear-confirm modal shortcut consumption (`global_shortcut_undo_is_consumed_when_clear_confirm_modal_is_active`).
 - Input-layer keyboard capture behavior now has explicit AG0 regressions proving `F6` focus-cycle suppression while text input is active and `F9` global shortcut survivability under capture in `input::tests`.
 - Workbar command-surface keyboard operability now has explicit input-layer evidence for `F1`/`F2`/`F3` shortcut detection (help, command palette, radial menu toggles).
+- Input-layer capture coverage now also proves `F1`/`F2`/`F3` workbar toggles are suppressed while text-entry surfaces own keyboard focus, preventing accidental command-surface activation during omnibar editing.
+- Omnibar submit-dispatch helper coverage now includes queued-submit behavior after focus loss, alongside focused-enter and ignored lost-focus-enter paths, tightening keyboard submission semantics evidence for AG0.
 - AG0 remains open pending full WCAG 2.2 Level A coverage evidence across all seven surface classes (non-radial surfaces still have unverified rows).
 
 ---

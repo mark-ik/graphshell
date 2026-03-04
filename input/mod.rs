@@ -824,4 +824,31 @@ mod tests {
             "F3 should trigger radial menu toggle when keyboard input is not captured"
         );
     }
+
+    #[test]
+    fn collect_actions_suppresses_f1_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::F1, Modifiers::default(), true);
+        assert!(
+            !actions.toggle_help_panel,
+            "F1 should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_suppresses_f2_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::F2, Modifiers::default(), true);
+        assert!(
+            !actions.toggle_command_palette,
+            "F2 should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_suppresses_f3_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::F3, Modifiers::default(), true);
+        assert!(
+            !actions.toggle_radial_menu,
+            "F3 should be suppressed while text input captures keyboard"
+        );
+    }
 }

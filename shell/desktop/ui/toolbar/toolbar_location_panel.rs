@@ -343,4 +343,9 @@ mod tests {
     fn submit_dispatch_ignores_enter_after_focus_loss() {
         assert!(!should_dispatch_location_submit(false, false, true));
     }
+
+    #[test]
+    fn submit_dispatch_triggers_for_queued_submit_after_focus_loss() {
+        assert!(should_dispatch_location_submit(false, true, true));
+    }
 }

@@ -130,6 +130,9 @@ Input-layer shortcut capture behavior is now explicitly covered with tests in `i
 - `collect_actions_suppresses_f6_when_keyboard_is_captured`
 - `collect_actions_allows_f6_when_keyboard_is_not_captured`
 - `collect_actions_keeps_f9_global_when_keyboard_is_captured`
+- `collect_actions_suppresses_f1_when_keyboard_is_captured`
+- `collect_actions_suppresses_f2_when_keyboard_is_captured`
+- `collect_actions_suppresses_f3_when_keyboard_is_captured`
 
 This validates that focus-cycling shortcuts are suppressed while text-edit surfaces own keyboard focus, while designated global safety/escape controls remain available.
 
@@ -142,6 +145,17 @@ Keyboard operability coverage now explicitly includes workbar command-surface to
 - `collect_actions_maps_f3_to_radial_menu_toggle_when_not_captured`
 
 Together with existing intent-application tests (`test_toggle_help_panel_action`, `test_toggle_command_palette_action`), this provides direct evidence that core workbar command surfaces are keyboard-invokable.
+
+### 5.6 Omnibar keyboard-submit addendum (2026-03-04)
+
+Omnibar submit-dispatch behavior now has explicit helper-level coverage in `toolbar_location_panel.rs`:
+
+- `submit_dispatch_triggers_for_focused_enter`
+- `submit_dispatch_triggers_for_queued_submit`
+- `submit_dispatch_ignores_enter_after_focus_loss`
+- `submit_dispatch_triggers_for_queued_submit_after_focus_loss`
+
+This confirms keyboard-submit semantics remain deterministic (focused Enter and queued-submit paths dispatch; passive Enter after focus loss does not), reducing no-trap/accidental-submit ambiguity for omnibar workflows.
 
 ---
 
