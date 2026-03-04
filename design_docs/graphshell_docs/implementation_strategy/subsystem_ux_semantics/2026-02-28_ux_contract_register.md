@@ -202,6 +202,7 @@ Graphshell UX depends on keeping content truth, navigation projections, and work
 - The file tree may contain content nodes, saved views, collections, imported filesystem projections, or another explicitly declared subset of graph-backed artifacts.
 - The file tree is a UI projection and navigation surface, not the canonical owner of content identity or graph truth.
 - The graph canvas is the primary relational navigation surface over the broader relation space; the file tree is the lower-complexity hierarchical navigation surface.
+- File-tree projection updates (source switch, projection rebuild, row selection changes) are reducer-owned semantic actions and must emit `ux:navigation_transition` diagnostics receipts when they change effective navigation state.
 
 ### Workspace model
 

@@ -2830,7 +2830,13 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetFileTreeContainmentRelationSource { source } => {
-                self.set_file_tree_containment_relation_source(*source);
+                if self.workspace.file_tree_projection_state.containment_relation_source != *source {
+                    self.set_file_tree_containment_relation_source(*source);
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
                 true
             }
             GraphIntent::SetFileTreeSortMode { sort_mode } => {
@@ -2842,7 +2848,14 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetFileTreeSelectedRows { rows } => {
-                self.set_file_tree_selected_rows(rows.clone());
+                let next_rows: HashSet<String> = rows.iter().cloned().collect();
+                if self.workspace.file_tree_projection_state.selected_rows != next_rows {
+                    self.set_file_tree_selected_rows(rows.clone());
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                        latency_us: 0,
+                    });
+                }
                 true
             }
             GraphIntent::SetFileTreeExpandedRows { rows } => {
@@ -10509,6 +10522,24 @@ mod tests {
         assert!(
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when radial menu focus surface toggles"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn set_file_tree_selected_rows_emits_ux_navigation_transition_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_intents([GraphIntent::SetFileTreeSelectedRows {
+            rows: vec!["row:test".to_string()],
+        }]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("ux:navigation_transition"),
+            "expected ux:navigation_transition when file tree selected rows change"
         );
     }
 
