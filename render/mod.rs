@@ -2791,6 +2791,84 @@ pub fn render_file_tree_tool_pane_in_ui(
         app.file_tree_projection_state().expanded_rows.len(),
     ));
 
+    let mut row_targets: Vec<(String, crate::app::FileTreeProjectionTarget)> = app
+        .file_tree_projection_state()
+        .row_targets
+        .iter()
+        .map(|(row_key, target)| (row_key.clone(), *target))
+        .collect();
+    row_targets.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    if row_targets.is_empty() {
+        ui.small("No mapped rows yet.");
+    } else {
+        let selected_rows_current = app.file_tree_projection_state().selected_rows.clone();
+        let mut expanded_rows_next = app.file_tree_projection_state().expanded_rows.clone();
+
+        egui::ScrollArea::vertical()
+            .max_height(180.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (row_key, _) in &row_targets {
+                    ui.horizontal(|ui| {
+                        let is_expanded = expanded_rows_next.contains(row_key);
+                        if ui.small_button(if is_expanded { "▾" } else { "▸" }).clicked() {
+                            if is_expanded {
+                                expanded_rows_next.remove(row_key);
+                            } else {
+                                expanded_rows_next.insert(row_key.clone());
+                            }
+                        }
+
+                        let is_selected = selected_rows_current.contains(row_key);
+                        if ui.selectable_label(is_selected, row_key).clicked() {
+                            intents.push(GraphIntent::SetFileTreeSelectedRows {
+                                rows: vec![row_key.clone()],
+                            });
+                        }
+                    });
+                }
+            });
+
+        if expanded_rows_next != app.file_tree_projection_state().expanded_rows {
+            let mut expanded_rows: Vec<String> = expanded_rows_next.into_iter().collect();
+            expanded_rows.sort();
+            intents.push(GraphIntent::SetFileTreeExpandedRows {
+                rows: expanded_rows,
+            });
+        }
+
+        let selected_row = app
+            .file_tree_projection_state()
+            .selected_rows
+            .iter()
+            .next()
+            .cloned();
+        if let Some(selected_row) = selected_row
+            && let Some(target) = app.file_tree_projection_state().row_targets.get(&selected_row)
+        {
+            ui.horizontal(|ui| {
+                ui.label(format!("Selected: {selected_row}"));
+                if ui.button("Open Target").clicked() {
+                    match target {
+                        crate::app::FileTreeProjectionTarget::Node(node_key) => {
+                            intents.push(GraphIntent::OpenNodeFrameRouted {
+                                key: *node_key,
+                                prefer_frame: None,
+                            });
+                        }
+                        crate::app::FileTreeProjectionTarget::SavedView(view_id) => {
+                            intents.push(GraphIntent::OpenViewUrl {
+                                url: GraphshellAddress::view(view_id.as_uuid().to_string())
+                                    .to_string(),
+                            });
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     intents
 }
 

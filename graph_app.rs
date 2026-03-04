@@ -105,6 +105,10 @@ impl GraphViewId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
+
+    pub fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Default for GraphViewId {
@@ -1375,6 +1379,12 @@ pub enum GraphIntent {
     SetFileTreeRootFilter {
         root_filter: Option<String>,
     },
+    SetFileTreeSelectedRows {
+        rows: Vec<String>,
+    },
+    SetFileTreeExpandedRows {
+        rows: Vec<String>,
+    },
 }
 
 #[derive(Default)]
@@ -2212,6 +2222,15 @@ impl GraphBrowserApp {
         self.workspace.file_tree_projection_state.selected_rows = rows.into_iter().collect();
     }
 
+    pub fn set_file_tree_expanded_rows(&mut self, rows: impl IntoIterator<Item = String>) {
+        let expanded_rows: HashSet<String> = rows.into_iter().collect();
+        self.workspace.file_tree_projection_state.expanded_rows = expanded_rows.clone();
+        self.workspace
+            .file_tree_projection_state
+            .collapsed_rows
+            .retain(|row| !expanded_rows.contains(row));
+    }
+
     /// Request camera fit on next render frame.
     pub fn request_fit_to_screen(&mut self) {
         self.request_camera_command(CameraCommand::Fit);
@@ -2732,6 +2751,14 @@ impl GraphBrowserApp {
                 self.set_file_tree_root_filter(root_filter.clone());
                 true
             }
+            GraphIntent::SetFileTreeSelectedRows { rows } => {
+                self.set_file_tree_selected_rows(rows.clone());
+                true
+            }
+            GraphIntent::SetFileTreeExpandedRows { rows } => {
+                self.set_file_tree_expanded_rows(rows.clone());
+                true
+            }
             _ => false,
         }
     }
@@ -2787,7 +2814,9 @@ impl GraphBrowserApp {
             | GraphIntent::SetNodeFavicon { .. }
             | GraphIntent::SetFileTreeContainmentRelationSource { .. }
             | GraphIntent::SetFileTreeSortMode { .. }
-            | GraphIntent::SetFileTreeRootFilter { .. } => {
+            | GraphIntent::SetFileTreeRootFilter { .. }
+            | GraphIntent::SetFileTreeSelectedRows { .. }
+            | GraphIntent::SetFileTreeExpandedRows { .. } => {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
             }
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
@@ -8955,6 +8984,12 @@ mod tests {
             GraphIntent::SetFileTreeRootFilter {
                 root_filter: Some("root:tests".to_string()),
             },
+            GraphIntent::SetFileTreeSelectedRows {
+                rows: vec!["row:selected".to_string()],
+            },
+            GraphIntent::SetFileTreeExpandedRows {
+                rows: vec!["row:expanded".to_string()],
+            },
         ]);
 
         assert_eq!(
@@ -8968,6 +9003,16 @@ mod tests {
         assert_eq!(
             app.file_tree_projection_state().root_filter.as_deref(),
             Some("root:tests")
+        );
+        assert!(
+            app.file_tree_projection_state()
+                .selected_rows
+                .contains("row:selected")
+        );
+        assert!(
+            app.file_tree_projection_state()
+                .expanded_rows
+                .contains("row:expanded")
         );
     }
 
