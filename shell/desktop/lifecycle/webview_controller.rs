@@ -1102,4 +1102,45 @@ mod tests {
         assert_eq!(target_node, None);
         assert_eq!(target_webview, Some(preferred_webview));
     }
+
+    #[test]
+    fn resolve_detail_submit_target_falls_back_when_focused_node_is_stale_after_transition() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let stale_focused = app.add_node_and_sync("https://stale-focused.example".into(), Point2D::new(0.0, 0.0));
+        let remaining = app.add_node_and_sync("https://remaining.example".into(), Point2D::new(20.0, 0.0));
+        let remaining_webview = test_webview_id();
+        app.map_webview_to_node(remaining_webview, remaining);
+
+        let (target_node, target_webview) =
+            resolve_detail_submit_target(&app, Some(stale_focused), Some(remaining_webview));
+        assert_eq!(
+            target_node,
+            Some(stale_focused),
+            "focused node remains authoritative even when its webview mapping is absent"
+        );
+        assert_eq!(
+            target_webview,
+            None,
+            "stale focused mapping should not force a stale webview target"
+        );
+
+        let (fallback_node, fallback_webview) =
+            resolve_detail_submit_target(&app, None, Some(remaining_webview));
+        assert_eq!(fallback_node, Some(remaining));
+        assert_eq!(fallback_webview, Some(remaining_webview));
+    }
+
+    #[test]
+    fn resolve_detail_submit_target_prefers_focused_mapping_when_preferred_webview_is_stale() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let focused = app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
+        let focused_webview = test_webview_id();
+        let stale_preferred_webview = test_webview_id();
+        app.map_webview_to_node(focused_webview, focused);
+
+        let (target_node, target_webview) =
+            resolve_detail_submit_target(&app, Some(focused), Some(stale_preferred_webview));
+        assert_eq!(target_node, Some(focused));
+        assert_eq!(target_webview, Some(focused_webview));
+    }
 }

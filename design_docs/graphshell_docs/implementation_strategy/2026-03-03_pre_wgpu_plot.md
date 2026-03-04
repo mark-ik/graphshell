@@ -251,7 +251,13 @@ Validation gate:
 - Toolbar submit dispatch now ignores `lost_focus + Enter` as an implicit submit trigger; submission requires focused-enter or explicit queued submit state.
 - Added regression tests for detail-submit target resolution and toolbar submit-dispatch gating to guard against focus/routing regressions.
 - Added pane-transition focus handoff regression coverage to verify that frame activation retargets to the remaining mapped node after close transitions.
-- Remaining AG2 follow-up: validate that tile focus handoff after pane/tab transitions keeps `preferred_input_webview_id` aligned with expected toolbar target in multi-pane scenarios.
+- AG2 follow-up complete: tile focus handoff after pane/tab transitions now has explicit regression coverage for stale-focused and stale-preferred transition paths, validating `preferred_input_webview_id` alignment with expected toolbar submit targeting.
+
+### AG3 Routing Diagnostics Notes (2026-03-04)
+
+- Open-route orchestration now emits explicit diagnostics for open decision **path** (`ux:open_decision_path`) and **reason** (`ux:open_decision_reason`) across settings/frame/tool/view/graph/note/node/clip URL handlers.
+- Added AG3 regression coverage for both routed and unresolved open-graph flows to assert decision diagnostics emission and fallback-path contract warning behavior.
+- Semantic child-webview open routing now emits the same open-decision diagnostics and classifies deferred unmapped child-webview opens as target-missing, with regression coverage for both routed and deferred outcomes.
 
 ---
 

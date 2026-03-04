@@ -3,6 +3,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_UX_DISPATCH_CONSUMED, CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED,
     CHANNEL_UX_DISPATCH_PHASE, CHANNEL_UX_DISPATCH_STARTED,
+    CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
 };
 use crate::shell::desktop::ui::gui_orchestration;
@@ -1068,6 +1069,63 @@ fn open_settings_url_already_focused_does_not_emit_ux_navigation_transition_chan
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn open_graph_url_emits_open_decision_diagnostics_for_routed_target() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let dir = TempDir::new().expect("temp dir should be created");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+    app.add_node_and_sync(
+        "https://example.com/graph-seed".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    app.save_named_graph_snapshot("graph-main")
+        .expect("named graph snapshot should save");
+
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_open_decision_graph_routed", root, tiles);
+
+    let mut intents = vec![GraphIntent::OpenGraphUrl {
+        url: crate::util::GraphAddress::graph("graph-main").to_string(),
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_PATH));
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_REASON));
+    assert!(intents.is_empty());
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn unresolved_graph_url_emits_open_decision_diagnostics_for_fallback_path() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_open_decision_graph_unresolved", root, tiles);
+
+    let mut intents = vec![GraphIntent::OpenGraphUrl {
+        url: crate::util::GraphAddress::graph("missing-graph").to_string(),
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_PATH));
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_REASON));
+    assert!(snapshot.contains(CHANNEL_UX_CONTRACT_WARNING));
+    assert_eq!(intents.len(), 1, "unresolved open intent should remain for fallback");
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn open_tool_pane_already_focused_does_not_emit_ux_navigation_transition_channel() {
     let mut diagnostics =
         crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
@@ -1469,6 +1527,65 @@ fn webview_created_child_open_routes_through_frame_routed_intent() {
             } if *key == child_node
         )
     }));
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn child_webview_open_emits_open_decision_diagnostics_for_routed_path() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let child_node = app.add_node_and_sync(
+        "https://example.com/child".to_string(),
+        euclid::default::Point2D::new(120.0, 80.0),
+    );
+    let child_webview = test_webview_id();
+    app.map_webview_to_node(child_webview, child_node);
+
+    let mut frame_intents = Vec::new();
+    let deferred = super::open_pending_child_webview_nodes(
+        &mut app,
+        &mut frame_intents,
+        vec![child_webview],
+    );
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(deferred.is_empty());
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_PATH));
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_REASON));
+    assert!(frame_intents.iter().any(|intent| {
+        matches!(
+            intent,
+            GraphIntent::OpenNodeFrameRouted {
+                key,
+                prefer_frame: None,
+            } if *key == child_node
+        )
+    }));
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn child_webview_open_emits_open_decision_diagnostics_for_deferred_path() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let mut app = GraphBrowserApp::new_for_testing();
+    let child_webview = test_webview_id();
+    let mut frame_intents = Vec::new();
+
+    let deferred = super::open_pending_child_webview_nodes(
+        &mut app,
+        &mut frame_intents,
+        vec![child_webview],
+    );
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert_eq!(deferred, vec![child_webview]);
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_PATH));
+    assert!(snapshot.contains(CHANNEL_UX_OPEN_DECISION_REASON));
+    assert!(frame_intents.is_empty());
 }
 
 #[test]

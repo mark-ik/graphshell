@@ -21,6 +21,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UX_DISPATCH_CONSUMED,
     CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED, CHANNEL_UX_DISPATCH_PHASE,
+    CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
     CHANNEL_UX_DISPATCH_STARTED, CHANNEL_UX_NAVIGATION_TRANSITION,
     CHANNEL_UX_NAVIGATION_VIOLATION,
 };
@@ -69,6 +70,26 @@ enum UxDispatchPhase {
     Target = 2,
     Bubble = 3,
     Default = 4,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UxOpenDecisionPath {
+    SettingsUrl = 1,
+    FrameUrl = 2,
+    ToolUrl = 3,
+    ViewUrl = 4,
+    GraphUrl = 5,
+    NoteUrl = 6,
+    NodeUrl = 7,
+    ClipUrl = 8,
+    ChildWebview = 9,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UxOpenDecisionReason {
+    Routed = 1,
+    UnresolvedRoute = 2,
+    TargetMissing = 3,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -925,6 +946,17 @@ fn emit_dispatch_phase(phase: UxDispatchPhase) {
     });
 }
 
+fn emit_open_decision(path: UxOpenDecisionPath, reason: UxOpenDecisionReason) {
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UX_OPEN_DECISION_PATH,
+        byte_len: path as usize,
+    });
+    emit_event(DiagnosticEvent::MessageSent {
+        channel_id: CHANNEL_UX_OPEN_DECISION_REASON,
+        byte_len: reason as usize,
+    });
+}
+
 fn modal_surface_active(graph_app: &GraphBrowserApp) -> bool {
     graph_app.workspace.show_command_palette
         || graph_app.workspace.show_radial_menu
@@ -1333,6 +1365,7 @@ fn handle_open_settings_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(route) = GraphBrowserApp::resolve_settings_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::SettingsUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenSettingsUrl { url });
     };
 
@@ -1353,6 +1386,8 @@ fn handle_open_settings_url_intent(
         });
     }
 
+    emit_open_decision(UxOpenDecisionPath::SettingsUrl, UxOpenDecisionReason::Routed);
+
     None
 }
 
@@ -1361,6 +1396,7 @@ fn handle_open_frame_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(frame_name) = GraphBrowserApp::resolve_frame_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::FrameUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenFrameUrl { url });
     };
 
@@ -1369,6 +1405,7 @@ fn handle_open_frame_url_intent(
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
     });
+    emit_open_decision(UxOpenDecisionPath::FrameUrl, UxOpenDecisionReason::Routed);
 
     None
 }
@@ -1379,6 +1416,7 @@ fn handle_open_tool_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(tool_kind) = GraphBrowserApp::resolve_tool_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::ToolUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenToolUrl { url });
     };
 
@@ -1390,6 +1428,7 @@ fn handle_open_tool_url_intent(
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
     });
+    emit_open_decision(UxOpenDecisionPath::ToolUrl, UxOpenDecisionReason::Routed);
 
     None
 }
@@ -1400,6 +1439,7 @@ fn handle_open_view_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(route) = GraphBrowserApp::resolve_view_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::ViewUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenViewUrl { url });
     };
 
@@ -1415,18 +1455,21 @@ fn handle_open_view_url_intent(
                 .into_iter()
                 .any(|name| name == graph_id);
             if !has_snapshot {
+                emit_open_decision(UxOpenDecisionPath::ViewUrl, UxOpenDecisionReason::TargetMissing);
                 return Some(GraphIntent::OpenViewUrl { url });
             }
             graph_app.request_restore_graph_snapshot_named(graph_id);
         }
         crate::app::ViewRouteTarget::Note(note_id) => {
             if graph_app.note_record(note_id).is_none() {
+                emit_open_decision(UxOpenDecisionPath::ViewUrl, UxOpenDecisionReason::TargetMissing);
                 return Some(GraphIntent::OpenViewUrl { url });
             }
             graph_app.request_open_note_by_id(note_id);
         }
         crate::app::ViewRouteTarget::Node(node_id) => {
             let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(node_id) else {
+                emit_open_decision(UxOpenDecisionPath::ViewUrl, UxOpenDecisionReason::TargetMissing);
                 return Some(GraphIntent::OpenViewUrl { url });
             };
             crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
@@ -1438,6 +1481,7 @@ fn handle_open_view_url_intent(
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
     });
+    emit_open_decision(UxOpenDecisionPath::ViewUrl, UxOpenDecisionReason::Routed);
 
     None
 }
@@ -1448,6 +1492,7 @@ fn handle_open_graph_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(graph_id) = GraphBrowserApp::resolve_graph_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::GraphUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenGraphUrl { url });
     };
 
@@ -1456,6 +1501,7 @@ fn handle_open_graph_url_intent(
         .into_iter()
         .any(|name| name == graph_id);
     if !has_snapshot {
+        emit_open_decision(UxOpenDecisionPath::GraphUrl, UxOpenDecisionReason::TargetMissing);
         return Some(GraphIntent::OpenGraphUrl { url });
     }
 
@@ -1464,6 +1510,7 @@ fn handle_open_graph_url_intent(
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
     });
+    emit_open_decision(UxOpenDecisionPath::GraphUrl, UxOpenDecisionReason::Routed);
 
     None
 }
@@ -1474,10 +1521,12 @@ fn handle_open_note_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(note_id) = GraphBrowserApp::resolve_note_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::NoteUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenNoteUrl { url });
     };
 
     if graph_app.note_record(note_id).is_none() {
+        emit_open_decision(UxOpenDecisionPath::NoteUrl, UxOpenDecisionReason::TargetMissing);
         return Some(GraphIntent::OpenNoteUrl { url });
     }
 
@@ -1486,6 +1535,7 @@ fn handle_open_note_url_intent(
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
     });
+    emit_open_decision(UxOpenDecisionPath::NoteUrl, UxOpenDecisionReason::Routed);
 
     None
 }
@@ -1496,10 +1546,12 @@ fn handle_open_node_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(node_id) = GraphBrowserApp::resolve_node_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::NodeUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenNodeUrl { url });
     };
 
     let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(node_id) else {
+        emit_open_decision(UxOpenDecisionPath::NodeUrl, UxOpenDecisionReason::TargetMissing);
         return Some(GraphIntent::OpenNodeUrl { url });
     };
 
@@ -1510,6 +1562,7 @@ fn handle_open_node_url_intent(
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
     });
+    emit_open_decision(UxOpenDecisionPath::NodeUrl, UxOpenDecisionReason::Routed);
 
     None
 }
@@ -1520,6 +1573,7 @@ fn handle_open_clip_url_intent(
     url: String,
 ) -> Option<GraphIntent> {
     let Some(clip_id) = GraphBrowserApp::resolve_clip_route(&url) else {
+        emit_open_decision(UxOpenDecisionPath::ClipUrl, UxOpenDecisionReason::UnresolvedRoute);
         return Some(GraphIntent::OpenClipUrl { url });
     };
 
@@ -1530,6 +1584,7 @@ fn handle_open_clip_url_intent(
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
         latency_us: 0,
     });
+    emit_open_decision(UxOpenDecisionPath::ClipUrl, UxOpenDecisionReason::Routed);
 
     None
 }
@@ -1703,16 +1758,29 @@ fn open_pending_child_webview_nodes(
     frame_intents: &mut Vec<GraphIntent>,
     pending_open_child_webviews: Vec<WebViewId>,
 ) -> Vec<WebViewId> {
-    gui_frame::open_pending_child_webviews_for_tiles(
+    let deferred = gui_frame::open_pending_child_webviews_for_tiles(
         graph_app,
         pending_open_child_webviews,
         |node_key| {
+            emit_open_decision(
+                UxOpenDecisionPath::ChildWebview,
+                UxOpenDecisionReason::Routed,
+            );
             frame_intents.push(GraphIntent::OpenNodeFrameRouted {
                 key: node_key,
                 prefer_frame: None,
             });
         },
-    )
+    );
+
+    for _ in &deferred {
+        emit_open_decision(
+            UxOpenDecisionPath::ChildWebview,
+            UxOpenDecisionReason::TargetMissing,
+        );
+    }
+
+    deferred
 }
 
 #[allow(clippy::too_many_arguments)]
