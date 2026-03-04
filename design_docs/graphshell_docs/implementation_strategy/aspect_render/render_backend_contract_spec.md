@@ -14,6 +14,10 @@
 - `2026-03-01_webrender_wgpu_renderer_implementation_plan.md`
 - `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7)):
+- **OpenTelemetry Semantic Conventions** — all diagnostics channels in §7 follow OTel naming and severity conventions
+- **OSGi R8** — backend capability probe and mode selection follow OSGi capability registration vocabulary
+
 ---
 
 ## 1. Purpose and Scope

@@ -11,6 +11,10 @@
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.9)):
+- **WCAG 2.2 Level AA** — graph-space interaction targets (nodes, edges, affordances) must meet SC 2.5.8 minimum target size; focus indicators on canvas elements must meet SC 2.4.11
+- **Fruchterman-Reingold 1991** — force-directed layout algorithm; parameter semantics for `Liquid`/`Gas`/`Solid` presets must be documented against this model
+
 ---
 
 ## 1. Purpose
@@ -51,17 +55,14 @@ It is not the owner of tile layout, frame structure, or pane arrangement.
 
 They are a **cross-domain policy layer** that can influence:
 
-- camera behavior
 - layout behavior
 - physics behavior
 
 Within the Canvas, these presets primarily affect:
 
-- camera follow / fit bias
-- free-pan availability
-- fit strength
 - graph manipulation feel
 - graph-space motion and convergence expectations
+- force-parameter tuning and simulation stability
 
 The Canvas must interpret these presets through Graphshell-owned policy, not through
 implicit widget behavior.
@@ -132,12 +133,17 @@ Used when cross-subsystem presets influence graph behavior.
 
 Examples:
 
-- `Liquid`: stronger auto-fit bias
-- `Gas`: freer manual pan bias
-- `Solid`: explicit-only camera movement bias
+- `Liquid`: more fluid node motion and convergence
+- `Gas`: higher-dispersion node motion and exploration
+- `Solid`: more damped, rigid node motion
 
 The policy layer supplies defaults.
 The Canvas applies them to canvas-specific behavior.
+
+Camera policy is separate:
+
+- camera locks, fit behavior, zoom policy, and pan bindings are independent camera controls
+- physics preset changes must not implicitly mutate camera state or camera locks
 
 ---
 

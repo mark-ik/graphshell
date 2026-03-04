@@ -343,7 +343,7 @@ These are aligned with project goals and can be incorporated where useful:
 
 - **Single-crate now.** Clean module boundaries within the crate are the right intermediate step — a premature crate split creates overhead without benefit.
 - **No legacy compatibility shims.** When refactoring, delete the old structure rather than keeping a compatibility layer, unless there is no other way for a crucial system to interact with the new system.
-- **Two-phase apply model is the commit.** `apply_intents()` (pure state) + `reconcile_webview_lifecycle()` (effects) is the established foundation. All work builds on this, not against it.
+- **Two-phase apply model is the commit.** `apply_reducer_intents()` (pure state) + `reconcile_webview_lifecycle()` (effects) is the established foundation. All work builds on this, not against it.
 - **Test coverage gates each stage.** Phase/stage completion requires new unit tests and proof of behavior preservation.
 - **Prefer single authoritative runtime state over parallel stores.** Explicit maintainer preference: expand/migrate (`RuntimeBlockState`) rather than maintain redundant crash/block systems when one model can carry required metadata.
 

@@ -10,6 +10,11 @@
 **Policy authority**: This file is the canonical policy authority for `viewer_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6, 3.7)):
+- **OSGi R8** — capability registration, selection authority, and fallback floor vocabulary
+- **OpenTelemetry Semantic Conventions** — diagnostic channel naming/severity
+- **WCAG 2.2 Level AA** — each viewer registry entry must declare `AccessibilityCapabilities`; viewer surfaces are subject to all-surfaces WCAG AA conformance
+
 ## Registry Policies
 
 1. **Selection-authority policy**: Viewer registry owns content-to-viewer selection, not viewport or tile placement policy.

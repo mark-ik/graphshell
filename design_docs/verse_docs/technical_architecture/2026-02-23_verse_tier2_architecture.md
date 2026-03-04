@@ -5,6 +5,18 @@
 **Prerequisite**: Tier 1 (iroh direct sync) validated in production
 **Context**: Explores extension to public community swarms, dual-transport model, economic primitives, and search infrastructure for Verse as a protocol. This is **not** a Phase 5 deliverable — it defines the long-term architectural space for research and experimentation.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md) §§3.10–3.14):
+- **libp2p specs via iroh** — Tier 1: iroh QUIC + Noise XX; Tier 2: libp2p GossipSub 1.1, Kademlia DHT
+- **IPFS CIDv1** — `VerseBlob` content addressing; `content_hash` must be typed `Cid` (CIDv1, BLAKE3), not `Hash256`; open question §12.1 is resolved: adopt CIDv1
+- **Noise Protocol** — transport encryption ("Noise auth" in §1 table); the formally adopted standard
+- **W3C DID Core 1.0** — peer identity as `did:key` derived from Ed25519 keypair (shared across iroh `NodeId` and libp2p `PeerId` via `P2PIdentitySecret`)
+- **W3C VC Data Model 2.0** — FLora submission signatures and community attestations follow the VC trust model
+- **CRDT semantics** — Verse concurrent sync model for graph state; replaces RFC 6902 JSON Patch (no merge semantics)
+
+**Referenced as prior art** (no conformance obligation):
+- **ActivityPub** — referenced for interop design space only; not adopted. `activitypub://` is not a planned Verse protocol provider. External platform integration (§11.3) is a bridge/aggregator concern, not a Verse protocol adoption.
+- **Filecoin** — economic layer option for FLora staking; requires a separate light-client decision at Tier 2 design time
+
 ---
 
 ## 0. Canonical Tier 2 Framing
@@ -99,14 +111,16 @@ Tier 2 content must be **content-addressed** to enable caching, DHT storage, and
 ### 3.1 Structure
 
 ```rust
-#[derive(Archive, Serialize, Deserialize)]
+// Serialization: dag-cbor (IPFS codec table), not rkyv — VerseBlob is a Verse wire format.
+// content_hash is CIDv1 (IPFS CIDv1 adopted standard, §3.13 standards report). BLAKE3 hash.
+// author is did:key (W3C DID Core 1.0 adopted standard, §3.11 standards report).
 struct VerseBlob {
-    /// SHA-256 hash of payload (used as DHT key)
-    content_hash: Hash256,
-    /// MIME type hint
+    /// CIDv1 content address of payload (DHT key; replaces Hash256)
+    content_hash: Cid,
+    /// MIME type hint (IANA media type string)
     content_type: String,
-    /// Author's peer identity (libp2p PeerId or iroh NodeId)
-    author: PeerId,
+    /// Author's peer identity as did:key DID (derived from Ed25519 keypair)
+    author: Did,
     /// Ed25519 signature over (content_hash || authored_at)
     signature: Signature,
     /// Wall-clock timestamp (not trusted for ordering, only provenance)
@@ -282,7 +296,7 @@ struct IndexSegment {
 }
 
 struct IndexEntry {
-    node_id: UUID,
+    node_id: Uuid, // UUID v4 — node identity (RFC 4122 v4; not a WAL token)
     title: String,
     tags: Vec<String>,
     content_preview: String, // First 200 chars of node body
@@ -480,9 +494,9 @@ Tier 2 positions Verse within the broader decentralized protocol space:
 | --- | --- |
 | **iroh** | Bilateral sync (Tier 1 foundation) |
 | **libp2p** | Community swarms, DHT, GossipSub |
-| **IPFS** | Content addressing inspiration; VerseBlob is IPFS-compatible but uses custom format |
+| **IPFS** | CIDv1 adopted for VerseBlob content addressing; VerseBlob is IPFS CIDv1-native (see Adopted standards above) |
 | **Nostr** | Optional signaling layer for peer discovery and announcements |
-| **ActivityPub** | Future: Publish community summaries to Mastodon/Bluesky (see §11.3) |
+| **ActivityPub** | Reference-only — not adopted. External platform aggregation (§11.3) is a bridge concern, not a Verse protocol adoption |
 | **Dat/Hypercore** | Alternative sync protocol; evaluate if iroh proves insufficient |
 | **Filecoin** | Optional: Pay for long-term archival of high-value community indexes |
 | **Lightning/Rollups** | Long-term: Microtransaction layer for Proof of Access settlement |
@@ -526,7 +540,7 @@ This positions Graphshell as a **protocol-level aggregator** — content flows i
 
 ## 12. Open Questions (Tier 2)
 
-1. **VerseBlob vs IPFS**: Should VerseBlob use IPFS's CID format (compatible with existing IPFS tooling) or a custom hash? Trade-off: IPFS compatibility vs tighter integration with Verse's signature + versioning model.
+1. **VerseBlob vs IPFS**: ~~Should VerseBlob use IPFS's CID format?~~ **Resolved (2026-03-04)**: IPFS CIDv1 is adopted. `content_hash` is typed `Cid` (CIDv1, BLAKE3, dag-cbor codec). See Adopted standards block above and [standards_alignment_report.md §3.13](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md).
 
 2. **libp2p vs iroh for Communities**: iroh is optimized for bilateral sync. libp2p is the standard for decentralized swarms. Should Tier 2 use **both** (dual-transport) or consolidate on one? Recommendation: Evaluate iroh's gossip protocol (if it matures) before committing to dual-transport complexity.
 

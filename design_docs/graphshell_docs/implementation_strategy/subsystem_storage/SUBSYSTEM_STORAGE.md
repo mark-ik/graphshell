@@ -17,6 +17,17 @@
 Supporting storage docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) for full rationale):
+- **RFC 3986** — URI syntax for internal scheme parsing (`parser.rs`); all internal address tokens must be RFC 3986-valid.
+- **RFC 4122 UUID v4** — node identity (`NodeId`); stable across sessions, no ordering semantics.
+- **RFC 4122 UUID v7** — WAL journal entry tokens only; time-ordered sequencing. Must not be used for `NodeId`.
+- **XDG Base Directory Specification** (via `directories` crate) — canonical storage path semantics across platforms. Data → `XDG_DATA_HOME`, config → `XDG_CONFIG_HOME`, cache → `XDG_CACHE_HOME`.
+- **FIPS 197 / NIST SP 800-38D** — AES-256-GCM at-rest encryption. 256-bit key, 12-byte nonce, 16-byte GCM tag. Nonce never reused.
+
+**Referenced as prior art** (no conformance obligation):
+- **OAIS (ISO 14721)** — SIP/AIP/DIP vocabulary informs export/archive design. Not adopted due to disproportionate fixity/format-migration obligations.
+- **RFC 6902 JSON Patch** — not adopted for local undo/redo (conflicts with `NodeIndex` instability); see standards report §4.3.
+
 ---
 
 ## 0A. Subsystem Policies
@@ -33,7 +44,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 The persistence layer is the single point where **all graph state transitions become durable**. Every graph mutation flows through `GraphStore.log_mutation()`, and every cold start depends on `GraphStore.recover()`. A silent corruption in either path is an unrecoverable data loss event.
 
-The dominant failure mode is **silent contract erosion**: a new serialization type is added without a round-trip test, a snapshot path writes unencrypted data, a new keyspace bypasses the WAL journal, a code path outside `apply_intents()` mutates the graph and the journal falls behind reality. None of these produce immediate errors. All produce data loss or integrity failure on the next recovery.
+The dominant failure mode is **silent contract erosion**: a new serialization type is added without a round-trip test, a snapshot path writes unencrypted data, a new keyspace bypasses the WAL journal, a code path outside `apply_reducer_intents()` mutates the graph and the journal falls behind reality. None of these produce immediate errors. All produce data loss or integrity failure on the next recovery.
 
 Without subsystem-level treatment, every change to `Graph`, every new `LogEntry` variant, every new persistence keyspace, and every new named-snapshot path is an unaudited integrity boundary crossing.
 
@@ -54,7 +65,7 @@ Without subsystem-level treatment, every change to `Graph`, every new `LogEntry`
 
 ### 3.1 WAL Journal Integrity
 
-1. **Complete journaling** — Every graph mutation that enters `apply_intents()` is journaled to fjall via `log_mutation()`. No mutation path bypasses the journal.
+1. **Complete journaling** — Every graph mutation that enters `apply_reducer_intents()` is journaled to fjall via `log_mutation()`. No mutation path bypasses the journal.
 2. **Sequence monotonicity** — `log_sequence` is monotonically increasing. No gaps, no reuse, no reset. A gap indicates corruption or truncation.
 3. **Serialization fidelity** — `rkyv::to_bytes(entry)` → fjall → `rkyv::from_bytes(stored)` produces a bitwise-identical `LogEntry`. Deserialization failure on any stored entry is a corruption event, not a skip.
 4. **Keyspace isolation** — The three fjall keyspaces (`mutations`, `traversal_archive`, `dissolved_archive`) are independent. A corruption in one does not affect the others.
@@ -78,9 +89,9 @@ Without subsystem-level treatment, every change to `Graph`, every new `LogEntry`
 ### 3.4 Single-Write-Path Enforcement
 
 1. **`pub(crate)` boundary** — Graph topology mutators in `graph/mod.rs` are `pub(crate)`. No external crate can call `graph.add_node()` directly.
-2. **`apply_intents()` exclusivity** — All graph mutations flow through the intent reducer. No code path outside `apply_intents()` modifies graph state.
+2. **`apply_reducer_intents()` exclusivity** — All graph mutations flow through the reducer intent boundary. No code path outside `apply_reducer_intents()` modifies graph state.
 3. **Three-authority domains** — As defined in the registry layer plan Phase 6:
-   - Semantic graph: owned by `GraphWorkspace`, mutated only via `apply_intents()`
+   - Semantic graph: owned by `GraphWorkspace`, mutated only via `apply_reducer_intents()`
    - Spatial layout: owned by `Tree<TileKind>` inside `GraphWorkspace`, driven by intents
    - Runtime instances: owned by `AppServices`, reconciled via `lifecycle_reconcile.rs`
 4. **Compiler enforcement** — The `pub(crate)` visibility restriction is a compile-time guarantee. Violation requires explicit `pub` escalation, which is reviewable.
@@ -188,7 +199,7 @@ Required watchdog invariants (start → terminal pairs):
 2. **WAL integrity tests** — Open store, write N entries, close, reopen, verify sequence continuity and entry fidelity.
 3. **Snapshot/recovery tests** — Populate graph, snapshot, add more mutations, recover → assert graph equals expected state.
 4. **Encryption tests** — Verify `encode_persisted_bytes` → `decode_persisted_bytes` round-trip. Verify corrupted ciphertext produces error (not silent truncation). Verify legacy plaintext fallback works. Verify nonce uniqueness across multiple calls.
-5. **Boundary tests** — Attempt graph mutation from outside `apply_intents()`: verify compilation failure (`pub(crate)` boundary) or runtime rejection.
+5. **Boundary tests** — Attempt graph mutation from outside `apply_reducer_intents()`: verify compilation failure (`pub(crate)` boundary) or runtime rejection.
 6. **Named snapshot tests** — Save, list, load, delete named snapshots. Verify named snapshot isolation (saving named doesn't affect automatic).
 7. **Archive tests** — Append to traversal/dissolved archives, verify export, verify clear, verify recent-entries query.
 
@@ -229,7 +240,7 @@ New serialization types or intent variants that lack round-trip tests are blocke
 | Owner | Guarantees |
 |---|---|
 | **`GraphStore`** | Journal writes, snapshot atomicity, encryption, archive management. The single persistence authority. |
-| **`GraphWorkspace`** | Single-write-path boundary. All mutations through `apply_intents()`. `pub(crate)` enforcement. |
+| **`GraphWorkspace`** | Single-write-path boundary. All mutations through `apply_reducer_intents()`. `pub(crate)` enforcement. |
 | **`AppServices`** | Holds `GraphStore` handle. No other component has direct persistence access. |
 | **Serialization types** (`types.rs`) | `GraphSnapshot`, `LogEntry`, `TileLayout` definitions. Round-trip correctness is their contract. |
 | **OS Keychain** | Key storage. Persistence layer trusts but verifies (key format validation on load). |
@@ -292,7 +303,7 @@ Based on the existing `services/persistence/mod.rs` (2340 lines):
 
 Persistence is a guaranteed system property when:
 
-- Every graph mutation flows through `apply_intents()` → `log_mutation()` with no bypass paths.
+- Every graph mutation flows through `apply_reducer_intents()` → `log_mutation()` with no bypass paths.
 - Every serializable type has an explicit round-trip test.
 - Snapshot + journal recovery produces bit-identical graph state.
 - All encryption paths are tested (including corruption detection and legacy fallback).

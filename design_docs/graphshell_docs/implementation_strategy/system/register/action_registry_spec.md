@@ -10,6 +10,10 @@
 **Policy authority**: This file is the canonical policy authority for `action_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7):
+- **OSGi R8** — capability registration, lookup, and conflict-resolution vocabulary
+- **OpenTelemetry Semantic Conventions** — diagnostic channel naming/severity for registry events
+
 ## Registry Policies
 
 1. **Semantic-action policy**: Actions encode canonical meaning independent of invoking surface.

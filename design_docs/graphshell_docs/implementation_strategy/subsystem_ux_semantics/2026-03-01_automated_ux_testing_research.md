@@ -122,7 +122,7 @@ It sits between the egui render layer and the test/accessibility consumer layer.
 ```
                    ┌──────────────────────────────────────────┐
                    │              Graphshell App                │
-  Inputs ──────────►  apply_intents() ──► reconcile_runtime()  │
+  Inputs ──────────►  apply_reducer_intents() ──► reconcile_runtime()  │
                    │         │                    │             │
                    │         ▼                    ▼             │
                    │   GraphBrowserApp        EmbedderWindow    │

@@ -12,6 +12,10 @@
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../../TERMINOLOGY.md` — `CompositorAdapter`, `TileRenderMode`, `Composition Pass`, `Surface Composition Contract`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7)):
+- **OpenTelemetry Semantic Conventions** — diagnostics channels (GL state violation, chaos mode, frame timing) follow OTel naming and severity conventions
+- **OSGi R8** — `TileRenderMode` resolution and `CompositorAdapter` capability dispatch follow OSGi capability vocabulary
+
 ---
 
 ## 1. Scope

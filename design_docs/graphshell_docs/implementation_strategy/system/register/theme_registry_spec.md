@@ -10,6 +10,11 @@
 **Policy authority**: This file is the canonical policy authority for `theme_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6, 3.7)):
+- **OSGi R8** — capability registration, lookup, and fallback floor vocabulary
+- **OpenTelemetry Semantic Conventions** — diagnostic channel naming/severity
+- **WCAG 2.2 Level AA** — theme token definitions must satisfy minimum contrast ratios (SC 1.4.3, 1.4.6, 1.4.11); fallback theme must meet AA on all surfaces
+
 ## Registry Policies
 
 1. **Token-authority policy**: Theme registry owns visual token/style resolution, not interaction semantics.

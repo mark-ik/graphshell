@@ -15,6 +15,10 @@
 Supporting mods docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.7, 3.17):
+- **OSGi R8** — `ModManifest` `provides`/`requires` declarations, activation sequencing, capability lifecycle, and registry vocabulary follow the OSGi service component model
+- **WASI Preview 1** (via extism) — normative contract for WASM mod sandbox; capability-restricted host interface; undeclared capabilities denied at load time
+
 ---
 
 ## 0A. Subsystem Policies

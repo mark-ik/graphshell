@@ -2,7 +2,7 @@
 name: UX Contract Slice
 about: Track a single UX behavior as a contract-bound implementation slice
 title: "UX: "
-labels: ["status:queued", "ui", "ux"]
+labels: ["status:queued", "ui", "ux", "type:child"]
 assignees: []
 ---
 
@@ -15,18 +15,18 @@ Example:
 
 ## Domain
 
-Choose the primary UX domain:
+Choose the primary UX domain and add the corresponding `domain:*` label to this issue:
 
-- Navigation and Camera
-- Selection and Manipulation
-- Pane and Workbench Lifecycle
-- Content Opening and Routing
-- Command Surfaces
-- Viewer Presentation
-- Settings and Control Surfaces
-- Search and Retrieval
-- Feedback, Diagnostics, and Recovery
-- Accessibility and Region Navigation
+| Domain | Label |
+| --- | --- |
+| Graph / Node / Edge (navigation, camera, selection, manipulation) | `domain:graph` |
+| Workbench / Frame / Tile (pane lifecycle, split, history, routing) | `domain:workbench` |
+| Command Surfaces (palette, radial, keyboard, omnibar) | `domain:command` |
+| Focus and Region Navigation (focus ownership, region cycling, a11y) | `domain:focus` |
+| Viewer Presentation and Fallback (render modes, placeholders, overlays) | `domain:viewer` |
+| Settings and Control Surfaces (settings pages, apply/revert, return path) | `domain:settings` |
+
+Cross-cutting concerns (accessibility, diagnostics, discoverability) belong in the domain that exposes them; add `a11y` or `diagnostics` as secondary labels.
 
 ## Contract
 

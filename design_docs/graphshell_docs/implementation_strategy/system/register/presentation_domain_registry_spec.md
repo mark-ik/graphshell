@@ -47,7 +47,7 @@ Canonical interfaces:
 
 ## Planned Extensions
 
-- preset bundles spanning theme + physics + camera policy hooks
+- preset bundles spanning theme + physics policy bindings (camera policy remains separate)
 - presentation diagnostics and preview contracts
 
 ## Prospective Capabilities

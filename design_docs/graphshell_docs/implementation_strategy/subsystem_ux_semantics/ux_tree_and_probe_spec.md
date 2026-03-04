@@ -45,6 +45,37 @@ The UxTree subsystem has three distinct runtime components:
 These components must remain separate. The builder does not check invariants. The probes
 do not modify app state. The routing does not depend on either.
 
+### 2.1 Layered Payload Model (normative)
+
+Each `UxNode` identity is represented across three payload layers that must remain
+logically separate:
+
+- **Semantic content layer** (contract-authoritative): `ux_node_id` (canonical, stable),
+  `role`, `label`, `state` (`focused`, `selected`, `blocked`, `degraded`),
+  `allowed_actions`, and domain identity (`GraphViewId`, `NodeKey`, tool kind).
+- **Presentation layer** (non-authoritative hints): bounds/rect hints, render mode
+  (`CompositedTexture`, `NativeOverlay`, `EmbeddedEgui`, `Placeholder`), and z-pass/
+  visual/transient flags.
+- **Interaction/runtime trace layer** (non-authoritative telemetry): per-node event route,
+  backend path, timing, and diagnostic counters.
+
+The semantic layer is the only blocking contract source.
+Presentation and trace layers are informative by default.
+
+### 2.2 Canonical ID and Build Order (normative)
+
+- A single canonical `ux_node_id` namespace spans semantic, presentation, and trace layers.
+- Build order is fixed:
+  1) semantic layer,
+  2) presentation derivation,
+  3) trace derivation.
+- Hard consistency probe: every presentation `ux_node_id` must exist in the semantic layer.
+- Snapshot versioning is tracked per layer (`semantic_version`, `presentation_version`, `trace_version`).
+- Diff policy:
+  - semantic diffs are blocking,
+  - presentation diffs are informational unless explicitly promoted by the owning contract,
+  - trace diffs are informational.
+
 ---
 
 ## 3. Normative Core
@@ -352,6 +383,7 @@ ux:structural_violation   Error    S-series hard violation or N-series hard viol
 ux:navigation_violation   Error    N-series violations specifically (may overlap S)
 ux:contract_warning       Warn     Any Warn-severity S/N/M invariant violation
 ux:tree_build             Info     Per-build summary (node count, duration, errors)
+ux:tree_snapshot_built    Info     Per-frame snapshot built counter (semantic node count payload)
 ux:snapshot_written       Info     UxSnapshot written to GRAPHSHELL_UX_SNAPSHOT_PATH
 ux:probe_registered       Info     UxProbe registered at startup
 ux:probe_disabled         Warn     UxProbe disabled (feature gate inactive or probe panicked)
@@ -378,3 +410,32 @@ pair per second.
 **AccessKit consumer crash**: If the AccessKit bridge crashes while consuming UxTree
 output, the crash is isolated to the Accessibility subsystem. The UxTree builder and
 UxProbeSet continue operating.
+
+---
+
+## 11. Acceptance Criteria (concrete)
+
+`AC1` — **Layer separation present**
+- A frame-built snapshot contains semantic, presentation, and trace layers with independent schema versions.
+
+`AC2` — **Canonical ID consistency**
+- All presentation nodes reference `ux_node_id`s present in semantic nodes.
+- Violation emits `ux:contract_warning`.
+
+`AC3` — **Structural spine authority**
+- UxTree build traverses `egui_tiles` as the structural spine.
+- Semantic ownership does not depend on `egui_glow` state or APIs.
+
+`AC4` — **Graph surface enrichment**
+- Graph semantic nodes carry graph-domain identity (`GraphViewId`) and graph-surface metadata derived from app/graph surface state.
+
+`AC5` — **Per-frame snapshot diagnostics**
+- Each frame build emits `ux:tree_snapshot_built` with semantic node count payload.
+
+`AC6` — **Contract gating semantics**
+- Semantic-layer contract tests are blocking.
+- Presentation-only diffs are non-blocking unless explicitly promoted by a domain contract.
+
+`AC7` — **Boundary test coverage**
+- At least one test proves semantic/presentation ID consistency on healthy path.
+- At least one test injects a presentation-orphan node and verifies consistency probe failure.

@@ -665,7 +665,7 @@ The three authority domains, restated as an implementation invariant:
 
 | Domain | Owner | Invariant |
 | ------ | ----- | --------- |
-| Semantic graph | `GraphWorkspace` | All graph mutations flow through `apply_intents()`. No module outside the reducer calls `graph.add_node()` or equivalent directly. |
+| Semantic graph | `GraphWorkspace` | All graph mutations flow through `apply_reducer_intents()`. No module outside the reducer calls `graph.add_node()` or equivalent directly. |
 | Spatial layout | `Tree<TileKind>` (inside `GraphWorkspace`) | Tile tree mutations are driven by intents, not by shell code reaching into `GraphWorkspace`. |
 | Runtime instances | `AppServices` + `EmbedderWindow` | Webview creation/destruction happens only in `lifecycle_reconcile.rs`. Servo delegate callbacks never mutate `GraphWorkspace` directly — they enqueue `GraphSemanticEvent`. |
 

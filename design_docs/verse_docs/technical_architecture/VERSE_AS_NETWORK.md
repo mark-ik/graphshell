@@ -6,6 +6,18 @@
 **Status**: Tier 1 (bilateral iroh sync) in Phase 5 implementation; Tier 2 (community swarms, federated search, Proof of Access, FLora/engram exchange) is long-horizon research (Q3 2026+)
 **See**: [VERSO_AS_PEER.md](../../graphshell_docs/technical_architecture/VERSO_AS_PEER.md) for how Graphshell's Verso mod participates; [2026-02-23_verse_tier1_sync_plan.md](../implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) for the Tier 1 implementation plan; [2026-02-23_verse_tier2_architecture.md](2026-02-23_verse_tier2_architecture.md) for the long-horizon swarm architecture
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md) §§3.10–3.14 for full rationale):
+
+- **libp2p specs (via iroh)** — Tier 1: QUIC transport, Noise XX handshake, PeerID (Ed25519), Identify protocol. Tier 2: GossipSub 1.1, Kademlia DHT.
+- **W3C DID Core 1.0** — Verse peer identity as `did:key` DID derived from Ed25519 public key. iroh `NodeId` is the internal form; `did:key` is the Verse-layer wire identity URI.
+- **W3C VC Data Model 2.0** — Verse knowledge object envelopes (reports, graph slices, engrams). Issuer is the authoring peer's `did:key`; proof is an Ed25519 signature. Replaces ActivityPub as Verse's knowledge vocabulary.
+- **IPFS CIDv1** — Content addressing for VerseBlobs (base32 canonical text, dag-cbor or raw codec, BLAKE3 hash).
+- **CRDT semantics** — Concurrent sync model: OR-Set for node/edge sets; Last-Write-Wins per metadata field (timestamp from UUID v7 operation tokens). RFC 6902 JSON Patch is not adopted (no merge semantics; see standards report §4.3).
+
+**Referenced as prior art** (no conformance obligation):
+- **ActivityPub / AT Protocol** — federated identity patterns; neither adopted. ActivityPub interop via a bridge server remains a long-horizon possibility but is not the Verse backbone.
+- **Filecoin FIP mechanics** — FLora staking and on-chain storage deal mechanics (Tier 2, Q3 2026+). Separate from iroh/libp2p transport; requires a Filecoin light client decision at design time.
+
 ---
 
 ## What the Verse Is

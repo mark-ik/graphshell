@@ -8,6 +8,12 @@
 - `design_docs/verse_docs/implementation_strategy/proof_of_access_ledger_spec.md`
 - `design_docs/verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.1, 3.10, 3.11, 3.12)):
+- **RFC 4122 UUID v7** — `event_id` in `GovernanceEvent` and `appeal_id` in `AppealRequest` are UUID v7 (time-ordered, for append-only log ordering)
+- **W3C DID Core 1.0** — `actor`, `requester`, and `provider` identity fields use `did:key`; `PeerId` must be a DID
+- **W3C VC Data Model 2.0** — `GovernanceEvent.signature` and governance receipts are Verifiable Credential envelopes
+- **IPFS CIDv1** — `reason_ref: Option<Cid>` uses CIDv1 content addressing
+
 ---
 
 ## 1. Purpose
@@ -226,12 +232,12 @@ Communities should not infer permission merely because a source was processable 
 
 ```rust
 struct GovernanceEvent {
-    event_id: String,
+    event_id: Uuid,    // UUID v7 (time-ordered, RFC 4122) — append-only log ordering
     community_id: CommunityId,
-    actor: PeerId,
+    actor: Did,        // did:key (W3C DID Core 1.0)
     action: GovernanceAction,
     target_ref: String,
-    reason_ref: Option<Cid>,
+    reason_ref: Option<Cid>,  // CIDv1 (IPFS CIDv1 adopted standard)
     created_at_ms: u64,
     signature: Signature,
 }
@@ -258,9 +264,9 @@ All moderation actions should be durable and reviewable.
 
 ```rust
 struct AppealRequest {
-    appeal_id: String,
-    target_event_id: String,
-    requester: PeerId,
+    appeal_id: Uuid,         // UUID v7 (time-ordered, RFC 4122)
+    target_event_id: Uuid,   // references GovernanceEvent.event_id
+    requester: Did,          // did:key (W3C DID Core 1.0)
     reason_ref: Option<Cid>,
     created_at_ms: u64,
 }

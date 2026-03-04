@@ -17,6 +17,9 @@
 Supporting history docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §3.6):
+- **OpenTelemetry Semantic Conventions** — `history.*` and `traversal.*` diagnostic channel naming and severity
+
 ---
 
 ## 0A. Subsystem Policies

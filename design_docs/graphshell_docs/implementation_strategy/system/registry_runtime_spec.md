@@ -11,6 +11,9 @@
 **Policy authority**: This file is the canonical policy authority for `RegistryRuntime` behavior and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../research/2026-03-04_standards_alignment_report.md) §3.7):
+- **OSGi R8** — composition root model; capability availability, provider-routed dispatch, and service lifecycle follow OSGi service registry vocabulary
+
 ## RegistryRuntime Policies
 
 1. **Composition-root policy**: `RegistryRuntime` is the canonical runtime composition root for registry capabilities.

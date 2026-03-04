@@ -10,6 +10,11 @@
 **Policy authority**: This file is the canonical policy authority for `physics_profile_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7, 3.9)):
+- **Fruchterman-Reingold 1991** — named presets (`Liquid`, `Gas`, `Solid`) are semantic parameter sets over the Fruchterman-Reingold force model; parameter semantics must be documented against the algorithm
+- **OSGi R8** — capability registration, preset lookup, and fallback floor vocabulary
+- **OpenTelemetry Semantic Conventions** — diagnostic channel naming/severity
+
 ## Registry Policies
 
 1. **Named-preset policy**: Physics profiles are semantic named parameter sets with stable IDs and explicit fallback.

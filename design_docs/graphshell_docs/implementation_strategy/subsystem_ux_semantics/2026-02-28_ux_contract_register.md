@@ -216,6 +216,9 @@ Graphshell UX depends on keeping content truth, navigation projections, and work
 - `GraphViewId` = scoped view state (camera/lens/selection memory/filter scope).
 - file tree = graph-backed hierarchical projection (navigation surface, not content truth).
 - workbench = arrangement boundary (pane/tile/frame hosting only).
+- reducer boundary = `GraphReducerIntent` applied via `apply_reducer_intents()` for durable semantic graph mutations.
+- workbench boundary = `WorkbenchIntent` handled in the frame loop before reducer application for tile-tree/layout mutations.
+- UxTree boundary = semantic layer (`ux_node_id`, role/label/state/actions/domain identity) is contract-authoritative; presentation and runtime-trace layers are non-authoritative hints/telemetry keyed by the same `ux_node_id`.
 
 All canonical specs in this register family inherit this shorthand and must not redefine it.
 

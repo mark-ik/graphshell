@@ -14,6 +14,12 @@
 Supporting diagnostics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) for full rationale):
+- **OpenTelemetry Semantic Conventions** — canonical authority for channel naming (`namespace.sub.operation`), severity levels (`Error`/`Warn`/`Info` map to OTel `SeverityText`), and attribute key naming in event payloads. RFC 5424 Syslog integer severity codes are not used.
+
+**Referenced as prior art** (no conformance obligation):
+- **RFC 5424 Syslog** — reference only; relevant if a syslog export sink is ever added.
+
 ---
 
 ## 0. Policy Consolidation Rule

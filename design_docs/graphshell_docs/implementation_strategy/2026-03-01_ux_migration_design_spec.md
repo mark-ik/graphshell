@@ -185,7 +185,7 @@ implement this as a `CanvasLayoutAlgorithmPolicy` strategy.
 |---------------|----------------|----------------------|
 | **Solid** | Grid-like | High attraction, high repulsion, low temperature → rigid |
 | **Liquid** | Viscous | Moderate attraction, moderate repulsion, damping → flowing |
-| **Gas** | Zoom-responsive | Low attraction, variable repulsion, high temperature → exploratory |
+| **Gas** | Expansive | Low attraction, variable repulsion, high temperature → exploratory |
 
 **Additional forces in Graphshell**:
 - `SemanticGravity`: Attractive force between UDC-similar nodes (from

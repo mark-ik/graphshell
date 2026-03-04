@@ -9,6 +9,12 @@
 - `design_docs/verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`
 - `design_docs/verse_docs/technical_architecture/VERSE_AS_NETWORK.md`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.1, 3.3, 3.10, 3.11, 3.12)):
+- **IPFS CIDv1** — `EngramMemoryRef.hash` is a `Cid` (CIDv1, BLAKE3), not a plain `String`; `ContentAddressed.cid` is CIDv1
+- **RFC 4122 UUID v4** — `engram_id` and `memory_id` are UUID v4 stable identifiers
+- **W3C DID Core 1.0** — contributor identity in `ContributorAttestation` uses `did:key`
+- **W3C VC Data Model 2.0** — `GovernanceReceipt` and `ContributorAttestation` are Verifiable Credential envelopes
+
 ---
 
 ## 1. Purpose
@@ -68,9 +74,9 @@ The canonical envelope remains `TransferProfile`.
 
 ```rust
 struct TransferProfile {
-    engram_id: String,
+    engram_id: Uuid,     // UUID v4 (RFC 4122) — stable content identity
     display_name: String,
-    version: u32, // schema version for the envelope
+    version: u32,        // schema version for the envelope
 
     validation_class: EngramValidationClass,
     privacy: EngramPrivacyPolicy,
@@ -123,10 +129,10 @@ Each referenced memory is a typed record with its own integrity and policy metad
 
 ```rust
 struct EngramMemoryRef {
-    memory_id: String,
+    memory_id: Uuid,   // UUID v4 (RFC 4122)
     kind: EngramMemoryKind,
     location: MemoryLocation,
-    hash: String,
+    hash: Cid,         // CIDv1, BLAKE3 (IPFS CIDv1 adopted standard)
     required_for_application: bool,
     redaction_state: RedactionState,
 }

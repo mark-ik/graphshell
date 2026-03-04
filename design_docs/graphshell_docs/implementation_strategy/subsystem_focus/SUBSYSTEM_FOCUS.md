@@ -12,6 +12,9 @@
 Supporting focus docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §3.5):
+- **WCAG 2.2 Level AA** — focus order (SC 2.4.3), focus appearance (SC 2.4.11/2.4.12), and modal-blocking rules implement WCAG 2.2 requirements; deterministic return-path and handoff behavior are preconditions for conformance
+
 ---
 
 ## 0A. Subsystem Policies

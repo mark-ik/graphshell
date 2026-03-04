@@ -13,6 +13,14 @@
 **Policy authority**: This file is the canonical policy authority for top-level system construct boundaries and cross-construct ownership.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Standards alignment**: The canonical adopted/referenced standard set for all Graphshell subsystems and registries is defined in [2026-03-04_standards_alignment_report.md](../research/2026-03-04_standards_alignment_report.md). Every subsystem spec must cite the adopted standards that govern its domain. Validating against an adopted standard is the preferred validation target; internal contract tests translate the standard into Graphshell-specific assertions.
+
+Adopted standards with system-wide scope:
+- **OSGi R8 Service Registry** (conceptual model) — registry vocabulary, capability lifecycle, `namespace:name` key convention, mod manifest `requires`/`provides`.
+- **RFC 3986** — URI syntax for all internal schemes (`verso://`, `notes://`, `graph://`, `node://`).
+- **RFC 4122 UUID v4** — node identity; **UUID v7** — WAL/operation tokens only. These namespaces must not be conflated.
+- **OpenTelemetry Semantic Conventions** — diagnostic channel naming and severity across all subsystems.
+
 ## System Component Policies
 
 1. **Single-owner policy**: Each major behavior class has one subsystem authority; cross-subsystem implementation is allowed, cross-subsystem ownership is not.

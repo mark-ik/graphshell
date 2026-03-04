@@ -11,6 +11,9 @@
 - `2026-02-28_ux_contract_register.md`
 - `../../TERMINOLOGY.md`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §3.5)):
+- **WCAG 2.2 Level AA** — tile/pane interactive elements must meet SC 2.5.8 minimum target size; focus order within the tile tree must follow SC 2.4.3; focus appearance must meet SC 2.4.11
+
 ---
 
 ## 1. Purpose
@@ -50,7 +53,6 @@ It is not the owner of graph identity, graph topology, or graph semantic truth.
 
 They are a **cross-domain policy layer** that can influence:
 
-- camera behavior
 - layout behavior
 - physics behavior
 
@@ -60,6 +62,9 @@ Within the Workbench, these presets may influence:
 - transition aggressiveness
 - layout stabilization expectations
 - how strongly the UI favors adaptive movement versus deterministic placement
+
+These presets must not directly control graph camera policy from Workbench semantics.
+Camera lock/fit behavior remains owned by the graph camera policy surface.
 
 The Workbench must consume these presets as Graphshell policy, not as framework-defined behavior.
 

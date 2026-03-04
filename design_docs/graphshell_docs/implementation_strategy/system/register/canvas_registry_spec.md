@@ -49,7 +49,7 @@ Canonical interfaces:
 ## Planned Extensions
 
 - graph policy extraction if the surface grows too large
-- camera mode and fit-strength presets aligned to presentation policy
+- camera fit-strength/lock defaults integration via explicit camera-policy contracts (not physics presets)
 
 ## Prospective Capabilities
 

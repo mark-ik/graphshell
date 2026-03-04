@@ -8,6 +8,11 @@
 - `design_docs/verse_docs/implementation_strategy/engram_spec.md`
 - `design_docs/verse_docs/implementation_strategy/flora_submission_checkpoint_spec.md`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../graphshell_docs/research/2026-03-04_standards_alignment_report.md) §§3.11–3.13):
+- **IPFS CIDv1** — canonical content address format; base32 text encoding; codec from IPFS codec table (dag-cbor for structured data, raw for opaque bytes); BLAKE3 hash function.
+- **W3C DID Core 1.0** — `did:key` peer identity URI used in VerseBlob `issuer` and credential envelopes.
+- **W3C VC Data Model 2.0** — VerseBlob payloads carrying attested knowledge objects use the VC envelope (`issuer`, `credentialSubject`, `proof`). The blob's CID is the credential's `id` field.
+
 ---
 
 ## 1. Purpose

@@ -16,6 +16,15 @@
 Supporting accessibility docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
+- **WCAG 2.2 Level AA** — single normative conformance target for all seven surface classes; EN 301 549 is not a separate target (it follows from WCAG 2.2 AA conformance)
+- **OpenTelemetry Semantic Conventions** — `accessibility.*` diagnostic channel naming and severity
+- **RFC 4122 UUID v4** — `Node.id` UUIDs used as stable `accesskit::NodeId` sources must be UUID v4
+
+**Referenced as prior art** (no conformance obligation):
+- **WAI-ARIA 1.3 APG** — vocabulary source for `accesskit::NodeBuilder` role assignments (Combobox, Listbox, Menu, Dialog, Toolbar, Tree); WCAG 2.2 SC 4.1.2 is the normative requirement
+- **EN 301 549** — EU accessibility standard; conformance follows automatically from WCAG 2.2 AA; no separate checklist maintained
+
 ---
 
 ## 0A. Subsystem Policies

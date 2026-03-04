@@ -17,6 +17,16 @@
 Supporting security docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) for full rationale):
+- **Noise Protocol Framework** (via iroh QUIC) — all Verse transport connections; XX handshake pattern.
+- **FIPS 197 / NIST SP 800-38D** — AES-256-GCM at-rest encryption; 256-bit key, 12-byte OsRng nonce, 16-byte tag. Nonce never reused.
+- **libp2p specs** (via iroh) — Tier 1 bilateral transport (QUIC, PeerID, Identify, Noise); Tier 2 GossipSub 1.1.
+- **W3C DID Core 1.0** — Verse peer identity as `did:key` DID derived from Ed25519 public key. Used in Verse wire formats; iroh `NodeId` is the internal form.
+- **WASI Preview 1** (via extism) — WASM mod capability restriction and sandboxing.
+
+**Referenced as prior art** (no conformance obligation):
+- **ActivityPub / AT Protocol** — federated identity design patterns. Neither adopted; W3C VC + DID replace ActivityPub for Verse knowledge objects (see standards report §4.2).
+
 ---
 
 ## 0A. Subsystem Policies
@@ -166,7 +176,7 @@ Required watchdog invariants (start → terminal pairs):
 2. **Integration tests** — `verse_access_control` harness: ReadOnly peer receives updates but local mutations are rejected; non-granted workspace sync emits `access_denied`.
 3. **Denial-path tests** — Every access control branch has an explicit test that exercises the denial path and asserts the diagnostic channel fires.
 4. **Mod sandbox tests** — WASM mod capability restriction tests (attempted filesystem access denied, attempted network access denied).
-5. **Boundary tests** — No module outside `SyncWorker` can mutate trust store; no module outside `apply_intents()` can apply remote intents.
+5. **Boundary tests** — No module outside `SyncWorker` can mutate trust store; no module outside `apply_reducer_intents()` can apply remote intents.
 
 ### 6.2 CI Gates
 

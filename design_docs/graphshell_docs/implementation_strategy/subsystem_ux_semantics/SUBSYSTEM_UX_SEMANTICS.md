@@ -18,6 +18,10 @@
 Supporting UX-semantics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
+- **WCAG 2.2 Level AA** — S9 (32 dp minimum hit targets → SC 2.5.8), N2 (dismiss reachability → SC 2.4.11), AccessKit mapping invariants; UxTree structural invariants are behavioral implementations of WCAG requirements
+- **OpenTelemetry Semantic Conventions** — `ux:*` diagnostic channel naming and severity
+
 ---
 
 ## 0A. Subsystem Policies

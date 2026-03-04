@@ -14,6 +14,10 @@
 **Policy authority**: This file is the canonical policy authority for Register-layer treatment and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7):
+- **OSGi R8** — normative vocabulary for capability composition, registry surfaces, service lifecycle (provides/requires model), and explicit-bridge contracts
+- **OpenTelemetry Semantic Conventions** — naming and severity for Register-layer routing failures, fallback visibility, and capability-gap diagnostics
+
 ## Register Layer Policies
 
 1. **Composition-over-semantics policy**: Register layer owns capability composition/routing and never product semantic ownership.

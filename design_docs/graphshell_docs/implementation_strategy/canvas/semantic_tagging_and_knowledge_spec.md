@@ -75,7 +75,7 @@ The reducer path must not call `KnowledgeRegistry` directly. The UI frame loop r
 
 ### 3.2 Reconciliation Path
 
-After `apply_intents()`:
+After `apply_reducer_intents()`:
 
 1. `TagNode` / `UntagNode` intents update `semantic_tags` and set `semantic_index_dirty = true`.
 2. Frame loop calls `knowledge::reconcile_semantics(app, registry)`.

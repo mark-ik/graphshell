@@ -29,7 +29,7 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 
 **Plan**:
 
-- In `apply_intents()`, when `AddNode` or `AddEdge` occurs (excluding snapshot load/replay), set `physics.is_running = true`.
+- In `apply_reducer_intents()`, when `AddNode` or `AddEdge` occurs (excluding snapshot load/replay), set `physics.is_running = true`.
 - Do not zero or reset velocity state; only resume simulation.
 
 ### 1.2 New Node Placement Near Semantic Parent

@@ -8,6 +8,11 @@
 - `design_docs/verse_docs/implementation_strategy/community_governance_spec.md`
 - `design_docs/verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.1, 3.2, 3.10, 3.11)):
+- **RFC 4122 UUID v7** — `receipt_id` and `entry_id` are UUID v7 (time-ordered for append-only ledger ordering)
+- **W3C DID Core 1.0** — `provider` and `requester` identity fields use `did:key`; `PeerId` must be a DID
+- **IPFS CIDv1** — `receipts_root` and `settlements_root` are CIDv1 content addresses
+
 ---
 
 ## 1. Purpose
@@ -60,13 +65,13 @@ enum AccessWorkType {
 }
 
 struct AccessReceipt {
-    receipt_id: String,
+    receipt_id: Uuid,          // UUID v7 (time-ordered, RFC 4122) — ledger ordering
     community_id: CommunityId,
     work_type: AccessWorkType,
 
-    subject_ref: String,      // blob cid, submission id, checkpoint id, review id
-    provider: PeerId,
-    requester: Option<PeerId>,
+    subject_ref: String,       // blob cid, submission id, checkpoint id, review id
+    provider: Did,             // did:key (W3C DID Core 1.0)
+    requester: Option<Did>,    // did:key (W3C DID Core 1.0)
 
     declared_units: u64,      // bytes, points, or policy-defined work units
     epoch_hint: u64,
@@ -104,9 +109,9 @@ struct LedgerEpoch {
 }
 
 struct LedgerEntry {
-    entry_id: String,
+    entry_id: Uuid,      // UUID v7 (time-ordered, RFC 4122)
     epoch_id: u64,
-    beneficiary: PeerId,
+    beneficiary: Did,    // did:key (W3C DID Core 1.0)
     work_type: AccessWorkType,
     weighted_units: u64,
     reputation_delta: i64,

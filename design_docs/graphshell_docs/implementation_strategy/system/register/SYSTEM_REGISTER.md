@@ -98,7 +98,7 @@ one of these four rows.
 | Mechanism | When to use | Authority boundary |
 | --------- | ----------- | ------------------ |
 | **Direct call** | Same module / same struct; synchronous, co-owned state | No boundary crossing |
-| **`GraphIntent` → `apply_intents()`** | Mutation of graph/workbench data model; must be deterministic, testable, WAL-logged | Graph Reducer boundary |
+| **`GraphReducerIntent` → `apply_reducer_intents()`** | Mutation of reducer-owned semantic graph data model; must be deterministic, testable, WAL-logged | Graph Reducer boundary |
 | **`WorkbenchIntent` (frame-loop intercept)** | Mutation of tile-tree shape (`egui_tiles`); workbench authority owns layout | Workbench Mutation Authority |
 | **Signal / `SignalBus`** | Decoupled cross-registry or cross-subsystem notification; emitter must not know observer | Register-owned signal layer |
 
@@ -106,7 +106,7 @@ one of these four rows.
 
 The architecture has **two distinct mutation authorities** — not one:
 
-**1. Graph Reducer** (`apply_intents` in `app.rs`)
+**1. Graph Reducer** (`apply_reducer_intents` in `app.rs`)
 
 Authoritative for:
 
@@ -229,7 +229,7 @@ Done gates:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   Frame Loop (sync)                     │
-│  drain intent_rx → sort by causality → apply_intents()  │
+│  drain intent_rx → sort by causality → apply_reducer_intents()  │
 │  → reconcile_webview_lifecycle() → render()             │
 └─────────────────────────────────────────────────────────┘
             ↑ intent_rx (non-blocking try_recv)

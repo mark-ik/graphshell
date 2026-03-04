@@ -10,6 +10,14 @@
 **Policy authority**: This file is the canonical policy authority for `protocol_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md)):
+- **RFC 3986** — all URI scheme resolution follows RFC 3986 syntax; `resolve(uri)` must parse per RFC 3986 §3
+- **OSGi R8** — capability registration, handler lookup, and conflict-resolution vocabulary
+- **OpenTelemetry Semantic Conventions** — diagnostic channel naming/severity for resolution failures
+
+**Referenced as prior art** (no conformance obligation):
+- **ActivityPub** — not an adopted Verse protocol; `activitypub://` is not a planned handler scheme (see §Planned Extensions below)
+
 ## Registry Policies
 
 1. **Protocol-resolution policy**: URI/protocol resolution follows explicit handler lookup and fallback contracts.
@@ -48,7 +56,8 @@ Canonical interfaces:
 
 ## Planned Extensions
 
-- Verse/peer protocol providers (`ipfs://`, `activitypub://`)
+- Verse/peer protocol providers (`ipfs://`, `verse://`, `did:` scheme handling)
+- Note: `activitypub://` is not a planned handler — ActivityPub is reference-only, not an adopted Verse standard
 - richer capability diagnostics and trust policy hooks
 
 ## Prospective Capabilities
