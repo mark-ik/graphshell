@@ -120,6 +120,16 @@ Additional regression coverage now verifies global undo shortcut modal isolation
 
 All pass and provide evidence that active modal overlays consume non-modal global shortcut handling instead of trapping focus/dispatch in ambiguous paths.
 
+### 5.4 Text-input capture addendum (2026-03-04)
+
+Input-layer shortcut capture behavior is now explicitly covered with tests in `input/mod.rs`:
+
+- `collect_actions_suppresses_f6_when_keyboard_is_captured`
+- `collect_actions_allows_f6_when_keyboard_is_not_captured`
+- `collect_actions_keeps_f9_global_when_keyboard_is_captured`
+
+This validates that focus-cycling shortcuts are suppressed while text-edit surfaces own keyboard focus, while designated global safety/escape controls remain available.
+
 ---
 
 ## 6. Done-gate mapping (`#301`)

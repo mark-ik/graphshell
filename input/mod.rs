@@ -350,6 +350,7 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
 mod tests {
     use super::*;
     use crate::app::GraphBrowserApp;
+    use egui::{Event, Modifiers, RawInput};
 
     fn test_app() -> GraphBrowserApp {
         GraphBrowserApp::new_for_testing()
@@ -735,6 +736,65 @@ mod tests {
             intents
                 .iter()
                 .any(|i| matches!(i, GraphIntent::CycleFocusRegion))
+        );
+    }
+
+    fn collect_actions_with_key_event(
+        key: Key,
+        modifiers: Modifiers,
+        capture_keyboard: bool,
+    ) -> KeyboardActions {
+        let app = test_app();
+        let ctx = egui::Context::default();
+        let mut actions = KeyboardActions::default();
+
+        let mut raw = RawInput::default();
+        raw.events.push(Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        });
+
+        let _ = ctx.run(raw, |ctx| {
+            if capture_keyboard {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let mut input = String::from("capture");
+                    let response = ui.add(egui::TextEdit::singleline(&mut input));
+                    response.request_focus();
+                });
+            }
+            actions = collect_actions(ctx, &app);
+        });
+
+        actions
+    }
+
+    #[test]
+    fn collect_actions_suppresses_f6_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::F6, Modifiers::default(), true);
+        assert!(
+            !actions.cycle_focus_region,
+            "F6 cycle-focus should be suppressed while text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_keeps_f9_global_when_keyboard_is_captured() {
+        let actions = collect_actions_with_key_event(Key::F9, Modifiers::default(), true);
+        assert!(
+            actions.toggle_camera_fit_lock,
+            "F9 camera-fit-lock should remain global even when text input captures keyboard"
+        );
+    }
+
+    #[test]
+    fn collect_actions_allows_f6_when_keyboard_is_not_captured() {
+        let actions = collect_actions_with_key_event(Key::F6, Modifiers::default(), false);
+        assert!(
+            actions.cycle_focus_region,
+            "F6 cycle-focus should be available when keyboard input is not captured"
         );
     }
 }
