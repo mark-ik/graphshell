@@ -1000,7 +1000,8 @@ fn modal_allows_intent(intent: &GraphIntent) -> bool {
         GraphIntent::ToggleCommandPalette
             | GraphIntent::ToggleRadialMenu
             | GraphIntent::ToggleHelpPanel
-            | GraphIntent::ToggleCameraFitLock
+            | GraphIntent::ToggleCameraPositionFitLock
+            | GraphIntent::ToggleCameraZoomFitLock
     )
 }
 
@@ -1011,7 +1012,8 @@ fn ux_event_kind_for_intent(intent: &GraphIntent) -> UxEventKind {
         | GraphIntent::RequestZoomReset
         | GraphIntent::RequestZoomToSelected
         | GraphIntent::RequestFitToScreen
-        | GraphIntent::ToggleCameraFitLock => UxEventKind::Scroll,
+        | GraphIntent::ToggleCameraPositionFitLock
+        | GraphIntent::ToggleCameraZoomFitLock => UxEventKind::Scroll,
         GraphIntent::CycleFocusRegion => UxEventKind::FocusIn,
         GraphIntent::OpenToolPane { .. }
         | GraphIntent::CloseToolPane { .. }

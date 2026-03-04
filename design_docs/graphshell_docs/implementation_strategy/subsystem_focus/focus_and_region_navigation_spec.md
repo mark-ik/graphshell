@@ -9,8 +9,33 @@
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../aspect_command/command_surface_interaction_spec.md`
+- `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../research/2026-02-24_spatial_accessibility_research.md`
 - `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
+
+**Adopted standards** (see [standards report](../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
+
+- **WCAG 2.2 Level AA** — SC 2.4.3 (focus order), SC 2.4.11/2.4.12 (focus appearance), SC 2.1.2 (no keyboard trap), SC 2.4.7 (focus visible); §4.7 deterministic contract is the normative implementation path for these criteria
+- **OpenTelemetry Semantic Conventions** — focus-owner change, blocked transfer, and fallback diagnostics
+
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+Focus routing respects these ownership boundaries and must not reassign semantic ownership across them.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative focus contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
 
 ---
 
@@ -339,7 +364,8 @@ Reference tests (current runtime evidence):
 - per-region focus memory,
 - configurable region-cycle order,
 - richer focus scopes for multi-pane graph contexts,
-- explicit focus breadcrumbs in diagnostics surfaces.
+- explicit focus breadcrumbs in diagnostics surfaces,
+- per-domain Accessibility settings page: configurable region cycle order, per-region focus memory, skip-link visibility — exposed via the **Accessibility** settings category in `aspect_control/settings_and_control_surfaces_spec.md §4.2`.
 
 ---
 

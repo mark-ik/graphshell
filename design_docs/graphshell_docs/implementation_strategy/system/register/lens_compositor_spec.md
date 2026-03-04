@@ -10,6 +10,25 @@
 **Policy authority**: This file is the canonical policy authority for `lens_compositor` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+Lens composition is GraphView-scoped and must not assume workbench arrangement ownership.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative lens contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
+
 ## Registry Policies
 
 1. **Compositional-lens policy**: Lens composition combines existing domain outputs and does not replace subsystem ownership boundaries.

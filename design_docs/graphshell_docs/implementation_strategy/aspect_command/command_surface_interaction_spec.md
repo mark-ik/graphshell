@@ -8,9 +8,34 @@
 - `../2026-02-28_ux_contract_register.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
+- `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../2026-02-24_control_ui_ux_plan.md`
 - `../research/2026-02-24_interaction_and_semantic_design_schemes.md`
 - `../../design/KEYBINDINGS.md`
+
+**Adopted standards** (see [standards report](../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
+
+- **WCAG 2.2 Level AA** — SC 2.1.1 (keyboard, all command surfaces), SC 2.4.3 (focus order/return after dismiss), SC 1.4.3 (disabled-state explanation legibility)
+- **OpenTelemetry Semantic Conventions** — diagnostics for failed dispatch, missing context, blocked execution
+
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+Command dispatch may target these boundaries, but command surfaces do not redefine their ownership.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative command contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
 
 ---
 
@@ -346,7 +371,8 @@ Canonical wording rules:
 - richer command ranking by recency and context relevance,
 - configurable radial pages and sector presets,
 - action previews before execution for high-impact commands,
-- command aliases and user-defined shortcuts.
+- command aliases and user-defined shortcuts,
+- per-domain Command settings pages: palette mode default (search/context/radial), radial layout presets, command aliases, pinned category order — exposed via the **Keybindings** and **General** settings categories in `aspect_control/settings_and_control_surfaces_spec.md §4.2`.
 
 ---
 

@@ -14,10 +14,35 @@
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
+- `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `SYSTEM_REGISTER.md`
 - `../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
 - `../../TERMINOLOGY.md`
 - `../design/KEYBINDINGS.md`
+
+**Adopted standards** (see [standards report](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
+
+- **WCAG 2.2 Level AA** — SC 2.5.8 (tile/frame interactive targets), SC 2.4.3 (focus order in tile tree), SC 2.4.11 (focus appearance), SC 2.1.1 (keyboard equivalents for all drag operations)
+- **OpenTelemetry Semantic Conventions** — diagnostics for routing fallbacks, focus-handoff failures
+
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+This spec owns arrangement semantics only; it must not define graph truth or file-tree content authority.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative workbench contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
 
 ---
 
@@ -48,6 +73,8 @@ This spec governs:
 - `Pane`
 - the user-facing contract of the workbench tile tree subsystem
 
+This spec does not define durable content hierarchy. That remains a Graph subsystem concern, even when graph-backed content is also exposed through hierarchical navigation surfaces.
+
 For graph-surface semantics (nodes, edges, canvas, camera), see:
 
 - `../canvas/graph_node_edge_interaction_spec.md`
@@ -71,18 +98,21 @@ For cross-app focus rules, viewer-state clarity, and app-owned tool surfaces, se
 5. A Frame contains arranged Tiles.
 6. A Tile is the primary arrangeable unit (tab-like affordance; canonical term: tile).
 7. A Pane is the content presentation surface rendered within a Tile.
-8. A Node is canonical graph content identity/state.
+8. A Pane may host a `GraphViewId`, viewer surface, or tool surface.
+9. A `GraphViewId` is a Graph-owned scoped view instance within the current `GraphId`.
+10. A Node is canonical graph content identity/state.
 
 Hierarchy:
 
-`Node -> Pane -> Tile -> Frame -> Workbench`
+`Node -> GraphViewId -> Pane -> Tile -> Frame -> Workbench`
 
 ### 2.2 What each layer is for
 
 - **Workbench**: persistent context host for one graph.
 - **Frame**: named and persisted arrangement context inside the workbench.
 - **Tile**: primary arrangeable workspace unit users move, group, split, and focus.
-- **Pane**: rendered content surface hosted by a tile.
+- **Pane**: rendered presentation surface hosted by a tile.
+- **GraphViewId**: Graph-owned scoped view and lens-state target that may be presented in a pane.
 - **Node**: graph identity; never reduced to a tile instance.
 
 ### 2.3 Ownership model
@@ -95,6 +125,7 @@ Hierarchy:
   - focus handoff,
   - node-to-frame routing,
   - close/open semantics.
+- Tiles and frames are not the canonical owner of content identity, saved hierarchy, or graph-backed containment semantics.
 
 ### 2.4 Subsystem boundary
 
@@ -107,6 +138,8 @@ Hierarchy:
 - The Graph subsystem does not own arrangement truth.
 - The Graph subsystem may request routing into the workbench, but it does not define the
   workbench tree structure.
+- The Workbench subsystem may persist arrangement state and return-path memory, but that persistence is workspace state, not durable content hierarchy.
+- If Graphshell exposes a file-tree or other hierarchical navigator, that navigator is a Graph-owned projection and not part of workbench arrangement truth.
 
 ---
 
@@ -139,7 +172,8 @@ The workbench layer must make these user expectations reliable:
 - arranging work never changes graph identity,
 - closing presentation surfaces never deletes graph truth,
 - focus handoff is deterministic during structural change,
-- fallback behavior is explicit rather than silent.
+- fallback behavior is explicit rather than silent,
+- tile order, grouping, and frame membership do not define durable content hierarchy.
 
 ---
 
@@ -438,6 +472,11 @@ These are intended near-term behaviors. They are not yet required for baseline c
 - Better preview visibility for undo scope
 - More explicit structural-history diagnostics
 - Smarter return-path behavior after disruptive structural changes
+
+### 5.4 Per-domain Workspaces settings page
+
+- default routing behavior, tile close/recovery policy, frame history depth
+- exposed via the **Workspaces** settings category in `aspect_control/settings_and_control_surfaces_spec.md §4.2`
 
 ---
 

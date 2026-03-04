@@ -254,7 +254,8 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
         intents.push(GraphIntent::TogglePhysics);
     }
     if actions.toggle_camera_fit_lock {
-        intents.push(GraphIntent::ToggleCameraFitLock);
+        intents.push(GraphIntent::ToggleCameraPositionFitLock);
+        intents.push(GraphIntent::ToggleCameraZoomFitLock);
     }
     // View toggling is owned by GUI tile logic.
     if actions.fit_to_screen {
@@ -389,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn test_toggle_camera_fit_lock_action_maps_to_intent() {
+    fn test_toggle_camera_fit_lock_action_maps_to_split_intents() {
         let intents = intents_from_actions(&KeyboardActions {
             toggle_camera_fit_lock: true,
             ..Default::default()
@@ -397,7 +398,12 @@ mod tests {
         assert!(
             intents
                 .iter()
-                .any(|i| matches!(i, GraphIntent::ToggleCameraFitLock))
+                .any(|i| matches!(i, GraphIntent::ToggleCameraPositionFitLock))
+        );
+        assert!(
+            intents
+                .iter()
+                .any(|i| matches!(i, GraphIntent::ToggleCameraZoomFitLock))
         );
     }
 

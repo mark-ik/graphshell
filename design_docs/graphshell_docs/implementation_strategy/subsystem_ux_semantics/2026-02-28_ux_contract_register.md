@@ -17,6 +17,34 @@
 - `../research/2026-02-27_egui_stack_assessment.md`
 - `2026-02-24_control_ui_ux_plan.md`
 
+**Adopted standards** (see [standards report](../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6, 3.7):
+
+- **WCAG 2.2 Level AA** — the UX contract register and all canonical specs implement WCAG 2.2 AA as the cross-cutting conformance target for all interactive Graphshell surfaces
+- **OpenTelemetry Semantic Conventions** — all diagnostics obligations in canonical specs follow OTel naming/severity conventions
+- **OSGi R8** — capability declaration and registry vocabulary used in viewer, command, and settings contracts
+
+**Cross-doc audit artifact**:
+
+- `2026-03-04_model_boundary_control_matrix.md`
+
+---
+
+## 1B. Standard Control Paradigm Baseline
+
+Before adding novel control semantics, Graphshell must cover the standard control paradigm that users expect from a spatial browser:
+
+| Paradigm area | Standard expectation | Graphshell coverage |
+| --- | --- | --- |
+| Spatial graph interaction | Select, multi-select, inspect, activate/open, drag, lasso, pan, zoom, fit/reset, keyboard equivalents | `graph_node_edge_interaction_spec.md` §§3.1–3.5 |
+| Workspace management | Create/switch panes, split, group/tab, reorder, close, recover, history | `workbench_frame_tile_interaction_spec.md` §§4.1–4.6 |
+| Unified command invocation | Keyboard shortcuts, searchable command palette, contextual menu/palette, optional radial shortcuts | `command_surface_interaction_spec.md` §§4.1–4.6 |
+| Focus/navigation model | One semantic focus owner, modal capture, deterministic return path, region cycling, skip links | `focus_and_region_navigation_spec.md` §§4.1–4.7 |
+| Tool surfaces | Settings, history, diagnostics, import as first-class app surfaces | `settings_and_control_surfaces_spec.md` §§4.1–4.5 |
+| Viewer-state clarity | Loading, partial, placeholder, fallback, retry/override affordances | `viewer_presentation_and_fallback_spec.md` §§4.1–4.5 |
+| Accessibility baseline | All critical drag actions have non-drag alternatives, consistent labels, visible focus, no hidden failures | `focus_and_region_navigation_spec.md` §4.7, `design/accessibility_baseline_checklist.md` |
+
+**Policy**: Graphshell must phrase its controls in these standard terms before layering novel semantics on top. Novelty that contradicts baseline expectations must be documented with a rationale in the relevant spec.
+
 ---
 
 ## 1. Why This Exists
@@ -73,17 +101,33 @@ UX must be specified as **interaction contracts**, not as scattered UI wishes.
 
 Every important UX behavior should be defined as:
 
-1. user intent
+1. intent
 2. trigger
 3. preconditions
 4. semantic result
 5. focus result
 6. visual result
-7. degradation/failure result
-8. ownership boundary
-9. verification method
+7. degradation result
+8. owner
+9. verification
 
 If a behavior cannot be expressed in that form, it is not ready to become implementation work.
+
+### 2A. Contract Template (normative)
+
+All canonical subsystem specs must use this contract template for normative entries:
+
+1. intent
+2. trigger
+3. preconditions
+4. semantic result
+5. focus result
+6. visual result
+7. degradation result
+8. owner
+9. verification
+
+The template is mandatory for new contract sections and for significant contract rewrites.
 
 ---
 
@@ -133,6 +177,55 @@ That keeps the UX plan compatible with the current stack and with future migrati
 
 ---
 
+## 3A. Canonical Data, View, and Workspace Model
+
+Graphshell UX depends on keeping content truth, navigation projections, and workspace arrangement distinct.
+
+### Content model
+
+- `GraphId` is the canonical content space and graph-truth boundary.
+- Nodes and edges are durable app data, with stable identity and explicit relationship semantics.
+- Hierarchical containment may exist as one constrained relationship type, but it is not the only valid organizing relation in the graph.
+- The graph may represent a filesystem-like hierarchy, but Graphshell must not collapse the whole content model into a tree-only truth model unless a future subsystem explicitly adopts that constraint.
+
+### View model
+
+- `GraphViewId` is a scoped view instance within a `GraphId`.
+- A `GraphViewId` includes:
+  - scope definition (which node set, subgraph, or collection is in-play by default)
+  - lens state (camera, selection memory, filters, and local focus memory)
+- `GraphViewId` is independent of pane hosting. A pane may present a `GraphViewId`, but it does not define the view's identity.
+
+### Navigation projections
+
+- The file tree is a hierarchical navigator over graph-backed items exposed through a designated containment relation.
+- The file tree may contain content nodes, saved views, collections, imported filesystem projections, or another explicitly declared subset of graph-backed artifacts.
+- The file tree is a UI projection and navigation surface, not the canonical owner of content identity or graph truth.
+- The graph canvas is the primary relational navigation surface over the broader relation space; the file tree is the lower-complexity hierarchical navigation surface.
+
+### Workspace model
+
+- Workbench frames, tiles, and panes are workspace arrangement state.
+- The workbench may host one or more `GraphViewId` instances plus tool and viewer surfaces.
+- Workbench state may persist arrangement and return-path context, but it must never be the canonical owner of content identity or durable hierarchy.
+
+### 3B. Model Boundary (normative shorthand)
+
+- `GraphId` = truth boundary (durable content semantics).
+- `GraphViewId` = scoped view state (camera/lens/selection memory/filter scope).
+- file tree = graph-backed hierarchical projection (navigation surface, not content truth).
+- workbench = arrangement boundary (pane/tile/frame hosting only).
+
+All canonical specs in this register family inherit this shorthand and must not redefine it.
+
+### 3C. Terminology Lock
+
+- Never call tile order or frame arrangement a content hierarchy.
+- Never call the file tree content truth or graph identity authority.
+- Never call physics presets camera modes.
+
+---
+
 ## 4. UX Domain Model
 
 Graphshell UX should be planned by domain, not by screens.
@@ -155,6 +248,7 @@ The current recommended UX domains are grouped into the six canonical specs:
 Some previously separate concerns are intentionally folded into these owning specs:
 
 - **Search and Retrieval** folds into **Command Surfaces** unless it grows into a substantially larger subsystem.
+- **File Tree / Hierarchical Navigation** folds into **Graph / Node / Edge** as a navigation projection over graph-backed content unless it grows into a substantially larger subsystem.
 - **Feedback, Diagnostics, and Recovery** is mandatory inside each subsystem spec rather than a standalone canonical spec.
 - **Accessibility** is cross-cutting and must appear in every major spec, with **Focus and Region Navigation** carrying the explicit cross-app navigation contract.
 
@@ -498,14 +592,50 @@ This keeps UX planning cumulative instead of anecdotal.
 
 ---
 
-## 9. Immediate Next Planning Artifacts
+## 9. Current Status and Next Planning Artifacts
 
-To make this register actionable, Graphshell should maintain:
+### 9.1 Contract completeness status
 
-1. A current issue map by UX domain
-2. A reusable GitHub issue template for UX contract slices
-3. A short list of top-priority contract slices for the current milestone
+| Spec | Standards block | Sub-domain contracts | Per-domain settings ref |
+| --- | --- | --- | --- |
+| `canvas/graph_node_edge_interaction_spec.md` | ✅ | ✅ complete | ✅ §5.5 |
+| `workbench/workbench_frame_tile_interaction_spec.md` | ✅ | ✅ complete | ✅ §5.4 |
+| `aspect_command/command_surface_interaction_spec.md` | ✅ | ✅ complete | ✅ §5 |
+| `subsystem_focus/focus_and_region_navigation_spec.md` | ✅ | ✅ complete + §4.7 deterministic contract | ✅ §5 |
+| `viewer/viewer_presentation_and_fallback_spec.md` | ✅ | ✅ complete | ✅ §5 |
+| `aspect_control/settings_and_control_surfaces_spec.md` | ✅ | ✅ complete | ✅ owns settings surface |
 
-The companion issue map is the operational view; this register is the stable model.
+### 9.2 Per-domain UX preferences in Settings
 
+Each UX domain maps to a settings category in `settings_and_control_surfaces_spec.md §4.2`.
+Settings pages expose per-domain user-configurable behavior:
 
+| UX domain | Settings category | Representative preferences |
+| --- | --- | --- |
+| Graph / Node / Edge | **Graph** | physics preset (Liquid/Gas/Solid), fit strength, position-fit lock, zoom-fit lock, keyboard pan bindings |
+| Workbench / Frame / Tile | **Workspaces** | default routing behavior, tile close policy, frame history depth |
+| Command Surfaces | **Keybindings** + **General** | palette mode default (search/context/radial), radial sector presets, command aliases |
+| Focus & Region Navigation | **Accessibility** | region cycle order, focus memory, skip-link visibility |
+| Viewer Presentation | **General** | default viewer overrides, placeholder explanation verbosity, prewarm policy |
+| Settings & Control Surfaces | *(self)* | — |
+
+Per-domain preferences are Planned Extensions in each spec. The Settings surface is the canonical UI for all of them.
+
+### 9.3 Issue domain map
+
+Issues are categorized by UX domain via GitHub labels. Use these labels to filter the live issue map:
+
+| UX domain | GitHub label | Lane |
+| --- | --- | --- |
+| Graph / Node / Edge | `domain:graph` | `lane:stabilization` |
+| Workbench / Frame / Tile | `domain:workbench` | `lane:stabilization` |
+| Command Surfaces | `domain:command` | `lane:control-ui-settings` |
+| Focus & Region Navigation | `domain:focus` | `lane:accessibility` |
+| Viewer Presentation | `domain:viewer` | `lane:viewer-platform` |
+| Settings & Control Surfaces | `domain:settings` | `lane:control-ui-settings` |
+
+Contract-slice issues use `.github/ISSUE_TEMPLATE/ux_contract_slice.md`.
+
+### 9.4 Remaining work
+
+1. WCAG 2.2 AA conformance checklist per domain — gated on accessibility subsystem work (`design_docs/graphshell_docs/design/accessibility_baseline_checklist.md` has the structure; per-surface pass/fail status pending implementation).

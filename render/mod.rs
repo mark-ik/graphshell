@@ -1074,7 +1074,8 @@ fn handle_custom_navigation(
         return None;
     }
 
-    let camera_fit_locked = app.camera_fit_locked();
+    let position_fit_locked = app.camera_position_fit_locked();
+    let zoom_fit_locked = app.camera_zoom_fit_locked();
 
     if should_auto_fit_locked_camera(app) {
         app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
@@ -1085,7 +1086,7 @@ fn handle_custom_navigation(
     let camera_zoom = apply_pending_camera_command(ui, app, metadata_id, view_id, canvas_profile);
 
     // Apply keyboard zoom for this pane when a pending request explicitly targets it.
-    let keyboard_zoom = if camera_fit_locked {
+    let keyboard_zoom = if zoom_fit_locked {
         None
     } else {
         apply_pending_keyboard_zoom_request(
@@ -1098,7 +1099,7 @@ fn handle_custom_navigation(
     };
 
     // Apply pre-intercepted wheel zoom delta.
-    let wheel_zoom = if camera_fit_locked {
+    let wheel_zoom = if zoom_fit_locked {
         None
     } else {
         apply_pending_wheel_zoom(
@@ -1123,7 +1124,7 @@ fn handle_custom_navigation(
     let keyboard_pan_blocked = emit_keyboard_pan_blocked_if_needed(
         keyboard_pan_delta,
         wants_keyboard_input,
-        camera_fit_locked,
+        position_fit_locked,
         keyboard_pan_allowed,
     );
     if !keyboard_pan_blocked && keyboard_pan_delta != Vec2::ZERO {
@@ -1133,7 +1134,7 @@ fn handle_custom_navigation(
     // Pan with Left Mouse Button on background
     // Note: We check if we are NOT hovering a node to allow node dragging.
     // app.workspace.hovered_graph_node is updated before this function in render_graph_in_ui_collect_actions.
-    if !camera_fit_locked
+    if !position_fit_locked
         && canvas_profile.allows_background_pan(
         app.workspace.hovered_graph_node.is_none(),
         pointer_inside,
@@ -1179,7 +1180,7 @@ fn handle_custom_navigation(
 }
 
 fn should_auto_fit_locked_camera(app: &GraphBrowserApp) -> bool {
-    app.camera_fit_locked()
+    app.camera_position_fit_locked()
         && !app.workspace.is_interacting
         && app.workspace.physics.base.is_running
 }
@@ -2871,14 +2872,21 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
 
             ui.separator();
             ui.label("Graph Camera");
-            let mut fit_lock_enabled = app.camera_fit_locked();
+            let mut position_fit_lock_enabled = app.camera_position_fit_locked();
             if ui
-                .checkbox(&mut fit_lock_enabled, "Lock camera to graph fit")
+                .checkbox(&mut position_fit_lock_enabled, "Lock camera position to graph fit")
                 .changed()
             {
-                app.set_camera_fit_locked(fit_lock_enabled);
+                app.set_camera_position_fit_locked(position_fit_lock_enabled);
             }
-            ui.small("When enabled, camera stays fit-to-screen and free pan/zoom is disabled.");
+            let mut zoom_fit_lock_enabled = app.camera_zoom_fit_locked();
+            if ui
+                .checkbox(&mut zoom_fit_lock_enabled, "Lock camera zoom to graph fit")
+                .changed()
+            {
+                app.set_camera_zoom_fit_locked(zoom_fit_lock_enabled);
+            }
+            ui.small("Position lock blocks manual pan; zoom lock blocks manual zoom.");
 
             ui.horizontal(|ui| {
                 ui.label("Keyboard pan speed");

@@ -354,6 +354,10 @@ pub struct GraphViewState {
     pub id: GraphViewId,
     pub name: String,
     pub camera: Camera,
+    #[serde(default)]
+    pub position_fit_locked: bool,
+    #[serde(default)]
+    pub zoom_fit_locked: bool,
     pub lens: LensConfig,
     /// Whether this graph pane uses shared canonical positions or owns a private local simulation.
     /// Defaults to `Canonical` (shared positions, independent camera only).
@@ -377,6 +381,8 @@ impl std::fmt::Debug for GraphViewState {
             .field("id", &self.id)
             .field("name", &self.name)
             .field("camera", &self.camera)
+            .field("position_fit_locked", &self.position_fit_locked)
+            .field("zoom_fit_locked", &self.zoom_fit_locked)
             .field("lens", &self.lens)
             .field("layout_mode", &self.layout_mode)
             .field("local_simulation", &self.local_simulation)
@@ -391,6 +397,8 @@ impl Clone for GraphViewState {
             id: self.id,
             name: self.name.clone(),
             camera: self.camera.clone(),
+            position_fit_locked: self.position_fit_locked,
+            zoom_fit_locked: self.zoom_fit_locked,
             lens: self.lens.clone(),
             layout_mode: self.layout_mode,
             local_simulation: self.local_simulation.clone(),
@@ -406,6 +414,8 @@ impl GraphViewState {
             id,
             name: name.into(),
             camera: Camera::new(),
+            position_fit_locked: false,
+            zoom_fit_locked: false,
             lens: LensConfig::default(),
             layout_mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode::default(),
             local_simulation: None,
@@ -981,7 +991,8 @@ impl CanvasLassoBinding {
 #[derive(Debug, Clone)]
 pub enum GraphIntent {
     TogglePhysics,
-    ToggleCameraFitLock,
+    ToggleCameraPositionFitLock,
+    ToggleCameraZoomFitLock,
     RequestFitToScreen,
     RequestZoomIn,
     RequestZoomOut,
@@ -1522,9 +1533,6 @@ pub struct GraphWorkspace {
     /// Camera state (zoom bounds)
     pub camera: Camera,
 
-    /// When true, graph camera is locked to fit-to-screen and free pan/zoom is disabled.
-    pub camera_fit_locked: bool,
-
     /// Global undo history snapshots.
     undo_stack: Vec<UndoRedoSnapshot>,
     /// Global redo history snapshots.
@@ -1777,7 +1785,6 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_target_view: None,
                 pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
-                camera_fit_locked: false,
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
@@ -1978,7 +1985,6 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_target_view: None,
                 pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
-                camera_fit_locked: false,
                 views: HashMap::new(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
@@ -2118,16 +2124,41 @@ impl GraphBrowserApp {
         self.request_camera_command(CameraCommand::Fit);
     }
 
-    pub fn camera_fit_locked(&self) -> bool {
-        self.workspace.camera_fit_locked
+    fn camera_lock_target_view(&self) -> Option<GraphViewId> {
+        self.resolve_camera_target_view()
     }
 
-    pub fn set_camera_fit_locked(&mut self, locked: bool) {
-        if self.workspace.camera_fit_locked == locked {
+    pub fn camera_position_fit_locked(&self) -> bool {
+        self.camera_lock_target_view()
+            .and_then(|view_id| self.workspace.views.get(&view_id))
+            .is_some_and(|view| view.position_fit_locked)
+    }
+
+    pub fn camera_zoom_fit_locked(&self) -> bool {
+        self.camera_lock_target_view()
+            .and_then(|view_id| self.workspace.views.get(&view_id))
+            .is_some_and(|view| view.zoom_fit_locked)
+    }
+
+    pub fn camera_fit_locked(&self) -> bool {
+        self.camera_position_fit_locked() && self.camera_zoom_fit_locked()
+    }
+
+    pub fn set_camera_position_fit_locked(&mut self, locked: bool) {
+        let Some(view_id) = self.camera_lock_target_view() else {
+            return;
+        };
+        let was_locked = self
+            .workspace
+            .views
+            .get(&view_id)
+            .is_some_and(|view| view.position_fit_locked);
+        if was_locked == locked {
             return;
         }
-        let was_locked = self.workspace.camera_fit_locked;
-        self.workspace.camera_fit_locked = locked;
+        if let Some(view) = self.workspace.views.get_mut(&view_id) {
+            view.position_fit_locked = locked;
+        }
         if locked {
             self.workspace.drag_release_frames_remaining = 0;
             self.request_fit_to_screen();
@@ -2141,14 +2172,50 @@ impl GraphBrowserApp {
             self.workspace.pending_camera_command = None;
         }
         log::debug!(
-            "camera_fit_lock: {} -> {} (pending_camera={:?}, pending_target={:?}, physics_running={}, interacting={})",
+            "camera_position_fit_lock(view={:?}): {} -> {} (pending_camera={:?}, pending_target={:?}, physics_running={}, interacting={})",
+            view_id,
             was_locked,
-            self.workspace.camera_fit_locked,
+            locked,
             self.pending_camera_command(),
             self.pending_camera_command_target_raw(),
             self.workspace.physics.base.is_running,
             self.workspace.is_interacting,
         );
+    }
+
+    pub fn set_camera_zoom_fit_locked(&mut self, locked: bool) {
+        let Some(view_id) = self.camera_lock_target_view() else {
+            return;
+        };
+        let was_locked = self
+            .workspace
+            .views
+            .get(&view_id)
+            .is_some_and(|view| view.zoom_fit_locked);
+        if was_locked == locked {
+            return;
+        }
+        if let Some(view) = self.workspace.views.get_mut(&view_id) {
+            view.zoom_fit_locked = locked;
+        }
+        if locked {
+            self.request_fit_to_screen();
+        }
+        log::debug!(
+            "camera_zoom_fit_lock(view={:?}): {} -> {} (pending_camera={:?}, pending_target={:?}, physics_running={}, interacting={})",
+            view_id,
+            was_locked,
+            locked,
+            self.pending_camera_command(),
+            self.pending_camera_command_target_raw(),
+            self.workspace.physics.base.is_running,
+            self.workspace.is_interacting,
+        );
+    }
+
+    pub fn set_camera_fit_locked(&mut self, locked: bool) {
+        self.set_camera_position_fit_locked(locked);
+        self.set_camera_zoom_fit_locked(locked);
     }
 
     pub fn reconcile_workspace_graph_views(
@@ -2382,7 +2449,7 @@ impl GraphBrowserApp {
             if was_running {
                 self.workspace.physics.base.is_running = true;
                 self.workspace.drag_release_frames_remaining = 0;
-            } else if self.workspace.camera_fit_locked {
+            } else if self.camera_position_fit_locked() {
                 self.workspace.physics.base.is_running = false;
                 self.workspace.drag_release_frames_remaining = 0;
             } else {
@@ -2416,8 +2483,12 @@ impl GraphBrowserApp {
 
     fn apply_workspace_only_intent(&mut self, intent: &GraphIntent) -> bool {
         match intent {
-            GraphIntent::ToggleCameraFitLock => {
-                self.set_camera_fit_locked(!self.workspace.camera_fit_locked);
+            GraphIntent::ToggleCameraPositionFitLock => {
+                self.set_camera_position_fit_locked(!self.camera_position_fit_locked());
+                true
+            }
+            GraphIntent::ToggleCameraZoomFitLock => {
+                self.set_camera_zoom_fit_locked(!self.camera_zoom_fit_locked());
                 true
             }
             GraphIntent::RequestFitToScreen => {
@@ -2425,7 +2496,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::RequestZoomIn => {
-                if self.workspace.camera_fit_locked {
+                if self.camera_zoom_fit_locked() {
                     self.request_fit_to_screen();
                 } else {
                     self.queue_keyboard_zoom_request(KeyboardZoomRequest::In);
@@ -2433,7 +2504,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::RequestZoomOut => {
-                if self.workspace.camera_fit_locked {
+                if self.camera_zoom_fit_locked() {
                     self.request_fit_to_screen();
                 } else {
                     self.queue_keyboard_zoom_request(KeyboardZoomRequest::Out);
@@ -2441,7 +2512,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::RequestZoomReset => {
-                if self.workspace.camera_fit_locked {
+                if self.camera_zoom_fit_locked() {
                     self.request_fit_to_screen();
                 } else {
                     self.queue_keyboard_zoom_request(KeyboardZoomRequest::Reset);
@@ -2449,7 +2520,10 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::RequestZoomToSelected => {
-                if self.workspace.camera_fit_locked || self.focused_selection().len() < 2 {
+                if self.camera_position_fit_locked()
+                    || self.camera_zoom_fit_locked()
+                    || self.focused_selection().len() < 2
+                {
                     self.request_fit_to_screen();
                 } else {
                     self.request_camera_command(CameraCommand::FitSelection);
@@ -2485,7 +2559,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetZoom { zoom } => {
-                if !self.workspace.camera_fit_locked {
+                if !self.camera_zoom_fit_locked() {
                     if let Some(focused_view) = self.workspace.focused_view
                         && let Some(view) = self.workspace.views.get_mut(&focused_view)
                     {
@@ -2589,7 +2663,8 @@ impl GraphBrowserApp {
 
         match intent {
             GraphIntent::TogglePhysics => self.toggle_physics(),
-            GraphIntent::ToggleCameraFitLock
+            GraphIntent::ToggleCameraPositionFitLock
+            | GraphIntent::ToggleCameraZoomFitLock
             | GraphIntent::RequestFitToScreen
             | GraphIntent::RequestZoomIn
             | GraphIntent::RequestZoomOut
@@ -6709,7 +6784,7 @@ mod tests {
     }
 
     #[test]
-    fn test_toggle_camera_fit_lock_requests_fit() {
+    fn test_toggle_camera_fit_locks_request_fit() {
         let mut app = GraphBrowserApp::new_for_testing();
         let view_id = GraphViewId::new();
         app.workspace
@@ -6718,11 +6793,43 @@ mod tests {
         app.workspace.focused_view = Some(view_id);
         app.clear_pending_camera_command();
 
-        app.apply_intents([GraphIntent::ToggleCameraFitLock]);
+        app.apply_intents([
+            GraphIntent::ToggleCameraPositionFitLock,
+            GraphIntent::ToggleCameraZoomFitLock,
+        ]);
 
         assert!(app.camera_fit_locked());
         assert_eq!(app.pending_camera_command(), Some(CameraCommand::Fit));
         assert_eq!(app.pending_camera_command_target(), Some(view_id));
+    }
+
+    #[test]
+    fn test_camera_locks_are_scoped_per_graph_view() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_a = GraphViewId::new();
+        let view_b = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_a, GraphViewState::new_with_id(view_a, "A"));
+        app.workspace
+            .views
+            .insert(view_b, GraphViewState::new_with_id(view_b, "B"));
+
+        app.workspace.focused_view = Some(view_a);
+        app.set_camera_fit_locked(true);
+        assert!(app.camera_fit_locked());
+
+        app.workspace.focused_view = Some(view_b);
+        assert!(!app.camera_position_fit_locked());
+        assert!(!app.camera_zoom_fit_locked());
+
+        app.set_camera_position_fit_locked(true);
+        assert!(app.camera_position_fit_locked());
+        assert!(!app.camera_zoom_fit_locked());
+
+        app.workspace.focused_view = Some(view_a);
+        assert!(app.camera_position_fit_locked());
+        assert!(app.camera_zoom_fit_locked());
     }
 
     #[test]
@@ -6768,6 +6875,46 @@ mod tests {
         app.workspace.views.get_mut(&view_id).unwrap().camera.current_zoom = 2.0;
         app.apply_intents([GraphIntent::SetZoom { zoom: 0.25 }]);
         assert_eq!(app.workspace.views.get(&view_id).unwrap().camera.current_zoom, 2.0);
+    }
+
+    #[test]
+    fn test_position_fit_lock_does_not_block_manual_zoom() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
+
+        app.set_camera_position_fit_locked(true);
+        app.set_camera_zoom_fit_locked(false);
+        app.clear_pending_camera_command();
+
+        app.apply_intents([GraphIntent::RequestZoomIn]);
+        assert_eq!(
+            app.take_pending_keyboard_zoom_request(view_id),
+            Some(KeyboardZoomRequest::In)
+        );
+    }
+
+    #[test]
+    fn test_zoom_fit_lock_does_not_block_manual_pan_reheat_path() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
+        app.workspace.physics.base.is_running = false;
+
+        app.set_camera_position_fit_locked(false);
+        app.set_camera_zoom_fit_locked(true);
+
+        app.set_interacting(true);
+        app.set_interacting(false);
+
+        assert!(app.workspace.physics.base.is_running);
+        assert_eq!(app.workspace.drag_release_frames_remaining, 10);
     }
 
     #[test]

@@ -17,6 +17,25 @@
 - `../system/register/workbench_surface_registry_spec.md`
 - `../../TERMINOLOGY.md` — `Graph View`, `GraphViewId`, `Scope Isolation`, `Graph Scope`
 
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+This spec governs view/pane interaction contracts without collapsing graph truth into workbench structure.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative multi-view contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
+
 ---
 
 ## 1. Scope

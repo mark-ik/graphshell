@@ -1006,7 +1006,10 @@ fn camera_fit_lock_toggle_is_not_consumed_when_modal_is_active() {
     let mut app = GraphBrowserApp::new_for_testing();
     app.workspace.show_radial_menu = true;
 
-    let mut intents = vec![GraphIntent::ToggleCameraFitLock];
+    let mut intents = vec![
+        GraphIntent::ToggleCameraPositionFitLock,
+        GraphIntent::ToggleCameraZoomFitLock,
+    ];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
 
     diagnostics.force_drain_for_tests();
@@ -1016,8 +1019,10 @@ fn camera_fit_lock_toggle_is_not_consumed_when_modal_is_active() {
         "camera lock toggle should not be consumed by modal isolation"
     );
     assert!(
-        intents.len() == 1 && matches!(intents[0], GraphIntent::ToggleCameraFitLock),
-        "camera lock toggle intent should remain for reducer default handling"
+        intents.len() == 2
+            && matches!(intents[0], GraphIntent::ToggleCameraPositionFitLock)
+            && matches!(intents[1], GraphIntent::ToggleCameraZoomFitLock),
+        "camera lock toggle intents should remain for reducer default handling"
     );
 }
 

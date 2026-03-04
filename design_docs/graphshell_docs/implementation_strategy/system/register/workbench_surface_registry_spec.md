@@ -10,6 +10,25 @@
 **Policy authority**: This file is the canonical policy authority for `workbench_surface_registry` semantics and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+This registry owns arrangement policy and must not redefine graph truth or file-tree semantic ownership.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative workbench-surface contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
+
 ## Registry Policies
 
 1. **Tile-tree-authority policy**: Workbench surface registry owns pane/tile structural interaction policy.

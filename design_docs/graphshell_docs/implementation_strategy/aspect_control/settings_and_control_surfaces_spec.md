@@ -9,7 +9,32 @@
 - `../2026-02-20_settings_architecture_plan.md`
 - `../2026-02-24_control_ui_ux_plan.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
+- `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../../design/KEYBINDINGS.md`
+
+**Adopted standards** (see [standards report](../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6):
+
+- **WCAG 2.2 Level AA** — SC 2.1.1 (keyboard), SC 1.3.1 (structure of lists/tables), SC 4.1.2 (settings controls have name/role/value), SC 2.4.3 (focus order within settings pages)
+- **OpenTelemetry Semantic Conventions** — diagnostics for failed applies, invalid values, missing pages
+
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+Settings surfaces may configure graph/view/workbench state but do not become semantic owners of those domains.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative settings/control contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
 
 ---
 

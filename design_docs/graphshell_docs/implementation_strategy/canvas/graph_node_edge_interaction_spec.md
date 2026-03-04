@@ -14,9 +14,35 @@
 - `../aspect_command/command_surface_interaction_spec.md`
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
+- `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `2026-02-23_graph_interaction_consistency_plan.md`
 - `../design/KEYBINDINGS.md`
 - `../../TERMINOLOGY.md`
+
+**Adopted standards** (see [standards report](../../research/2026-03-04_standards_alignment_report.md) §§3.3, 3.5, 3.6):
+
+- **WCAG 2.2 Level AA** — SC 2.5.8 (minimum target size for nodes/edges/affordances), SC 2.4.3 (focus order), SC 2.4.11 (focus appearance)
+- **Fruchterman-Reingold 1991** — physics preset semantics (`Liquid` / `Gas` / `Solid`) documented against this model
+- **OpenTelemetry Semantic Conventions** — diagnostics channels for blocked/degraded graph states
+
+## Model boundary (inherits UX Contract Register §3B)
+
+- `GraphId` = truth boundary.
+- `GraphViewId` = scoped view state.
+- file tree = graph-backed hierarchical projection.
+- workbench = arrangement boundary.
+
+This spec defines graph-surface semantics and must not redefine workbench arrangement ownership.
+
+## Contract template (inherits UX Contract Register §2A)
+
+Normative graph contracts use: intent, trigger, preconditions, semantic result, focus result, visual result, degradation result, owner, verification.
+
+## Terminology lock (inherits UX Contract Register §3C)
+
+- Tile/frame arrangement is not content hierarchy.
+- File tree is not content truth authority.
+- Physics presets are not camera modes.
 
 ---
 
@@ -45,6 +71,7 @@ This spec governs:
 - `Node`
 - `Edge`
 - `Canvas`
+- file-tree / hierarchical navigation when used as a graph-backed projection
 - camera and selection semantics inside the graph pane
 - the user-facing contract of the graph structure subsystem
 
@@ -64,7 +91,7 @@ For command invocation, focus ownership, and viewer-state clarity, see:
 
 ### 2.1 Interactive hierarchy
 
-The graph surface is composed of four interactive layers:
+The graph surface is composed of four primary interactive layers:
 
 1. **Graph Pane**
    - the active graph viewport and command context
@@ -75,12 +102,15 @@ The graph surface is composed of four interactive layers:
 4. **Edge**
    - the relationship or traversal surface between nodes
 
+When the file tree is present, it is a graph-backed hierarchical navigation projection over the same content model rather than a separate content-truth authority.
+
 ### 2.2 What each layer is for
 
 - **Graph Pane**: the semantic navigation and manipulation surface for graph work.
 - **Canvas**: the continuous space users pan, zoom, lasso, and inspect.
 - **Node**: the primary content entity users act on.
 - **Edge**: the relationship surface users inspect and, when defined, traverse.
+- **File Tree (when present)**: a lower-complexity hierarchical navigator over a designated containment relation in the graph.
 
 ### 2.3 Ownership model
 
@@ -92,18 +122,22 @@ The graph surface is composed of four interactive layers:
   - lasso meaning,
   - node activation policy,
   - graph-to-workbench routing.
+- The file tree, when present, is a navigation projection over graph-backed items and must not become the owner of graph identity.
 
 ### 2.4 Subsystem boundary
 
 - The Graph subsystem owns graph truth:
   - nodes,
   - edges,
+  - graph-backed hierarchical containment relations where defined,
   - graphlets / connected groups,
   - graph selection,
-  - graph camera target semantics.
+  - graph camera target semantics,
+  - `GraphViewId` scope and view-state semantics.
 - The Workbench subsystem does not own graph truth.
 - The Workbench subsystem may host graph presentation surfaces, but it only does so after
   Graphshell routing bridges graph content into a workbench destination.
+- A `GraphViewId` is a scoped view instance within a `GraphId`; panes may host a `GraphViewId`, but they do not define its identity.
 
 ---
 
@@ -130,6 +164,7 @@ Graph interactions fall into five semantic categories:
 - Modifier-click adjusts the current selection set.
 - Double click activates the target's primary action.
 - If a target has no defined activation behavior, double click is a no-op beyond maintaining selection or inspection state.
+- Hierarchical navigation actions, when invoked through a file-tree projection, must resolve through the same graph identity and routing rules as canvas-originated actions.
 
 ### 3.3 Canonical guarantees
 
@@ -139,7 +174,8 @@ The graph surface must make these user expectations reliable:
 - selection is explicit and visible,
 - node activation routes through Graphshell open policy,
 - graph gestures do not silently fight each other,
-- blocked or degraded behavior is explicit rather than silent.
+- blocked or degraded behavior is explicit rather than silent,
+- file-tree navigation and graph-canvas navigation resolve to the same underlying graph-backed identities.
 
 ---
 
@@ -156,50 +192,60 @@ This section defines the stable target behavior for the current graph surface.
 
 **Core controls**
 
-- In the current default `Liquid` mode, camera auto-fit is the dominant framing behavior.
-- In a future `Gas` mode, free pan may be the dominant framing behavior.
-- Drag selected node: move graph content and therefore change the framing target when auto-fit is active.
+- Drag selected node: move graph content.
 - Wheel over graph pane: zoom at pointer.
+- Pointer drag on empty canvas: pan the active graph pane.
 - `Camera Fit`: fit relevant graph content.
 - `Graphlet Fit`: fit the current connected cluster or explicitly targeted graph subset.
 - `Focus Selection`: fit selected nodes only.
 - `Zoom Reset`: restore canonical default zoom baseline.
+- `C`: toggle position-fit lock (camera position follows fit target when enabled).
+- `Z`: toggle zoom-fit lock (camera zoom follows fit target when enabled).
 - Keyboard pan (`Arrow Keys` / `WASD`) is a camera control and must be configurable when enabled.
+- Physics presets (`Liquid`, `Gas`, `Solid`) affect node dynamics only and must not implicitly change camera behavior.
 
 **Who owns it**
 
-- Graphshell camera controller owns camera state, command targeting, zoom policy, auto-fit policy, and camera-mode selection.
+- Graphshell camera controller owns camera state, command targeting, zoom policy, fit-lock policy, and fit-strength policy.
+- Graphshell graph/layout controller owns physics preset selection (`Liquid`, `Gas`, `Solid`) and node-dynamics behavior.
 - The framework may only provide raw pointer and wheel events plus drawing surfaces.
 
 **State transitions**
 
-- Camera settings select a camera policy mode (`Liquid`, `Gas`, or later modes) for the active graph pane.
-- Panning changes viewport translation in the active graph pane only when the active camera mode allows free pan.
-- Wheel zoom changes viewport scale around the pointer target in the active graph pane only.
+- Camera settings independently configure `position-fit lock`, `zoom-fit lock`, and fit strength for the active graph pane.
+- `C` toggles `position-fit lock` for the active graph pane.
+- `Z` toggles `zoom-fit lock` for the active graph pane.
+- Panning changes viewport translation in the active graph pane.
+- Wheel zoom changes viewport scale around the pointer target in the active graph pane.
 - `Camera Fit` updates camera state to show relevant graph bounds.
 - `Graphlet Fit` updates camera state to show the chosen graph subset bounds.
 - `Focus Selection` updates camera state to show selected-node bounds.
-- Node dragging changes the graph bounds and may therefore change the camera target under auto-fit modes.
+- When `position-fit lock` is enabled, fit-family commands and graph-bounds changes may reconverge camera translation toward the current fit target.
+- When `zoom-fit lock` is enabled, fit-family commands and graph-bounds changes may reconverge camera scale toward the current fit target.
+- Node dragging changes graph bounds and may therefore update the fit target, but it must not silently disable manual pan or zoom.
 - `Fit Strength` changes how strongly the camera converges toward the fit target over time.
+- Physics preset changes update node simulation behavior only; they must not mutate camera locks or current camera state.
 
 **Visual feedback**
 
 - Camera movement must be immediate and legible.
 - Zoom must visually anchor around the pointer, not drift arbitrarily.
 - Fit operations must visibly land on the intended target set.
-- If auto-fit is active, the user must be able to perceive that the camera is following graph bounds rather than being in a fully manual mode.
+- If either fit lock is active, the user must be able to perceive that the camera is following graph bounds rather than being in a fully manual state.
 
 **Camera invariants (pre-renderer/WGPU closure)**
 
 - Zoom ownership is per active graph pane; a zoom request for one view must not mutate camera state in another view.
 - Wheel zoom is pointer-relative when an anchor is available; missing anchor/metadata paths must defer safely or emit diagnostics rather than silently mutating camera state.
 - `Zoom Reset` and fit-family commands resolve to deterministic camera targets under the active camera policy.
+- Manual pan and manual zoom remain available regardless of active physics preset.
+- Physics presets must never be used as implicit camera-mode selectors.
 
 **Fallback / degraded behavior**
 
 - If input cannot be claimed, Graphshell must emit diagnostics and preserve existing camera state.
 - Silent camera no-op behavior is forbidden.
-- If a camera mode disables a control (for example, free pan in a strongly auto-fit mode), that must be an explicit mode rule, not an accidental loss of control.
+- If a fit lock cannot be honored, Graphshell must preserve manual camera control and make the degraded fit-follow state explicit.
 
 ### 4.2 Node Interaction
 
@@ -459,16 +505,24 @@ This is a prospective extension — do not implement until a dedicated design do
 - Camera bookmarks
 - Search-targeting affordances in graph space
 - More explicit selection-to-navigation handoffs
-- Configurable camera modes:
-  - `Liquid` as the default auto-fit-biased mode
-  - `Gas` as the free-pan-biased mode
+- Configurable physics presets:
+  - `Liquid` for more fluid node motion
+  - `Gas` for more energetic / free-moving node motion
+  - `Solid` for more damped / rigid node motion
 - Configurable `Fit Strength` control for auto-fit behavior, from aggressive framing to gentle framing assistance
 - Keyboard camera pan bindings (`Arrow Keys` and/or `WASD`)
 - Explicit user-facing toggles for:
+  - `position-fit lock` (`C`)
+  - `zoom-fit lock` (`Z`)
   - cursor-driven camera behavior
   - auto-fit to graph
   - auto-fit to graphlet
-  - free pan availability
+  - follow-selection framing assistance
+
+### 5.5 Per-domain Graph settings page
+
+- physics preset selector (Liquid/Gas/Solid), fit strength slider, position-fit lock toggle, zoom-fit lock toggle, keyboard pan bindings
+- exposed via the **Graph** settings category in `aspect_control/settings_and_control_surfaces_spec.md §4.2`
 
 ---
 
