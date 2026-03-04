@@ -265,6 +265,14 @@ Validation gate:
 - Command palette now emits explicit disabled hover reasons for unavailable undo/redo paths, matching matrix preconditions (`undo stack available` / `redo stack available`) while retaining shared `ActionId` dispatch semantics.
 - Added registry regression coverage asserting undo/redo disabled when stacks are empty and enabled when stack entries exist; validated in `action_registry`, `command_palette`, and `gui_orchestration` test packs.
 
+### AG0 Accessibility Notes (2026-03-04)
+
+- AG0 checklist synchronization progressed: `design/accessibility_baseline_checklist.md` now reflects `#301` evidence for keyboard-trap and explicit command-surface target-size/contrast rows instead of leaving those audited slices stale as `Untested`.
+- Radial disabled-state text contrast remediation is landed in `render/radial_menu.rs` and guarded by regression test `radial_disabled_text_contrast_meets_wcag_minimum_for_text`.
+- `#301` keyboard no-trap validation commands were re-run and remain green (`cycle_focus_region_intent_cycles_graph_node_tool_regions`, `close_settings_tool_pane_restores_previous_graph_focus_via_orchestration`, `cycle_focus_region_success_does_not_emit_ux_navigation_violation_channel`).
+- Modal isolation no-trap evidence now covers multiple floating command overlays (`radial`, `command palette`, `help panel`) via global undo-shortcut consumption regressions in `gui_orchestration_tests`.
+- AG0 remains open pending full WCAG 2.2 Level A coverage evidence across all seven surface classes (non-radial surfaces still have unverified rows).
+
 ---
 
 ## 5) Spec Conflict Resolution Status
@@ -570,7 +578,7 @@ From the pre-wgpu gate checklist, unchanged:
 
 | Gate | Status | Blocking lanes | Key open items |
 | --- | --- | --- | --- |
-| AG0 | `open` | stabilization, accessibility | All-surfaces WCAG A, a11y checklist desync |
+| AG0 | `open` | stabilization, accessibility | All-surfaces WCAG A completion sweep (remaining unverified non-radial surfaces) |
 | AG1 | `partial` | stabilization | Camera/lasso/selection reliability evidence in multi-pane paths (W2 complete) |
 | AG2 | `partial` | stabilization, embedder-debt | Focus activation race, close-successor handoff |
 | AG3 | `open` | embedder-debt | Legacy context-menu bypass retirement |

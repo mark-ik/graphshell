@@ -891,6 +891,74 @@ fn global_shortcut_undo_is_consumed_when_modal_is_active() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
+fn global_shortcut_undo_is_consumed_when_help_panel_modal_is_active() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new("ux_dispatch_global_shortcut_undo_help_modal", root, tiles);
+    let mut app = GraphBrowserApp::new_for_testing();
+    app.workspace.show_help_panel = true;
+
+    let mut intents = vec![GraphIntent::Undo];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_CONSUMED),
+        "expected modal capture to consume global undo shortcut intent"
+    );
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED),
+        "expected modal capture to prevent default handling for consumed undo intent"
+    );
+    assert!(
+        intents.is_empty(),
+        "undo intent should be consumed while help panel modal surface is active"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn global_shortcut_undo_is_consumed_when_command_palette_modal_is_active() {
+    let mut diagnostics =
+        crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let root = tiles.insert_tab_tile(vec![graph]);
+    let mut tree = Tree::new(
+        "ux_dispatch_global_shortcut_undo_command_palette_modal",
+        root,
+        tiles,
+    );
+    let mut app = GraphBrowserApp::new_for_testing();
+    app.workspace.show_command_palette = true;
+
+    let mut intents = vec![GraphIntent::Undo];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    diagnostics.force_drain_for_tests();
+    let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_CONSUMED),
+        "expected modal capture to consume global undo shortcut intent"
+    );
+    assert!(
+        snapshot.contains(CHANNEL_UX_DISPATCH_DEFAULT_PREVENTED),
+        "expected modal capture to prevent default handling for consumed undo intent"
+    );
+    assert!(
+        intents.is_empty(),
+        "undo intent should be consumed while command palette modal surface is active"
+    );
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
 fn camera_fit_lock_toggle_is_not_consumed_when_modal_is_active() {
     let mut diagnostics =
         crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();

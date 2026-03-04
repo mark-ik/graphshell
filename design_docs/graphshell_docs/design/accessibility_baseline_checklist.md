@@ -58,7 +58,7 @@ Known-gap alignment from UX integration research:
 | 1.3.5 Identify Input Purpose | AA | N/A | Untested | Untested | Untested | Untested | Untested | N/A | Primarily applies to input fields (omnibar/settings/dialog controls). |
 | 1.4.1 Use of Color | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Contrast-independent state cues need explicit verification. |
 | 1.4.2 Audio Control | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No auto-playing audio controls in current baseline. |
-| 1.4.3 Contrast (Minimum) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Research flags unresolved contrast-ratio verification (`G-A-7`). |
+| 1.4.3 Contrast (Minimum) | AA | Untested | Untested | Untested | Pass | Untested | Untested | Untested | Floating command surface (radial menu) contrast audited and remediated (`#301` + 2026-03-04 follow-up); remaining surfaces still require explicit audit evidence. |
 | 1.4.4 Resize Text | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Text scaling behavior requires dedicated verification sweep. |
 | 1.4.5 Images of Text | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Confirm text remains real text for command/UI labels. |
 | 1.4.10 Reflow | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Surface behavior spec defines overflow policy; implementation needs audit. |
@@ -66,7 +66,7 @@ Known-gap alignment from UX integration research:
 | 1.4.12 Text Spacing | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Custom spacing tolerance not yet verified. |
 | 1.4.13 Content on Hover or Focus | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Tooltip/overlay persistence and dismissibility needs testing. |
 | 2.1.1 Keyboard | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph-pane baseline now includes deterministic keyboard traversal (`#298`). |
-| 2.1.2 No Keyboard Trap | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Keyboard-trap hardening is tracked in `#301`. |
+| 2.1.2 No Keyboard Trap | A | Pass | Untested | Untested | Pass | Untested | Untested | Untested | Host focus-cycle return-path validation is complete for graph-pane routing (`#301`), and floating command overlays (radial/command palette/help panel) now have explicit modal-isolation shortcut-consumption regressions (2026-03-04 addendum). |
 | 2.1.4 Character Key Shortcuts | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Single-key command behavior needs remap/disable verification. |
 | 2.2.1 Timing Adjustable | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No time-limited interaction currently declared for these surfaces. |
 | 2.2.2 Pause, Stop, Hide | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No auto-updating moving content contract in baseline surfaces. |
@@ -84,7 +84,7 @@ Known-gap alignment from UX integration research:
 | 2.5.3 Label in Name | A | Pass | Untested | Untested | Untested | Untested | Untested | Untested | Graph canvas accessibility label now reflects focused node naming (`#298`). |
 | 2.5.4 Motion Actuation | A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | No motion-actuation controls are baseline-required. |
 | 2.5.7 Dragging Movements | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Keyboard/non-drag alternatives for drag interactions require validation. |
-| 2.5.8 Target Size (Minimum) | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Target-size audit is explicitly pending (`G-A-9`). |
+| 2.5.8 Target Size (Minimum) | AA | Untested | Untested | Untested | Pass | Untested | Untested | Untested | Floating command surface controls with explicit constants are audited (radial command + domain buttons in `#301`); other surfaces remain pending measurement sweep. |
 | 3.1.1 Language of Page | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Verify language metadata at host/UI accessibility tree layer. |
 | 3.1.2 Language of Parts | AA | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Mixed-language content handling not yet audited. |
 | 3.2.1 On Focus | A | Untested | Untested | Untested | Untested | Untested | Untested | Untested | Focus should not trigger unexpected context changes; verify. |

@@ -57,15 +57,20 @@ function Get-Contrast($fg,$bg){ $l1=Get-Luminance $fg; $l2=Get-Luminance $bg; if
 | Pair | Ratio | WCAG 1.4.3 text threshold (4.5:1) | Status |
 |---|---:|---:|---|
 | radial enabled text on enabled button | 6.99 | 4.5 | Pass |
-| radial disabled text on disabled button | 3.21 | 4.5 | Fail (text); Pass for non-text minimum 3.0 |
+| radial disabled text on disabled button (2026-03-02 baseline) | 3.21 | 4.5 | Fail (text); Pass for non-text minimum 3.0 |
 | radial hub label on hub fill | 12.78 | 4.5 | Pass |
 | radial domain label on domain fill | 10.34 | 4.5 | Pass |
 | radial hover-label text on hover-label background | 14.22 | 4.5 | Pass |
 | radial page-indicator text on canvas background | 8.55 | 4.5 | Pass |
 
+### 3.4 Remediation addendum (2026-03-04)
+
+- Disabled radial command text color was remediated in `render/radial_menu.rs` and is now gated by an automated contrast regression test (`radial_disabled_text_contrast_meets_wcag_minimum_for_text`).
+- Post-fix measured ratio for disabled text on disabled button is approximately `6.05:1` (>= `4.5:1`) and therefore now passes WCAG 1.4.3 normal text threshold.
+
 ### 3.3 Exception log
 
-- Disabled-state text contrast in radial surface (`3.21:1`) remains below normal-text AA (`4.5:1`) and is tracked as a follow-on remediation.
+- Historical note: disabled-state text contrast in radial surface was previously `3.21:1`; this was remediated on 2026-03-04 (see §3.4).
 
 ---
 
@@ -104,6 +109,16 @@ Run:
 ### 5.2 Recorded result
 
 All listed tests pass, validating deterministic non-pointer escape/return paths and no-trap navigation behavior in host UI focus routing.
+
+### 5.3 Modal surface addendum (2026-03-04)
+
+Additional regression coverage now verifies global undo shortcut modal isolation across multiple floating command surfaces:
+
+- `global_shortcut_undo_is_consumed_when_modal_is_active` (radial)
+- `global_shortcut_undo_is_consumed_when_command_palette_modal_is_active`
+- `global_shortcut_undo_is_consumed_when_help_panel_modal_is_active`
+
+All pass and provide evidence that active modal overlays consume non-modal global shortcut handling instead of trapping focus/dispatch in ambiguous paths.
 
 ---
 

@@ -30,6 +30,7 @@ const COMMAND_BUTTON_RADIUS: f32 = 22.0;
 const MIN_COMMAND_CENTER_SPACING: f32 = (COMMAND_BUTTON_RADIUS * 2.0) + 4.0;
 const HOVER_LABEL_MAX_CHARS: usize = 22;
 const HOVER_LABEL_OFFSET: f32 = 34.0;
+const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
 
 /// Radial domain maps to `ActionCategory` for registry-backed content.
 ///
@@ -465,7 +466,7 @@ pub fn render_radial_command_menu(
                             if entry.enabled {
                                 Color32::from_rgb(230, 240, 248)
                             } else {
-                                Color32::from_rgb(120, 125, 130)
+                                RADIAL_DISABLED_TEXT_COLOR
                             },
                         );
 
@@ -778,6 +779,30 @@ fn resolve_label_rect_collisions(mut rects: Vec<egui::Rect>, center: egui::Pos2)
 mod tests {
     use super::*;
 
+    fn to_linear_component(component: u8) -> f32 {
+        let value = component as f32 / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn relative_luminance(color: Color32) -> f32 {
+        0.2126 * to_linear_component(color.r())
+            + 0.7152 * to_linear_component(color.g())
+            + 0.0722 * to_linear_component(color.b())
+    }
+
+    fn contrast_ratio(foreground: Color32, background: Color32) -> f32 {
+        let mut l1 = relative_luminance(foreground);
+        let mut l2 = relative_luminance(background);
+        if l2 > l1 {
+            std::mem::swap(&mut l1, &mut l2);
+        }
+        (l1 + 0.05) / (l2 + 0.05)
+    }
+
     fn sample_entries() -> Vec<ActionEntry> {
         use crate::render::action_registry::ActionId;
         vec![
@@ -864,5 +889,15 @@ mod tests {
         let resolved = resolve_label_rect_collisions(rects, egui::pos2(-200.0, 0.0));
         let post = count_rect_collisions(&resolved);
         assert!(post <= pre);
+    }
+
+    #[test]
+    fn radial_disabled_text_contrast_meets_wcag_minimum_for_text() {
+        let disabled_button_fill = Color32::from_rgb(42, 48, 54);
+        let ratio = contrast_ratio(RADIAL_DISABLED_TEXT_COLOR, disabled_button_fill);
+        assert!(
+            ratio >= 4.5,
+            "expected disabled text contrast >= 4.5:1, got {ratio:.2}:1"
+        );
     }
 }
