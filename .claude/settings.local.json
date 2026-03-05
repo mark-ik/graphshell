@@ -58,7 +58,8 @@
       "Bash(gh issue list --limit 100 --json number,title,labels,state)",
       "Bash(gh issue list --limit 300 --json number,title,labels,state)",
       "Bash(# Quick tally of issues per status gh issue list --limit 300 --json number,title,labels,state)",
-      "Bash(gh issue list --limit 150 --json number,title,labels,state)"
+      "Bash(gh issue list --limit 150 --json number,title,labels,state)",
+      "Bash(gh run view 22695079327 --log-failed)"
     ]
   }
 }
