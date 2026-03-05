@@ -146,11 +146,13 @@ pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
     draw_graph_info(ui, app);
 }
 
-fn canvas_navigation_settings(
-    profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
-) -> SettingsNavigation {
+fn canvas_navigation_settings() -> SettingsNavigation {
     SettingsNavigation::new()
-        .with_fit_to_screen_enabled(profile.navigation.fit_to_screen_enabled)
+        // Disable egui_graphs fit-to-screen: graphshell owns fit-to-screen via
+        // `apply_pending_camera_command`. Passing true here causes egui_graphs to
+        // call fit_to_screen() on its MetadataFrame every frame, overwriting any
+        // pan/zoom that graphshell writes — the root cause of the camera-pan bug.
+        .with_fit_to_screen_enabled(false)
         // Keep egui_graphs navigation disabled so camera movement is owned by
         // `handle_custom_navigation` only. This avoids duplicate pan/zoom paths
         // fighting each other under active pointer drag.
@@ -257,11 +259,24 @@ pub fn render_graph_in_ui_collect_actions(
         .or(filtered_graph.as_ref())
         .unwrap_or(&app.workspace.graph);
 
-    // Build or reuse egui_graphs state (rebuild always when filtering or culling is active).
+    // Compute the current culled key set for change detection.
+    let culled_node_keys: Option<HashSet<NodeKey>> = culled_graph.as_ref().map(|g| {
+        g.nodes().map(|(key, _)| key).collect()
+    });
+
+    // Only rebuild egui_state when:
+    // - no state exists yet, or it was explicitly dirtied by a graph mutation,
+    // - a search filter is active (filter graph changes every query frame),
+    // - or the culled node set changed (nodes entered/left the viewport).
+    // Do NOT rebuild every frame merely because culling is active — that would
+    // reset egui_graphs' physics node state (FR velocity) every frame, causing
+    // culled-then-visible nodes to "respawn" at unexpected positions.
+    let culled_set_changed = culled_node_keys != app.workspace.last_culled_node_keys;
+
     if app.workspace.egui_state.is_none()
         || app.workspace.egui_state_dirty
         || filtered_graph.is_some()
-        || culled_graph.is_some()
+        || (culled_graph.is_some() && culled_set_changed)
     {
         let crashed_nodes: HashSet<NodeKey> = app.crash_blocked_node_keys().collect();
         let memberships_by_uuid: HashMap<Uuid, Vec<String>> = graph_for_render
@@ -284,6 +299,7 @@ pub fn render_graph_in_ui_collect_actions(
             &memberships_by_uuid,
         ));
         app.workspace.egui_state_dirty = false;
+        app.workspace.last_culled_node_keys = culled_node_keys;
     }
 
     apply_search_node_visuals(
@@ -298,7 +314,7 @@ pub fn render_graph_in_ui_collect_actions(
     let events: Rc<RefCell<Vec<Event>>> = Rc::new(RefCell::new(Vec::new()));
 
     // Graph settings resolved from layout domain canvas surface profile.
-    let nav = canvas_navigation_settings(canvas_profile);
+    let nav = canvas_navigation_settings();
     let interaction =
         canvas_interaction_settings(canvas_profile, radial_open, right_button_down, ctrl_pressed);
     let style = canvas_style_settings(canvas_profile);
@@ -419,7 +435,12 @@ pub fn render_graph_in_ui_collect_actions(
             .hovered_node()
             .and_then(|idx| state.get_key(idx))
     });
-    let metadata_id = response.id.with("metadata");
+    // Match egui_graphs' internal MetadataFrame storage key exactly.
+    // egui_graphs calls data.insert_persisted(Id::new(frame.get_id()), frame) where
+    // get_id() returns Id::new("egui_graphs_metadata_") — so the stored key is
+    // Id::new applied to that Id (double-hashed). custom_id=None matches the default
+    // GraphView instance (no with_id() call).
+    let metadata_id = egui::Id::new(MetadataFrame::new(None).get_id());
     let lasso = collect_lasso_action(
         ui,
         app,
@@ -454,10 +475,9 @@ pub fn render_graph_in_ui_collect_actions(
         && let Some(node) = state.graph.node(target)
         && node.display().workspace_membership_count() > 0
     {
-        let meta_id = response.id.with("metadata");
         let (circle_center, circle_radius) = if let Some(meta) = ui
             .ctx()
-            .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
+            .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
         {
             (
                 meta.canvas_to_screen_pos(node.location()),
@@ -474,12 +494,12 @@ pub fn render_graph_in_ui_collect_actions(
             app.request_choose_frame_picker(target);
         }
     }
-    draw_highlighted_edge_overlay(ui, app, response.id);
-    draw_hovered_node_tooltip(ui, app, response.id);
-    draw_hovered_edge_tooltip(ui, app, response.id);
+    draw_highlighted_edge_overlay(ui, app, response.id, metadata_id);
+    draw_hovered_node_tooltip(ui, app, response.id, metadata_id);
+    draw_hovered_edge_tooltip(ui, app, response.id, metadata_id);
 
     // Custom navigation handling (Zoom/Pan/Fit)
-    // We use the widget ID from the response to target the correct MetadataFrame.
+    // metadata_id targets the same slot egui_graphs uses, so writes are visible.
     // Do not let a sticky radial-menu flag disable graph camera controls.
     // The radial menu renderer runs later in the frame and should own its own clicks,
     // but pan/zoom/fit must remain available for stabilization.
@@ -525,7 +545,7 @@ pub fn render_graph_in_ui_collect_actions(
         && app.workspace.hovered_graph_node.is_none()
         && !radial_open
         && lasso.action.is_none();
-    if edge_click_eligible && let Some((from, to)) = edge_endpoints_at_pointer(ui, app, response.id)
+    if edge_click_eligible && let Some((from, to)) = edge_endpoints_at_pointer(ui, app, metadata_id)
     {
         actions.push(GraphAction::SetHighlightedEdge { from, to });
     }
@@ -558,14 +578,19 @@ pub fn render_graph_in_ui_collect_actions(
     actions
 }
 
-fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id) {
+fn draw_hovered_edge_tooltip(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    widget_id: egui::Id,
+    metadata_id: egui::Id,
+) {
     if app.workspace.hovered_graph_node.is_some() {
         return;
     }
     let Some(pointer) = ui.input(|i| i.pointer.hover_pos()) else {
         return;
     };
-    let Some((from, to)) = edge_endpoints_at_pointer(ui, app, widget_id) else {
+    let Some((from, to)) = edge_endpoints_at_pointer(ui, app, metadata_id) else {
         return;
     };
 
@@ -643,19 +668,23 @@ fn draw_hovered_edge_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id
 fn edge_endpoints_at_pointer(
     ui: &Ui,
     app: &GraphBrowserApp,
-    widget_id: egui::Id,
+    metadata_id: egui::Id,
 ) -> Option<(NodeKey, NodeKey)> {
     let pointer = ui.input(|i| i.pointer.latest_pos())?;
     let state = app.workspace.egui_state.as_ref()?;
-    let meta_id = widget_id.with("metadata");
     let meta = ui
         .ctx()
-        .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))?;
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))?;
     let edge_id = state.graph.edge_by_screen_pos(&meta, pointer)?;
     state.graph.edge_endpoints(edge_id)
 }
 
-fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp, widget_id: egui::Id) {
+fn draw_highlighted_edge_overlay(
+    ui: &mut Ui,
+    app: &GraphBrowserApp,
+    _widget_id: egui::Id,
+    metadata_id: egui::Id,
+) {
     let Some((from, to)) = app.workspace.highlighted_graph_edge else {
         return;
     };
@@ -668,10 +697,9 @@ fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp, widget_id: 
     let Some(to_node) = state.graph.node(to) else {
         return;
     };
-    let meta_id = widget_id.with("metadata");
     let (from_screen, to_screen) = if let Some(meta) = ui
         .ctx()
-        .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
+        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
     {
         (
             meta.canvas_to_screen_pos(from_node.location()),
@@ -695,7 +723,12 @@ fn draw_highlighted_edge_overlay(ui: &mut Ui, app: &GraphBrowserApp, widget_id: 
         .circle_filled(to_screen, 6.0, Color32::from_rgb(80, 220, 255));
 }
 
-fn draw_hovered_node_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id) {
+fn draw_hovered_node_tooltip(
+    ui: &Ui,
+    app: &GraphBrowserApp,
+    widget_id: egui::Id,
+    metadata_id: egui::Id,
+) {
     let Some(key) = app.workspace.hovered_graph_node else {
         return;
     };
@@ -720,10 +753,9 @@ fn draw_hovered_node_tooltip(ui: &Ui, app: &GraphBrowserApp, widget_id: egui::Id
         .or_else(|| {
             app.workspace.egui_state.as_ref().and_then(|state| {
                 state.graph.node(key).map(|n| {
-                    let meta_id = widget_id.with("metadata");
                     if let Some(meta) = ui
                         .ctx()
-                        .data_mut(|d| d.get_persisted::<MetadataFrame>(meta_id))
+                        .data_mut(|d| d.get_persisted::<MetadataFrame>(metadata_id))
                     {
                         meta.canvas_to_screen_pos(n.location())
                     } else {
@@ -1559,7 +1591,7 @@ fn apply_pending_camera_command(
             }
             updated_zoom
         }
-        CameraCommand::Fit | CameraCommand::StartupFit | CameraCommand::FitSelection => {
+        CameraCommand::Fit | CameraCommand::FitSelection => {
             let graph_rect = ui.max_rect();
             let view_size = graph_rect.size();
             if view_size.x <= f32::EPSILON || view_size.y <= f32::EPSILON {

@@ -229,6 +229,28 @@ All canonical specs in this register family inherit this shorthand and must not 
 - Never call physics presets camera modes.
 - Treat `Liquid` / `Gas` / `Solid` as node-dynamics presets, not camera policies.
 
+### 3D. Intent and Persistence Boundary (normative)
+
+- Reducer authority accepts only reducer-domain semantic intents (`GraphReducerIntent`).
+- Workbench/frame loop authority accepts only arrangement/host intents (`WorkbenchIntent`).
+- URL and open-routing intents follow the same split:
+  - workbench-route intents decide pane/frame placement and focus handoff,
+  - reducer intents decide durable graph semantics.
+- The graph domain does not mutate workbench layout directly. It issues route/open requests with semantic payload (`NodeKey`, `GraphViewId`, target hint), and workbench authority resolves placement.
+- Workbench does not become content-truth authority. Any durable graph mutation must flow through reducer intent application.
+
+Persistence is tiered:
+
+- durable graph tier: `GraphId`, nodes, edges, saved view definitions.
+- durable workspace tier: frame/tile arrangement and pane-to-surface bindings.
+- ephemeral pane-session tier: viewer navigation/session memory for a specific pane binding.
+
+Reopen policy:
+
+- reopen in the same pane binding: restore that pane-session memory when available.
+- open in a new pane binding: default to a fresh session unless an explicit reuse policy is enabled.
+- restore from persisted workspace snapshot: rehydrate pane-session state best-effort; if unavailable, degrade to canonical node/view open state with explicit diagnostics.
+
 ---
 
 ## 4. UX Domain Model

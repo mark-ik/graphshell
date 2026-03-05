@@ -38,3 +38,43 @@
 3. No spec calls physics presets camera modes.
 
 Each canonical spec review should include this 3-item drift check before approval.
+
+---
+
+## 4. Tightening Pass Target (type guarantee + hardening + guard tests)
+
+### 4.1 Boundary guarantee target
+
+| Concern | Current risk | Target guarantee |
+| --- | --- | --- |
+| Workbench-authority intents in reducer path | Runtime-ordering contract; leakage currently detectable only at runtime | Compile-time separation: reducer APIs accept only reducer-domain intents |
+| Workbench route/open URL semantics | Mixed handling paths can blur authority | Explicit route/open intent split between arrangement authority and reducer authority |
+| Pane/session reopen behavior | Ambiguous restore vs fresh-open semantics | Explicit reopen policy by binding scope (same pane binding vs new pane binding) |
+
+### 4.2 Required hardening steps
+
+1. Introduce typed intent boundary:
+   - reducer entrypoint consumes `GraphReducerIntent` only,
+   - workbench frame loop consumes `WorkbenchIntent` only.
+2. Keep any bridge operation explicit:
+   - graph-to-workbench open/routing requests pass through a dedicated bridge type,
+   - bridge includes semantic payload (`NodeKey`, `GraphViewId`, placement hint) and emits diagnostics receipts.
+3. Convert runtime warnings for impossible routing to hard failure in debug/test builds:
+   - leaked workbench intent in reducer path must `panic!` under `debug_assertions` and tests.
+4. Lock persistence tiers:
+   - graph durability,
+   - workspace arrangement durability,
+   - ephemeral pane-session cache.
+
+### 4.3 Guard test minimum set
+
+1. Reducer boundary test:
+   - verify reducer API cannot accept workbench-only intents (type-level gate).
+2. Leak guard test:
+   - inject a leaked workbench intent path in test build and assert hard failure.
+3. Reopen semantics scenario:
+   - open node, navigate, close pane, reopen same pane binding -> session restored.
+4. Fresh-open scenario:
+   - open same node in a new pane binding -> fresh session by default.
+5. Cross-boundary audit scenario:
+   - route/open action from graph emits expected diagnostics and does not mutate tile tree from reducer code.

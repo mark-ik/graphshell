@@ -18,7 +18,6 @@ pub(crate) struct CanvasLayoutAlgorithmPolicy {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasNavigationPolicy {
-    pub(crate) fit_to_screen_enabled: bool,
     pub(crate) zoom_and_pan_enabled: bool,
     pub(crate) wheel_zoom_requires_ctrl: bool,
     #[serde(default = "default_keyboard_zoom_step")]
@@ -226,7 +225,6 @@ impl Default for CanvasRegistry {
                     algorithm_id: "graph_layout:force_directed".to_string(),
                 },
                 navigation: CanvasNavigationPolicy {
-                    fit_to_screen_enabled: true,
                     zoom_and_pan_enabled: true,
                     wheel_zoom_requires_ctrl: false,
                     keyboard_zoom_step: default_keyboard_zoom_step(),
@@ -314,7 +312,6 @@ mod tests {
                     algorithm_id: "graph_layout:force_directed".to_string(),
                 },
                 navigation: CanvasNavigationPolicy {
-                    fit_to_screen_enabled: false,
                     zoom_and_pan_enabled: false,
                     wheel_zoom_requires_ctrl: false,
                     keyboard_zoom_step: default_keyboard_zoom_step(),
@@ -415,7 +412,6 @@ mod tests {
                     algorithm_id: "graph_layout:force_directed".to_string(),
                 },
                 navigation: CanvasNavigationPolicy {
-                    fit_to_screen_enabled: false,
                     zoom_and_pan_enabled: false,
                     wheel_zoom_requires_ctrl: true,
                     keyboard_zoom_step: default_keyboard_zoom_step(),

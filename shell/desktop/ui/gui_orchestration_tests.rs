@@ -1594,6 +1594,32 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
 }
 
 #[test]
+#[should_panic(
+    expected = "workbench intents leaked past workbench-authority interception before reducer apply"
+)]
+fn frame_loop_panics_when_workbench_intent_leaks_past_interception() {
+    let mut app = GraphBrowserApp::new_for_testing();
+
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut open_node_tile_after_intents = None;
+    let mut frame_intents = Vec::new();
+
+    app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+        url: "verso://settings/not-a-real-route".to_string(),
+    });
+
+    super::apply_semantic_intents_and_pending_open(
+        &mut app,
+        &mut tree,
+        false,
+        &mut open_node_tile_after_intents,
+        &mut frame_intents,
+    );
+}
+
+#[test]
 fn clipboard_success_status_text_is_deterministic_per_copy_kind() {
     assert_eq!(
         super::clipboard_copy_success_text(crate::app::ClipboardCopyKind::Url),

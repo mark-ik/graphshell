@@ -741,7 +741,6 @@ pub enum CameraCommand {
     Fit,
     FitSelection,
     SetZoom(f32),
-    StartupFit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1636,6 +1635,11 @@ pub struct GraphWorkspace {
     /// Flag: egui_state needs rebuild (set when graph structure changes)
     pub egui_state_dirty: bool,
 
+    /// Node keys excluded by viewport culling on the previous rebuild.
+    /// egui_state is only rebuilt when this set changes, to avoid resetting
+    /// physics state every frame for nodes that stay in/out of the viewport.
+    pub last_culled_node_keys: Option<HashSet<NodeKey>>,
+
     /// Last sampled runtime memory pressure classification.
     memory_pressure_level: MemoryPressureLevel,
     /// Last sampled available system memory (MiB).
@@ -1870,6 +1874,7 @@ impl GraphBrowserApp {
                 unsaved_workspace_prompt_warned: false,
                 egui_state: None,
                 egui_state_dirty: true,
+                last_culled_node_keys: None,
                 memory_pressure_level: MemoryPressureLevel::Unknown,
                 memory_available_mib: 0,
                 memory_total_mib: 0,
@@ -2071,6 +2076,7 @@ impl GraphBrowserApp {
                 unsaved_workspace_prompt_warned: false,
                 egui_state: None,
                 egui_state_dirty: true,
+                last_culled_node_keys: None,
                 memory_pressure_level: MemoryPressureLevel::Unknown,
                 memory_available_mib: 0,
                 memory_total_mib: 0,
@@ -2375,7 +2381,7 @@ impl GraphBrowserApp {
         } else if matches!(
             self.workspace.pending_camera_command,
             Some(PendingCameraCommand {
-                command: CameraCommand::Fit | CameraCommand::StartupFit,
+                command: CameraCommand::Fit,
                 ..
             })
         ) {

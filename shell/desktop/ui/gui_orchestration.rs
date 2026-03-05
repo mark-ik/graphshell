@@ -1677,10 +1677,7 @@ fn apply_semantic_intents_and_pending_open(
         &mut workbench_intents,
         modal_surface_active,
     );
-    debug_assert!(
-        workbench_intents.is_empty(),
-        "workbench intents must be fully drained before reducer apply in frame loop"
-    );
+    assert_workbench_intents_drained_before_reducer_apply(&workbench_intents);
     gui_frame::apply_intents_if_any(graph_app, tiles_tree, frame_intents);
     handle_pending_open_node_after_intents(
         graph_app,
@@ -1690,6 +1687,30 @@ fn apply_semantic_intents_and_pending_open(
     );
     handle_pending_open_note_after_intents(graph_app, tiles_tree);
     handle_pending_open_clip_after_intents(graph_app, tiles_tree);
+}
+
+fn assert_workbench_intents_drained_before_reducer_apply(intents: &[WorkbenchIntent]) {
+    if intents.is_empty() {
+        return;
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    panic!(
+        "workbench intents leaked past workbench-authority interception before reducer apply: {:?}",
+        intents
+    );
+
+    #[cfg(not(any(test, debug_assertions)))]
+    {
+        log::warn!(
+            "workbench intents leaked past workbench-authority interception before reducer apply; dropping {} leaked intent(s)",
+            intents.len()
+        );
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+            byte_len: intents.len(),
+        });
+    }
 }
 
 fn open_pending_child_webview_nodes(

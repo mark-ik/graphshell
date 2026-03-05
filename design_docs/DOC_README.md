@@ -40,7 +40,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 2, 2026
+Last updated: March 5, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -192,3 +192,5 @@ Project status source: [../README.md](../README.md)
 - [archive_docs/checkpoint_2026-02-23/](archive_docs/checkpoint_2026-02-23/) — `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (consolidated into `2026-02-22_registry_layer_plan.md`)
 - [archive_docs/checkpoint_2026-02-24/](archive_docs/checkpoint_2026-02-24/) — consolidated-plan redirects: `2026-02-24_input_surface_polish_plan.md`, `2026-02-24_workspace_routing_polish_plan.md`, `2026-02-24_sync_logic_validation_plan.md`; `GRAPHSHELL_P2P_COLLABORATION.md` (pre-intent-model P2P design, superseded by `VERSE_AS_NETWORK.md` and the Tier 1 sync plan)
 - [archive_docs/checkpoint_2026-02-27/](archive_docs/checkpoint_2026-02-27/) — archived stale active docs: `technical_architecture/DEVELOPER_GUIDE.md`, `technical_architecture/CODEBASE_MAP.md`, `testing/VALIDATION_TESTING.md`; superseded by active `codebase_guide.md` and `test_guide.md`.
+- [archive_docs/checkpoint_2026-03-01/](archive_docs/checkpoint_2026-03-01/) — bridge spike receipts and embedder-debt records for `#180` and `#183`.
+- [archive_docs/checkpoint_2026-03-05/](archive_docs/checkpoint_2026-03-05/) — `2026-03-05_camera_navigation_fix_postmortem.md`: root-cause and fix record for longstanding camera pan/zoom bug (dead metadata slot + every-frame fit reset).
