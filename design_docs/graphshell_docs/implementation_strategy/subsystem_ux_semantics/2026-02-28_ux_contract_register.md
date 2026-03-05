@@ -194,6 +194,7 @@ Graphshell UX depends on keeping content truth, navigation projections, and work
 - A `GraphViewId` includes:
   - scope definition (which node set, subgraph, or collection is in-play by default)
   - lens state (camera, selection memory, filters, and local focus memory)
+  - per-view local layout state (no implicit cross-view layout sharing)
 - `GraphViewId` is independent of pane hosting. A pane may present a `GraphViewId`, but it does not define the view's identity.
 
 ### Navigation projections
@@ -232,6 +233,7 @@ All canonical specs in this register family inherit this shorthand and must not 
 - Never call the file tree content truth or graph identity authority.
 - Never call physics presets camera modes.
 - Treat `Liquid` / `Gas` / `Solid` as node-dynamics presets, not camera policies.
+- Do not use Canonical/Divergent labels for graph-view layout ownership; graph-view layout is local-per-view by default.
 
 ### 3D. Intent and Persistence Boundary (normative)
 
@@ -364,6 +366,9 @@ The sections below define the app's current UX planning backbone.
 - Keep manual camera as the default policy (no startup auto-fit, no implicit auto-zoom)
 - Apply slight inertial pan damping after manual camera movement
 - Route camera commands to the correct graph view in multi-pane contexts
+- Enter/exit graph-view layout manager scope
+- Create/rename/move/archive/restore graph-view slots
+- Route graph-view slots into workbench panes via explicit open intents
 
 **Primary owner**
 

@@ -164,7 +164,7 @@ Goals:
 - Make signal/event routing a named internal layer owned by the Register (even if still direct/transitional)
 
 Done gates:
-- [ ] Hub docs and terminology consistently describe `SignalBus` as planned / equivalent abstraction
+- [x] Hub docs and terminology consistently describe `SignalBus` as planned / equivalent abstraction (`register_layer_spec.md`, `signal_bus_spec.md`, `TERMINOLOGY.md`)
 - [x] `ControlPanel` APIs and comments avoid implying ownership of registries
 - [x] `RegistryRuntime` integration issue follow-ups are linked from this hub (`#81`, `#82`)
 
@@ -182,9 +182,9 @@ Why:
 - Future async/event-heavy coordination will otherwise push coupling into `ControlPanel`
 
 Done gates:
-- [ ] `Signal` type families and source metadata contract documented
-- [ ] Register-owned routing API skeleton exists (facade/trait/module)
-- [ ] At least one producer + two observers integrated through the routing contract
+- [x] `Signal` type families and source metadata contract documented (`runtime/registries/signal_routing.rs`)
+- [x] Register-owned routing API skeleton exists (facade/trait/module)
+- [x] At least one producer + two observers integrated through the routing contract (navigation producer + observer integration tests)
 
 ### SR3: `SignalBus` (or Equivalent) Pub/Sub Implementation
 
@@ -201,10 +201,10 @@ Core requirements:
 - Diagnostics hooks (queue depth, dropped signals, handler failures, latency)
 
 Done gates:
-- [ ] Register signal bus/fabric implementation replaces transitional direct routing in selected paths
-- [ ] Diagnostics channels report signal routing health
-- [ ] Mod-triggered cross-registry workflow path uses signal routing instead of direct wiring
-- [ ] Subsystem health propagation path uses signal routing (or equivalent observer fabric)
+- [x] Register signal bus/fabric implementation replaces transitional direct routing in selected paths (navigation path)
+- [x] Diagnostics channels report signal routing health (`register.signal_routing.*`)
+- [x] Mod-triggered cross-registry workflow path uses signal routing instead of direct wiring (mod lifecycle route via `phase3_route_mod_lifecycle_event`)
+- [x] Subsystem health propagation path uses signal routing (or equivalent observer fabric) (`phase3_propagate_subsystem_health_memory_pressure`)
 
 ### SR4: Register Runtime Authoritative Dispatch Cleanup
 
@@ -214,11 +214,11 @@ Goals:
 - Keep `ControlPanel` focused on worker orchestration, not cross-registry policy dispatch
 
 Done gates:
-- [ ] Legacy dispatch callsites removed or wrapped behind Register APIs
+- [x] Legacy dispatch callsites removed or wrapped behind Register APIs (phase0/phase2/phase3 runtime dispatch wrappers)
 - [x] Legacy dispatch callsites removed or wrapped behind Register APIs (phase0 navigation/provider-wired runtime dispatch slice; see `#82`)
 - [x] Internal settings workbench routes (`verso://settings/*` canonical, legacy `graphshell://settings/*` alias) are pane-authority and no longer reducer-panel owned
-- [ ] `RegistryRuntime` + signal routing layer responsibilities are documented and tested
-- [ ] `ControlPanel` API surface reflects coordinator/process-host role only
+- [x] `RegistryRuntime` + signal routing layer responsibilities are documented and tested (SR2/SR3 routing tests + runtime dispatch tests)
+- [x] `ControlPanel` API surface reflects coordinator/process-host role only (queue internals private; coordination exposed via spawn/drain/shutdown and command/lifecycle policy APIs)
 
 ---
 
@@ -274,10 +274,9 @@ pub enum IntentSource {
 }
 
 pub struct ControlPanel {
-    /// Sender cloned to each background worker.
-    pub intent_tx: mpsc::Sender<QueuedIntent>,
-    /// Receiver drained by the sync frame loop each tick.
-    pub intent_rx: mpsc::Receiver<QueuedIntent>,
+    /// Intent queue internals remain private; frame loop uses drain API.
+    intent_tx: mpsc::Sender<QueuedIntent>,
+    intent_rx: mpsc::Receiver<QueuedIntent>,
     /// Shared cancellation token — cancel() stops all workers.
     cancel: CancellationToken,
     /// Supervised set of background worker tasks.
@@ -303,9 +302,7 @@ pub fn run_frame(
     all_intents.extend(graph_intents_from_pending_semantic_events());
 
     // Async producer intents (non-blocking drain)
-    while let Ok(queued) = control_panel.intent_rx.try_recv() {
-        all_intents.push(queued.intent);
-    }
+    all_intents.extend(control_panel.drain_pending());
 
     // Sort by causality for determinism
     all_intents.sort_by_key(|intent| intent.causality_order());
@@ -378,7 +375,7 @@ Done gates:
 
 ### Phase CP3: Prefetch Scheduler
 
-**Status:** Future
+**Status:** ✅ Complete (2026-03-05)
 
 Goals:
 - Periodically emit `PromoteNodeToActive { cause: SelectedPrewarm }` based on graph heuristics
@@ -386,8 +383,13 @@ Goals:
 - Uses exponential backoff on channel congestion
 
 Done gates:
-- [ ] `prefetch_scheduler_worker` implemented and spawned
-- [ ] `LifecyclePolicy` watch channel wired to scheduler
+- [x] `prefetch_scheduler_worker` implemented and spawned (supervised worker)
+- [x] `LifecyclePolicy` watch channel wired to scheduler (GUI frame updates policy each tick)
+
+**Implementation Notes (2026-03-05):**
+- Scheduler emits `GraphIntent::PromoteNodeToActive { cause: SelectedPrewarm }` for the current prewarm target instead of placeholder `Noop` intents.
+- CP3 policy now carries selected-node prewarm target + memory pressure level; warning/critical pressure slows or disables prefetch cadence.
+- Congestion policy remains exponential backoff bounded by `PREFETCH_MAX_INTERVAL`.
 
 ### Phase CP4: P2P Sync
 
@@ -624,7 +626,7 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 |-------|--------|------|
 | **CP1** | ✅ Done | `ControlPanel` struct, channel, memory monitor stub, shutdown |
 | **CP2** | ✅ Done | Mod loader worker + mod lifecycle intents |
-| **CP3** | Future | Prefetch scheduler + `LifecyclePolicy` watch |
+| **CP3** | ✅ Done | Prefetch scheduler + `LifecyclePolicy` watch + selected-prewarm promotion intents |
 | **CP4** | Future | P2P sync worker (separate design doc) |
 
 ---

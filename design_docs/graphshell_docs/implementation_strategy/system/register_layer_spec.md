@@ -62,12 +62,14 @@ The Register layer is composed of four primary parts:
 - the async worker/process host that produces intents or signals safely
 
 3. **SignalBus**
-- the typed routing fabric for cross-registry and cross-subsystem event distribution
+- the typed routing fabric role for cross-registry and cross-subsystem event distribution (`SignalBus` or equivalent signal-routing facade)
 
 4. **Registry surfaces**
 - the atomic, surface, and domain registries defined in `system/register/`
 
 The Register is not the reducer, not the workbench, and not the graph authority. It is the infrastructure layer that makes those systems composable and extensible.
+
+`SignalBus` in this spec is architectural shorthand for the signal-routing role. A dedicated concrete bus type may be introduced later; transitional direct fanout/facade routing remains valid while honoring the same policies.
 
 ## Normative Core
 
@@ -79,7 +81,7 @@ The Register is not the reducer, not the workbench, and not the graph authority.
 
 ## Planned Extensions
 
-- stronger typed signal routing in place of transitional direct fanout
+- stronger typed signal routing in place of transitional direct fanout (toward an explicit `SignalBus`-class abstraction)
 - richer mod capability negotiation and diagnostics
 - clearer workflow/session composition over existing registry outputs
 

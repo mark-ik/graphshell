@@ -215,14 +215,8 @@ pub fn render_graph_in_ui_collect_actions(
 ) -> Vec<GraphAction> {
     let view_selection = app.selection_for_view(view_id).clone();
 
-    // Ensure a GraphViewState exists for this pane so per-view camera, lens,
-    // and layout mode can be stored independently.
-    if !app.workspace.views.contains_key(&view_id) {
-        app.workspace.views.insert(
-            view_id,
-            crate::app::GraphViewState::new_with_id(view_id, "Graph View"),
-        );
-    }
+    // Ensure graph-view identity has durable registration (view state + slot).
+    app.ensure_graph_view_registered(view_id);
 
     if app
         .workspace

@@ -28,7 +28,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_VIEWER_FALLBACK_USED,
 };
-use crate::shell::desktop::workbench::pane_model::{ViewLayoutMode, ViewerId};
+use crate::shell::desktop::workbench::pane_model::ViewerId;
 use crate::util::truncate_with_ellipsis;
 
 use super::selection_range::inclusive_index_range;
@@ -632,7 +632,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 render::sync_graph_positions_from_layout(self.graph_app);
                 render::render_graph_info_in_ui(ui, self.graph_app);
 
-                // Per-pane overlay: lens selector + Canonical/Divergent toggle.
+                // Per-pane overlay: lens selector + graph-pane actions.
                 render_graph_pane_overlay(
                     ui.ctx(),
                     self.graph_app,
@@ -1158,10 +1158,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     }
 }
 
-/// Render a per-pane overlay showing the current lens and a Canonical/Divergent toggle.
+/// Render a per-pane overlay showing lens controls and graph-pane actions.
 ///
 /// The overlay appears as a translucent bar in the top-right corner of the graph pane.
-/// Intended to satisfy P6.d (per-pane lens selector) and P6.e (Canonical/Divergent toggle).
+/// Intended to satisfy per-pane lens selection without exposing shared-layout toggles.
 fn render_graph_pane_overlay(
     ctx: &egui::Context,
     app: &mut GraphBrowserApp,
@@ -1181,7 +1181,6 @@ fn render_graph_pane_overlay(
         crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string()
     });
     let base_lens = view.lens.clone();
-    let layout_mode = view.layout_mode;
 
     // Overlay anchored to top-right of the pane, with a small margin.
     let overlay_width = 150.0;
@@ -1278,64 +1277,7 @@ fn render_graph_pane_overlay(
 
                     ctx.data_mut(|d| d.insert_persisted(lens_input_id, lens_input));
 
-                    // Layout mode row: toggle between Canonical and Divergent.
-                    ui.horizontal(|ui| {
-                        let (label, next_mode, hover) = match layout_mode {
-                            ViewLayoutMode::Canonical => (
-                                "⬤ Canonical",
-                                ViewLayoutMode::Divergent,
-                                "Switch to Divergent: own a private layout simulation",
-                            ),
-                            ViewLayoutMode::Divergent => (
-                                "⬤ Divergent",
-                                ViewLayoutMode::Canonical,
-                                "Switch to Canonical: use shared graph positions",
-                            ),
-                        };
-                        let color = match layout_mode {
-                            ViewLayoutMode::Canonical => egui::Color32::from_rgb(100, 200, 130),
-                            ViewLayoutMode::Divergent => egui::Color32::from_rgb(200, 170, 90),
-                        };
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(label).small().color(color),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text(hover)
-                            .clicked()
-                        {
-                            pending_intents.push(GraphIntent::SetViewLayoutMode {
-                                view_id,
-                                mode: next_mode,
-                            });
-                        }
-                    });
-
-                    if matches!(
-                        layout_mode,
-                        crate::shell::desktop::workbench::pane_model::ViewLayoutMode::Divergent
-                    ) {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new("Commit Divergent (stub)")
-                                            .small()
-                                            .color(egui::Color32::from_rgb(220, 200, 130)),
-                                    )
-                                    .frame(false),
-                                )
-                                .on_hover_text(
-                                    "Explicit writeback action stub (no implicit commit on mode switch)",
-                                )
-                                .clicked()
-                            {
-                                pending_intents.push(GraphIntent::CommitDivergentLayout { view_id });
-                            }
-                        });
-                    }
+                    ui.small("Layout: local-per-view");
                 });
         });
 }

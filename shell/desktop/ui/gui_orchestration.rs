@@ -982,6 +982,7 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::OpenToolUrl { .. }
         | WorkbenchIntent::OpenViewUrl { .. }
         | WorkbenchIntent::OpenGraphUrl { .. }
+        | WorkbenchIntent::OpenGraphViewPane { .. }
         | WorkbenchIntent::OpenNoteUrl { .. }
         | WorkbenchIntent::OpenNodeUrl { .. }
         | WorkbenchIntent::OpenClipUrl { .. }
@@ -1041,6 +1042,10 @@ fn dispatch_workbench_authority_intent(
         }
         WorkbenchIntent::OpenGraphUrl { url } => {
             dispatch_open_graph_url_workbench_intent(graph_app, tiles_tree, url)
+        }
+        WorkbenchIntent::OpenGraphViewPane { view_id, mode } => {
+            handle_open_graph_view_pane_intent(tiles_tree, view_id, mode);
+            None
         }
         WorkbenchIntent::OpenNoteUrl { url } => {
             dispatch_open_note_url_workbench_intent(graph_app, tiles_tree, url)
@@ -1517,6 +1522,20 @@ fn handle_open_clip_url_intent(
     emit_open_decision(UxOpenDecisionPath::ClipUrl, UxOpenDecisionReason::Routed);
 
     None
+}
+
+fn handle_open_graph_view_pane_intent(
+    tiles_tree: &mut Tree<TileKind>,
+    view_id: crate::app::GraphViewId,
+    mode: PendingTileOpenMode,
+) {
+    let tile_mode = match mode {
+        PendingTileOpenMode::Tab => TileOpenMode::Tab,
+        PendingTileOpenMode::SplitHorizontal => TileOpenMode::SplitHorizontal,
+    };
+    crate::shell::desktop::workbench::tile_view_ops::open_or_focus_graph_pane_with_mode(
+        tiles_tree, view_id, tile_mode,
+    );
 }
 
 fn open_settings_route_target(

@@ -5,7 +5,7 @@
 //! Canonical pane-hosted view payload model.
 //!
 //! Establishes the workbench pane as a universal host for view surfaces:
-//! - **Graph panes**: spatial graph viewport with independent camera, Lens, and layout mode.
+//! - **Graph panes**: spatial graph viewport with independent camera and Lens.
 //! - **Node viewer panes**: node content rendered via the selected viewer backend.
 //! - **Tool panes**: diagnostic, history, accessibility, and settings surfaces.
 //!
@@ -69,27 +69,9 @@ impl std::fmt::Display for ViewerId {
     }
 }
 
-/// Layout mode for a graph pane.
-///
-/// **Canonical**: reads shared node positions from global physics / manual layout.
-/// Multiple canonical graph panes show the same positions with independent cameras.
-///
-/// **Divergent**: owns a `LocalSimulation` shadow position set and local physics.
-/// Does not mutate shared graph positions unless explicitly committed.
-///
-/// See `2026-02-22_multi_graph_pane_plan.md §3` for full transition semantics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub(crate) enum ViewLayoutMode {
-    /// Reads from shared canonical graph positions; independent camera only.
-    #[default]
-    Canonical,
-    /// Owns a private local simulation; positions diverge from shared state until committed.
-    Divergent,
-}
-
 /// Graph pane reference payload.
 ///
-/// Identifies which `GraphViewState` (camera, Lens, layout mode) is active in this pane.
+/// Identifies which `GraphViewState` (camera + Lens + per-view local layout state) is active in this pane.
 /// The graph data itself (`GraphWorkspace.graph`) remains shared across all graph panes.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct GraphPaneRef {
@@ -299,20 +281,6 @@ mod tests {
         let json = serde_json::to_string(&id).unwrap();
         let back: ViewerId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, back);
-    }
-
-    #[test]
-    fn view_layout_mode_default_is_canonical() {
-        assert_eq!(ViewLayoutMode::default(), ViewLayoutMode::Canonical);
-    }
-
-    #[test]
-    fn view_layout_mode_round_trips() {
-        for mode in [ViewLayoutMode::Canonical, ViewLayoutMode::Divergent] {
-            let json = serde_json::to_string(&mode).unwrap();
-            let back: ViewLayoutMode = serde_json::from_str(&json).unwrap();
-            assert_eq!(mode, back);
-        }
     }
 
     #[test]

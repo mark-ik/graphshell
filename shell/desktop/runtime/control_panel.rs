@@ -19,11 +19,12 @@
 use std::time::{Duration, Instant};
 
 use sysinfo::System;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::app::{GraphIntent, MemoryPressureLevel};
+use crate::app::{GraphIntent, LifecycleCause, MemoryPressureLevel};
+use crate::graph::NodeKey;
 use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
 
@@ -32,6 +33,28 @@ const INTENT_CHANNEL_CAPACITY: usize = 256;
 
 /// How often the memory monitor samples system memory.
 const MEMORY_MONITOR_INTERVAL: Duration = Duration::from_secs(5);
+const PREFETCH_MIN_INTERVAL: Duration = Duration::from_secs(2);
+const PREFETCH_MAX_INTERVAL: Duration = Duration::from_secs(30);
+
+/// CP3 policy channel payload for prefetch scheduling behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LifecyclePolicy {
+    pub(crate) prefetch_enabled: bool,
+    pub(crate) prefetch_interval: Duration,
+    pub(crate) prefetch_target: Option<NodeKey>,
+    pub(crate) memory_pressure_level: MemoryPressureLevel,
+}
+
+impl Default for LifecyclePolicy {
+    fn default() -> Self {
+        Self {
+            prefetch_enabled: false,
+            prefetch_interval: Duration::from_secs(10),
+            prefetch_target: None,
+            memory_pressure_level: MemoryPressureLevel::Unknown,
+        }
+    }
+}
 
 /// Intent with source tracking for the async intent queue.
 ///
@@ -78,9 +101,9 @@ pub(crate) enum IntentSource {
 /// - a [`JoinSet`] supervising all background tasks
 pub(crate) struct ControlPanel {
     /// Cloned to each background worker for intent submission.
-    pub(crate) intent_tx: mpsc::Sender<QueuedIntent>,
+    intent_tx: mpsc::Sender<QueuedIntent>,
     /// Drained by the sync frame loop each tick via [`Self::drain_pending`].
-    pub(crate) intent_rx: mpsc::Receiver<QueuedIntent>,
+    intent_rx: mpsc::Receiver<QueuedIntent>,
     /// Optional sync worker command channel.
     sync_command_tx: Option<mpsc::Sender<SyncCommand>>,
     /// Sync worker discovery-result stream.
@@ -88,6 +111,8 @@ pub(crate) struct ControlPanel {
         Option<mpsc::UnboundedReceiver<Result<Vec<verse::DiscoveredPeer>, String>>>,
     /// Shared cancellation token — `cancel()` stops all supervised workers.
     cancel: CancellationToken,
+    /// CP3 lifecycle policy watch sender consumed by scheduler workers.
+    lifecycle_policy_tx: watch::Sender<LifecyclePolicy>,
     /// Supervised background worker tasks.
     workers: JoinSet<()>,
 }
@@ -97,10 +122,12 @@ impl ControlPanel {
     /// cancellation token.
     pub(crate) fn new() -> Self {
         let (intent_tx, intent_rx) = mpsc::channel(INTENT_CHANNEL_CAPACITY);
+        let (lifecycle_policy_tx, _lifecycle_policy_rx) = watch::channel(LifecyclePolicy::default());
         Self {
             intent_tx,
             intent_rx,
             cancel: CancellationToken::new(),
+            lifecycle_policy_tx,
             workers: JoinSet::new(),
             sync_command_tx: None,
             discovery_result_rx: None,
@@ -182,8 +209,35 @@ impl ControlPanel {
         log::debug!("control_panel: mod loader spawned");
     }
 
+    /// Update prefetch lifecycle policy for CP3 scheduler workers.
+    pub(crate) fn update_lifecycle_policy(&self, policy: LifecyclePolicy) {
+        if self.lifecycle_policy_tx.send(policy).is_err() {
+            log::debug!("control_panel: lifecycle policy update skipped (no observers)");
+        }
+    }
+
+    /// Spawn the CP3 prefetch scheduler worker.
+    ///
+    /// The scheduler emits prewarm lifecycle intents on a policy-driven
+    /// cadence. Policy updates flow through `LifecyclePolicy` watch channels,
+    /// including memory-pressure-aware pacing and selected-node targeting.
+    pub(crate) fn spawn_prefetch_scheduler(&mut self) {
+        let cancel = self.cancel.clone();
+        let tx = self.intent_tx.clone();
+        let policy_rx = self.lifecycle_policy_tx.subscribe();
+        self.workers.spawn(async move {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    log::debug!("control_panel: prefetch scheduler cancelled");
+                }
+                _ = prefetch_scheduler_worker(tx, policy_rx) => {}
+            }
+        });
+        log::debug!("control_panel: prefetch scheduler spawned");
+    }
+
     /// Spawn the Verse sync worker (P2P delta sync).
-    pub(crate) fn spawn_sync_worker(&mut self) {
+    pub(crate) fn spawn_p2p_sync_worker(&mut self) {
         let cancel = self.cancel.clone();
         let tx = self.intent_tx.clone();
         let (cmd_tx, cmd_rx) = mpsc::channel(64);
@@ -217,6 +271,11 @@ impl ControlPanel {
         log::debug!("control_panel: sync worker spawned");
     }
 
+    /// Backward-compatible alias retained while CP4 naming converges.
+    pub(crate) fn spawn_sync_worker(&mut self) {
+        self.spawn_p2p_sync_worker();
+    }
+
     /// Cancel all supervised workers and await their completion.
     ///
     /// Safe to call from an async context (e.g. the main app shutdown path).
@@ -235,6 +294,18 @@ impl ControlPanel {
     #[cfg(test)]
     pub(crate) fn worker_count(&self) -> usize {
         self.workers.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_intent_channel_open_for_tests(&self) -> bool {
+        !self.intent_tx.is_closed()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enqueue_intent_for_tests(&self, queued: QueuedIntent) -> Result<(), String> {
+        self.intent_tx
+            .try_send(queued)
+            .map_err(|e| format!("failed to enqueue test intent: {e}"))
     }
 
     #[cfg(test)]
@@ -329,6 +400,58 @@ async fn mod_loader_worker(tx: mpsc::Sender<QueuedIntent>) {
     }
 }
 
+/// CP3 prefetch scheduler worker.
+///
+/// Backpressure policy: when the queue is congested, the worker backs off
+/// exponentially up to [`PREFETCH_MAX_INTERVAL`] and retries later.
+async fn prefetch_scheduler_worker(
+    tx: mpsc::Sender<QueuedIntent>,
+    mut policy_rx: watch::Receiver<LifecyclePolicy>,
+) {
+    let mut backoff = PREFETCH_MIN_INTERVAL;
+
+    loop {
+        let policy = *policy_rx.borrow_and_update();
+        if !policy.prefetch_enabled {
+            if policy_rx.changed().await.is_err() {
+                return;
+            }
+            continue;
+        }
+
+        let wait_for = policy
+            .prefetch_interval
+            .clamp(PREFETCH_MIN_INTERVAL, PREFETCH_MAX_INTERVAL);
+        let wait_for = match policy.memory_pressure_level {
+            MemoryPressureLevel::Critical => PREFETCH_MAX_INTERVAL,
+            MemoryPressureLevel::Warning => wait_for.max(Duration::from_secs(20)),
+            MemoryPressureLevel::Normal | MemoryPressureLevel::Unknown => wait_for,
+        };
+        tokio::time::sleep(wait_for).await;
+
+        let Some(target) = policy.prefetch_target else {
+            continue;
+        };
+
+        let queued = QueuedIntent {
+            intent: GraphIntent::PromoteNodeToActive {
+                key: target,
+                cause: LifecycleCause::SelectedPrewarm,
+            },
+            queued_at: Instant::now(),
+            source: IntentSource::PrefetchScheduler,
+        };
+
+        if tx.try_send(queued).is_ok() {
+            backoff = PREFETCH_MIN_INTERVAL;
+            continue;
+        }
+
+        tokio::time::sleep(backoff).await;
+        backoff = (backoff * 2).min(PREFETCH_MAX_INTERVAL);
+    }
+}
+
 /// Sample current system memory pressure.
 ///
 /// Returns `(level, available_mib, total_mib)`. Mirrors the thresholds used
@@ -366,7 +489,7 @@ mod tests {
     async fn control_panel_new_creates_open_channel() {
         let panel = ControlPanel::new();
         // Channel should be open (sender not dropped)
-        assert!(!panel.intent_tx.is_closed());
+        assert!(panel.is_intent_channel_open_for_tests());
     }
 
     #[tokio::test]
@@ -379,8 +502,7 @@ mod tests {
     async fn drain_pending_collects_queued_intents() {
         let mut panel = ControlPanel::new();
         panel
-            .intent_tx
-            .try_send(QueuedIntent {
+            .enqueue_intent_for_tests(QueuedIntent {
                 intent: GraphIntent::Noop,
                 queued_at: Instant::now(),
                 source: IntentSource::MemoryMonitor,
@@ -488,9 +610,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn spawn_sync_worker_sets_panel_command_channel() {
+    async fn spawn_prefetch_scheduler_increments_worker_count() {
         let mut panel = ControlPanel::new();
-        panel.spawn_sync_worker();
+        assert_eq!(panel.worker_count(), 0);
+        panel.spawn_prefetch_scheduler();
+        tokio::task::yield_now().await;
+        assert_eq!(panel.worker_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn prefetch_scheduler_emits_intent_when_enabled() {
+        let (tx, mut rx) = mpsc::channel(2);
+        let target = NodeKey::new(7);
+        let (policy_tx, policy_rx) = watch::channel(LifecyclePolicy {
+            prefetch_enabled: true,
+            prefetch_interval: Duration::from_millis(5),
+            prefetch_target: Some(target),
+            memory_pressure_level: MemoryPressureLevel::Normal,
+        });
+        let _keep_policy_alive = policy_tx;
+
+        let worker = tokio::spawn(async move {
+            prefetch_scheduler_worker(tx, policy_rx).await;
+        });
+
+        let queued = tokio::time::timeout(Duration::from_secs(4), rx.recv())
+            .await
+            .expect("prefetch worker should queue an intent")
+            .expect("channel should remain open");
+
+        assert!(matches!(
+            queued.intent,
+            GraphIntent::PromoteNodeToActive {
+                key,
+                cause: LifecycleCause::SelectedPrewarm,
+            } if key == target
+        ));
+        assert_eq!(queued.source, IntentSource::PrefetchScheduler);
+
+        worker.abort();
+        let _ = worker.await;
+    }
+
+    #[tokio::test]
+    async fn spawn_p2p_sync_worker_sets_panel_command_channel() {
+        let mut panel = ControlPanel::new();
+        panel.spawn_p2p_sync_worker();
         tokio::task::yield_now().await;
 
         assert!(panel.sync_command_sender().is_some());

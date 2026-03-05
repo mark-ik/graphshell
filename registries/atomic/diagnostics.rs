@@ -34,6 +34,10 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_PHYSICS_LOOKUP_FAILED, CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
     CHANNEL_PROTOCOL_RESOLVE_FAILED, CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_OBSERVER_FAILED, CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
     CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED, CHANNEL_STARTUP_CONFIG_SNAPSHOT,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED, CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED, CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
@@ -387,7 +391,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 58] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 63] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -517,6 +521,31 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 58] = [
         channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
         schema_version: 1,
         severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_OBSERVER_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_VERSE_PREINIT_CALL,

@@ -510,7 +510,8 @@ impl Gui {
             let mut panel = ControlPanel::new();
             panel.spawn_memory_monitor();
             panel.spawn_mod_loader();
-            // Spawn sync worker if Verse mod is available
+            panel.spawn_prefetch_scheduler();
+            // Spawn sync worker if Verse mod is available.
             panel.spawn_sync_worker();
             panel
         };

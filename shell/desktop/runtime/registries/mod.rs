@@ -5,10 +5,11 @@ pub(crate) mod knowledge;
 pub(crate) mod lens;
 pub(crate) mod physics;
 pub(crate) mod protocol;
+pub(crate) mod signal_routing;
 
 use std::sync::OnceLock;
 
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, MemoryPressureLevel};
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::atomic::diagnostics;
@@ -37,6 +38,9 @@ use lens::LensRegistry;
 use physics::PhysicsRegistry;
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
+};
+use signal_routing::{
+    ObserverId, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource, SignalTopic,
 };
 use servo::ServoUrl;
 
@@ -216,6 +220,16 @@ pub(crate) const CHANNEL_UX_RADIAL_OVERFLOW: &str = "ux:radial_overflow";
 pub(crate) const CHANNEL_UX_RADIAL_LAYOUT: &str = "ux:radial_layout";
 pub(crate) const CHANNEL_UX_RADIAL_LABEL_COLLISION: &str = "ux:radial_label_collision";
 pub(crate) const CHANNEL_UX_TREE_SNAPSHOT_BUILT: &str = "ux:tree_snapshot_built";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED: &str =
+    "register.signal_routing.published";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED: &str =
+    "register.signal_routing.unrouted";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_OBSERVER_FAILED: &str =
+    "register.signal_routing.observer_failed";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED: &str =
+    "register.signal_routing.mod_workflow_routed";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &str =
+    "register.signal_routing.subsystem_health_propagated";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -236,6 +250,8 @@ pub(crate) struct RegistryRuntime {
     #[allow(dead_code)]
     pub(crate) diagnostics: DiagnosticsRegistry,
     #[allow(dead_code)]
+    signal_routing: SignalRoutingLayer,
+    #[allow(dead_code)]
     identity: IdentityRegistry,
     input: InputRegistry,
     layout: LayoutRegistry,
@@ -251,34 +267,7 @@ pub(crate) struct RegistryRuntime {
 
 #[allow(dead_code)]
 pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) -> Option<String> {
-    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
-
-    emit_event(DiagnosticEvent::MessageSent {
-        channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
-        byte_len: identity_id.len().saturating_add(payload.len()),
-    });
-
-    let result = runtime().identity.sign(identity_id, payload);
-    if result.succeeded {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_IDENTITY_SIGN_SUCCEEDED,
-            latency_us: 1,
-        });
-    } else {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_IDENTITY_SIGN_FAILED,
-            latency_us: 1,
-        });
-    }
-
-    if !result.resolution.key_available {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_IDENTITY_KEY_UNAVAILABLE,
-            byte_len: result.resolution.resolved_id.len(),
-        });
-    }
-
-    result.signature
+    runtime().sign_identity_payload(identity_id, payload)
 }
 
 impl RegistryRuntime {
@@ -309,6 +298,7 @@ impl RegistryRuntime {
         Self {
             action: ActionRegistry::default(),
             diagnostics: DiagnosticsRegistry::default(),
+            signal_routing: SignalRoutingLayer::default(),
             identity: IdentityRegistry::default(),
             input: InputRegistry::default(),
             layout: LayoutRegistry::default(),
@@ -363,6 +353,7 @@ impl RegistryRuntime {
         Self {
             action: ActionRegistry::default(),
             diagnostics: DiagnosticsRegistry::default(),
+            signal_routing: SignalRoutingLayer::default(),
             identity: IdentityRegistry::default(),
             input: InputRegistry::default(),
             layout: LayoutRegistry::default(),
@@ -424,6 +415,16 @@ impl RegistryRuntime {
             channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
             latency_us: 1,
         });
+
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::NavigationResolved {
+                uri: uri.to_string(),
+                viewer_id: viewer.viewer_id.to_string(),
+            },
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+
         emit_viewer_capability_diagnostics(&viewer);
         if viewer.fallback_used {
             emit_event(DiagnosticEvent::MessageSent {
@@ -434,30 +435,161 @@ impl RegistryRuntime {
 
         Some((protocol, viewer))
     }
+
+    pub(crate) fn resolve_input_binding(&self, binding_id: &str) -> bool {
+        let resolution = self.input.resolve(binding_id);
+
+        if resolution.matched {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_INPUT_BINDING_RESOLVED,
+                byte_len: resolution.action_id.as_deref().unwrap_or_default().len(),
+            });
+            return true;
+        }
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_INPUT_BINDING_MISSING,
+            byte_len: resolution.binding_id.len(),
+        });
+        false
+    }
+
+    pub(crate) fn sign_identity_payload(&self, identity_id: &str, payload: &[u8]) -> Option<String> {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
+            byte_len: identity_id.len().saturating_add(payload.len()),
+        });
+
+        let result = self.identity.sign(identity_id, payload);
+        if result.succeeded {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_IDENTITY_SIGN_SUCCEEDED,
+                latency_us: 1,
+            });
+        } else {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_IDENTITY_SIGN_FAILED,
+                latency_us: 1,
+            });
+        }
+
+        if !result.resolution.key_available {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_IDENTITY_KEY_UNAVAILABLE,
+                byte_len: result.resolution.resolved_id.len(),
+            });
+        }
+
+        result.signature
+    }
+
+    pub(crate) fn subscribe_signal(
+        &self,
+        topic: SignalTopic,
+        callback: impl Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync + 'static,
+    ) -> ObserverId {
+        self.signal_routing.subscribe(topic, callback)
+    }
+
+    pub(crate) fn unsubscribe_signal(&self, topic: SignalTopic, observer_id: ObserverId) -> bool {
+        self.signal_routing.unsubscribe(topic, observer_id)
+    }
+
+    #[cfg(test)]
+    fn signal_routing_diagnostics(&self) -> signal_routing::SignalRoutingDiagnostics {
+        self.signal_routing.diagnostics_snapshot()
+    }
+
+    fn publish_signal(&self, envelope: SignalEnvelope) {
+        let report = self.signal_routing.publish(envelope);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
+            byte_len: report.observers_notified,
+        });
+
+        if report.observers_notified == 0 {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
+                byte_len: 0,
+            });
+        }
+
+        if report.observer_failures > 0 {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_OBSERVER_FAILED,
+                byte_len: report.observer_failures,
+            });
+        }
+    }
+
+    pub(crate) fn route_mod_lifecycle_event(&self, mod_id: &str, activated: bool) {
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::ModLifecycleChanged {
+                mod_id: mod_id.to_string(),
+                activated,
+            },
+            SignalSource::ControlPanel,
+            None,
+        ));
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED,
+            byte_len: mod_id.len(),
+        });
+    }
+
+    pub(crate) fn propagate_subsystem_health_memory_pressure(
+        &self,
+        level: MemoryPressureLevel,
+        available_mib: u64,
+        total_mib: u64,
+    ) {
+        let level_name = match level {
+            MemoryPressureLevel::Unknown => "unknown",
+            MemoryPressureLevel::Normal => "normal",
+            MemoryPressureLevel::Warning => "warning",
+            MemoryPressureLevel::Critical => "critical",
+        };
+
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::SubsystemHealthMemoryPressure {
+                level: level_name.to_string(),
+                available_mib,
+                total_mib,
+            },
+            SignalSource::ControlPanel,
+            None,
+        ));
+
+        let byte_len = (available_mib as usize).saturating_add(total_mib as usize);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED,
+            byte_len,
+        });
+    }
 }
 
 pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
     phase2_resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT)
 }
 
+pub(crate) fn phase3_route_mod_lifecycle_event(mod_id: &str, activated: bool) {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().route_mod_lifecycle_event(mod_id, activated);
+}
+
+pub(crate) fn phase3_propagate_subsystem_health_memory_pressure(
+    level: MemoryPressureLevel,
+    available_mib: u64,
+    total_mib: u64,
+) {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().propagate_subsystem_health_memory_pressure(level, available_mib, total_mib);
+}
+
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
-
-    let resolution = runtime().input.resolve(binding_id);
-
-    if resolution.matched {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: CHANNEL_INPUT_BINDING_RESOLVED,
-            byte_len: resolution.action_id.as_deref().unwrap_or_default().len(),
-        });
-        return true;
-    }
-
-    emit_event(DiagnosticEvent::MessageSent {
-        channel_id: CHANNEL_INPUT_BINDING_MISSING,
-        byte_len: resolution.binding_id.len(),
-    });
-    false
+    runtime().resolve_input_binding(binding_id)
 }
 
 pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
@@ -1551,6 +1683,9 @@ pub(crate) fn phase5_check_verse_workspace_sync_access_for_tests(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
 
     #[test]
@@ -1647,6 +1782,163 @@ mod tests {
         assert!(protocol.supported);
         assert!(!protocol.fallback_used);
         assert_eq!(protocol.matched_scheme, "modtest");
+    }
+
+    #[test]
+    fn registry_runtime_navigation_signal_producer_notifies_two_observers() {
+        let runtime = RegistryRuntime::default();
+        let observer_a = Arc::new(AtomicUsize::new(0));
+        let observer_b = Arc::new(AtomicUsize::new(0));
+
+        {
+            let observer_a = Arc::clone(&observer_a);
+            runtime.subscribe_signal(SignalTopic::Navigation, move |_signal| {
+                observer_a.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            });
+        }
+
+        {
+            let observer_b = Arc::clone(&observer_b);
+            runtime.subscribe_signal(SignalTopic::Navigation, move |_signal| {
+                observer_b.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            });
+        }
+
+        let result = runtime.observe_navigation_url_with_control(
+            "https://example.com",
+            None,
+            ProtocolResolveControl::default(),
+        );
+        assert!(result.is_some());
+        assert_eq!(observer_a.load(Ordering::Relaxed), 1);
+        assert_eq!(observer_b.load(Ordering::Relaxed), 1);
+
+        let diagnostics = runtime.signal_routing_diagnostics();
+        assert_eq!(diagnostics.published_signals, 1);
+        assert_eq!(diagnostics.routed_deliveries, 2);
+        assert_eq!(diagnostics.unrouted_signals, 0);
+        assert_eq!(diagnostics.observer_failures, 0);
+    }
+
+    #[test]
+    fn registry_runtime_signal_unsubscribe_stops_navigation_delivery() {
+        let runtime = RegistryRuntime::default();
+        let observer_count = Arc::new(AtomicUsize::new(0));
+        let observer_id = {
+            let observer_count = Arc::clone(&observer_count);
+            runtime.subscribe_signal(SignalTopic::Navigation, move |_signal| {
+                observer_count.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            })
+        };
+
+        assert!(runtime.unsubscribe_signal(SignalTopic::Navigation, observer_id));
+
+        let result = runtime.observe_navigation_url_with_control(
+            "https://example.com/after-unsubscribe",
+            None,
+            ProtocolResolveControl::default(),
+        );
+        assert!(result.is_some());
+        assert_eq!(observer_count.load(Ordering::Relaxed), 0);
+
+        let diagnostics = runtime.signal_routing_diagnostics();
+        assert_eq!(diagnostics.published_signals, 1);
+        assert_eq!(diagnostics.routed_deliveries, 0);
+        assert_eq!(diagnostics.unrouted_signals, 0);
+    }
+
+    #[test]
+    fn phase2_input_binding_path_matches_registry_runtime_dispatch_api() {
+        let via_phase_api = phase2_resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT);
+        let via_runtime_api = runtime().resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT);
+        assert_eq!(via_phase_api, via_runtime_api);
+    }
+
+    #[test]
+    fn phase3_identity_sign_path_matches_registry_runtime_dispatch_api() {
+        let identity_id = "identity:missing";
+        let payload = b"payload";
+
+        let via_phase_api = phase3_sign_identity_payload(identity_id, payload);
+        let via_runtime_api = runtime().sign_identity_payload(identity_id, payload);
+
+        assert_eq!(via_phase_api, via_runtime_api);
+    }
+
+    #[test]
+    fn phase3_mod_workflow_path_routes_through_lifecycle_signal_observers() {
+        let runtime = RegistryRuntime::default();
+        let observer_a = Arc::new(AtomicUsize::new(0));
+        let observer_b = Arc::new(AtomicUsize::new(0));
+
+        {
+            let observer_a = Arc::clone(&observer_a);
+            runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+                if matches!(
+                    signal.kind,
+                    SignalKind::ModLifecycleChanged {
+                        activated: true,
+                        ..
+                    }
+                ) {
+                    observer_a.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            });
+        }
+
+        {
+            let observer_b = Arc::clone(&observer_b);
+            runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+                if let SignalKind::ModLifecycleChanged { mod_id, activated } = &signal.kind
+                    && *activated
+                    && mod_id == "mod:test"
+                {
+                    observer_b.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            });
+        }
+
+        runtime.route_mod_lifecycle_event("mod:test", true);
+
+        assert_eq!(observer_a.load(Ordering::Relaxed), 1);
+        assert_eq!(observer_b.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn phase3_subsystem_health_memory_pressure_routes_through_lifecycle_signals() {
+        let runtime = RegistryRuntime::default();
+        let seen_warning = Arc::new(AtomicUsize::new(0));
+
+        {
+            let seen_warning = Arc::clone(&seen_warning);
+            runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+                if let SignalKind::SubsystemHealthMemoryPressure {
+                    level,
+                    available_mib,
+                    total_mib,
+                } = &signal.kind
+                    && level == "warning"
+                    && *available_mib == 512
+                    && *total_mib == 4096
+                {
+                    seen_warning.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            });
+        }
+
+        runtime.propagate_subsystem_health_memory_pressure(
+            MemoryPressureLevel::Warning,
+            512,
+            4096,
+        );
+
+        assert_eq!(seen_warning.load(Ordering::Relaxed), 1);
     }
 
     #[test]

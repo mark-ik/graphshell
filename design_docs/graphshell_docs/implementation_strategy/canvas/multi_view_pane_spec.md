@@ -44,9 +44,10 @@ This spec defines the canonical contracts for:
 
 1. **Pane as universal host** — panes host view payloads; graph views are one kind.
 2. **Graph view identity** — `GraphViewId`, per-view camera, per-view lens.
-3. **Canonical vs Divergent layout** — multi-pane layout semantics.
-4. **Scope isolation** — interaction independence between sibling panes.
-5. **Semantic tab overlay** — `FrameTabSemantics`, promote/demote, demotion repair.
+3. **Per-view local layout** — multi-pane layout isolation semantics.
+4. **Graph-view layout manager** — slot-grid lifecycle and pane routing semantics.
+5. **Scope isolation** — interaction independence between sibling panes.
+6. **Semantic tab overlay** — `FrameTabSemantics`, promote/demote, demotion repair.
 
 ---
 
@@ -74,7 +75,7 @@ Each graph view pane has a stable `GraphViewId`. `GraphViewId` is the canonical 
 - Per-view camera state (pan offset, zoom level).
 - Per-view `ViewDimension` (TwoD / ThreeD).
 - Per-view Lens assignment.
-- Per-view `LocalSimulation` (physics state for Divergent views).
+- Per-view layout/physics state (local simulation state for this view only).
 
 `GraphViewId` is generated at pane creation and persisted as part of the frame snapshot. It does not change when the pane is moved, split, or reordered.
 
@@ -88,35 +89,77 @@ A Lens may be assigned per-`GraphViewId` or inherited from the workspace default
 
 ---
 
-## 4. Canonical vs Divergent Layout Contract
+## 4. Per-View Local Layout Contract
 
-Multiple graph view panes may open simultaneously. Each pane is classified as either **Canonical** or **Divergent**.
+Multiple graph view panes may open simultaneously. Each pane owns its own local layout state.
 
 ```
-GraphLayoutMode =
-  | Canonical    -- participates in the shared workspace graph layout
-  | Divergent    -- has its own independent LocalSimulation
+GraphLayoutOwnership =
+  | LocalPerView   -- each GraphViewId owns independent node positions/simulation state
 ```
 
-### 4.1 Canonical Mode
+### 4.1 Local-Per-View Mode (default and only mode)
 
-- The pane uses the shared workspace graph layout (single physics simulation, shared node positions).
-- Multiple Canonical panes in the same workbench share `(x, y)` node positions.
-- Camera is per-view (independent pan/zoom), but positions are shared.
-- This is the default mode for new graph view panes.
+- Each graph view pane has independent node positions and simulation state.
+- Camera remains per-view (independent pan/zoom), and layout state is also per-view.
+- A layout change in pane A must not mutate pane B unless an explicit future bridge/sync feature is invoked.
+- This is the default and only supported mode for graph view layout ownership.
 
-### 4.2 Divergent Mode
+### 4.2 Cross-View Transfer (explicit action only)
 
-- The pane has its own `LocalSimulation` with independent node positions.
-- Divergent layout does not affect Canonical pane positions.
-- Divergent panes may use a different `LayoutId` (algorithm) than the Canonical layout.
-- Divergent mode is explicitly user-activated (not automatic).
-
-**Scope isolation**: Selection, camera, and gestures in a Divergent pane do not affect sibling panes unless an explicit bridge/sync rule is enabled (see §5).
+- Cross-view copy/paste or duplicate flows are explicit user actions and are not implicit layout sharing.
+- This spec does not define automatic shared-layout behavior between graph views.
 
 ---
 
-## 5. Scope Isolation Contract
+## 5. Graph-View Layout Manager Contract
+
+Graphshell provides a graph-view layout manager for creating and organizing `GraphViewId`
+instances independent of pane hosting.
+
+### 5.1 Entry/Exit triggers
+
+- Enter manager: `GraphIntent::EnterGraphViewLayoutManager`
+- Exit manager: `GraphIntent::ExitGraphViewLayoutManager`
+- Toggle manager visibility: `GraphIntent::ToggleGraphViewLayoutManager`
+
+### 5.2 Slot lifecycle
+
+Each slot is `GraphViewSlot { view_id, name, row, col, archived }`.
+
+- Create slot/view: `GraphIntent::CreateGraphViewSlot { anchor_view, direction, open_mode }`
+- Rename slot/view: `GraphIntent::RenameGraphViewSlot { view_id, name }`
+- Move slot: `GraphIntent::MoveGraphViewSlot { view_id, row, col }`
+- Archive slot: `GraphIntent::ArchiveGraphViewSlot { view_id }`
+- Restore slot: `GraphIntent::RestoreGraphViewSlot { view_id, row, col }`
+
+Guardrails:
+
+- Active (non-archived) slots must have unique `(row, col)` coordinates.
+- Move/restore into occupied coordinates must reject or auto-place deterministically.
+- Archiving does not delete graph content; it only removes active slot visibility.
+
+### 5.3 Routing to workbench panes
+
+Routing from manager to pane hosting is explicit:
+
+- `GraphIntent::RouteGraphViewToWorkbench { view_id, mode }` emits
+  `WorkbenchIntent::OpenGraphViewPane { view_id, mode }`.
+- Workbench authority opens/focuses the pane and applies split/tab mode.
+- Reducer never mutates tile tree directly.
+
+### 5.4 Persistence shape
+
+Layout manager state persists as:
+
+- `PersistedGraphViewLayoutManager { version, active, slots[] }`
+- reserved storage key: `workspace:settings-graph-view-layout-manager`
+
+This persists slot metadata and manager active state, not tile geometry.
+
+---
+
+## 6. Scope Isolation Contract
 
 Graph scopes rendered in separate panes within the same workbench are **interaction-isolated by default**.
 
@@ -125,21 +168,21 @@ Graph scopes rendered in separate panes within the same workbench are **interact
 | Selection | Independent per pane; selecting a node in pane A does not change selection in pane B |
 | Camera | Independent per pane |
 | Gestures (lasso, drag) | Local to the pane that receives the gesture |
-| Physics state | Shared (Canonical) or isolated (Divergent) |
+| Layout/physics state | Independent per pane |
 
 **Explicit sync**: Scope sync (e.g., "mirror selection across panes") requires an explicit bridge rule. Bridge rules are future work; this spec records that isolation is the default.
 
 ---
 
-## 6. Semantic Tab Overlay Contract
+## 7. Semantic Tab Overlay Contract
 
-### 6.1 Purpose
+### 7.1 Purpose
 
 `FrameTabSemantics` is an optional overlay on top of the `egui_tiles` structural tree. It persists semantic tab group membership so that meaning is not lost when `egui_tiles` simplification (`simplify()`) restructures the tree.
 
 **Invariant**: The `egui_tiles` workbench tree is structural state, not semantic truth. `FrameTabSemantics` is semantic truth.
 
-### 6.2 Data Model
+### 7.2 Data Model
 
 ```
 FrameTabSemantics {
@@ -157,7 +200,7 @@ TabGroupMetadata {
 - A pane belongs to at most one semantic tab group.
 - Persistence: serialized with rkyv into the frame bundle (redb). This is frame state, not WAL data — it must not appear in `LogEntry` variants.
 
-### 6.3 Promote / Demote Contract
+### 7.3 Promote / Demote Contract
 
 **Promote** (pane rest state → tab container): pane is hoisted into a `Container::Tabs` node in the tile tree. Semantic metadata is created or updated.
 
@@ -165,7 +208,7 @@ TabGroupMetadata {
 
 **Invariant**: Promote and demote are explicit `GraphIntent` variants (e.g., `PromotePane`, `DemotePane`). They must not be ad hoc tree rewrites at UI callsites. The `render/*` layer captures the user event and routes it to `app.rs` as an intent; `app.rs` is the authority for the promotion decision; `desktop/*` applies the workbench tree mutation.
 
-### 6.4 Simplification Repair
+### 7.4 Simplification Repair
 
 When `egui_tiles::simplify()` runs and removes a tab container that has semantic metadata:
 
@@ -177,14 +220,17 @@ When `egui_tiles::simplify()` runs and removes a tab container that has semantic
 
 ---
 
-## 7. Acceptance Criteria
+## 8. Acceptance Criteria
 
 | Criterion | Verification |
 |-----------|-------------|
 | Camera in pane A does not affect pane B | Test: pan in pane A → pane B camera unchanged |
 | Selection in pane A does not affect pane B (isolation) | Test: select node in pane A → pane B selection unchanged |
-| Canonical panes share node positions | Test: move node in Canonical pane A → same node at new position in Canonical pane B |
-| Divergent pane has independent positions | Test: move node in Divergent pane → Canonical pane positions unchanged |
+| Layout positions are isolated between panes | Test: move node in pane A → pane B positions unchanged |
+| Enter/exit manager updates manager active state | Test: enter/exit/toggle intents update `GraphViewLayoutManagerState.active` |
+| Slot create/rename/move/archive/restore flows are deterministic | Test: lifecycle intent sequence yields expected slot metadata |
+| Slot coordinate collision is guarded | Test: moving slot into occupied coordinates is rejected |
+| Graph-view route intent dispatches workbench pane-open intent | Test: route intent enqueues `OpenGraphViewPane` |
 | `GraphViewId` persists across reorder | Test: reorder pane → `GraphViewId` unchanged |
 | Promote creates `Container::Tabs` node | Test: promote pane → tile tree contains `Container::Tabs` parent |
 | Demote removes container but retains semantic metadata | Test: demote → `TabGroupMetadata` still present in `FrameTabSemantics` |

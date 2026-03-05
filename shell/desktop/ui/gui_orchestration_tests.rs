@@ -251,6 +251,28 @@ fn view_url_intent_opens_graph_view_via_orchestration_authority() {
 }
 
 #[test]
+fn open_graph_view_pane_intent_routes_to_workbench_pane_open() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let initial_view = GraphViewId::new();
+    let new_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![WorkbenchIntent::OpenGraphViewPane {
+        view_id: new_view,
+        mode: crate::app::PendingTileOpenMode::SplitHorizontal,
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(
+        crate::shell::desktop::workbench::tile_view_ops::active_graph_view_id(&tree),
+        Some(new_view)
+    );
+}
+
+#[test]
 fn invalid_view_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();

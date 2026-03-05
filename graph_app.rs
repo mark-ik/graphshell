@@ -363,10 +363,6 @@ pub struct GraphViewState {
     #[serde(default)]
     pub zoom_fit_locked: bool,
     pub lens: LensConfig,
-    /// Whether this graph pane uses shared canonical positions or owns a private local simulation.
-    /// Defaults to `Canonical` (shared positions, independent camera only).
-    #[serde(default)]
-    pub layout_mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode,
     pub local_simulation: Option<LocalSimulation>,
     /// The rendering dimension for this view (2D or 3D sub-mode).
     ///
@@ -388,7 +384,6 @@ impl std::fmt::Debug for GraphViewState {
             .field("position_fit_locked", &self.position_fit_locked)
             .field("zoom_fit_locked", &self.zoom_fit_locked)
             .field("lens", &self.lens)
-            .field("layout_mode", &self.layout_mode)
             .field("local_simulation", &self.local_simulation)
             .field("dimension", &self.dimension)
             .finish_non_exhaustive()
@@ -404,7 +399,6 @@ impl Clone for GraphViewState {
             position_fit_locked: self.position_fit_locked,
             zoom_fit_locked: self.zoom_fit_locked,
             lens: self.lens.clone(),
-            layout_mode: self.layout_mode,
             local_simulation: self.local_simulation.clone(),
             dimension: self.dimension.clone(),
             egui_state: None,
@@ -421,7 +415,6 @@ impl GraphViewState {
             position_fit_locked: false,
             zoom_fit_locked: false,
             lens: LensConfig::default(),
-            layout_mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode::default(),
             local_simulation: None,
             dimension: ViewDimension::default(),
             egui_state: None,
@@ -431,6 +424,43 @@ impl GraphViewState {
     pub fn new(name: impl Into<String>) -> Self {
         Self::new_with_id(GraphViewId::new(), name)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum GraphViewLayoutDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GraphViewSlot {
+    pub view_id: GraphViewId,
+    pub name: String,
+    pub row: i32,
+    pub col: i32,
+    #[serde(default)]
+    pub archived: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub struct GraphViewLayoutManagerState {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub slots: HashMap<GraphViewId, GraphViewSlot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct PersistedGraphViewLayoutManager {
+    version: u32,
+    active: bool,
+    slots: Vec<GraphViewSlot>,
+}
+
+impl PersistedGraphViewLayoutManager {
+    const VERSION: u32 = 1;
 }
 
 #[derive(Debug, Clone)]
@@ -1065,6 +1095,10 @@ pub enum WorkbenchIntent {
     OpenClipUrl {
         url: String,
     },
+    OpenGraphViewPane {
+        view_id: GraphViewId,
+        mode: PendingTileOpenMode,
+    },
     OpenNoteUrl {
         url: String,
     },
@@ -1096,6 +1130,35 @@ pub enum GraphIntent {
     ToggleHelpPanel,
     ToggleCommandPalette,
     ToggleRadialMenu,
+    EnterGraphViewLayoutManager,
+    ExitGraphViewLayoutManager,
+    ToggleGraphViewLayoutManager,
+    CreateGraphViewSlot {
+        anchor_view: Option<GraphViewId>,
+        direction: GraphViewLayoutDirection,
+        open_mode: Option<PendingTileOpenMode>,
+    },
+    RenameGraphViewSlot {
+        view_id: GraphViewId,
+        name: String,
+    },
+    MoveGraphViewSlot {
+        view_id: GraphViewId,
+        row: i32,
+        col: i32,
+    },
+    ArchiveGraphViewSlot {
+        view_id: GraphViewId,
+    },
+    RestoreGraphViewSlot {
+        view_id: GraphViewId,
+        row: i32,
+        col: i32,
+    },
+    RouteGraphViewToWorkbench {
+        view_id: GraphViewId,
+        mode: PendingTileOpenMode,
+    },
     CreateNoteForNode {
         key: NodeKey,
         title: Option<String>,
@@ -1139,23 +1202,6 @@ pub enum GraphIntent {
     SetViewLens {
         view_id: GraphViewId,
         lens: LensConfig,
-    },
-    /// Switch a graph view between Canonical and Divergent layout modes.
-    ///
-    /// - **Canonical → Divergent**: snapshots current shared node positions into a
-    ///   `LocalSimulation` so the pane can evolve its own layout independently.
-    /// - **Divergent → Canonical**: discards the local simulation (positions revert to shared).
-    SetViewLayoutMode {
-        view_id: GraphViewId,
-        mode: crate::shell::desktop::workbench::pane_model::ViewLayoutMode,
-    },
-    /// Explicit commit action for Divergent -> Canonical writeback path.
-    ///
-    /// P6.e delivers the control path as a stub; writeback semantics land in a
-    /// follow-up slice. This action must remain explicit and separate from mode
-    /// switches.
-    CommitDivergentLayout {
-        view_id: GraphViewId,
     },
     /// Switch the rendering dimension for a graph view (2D ↔ 3D hotswitch).
     ///
@@ -1579,6 +1625,8 @@ pub struct GraphWorkspace {
 
     /// Active graph views, keyed by ID.
     pub views: HashMap<GraphViewId, GraphViewState>,
+    /// Graph-view layout manager state (slot grid + manager overlay toggle).
+    pub graph_view_layout_manager: GraphViewLayoutManagerState,
 
     /// Last known camera frame per graph view (updated by graph render pass).
     pub graph_view_frames: HashMap<GraphViewId, GraphViewFrame>,
@@ -1708,6 +1756,8 @@ impl GraphBrowserApp {
         "workspace:settings-registry-layout-id";
     pub const SETTINGS_REGISTRY_THEME_ID_NAME: &'static str =
         "workspace:settings-registry-theme-id";
+    pub const SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME: &'static str =
+        "workspace:settings-graph-view-layout-manager";
     pub const SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX: &'static str =
         "workspace:settings-diagnostics-channel-config:";
     pub const DEFAULT_WORKSPACE_AUTOSAVE_INTERVAL_SECS: u64 = 60;
@@ -1854,6 +1904,7 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
                 views: HashMap::new(),
+                graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
                 undo_stack: Vec::new(),
@@ -2056,6 +2107,7 @@ impl GraphBrowserApp {
                 pending_wheel_zoom_anchor_screen: None,
                 camera: Camera::new(),
                 views: HashMap::new(),
+                graph_view_layout_manager: GraphViewLayoutManagerState::default(),
                 graph_view_frames: HashMap::new(),
                 focused_view: None,
                 undo_stack: Vec::new(),
@@ -2434,20 +2486,289 @@ impl GraphBrowserApp {
         self.set_camera_zoom_fit_locked(locked);
     }
 
+    fn next_graph_view_slot_name(&self) -> String {
+        let count = self.workspace.graph_view_layout_manager.slots.len() + 1;
+        format!("Graph View {count}")
+    }
+
+    fn graph_view_slot_position_occupied(
+        &self,
+        row: i32,
+        col: i32,
+        except_view: Option<GraphViewId>,
+    ) -> bool {
+        self.workspace
+            .graph_view_layout_manager
+            .slots
+            .values()
+            .any(|slot| !slot.archived && Some(slot.view_id) != except_view && slot.row == row && slot.col == col)
+    }
+
+    fn next_free_graph_view_slot_position(&self) -> (i32, i32) {
+        for row in 0..64 {
+            for col in 0..64 {
+                if !self.graph_view_slot_position_occupied(row, col, None) {
+                    return (row, col);
+                }
+            }
+        }
+        (0, 0)
+    }
+
+    fn ensure_graph_view_slot_exists(&mut self, view_id: GraphViewId) {
+        if self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .contains_key(&view_id)
+        {
+            return;
+        }
+
+        let name = self
+            .workspace
+            .views
+            .get(&view_id)
+            .map(|view| view.name.clone())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| self.next_graph_view_slot_name());
+        let (row, col) = self.next_free_graph_view_slot_position();
+        self.workspace.graph_view_layout_manager.slots.insert(
+            view_id,
+            GraphViewSlot {
+                view_id,
+                name,
+                row,
+                col,
+                archived: false,
+            },
+        );
+    }
+
+    pub fn ensure_graph_view_registered(&mut self, view_id: GraphViewId) {
+        let had_view = self.workspace.views.contains_key(&view_id);
+        let had_slot = self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .contains_key(&view_id);
+        if !self.workspace.views.contains_key(&view_id) {
+            let name = self.next_graph_view_slot_name();
+            let mut state = GraphViewState::new_with_id(view_id, name);
+            state.local_simulation = Some(LocalSimulation {
+                positions: self
+                    .workspace
+                    .graph
+                    .nodes()
+                    .map(|(k, n)| (k, n.position))
+                    .collect(),
+                physics: self.workspace.physics.clone(),
+            });
+            self.workspace.views.insert(view_id, state);
+        } else if self.workspace.views[&view_id].local_simulation.is_none() {
+            if let Some(view) = self.workspace.views.get_mut(&view_id) {
+                view.local_simulation = Some(LocalSimulation {
+                    positions: self
+                        .workspace
+                        .graph
+                        .nodes()
+                        .map(|(k, n)| (k, n.position))
+                        .collect(),
+                    physics: self.workspace.physics.clone(),
+                });
+            }
+        }
+
+        self.ensure_graph_view_slot_exists(view_id);
+        if !had_view || !had_slot {
+            self.persist_graph_view_layout_manager_state();
+        }
+    }
+
+    fn persist_graph_view_layout_manager_state(&mut self) {
+        let persisted = PersistedGraphViewLayoutManager {
+            version: PersistedGraphViewLayoutManager::VERSION,
+            active: self.workspace.graph_view_layout_manager.active,
+            slots: self
+                .workspace
+                .graph_view_layout_manager
+                .slots
+                .values()
+                .cloned()
+                .collect(),
+        };
+        if let Ok(json) = serde_json::to_string(&persisted) {
+            self.save_workspace_layout_json(Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME, &json);
+        }
+    }
+
+    fn load_graph_view_layout_manager_state(&mut self) {
+        let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME)
+        else {
+            return;
+        };
+        let Ok(persisted) = serde_json::from_str::<PersistedGraphViewLayoutManager>(&raw) else {
+            warn!("Ignoring invalid persisted graph-view layout manager state payload");
+            return;
+        };
+        if persisted.version != PersistedGraphViewLayoutManager::VERSION {
+            warn!(
+                "Ignoring unsupported graph-view layout manager state version: {}",
+                persisted.version
+            );
+            return;
+        }
+
+        let mut slots = HashMap::new();
+        for slot in persisted.slots {
+            slots.insert(slot.view_id, slot);
+        }
+        self.workspace.graph_view_layout_manager.active = persisted.active;
+        self.workspace.graph_view_layout_manager.slots = slots;
+    }
+
+    fn create_graph_view_slot(
+        &mut self,
+        anchor_view: Option<GraphViewId>,
+        direction: GraphViewLayoutDirection,
+        open_mode: Option<PendingTileOpenMode>,
+    ) {
+        let view_id = GraphViewId::new();
+        let mut state = GraphViewState::new_with_id(view_id, self.next_graph_view_slot_name());
+        state.local_simulation = Some(LocalSimulation {
+            positions: self
+                .workspace
+                .graph
+                .nodes()
+                .map(|(k, n)| (k, n.position))
+                .collect(),
+            physics: self.workspace.physics.clone(),
+        });
+        self.workspace.views.insert(view_id, state.clone());
+
+        let (row, col) = if let Some(anchor_id) = anchor_view {
+            if let Some(anchor_slot) = self.workspace.graph_view_layout_manager.slots.get(&anchor_id) {
+                let (target_row, target_col) = match direction {
+                    GraphViewLayoutDirection::Up => (anchor_slot.row - 1, anchor_slot.col),
+                    GraphViewLayoutDirection::Down => (anchor_slot.row + 1, anchor_slot.col),
+                    GraphViewLayoutDirection::Left => (anchor_slot.row, anchor_slot.col - 1),
+                    GraphViewLayoutDirection::Right => (anchor_slot.row, anchor_slot.col + 1),
+                };
+                if self.graph_view_slot_position_occupied(target_row, target_col, None) {
+                    self.next_free_graph_view_slot_position()
+                } else {
+                    (target_row, target_col)
+                }
+            } else {
+                self.next_free_graph_view_slot_position()
+            }
+        } else {
+            self.next_free_graph_view_slot_position()
+        };
+
+        self.workspace.graph_view_layout_manager.slots.insert(
+            view_id,
+            GraphViewSlot {
+                view_id,
+                name: state.name,
+                row,
+                col,
+                archived: false,
+            },
+        );
+
+        if let Some(mode) = open_mode {
+            self.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane { view_id, mode });
+        }
+        self.persist_graph_view_layout_manager_state();
+    }
+
+    fn rename_graph_view_slot(&mut self, view_id: GraphViewId, name: String) {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
+            slot.name = trimmed.to_string();
+            if let Some(view) = self.workspace.views.get_mut(&view_id) {
+                view.name = slot.name.clone();
+            }
+            self.persist_graph_view_layout_manager_state();
+        }
+    }
+
+    fn move_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
+        if self.graph_view_slot_position_occupied(row, col, Some(view_id)) {
+            return;
+        }
+        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
+            slot.row = row;
+            slot.col = col;
+            self.persist_graph_view_layout_manager_state();
+        }
+    }
+
+    fn archive_graph_view_slot(&mut self, view_id: GraphViewId) {
+        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
+            slot.archived = true;
+            if self.workspace.focused_view == Some(view_id) {
+                self.set_workspace_focused_view_with_transition(None);
+            }
+            self.persist_graph_view_layout_manager_state();
+        }
+    }
+
+    fn restore_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
+        self.ensure_graph_view_registered(view_id);
+        let (next_row, next_col) = if self.graph_view_slot_position_occupied(row, col, Some(view_id))
+        {
+            self.next_free_graph_view_slot_position()
+        } else {
+            (row, col)
+        };
+        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
+            slot.archived = false;
+            slot.row = next_row;
+            slot.col = next_col;
+            self.persist_graph_view_layout_manager_state();
+        }
+    }
+
+    fn route_graph_view_to_workbench(&mut self, view_id: GraphViewId, mode: PendingTileOpenMode) {
+        self.ensure_graph_view_registered(view_id);
+        if self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .get(&view_id)
+            .is_some_and(|slot| slot.archived)
+        {
+            return;
+        }
+        self.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane { view_id, mode });
+    }
+
     pub fn reconcile_workspace_graph_views(
         &mut self,
         live_graph_views: &HashSet<GraphViewId>,
         fallback_focused_view: Option<GraphViewId>,
     ) {
+        let registered_views: HashSet<GraphViewId> = self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .keys()
+            .copied()
+            .collect();
         self.workspace
             .views
-            .retain(|view_id, _| live_graph_views.contains(view_id));
+            .retain(|view_id, _| live_graph_views.contains(view_id) || registered_views.contains(view_id));
         self.workspace
             .graph_view_frames
             .retain(|view_id, _| live_graph_views.contains(view_id));
         self.workspace
             .selected_nodes_by_view
-            .retain(|view_id, _| live_graph_views.contains(view_id));
+            .retain(|view_id, _| live_graph_views.contains(view_id) || registered_views.contains(view_id));
 
         if self
             .workspace
@@ -2902,8 +3223,118 @@ impl GraphBrowserApp {
         }
     }
 
+    fn has_typed_edge(&self, from: NodeKey, to: NodeKey, edge_type: EdgeType) -> bool {
+        self.workspace
+            .graph
+            .edges()
+            .any(|edge| edge.from == from && edge.to == to && edge.edge_type == edge_type)
+    }
+
+    fn would_create_user_grouped_edge(&self, from: NodeKey, to: NodeKey) -> bool {
+        if from == to {
+            return false;
+        }
+        if self.workspace.graph.get_node(from).is_none() || self.workspace.graph.get_node(to).is_none() {
+            return false;
+        }
+        !self.has_typed_edge(from, to, EdgeType::UserGrouped)
+    }
+
+    fn should_capture_undo_checkpoint_for_intent(&self, intent: &GraphIntent) -> bool {
+        match intent {
+            GraphIntent::CreateNodeNearCenter
+            | GraphIntent::CreateNodeNearCenterAndOpen { .. }
+            | GraphIntent::CreateNodeAtUrl { .. }
+            | GraphIntent::CreateNodeAtUrlAndOpen { .. } => true,
+            GraphIntent::RemoveSelectedNodes => !self.focused_selection().is_empty(),
+            GraphIntent::ClearGraph => self.workspace.graph.node_count() > 0,
+            GraphIntent::CreateUserGroupedEdge { from, to } => {
+                self.would_create_user_grouped_edge(*from, *to)
+            }
+            GraphIntent::CreateUserGroupedEdgeFromPrimarySelection => self
+                .selected_pair_in_order()
+                .map(|(from, to)| self.would_create_user_grouped_edge(from, to))
+                .unwrap_or(false),
+            GraphIntent::RemoveEdge {
+                from,
+                to,
+                edge_type,
+            } => self.has_typed_edge(*from, *to, *edge_type),
+            GraphIntent::SetNodePinned { key, is_pinned } => {
+                let Some(node) = self.workspace.graph.get_node(*key) else {
+                    return false;
+                };
+                let has_pin_tag = self
+                    .workspace
+                    .semantic_tags
+                    .get(key)
+                    .is_some_and(|tags| tags.contains(Self::TAG_PIN));
+                node.is_pinned != *is_pinned || has_pin_tag != *is_pinned
+            }
+            GraphIntent::SetNodeUrl { key, new_url } => self
+                .workspace
+                .graph
+                .get_node(*key)
+                .map(|node| node.url != *new_url)
+                .unwrap_or(false),
+            GraphIntent::TagNode { key, tag } => {
+                let Some(node) = self.workspace.graph.get_node(*key) else {
+                    return false;
+                };
+                if tag == Self::TAG_PIN && !node.is_pinned {
+                    return true;
+                }
+                !self
+                    .workspace
+                    .semantic_tags
+                    .get(key)
+                    .is_some_and(|tags| tags.contains(tag))
+            }
+            GraphIntent::UntagNode { key, tag } => {
+                if tag == Self::TAG_PIN
+                    && self
+                        .workspace
+                        .graph
+                        .get_node(*key)
+                        .map(|node| node.is_pinned)
+                        .unwrap_or(false)
+                {
+                    return true;
+                }
+                self.workspace
+                    .semantic_tags
+                    .get(key)
+                    .is_some_and(|tags| tags.contains(tag))
+            }
+            GraphIntent::UpdateNodeMimeHint { key, mime_hint } => self
+                .workspace
+                .graph
+                .get_node(*key)
+                .map(|node| node.mime_hint != *mime_hint)
+                .unwrap_or(false),
+            GraphIntent::UpdateNodeAddressKind { key, kind } => self
+                .workspace
+                .graph
+                .get_node(*key)
+                .map(|node| node.address_kind != *kind)
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    fn current_undo_checkpoint_layout_json(&self) -> Option<String> {
+        self.workspace
+            .last_session_workspace_layout_json
+            .clone()
+            .or_else(|| self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME))
+    }
+
     fn apply_reducer_intent(&mut self, intent: GraphReducerIntent) {
         let intent = intent.into_graph_intent();
+
+        if self.should_capture_undo_checkpoint_for_intent(&intent) {
+            self.capture_undo_checkpoint(self.current_undo_checkpoint_layout_json());
+        }
 
         if matches!(
             intent,
@@ -2964,14 +3395,47 @@ impl GraphBrowserApp {
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
             GraphIntent::ToggleCommandPalette => self.toggle_command_palette(),
             GraphIntent::ToggleRadialMenu => self.toggle_radial_menu(),
+            GraphIntent::EnterGraphViewLayoutManager => {
+                self.workspace.graph_view_layout_manager.active = true;
+                self.persist_graph_view_layout_manager_state();
+            }
+            GraphIntent::ExitGraphViewLayoutManager => {
+                self.workspace.graph_view_layout_manager.active = false;
+                self.persist_graph_view_layout_manager_state();
+            }
+            GraphIntent::ToggleGraphViewLayoutManager => {
+                self.workspace.graph_view_layout_manager.active =
+                    !self.workspace.graph_view_layout_manager.active;
+                self.persist_graph_view_layout_manager_state();
+            }
+            GraphIntent::CreateGraphViewSlot {
+                anchor_view,
+                direction,
+                open_mode,
+            } => {
+                self.create_graph_view_slot(anchor_view, direction, open_mode);
+            }
+            GraphIntent::RenameGraphViewSlot { view_id, name } => {
+                self.rename_graph_view_slot(view_id, name);
+            }
+            GraphIntent::MoveGraphViewSlot { view_id, row, col } => {
+                self.move_graph_view_slot(view_id, row, col);
+            }
+            GraphIntent::ArchiveGraphViewSlot { view_id } => {
+                self.archive_graph_view_slot(view_id);
+            }
+            GraphIntent::RestoreGraphViewSlot { view_id, row, col } => {
+                self.restore_graph_view_slot(view_id, row, col);
+            }
+            GraphIntent::RouteGraphViewToWorkbench { view_id, mode } => {
+                self.route_graph_view_to_workbench(view_id, mode);
+            }
             GraphIntent::Undo => {
-                let current_layout =
-                    self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME);
+                let current_layout = self.current_undo_checkpoint_layout_json();
                 let _ = self.perform_undo(current_layout);
             }
             GraphIntent::Redo => {
-                let current_layout =
-                    self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME);
+                let current_layout = self.current_undo_checkpoint_layout_json();
                 let _ = self.perform_redo(current_layout);
             }
             GraphIntent::CreateNodeNearCenter => {
@@ -3030,42 +3494,6 @@ impl GraphBrowserApp {
                 };
                 if let Some(view) = self.workspace.views.get_mut(&view_id) {
                     view.lens = lens;
-                }
-            }
-            GraphIntent::SetViewLayoutMode { view_id, mode } => {
-                use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
-                if let Some(view) = self.workspace.views.get_mut(&view_id) {
-                    match (view.layout_mode, mode) {
-                        (ViewLayoutMode::Canonical, ViewLayoutMode::Divergent) => {
-                            // Snapshot current shared positions into a private local simulation.
-                            let positions: HashMap<NodeKey, euclid::default::Point2D<f32>> = self
-                                .workspace
-                                .graph
-                                .nodes()
-                                .map(|(k, n)| (k, n.position))
-                                .collect();
-                            view.local_simulation = Some(LocalSimulation {
-                                positions,
-                                physics: self.workspace.physics.clone(),
-                            });
-                            view.layout_mode = mode;
-                        }
-                        (ViewLayoutMode::Divergent, ViewLayoutMode::Canonical) => {
-                            // Discard local simulation; positions revert to shared graph state.
-                            view.local_simulation = None;
-                            view.layout_mode = mode;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            GraphIntent::CommitDivergentLayout { view_id } => {
-                if let Some(view) = self.workspace.views.get(&view_id) {
-                    log::debug!(
-                        "commit divergent layout stub invoked for view {:?} in mode {:?}",
-                        view_id,
-                        view.layout_mode
-                    );
                 }
             }
             GraphIntent::SetViewDimension { view_id, dimension } => {
@@ -3439,11 +3867,24 @@ impl GraphBrowserApp {
                 total_mib,
             } => {
                 self.set_memory_pressure_status(level, available_mib, total_mib);
+                crate::shell::desktop::runtime::registries::phase3_propagate_subsystem_health_memory_pressure(
+                    level,
+                    available_mib,
+                    total_mib,
+                );
             }
             GraphIntent::ModActivated { mod_id } => {
+                crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
+                    &mod_id,
+                    true,
+                );
                 log::info!("mod activated: {mod_id}");
             }
             GraphIntent::ModLoadFailed { mod_id, reason } => {
+                crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
+                    &mod_id,
+                    false,
+                );
                 log::warn!("mod load failed: {mod_id} ({reason})");
             }
             GraphIntent::ApplyRemoteLogEntries { entries } => {
@@ -3878,6 +4319,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_LASSO_BINDING_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
+            || name == Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
             || name.starts_with(Self::SESSION_WORKSPACE_PREV_PREFIX)
     }
@@ -4238,6 +4680,7 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
+        self.load_graph_view_layout_manager_state();
 
         crate::registries::atomic::diagnostics::apply_persisted_channel_configs(
             self.diagnostics_channel_configs(),
@@ -5259,6 +5702,20 @@ impl GraphBrowserApp {
 
     pub fn pending_tool_surface_return_target(&self) -> Option<ToolSurfaceReturnTarget> {
         self.workspace.pending_tool_surface_return_target.clone()
+    }
+
+    pub fn graph_view_layout_manager_active(&self) -> bool {
+        self.workspace.graph_view_layout_manager.active
+    }
+
+    #[cfg(test)]
+    pub fn graph_view_slots_for_tests(&self) -> Vec<GraphViewSlot> {
+        self.workspace
+            .graph_view_layout_manager
+            .slots
+            .values()
+            .cloned()
+            .collect()
     }
 
     pub fn enqueue_workbench_intent(&mut self, intent: WorkbenchIntent) {
@@ -10170,103 +10627,6 @@ mod tests {
         assert_eq!(resolved.theme.as_deref(), Some("theme:default"));
     }
 
-    #[test]
-    fn test_set_view_layout_mode_canonical_to_divergent_snapshots_positions() {
-        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
-        let mut app = GraphBrowserApp::new_for_testing();
-
-        let view_id = GraphViewId::new();
-        app.workspace
-            .views
-            .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
-        assert_eq!(
-            app.workspace.views[&view_id].layout_mode,
-            ViewLayoutMode::Canonical
-        );
-        assert!(app.workspace.views[&view_id].local_simulation.is_none());
-
-        app.apply_reducer_intents([GraphIntent::SetViewLayoutMode {
-            view_id,
-            mode: ViewLayoutMode::Divergent,
-        }]);
-
-        let view = &app.workspace.views[&view_id];
-        assert_eq!(view.layout_mode, ViewLayoutMode::Divergent);
-        // Local simulation should be created (positions may be empty for an empty graph).
-        assert!(view.local_simulation.is_some());
-    }
-
-    #[test]
-    fn test_set_view_layout_mode_divergent_to_canonical_discards_simulation() {
-        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
-        let mut app = GraphBrowserApp::new_for_testing();
-
-        let view_id = GraphViewId::new();
-        let mut view_state = GraphViewState::new("Test");
-        view_state.layout_mode = ViewLayoutMode::Divergent;
-        view_state.local_simulation = Some(LocalSimulation {
-            positions: Default::default(),
-            physics: app.workspace.physics.clone(),
-        });
-        app.workspace.views.insert(view_id, view_state);
-
-        app.apply_reducer_intents([GraphIntent::SetViewLayoutMode {
-            view_id,
-            mode: ViewLayoutMode::Canonical,
-        }]);
-
-        let view = &app.workspace.views[&view_id];
-        assert_eq!(view.layout_mode, ViewLayoutMode::Canonical);
-        assert!(view.local_simulation.is_none());
-    }
-
-    #[test]
-    fn test_set_view_layout_mode_no_op_same_mode() {
-        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
-        let mut app = GraphBrowserApp::new_for_testing();
-
-        let view_id = GraphViewId::new();
-        app.workspace
-            .views
-            .insert(view_id, GraphViewState::new_with_id(view_id, "Test"));
-
-        // Applying Canonical -> Canonical should not create a local simulation.
-        app.apply_reducer_intents([GraphIntent::SetViewLayoutMode {
-            view_id,
-            mode: ViewLayoutMode::Canonical,
-        }]);
-        assert!(app.workspace.views[&view_id].local_simulation.is_none());
-    }
-
-    #[test]
-    fn test_commit_divergent_layout_stub_does_not_mutate_shared_positions() {
-        use crate::shell::desktop::workbench::pane_model::ViewLayoutMode;
-        let mut app = GraphBrowserApp::new_for_testing();
-
-        let node_key = app
-            .workspace
-            .graph
-            .add_node("https://example.com".into(), Point2D::new(10.0, 20.0));
-
-        let view_id = GraphViewId::new();
-        let mut view_state = GraphViewState::new_with_id(view_id, "Test");
-        view_state.layout_mode = ViewLayoutMode::Divergent;
-        view_state.local_simulation = Some(LocalSimulation {
-            positions: HashMap::from([(node_key, Point2D::new(200.0, 300.0))]),
-            physics: app.workspace.physics.clone(),
-        });
-        app.workspace.views.insert(view_id, view_state);
-
-        let before = app.workspace.graph.get_node(node_key).unwrap().position;
-        app.apply_reducer_intents([GraphIntent::CommitDivergentLayout { view_id }]);
-        let after = app.workspace.graph.get_node(node_key).unwrap().position;
-
-        assert_eq!(
-            before, after,
-            "stub commit must not mutate shared graph positions"
-        );
-    }
-
     // --- UpdateNodeMimeHint / UpdateNodeAddressKind intent tests ---
 
     #[test]
@@ -10397,6 +10757,117 @@ mod tests {
         assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
     }
 
+    #[test]
+    fn undo_redo_create_node_and_remove_selected_nodes() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
+        assert_eq!(app.workspace.graph.node_count(), 1);
+        assert_eq!(app.undo_stack_len(), 1);
+        assert_eq!(app.redo_stack_len(), 0);
+
+        app.apply_reducer_intents([GraphIntent::Undo]);
+        assert_eq!(app.workspace.graph.node_count(), 0);
+        assert_eq!(app.undo_stack_len(), 0);
+        assert_eq!(app.redo_stack_len(), 1);
+
+        app.apply_reducer_intents([GraphIntent::Redo]);
+        assert_eq!(app.workspace.graph.node_count(), 1);
+        assert_eq!(app.undo_stack_len(), 1);
+        assert_eq!(app.redo_stack_len(), 0);
+
+        app.apply_reducer_intents([GraphIntent::RemoveSelectedNodes]);
+        assert_eq!(app.workspace.graph.node_count(), 0);
+        assert_eq!(app.undo_stack_len(), 2);
+
+        app.apply_reducer_intents([GraphIntent::Undo]);
+        assert_eq!(app.workspace.graph.node_count(), 1);
+        assert_eq!(app.redo_stack_len(), 1);
+    }
+
+    #[test]
+    fn undo_redo_set_node_url_round_trips_original_value() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://old.example".to_string(), Point2D::new(0.0, 0.0));
+
+        app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+            key,
+            new_url: "https://new.example".to_string(),
+        }]);
+        assert_eq!(app.workspace.graph.get_node(key).unwrap().url, "https://new.example");
+        assert_eq!(app.undo_stack_len(), 1);
+
+        app.apply_reducer_intents([GraphIntent::Undo]);
+        assert_eq!(app.workspace.graph.get_node(key).unwrap().url, "https://old.example");
+
+        app.apply_reducer_intents([GraphIntent::Redo]);
+        assert_eq!(app.workspace.graph.get_node(key).unwrap().url, "https://new.example");
+    }
+
+    #[test]
+    fn undo_redo_user_grouped_edge_create_and_remove_round_trip() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let from = app
+            .workspace
+            .graph
+            .add_node("https://a.example".to_string(), Point2D::new(0.0, 0.0));
+        let to = app
+            .workspace
+            .graph
+            .add_node("https://b.example".to_string(), Point2D::new(10.0, 0.0));
+
+        app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge { from, to }]);
+        assert!(app.workspace.graph.edges().any(|edge| {
+            edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
+        }));
+        assert_eq!(app.undo_stack_len(), 1);
+
+        app.apply_reducer_intents([GraphIntent::Undo]);
+        assert!(!app.workspace.graph.edges().any(|edge| {
+            edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
+        }));
+
+        app.apply_reducer_intents([GraphIntent::Redo]);
+        assert!(app.workspace.graph.edges().any(|edge| {
+            edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
+        }));
+
+        app.apply_reducer_intents([GraphIntent::RemoveEdge {
+            from,
+            to,
+            edge_type: EdgeType::UserGrouped,
+        }]);
+        assert!(!app.workspace.graph.edges().any(|edge| {
+            edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
+        }));
+        assert_eq!(app.undo_stack_len(), 2);
+
+        app.apply_reducer_intents([GraphIntent::Undo]);
+        assert!(app.workspace.graph.edges().any(|edge| {
+            edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
+        }));
+    }
+
+    #[test]
+    fn set_node_url_noop_does_not_capture_undo_checkpoint() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .graph
+            .add_node("https://same.example".to_string(), Point2D::new(0.0, 0.0));
+
+        app.apply_reducer_intents([GraphIntent::SetNodeUrl {
+            key,
+            new_url: "https://same.example".to_string(),
+        }]);
+
+        assert_eq!(app.undo_stack_len(), 0);
+        assert_eq!(app.redo_stack_len(), 0);
+    }
+
     #[cfg(feature = "diagnostics")]
     #[test]
     fn stale_camera_target_enqueue_emits_blocked_channel() {
@@ -10453,6 +10924,161 @@ mod tests {
             before_count + 1,
             "graph mutation must flow through apply_reducer_intents"
         );
+    }
+
+    #[test]
+    fn graph_view_layout_manager_entry_exit_and_toggle_intents_update_state() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        assert!(!app.graph_view_layout_manager_active());
+
+        app.apply_reducer_intents([GraphIntent::EnterGraphViewLayoutManager]);
+        assert!(app.graph_view_layout_manager_active());
+
+        app.apply_reducer_intents([GraphIntent::ExitGraphViewLayoutManager]);
+        assert!(!app.graph_view_layout_manager_active());
+
+        app.apply_reducer_intents([GraphIntent::ToggleGraphViewLayoutManager]);
+        assert!(app.graph_view_layout_manager_active());
+    }
+
+    #[test]
+    fn graph_view_slot_lifecycle_create_rename_move_archive_restore() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let anchor = GraphViewId::new();
+        app.ensure_graph_view_registered(anchor);
+
+        app.apply_reducer_intents([GraphIntent::CreateGraphViewSlot {
+            anchor_view: Some(anchor),
+            direction: GraphViewLayoutDirection::Right,
+            open_mode: None,
+        }]);
+
+        let mut slots = app.graph_view_slots_for_tests();
+        assert_eq!(slots.len(), 2);
+        let created = slots
+            .iter()
+            .find(|slot| slot.view_id != anchor)
+            .expect("expected created graph-view slot")
+            .view_id;
+
+        app.apply_reducer_intents([GraphIntent::RenameGraphViewSlot {
+            view_id: created,
+            name: "Investigation View".to_string(),
+        }]);
+        slots = app.graph_view_slots_for_tests();
+        assert!(slots
+            .iter()
+            .any(|slot| slot.view_id == created && slot.name == "Investigation View"));
+
+        app.apply_reducer_intents([GraphIntent::MoveGraphViewSlot {
+            view_id: created,
+            row: 3,
+            col: 2,
+        }]);
+        slots = app.graph_view_slots_for_tests();
+        assert!(slots
+            .iter()
+            .any(|slot| slot.view_id == created && slot.row == 3 && slot.col == 2));
+
+        app.apply_reducer_intents([GraphIntent::ArchiveGraphViewSlot { view_id: created }]);
+        slots = app.graph_view_slots_for_tests();
+        assert!(slots
+            .iter()
+            .any(|slot| slot.view_id == created && slot.archived));
+
+        app.apply_reducer_intents([GraphIntent::RestoreGraphViewSlot {
+            view_id: created,
+            row: 4,
+            col: 4,
+        }]);
+        slots = app.graph_view_slots_for_tests();
+        assert!(slots.iter().any(|slot| {
+            slot.view_id == created && !slot.archived && slot.row == 4 && slot.col == 4
+        }));
+    }
+
+    #[test]
+    fn graph_view_slot_move_guard_prevents_coordinate_collision() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let left = GraphViewId::new();
+        let right = GraphViewId::new();
+        app.ensure_graph_view_registered(left);
+        app.ensure_graph_view_registered(right);
+
+        app.apply_reducer_intents([GraphIntent::MoveGraphViewSlot {
+            view_id: left,
+            row: 1,
+            col: 1,
+        }]);
+        app.apply_reducer_intents([GraphIntent::MoveGraphViewSlot {
+            view_id: right,
+            row: 2,
+            col: 2,
+        }]);
+
+        app.apply_reducer_intents([GraphIntent::MoveGraphViewSlot {
+            view_id: right,
+            row: 1,
+            col: 1,
+        }]);
+
+        let slots = app.graph_view_slots_for_tests();
+        let right_slot = slots
+            .iter()
+            .find(|slot| slot.view_id == right)
+            .expect("right slot should exist");
+        assert_eq!(
+            (right_slot.row, right_slot.col),
+            (2, 2),
+            "move into occupied slot should be rejected"
+        );
+    }
+
+    #[test]
+    fn route_graph_view_to_workbench_enqueues_open_graph_view_pane_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.ensure_graph_view_registered(view_id);
+
+        app.apply_reducer_intents([GraphIntent::RouteGraphViewToWorkbench {
+            view_id,
+            mode: PendingTileOpenMode::SplitHorizontal,
+        }]);
+
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::OpenGraphViewPane {
+                view_id: routed,
+                mode: PendingTileOpenMode::SplitHorizontal
+            }] if *routed == view_id
+        ));
+    }
+
+    #[test]
+    fn persisted_graph_view_layout_manager_shape_round_trips() {
+        let view_id = GraphViewId::new();
+        let persisted = PersistedGraphViewLayoutManager {
+            version: PersistedGraphViewLayoutManager::VERSION,
+            active: true,
+            slots: vec![GraphViewSlot {
+                view_id,
+                name: "Primary".to_string(),
+                row: 0,
+                col: 1,
+                archived: false,
+            }],
+        };
+
+        let json = serde_json::to_string(&persisted).expect("persisted manager should serialize");
+        let decoded: PersistedGraphViewLayoutManager =
+            serde_json::from_str(&json).expect("persisted manager should deserialize");
+
+        assert_eq!(decoded.version, PersistedGraphViewLayoutManager::VERSION);
+        assert!(decoded.active);
+        assert_eq!(decoded.slots.len(), 1);
+        assert_eq!(decoded.slots[0].view_id, view_id);
+        assert_eq!(decoded.slots[0].name, "Primary");
     }
 
     #[cfg(feature = "diagnostics")]

@@ -3,6 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+use crate::app::MemoryPressureLevel;
+use crate::shell::desktop::runtime::control_panel::LifecyclePolicy;
 
 impl Gui {
     pub(super) fn execute_update_frame(args: ExecuteUpdateFrameArgs<'_>) {
@@ -204,12 +206,32 @@ impl Gui {
     }
 
     fn initialize_frame_intents(
+        graph_app: &GraphBrowserApp,
         pre_frame_intents: Vec<GraphIntent>,
         control_panel: &mut ControlPanel,
     ) -> Vec<GraphIntent> {
+        Self::update_prefetch_lifecycle_policy(graph_app, control_panel);
         let mut frame_intents = pre_frame_intents;
         frame_intents.extend(control_panel.drain_pending());
         frame_intents
+    }
+
+    fn update_prefetch_lifecycle_policy(graph_app: &GraphBrowserApp, control_panel: &ControlPanel) {
+        let memory_pressure_level = graph_app.memory_pressure_level();
+        let prefetch_target = graph_app.get_single_selected_node();
+        let (prefetch_enabled, prefetch_interval) = match memory_pressure_level {
+            MemoryPressureLevel::Critical => (false, Duration::from_secs(30)),
+            MemoryPressureLevel::Warning => (prefetch_target.is_some(), Duration::from_secs(20)),
+            MemoryPressureLevel::Normal => (prefetch_target.is_some(), Duration::from_secs(8)),
+            MemoryPressureLevel::Unknown => (prefetch_target.is_some(), Duration::from_secs(12)),
+        };
+
+        control_panel.update_lifecycle_policy(LifecyclePolicy {
+            prefetch_enabled,
+            prefetch_interval,
+            prefetch_target,
+            memory_pressure_level,
+        });
     }
 
     fn run_pre_frame_and_initialize_intents(
@@ -239,8 +261,11 @@ impl Gui {
             thumbnail_capture_in_flight,
             command_palette_toggle_requested,
         );
-        let frame_intents =
-            Self::initialize_frame_intents(pre_frame.frame_intents.clone(), control_panel);
+        let frame_intents = Self::initialize_frame_intents(
+            graph_app,
+            pre_frame.frame_intents.clone(),
+            control_panel,
+        );
 
         (pre_frame, frame_intents)
     }

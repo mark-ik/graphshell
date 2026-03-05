@@ -71,6 +71,39 @@ Canonical requirement: command surfaces may differ in presentation, but not in a
 
 ---
 
+## 3.1 Undo Implementation Status (W1)
+
+`Undoable` in the matrix remains the semantic target contract. This subsection records runtime implementation status as of 2026-03-05.
+
+Implemented (backed by reducer checkpoint capture + undo/redo regressions):
+
+- `NodeNew`
+- `NodeNewAsTab`
+- `NodePinToggle`
+- `NodePinSelected`
+- `NodeUnpinSelected`
+- `NodeDelete` (`Soft`)
+- `EdgeConnectPair`
+- `EdgeConnectBoth`
+- `EdgeRemoveUser`
+
+Planned (semantically undoable in matrix, but not yet in W1 runtime coverage):
+
+- `NodeOpenFrame`
+- `NodeOpenNeighbors`
+- `NodeOpenConnected`
+- `NodeOpenSplit`
+- `NodeDetachToSplit`
+- `NodeMoveToActivePane`
+- `GraphTogglePhysics`
+
+Notes:
+
+- `PersistUndo` and `PersistRedo` are command-surface controls, not undoable domain actions themselves.
+- W1 runtime coverage currently targets destructive graph mutation semantics first; tile/workbench presentation-state history remains follow-on scope.
+
+---
+
 ## 4. Surface parity notes
 
 1. Palette and radial surfaces are semantically unified through shared `ActionId` dispatch.

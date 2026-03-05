@@ -352,6 +352,12 @@ These items are net-new requirements surfaced by the doc audit and contradiction
 
 **Done gate**: Ctrl+Z reverts the last destructive graph mutation; Ctrl+Shift+Z re-applies it. Covered by tests.
 
+**Progress note (2026-03-05)**:
+
+- Reducer-owned undo checkpoint capture is now wired for destructive graph intents (node create/delete, URL/metadata mutation, user-grouped edge create/remove, pin/tag transitions).
+- New graph-app regressions now prove `Undo` / `Redo` round-trips for create/delete, URL mutation, and edge create/remove flows, plus no-op checkpoint suppression for unchanged URL writes.
+- `design/command_semantics_matrix.md` now includes explicit implemented-vs-planned annotation for `Undoable` rows (W1 doc parity complete).
+
 ### W2 — Per-View Selection Migration (CR3)
 
 **Lane**: `lane:stabilization` (`#88`)  
