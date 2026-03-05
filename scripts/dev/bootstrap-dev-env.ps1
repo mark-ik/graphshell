@@ -91,6 +91,41 @@ function Install-CargoHelpers {
     }
 }
 
+function Ensure-MozmakeShim {
+    $cargoBin = Join-Path $HOME '.cargo\bin'
+    $shimPath = Join-Path $cargoBin 'mozmake.cmd'
+
+    if (-not (Test-Path $cargoBin)) {
+        New-Item -ItemType Directory -Path $cargoBin -Force | Out-Null
+    }
+
+    if (Test-HasCommand 'mozmake') {
+        Write-Host "[bootstrap.ps1] mozmake already available: $((Get-Command mozmake).Source)"
+        return
+    }
+
+    if (-not (Test-HasCommand 'make')) {
+        Write-Host '[bootstrap.ps1] make not found; cannot create mozmake shim yet.'
+        return
+    }
+
+    @'
+@echo off
+make %*
+'@ | Set-Content -Path $shimPath -Encoding Ascii
+
+    Write-Host "[bootstrap.ps1] created mozmake shim: $shimPath"
+}
+
+function Print-ServoBuildEnvHint {
+@'
+[bootstrap.ps1] recommended Windows env for Servo builds:
+  setx MOZILLABUILD C:\mozilla-build
+  setx MOZTOOLS_PATH C:\mozilla-build
+  setx CARGO_TARGET_DIR C:\t\graphshell-target
+'@ | Write-Host
+}
+
 function Install-Pwsh {
     if (Test-HasCommand 'pwsh') {
         Write-Host "[bootstrap.ps1] pwsh already installed: $((Get-Command pwsh).Source)"
@@ -140,6 +175,10 @@ function Check-Tools {
     Show-ToolStatus -Label 'cargo-nextest' -Commands @('cargo-nextest')
     Show-ToolStatus -Label 'cargo-watch' -Commands @('cargo-watch')
     Show-ToolStatus -Label 'cargo-add' -Commands @('cargo-add')
+
+    Write-Host '[bootstrap.ps1] checking Servo Windows build prerequisites'
+    Show-ToolStatus -Label 'make' -Commands @('make')
+    Show-ToolStatus -Label 'mozmake' -Commands @('mozmake')
 }
 
 function Install-WindowsBaseline {
@@ -156,7 +195,16 @@ function Install-WindowsBaseline {
         'ajeetdsouza.zoxide'
     )
 
+    if (Test-HasCommand 'scoop') {
+        Write-Host '[bootstrap.ps1] ensuring scoop make package'
+        & scoop install make | Out-Host
+    } else {
+        Write-Host '[bootstrap.ps1] scoop not found; install make manually if mozmake is missing.'
+    }
+
     Install-CargoHelpers
+    Ensure-MozmakeShim
+    Print-ServoBuildEnvHint
 }
 
 function Print-NextSteps {

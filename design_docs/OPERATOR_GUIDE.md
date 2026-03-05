@@ -116,6 +116,32 @@ Before merging any Verse closure PR:
 2. Run `cargo check`.
 3. Confirm diagnostics assertions are deterministic (prefer pre/post event deltas over global `> 0` checks).
 
+## 8) Windows Servo build reliability (mozjs_sys / mozmake)
+
+Symptoms:
+
+- `mozjs_sys` fails with `Failed to run "mozmake": program not found`.
+- Build logs may also show `Failed to unpack ... js_static.lib` before falling back to source build.
+
+Reliable recovery path:
+
+1. Run bootstrap installer mode:
+  - `pwsh -NoProfile -File scripts/dev/bootstrap-dev-env.ps1 --install`
+2. Ensure `make` and `mozmake` resolve:
+  - `where make`
+  - `where mozmake`
+3. Persist Windows env vars (once):
+  - `setx MOZILLABUILD C:\mozilla-build`
+  - `setx MOZTOOLS_PATH C:\mozilla-build`
+  - `setx CARGO_TARGET_DIR C:\t\graphshell-target`
+4. Open a new shell and run:
+  - `cargo check -q`
+
+Notes:
+
+- Keeping `CARGO_TARGET_DIR` outside OneDrive reduces archive/unpack fragility during Servo static lib extraction.
+- `bootstrap-dev-env.ps1 --install` now ensures a `mozmake` shim in `~/.cargo/bin` when `make` exists but `mozmake` is absent.
+
 ---
 
 If this guide drifts from your actual workflow, update it immediately after finishing a task so it stays truthful.
