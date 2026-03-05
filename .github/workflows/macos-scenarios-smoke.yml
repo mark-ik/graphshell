@@ -1,0 +1,91 @@
+name: macOS Scenarios Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: Policy tier to run
+        required: true
+        default: pr-required
+        type: choice
+        options:
+          - pr-required
+          - pr-optional
+          - nightly
+      include_optional:
+        description: Also run pr-optional after pr-required
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  macos-smoke:
+    name: macos-scenarios-smoke
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Configure macOS test environment
+        shell: pwsh
+        run: |
+          "GRAPHSHELL_CARGO_LANE=macos" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_DIR=${{ github.workspace }}/target/macos_target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run macOS scenario smoke and capture logs
+        id: smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $logFile = "artifacts/macos-scenarios-smoke.log"
+          $failed = $false
+          $tier = "${{ inputs.tier }}"
+          $includeOptional = "${{ inputs.include_optional }}" -eq 'true'
+
+          function Invoke-And-Log {
+              param([string]$Command)
+              Write-Host ">>> $Command"
+              (& pwsh -NoProfile -Command $Command) 2>&1 | Tee-Object -FilePath $logFile -Append
+              if ($LASTEXITCODE -ne 0) {
+                  $script:failed = $true
+              }
+          }
+
+          Invoke-And-Log "pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform macos"
+          Invoke-And-Log "pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier $tier --platform macos --quiet"
+
+          if ($includeOptional -and $tier -eq 'pr-required') {
+              Invoke-And-Log "pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform macos --quiet"
+          }
+
+          "failed=$failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload macOS smoke artifacts on failure
+        if: steps.smoke.outputs.failed == 'True' || steps.smoke.outputs.failed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-scenarios-smoke-failure
+          path: |
+            artifacts/**
+            target/macos_target/**/build/**/output
+            target/macos_target/**/deps/*.dSYM
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail if smoke failed
+        if: steps.smoke.outputs.failed == 'True' || steps.smoke.outputs.failed == 'true'
+        shell: pwsh
+        run: |
+          Write-Error "macOS scenarios smoke failed. See artifacts for logs."
+          exit 1

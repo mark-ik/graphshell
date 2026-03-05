@@ -1,0 +1,39 @@
+name: Windows Scenarios Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-scenarios:
+    name: windows-scenarios
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Configure Windows test environment
+        shell: pwsh
+        run: |
+          "GRAPHSHELL_CARGO_LANE=windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_DIR=${{ github.workspace }}/target/windows_target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Lint + run Windows scenario policy packs
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform windows
+          pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-required --platform windows --quiet
+          pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform windows --quiet

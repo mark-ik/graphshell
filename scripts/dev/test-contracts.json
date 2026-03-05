@@ -153,7 +153,7 @@
       "matchPaths": [
         "tests/scenarios/main.rs",
         "Cargo.toml",
-        ".github/workflows/scenarios-test.yml"
+        ".github/workflows/windows-scenarios-test.yml"
       ],
       "commands": [
         "cargo test --features test-utils --test scenarios -- --nocapture"

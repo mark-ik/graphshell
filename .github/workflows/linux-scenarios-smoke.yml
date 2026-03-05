@@ -1,0 +1,93 @@
+name: Linux Scenarios Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: Policy tier to run
+        required: true
+        default: pr-required
+        type: choice
+        options:
+          - pr-required
+          - pr-optional
+          - nightly
+      include_optional:
+        description: Also run pr-optional after pr-required
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  linux-smoke:
+    name: linux-scenarios-smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libudev-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Configure Linux test environment
+        shell: pwsh
+        run: |
+          "GRAPHSHELL_CARGO_LANE=linux" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_DIR=${{ github.workspace }}/target/linux_target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run Linux scenario smoke and capture logs
+        id: smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          $logFile = "artifacts/linux-scenarios-smoke.log"
+          $failed = $false
+          $tier = "${{ inputs.tier }}"
+          $includeOptional = "${{ inputs.include_optional }}" -eq 'true'
+
+          function Invoke-And-Log {
+              param([string]$Command)
+              Write-Host ">>> $Command"
+              (& pwsh -NoProfile -Command $Command) 2>&1 | Tee-Object -FilePath $logFile -Append
+              if ($LASTEXITCODE -ne 0) {
+                  $script:failed = $true
+              }
+          }
+
+          Invoke-And-Log "pwsh -NoProfile -File scripts/dev/test-select.ps1 lint-policy --platform linux"
+          Invoke-And-Log "pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier $tier --platform linux --quiet"
+
+          if ($includeOptional -and $tier -eq 'pr-required') {
+              Invoke-And-Log "pwsh -NoProfile -File scripts/dev/test-select.ps1 run-policy --tier pr-optional --platform linux --quiet"
+          }
+
+          "failed=$failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload Linux smoke artifacts on failure
+        if: steps.smoke.outputs.failed == 'True' || steps.smoke.outputs.failed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-scenarios-smoke-failure
+          path: |
+            artifacts/**
+            target/linux_target/**/build/**/output
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail if smoke failed
+        if: steps.smoke.outputs.failed == 'True' || steps.smoke.outputs.failed == 'true'
+        shell: pwsh
+        run: |
+          Write-Error "Linux scenarios smoke failed. See artifacts for logs."
+          exit 1
