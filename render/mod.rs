@@ -194,6 +194,12 @@ fn canvas_lasso_binding_label(binding: CanvasLassoBinding) -> &'static str {
     }
 }
 
+fn graph_view_metadata_id(custom_id: Option<String>) -> egui::Id {
+    // egui_graphs persists metadata as Id::new(frame.get_id()), so callers must
+    // use the double-hashed key to target the same persisted frame.
+    egui::Id::new(MetadataFrame::new(custom_id).get_id())
+}
+
 /// Render graph content and return resolved interaction actions.
 ///
 /// This lets callers customize how specific actions are handled
@@ -440,7 +446,7 @@ pub fn render_graph_in_ui_collect_actions(
     // get_id() returns Id::new("egui_graphs_metadata_") — so the stored key is
     // Id::new applied to that Id (double-hashed). custom_id=None matches the default
     // GraphView instance (no with_id() call).
-    let metadata_id = egui::Id::new(MetadataFrame::new(None).get_id());
+    let metadata_id = graph_view_metadata_id(None);
     let lasso = collect_lasso_action(
         ui,
         app,
@@ -4197,6 +4203,100 @@ mod tests {
     }
 
     #[test]
+    fn camera_fit_lock_recenter_requires_explicit_fit_command() {
+        let ctx = egui::Context::default();
+        let view_id = crate::app::GraphViewId::default();
+        let metadata_id = graph_view_metadata_id(None);
+        let mut app = test_app();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new("Fit Guardrail"));
+        app.workspace.focused_view = Some(view_id);
+
+        app.add_node_and_sync("https://a.example".into(), Point2D::new(-120.0, -80.0));
+        app.add_node_and_sync("https://b.example".into(), Point2D::new(180.0, 140.0));
+        app.workspace.egui_state = Some(EguiGraphState::from_graph_with_visual_state(
+            &app.workspace.graph,
+            &app.workspace.selected_nodes,
+            app.workspace.selected_nodes.primary(),
+            &HashSet::new(),
+        ));
+
+        let mut zoom_without_fit = None;
+        let mut zoom_with_fit = None;
+        let mut pan_after_manual = Vec2::ZERO;
+        let mut pan_after_fit = Vec2::ZERO;
+
+        let mut raw = egui::RawInput::default();
+        raw.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1024.0, 768.0),
+        ));
+        let _ = ctx.run(raw, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let layout_domain = LayoutDomainRegistry::default();
+                let layout_profile = layout_domain.resolve_profile(
+                    CANVAS_PROFILE_DEFAULT,
+                    WORKBENCH_SURFACE_DEFAULT,
+                    VIEWER_SURFACE_DEFAULT,
+                );
+                let canvas_profile = &layout_profile.canvas.profile;
+
+                ctx.data_mut(|data| {
+                    let mut frame = MetadataFrame::default();
+                    frame.zoom = 1.0;
+                    frame.pan = egui::vec2(30.0, -20.0);
+                    data.insert_persisted(metadata_id, frame);
+                });
+
+                assert!(apply_background_pan(
+                    ctx,
+                    metadata_id,
+                    &mut app,
+                    view_id,
+                    egui::vec2(15.0, -5.0)
+                ));
+
+                zoom_without_fit = apply_pending_camera_command(
+                    ui,
+                    &mut app,
+                    metadata_id,
+                    view_id,
+                    canvas_profile,
+                );
+
+                ctx.data_mut(|data| {
+                    pan_after_manual = data
+                        .get_persisted::<MetadataFrame>(metadata_id)
+                        .expect("metadata should stay persisted after manual pan")
+                        .pan;
+                });
+
+                app.request_camera_command_for_view(Some(view_id), CameraCommand::Fit);
+                zoom_with_fit = apply_pending_camera_command(
+                    ui,
+                    &mut app,
+                    metadata_id,
+                    view_id,
+                    canvas_profile,
+                );
+
+                ctx.data_mut(|data| {
+                    pan_after_fit = data
+                        .get_persisted::<MetadataFrame>(metadata_id)
+                        .expect("metadata should stay persisted after explicit fit")
+                        .pan;
+                });
+            });
+        });
+
+        assert!(zoom_without_fit.is_none());
+        assert!(zoom_with_fit.is_some());
+        assert_ne!(pan_after_manual, pan_after_fit);
+        assert!(app.pending_camera_command().is_none());
+    }
+
+    #[test]
     fn test_move_node_updates_position() {
         let mut app = test_app();
         let key = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
@@ -5277,5 +5377,22 @@ mod tests {
         assert_eq!(moved_a, moved_a_repeat);
         assert_ne!(start_a, start_b);
         assert_ne!(moved_a, moved_b);
+    }
+
+    #[test]
+    fn camera_fit_lock_uses_egui_graphs_double_hashed_metadata_id() {
+        let raw_metadata_id = MetadataFrame::new(None).get_id();
+        let metadata_id = graph_view_metadata_id(None);
+
+        assert_eq!(metadata_id, egui::Id::new(raw_metadata_id));
+        assert_ne!(metadata_id, raw_metadata_id);
+    }
+
+    #[test]
+    fn camera_fit_lock_metadata_id_scopes_with_custom_graph_view_id() {
+        let left = graph_view_metadata_id(Some("left-view".to_string()));
+        let right = graph_view_metadata_id(Some("right-view".to_string()));
+
+        assert_ne!(left, right);
     }
 }

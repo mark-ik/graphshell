@@ -142,6 +142,10 @@ Notes:
 - Keeping `CARGO_TARGET_DIR` outside OneDrive reduces archive/unpack fragility during Servo static lib extraction.
 - `bootstrap-dev-env.ps1 --install` now ensures a `mozmake` shim in `~/.cargo/bin` when `make` exists but `mozmake` is absent.
 
+Camera/navigation semantic guardrails (for incident prevention and regression triage):
+
+- `design_docs/graphshell_docs/implementation_strategy/canvas/graph_node_edge_interaction_spec.md` §4.0
+
 ---
 
 If this guide drifts from your actual workflow, update it immediately after finishing a task so it stays truthful.

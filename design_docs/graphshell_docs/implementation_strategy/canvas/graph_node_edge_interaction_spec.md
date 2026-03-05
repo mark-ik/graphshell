@@ -183,6 +183,32 @@ The graph surface must make these user expectations reliable:
 
 This section defines the stable target behavior for the current graph surface.
 
+### 4.0 Camera/Navigation Guardrail Checklist (normative)
+
+The following guardrails are mandatory for camera/navigation changes:
+
+1. Metadata/layout ID parity must be explicit.
+   - Any key used to read/write graph metadata or layout state must match the key shape used by `egui_graphs` for the same surface.
+   - Partial identity migrations (some callsites `None`, others custom id) are forbidden.
+2. No per-frame implicit camera override.
+   - Continuous fit/recenter loops must not silently overwrite manual pan/zoom every frame.
+   - First-frame fit and explicit fit commands are allowed; implicit perpetual fit is not.
+3. Camera command ownership remains explicit.
+   - `CameraCommand::Fit` (and related fit-family commands) are Graphshell-owned semantic actions.
+   - Framework helpers may execute drawing but do not define camera truth.
+4. Coordinate-space invariant must hold.
+   - `MetadataFrame.pan` and related camera state writes are in widget-local space.
+   - Screen-space conversion is render-path-only.
+5. Physics/camera boundaries must not blur.
+   - Physics presets affect node simulation only.
+   - Physics profile changes must not mutate camera lock policy or zoom ownership.
+6. Multi-view identity policy must be all-or-nothing.
+   - Shared-slot behavior is acceptable only when explicitly declared.
+   - Per-view isolation requires consistent `GraphView` id usage across graph view creation, layout state, and metadata state.
+7. Regression checks are mandatory before merge.
+   - Pan, wheel zoom, fit command, and lock toggles must all be verified in the same patch lane.
+   - Any change touching metadata/layout IDs must include targeted tests or scenario updates proving no dead-slot write path.
+
 ### 4.1 Camera and Viewport
 
 **What this domain is for**

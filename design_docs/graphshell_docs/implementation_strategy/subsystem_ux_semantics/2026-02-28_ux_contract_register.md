@@ -220,6 +220,10 @@ Graphshell UX depends on keeping content truth, navigation projections, and work
 - workbench boundary = `WorkbenchIntent` handled in the frame loop before reducer application for tile-tree/layout mutations.
 - UxTree boundary = semantic layer (`ux_node_id`, role/label/state/actions/domain identity) is contract-authoritative; presentation and runtime-trace layers are non-authoritative hints/telemetry keyed by the same `ux_node_id`.
 
+Camera/navigation guardrails are normative in:
+
+- `../canvas/graph_node_edge_interaction_spec.md` §4.0 `Camera/Navigation Guardrail Checklist (normative)`
+
 All canonical specs in this register family inherit this shorthand and must not redefine it.
 
 ### 3C. Terminology Lock
