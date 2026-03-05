@@ -96,7 +96,9 @@ fn graph_pan_zoom_liveness_after_omnibar_focus_release() {
     harness.app.set_camera_fit_locked(false);
     harness.app.clear_pending_camera_command();
 
-    harness.app.apply_reducer_intents([GraphIntent::RequestZoomIn]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::RequestZoomIn]);
 
     assert!(
         harness

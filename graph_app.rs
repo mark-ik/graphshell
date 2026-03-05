@@ -1463,6 +1463,10 @@ pub struct GraphWorkspace {
     pub keyboard_pan_step: f32,
     /// Keyboard pan input mode (WASD + arrows, or arrows-only).
     pub keyboard_pan_input_mode: KeyboardPanInputMode,
+    /// Whether camera panning keeps slight inertia after manual input ends.
+    pub camera_pan_inertia_enabled: bool,
+    /// Damping factor for camera pan inertia (lower settles faster).
+    pub camera_pan_inertia_damping: f32,
     /// Preferred lasso binding for canvas interactions.
     pub lasso_binding_preference: CanvasLassoBinding,
     /// Preferred default non-`@` omnibar scope behavior.
@@ -1684,6 +1688,10 @@ impl GraphBrowserApp {
         "workspace:settings-keyboard-pan-step";
     pub const SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME: &'static str =
         "workspace:settings-keyboard-pan-input-mode";
+    pub const SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME: &'static str =
+        "workspace:settings-camera-pan-inertia-enabled";
+    pub const SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME: &'static str =
+        "workspace:settings-camera-pan-inertia-damping";
     pub const SETTINGS_LASSO_BINDING_NAME: &'static str = "workspace:settings-lasso-binding";
     pub const SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME: &'static str =
         "workspace:settings-omnibar-preferred-scope";
@@ -1703,6 +1711,8 @@ impl GraphBrowserApp {
     pub const DEFAULT_ACTIVE_WEBVIEW_LIMIT: usize = 4;
     pub const DEFAULT_WARM_CACHE_LIMIT: usize = 12;
     pub const DEFAULT_KEYBOARD_PAN_STEP: f32 = 12.0;
+    pub const DEFAULT_CAMERA_PAN_INERTIA_ENABLED: bool = true;
+    pub const DEFAULT_CAMERA_PAN_INERTIA_DAMPING: f32 = 0.84;
     pub const TAG_PIN: &'static str = "#pin";
     pub const TAG_STARRED: &'static str = "#starred";
 
@@ -1794,6 +1804,8 @@ impl GraphBrowserApp {
                 radial_menu_shortcut: RadialMenuShortcut::F3,
                 keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                 keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
+                camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
+                camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
                 lasso_binding_preference: CanvasLassoBinding::RightDrag,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
@@ -1832,10 +1844,7 @@ impl GraphBrowserApp {
                 pending_open_clip_request: None,
                 pending_switch_data_dir: None,
                 pending_keyboard_zoom_request: None,
-                pending_camera_command: Some(PendingCameraCommand {
-                    command: CameraCommand::StartupFit,
-                    target_view: None,
-                }),
+                pending_camera_command: None,
                 pending_wheel_zoom_delta: 0.0,
                 pending_wheel_zoom_target_view: None,
                 pending_wheel_zoom_anchor_screen: None,
@@ -1996,6 +2005,8 @@ impl GraphBrowserApp {
                 radial_menu_shortcut: RadialMenuShortcut::F3,
                 keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                 keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
+                camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
+                camera_pan_inertia_damping: Self::DEFAULT_CAMERA_PAN_INERTIA_DAMPING,
                 lasso_binding_preference: CanvasLassoBinding::RightDrag,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
@@ -2034,10 +2045,7 @@ impl GraphBrowserApp {
                 pending_open_clip_request: None,
                 pending_switch_data_dir: None,
                 pending_keyboard_zoom_request: None,
-                pending_camera_command: Some(PendingCameraCommand {
-                    command: CameraCommand::StartupFit,
-                    target_view: None,
-                }),
+                pending_camera_command: None,
                 pending_wheel_zoom_delta: 0.0,
                 pending_wheel_zoom_target_view: None,
                 pending_wheel_zoom_anchor_screen: None,
@@ -3859,6 +3867,8 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_STEP_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME
+            || name == Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME
+            || name == Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME
             || name == Self::SETTINGS_LASSO_BINDING_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
@@ -3926,6 +3936,25 @@ impl GraphBrowserApp {
         self.save_keyboard_pan_input_mode();
     }
 
+    pub fn camera_pan_inertia_enabled(&self) -> bool {
+        self.workspace.camera_pan_inertia_enabled
+    }
+
+    pub fn set_camera_pan_inertia_enabled(&mut self, enabled: bool) {
+        self.workspace.camera_pan_inertia_enabled = enabled;
+        self.save_camera_pan_inertia_enabled();
+    }
+
+    pub fn camera_pan_inertia_damping(&self) -> f32 {
+        self.workspace.camera_pan_inertia_damping
+    }
+
+    pub fn set_camera_pan_inertia_damping(&mut self, damping: f32) {
+        let normalized = damping.clamp(0.70, 0.99);
+        self.workspace.camera_pan_inertia_damping = normalized;
+        self.save_camera_pan_inertia_damping();
+    }
+
     pub fn lasso_binding_preference(&self) -> CanvasLassoBinding {
         self.workspace.lasso_binding_preference
     }
@@ -3953,6 +3982,24 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME,
             self.workspace.keyboard_pan_input_mode.as_persisted_str(),
+        );
+    }
+
+    fn save_camera_pan_inertia_enabled(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME,
+            if self.workspace.camera_pan_inertia_enabled {
+                "true"
+            } else {
+                "false"
+            },
+        );
+    }
+
+    fn save_camera_pan_inertia_damping(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME,
+            &format!("{:.3}", self.workspace.camera_pan_inertia_damping),
         );
     }
 
@@ -4125,6 +4172,24 @@ impl GraphBrowserApp {
                 self.workspace.keyboard_pan_input_mode = mode;
             } else {
                 warn!("Ignoring invalid persisted keyboard pan input mode: '{raw}'");
+            }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME)
+        {
+            match raw.trim().to_ascii_lowercase().as_str() {
+                "true" | "1" | "yes" | "on" => self.workspace.camera_pan_inertia_enabled = true,
+                "false" | "0" | "no" | "off" => self.workspace.camera_pan_inertia_enabled = false,
+                _ => warn!("Ignoring invalid persisted camera pan inertia enabled flag: '{raw}'"),
+            }
+        }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME)
+        {
+            if let Ok(damping) = raw.trim().parse::<f32>() {
+                self.workspace.camera_pan_inertia_damping = damping.clamp(0.70, 0.99);
+            } else {
+                warn!("Ignoring invalid persisted camera pan inertia damping: '{raw}'");
             }
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_LASSO_BINDING_NAME) {
@@ -6694,7 +6759,10 @@ mod tests {
         let note_id = NoteId::new();
         let note_url = NoteAddress::note(note_id.0.to_string()).to_string();
 
-        assert_eq!(GraphBrowserApp::resolve_note_route(&note_url), Some(note_id));
+        assert_eq!(
+            GraphBrowserApp::resolve_note_route(&note_url),
+            Some(note_id)
+        );
     }
 
     #[test]
@@ -9943,6 +10011,27 @@ mod tests {
             reopened.keyboard_pan_input_mode(),
             KeyboardPanInputMode::ArrowsOnly
         );
+    }
+
+    #[test]
+    fn test_camera_pan_inertia_settings_persist_across_restart() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        app.set_camera_pan_inertia_enabled(false);
+        app.set_camera_pan_inertia_damping(0.92);
+        drop(app);
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        assert!(!reopened.camera_pan_inertia_enabled());
+        assert!((reopened.camera_pan_inertia_damping() - 0.92).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_camera_starts_manual_without_pending_fit_command() {
+        let app = GraphBrowserApp::new_for_testing();
+        assert!(app.pending_camera_command().is_none());
     }
 
     #[test]

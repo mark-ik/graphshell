@@ -915,7 +915,8 @@ pub(crate) fn handle_tool_pane_intents_with_modal_state(
             byte_len: UxDispatchPhase::Target as usize,
         });
 
-        if let Some(unhandled) = dispatch_workbench_authority_intent(graph_app, tiles_tree, intent) {
+        if let Some(unhandled) = dispatch_workbench_authority_intent(graph_app, tiles_tree, intent)
+        {
             emit_dispatch_phase(UxDispatchPhase::Bubble);
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_UX_CONTRACT_WARNING,

@@ -42,10 +42,16 @@ pub(crate) enum UxAction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum UxDomainIdentity {
     Workbench,
-    GraphView { graph_view_id: GraphViewId },
-    Node { node_key: NodeKey },
+    GraphView {
+        graph_view_id: GraphViewId,
+    },
+    Node {
+        node_key: NodeKey,
+    },
     #[cfg(feature = "diagnostics")]
-    Tool { tool_kind: &'static str },
+    Tool {
+        tool_kind: &'static str,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -692,7 +698,10 @@ mod tests {
         assert!(!gate.semantic_changed);
         assert!(gate.presentation_changed);
         assert!(!gate.blocking_failure);
-        assert_eq!(gate.presentation_severity, UxDiffGateSeverity::Informational);
+        assert_eq!(
+            gate.presentation_severity,
+            UxDiffGateSeverity::Informational
+        );
     }
 
     #[test]
@@ -703,7 +712,9 @@ mod tests {
 
         let baseline = build_snapshot(&harness.tiles_tree, &harness.app, 10);
         let mut current = baseline.clone();
-        current.presentation_nodes[0].style_flags.push("promoted-style");
+        current.presentation_nodes[0]
+            .style_flags
+            .push("promoted-style");
 
         let gate = classify_snapshot_diff_gate(&baseline, &current, true);
         assert!(gate.presentation_changed);

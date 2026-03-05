@@ -445,7 +445,7 @@ mod tests {
             crate::app::GraphViewState::new_with_id(view_id, "Focused"),
         );
         app.workspace.focused_view = Some(view_id);
-        assert!(app.pending_camera_command().is_some());
+        assert!(app.pending_camera_command().is_none());
         app.clear_pending_camera_command();
 
         let intents = intents_from_actions(&KeyboardActions {

@@ -12,7 +12,9 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
     let snapshot_json = ux_tree::snapshot_json_for_tests(&snapshot);
 
     assert_eq!(
-        snapshot_json.get("semantic_version").and_then(|v| v.as_u64()),
+        snapshot_json
+            .get("semantic_version")
+            .and_then(|v| v.as_u64()),
         Some(1),
         "semantic schema version should be present"
     );
@@ -29,9 +31,11 @@ fn uxtree_snapshot_and_probe_are_healthy_for_selected_node_flow() {
         .and_then(|v| v.as_array())
         .expect("uxtree snapshot should expose semantic nodes");
     assert!(
-        semantic_nodes
-            .iter()
-            .any(|node| node.get("domain").and_then(|v| v.as_str()).unwrap_or_default().contains("Node")),
+        semantic_nodes.iter().any(|node| node
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .contains("Node")),
         "expected semantic layer to include node-domain identity"
     );
 

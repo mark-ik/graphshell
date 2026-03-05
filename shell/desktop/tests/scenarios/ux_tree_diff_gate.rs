@@ -12,7 +12,10 @@ fn ux_tree_diff_gate_policy_matches_contract_defaults() {
     let mut semantic_changed = baseline.clone();
     semantic_changed.semantic_nodes[0].label = "Workbench Contract Shift".to_string();
     let semantic_gate = ux_tree::classify_snapshot_diff_gate(&baseline, &semantic_changed, false);
-    assert!(semantic_gate.blocking_failure, "semantic diffs must be blocking");
+    assert!(
+        semantic_gate.blocking_failure,
+        "semantic diffs must be blocking"
+    );
 
     let mut presentation_changed = baseline.clone();
     presentation_changed.presentation_nodes[0]
@@ -25,7 +28,8 @@ fn ux_tree_diff_gate_policy_matches_contract_defaults() {
         "presentation diffs should remain informational by default"
     );
 
-    let promoted_gate = ux_tree::classify_snapshot_diff_gate(&baseline, &presentation_changed, true);
+    let promoted_gate =
+        ux_tree::classify_snapshot_diff_gate(&baseline, &presentation_changed, true);
     assert!(
         promoted_gate.blocking_failure,
         "promoted presentation diffs should become blocking"

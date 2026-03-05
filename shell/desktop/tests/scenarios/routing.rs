@@ -264,9 +264,11 @@ fn open_clip_url_is_not_reducer_owned() {
         key: node,
         new_url: GraphshellAddress::clip("clip-123").to_string(),
     }]);
-    harness.app.enqueue_workbench_intent(WorkbenchIntent::OpenClipUrl {
-        url: GraphshellAddress::clip("clip-123").to_string(),
-    });
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenClipUrl {
+            url: GraphshellAddress::clip("clip-123").to_string(),
+        });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert_eq!(
@@ -343,9 +345,11 @@ fn open_note_url_is_not_reducer_owned() {
     let node_count_before = harness.app.workspace.graph.node_count();
     let note_url = NoteAddress::note(note_id.as_uuid().to_string()).to_string();
 
-    harness.app.enqueue_workbench_intent(WorkbenchIntent::OpenNoteUrl {
-        url: note_url.clone(),
-    });
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenNoteUrl {
+            url: note_url.clone(),
+        });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(harness.app.take_pending_open_note_request().is_none());
@@ -359,9 +363,11 @@ fn open_graph_url_is_not_reducer_owned() {
     let node_count_before = harness.app.workspace.graph.node_count();
     let graph_url = crate::util::GraphAddress::graph("graph-main").to_string();
 
-    harness.app.enqueue_workbench_intent(WorkbenchIntent::OpenGraphUrl {
-        url: graph_url.clone(),
-    });
+    harness
+        .app
+        .enqueue_workbench_intent(WorkbenchIntent::OpenGraphUrl {
+            url: graph_url.clone(),
+        });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
     assert!(

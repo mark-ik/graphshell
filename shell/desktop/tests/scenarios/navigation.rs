@@ -8,10 +8,12 @@ fn webview_url_changed_updates_existing_mapping() {
     let key = harness.add_node("https://before.example");
     let webview_id = harness.map_test_webview_with_id(key);
 
-    harness.app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
-        webview_id,
-        new_url: "https://after.example".to_string(),
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::WebViewUrlChanged {
+            webview_id,
+            new_url: "https://after.example".to_string(),
+        }]);
 
     let node = harness
         .app
@@ -30,10 +32,12 @@ fn webview_url_changed_appends_traversal_between_known_nodes_without_self_loop()
     let to = harness.add_node("https://b.example");
     let webview_id = harness.map_test_webview_with_id(from);
 
-    harness.app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
-        webview_id,
-        new_url: "https://b.example".to_string(),
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::WebViewUrlChanged {
+            webview_id,
+            new_url: "https://b.example".to_string(),
+        }]);
 
     let edge_key = harness
         .app

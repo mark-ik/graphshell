@@ -751,9 +751,9 @@ fn unresolved_workbench_intent_emits_contract_warning_for_default_fallback() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::GraphshellAddress::settings(
-            crate::util::GraphshellSettingsPath::Other("unknown".to_string()),
-        )
+        url: crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::Other(
+            "unknown".to_string(),
+        ))
         .to_string(),
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);

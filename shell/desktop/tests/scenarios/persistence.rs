@@ -127,10 +127,12 @@ fn frame_not_modified_for_set_node_position() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_reducer_intents([GraphIntent::SetNodePosition {
-        key,
-        position: euclid::Point2D::new(42.0, 24.0),
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::SetNodePosition {
+            key,
+            position: euclid::Point2D::new(42.0, 24.0),
+        }]);
 
     assert!(!harness.app.should_prompt_unsaved_workspace_save());
 }
@@ -141,10 +143,12 @@ fn frame_has_unsaved_changes_for_set_node_pinned() {
     let key = harness.add_node("https://example.com");
     harness.app.mark_current_workspace_synthesized();
 
-    harness.app.apply_reducer_intents([GraphIntent::SetNodePinned {
-        key,
-        is_pinned: true,
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::SetNodePinned {
+            key,
+            is_pinned: true,
+        }]);
 
     assert!(harness.app.should_prompt_unsaved_workspace_save());
 }

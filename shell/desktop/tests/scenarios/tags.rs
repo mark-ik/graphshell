@@ -6,10 +6,12 @@ fn set_node_pinned_intent_syncs_pin_tag() {
     let mut harness = TestRegistry::new();
     let node = harness.add_node("https://example.com");
 
-    harness.app.apply_reducer_intents([GraphIntent::SetNodePinned {
-        key: node,
-        is_pinned: true,
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::SetNodePinned {
+            key: node,
+            is_pinned: true,
+        }]);
     assert!(
         harness
             .app
@@ -19,10 +21,12 @@ fn set_node_pinned_intent_syncs_pin_tag() {
             .is_some_and(|tags| tags.contains(GraphBrowserApp::TAG_PIN))
     );
 
-    harness.app.apply_reducer_intents([GraphIntent::SetNodePinned {
-        key: node,
-        is_pinned: false,
-    }]);
+    harness
+        .app
+        .apply_reducer_intents([GraphIntent::SetNodePinned {
+            key: node,
+            is_pinned: false,
+        }]);
     assert!(
         harness
             .app

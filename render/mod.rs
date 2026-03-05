@@ -9,9 +9,8 @@
 
 use crate::app::{
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryManagerTab,
-    KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode,
-    SelectionUpdateMode, UnsavedFramePromptAction, UnsavedFramePromptRequest,
-    WorkbenchIntent,
+    KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode, SelectionUpdateMode,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest, WorkbenchIntent,
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
@@ -1127,8 +1126,10 @@ fn handle_custom_navigation(
         position_fit_locked,
         keyboard_pan_allowed,
     );
+    let mut manual_pan_applied = false;
     if !keyboard_pan_blocked && keyboard_pan_delta != Vec2::ZERO {
-        apply_background_pan(ui.ctx(), metadata_id, app, view_id, keyboard_pan_delta);
+        manual_pan_applied =
+            apply_background_pan(ui.ctx(), metadata_id, app, view_id, keyboard_pan_delta);
     }
 
     // Pan with Left Mouse Button on background
@@ -1145,7 +1146,15 @@ fn handle_custom_navigation(
         )
     {
         let delta = ui.input(|i| i.pointer.delta());
-        apply_background_pan(ui.ctx(), metadata_id, app, view_id, delta);
+        if apply_background_pan(ui.ctx(), metadata_id, app, view_id, delta) {
+            manual_pan_applied = true;
+        }
+    }
+
+    if position_fit_locked {
+        clear_pan_inertia_velocity(ui.ctx(), metadata_id);
+    } else if !manual_pan_applied {
+        apply_background_pan_inertia(ui.ctx(), metadata_id, app, view_id);
     }
 
     // Clamp zoom bounds using per-view camera if available, else global camera.
@@ -1332,8 +1341,76 @@ fn apply_background_pan(
             .unwrap_or(seeded_frame);
         meta.pan += delta;
         data.insert_persisted(metadata_id, meta);
+        let velocity_id = pan_inertia_velocity_id(metadata_id);
+        if app.camera_pan_inertia_enabled() {
+            data.insert_persisted(velocity_id, delta);
+        } else {
+            data.remove::<Vec2>(velocity_id);
+        }
         applied = true;
     });
+    if applied && app.camera_pan_inertia_enabled() {
+        ctx.request_repaint_after(Duration::from_millis(16));
+    }
+    applied
+}
+
+fn pan_inertia_velocity_id(metadata_id: egui::Id) -> egui::Id {
+    metadata_id.with("pan_inertia_velocity")
+}
+
+fn clear_pan_inertia_velocity(ctx: &egui::Context, metadata_id: egui::Id) {
+    let velocity_id = pan_inertia_velocity_id(metadata_id);
+    ctx.data_mut(|data| data.remove::<Vec2>(velocity_id));
+}
+
+fn apply_background_pan_inertia(
+    ctx: &egui::Context,
+    metadata_id: egui::Id,
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+) -> bool {
+    if !app.camera_pan_inertia_enabled() {
+        clear_pan_inertia_velocity(ctx, metadata_id);
+        return false;
+    }
+
+    let velocity_id = pan_inertia_velocity_id(metadata_id);
+    let mut velocity = ctx
+        .data_mut(|data| data.get_persisted::<Vec2>(velocity_id))
+        .unwrap_or(Vec2::ZERO);
+    if velocity == Vec2::ZERO {
+        return false;
+    }
+
+    let damping = app.camera_pan_inertia_damping();
+    let min_velocity = 0.10_f32;
+    let seeded_frame = seeded_metadata_frame_for_view(app, view_id);
+    let mut applied = false;
+    ctx.data_mut(|data| {
+        let mut meta = data
+            .get_persisted::<MetadataFrame>(metadata_id)
+            .unwrap_or(seeded_frame);
+        meta.pan += velocity;
+        data.insert_persisted(metadata_id, meta);
+
+        velocity *= damping;
+        if velocity.length_sq() < min_velocity * min_velocity {
+            velocity = Vec2::ZERO;
+        }
+
+        if velocity == Vec2::ZERO {
+            data.remove::<Vec2>(velocity_id);
+        } else {
+            data.insert_persisted(velocity_id, velocity);
+        }
+        applied = true;
+    });
+
+    if velocity != Vec2::ZERO {
+        ctx.request_repaint_after(Duration::from_millis(16));
+    }
+
     applied
 }
 
@@ -2414,7 +2491,7 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
         crate::app::HelpPanelShortcut::H => "H Help",
     };
     let controls_text = format!(
-        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | Z Smart Fit | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} | {radial_hint} | Ctrl+Z/Y Undo/Redo | {help_hint}"
+        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} | {radial_hint} | Ctrl+Z/Y Undo/Redo | {help_hint}"
     );
     ui.painter().text(
         ui.available_rect_before_wrap().left_bottom() + Vec2::new(10.0, -10.0),
@@ -2425,7 +2502,109 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     );
 }
 
+fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
+    if let Some(view_id) = app.workspace.focused_view {
+        Some(view_id)
+    } else if app.workspace.views.len() == 1 {
+        app.workspace.views.keys().next().copied()
+    } else {
+        None
+    }
+}
+
+fn selected_node_dynamics_profile_id(app: &GraphBrowserApp) -> String {
+    if let Some(view_id) = camera_settings_target_view_id(app)
+        && let Some(view) = app.workspace.views.get(&view_id)
+        && let Some(physics_id) = view.lens.physics_id.as_deref()
+    {
+        return physics_id.to_string();
+    }
+
+    app.default_registry_physics_id()
+        .unwrap_or(crate::registries::atomic::physics_profile::PHYSICS_ID_DEFAULT)
+        .to_string()
+}
+
+fn apply_node_dynamics_profile_selection(app: &mut GraphBrowserApp, physics_id: &str) {
+    app.set_default_registry_physics_id(Some(physics_id));
+
+    let mut resolved_profile = None;
+    if let Some(view_id) = camera_settings_target_view_id(app) {
+        let updated_lens = app.workspace.views.get(&view_id).map(|view| {
+            let mut lens = view.lens.clone();
+            lens.physics_id = Some(physics_id.to_string());
+            crate::shell::desktop::runtime::registries::phase2_resolve_lens_components(&lens)
+        });
+
+        if let Some(updated_lens) = updated_lens {
+            let profile = updated_lens.physics.clone();
+            if let Some(view) = app.workspace.views.get_mut(&view_id) {
+                view.lens = updated_lens;
+                if let Some(local) = &mut view.local_simulation {
+                    profile.apply_to_state(&mut local.physics);
+                }
+            }
+            resolved_profile = Some(profile);
+        }
+    }
+
+    let profile = resolved_profile.unwrap_or_else(|| {
+        let seed = crate::app::LensConfig {
+            physics_id: Some(physics_id.to_string()),
+            ..crate::app::LensConfig::default()
+        };
+        crate::shell::desktop::runtime::registries::phase2_resolve_lens_components(&seed).physics
+    });
+
+    let mut config = app.workspace.physics.clone();
+    profile.apply_to_state(&mut config);
+    app.update_physics_config(config);
+}
+
 fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
+    ui.label("Node Dynamics");
+    ui.small("Liquid/Gas/Solid control node motion behavior. They do not control camera policy.");
+
+    let mut dynamics_id = selected_node_dynamics_profile_id(app);
+    let previous_dynamics_id = dynamics_id.clone();
+    ui.horizontal_wrapped(|ui| {
+        ui.radio_value(
+            &mut dynamics_id,
+            crate::registries::atomic::physics_profile::PHYSICS_ID_DEFAULT.to_string(),
+            "Liquid",
+        );
+        ui.radio_value(
+            &mut dynamics_id,
+            crate::registries::atomic::physics_profile::PHYSICS_ID_GAS.to_string(),
+            "Gas",
+        );
+        ui.radio_value(
+            &mut dynamics_id,
+            crate::registries::atomic::physics_profile::PHYSICS_ID_SOLID.to_string(),
+            "Solid",
+        );
+    });
+    if dynamics_id != previous_dynamics_id {
+        apply_node_dynamics_profile_selection(app, &dynamics_id);
+    }
+    let dynamics_summary = match dynamics_id.as_str() {
+        crate::registries::atomic::physics_profile::PHYSICS_ID_DEFAULT => {
+            "Liquid: motile clustering with bounded drift."
+        }
+        crate::registries::atomic::physics_profile::PHYSICS_ID_GAS => {
+            "Gas: stronger mutual repulsion and broader spread."
+        }
+        crate::registries::atomic::physics_profile::PHYSICS_ID_SOLID => {
+            "Solid: heavily damped movement that settles quickly."
+        }
+        _ => "Custom profile ID: fallback resolves through registry defaults.",
+    };
+    ui.small(dynamics_summary);
+
+    ui.separator();
+    ui.label("Physics Engine Settings");
+    ui.small("Fruchterman-Reingold + center-gravity coefficients for the active simulation.");
+
     let mut config = app.workspace.physics.clone();
     let mut config_changed = false;
 
@@ -2527,7 +2706,10 @@ fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
 }
 
 fn render_camera_controls_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
-    ui.label("Camera Controls");
+    ui.label("Camera Policy");
+    ui.small(
+        "Default camera behavior is manual: no auto-fit or auto-zoom until a fit lock is enabled.",
+    );
     let position_fit_locked = app.camera_position_fit_locked();
     let zoom_fit_locked = app.camera_zoom_fit_locked();
     ui.small(format!(
@@ -2553,6 +2735,7 @@ fn render_camera_controls_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp)
     {
         app.set_camera_zoom_fit_locked(zoom_fit_lock_enabled);
     }
+    ui.small("`C` toggles position lock. `Z` toggles zoom lock. Locks are per active graph view.");
     ui.small("Position lock blocks manual pan; zoom lock blocks manual zoom.");
 
     ui.horizontal(|ui| {
@@ -2583,6 +2766,31 @@ fn render_camera_controls_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp)
             app.set_keyboard_pan_input_mode(mode);
         }
     });
+
+    ui.separator();
+    ui.label("Pan Inertia");
+    let mut inertia_enabled = app.camera_pan_inertia_enabled();
+    if ui
+        .checkbox(
+            &mut inertia_enabled,
+            "Enable slight camera inertia after pan input",
+        )
+        .changed()
+    {
+        app.set_camera_pan_inertia_enabled(inertia_enabled);
+    }
+    if inertia_enabled {
+        ui.horizontal(|ui| {
+            ui.label("Inertia damping");
+            let mut damping = app.camera_pan_inertia_damping();
+            if ui
+                .add(egui::Slider::new(&mut damping, 0.70..=0.99).fixed_decimals(2))
+                .changed()
+            {
+                app.set_camera_pan_inertia_damping(damping);
+            }
+        });
+    }
 }
 
 /// Render keyboard shortcut help panel
@@ -2639,10 +2847,8 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 ("T", "Toggle physics simulation"),
                                 ("R", "Reheat physics simulation"),
                                 ("+ / - / 0", "Zoom in / out / reset"),
-                                (
-                                    "Z",
-                                    "Smart fit (2+ selected: fit selection; else fit graph)",
-                                ),
+                                ("C", "Toggle camera position-fit lock"),
+                                ("Z", "Toggle camera zoom-fit lock"),
                                 ("P", "Physics settings panel"),
                                 ("Ctrl+H", "History Manager panel"),
                                 ("Ctrl+F", "Show graph search"),
@@ -4919,6 +5125,66 @@ mod tests {
                 .expect("missing metadata should be seeded on pan");
             assert!((meta.pan.x - 8.0).abs() < 0.001);
             assert!((meta.pan.y - 5.0).abs() < 0.001);
+        });
+    }
+
+    #[test]
+    fn background_pan_records_inertia_velocity_when_enabled() {
+        let ctx = egui::Context::default();
+        let metadata_id = egui::Id::new("test-background-pan-inertia-enabled");
+        let view_id = crate::app::GraphViewId::default();
+        let mut app = test_app();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new("Inertia Pan Test"));
+
+        let changed = apply_background_pan(&ctx, metadata_id, &mut app, view_id, egui::vec2(6.0, -4.0));
+        assert!(changed);
+
+        ctx.data_mut(|data| {
+            let velocity = data
+                .get_persisted::<Vec2>(pan_inertia_velocity_id(metadata_id))
+                .expect("pan inertia velocity should be recorded when enabled");
+            assert!((velocity.x - 6.0).abs() < 0.001);
+            assert!((velocity.y + 4.0).abs() < 0.001);
+        });
+    }
+
+    #[test]
+    fn pan_inertia_decay_moves_camera_when_manual_pan_is_idle() {
+        let ctx = egui::Context::default();
+        let metadata_id = egui::Id::new("test-pan-inertia-decay");
+        let view_id = crate::app::GraphViewId::default();
+        let mut app = test_app();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new("Inertia Decay Test"));
+        app.set_camera_pan_inertia_enabled(true);
+        app.set_camera_pan_inertia_damping(0.80);
+
+        ctx.data_mut(|data| {
+            let mut frame = MetadataFrame::default();
+            frame.zoom = 1.0;
+            frame.pan = egui::vec2(0.0, 0.0);
+            data.insert_persisted(metadata_id, frame);
+            data.insert_persisted(pan_inertia_velocity_id(metadata_id), egui::vec2(10.0, 0.0));
+        });
+
+        let applied = apply_background_pan_inertia(&ctx, metadata_id, &app, view_id);
+        assert!(applied);
+
+        ctx.data_mut(|data| {
+            let meta = data
+                .get_persisted::<MetadataFrame>(metadata_id)
+                .expect("metadata frame should remain persisted after inertia");
+            assert!((meta.pan.x - 10.0).abs() < 0.001);
+            assert!((meta.pan.y - 0.0).abs() < 0.001);
+
+            let velocity = data
+                .get_persisted::<Vec2>(pan_inertia_velocity_id(metadata_id))
+                .expect("damped velocity should remain for subsequent inertia frames");
+            assert!(velocity.x < 10.0);
+            assert!(velocity.x > 0.0);
         });
     }
 

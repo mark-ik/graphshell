@@ -186,9 +186,9 @@ fn workbench_route_intent_for_graphshell_url(normalized_url: &str) -> Option<Wor
     let parsed = GraphshellAddress::parse(normalized_url)?;
     let canonical_url = parsed.to_string();
     match parsed {
-        GraphshellAddress::Settings(_) => Some(WorkbenchIntent::OpenSettingsUrl {
-            url: canonical_url,
-        }),
+        GraphshellAddress::Settings(_) => {
+            Some(WorkbenchIntent::OpenSettingsUrl { url: canonical_url })
+        }
         GraphshellAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
         GraphshellAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
         GraphshellAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),

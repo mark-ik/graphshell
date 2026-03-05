@@ -25,8 +25,8 @@ use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token_from_handle};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_VIEWER_FALLBACK_USED,
-    CHANNEL_UX_CONTRACT_WARNING,
+    CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_UX_CONTRACT_WARNING,
+    CHANNEL_VIEWER_FALLBACK_USED,
 };
 use crate::shell::desktop::workbench::pane_model::{ViewLayoutMode, ViewerId};
 use crate::util::truncate_with_ellipsis;
@@ -1554,8 +1554,14 @@ mod tests {
             .filter(|entry| entry.role == UxNodeRole::GraphNode)
             .count();
 
-        assert!(graph_surface_count > 0, "expected at least one graph surface semantic node");
-        assert_eq!(graph_node_count, 1, "expected graph semantic parity for one graph node");
+        assert!(
+            graph_surface_count > 0,
+            "expected at least one graph surface semantic node"
+        );
+        assert_eq!(
+            graph_node_count, 1,
+            "expected graph semantic parity for one graph node"
+        );
     }
 
     #[test]
@@ -1567,6 +1573,9 @@ mod tests {
 
         let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 8);
         let violation = ux_tree::presentation_id_consistency_violation(&snapshot);
-        assert!(violation.is_none(), "healthy uxtree projection should not violate probe invariant");
+        assert!(
+            violation.is_none(),
+            "healthy uxtree projection should not violate probe invariant"
+        );
     }
 }
