@@ -227,6 +227,7 @@ All canonical specs in this register family inherit this shorthand and must not 
 - Never call tile order or frame arrangement a content hierarchy.
 - Never call the file tree content truth or graph identity authority.
 - Never call physics presets camera modes.
+- Treat `Liquid` / `Gas` / `Solid` as node-dynamics presets, not camera policies.
 
 ---
 
@@ -333,7 +334,9 @@ The sections below define the app's current UX planning backbone.
 
 - Pan the active graph pane
 - Zoom the active graph pane
-- Reset / fit the active graph pane
+- Fit/reset the active graph pane only when explicitly requested
+- Keep manual camera as the default policy (no startup auto-fit, no implicit auto-zoom)
+- Apply slight inertial pan damping after manual camera movement
 - Route camera commands to the correct graph view in multi-pane contexts
 
 **Primary owner**
@@ -616,7 +619,7 @@ Settings pages expose per-domain user-configurable behavior:
 
 | UX domain | Settings category | Representative preferences |
 | --- | --- | --- |
-| Graph / Node / Edge | **Graph** | physics preset (Liquid/Gas/Solid), fit strength, position-fit lock, zoom-fit lock, keyboard pan bindings |
+| Graph / Node / Edge | **Graph** | node-dynamics preset (Liquid/Gas/Solid), physics engine tuning (F-R coefficients), camera fit-lock toggles (`C`/`Z`), keyboard pan bindings, pan inertia |
 | Workbench / Frame / Tile | **Workspaces** | default routing behavior, tile close policy, frame history depth |
 | Command Surfaces | **Keybindings** + **General** | palette mode default (search/context/radial), radial sector presets, command aliases |
 | Focus & Region Navigation | **Accessibility** | region cycle order, focus memory, skip-link visibility |

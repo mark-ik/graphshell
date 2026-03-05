@@ -57,7 +57,7 @@ Canonical requirement: command surfaces may differ in presentation, but not in a
 | `EdgeConnectPair` | Connect Source -> Target | Edge | per-View | Pair context available | `GraphIntent::ExecuteEdgeCommand { ConnectPair }` | Yes | Keyboard, Palette, Radial | Greyed + reason when selected pair unavailable | `G` |
 | `EdgeConnectBoth` | Connect Both Directions | Edge | per-View | Pair context available | `GraphIntent::ExecuteEdgeCommand { ConnectBothDirectionsPair }` | Yes | Keyboard, Palette, Radial | Greyed + reason when selected pair unavailable | `Shift+G` |
 | `EdgeRemoveUser` | Remove User Edge | Edge | per-View | Pair context available | `GraphIntent::ExecuteEdgeCommand { RemoveUserEdgePair }` | Yes | Keyboard, Palette, Radial | Greyed + reason when selected pair unavailable | `Alt+G` |
-| `GraphFit` | Fit Graph to Screen | Graph | per-View | None | `GraphIntent::RequestFitToScreen` | No | Keyboard, Palette, Radial | N/A | `Z` |
+| `GraphFit` | Fit Graph to Screen | Graph | per-View | None | `GraphIntent::RequestFitToScreen` | No | Palette, Radial | N/A | None |
 | `GraphTogglePhysics` | Toggle Physics Simulation | Graph | per-View | None | `GraphIntent::TogglePhysics` | Yes | Keyboard, Palette, Radial | N/A | `T` |
 | `GraphPhysicsConfig` | Open Physics Settings | Settings surface | per-Workbench | None | `GraphIntent::OpenSettingsUrl { graphshell://settings/physics }` | No | Keyboard, Palette, Radial, Toolbar | N/A | `P` |
 | `GraphCommandPalette` | Open Command Palette | Command surface | Global | None | `GraphIntent::ToggleCommandPalette` | No | Keyboard, Palette, Radial, Toolbar | N/A | `F2` |

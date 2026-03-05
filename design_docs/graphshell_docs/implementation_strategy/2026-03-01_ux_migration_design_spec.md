@@ -561,8 +561,8 @@ facet navigation (context-specific binding), not camera pan, matching
 | Zoom in | Scroll wheel up / `+` | Pinch-out (touch) | Pointer-relative: zoom toward cursor |
 | Zoom out | Scroll wheel down / `-` | Pinch-in (touch) | Pointer-relative: zoom away from cursor |
 | Zoom reset | `0` | — | Reset to default zoom level |
-| Smart fit | `Z` | — | If 2+ selected: fit selection. Else: fit graph |
-| Camera fit | `C` | — | Fit all nodes with relaxed padding |
+| Camera zoom-fit lock | `Z` | — | Toggle zoom follow-fit lock for active graph view |
+| Camera position-fit lock | `C` | — | Toggle position follow-fit lock for active graph view |
 | Zoom to node | Double-click on node | — | Center and zoom to Standard LOD for that node |
 | Lock zoom to selection | `Ctrl+L` | — | Auto-fit maintains selection in viewport as graph moves |
 

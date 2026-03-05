@@ -202,6 +202,7 @@ This section defines the stable target behavior for the current graph surface.
 - `C`: toggle position-fit lock (camera position follows fit target when enabled).
 - `Z`: toggle zoom-fit lock (camera zoom follows fit target when enabled).
 - Keyboard pan (`Arrow Keys` / `WASD`) is a camera control and must be configurable when enabled.
+- Manual camera is the default policy: new graph views start with fit locks disabled and no startup auto-fit command.
 - Physics presets (`Liquid`, `Gas`, `Solid`) affect node dynamics only and must not implicitly change camera behavior.
 
 **Who owns it**
@@ -216,6 +217,7 @@ This section defines the stable target behavior for the current graph surface.
 - `C` toggles `position-fit lock` for the active graph pane.
 - `Z` toggles `zoom-fit lock` for the active graph pane.
 - Panning changes viewport translation in the active graph pane.
+- After manual pan input, camera translation may decay with slight inertia damping before settling.
 - Wheel zoom changes viewport scale around the pointer target in the active graph pane.
 - `Camera Fit` updates camera state to show relevant graph bounds.
 - `Graphlet Fit` updates camera state to show the chosen graph subset bounds.
@@ -521,7 +523,7 @@ This is a prospective extension — do not implement until a dedicated design do
 
 ### 5.5 Per-domain Graph settings page
 
-- physics preset selector (Liquid/Gas/Solid), fit strength slider, position-fit lock toggle, zoom-fit lock toggle, keyboard pan bindings
+- node-dynamics preset selector (Liquid/Gas/Solid), physics engine coefficient controls, position-fit lock toggle, zoom-fit lock toggle, keyboard pan bindings, pan inertia controls
 - exposed via the **Graph** settings category in `aspect_control/settings_and_control_surfaces_spec.md §4.2`
 
 ---

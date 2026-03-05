@@ -16,7 +16,8 @@ Default keybinds are configurable in `Settings -> Input`.
 - `R`: Reheat physics simulation from current layout state
 - `P`: Toggle physics settings panel
 - `+` / `-` / `0`: Zoom in / out / reset
-- `Z`: Smart fit (`2+` selected: fit selection, else fit graph)
+- `C`: Toggle camera position-fit lock
+- `Z`: Toggle camera zoom-fit lock
 - `W` / `A` / `S` / `D` or `Arrow Keys`: Pan graph camera (when unlocked; key mode configurable in Settings > Physics)
 - `F9`: Open Camera Controls in Settings > Physics
 - `Ctrl+Click`: Multi-select nodes
