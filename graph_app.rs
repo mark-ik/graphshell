@@ -8364,6 +8364,11 @@ mod tests {
     #[test]
     fn test_set_camera_fit_lock_clears_pending_drag_release_decay() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
         app.workspace.drag_release_frames_remaining = 7;
 
         app.set_camera_fit_locked(true);
@@ -8375,6 +8380,11 @@ mod tests {
     #[test]
     fn test_drag_release_keeps_physics_paused_when_camera_fit_lock_enabled() {
         let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+        app.workspace.focused_view = Some(view_id);
         app.workspace.physics.base.is_running = false;
         app.set_camera_fit_locked(true);
 
