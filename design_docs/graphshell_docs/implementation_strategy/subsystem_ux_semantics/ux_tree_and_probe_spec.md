@@ -401,6 +401,11 @@ ux:probe_disabled         Warn     UxProbe disabled (feature gate inactive or pr
 Channels must not be emitted when their feature gate is inactive. `ux:probe_registered`
 and `ux:probe_disabled` emit at startup during probe registration, before the frame loop.
 
+Implementation status note (2026-03-06): `ux:tree_build`, `ux:tree_snapshot_built`, and
+`ux:contract_warning` are wired in the workbench UxTree build/publish path; probe lifecycle
+channels (`ux:probe_registered`, `ux:probe_disabled`) are declared in diagnostics contracts and
+reserved for explicit probe runtime wiring under `ux-probes` feature execution.
+
 ---
 
 ## 10. Degradation Contracts

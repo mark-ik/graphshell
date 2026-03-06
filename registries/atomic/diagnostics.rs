@@ -54,7 +54,11 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_SURFACE_CONFORMANCE_NONE, CHANNEL_SURFACE_CONFORMANCE_PARTIAL,
     CHANNEL_THEME_FALLBACK_USED, CHANNEL_THEME_LOOKUP_FAILED, CHANNEL_THEME_LOOKUP_SUCCEEDED,
     CHANNEL_UI_CLIPBOARD_COPY_FAILED, CHANNEL_UI_HISTORY_MANAGER_LIMIT,
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_NAVIGATION_TRANSITION,
+    CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_PROBE_DISABLED, CHANNEL_UX_PROBE_REGISTERED,
+    CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT, CHANNEL_UX_RADIAL_OVERFLOW,
     CHANNEL_UX_RADIAL_MODE_FALLBACK, CHANNEL_VERSE_PREINIT_CALL,
+    CHANNEL_UX_STRUCTURAL_VIOLATION, CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
     CHANNEL_VERSE_SYNC_ACCESS_DENIED, CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
     CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED, CHANNEL_VERSE_SYNC_CONNECTION_REJECTED,
     CHANNEL_VERSE_SYNC_IDENTITY_GENERATED, CHANNEL_VERSE_SYNC_INTENT_APPLIED,
@@ -399,7 +403,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 76] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 87] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -589,6 +593,61 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 76] = [
         channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
         schema_version: 1,
         severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_STRUCTURAL_VIOLATION,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_CONTRACT_WARNING,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_TREE_BUILD,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_PROBE_REGISTERED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_PROBE_DISABLED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_RADIAL_OVERFLOW,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_RADIAL_LAYOUT,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_UX_RADIAL_LABEL_COLLISION,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,

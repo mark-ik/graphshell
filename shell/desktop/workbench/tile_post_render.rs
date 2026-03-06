@@ -16,7 +16,7 @@ use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+    CHANNEL_UX_CONTRACT_WARNING, CHANNEL_UX_TREE_BUILD, CHANNEL_UX_TREE_SNAPSHOT_BUILT,
 };
 
 pub(crate) struct TileRenderOutputs {
@@ -83,6 +83,10 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
         graph_app,
         uxtree_build_started.elapsed().as_micros() as u64,
     );
+    emit_event(DiagnosticEvent::MessageReceived {
+        channel_id: CHANNEL_UX_TREE_BUILD,
+        latency_us: uxtree_build_started.elapsed().as_micros() as u64,
+    });
     ux_tree::publish_snapshot(&uxtree_snapshot);
     emit_event(DiagnosticEvent::MessageSent {
         channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
