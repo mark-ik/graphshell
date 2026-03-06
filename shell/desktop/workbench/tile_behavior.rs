@@ -28,7 +28,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_VIEWER_FALLBACK_USED,
 };
-use crate::shell::desktop::workbench::pane_model::ViewerId;
+use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
 use crate::util::truncate_with_ellipsis;
 
 use super::selection_range::inclusive_index_range;
@@ -81,6 +81,58 @@ fn load_plaintext_content_for_node(url: &str) -> Result<PlaintextContent, String
     let bytes = std::fs::read(&path)
         .map_err(|err| format!("Failed to read '{}': {err}", path.display()))?;
     Ok(decode_plaintext_content(&bytes))
+}
+
+fn wry_unavailable_reason(graph_app: &GraphBrowserApp) -> Option<&'static str> {
+    if !cfg!(feature = "wry") {
+        return Some("Wry backend is not compiled in this build.");
+    }
+    if !crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry") {
+        return Some("Runtime capability 'viewer:wry' is unavailable.");
+    }
+    if !graph_app.wry_enabled() {
+        return Some("Wry backend is disabled. Enable it in Settings -> Viewer Backends.");
+    }
+    None
+}
+
+fn render_node_viewer_backend_selector(
+    ui: &mut Ui,
+    graph_app: &GraphBrowserApp,
+    state: &mut NodePaneState,
+) {
+    ui.horizontal_wrapped(|ui| {
+        ui.small("Render With:");
+
+        let auto_selected = state.viewer_id_override.is_none();
+        if ui.selectable_label(auto_selected, "Auto").clicked() {
+            state.viewer_id_override = None;
+        }
+
+        let webview_selected = state
+            .viewer_id_override
+            .as_ref()
+            .is_some_and(|viewer| viewer.as_str() == "viewer:webview");
+        if ui.selectable_label(webview_selected, "WebView").clicked() {
+            state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+        }
+
+        let wry_selected = state
+            .viewer_id_override
+            .as_ref()
+            .is_some_and(|viewer| viewer.as_str() == "viewer:wry");
+        let wry_disabled_reason = wry_unavailable_reason(graph_app);
+        let wry_response = ui.add_enabled(
+            wry_disabled_reason.is_none(),
+            egui::Button::new("Wry").selected(wry_selected),
+        );
+        if wry_response.clicked() {
+            state.viewer_id_override = Some(ViewerId::new("viewer:wry"));
+        }
+        if let Some(reason) = wry_disabled_reason {
+            wry_response.on_hover_text(reason);
+        }
+    });
 }
 
 fn render_markdown_embedded(ui: &mut Ui, markdown: &str) {
@@ -647,22 +699,26 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     ui.label("Missing node for this tile.");
                     return UiResponse::None;
                 };
+                render_node_viewer_backend_selector(ui, self.graph_app, state);
+                ui.add_space(4.0);
+
                 let effective_viewer_id = state
                     .viewer_id_override
                     .as_ref()
-                    .map(|viewer_id| viewer_id.as_str())
+                    .map(|viewer_id| viewer_id.as_str().to_string())
                     .unwrap_or_else(|| {
                         crate::registries::atomic::viewer::ViewerRegistry::default()
                             .select_for(node.mime_hint.as_deref(), node.address_kind)
+                            .to_string()
                     });
 
-                if matches!(effective_viewer_id, "viewer:plaintext" | "viewer:markdown") {
+                if matches!(effective_viewer_id.as_str(), "viewer:plaintext" | "viewer:markdown") {
                     ui.label(format!("{}", node.url));
                     ui.separator();
                     match load_plaintext_content_for_node(&node.url) {
                         Ok(PlaintextContent::Text(content)) => {
                             egui::ScrollArea::vertical().show(ui, |ui| {
-                                if effective_viewer_id == "viewer:markdown" {
+                                if effective_viewer_id.as_str() == "viewer:markdown" {
                                     render_markdown_embedded(ui, &content);
                                 } else {
                                     let mut read_only = content;
@@ -694,7 +750,38 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
 
-                if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id) {
+                if !tile_runtime::viewer_id_uses_composited_runtime(effective_viewer_id.as_str()) {
+                    if effective_viewer_id.as_str() == "viewer:wry"
+                        && state.render_mode
+                            == crate::shell::desktop::workbench::pane_model::TileRenderMode::NativeOverlay
+                    {
+                        if let Some(reason) = wry_unavailable_reason(self.graph_app) {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(220, 180, 60),
+                                "Wry backend currently unavailable",
+                            );
+                            ui.label(reason);
+                            ui.horizontal(|ui| {
+                                if ui.button("Use WebView").clicked() {
+                                    state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+                                }
+                                if ui.button("Clear Viewer Override").clicked() {
+                                    state.viewer_id_override = None;
+                                }
+                            });
+                        } else {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(130, 185, 130),
+                                "Wry native overlay active",
+                            );
+                            ui.small(
+                                "This pane is rendered through native overlay sync (not composited texture).",
+                            );
+                        }
+                        ui.small(format!("URL: {}", node.url));
+                        return UiResponse::None;
+                    }
+
                     let is_placeholder_mode = matches!(
                         state.render_mode,
                         crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder

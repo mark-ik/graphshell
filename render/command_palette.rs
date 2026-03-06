@@ -18,7 +18,9 @@ use crate::render::action_registry::{
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::shell::desktop::workbench::pane_model::{
+    NodePaneState, PaneId, PaneViewState, ToolPaneState, ViewerId,
+};
 use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -75,6 +77,24 @@ fn disabled_action_reason(
                 None
             }
         }
+        ActionId::NodeRenderWry => {
+            if !action_context.wry_override_allowed {
+                Some(
+                    "Wry backend unavailable. Enable build/runtime support and Settings -> Viewer Backends.",
+                )
+            } else if !action_context.any_selected && action_context.target_node.is_none() {
+                Some("Requires a selected or targeted node. Select a node first.")
+            } else {
+                None
+            }
+        }
+        ActionId::NodeRenderAuto | ActionId::NodeRenderWebView => {
+            if !action_context.any_selected && action_context.target_node.is_none() {
+                Some("Requires a selected or targeted node. Select a node first.")
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -124,6 +144,9 @@ pub fn render_command_palette_panel(
             .workspace
             .focused_view
             .unwrap_or_else(crate::app::GraphViewId::new),
+        wry_override_allowed: cfg!(feature = "wry")
+            && app.wry_enabled()
+            && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
     };
     let actions = list_actions_for_context(&action_context);
 
@@ -329,6 +352,22 @@ pub(super) fn execute_action(
                 app.request_copy_node_title(key);
             }
         }
+        ActionId::NodeRenderAuto | ActionId::NodeRenderWebView | ActionId::NodeRenderWry => {
+            if let Some(key) = open_target {
+                let viewer_id_override = match action_id {
+                    ActionId::NodeRenderAuto => None,
+                    ActionId::NodeRenderWebView => Some(ViewerId::new("viewer:webview")),
+                    ActionId::NodeRenderWry => Some(ViewerId::new("viewer:wry")),
+                    _ => unreachable!("non-render action reached render action branch"),
+                };
+                let mut state = NodePaneState::for_node(key);
+                state.viewer_id_override = viewer_id_override;
+                app.enqueue_workbench_intent(WorkbenchIntent::SetPaneView {
+                    pane: PaneId::new(),
+                    view: PaneViewState::Node(state),
+                });
+            }
+        }
         ActionId::EdgeConnectPair => {
             if let Some((from, to)) = pair_context {
                 intents.push(GraphIntent::ExecuteEdgeCommand {
@@ -395,6 +434,7 @@ mod tests {
             redo_available: false,
             input_mode: InputMode::MouseKeyboard,
             view_id: GraphViewId::new(),
+            wry_override_allowed: false,
         }
     }
 

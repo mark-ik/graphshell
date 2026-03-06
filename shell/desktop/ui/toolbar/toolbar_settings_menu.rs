@@ -215,6 +215,33 @@ pub(super) fn render_settings_menu(
             }
 
             ui.separator();
+            ui.label("Viewer Backends");
+            let wry_compiled = cfg!(feature = "wry");
+            let wry_capability_available = wry_compiled
+                && crate::registries::infrastructure::mod_loader::runtime_has_capability(
+                    "viewer:wry",
+                );
+            let wry_disabled_reason = if !wry_compiled {
+                Some("Wry backend is not compiled in this build.")
+            } else if !wry_capability_available {
+                Some("Runtime capability 'viewer:wry' is unavailable.")
+            } else {
+                None
+            };
+            let mut wry_enabled = graph_app.wry_enabled();
+            let wry_toggle_response = ui.add_enabled(
+                wry_disabled_reason.is_none(),
+                egui::Checkbox::new(&mut wry_enabled, "Enable Wry backend"),
+            );
+            if wry_toggle_response.changed() {
+                graph_app.set_wry_enabled(wry_enabled);
+            }
+            if let Some(reason) = wry_disabled_reason {
+                wry_toggle_response.on_hover_text(reason);
+                ui.small(reason);
+            }
+
+            ui.separator();
             ui.label("Registry Defaults");
 
             let mut lens_id = graph_app

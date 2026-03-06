@@ -72,6 +72,9 @@ pub enum ActionId {
     NodeMoveToActivePane,
     NodeCopyUrl,
     NodeCopyTitle,
+    NodeRenderAuto,
+    NodeRenderWebView,
+    NodeRenderWry,
     // Edge actions
     EdgeConnectPair,
     EdgeConnectBoth,
@@ -112,6 +115,9 @@ impl ActionId {
             Self::NodeMoveToActivePane => "Move",
             Self::NodeCopyUrl => "Copy URL",
             Self::NodeCopyTitle => "Copy Title",
+            Self::NodeRenderAuto => "Auto",
+            Self::NodeRenderWebView => "WebView",
+            Self::NodeRenderWry => "Wry",
             Self::EdgeConnectPair => "Pair",
             Self::EdgeConnectBoth => "Both",
             Self::EdgeRemoveUser => "Remove",
@@ -149,6 +155,9 @@ impl ActionId {
             Self::NodeMoveToActivePane => "Move Node to Active Pane",
             Self::NodeCopyUrl => "Copy Node URL",
             Self::NodeCopyTitle => "Copy Node Title",
+            Self::NodeRenderAuto => "Render With Auto",
+            Self::NodeRenderWebView => "Render With WebView",
+            Self::NodeRenderWry => "Render With Wry",
             Self::EdgeConnectPair => "Connect Source -> Target",
             Self::EdgeConnectBoth => "Connect Both Directions",
             Self::EdgeRemoveUser => "Remove User Edge",
@@ -185,7 +194,10 @@ impl ActionId {
             | Self::NodeDetachToSplit
             | Self::NodeMoveToActivePane
             | Self::NodeCopyUrl
-            | Self::NodeCopyTitle => ActionCategory::Node,
+            | Self::NodeCopyTitle
+            | Self::NodeRenderAuto
+            | Self::NodeRenderWebView
+            | Self::NodeRenderWry => ActionCategory::Node,
             Self::EdgeConnectPair | Self::EdgeConnectBoth | Self::EdgeRemoveUser => {
                 ActionCategory::Edge
             }
@@ -225,6 +237,8 @@ pub struct ActionContext {
     pub input_mode: InputMode,
     /// Active view (for future per-view action customisation).
     pub view_id: GraphViewId,
+    /// Whether explicit Wry override selection is currently allowed.
+    pub wry_override_allowed: bool,
 }
 
 /// A single resolved action entry returned by [`list_actions_for_context`].
@@ -266,6 +280,9 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (NodeMoveToActivePane, node_ops_enabled),
         (NodeCopyUrl, node_ops_enabled),
         (NodeCopyTitle, node_ops_enabled),
+        (NodeRenderAuto, node_ops_enabled),
+        (NodeRenderWebView, node_ops_enabled),
+        (NodeRenderWry, node_ops_enabled && context.wry_override_allowed),
         // Edge
         (EdgeConnectPair, pair_enabled),
         (EdgeConnectBoth, pair_enabled),
@@ -360,6 +377,7 @@ mod tests {
             redo_available: false,
             input_mode: InputMode::MouseKeyboard,
             view_id: GraphViewId::new(),
+            wry_override_allowed: false,
         }
     }
 
@@ -496,6 +514,9 @@ mod tests {
             NodeMoveToActivePane,
             NodeCopyUrl,
             NodeCopyTitle,
+            NodeRenderAuto,
+            NodeRenderWebView,
+            NodeRenderWry,
             EdgeConnectPair,
             EdgeConnectBoth,
             EdgeRemoveUser,

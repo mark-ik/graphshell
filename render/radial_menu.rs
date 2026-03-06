@@ -161,6 +161,9 @@ pub fn render_radial_command_menu(
             .workspace
             .focused_view
             .unwrap_or_else(crate::app::GraphViewId::new),
+        wry_override_allowed: cfg!(feature = "wry")
+            && app.wry_enabled()
+            && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
     };
 
     let center_id = egui::Id::new("radial_menu_center");

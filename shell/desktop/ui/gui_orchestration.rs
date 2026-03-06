@@ -1595,6 +1595,17 @@ fn handle_set_pane_view_intent(
             crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
                 tiles_tree, graph_app, state.node,
             );
+
+            if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
+                tiles_tree.tiles.iter_mut().find(|(_, tile)| {
+                    matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.node == state.node)
+                })
+            {
+                node_state.viewer_id_override = state.viewer_id_override.clone();
+            }
+            crate::shell::desktop::workbench::tile_runtime::refresh_node_pane_render_modes(
+                tiles_tree, graph_app,
+            );
         }
         crate::shell::desktop::workbench::pane_model::PaneViewState::Graph(graph_ref) => {
             crate::shell::desktop::workbench::tile_view_ops::open_or_focus_graph_pane(

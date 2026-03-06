@@ -1620,6 +1620,8 @@ pub struct GraphWorkspace {
     pub omnibar_preferred_scope: OmnibarPreferredScope,
     /// Non-`@` omnibar ordering preset.
     pub omnibar_non_at_order: OmnibarNonAtOrderPreset,
+    /// Global Wry backend enable toggle (disabled by default).
+    pub wry_enabled: bool,
     /// Independent multi-selection for workspace tabs.
     pub selected_tab_nodes: HashSet<NodeKey>,
     /// Range-select anchor for workspace tab multi-selection.
@@ -1870,6 +1872,7 @@ impl GraphBrowserApp {
         "workspace:settings-omnibar-preferred-scope";
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
         "workspace:settings-omnibar-non-at-order";
+    pub const SETTINGS_WRY_ENABLED_NAME: &'static str = "workspace:settings-wry-enabled";
     pub const SETTINGS_REGISTRY_LENS_ID_NAME: &'static str = "workspace:settings-registry-lens-id";
     pub const SETTINGS_REGISTRY_PHYSICS_ID_NAME: &'static str =
         "workspace:settings-registry-physics-id";
@@ -1984,6 +1987,7 @@ impl GraphBrowserApp {
                 lasso_binding_preference: CanvasLassoBinding::RightDrag,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
+                wry_enabled: false,
                 selected_tab_nodes: HashSet::new(),
                 tab_selection_anchor: None,
                 hovered_graph_node: None,
@@ -2197,6 +2201,7 @@ impl GraphBrowserApp {
                 lasso_binding_preference: CanvasLassoBinding::RightDrag,
                 omnibar_preferred_scope: OmnibarPreferredScope::Auto,
                 omnibar_non_at_order: OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal,
+                wry_enabled: false,
                 selected_tab_nodes: HashSet::new(),
                 tab_selection_anchor: None,
                 hovered_graph_node: None,
@@ -4772,6 +4777,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_LASSO_BINDING_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
+            || name == Self::SETTINGS_WRY_ENABLED_NAME
             || name == Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
             || name.starts_with(Self::SESSION_WORKSPACE_PREV_PREFIX)
@@ -4932,6 +4938,26 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME,
             self.workspace.omnibar_non_at_order.as_persisted_str(),
+        );
+    }
+
+    pub fn wry_enabled(&self) -> bool {
+        self.workspace.wry_enabled
+    }
+
+    pub fn set_wry_enabled(&mut self, enabled: bool) {
+        self.workspace.wry_enabled = enabled;
+        self.save_wry_enabled();
+    }
+
+    fn save_wry_enabled(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_WRY_ENABLED_NAME,
+            if self.workspace.wry_enabled {
+                "true"
+            } else {
+                "false"
+            },
         );
     }
 
@@ -5115,6 +5141,13 @@ impl GraphBrowserApp {
                 self.workspace.omnibar_non_at_order = order;
             } else {
                 warn!("Ignoring invalid persisted omnibar non-@ order preset: '{raw}'");
+            }
+        }
+        if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_WRY_ENABLED_NAME) {
+            match raw.trim().to_ascii_lowercase().as_str() {
+                "true" | "1" | "yes" | "on" => self.workspace.wry_enabled = true,
+                "false" | "0" | "no" | "off" => self.workspace.wry_enabled = false,
+                _ => warn!("Ignoring invalid persisted wry enabled flag: '{raw}'"),
             }
         }
         self.workspace.default_registry_lens_id = self
@@ -5784,6 +5817,7 @@ impl GraphBrowserApp {
         self.workspace.omnibar_preferred_scope = OmnibarPreferredScope::Auto;
         self.workspace.omnibar_non_at_order =
             OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
+        self.workspace.wry_enabled = false;
         self.workspace.selected_tab_nodes.clear();
         self.workspace.tab_selection_anchor = None;
         self.load_persisted_ui_settings();
@@ -11302,6 +11336,25 @@ mod tests {
             reopened.workspace.omnibar_non_at_order,
             OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal
         );
+    }
+
+    #[test]
+    fn test_wry_enabled_defaults_to_false() {
+        let app = GraphBrowserApp::new_for_testing();
+        assert!(!app.wry_enabled());
+    }
+
+    #[test]
+    fn test_wry_enabled_persists_across_restart() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        let mut app = GraphBrowserApp::new_from_dir(path.clone());
+        app.set_wry_enabled(true);
+        drop(app);
+
+        let reopened = GraphBrowserApp::new_from_dir(path);
+        assert!(reopened.wry_enabled());
     }
 
     #[test]
