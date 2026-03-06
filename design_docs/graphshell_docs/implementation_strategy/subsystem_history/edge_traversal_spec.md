@@ -102,6 +102,8 @@ To bound in-memory size on heavily traversed edges, `EdgePayload` separates a bo
 ```
 EdgeMetrics {
     total_navigations: u64,         -- incremented on every Traversal append; never decremented
+  forward_navigations: u64,       -- incremented when Traversal.direction == Forward
+  backward_navigations: u64,      -- incremented when Traversal.direction == Backward
     last_navigated_at: Option<DateTime>,
     agent_asserted_at: Option<DateTime>,  -- when AgentDerived was last set
     agent_confidence: Option<f32>,        -- last confidence score from asserting agent
@@ -113,9 +115,15 @@ EdgeMetrics {
 - `traversals` holds at most N recent records (configurable; default 100).
 - When the window is full and a new `Traversal` is appended, the oldest record is evicted from memory and written to `traversal_archive` (§3.2) before appending the new record.
 - `metrics.total_navigations` is incremented on every append, including evicted records. It reflects the true total, not the window size.
+- `metrics.forward_navigations` / `metrics.backward_navigations` are incremented on append by traversal direction and never decremented by rolling-window eviction.
 - `metrics.last_navigated_at` is always the timestamp of the most recently appended `Traversal`.
 
-**Invariant**: Display-only computations (dominant direction, stroke width) must be derived from the rolling window or metrics — never from a full unbounded scan. The render layer must not assume `traversals` contains all historical records.
+**Invariant**: Display-only computations (dominant direction, stroke width) must be derived from bounded data (`traversals` window and/or `metrics`) — never from a full unbounded scan. The render layer must not assume `traversals` contains all historical records.
+
+Directional aggregate invariant:
+
+- `metrics.forward_navigations + metrics.backward_navigations == metrics.total_navigations` for traversal-bearing edges.
+- Directional aggregates are the durable source of full-history directionality across window eviction.
 
 **Archive invariant**: Eviction from the rolling window must write to archive before the in-memory record is dropped. Crash-order guarantee is the Storage subsystem's responsibility (see `SUBSYSTEM_STORAGE.md`).
 
@@ -198,7 +206,15 @@ The render layer derives edge visuals from `EdgePayload`. It does not define tra
 | `AgentDerived` only | Low-opacity style (fading with time elapsed since assert); no direction arrow |
 | `AgentDerived` + `TraversalDerived` | `TraversalDerived` style takes over fully; opacity restored; decay halted |
 
-**Dominant direction**: The direction with the majority of traversal records. Computed at render time from `traversals` or `metrics`; not stored.
+**Dominant direction**: Computed at render time from directional aggregates in `metrics`.
+
+Canonical rule:
+
+- If `metrics.forward_navigations > metrics.backward_navigations`, dominant direction is `Forward`.
+- If `metrics.backward_navigations > metrics.forward_navigations`, dominant direction is `Backward`.
+- If equal, dominant direction is `None` (render neutral/no arrow variant).
+
+This avoids dependence on full traversal history and remains correct after rolling-window eviction.
 
 **Multi-kind rendering priority**: When multiple kinds are present, the base visual style is determined by the highest-priority kind present: `UserGrouped` > `TraversalDerived` > `AgentDerived`. Traversal-derived modifiers (stroke width, direction arrow) are applied on top of the base style whenever `TraversalDerived` is in the set, regardless of what the base style is.
 
@@ -290,6 +306,8 @@ This section is a placeholder for future spec expansion.
 | WAL replay produces identical traversal list | Test: replay WAL from empty state → `traversals` list matches original |
 | Stroke width reflects traversal count | Test: 1 traversal vs 10 traversals on same edge → measurable width difference |
 | Dominant direction computed at render time | Test: `EdgePayload` has no `dominant_direction` field |
+| Directional metrics survive rolling-window eviction | Test: append traversals beyond window size with mixed directions -> `forward_navigations`/`backward_navigations` still reflect full append history |
+| Dominant direction derives from metrics aggregates | Test: set `forward_navigations=8`, `backward_navigations=3` -> render arrow is Forward even when window contents are truncated |
 | Timeline shows newest entry first | Test: navigate A→B then C→D → C→D appears above A→B in timeline |
 | Timeline click emits `SelectNode` and `RequestZoomToSelected` | Test: click timeline entry → both intents in intent queue |
 | `traversal_archive` and `dissolved_archive` are separate keyspaces | Test: append to each → query confirms entries in respective keyspace only |
