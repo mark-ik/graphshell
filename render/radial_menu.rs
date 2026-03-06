@@ -53,6 +53,20 @@ pub(crate) struct RadialSectorSemanticMetadata {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct RadialPaletteSemanticSnapshot {
     pub(crate) sectors: Vec<RadialSectorSemanticMetadata>,
+    pub(crate) summary: RadialPaletteSemanticSummary,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RadialPaletteSemanticSummary {
+    pub(crate) tier1_visible_count: usize,
+    pub(crate) tier2_visible_count: usize,
+    pub(crate) tier2_page: usize,
+    pub(crate) tier2_page_count: usize,
+    pub(crate) overflow_hidden_entries: usize,
+    pub(crate) label_pre_collisions: usize,
+    pub(crate) label_post_collisions: usize,
+    pub(crate) fallback_to_palette: bool,
+    pub(crate) fallback_reason: Option<String>,
 }
 
 static LATEST_RADIAL_SEMANTIC_SNAPSHOT: OnceLock<Mutex<Option<RadialPaletteSemanticSnapshot>>> =
@@ -396,6 +410,7 @@ pub fn render_radial_command_menu(
         let mut hovered_domain = None;
         let mut hovered_entry: Option<ActionEntry> = None;
         let mut fallback_to_command_palette = false;
+        let mut fallback_reason: Option<&'static str> = None;
         if let Some(pos) = pointer {
             let delta = pos - center;
             let r = delta.length();
@@ -536,6 +551,7 @@ pub fn render_radial_command_menu(
                         ),
                         hover_scale: if Some(domain) == hovered_domain { 1.5 } else { 1.0 },
                     });
+                    semantic_snapshot.summary.tier1_visible_count += 1;
                     let color = if Some(domain) == hovered_domain {
                         Color32::from_rgb(70, 130, 170)
                     } else {
@@ -575,7 +591,12 @@ pub fn render_radial_command_menu(
 
                     let visible_cmds =
                         paged_ring_entries(&cmds, page, MAX_VISIBLE_ACTIONS_PER_RING);
+                    semantic_snapshot.summary.tier2_visible_count = visible_cmds.len();
+                    semantic_snapshot.summary.tier2_page = page;
+                    semantic_snapshot.summary.tier2_page_count = page_count;
                     if cmds.len() > visible_cmds.len() {
+                        semantic_snapshot.summary.overflow_hidden_entries =
+                            cmds.len() - visible_cmds.len();
                         emit_event(DiagnosticEvent::MessageSent {
                             channel_id: CHANNEL_UX_RADIAL_OVERFLOW,
                             byte_len: cmds.len() - visible_cmds.len(),
@@ -598,17 +619,21 @@ pub fn render_radial_command_menu(
                             });
                         }
                         fallback_to_command_palette = true;
+                        fallback_reason.get_or_insert("hover_non_overlap_precheck_failed");
                     }
 
                     let label_layout = compute_label_layout_metrics(center, domain, visible_cmds);
                     let packed_collisions = (label_layout.pre_collisions << 16)
                         .saturating_add(label_layout.post_collisions);
+                    semantic_snapshot.summary.label_pre_collisions = label_layout.pre_collisions;
+                    semantic_snapshot.summary.label_post_collisions = label_layout.post_collisions;
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_UX_RADIAL_LABEL_COLLISION,
                         byte_len: packed_collisions,
                     });
                     if label_layout.post_collisions > 0 {
                         fallback_to_command_palette = true;
+                        fallback_reason.get_or_insert("label_collision_resolver_failed");
                         emit_event(DiagnosticEvent::MessageReceived {
                             channel_id: CHANNEL_UX_RADIAL_MODE_FALLBACK,
                             latency_us: label_layout.post_collisions as u64,
@@ -695,6 +720,9 @@ pub fn render_radial_command_menu(
                         Color32::from_rgb(170, 190, 205),
                     );
                 }
+
+                semantic_snapshot.summary.fallback_to_palette = fallback_to_command_palette;
+                semantic_snapshot.summary.fallback_reason = fallback_reason.map(str::to_string);
 
                 if fallback_to_command_palette {
                     painter.text(

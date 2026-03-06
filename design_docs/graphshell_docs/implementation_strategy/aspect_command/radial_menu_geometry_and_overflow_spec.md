@@ -149,8 +149,14 @@ Required scenario coverage:
 ## 7. Acceptance Criteria
 
 - [ ] Geometry constraints in §2 are implemented.
-- [ ] Overflow policy in §3 is deterministic and tested.
+- [x] Overflow policy in §3 is deterministic and tested.
 - [ ] Readability constraints in §4 hold across supported DPI tiers.
-- [ ] UxTree/diagnostics outputs in §5 are implemented.
+- [x] UxTree/diagnostics outputs in §5 are implemented.
 - [ ] Scenario tests in §6 are part of CI UX contract gate.
 - [ ] Radial hub and per-tier diameters are profile-configurable.
+
+Implementation notes:
+
+- Deterministic tier paging, overflow telemetry, and fallback diagnostics are live in `render/radial_menu.rs`.
+- UxTree now projects explicit Tier-1/Tier-2 ring container nodes and a radial overflow/readability summary node in `shell/desktop/workbench/ux_tree.rs`.
+- Remaining open items are the full geometry/readability contract details and the CI scenario-gate pack from §6.

@@ -27,7 +27,9 @@ pub(crate) enum UxNodeRole {
     GraphNode,
     NodePane,
     RadialPalette,
+    RadialTierRing,
     RadialSector,
+    RadialSummary,
     #[cfg(feature = "diagnostics")]
     ToolPane,
 }
@@ -65,6 +67,23 @@ pub(crate) enum UxDomainIdentity {
         hover_scale: f32,
         angle_rad: f32,
         page: usize,
+    },
+    RadialTierRing {
+        tier: u8,
+        visible_count: usize,
+        page: usize,
+        page_count: usize,
+    },
+    RadialSummary {
+        tier1_visible_count: usize,
+        tier2_visible_count: usize,
+        tier2_page: usize,
+        tier2_page_count: usize,
+        overflow_hidden_entries: usize,
+        label_pre_collisions: usize,
+        label_post_collisions: usize,
+        fallback_to_palette: bool,
+        fallback_reason: Option<String>,
     },
 }
 
@@ -296,6 +315,119 @@ fn append_radial_palette_nodes(
         event_route: "command.radial_route",
         backend_path: "egui",
         diagnostics_counter: snapshot.sectors.len() as u64,
+    });
+
+    let tier1_ring_id = "uxnode://command/radial/tier-1-ring".to_string();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: tier1_ring_id.clone(),
+        role: UxNodeRole::RadialTierRing,
+        label: "Tier-1 Ring".to_string(),
+        state: UxNodeState {
+            focused: snapshot
+                .sectors
+                .iter()
+                .any(|sector| sector.tier == 1 && sector.hover_scale > 1.0),
+            selected: false,
+            blocked: snapshot.summary.tier1_visible_count == 0,
+            degraded: false,
+        },
+        allowed_actions: vec![UxAction::Navigate],
+        domain: UxDomainIdentity::RadialTierRing {
+            tier: 1,
+            visible_count: snapshot.summary.tier1_visible_count,
+            page: 0,
+            page_count: 1,
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: tier1_ring_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "command.radial.tier1",
+        style_flags: vec!["surface:radial-tier"],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: tier1_ring_id,
+        event_route: "command.radial_tier1_route",
+        backend_path: "egui",
+        diagnostics_counter: snapshot.summary.tier1_visible_count as u64,
+    });
+
+    let tier2_ring_id = "uxnode://command/radial/tier-2-ring".to_string();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: tier2_ring_id.clone(),
+        role: UxNodeRole::RadialTierRing,
+        label: "Tier-2 Ring".to_string(),
+        state: UxNodeState {
+            focused: snapshot
+                .sectors
+                .iter()
+                .any(|sector| sector.tier == 2 && sector.hover_scale > 1.0),
+            selected: false,
+            blocked: snapshot.summary.tier2_visible_count == 0,
+            degraded: snapshot.summary.fallback_to_palette,
+        },
+        allowed_actions: vec![UxAction::Navigate],
+        domain: UxDomainIdentity::RadialTierRing {
+            tier: 2,
+            visible_count: snapshot.summary.tier2_visible_count,
+            page: snapshot.summary.tier2_page,
+            page_count: snapshot.summary.tier2_page_count,
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: tier2_ring_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "command.radial.tier2",
+        style_flags: vec!["surface:radial-tier"],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: tier2_ring_id,
+        event_route: "command.radial_tier2_route",
+        backend_path: "egui",
+        diagnostics_counter: snapshot.summary.tier2_visible_count as u64,
+    });
+
+    let radial_summary_id = "uxnode://command/radial/summary".to_string();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: radial_summary_id.clone(),
+        role: UxNodeRole::RadialSummary,
+        label: "Radial Layout Summary".to_string(),
+        state: UxNodeState {
+            focused: false,
+            selected: false,
+            blocked: false,
+            degraded: snapshot.summary.fallback_to_palette,
+        },
+        allowed_actions: vec![UxAction::Navigate],
+        domain: UxDomainIdentity::RadialSummary {
+            tier1_visible_count: snapshot.summary.tier1_visible_count,
+            tier2_visible_count: snapshot.summary.tier2_visible_count,
+            tier2_page: snapshot.summary.tier2_page,
+            tier2_page_count: snapshot.summary.tier2_page_count,
+            overflow_hidden_entries: snapshot.summary.overflow_hidden_entries,
+            label_pre_collisions: snapshot.summary.label_pre_collisions,
+            label_post_collisions: snapshot.summary.label_post_collisions,
+            fallback_to_palette: snapshot.summary.fallback_to_palette,
+            fallback_reason: snapshot.summary.fallback_reason.clone(),
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: radial_summary_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "command.radial.summary",
+        style_flags: vec!["surface:radial-summary"],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: radial_summary_id,
+        event_route: "command.radial_summary_route",
+        backend_path: "egui",
+        diagnostics_counter: snapshot.summary.overflow_hidden_entries as u64,
     });
 
     for (idx, sector) in snapshot.sectors.iter().enumerate() {
@@ -735,8 +867,8 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
 mod tests {
     use super::*;
     use crate::render::radial_menu::{
-        RadialPaletteSemanticSnapshot, RadialSectorSemanticMetadata, clear_semantic_snapshot,
-        publish_semantic_snapshot,
+        RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary,
+        RadialSectorSemanticMetadata, clear_semantic_snapshot, publish_semantic_snapshot,
     };
     use crate::shell::desktop::tests::harness::TestRegistry;
 
@@ -866,6 +998,17 @@ mod tests {
                 angle_rad: 1.2,
                 hover_scale: 1.5,
             }],
+            summary: RadialPaletteSemanticSummary {
+                tier1_visible_count: 4,
+                tier2_visible_count: 1,
+                tier2_page: 0,
+                tier2_page_count: 1,
+                overflow_hidden_entries: 0,
+                label_pre_collisions: 2,
+                label_post_collisions: 0,
+                fallback_to_palette: false,
+                fallback_reason: None,
+            },
         });
 
         let harness = TestRegistry::new();
@@ -892,6 +1035,34 @@ mod tests {
                     )
             }),
             "snapshot should include radial sector action metadata"
+        );
+        assert!(
+            snapshot.semantic_nodes.iter().any(|node| {
+                node.role == UxNodeRole::RadialTierRing
+                    && matches!(
+                        &node.domain,
+                        UxDomainIdentity::RadialTierRing {
+                            tier,
+                            visible_count,
+                            ..
+                        } if *tier == 1 && *visible_count == 4
+                    )
+            }),
+            "snapshot should include explicit tier-1 ring container metadata"
+        );
+        assert!(
+            snapshot.semantic_nodes.iter().any(|node| {
+                node.role == UxNodeRole::RadialSummary
+                    && matches!(
+                        &node.domain,
+                        UxDomainIdentity::RadialSummary {
+                            label_pre_collisions,
+                            label_post_collisions,
+                            ..
+                        } if *label_pre_collisions == 2 && *label_post_collisions == 0
+                    )
+            }),
+            "snapshot should include radial overflow/readability summary metadata"
         );
 
         clear_semantic_snapshot();
