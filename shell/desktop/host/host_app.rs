@@ -67,7 +67,7 @@ impl App {
         App {
             opts,
             preferences,
-            app_preferences: app_preferences,
+            app_preferences,
             waker: event_loop.create_event_loop_waker(),
             event_loop_proxy: event_loop.event_loop_proxy(),
             initial_url: initial_url.clone(),

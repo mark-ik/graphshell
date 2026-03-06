@@ -25,12 +25,12 @@ pub(crate) struct TileRenderOutputs {
     pub(crate) post_render_intents: Vec<GraphIntent>,
 }
 
-fn should_summon_command_palette_on_secondary_click(
+fn should_summon_radial_palette_on_secondary_click(
     secondary_clicked: bool,
     hovered_graph_node: Option<NodeKey>,
-    command_palette_open: bool,
+    radial_menu_open: bool,
 ) -> bool {
-    secondary_clicked && hovered_graph_node.is_none() && !command_palette_open
+    secondary_clicked && hovered_graph_node.is_none() && !radial_menu_open
 }
 
 pub(crate) fn render_tile_tree_and_collect_outputs(
@@ -68,14 +68,14 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
 
     drop(behavior);
 
-    // Secondary-click outside graph-node context should still summon the command palette.
+    // Secondary-click outside graph-node context summons the radial/context palette.
     // Graph-node right-click remains owned by radial/context handling in render::mod.
-    if should_summon_command_palette_on_secondary_click(
+    if should_summon_radial_palette_on_secondary_click(
         ui.ctx().input(|i| i.pointer.secondary_clicked()),
         graph_app.workspace.hovered_graph_node,
-        graph_app.workspace.show_command_palette,
+        graph_app.workspace.show_radial_menu,
     ) {
-        graph_app.toggle_command_palette();
+        graph_app.toggle_radial_menu();
     }
 
     let uxtree_snapshot = ux_tree::build_snapshot(
@@ -130,21 +130,19 @@ pub(crate) fn mapped_nodes_without_tiles(
 
 #[cfg(test)]
 mod tests {
-    use super::should_summon_command_palette_on_secondary_click;
+    use super::should_summon_radial_palette_on_secondary_click;
     use crate::graph::NodeKey;
 
     #[test]
     fn secondary_click_without_node_summons_palette() {
-        assert!(should_summon_command_palette_on_secondary_click(
-            true,
-            None,
-            false
+        assert!(should_summon_radial_palette_on_secondary_click(
+            true, None, false
         ));
     }
 
     #[test]
     fn secondary_click_over_node_does_not_summon_palette() {
-        assert!(!should_summon_command_palette_on_secondary_click(
+        assert!(!should_summon_radial_palette_on_secondary_click(
             true,
             Some(NodeKey::new(1)),
             false
@@ -153,19 +151,15 @@ mod tests {
 
     #[test]
     fn secondary_click_when_palette_already_open_does_not_toggle() {
-        assert!(!should_summon_command_palette_on_secondary_click(
-            true,
-            None,
-            true
+        assert!(!should_summon_radial_palette_on_secondary_click(
+            true, None, true
         ));
     }
 
     #[test]
     fn non_secondary_click_never_summons_palette() {
-        assert!(!should_summon_command_palette_on_secondary_click(
-            false,
-            None,
-            false
+        assert!(!should_summon_radial_palette_on_secondary_click(
+            false, None, false
         ));
     }
 }

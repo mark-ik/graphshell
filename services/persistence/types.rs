@@ -15,20 +15,16 @@ use rkyv::{Archive, Deserialize, Serialize};
     Copy,
     Debug,
     PartialEq,
+    Default,
     serde::Serialize,
     serde::Deserialize,
 )]
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedAddressKind {
+    #[default]
     Http,
     File,
     Custom,
-}
-
-impl Default for PersistedAddressKind {
-    fn default() -> Self {
-        Self::Http
-    }
 }
 
 /// Persisted per-node session fidelity state.

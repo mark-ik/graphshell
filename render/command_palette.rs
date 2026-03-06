@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Command palette panel — keyboard-first, `ActionRegistry`-backed.
+//! Interaction menu panel — keyboard-first, `ActionRegistry`-backed.
 //!
 //! Content is populated via [`super::action_registry::list_actions_for_context`]
 //! rather than a hardcoded enum.  The radial menu reuses [`execute_action`]
@@ -14,9 +14,9 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
-    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode,
-    category_from_persisted_name, category_persisted_name, default_category_order,
-    list_actions_for_context, rank_categories_for_context,
+    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, category_from_persisted_name,
+    category_persisted_name, default_category_order, list_actions_for_context,
+    rank_categories_for_context,
 };
 use crate::render::command_profile::{
     load_category_recency, load_pinned_categories, record_recent_category, toggle_category_pin,
@@ -77,7 +77,10 @@ fn scope_allows_action(
 
     match scope {
         SearchPaletteScope::CurrentTarget => {
-            matches!(entry.id.category(), ActionCategory::Node | ActionCategory::Edge)
+            matches!(
+                entry.id.category(),
+                ActionCategory::Node | ActionCategory::Edge
+            )
         }
         SearchPaletteScope::ActivePane => !matches!(entry.id, ActionId::PersistOpenHub),
         SearchPaletteScope::ActiveGraph => {
@@ -223,7 +226,7 @@ fn render_action_entry_button(
     }
 }
 
-/// Render the command palette panel.
+/// Render the interaction menu panel.
 ///
 /// Content is driven by [`list_actions_for_context`]; no hardcoded action
 /// enum exists in this module.
@@ -283,7 +286,7 @@ pub fn render_command_palette_panel(
         should_close = true;
     }
 
-    Window::new("Command Palette")
+    Window::new("Interaction Menu")
         .open(&mut open)
         .default_width(320.0)
         .default_height(420.0)
@@ -299,16 +302,16 @@ pub fn render_command_palette_panel(
                     if fallback_notice {
                         ui.colored_label(
                             egui::Color32::from_rgb(234, 200, 145),
-                            "Radial layout constrained; opened command palette for reliable selection.",
+                            "Radial layout constrained; opened interaction menu for reliable selection.",
                         );
                         ctx.data_mut(|d| d.remove::<bool>(fallback_notice_id));
                     }
                     ui.label("Node, tile, edge, graph, and persistence commands");
                     ui.small("Delete Node(s) is graph content mutation; tile close remains a tile-tree operation.");
                     if contextual_mode {
-                        ui.small("Mode: Context Palette (Tier 1 categories + Tier 2 commands)");
+                        ui.small("Mode: Context Interaction (Tier 1 categories + Tier 2 commands)");
                     } else {
-                        ui.small("Mode: Search Palette (global grouped list)");
+                        ui.small("Mode: Search Interaction (global grouped list)");
                     }
                     if let Some(message) = empty_graph_message(graph_node_count) {
                         ui.add_space(4.0);
@@ -483,7 +486,7 @@ pub fn render_command_palette_panel(
 
 /// Dispatch an [`ActionId`] to the appropriate [`GraphIntent`]s or app call.
 ///
-/// This is the single dispatch function shared by both the command palette
+/// This is the single dispatch function shared by both the interaction menu
 /// and the radial menu, eliminating the duplicate execution paths that
 /// existed when each surface had its own hardcoded `match` arm set.
 pub(super) fn execute_action(
@@ -785,8 +788,12 @@ mod tests {
         assert_eq!(target_only.len(), 1);
         assert_eq!(target_only[0].id, ActionId::NodeDelete);
 
-        let graph_scope =
-            filter_actions_for_search(&actions, "physics", SearchPaletteScope::ActiveGraph, &context);
+        let graph_scope = filter_actions_for_search(
+            &actions,
+            "physics",
+            SearchPaletteScope::ActiveGraph,
+            &context,
+        );
         assert_eq!(graph_scope.len(), 1);
         assert_eq!(graph_scope[0].id, ActionId::GraphTogglePhysics);
     }

@@ -87,10 +87,26 @@ mod tests {
         let manifest = nostrcore_manifest();
         assert_eq!(manifest.mod_id, MOD_ID);
         assert_eq!(manifest.mod_type, ModType::Native);
-        assert!(manifest.provides.contains(&"nostr:relay-subscribe".to_string()));
-        assert!(manifest.provides.contains(&"nostr:relay-publish".to_string()));
-        assert!(manifest.provides.contains(&"identity:nostr-sign".to_string()));
-        assert!(manifest.provides.contains(&"nostr:nip07-bridge".to_string()));
+        assert!(
+            manifest
+                .provides
+                .contains(&"nostr:relay-subscribe".to_string())
+        );
+        assert!(
+            manifest
+                .provides
+                .contains(&"nostr:relay-publish".to_string())
+        );
+        assert!(
+            manifest
+                .provides
+                .contains(&"identity:nostr-sign".to_string())
+        );
+        assert!(
+            manifest
+                .provides
+                .contains(&"nostr:nip07-bridge".to_string())
+        );
         assert!(manifest.capabilities.contains(&ModCapability::Network));
         assert!(manifest.capabilities.contains(&ModCapability::Identity));
     }

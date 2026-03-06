@@ -479,7 +479,7 @@ fn handle_toolbar_toggle_tile_view_request(
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     frame_intents: &mut Vec<GraphIntent>,
 ) {
-    if toggle_tile_view_requested {
+    if toggle_tile_view_requested && !graph_app.history_health_summary().preview_mode_active {
         crate::shell::desktop::workbench::tile_view_ops::toggle_tile_view(ToggleTileViewArgs {
             tiles_tree,
             graph_app,

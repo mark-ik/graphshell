@@ -512,7 +512,7 @@ impl Gui {
             panel.spawn_mod_loader();
             panel.spawn_prefetch_scheduler();
             // Spawn sync worker if Verse mod is available.
-            panel.spawn_sync_worker();
+            panel.spawn_p2p_sync_worker();
             panel
         };
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());

@@ -148,7 +148,8 @@ impl PlatformWindow for HeadlessWindow {
         &self,
         _event_loop: &winit::event_loop::ActiveEventLoop,
     ) -> Rc<dyn servo::webxr::GlWindow> {
-        panic!("HeadlessWindow does not support WebXR GL windows")
+        error!("HeadlessWindow does not support WebXR GL windows");
+        std::process::abort()
     }
 
     fn window_rect(&self) -> DeviceIndependentIntRect {

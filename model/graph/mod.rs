@@ -488,7 +488,10 @@ impl Graph {
     }
 
     /// Collect traversals from all incident edges without mutating graph state.
-    pub(crate) fn collect_node_traversals(&self, key: NodeKey) -> Option<Vec<DissolvedTraversalRecord>> {
+    pub(crate) fn collect_node_traversals(
+        &self,
+        key: NodeKey,
+    ) -> Option<Vec<DissolvedTraversalRecord>> {
         let _ = self.get_node(key)?;
 
         let mut records = Vec::new();

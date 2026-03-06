@@ -10,7 +10,7 @@ use crate::parser::{get_default_url, location_bar_input_to_url, parse_url_or_fil
 const FAKE_CWD: &str = "/fake/cwd";
 
 #[cfg(target_os = "windows")]
-const FAKE_CWD: &'static str = "C:/fake/cwd";
+const FAKE_CWD: &str = "C:/fake/cwd";
 
 #[test]
 fn test_argument_parsing() {

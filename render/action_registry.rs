@@ -269,7 +269,7 @@ impl ActionId {
             Self::GraphFit => "Fit Graph to Screen",
             Self::GraphTogglePhysics => "Toggle Physics Simulation",
             Self::GraphPhysicsConfig => "Open Physics Settings",
-            Self::GraphCommandPalette => "Open Command Palette",
+            Self::GraphCommandPalette => "Open Interaction Menu",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
             Self::PersistSaveSnapshot => "Save Frame Snapshot",
@@ -387,7 +387,10 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (NodeCopyTitle, node_ops_enabled),
         (NodeRenderAuto, node_ops_enabled),
         (NodeRenderWebView, node_ops_enabled),
-        (NodeRenderWry, node_ops_enabled && context.wry_override_allowed),
+        (
+            NodeRenderWry,
+            node_ops_enabled && context.wry_override_allowed,
+        ),
         // Edge
         (EdgeConnectPair, pair_enabled),
         (EdgeConnectBoth, pair_enabled),
@@ -676,12 +679,8 @@ mod tests {
             ..default_context()
         };
         let categories = default_category_order();
-        let ordered = rank_categories_for_context(
-            &categories,
-            &ctx,
-            &[ActionCategory::Persistence],
-            &[],
-        );
+        let ordered =
+            rank_categories_for_context(&categories, &ctx, &[ActionCategory::Persistence], &[]);
         assert_eq!(ordered[0], ActionCategory::Node);
     }
 

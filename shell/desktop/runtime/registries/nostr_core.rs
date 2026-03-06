@@ -162,8 +162,10 @@ impl NostrRelayService for InProcessRelayService {
                 format!("nostr-sub-{seq}")
             });
 
-        self.subscriptions
-            .insert(id.clone(), (caller_id.to_string(), filters, resolved_relays.to_vec()));
+        self.subscriptions.insert(
+            id.clone(),
+            (caller_id.to_string(), filters, resolved_relays.to_vec()),
+        );
         Ok(NostrSubscriptionHandle { id })
     }
 
@@ -409,13 +411,15 @@ impl NostrCoreRegistry {
         Ok(handle)
     }
 
-    pub(crate) fn relay_unsubscribe(&self, caller_id: &str, handle: &NostrSubscriptionHandle) -> bool {
+    pub(crate) fn relay_unsubscribe(
+        &self,
+        caller_id: &str,
+        handle: &NostrSubscriptionHandle,
+    ) -> bool {
         let caller_id = caller_id.trim().to_ascii_lowercase();
         let mut state = self.state.lock().expect("nostr core lock poisoned");
         let removed = state.relay_service.unsubscribe(&caller_id, handle);
-        if removed
-            && let Some(count) = state.caller_subscription_count.get_mut(&caller_id)
-        {
+        if removed && let Some(count) = state.caller_subscription_count.get_mut(&caller_id) {
             *count = count.saturating_sub(1);
         }
         removed
@@ -486,7 +490,10 @@ impl NostrCoreRegistry {
                 }
             })?;
 
-        *state.caller_publish_count.entry(caller_id).or_insert(0usize) += 1;
+        *state
+            .caller_publish_count
+            .entry(caller_id)
+            .or_insert(0usize) += 1;
         Ok(result)
     }
 
@@ -507,7 +514,11 @@ impl NostrCoreRegistry {
     }
 
     fn within_publish_quota(&self, state: &NostrCoreState, caller_id: &str) -> bool {
-        state.caller_publish_count.get(caller_id).copied().unwrap_or(0)
+        state
+            .caller_publish_count
+            .get(caller_id)
+            .copied()
+            .unwrap_or(0)
             < state.relay_policy.max_publishes_per_caller
     }
 

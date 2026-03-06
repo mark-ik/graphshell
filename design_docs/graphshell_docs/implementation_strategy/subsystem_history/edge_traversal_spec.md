@@ -2,7 +2,7 @@
 
 **Date**: 2026-02-28
 **Status**: Canonical interaction contract
-**Priority**: In progress (Stages 0–E complete)
+**Priority**: In progress (Stage E complete; Stage F temporal navigation backlog)
 
 **Related**:
 

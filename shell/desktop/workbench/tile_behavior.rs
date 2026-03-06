@@ -26,7 +26,9 @@ use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_UX_CONTRACT_WARNING,
-    CHANNEL_VIEWER_FALLBACK_USED,
+    CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING,
+    CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE,
+    CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED,
 };
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, ViewerId};
 use crate::util::truncate_with_ellipsis;
@@ -83,15 +85,46 @@ fn load_plaintext_content_for_node(url: &str) -> Result<PlaintextContent, String
     Ok(decode_plaintext_content(&bytes))
 }
 
-fn wry_unavailable_reason(graph_app: &GraphBrowserApp) -> Option<&'static str> {
+#[derive(Clone, Copy)]
+enum WryUnavailableReason {
+    FeatureDisabled,
+    CapabilityMissing,
+    DisabledByPreference,
+}
+
+impl WryUnavailableReason {
+    fn diagnostics_channel(self) -> &'static str {
+        match self {
+            WryUnavailableReason::FeatureDisabled => CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED,
+            WryUnavailableReason::CapabilityMissing => CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING,
+            WryUnavailableReason::DisabledByPreference => CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE,
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            WryUnavailableReason::FeatureDisabled => {
+                "Wry backend is not compiled in this build."
+            }
+            WryUnavailableReason::CapabilityMissing => {
+                "Runtime capability 'viewer:wry' is unavailable."
+            }
+            WryUnavailableReason::DisabledByPreference => {
+                "Wry backend is disabled. Enable it in Settings -> Viewer Backends."
+            }
+        }
+    }
+}
+
+fn wry_unavailable_reason(graph_app: &GraphBrowserApp) -> Option<WryUnavailableReason> {
     if !cfg!(feature = "wry") {
-        return Some("Wry backend is not compiled in this build.");
+        return Some(WryUnavailableReason::FeatureDisabled);
     }
     if !crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry") {
-        return Some("Runtime capability 'viewer:wry' is unavailable.");
+        return Some(WryUnavailableReason::CapabilityMissing);
     }
     if !graph_app.wry_enabled() {
-        return Some("Wry backend is disabled. Enable it in Settings -> Viewer Backends.");
+        return Some(WryUnavailableReason::DisabledByPreference);
     }
     None
 }
@@ -130,7 +163,7 @@ fn render_node_viewer_backend_selector(
             state.viewer_id_override = Some(ViewerId::new("viewer:wry"));
         }
         if let Some(reason) = wry_disabled_reason {
-            wry_response.on_hover_text(reason);
+            wry_response.on_hover_text(reason.message());
         }
     });
 }
@@ -712,7 +745,10 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                             .to_string()
                     });
 
-                if matches!(effective_viewer_id.as_str(), "viewer:plaintext" | "viewer:markdown") {
+                if matches!(
+                    effective_viewer_id.as_str(),
+                    "viewer:plaintext" | "viewer:markdown"
+                ) {
                     ui.label(format!("{}", node.url));
                     ui.separator();
                     match load_plaintext_content_for_node(&node.url) {
@@ -756,11 +792,15 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                             == crate::shell::desktop::workbench::pane_model::TileRenderMode::NativeOverlay
                     {
                         if let Some(reason) = wry_unavailable_reason(self.graph_app) {
+                            emit_event(DiagnosticEvent::MessageSent {
+                                channel_id: reason.diagnostics_channel(),
+                                byte_len: 1,
+                            });
                             ui.colored_label(
                                 egui::Color32::from_rgb(220, 180, 60),
                                 "Wry backend currently unavailable",
                             );
-                            ui.label(reason);
+                            ui.label(reason.message());
                             ui.horizontal(|ui| {
                                 if ui.button("Use WebView").clicked() {
                                     state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
@@ -1436,7 +1476,9 @@ struct GraphReaderSnapshot {
 mod tests {
     #[cfg(feature = "diagnostics")]
     use super::GraphReaderMode;
-    use super::{GraphshellTileBehavior, PlaintextContent, decode_plaintext_content};
+    use super::{
+        GraphshellTileBehavior, PlaintextContent, WryUnavailableReason, decode_plaintext_content,
+    };
     use crate::app::GraphViewId;
     use crate::graph::NodeKey;
     use crate::shell::desktop::tests::harness::TestRegistry;
@@ -1472,6 +1514,35 @@ mod tests {
                 assert!(hex.contains("81"));
             }
         }
+    }
+
+    #[test]
+    fn wry_unavailable_reason_maps_to_expected_diagnostics_channel() {
+        assert_eq!(
+            WryUnavailableReason::FeatureDisabled.diagnostics_channel(),
+            crate::shell::desktop::runtime::registries::CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED
+        );
+        assert_eq!(
+            WryUnavailableReason::CapabilityMissing.diagnostics_channel(),
+            crate::shell::desktop::runtime::registries::CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING
+        );
+        assert_eq!(
+            WryUnavailableReason::DisabledByPreference.diagnostics_channel(),
+            crate::shell::desktop::runtime::registries::CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE
+        );
+    }
+
+    #[test]
+    fn wry_unavailable_reason_exposes_user_facing_messages() {
+        assert!(WryUnavailableReason::FeatureDisabled
+            .message()
+            .contains("not compiled"));
+        assert!(WryUnavailableReason::CapabilityMissing
+            .message()
+            .contains("capability"));
+        assert!(WryUnavailableReason::DisabledByPreference
+            .message()
+            .contains("disabled"));
     }
 
     #[test]

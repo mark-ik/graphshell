@@ -7,9 +7,7 @@ use std::sync::{Mutex, OnceLock};
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 
-use crate::app::{
-    GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode,
-};
+use crate::app::{GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode};
 use crate::graph::NodeKey;
 use crate::render::radial_menu::latest_semantic_snapshot;
 
@@ -409,18 +407,22 @@ fn append_workbench_semantics_nodes(
     });
 
     let route_node_id = "uxnode://workbench/route-open/boundary".to_string();
-    let pending_open_node = graph_app
-        .pending_open_node_request()
-        .map(|pending| (pending.key, pending_tile_mode_label(pending.mode).to_string()));
-    let pending_open_connected = graph_app.pending_open_connected_from().map(
-        |(source, mode, scope)| {
-            (
-                source,
-                pending_tile_mode_label(mode).to_string(),
-                pending_connected_scope_label(scope).to_string(),
-            )
-        },
-    );
+    let pending_open_node = graph_app.pending_open_node_request().map(|pending| {
+        (
+            pending.key,
+            pending_tile_mode_label(pending.mode).to_string(),
+        )
+    });
+    let pending_open_connected =
+        graph_app
+            .pending_open_connected_from()
+            .map(|(source, mode, scope)| {
+                (
+                    source,
+                    pending_tile_mode_label(mode).to_string(),
+                    pending_connected_scope_label(scope).to_string(),
+                )
+            });
     let pending_count = usize::from(graph_app.pending_node_context_target().is_some())
         + usize::from(pending_open_node.is_some())
         + usize::from(pending_open_connected.is_some());
@@ -1058,10 +1060,12 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{FileTreeContainmentRelationSource, PendingConnectedOpenScope, PendingTileOpenMode};
+    use crate::app::{
+        FileTreeContainmentRelationSource, PendingConnectedOpenScope, PendingTileOpenMode,
+    };
     use crate::render::radial_menu::{
-        RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary,
-        RadialSectorSemanticMetadata, clear_semantic_snapshot, publish_semantic_snapshot,
+        RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary, RadialSectorSemanticMetadata,
+        clear_semantic_snapshot, publish_semantic_snapshot,
     };
     use crate::shell::desktop::tests::harness::TestRegistry;
 
@@ -1276,9 +1280,9 @@ mod tests {
         }
         harness.app.workspace.focused_view = Some(view_id);
 
-        harness
-            .app
-            .set_file_tree_containment_relation_source(FileTreeContainmentRelationSource::SavedViewCollections);
+        harness.app.set_file_tree_containment_relation_source(
+            FileTreeContainmentRelationSource::SavedViewCollections,
+        );
         let row_key = format!("view:{}", view_id.as_uuid());
         harness.app.set_file_tree_selected_rows([row_key]);
 

@@ -139,6 +139,7 @@ brew install cmake pkg-config
 sudo apt-get install -y \
   cmake pkg-config libssl-dev \
   libglib2.0-dev libgtk-3-dev \
+  libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
   libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
   libxkbcommon-dev libfontconfig1-dev \
   clang llvm-dev
@@ -148,7 +149,8 @@ sudo apt-get install -y \
 
 ```bash
 sudo dnf install cmake clang pkg-config openssl-devel \
-  gtk3-devel fontconfig-devel
+  gtk3-devel webkit2gtk4.1-devel javascriptcoregtk4.1-devel \
+  fontconfig-devel
 ```
 
 ---

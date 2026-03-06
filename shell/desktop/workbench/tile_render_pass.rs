@@ -48,6 +48,7 @@ pub(crate) struct TileRenderPassArgs<'a> {
     pub webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     pub focused_node_hint: &'a mut Option<NodeKey>,
     pub graph_surface_focused: bool,
+    pub suppress_runtime_side_effects: bool,
     pub focus_ring_node_key: &'a mut Option<NodeKey>,
     pub focus_ring_started_at: &'a mut Option<Instant>,
     pub focus_ring_duration: Duration,
@@ -171,6 +172,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         webview_creation_backpressure,
         focused_node_hint,
         graph_surface_focused,
+        suppress_runtime_side_effects,
         focus_ring_node_key,
         focus_ring_started_at,
         focus_ring_duration,
@@ -256,46 +258,48 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             pending_closed_nodes.len()
         );
     }
-    for node_key in pending_closed_nodes {
-        if *focused_node_hint == Some(node_key) {
+    if !suppress_runtime_side_effects {
+        for node_key in pending_closed_nodes {
+            if *focused_node_hint == Some(node_key) {
+                log::debug!(
+                    "tile_render_pass: clearing focused_node_hint for closed node {:?}",
+                    node_key
+                );
+                *focused_node_hint = None;
+            }
             log::debug!(
-                "tile_render_pass: clearing focused_node_hint for closed node {:?}",
+                "tile_render_pass: releasing runtime for closed node {:?}",
                 node_key
             );
-            *focused_node_hint = None;
+            tile_runtime::release_node_runtime_for_pane(
+                graph_app,
+                window,
+                tile_rendering_contexts,
+                node_key,
+                &mut post_render_intents,
+            );
         }
-        log::debug!(
-            "tile_render_pass: releasing runtime for closed node {:?}",
-            node_key
-        );
-        tile_runtime::release_node_runtime_for_pane(
-            graph_app,
-            window,
-            tile_rendering_contexts,
-            node_key,
-            &mut post_render_intents,
-        );
-    }
 
-    for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
-        if *focused_node_hint == Some(node_key) {
+        for node_key in tile_post_render::mapped_nodes_without_tiles(graph_app, tiles_tree) {
+            if *focused_node_hint == Some(node_key) {
+                log::debug!(
+                    "tile_render_pass: clearing focused_node_hint for unmapped node {:?}",
+                    node_key
+                );
+                *focused_node_hint = None;
+            }
             log::debug!(
-                "tile_render_pass: clearing focused_node_hint for unmapped node {:?}",
+                "tile_render_pass: releasing mapped runtime without tile for node {:?}",
                 node_key
             );
-            *focused_node_hint = None;
+            tile_runtime::release_node_runtime_for_pane(
+                graph_app,
+                window,
+                tile_rendering_contexts,
+                node_key,
+                &mut post_render_intents,
+            );
         }
-        log::debug!(
-            "tile_render_pass: releasing mapped runtime without tile for node {:?}",
-            node_key
-        );
-        tile_runtime::release_node_runtime_for_pane(
-            graph_app,
-            window,
-            tile_rendering_contexts,
-            node_key,
-            &mut post_render_intents,
-        );
     }
 
     let repaired_active_tile = tile_view_ops::ensure_active_tile(tiles_tree);
@@ -391,51 +395,53 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
 
     // Ensure runtime viewers exist for active tiles, applying intents immediately
     // so compositing (below) can find mapped runtime viewers via get_webview_for_node.
-    let mut runtime_viewer_creation_intents = Vec::new();
-    let composited_runtime_nodes =
-        tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app);
-    for (node_key, _) in active_tile_rects.iter().copied() {
-        if !composited_runtime_nodes.contains(&node_key) {
-            continue;
+    if !suppress_runtime_side_effects {
+        let mut runtime_viewer_creation_intents = Vec::new();
+        let composited_runtime_nodes =
+            tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app);
+        for (node_key, _) in active_tile_rects.iter().copied() {
+            if !composited_runtime_nodes.contains(&node_key) {
+                continue;
+            }
+            log::debug!(
+                "tile_render_pass: ensuring runtime viewer for active node {:?}",
+                node_key
+            );
+            webview_backpressure::ensure_webview_for_node(
+                graph_app,
+                window,
+                app_state,
+                rendering_context,
+                window_rendering_context,
+                tile_rendering_contexts,
+                node_key,
+                responsive_webviews,
+                webview_creation_backpressure,
+                &mut runtime_viewer_creation_intents,
+            );
         }
         log::debug!(
-            "tile_render_pass: ensuring runtime viewer for active node {:?}",
-            node_key
+            "tile_render_pass: {} runtime viewer creation intents",
+            runtime_viewer_creation_intents.len()
         );
-        webview_backpressure::ensure_webview_for_node(
-            graph_app,
-            window,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            tile_rendering_contexts,
-            node_key,
-            responsive_webviews,
-            webview_creation_backpressure,
-            &mut runtime_viewer_creation_intents,
-        );
-    }
-    log::debug!(
-        "tile_render_pass: {} runtime viewer creation intents",
-        runtime_viewer_creation_intents.len()
-    );
-    if !runtime_viewer_creation_intents.is_empty() {
-        #[cfg(feature = "diagnostics")]
-        let apply_started = Instant::now();
-        graph_app.apply_reducer_intents(runtime_viewer_creation_intents);
-        #[cfg(feature = "diagnostics")]
-        diagnostics_state.record_span_duration(
-            "app::apply_intents",
-            apply_started.elapsed().as_micros() as u64,
-        );
-        log::debug!("tile_render_pass: applied runtime viewer creation intents");
-        for (node_key, _) in active_tile_rects.iter().copied() {
-            if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
-                log::debug!(
-                    "tile_render_pass: node {:?} NOW mapped to {:?}",
-                    node_key,
-                    wv_id
-                );
+        if !runtime_viewer_creation_intents.is_empty() {
+            #[cfg(feature = "diagnostics")]
+            let apply_started = Instant::now();
+            graph_app.apply_reducer_intents(runtime_viewer_creation_intents);
+            #[cfg(feature = "diagnostics")]
+            diagnostics_state.record_span_duration(
+                "app::apply_intents",
+                apply_started.elapsed().as_micros() as u64,
+            );
+            log::debug!("tile_render_pass: applied runtime viewer creation intents");
+            for (node_key, _) in active_tile_rects.iter().copied() {
+                if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
+                    log::debug!(
+                        "tile_render_pass: node {:?} NOW mapped to {:?}",
+                        node_key,
+                        wv_id
+                    );
+                }
             }
         }
     }

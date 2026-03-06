@@ -4,7 +4,7 @@
 
 # Edge Traversal Model — Implementation Plan (2026-02-20)
 
-**Status**: In Progress (refactored 2026-02-22 to architecture-first staged delivery)
+**Status**: In Progress (Stages 0-E complete; Stage F backlog)
 **Related plans**:
 - `2026-02-22_workbench_workspace_manifest_persistence_plan.md` (archived; manifest migration record)
 - `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` (active workbench tab semantics follow-on)
@@ -25,30 +25,26 @@ The goal is to avoid a "data model first, UI later" rewrite that cuts across the
 
 ---
 
-## Current Reality (2026-02-22)
+## Current Reality (2026-03-06)
 
-Traversal semantics are not yet implemented.
+Core traversal semantics are implemented through Stage E:
 
-Current behavior still reflects the pre-traversal model:
+- repeated traversals are preserved via traversal records
+- edge semantics are split into durable edge payload + temporal traversal history
+- traversal events are persisted and replayable
+- History Manager UI (Timeline + Dissolved) is active with clear/export and auto-curation controls
 
-- history traversal edges are deduplicated (repeat navigations discarded)
-- edge semantics are not yet split into structure vs temporal traversal records
-- traversal events are not first-class WAL entries
-- no History Manager UI
-- no timeline scrubber / preview mode
-
-This refactor keeps the original scope, but reorganizes it to better exploit the existing
-architecture and reduce migration risk.
+Remaining gap is Stage F temporal navigation hardening/polish work.
 
 ---
 
-## Progress Snapshot (2026-02-22)
+## Progress Snapshot (2026-03-06)
 
 Implementation status:
 
-- **Stages 0-D are complete**
-- Active stage: **Stage E in progress**
-- Completed stages: **Stage 0 (Design Lock), Stage A (Data Model), Stage B (WAL Integration), Stage C (Rendering), Stage D (History Panel PoC)**
+- **Stages 0-E are complete**
+- Active stage: **Stage F backlog**
+- Completed stages: **Stage 0 (Design Lock), Stage A (Data Model), Stage B (WAL Integration), Stage C (Rendering), Stage D (History Panel PoC), Stage E (History Manager)**
 
 ### Stage D completion summary (2026-02-22):
 
@@ -509,7 +505,9 @@ Representative tasks:
 - [x] Add recovery scan for archived traversal counts (snapshot-absent path)
 - [x] Implement dissolution transfer on edge/node removal
 - [x] Add History Manager UI tabs (Timeline, Dissolved)
-- [ ] Add delete, auto-curation, export
+- [x] Add delete, auto-curation, export
+
+**Status: COMPLETE (2026-03-06)**
 
 Representative validation:
 
@@ -528,6 +526,34 @@ Minimum shippable boundary (Stage E):
 **Backlog status**: Tracked staged deliverable (promoted from distant concept 2026-02-25).
 **Prerequisite**: Stage E maturity — history manager archival/dissolution behaviors and tiered
 storage must be stable and test-covered before Stage F design work begins.
+
+### Stage F groundwork update (2026-03-06)
+
+Delivered (foundational index slice):
+1. Added timeline-index API in persistence (`timestamp_ms -> log_position`) derived from `AppendTraversal` WAL records.
+2. Exposed timeline-index entries via `GraphBrowserApp` for replay cursor consumers.
+3. Added unit coverage for persistence mapping and app-level exposure.
+
+Notes:
+- This is groundwork only; replay-to-timestamp semantics and full preview-state replay remain in Stage F remaining scope.
+
+### Stage F incremental implementation update (2026-03-06)
+
+Delivered (first executable replay slice):
+1. Added `replay_to_timestamp(...)` in persistence, reconstructing a detached graph from snapshot + WAL up to indexed timeline cursor position.
+2. Wired History Timeline replay advance to consume timeline index entries and build a detached preview graph state.
+3. Added preview baseline snapshot capture on preview enter and explicit return-to-present restore path on preview exit.
+4. Added validation coverage for replay subset behavior and detached preview replay without live graph mutation.
+
+Remaining Stage F scope:
+- Complete preview-mode side-effect gating audit across any remaining runtime/effect paths outside current `gui_frame` suppression points.
+- Timeline slider/ghost rendering polish.
+
+Preview-effect isolation progress (2026-03-06 follow-up):
+- `gui_frame` now suppresses lifecycle reconcile/apply while preview is active.
+- `gui_frame` post-render now suppresses periodic snapshots, persistence store switches, and pending persistence action pipeline while preview is active.
+- `tile_render_pass` now suppresses runtime viewer create/release side effects when invoked in preview suppression mode.
+- keyboard/toolbar direct tile-view runtime toggles are suppressed while preview is active.
 
 Goal:
 
@@ -576,9 +602,9 @@ Non-goals (Stage F):
 
 Tasks:
 
-- [ ] Build timeline index from WAL
-- [ ] Implement replay-to-timestamp from nearest snapshot
-- [ ] Add preview state container
+- [x] Build timeline index from WAL
+- [x] Implement replay-to-timestamp from nearest snapshot
+- [x] Add preview state container
 - [ ] Gate persistence/webview side effects while preview is active
 - [ ] Add timeline UI controls and ghost rendering
 

@@ -122,7 +122,8 @@ impl ControlPanel {
     /// cancellation token.
     pub(crate) fn new() -> Self {
         let (intent_tx, intent_rx) = mpsc::channel(INTENT_CHANNEL_CAPACITY);
-        let (lifecycle_policy_tx, _lifecycle_policy_rx) = watch::channel(LifecyclePolicy::default());
+        let (lifecycle_policy_tx, _lifecycle_policy_rx) =
+            watch::channel(LifecyclePolicy::default());
         Self {
             intent_tx,
             intent_rx,
@@ -269,11 +270,6 @@ impl ControlPanel {
         });
 
         log::debug!("control_panel: sync worker spawned");
-    }
-
-    /// Backward-compatible alias retained while CP4 naming converges.
-    pub(crate) fn spawn_sync_worker(&mut self) {
-        self.spawn_p2p_sync_worker();
     }
 
     /// Cancel all supervised workers and await their completion.

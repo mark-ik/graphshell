@@ -160,6 +160,34 @@
       ]
     },
     {
+      "id": "wry-native-overlay",
+      "description": "Wry native overlay suppression and sync scenario checks",
+      "policy": {
+        "tiers": [
+          "pr-optional",
+          "nightly"
+        ],
+        "platforms": [
+          "windows"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "shell/desktop/workbench/interaction_policy.rs",
+        "shell/desktop/workbench/tile_compositor.rs",
+        "shell/desktop/workbench/tile_behavior.rs",
+        "shell/desktop/runtime/registries/mod.rs",
+        "registries/atomic/diagnostics.rs",
+        "scripts/dev/test-contracts.json",
+        ".github/workflows/windows-scenarios-test.yml"
+      ],
+      "commands": [
+        "cargo test --features wry -q native_overlay_sync_records_visible_true",
+        "cargo test --features wry -q native_overlay_sync_records_visible_false_for_hidden_tiles",
+        "cargo test --features wry -q suppression_reason_maps_to_expected_channel_ids"
+      ]
+    },
+    {
       "id": "scenarios-full",
       "description": "Full diagnostics harness scenario suite",
       "policy": {

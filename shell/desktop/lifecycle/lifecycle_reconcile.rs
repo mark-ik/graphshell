@@ -18,9 +18,9 @@ use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
 use crate::shell::desktop::lifecycle::webview_controller;
+use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_runtime;
 
 pub(crate) struct RuntimeReconcileArgs<'a> {
@@ -69,7 +69,9 @@ fn pressure_adjusted_active_limit(base_limit: usize, level: MemoryPressureLevel)
     }
 }
 
-fn collect_native_overlay_nodes(tiles_tree: &Tree<TileKind>) -> (HashSet<NodeKey>, HashSet<NodeKey>) {
+fn collect_native_overlay_nodes(
+    tiles_tree: &Tree<TileKind>,
+) -> (HashSet<NodeKey>, HashSet<NodeKey>) {
     let mut all = HashSet::new();
     let mut active = HashSet::new();
     let active_tiles: HashSet<_> = tiles_tree.active_tiles().into_iter().collect();
@@ -190,10 +192,11 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|node| node.lifecycle == NodeLifecycle::Active)
             .unwrap_or(false);
         if should_demote {
-            args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
-                node_key,
-                LifecycleCause::WorkspaceRetention,
-            ));
+            args.frame_intents
+                .push(lifecycle_intents::demote_node_to_warm(
+                    node_key,
+                    LifecycleCause::WorkspaceRetention,
+                ));
         }
     }
 

@@ -196,7 +196,7 @@ fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>)
         .and_then(|key| app.workspace.graph.get_node(key).map(|node| node.position))
         .unwrap_or_else(|| graph_centroid_or_default(app));
     let n = app.workspace.graph.node_count() as f32;
-    let angle = n * 0.7853982;
+    let angle = n * std::f32::consts::FRAC_PI_4;
     let radius = 90.0;
     Point2D::new(base.x + radius * angle.cos(), base.y + radius * angle.sin())
 }

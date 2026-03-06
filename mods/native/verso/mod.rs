@@ -10,6 +10,8 @@
 //! This mod is optional; the app functions as an offline graph organizer
 //! without it (core seed mode).
 
+#[cfg(all(test, feature = "wry"))]
+use crate::mods::native::verso::wry_manager::OverlaySyncState;
 use crate::registries::atomic::{ProtocolHandlerProviders, ViewerHandlerProviders};
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
@@ -19,8 +21,6 @@ use crate::{
     graph::NodeKey,
     mods::native::verso::wry_manager::{OverlayRect, WryManager},
 };
-#[cfg(all(test, feature = "wry"))]
-use crate::mods::native::verso::wry_manager::OverlaySyncState;
 #[cfg(feature = "wry")]
 use std::sync::{Mutex, OnceLock};
 
@@ -268,8 +268,8 @@ mod tests {
         );
 
         assert!(hide_wry_overlay_for_node(node_key));
-        let state = last_wry_overlay_sync_for_node_for_tests(node_key)
-            .expect("expected wry overlay state");
+        let state =
+            last_wry_overlay_sync_for_node_for_tests(node_key).expect("expected wry overlay state");
         assert!(!state.visible);
     }
 

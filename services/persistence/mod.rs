@@ -113,7 +113,22 @@ pub struct GraphStore {
     fail_next_dissolved_archive_write: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimelineIndexEntry {
+    pub timestamp_ms: u64,
+    pub log_position: u64,
+}
+
 impl GraphStore {
+    fn key_to_sequence(key: &[u8]) -> Option<u64> {
+        if key.len() != 8 {
+            return None;
+        }
+        let mut seq_bytes = [0u8; 8];
+        seq_bytes.copy_from_slice(key);
+        Some(u64::from_be_bytes(seq_bytes))
+    }
+
     fn named_graph_key(name: &str) -> Result<String, GraphStoreError> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -442,6 +457,44 @@ impl GraphStore {
         self.dissolved_archive_sequence = 0;
     }
 
+    fn curate_keyspace_keep_latest(keyspace: &fjall::Keyspace, keep_latest: usize) -> usize {
+        let mut rows: Vec<(u64, Vec<u8>)> = keyspace
+            .iter()
+            .filter_map(|guard| {
+                let key = guard.key().ok()?.to_vec();
+                if key.len() != 8 {
+                    return None;
+                }
+                let mut seq_bytes = [0u8; 8];
+                seq_bytes.copy_from_slice(&key);
+                Some((u64::from_be_bytes(seq_bytes), key))
+            })
+            .collect();
+
+        if rows.len() <= keep_latest {
+            return 0;
+        }
+
+        rows.sort_by_key(|(seq, _)| *seq);
+        let remove_count = rows.len() - keep_latest;
+        for (_, key) in rows.into_iter().take(remove_count) {
+            let _ = keyspace.remove(key);
+        }
+        remove_count
+    }
+
+    /// Keep only the newest `keep_latest` traversal archive records.
+    /// Returns the number of older records removed.
+    pub fn auto_curate_traversal_archive(&mut self, keep_latest: usize) -> usize {
+        Self::curate_keyspace_keep_latest(&self.traversal_archive_keyspace, keep_latest)
+    }
+
+    /// Keep only the newest `keep_latest` dissolved archive records.
+    /// Returns the number of older records removed.
+    pub fn auto_curate_dissolved_archive(&mut self, keep_latest: usize) -> usize {
+        Self::curate_keyspace_keep_latest(&self.dissolved_archive_keyspace, keep_latest)
+    }
+
     /// Export traversal archive entries as human-readable text.
     pub fn export_traversal_archive(&self) -> Result<String, GraphStoreError> {
         let entries = self.recent_traversal_archive_entries(usize::MAX);
@@ -476,6 +529,88 @@ impl GraphStore {
 
     pub fn recent_dissolved_archive_entries(&self, limit: usize) -> Vec<LogEntry> {
         self.recent_append_traversal_entries(&self.dissolved_archive_keyspace, limit)
+    }
+
+    /// Stage F groundwork: timeline index entries derived from append-traversal log records.
+    /// Returns newest-first `(timestamp_ms -> log_position)` pairs.
+    pub fn timeline_index_entries(&self, limit: usize) -> Vec<TimelineIndexEntry> {
+        use types::ArchivedLogEntry;
+
+        if limit == 0 {
+            return Vec::new();
+        }
+
+        let mut rows: Vec<TimelineIndexEntry> = Vec::new();
+        for guard in self.log_keyspace.iter() {
+            let (key, value) = match guard.into_inner() {
+                Ok(kv) => kv,
+                Err(_) => continue,
+            };
+
+            let decoded = match self.decode_persisted_bytes(value.as_ref()) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+
+            let archived = match rkyv::access::<ArchivedLogEntry, rkyv::rancor::Error>(&decoded) {
+                Ok(entry) => entry,
+                Err(_) => continue,
+            };
+
+            let ArchivedLogEntry::AppendTraversal { timestamp_ms, .. } = archived else {
+                continue;
+            };
+
+            let mut seq_bytes = [0u8; 8];
+            let log_position = if key.as_ref().len() == 8 {
+                seq_bytes.copy_from_slice(key.as_ref());
+                u64::from_be_bytes(seq_bytes)
+            } else {
+                0
+            };
+
+            rows.push(TimelineIndexEntry {
+                timestamp_ms: (*timestamp_ms).into(),
+                log_position,
+            });
+        }
+
+        rows.sort_by(|a, b| {
+            b.timestamp_ms
+                .cmp(&a.timestamp_ms)
+                .then_with(|| b.log_position.cmp(&a.log_position))
+        });
+        rows.truncate(limit);
+        rows
+    }
+
+    /// Reconstruct a detached graph snapshot at or before `timestamp_ms`.
+    ///
+    /// This is read-only replay for preview/timeline consumers and never mutates
+    /// live in-memory graph state or persistence.
+    pub fn replay_to_timestamp(&self, timestamp_ms: u64) -> Option<Graph> {
+        let snapshot = self.load_snapshot();
+        let mut graph = if let Some(snap) = &snapshot {
+            Graph::from_snapshot(snap)
+        } else {
+            Graph::new()
+        };
+
+        let target_log_position = self
+            .timeline_index_entries(usize::MAX)
+            .into_iter()
+            .filter(|entry| entry.timestamp_ms <= timestamp_ms)
+            .map(|entry| entry.log_position)
+            .max();
+
+        if let Some(position) = target_log_position {
+            self.replay_log_until(&mut graph, Some(position));
+            if snapshot.is_none() && graph.node_count() > 0 {
+                self.recover_archived_traversals(&mut graph);
+            }
+        }
+
+        Some(graph)
     }
 
     fn recent_append_traversal_entries(
@@ -556,20 +691,20 @@ impl GraphStore {
     /// Archives traversals to dissolved_archive before removing edges from graph.
     pub fn dissolve_and_remove_edges(
         &mut self,
-        graph: &mut crate::graph::Graph,
+        graph_state: &mut crate::graph::Graph,
         from: crate::graph::NodeKey,
         to: crate::graph::NodeKey,
         edge_type: crate::graph::EdgeType,
     ) -> Result<usize, GraphStoreError> {
         use crate::graph::{EdgeType, NavigationTrigger};
 
-        let edge_traversals = graph
+        let edge_traversals = graph_state
             .collect_edge_traversals(from, to, edge_type)
             .ok_or_else(|| GraphStoreError::Io("node not found".to_string()))?;
 
         // Dissolution transfer only applies to History edges with traversal data
         if edge_type != EdgeType::History {
-            return Ok(graph.remove_edges(from, to, edge_type));
+            return Ok(graph_state.remove_edges(from, to, edge_type));
         }
 
         for record in edge_traversals {
@@ -592,19 +727,19 @@ impl GraphStore {
         }
 
         // Note: fjall uses WAL by default, so writes are durable without explicit flush
-        Ok(graph.remove_edges(from, to, edge_type))
+        Ok(graph_state.remove_edges(from, to, edge_type))
     }
 
     /// Stage E: Remove node with dissolution transfer.
     /// Archives all edge traversals to dissolved_archive before removing node from graph.
     pub fn dissolve_and_remove_node(
         &mut self,
-        graph: &mut crate::graph::Graph,
+        graph_state: &mut crate::graph::Graph,
         key: crate::graph::NodeKey,
     ) -> Result<bool, GraphStoreError> {
         use crate::graph::NavigationTrigger;
 
-        let edge_traversals = graph
+        let edge_traversals = graph_state
             .collect_node_traversals(key)
             .ok_or_else(|| GraphStoreError::Io("node not found".to_string()))?;
 
@@ -629,12 +764,17 @@ impl GraphStore {
         }
 
         // Note: fjall uses WAL by default, so writes are durable without explicit flush
-        Ok(graph.remove_node(key))
+        Ok(graph_state.remove_node(key))
     }
 
     #[cfg(test)]
     pub fn fail_next_dissolved_archive_write_for_tests(&mut self) {
         self.fail_next_dissolved_archive_write = true;
+    }
+
+    #[cfg(test)]
+    pub fn log_entry_count_for_tests(&self) -> usize {
+        self.log_keyspace.iter().count()
     }
 
     /// Take a full snapshot of the graph and compact the log
@@ -1093,13 +1233,27 @@ impl GraphStore {
     }
 
     fn replay_log(&self, graph: &mut Graph) {
+        self.replay_log_until(graph, None);
+    }
+
+    fn replay_log_until(&self, graph: &mut Graph, max_log_position: Option<u64>) {
         use types::ArchivedLogEntry;
 
         for guard in self.log_keyspace.iter() {
-            let (_, value) = match guard.into_inner() {
+            let (key, value) = match guard.into_inner() {
                 Ok(kv) => kv,
                 Err(_) => continue,
             };
+
+            if let Some(limit) = max_log_position {
+                let Some(seq) = Self::key_to_sequence(key.as_ref()) else {
+                    continue;
+                };
+                if seq > limit {
+                    continue;
+                }
+            }
+
             let decoded = match self.decode_persisted_bytes(value.as_ref()) {
                 Ok(v) => v,
                 Err(_) => continue,
@@ -1491,6 +1645,51 @@ mod tests {
 
         assert_eq!(store.traversal_archive_len(), 0);
         assert_eq!(store.dissolved_archive_len(), 1);
+    }
+
+    #[test]
+    fn test_auto_curate_archive_keeps_latest_entries() {
+        let (mut store, _dir) = create_test_store();
+        let from = Uuid::new_v4().to_string();
+        let to = Uuid::new_v4().to_string();
+
+        for i in 0..5 {
+            store
+                .archive_append_traversal(&LogEntry::AppendTraversal {
+                    from_node_id: from.clone(),
+                    to_node_id: to.clone(),
+                    timestamp_ms: i,
+                    trigger: types::PersistedNavigationTrigger::Unknown,
+                })
+                .expect("archive traversal write should succeed");
+            store
+                .archive_dissolved_traversal(&LogEntry::AppendTraversal {
+                    from_node_id: from.clone(),
+                    to_node_id: to.clone(),
+                    timestamp_ms: i,
+                    trigger: types::PersistedNavigationTrigger::Unknown,
+                })
+                .expect("archive dissolved write should succeed");
+        }
+
+        let removed_timeline = store.auto_curate_traversal_archive(2);
+        let removed_dissolved = store.auto_curate_dissolved_archive(3);
+
+        assert_eq!(removed_timeline, 3);
+        assert_eq!(removed_dissolved, 2);
+        assert_eq!(store.traversal_archive_len(), 2);
+        assert_eq!(store.dissolved_archive_len(), 3);
+
+        let timeline = store.recent_traversal_archive_entries(usize::MAX);
+        assert_eq!(timeline.len(), 2);
+        match &timeline[0] {
+            LogEntry::AppendTraversal { timestamp_ms, .. } => assert_eq!(*timestamp_ms, 4),
+            _ => panic!("expected append traversal entry"),
+        }
+        match &timeline[1] {
+            LogEntry::AppendTraversal { timestamp_ms, .. } => assert_eq!(*timestamp_ms, 3),
+            _ => panic!("expected append traversal entry"),
+        }
     }
 
     #[test]
@@ -2381,12 +2580,8 @@ mod tests {
         }
 
         store.fail_next_dissolved_archive_write_for_tests();
-        let result = store.dissolve_and_remove_edges(
-            &mut graph,
-            n1,
-            n2,
-            crate::graph::EdgeType::History,
-        );
+        let result =
+            store.dissolve_and_remove_edges(&mut graph, n1, n2, crate::graph::EdgeType::History);
 
         assert!(result.is_err());
         assert!(graph.get_edge(edge_key).is_some());
@@ -2415,5 +2610,73 @@ mod tests {
 
         assert_eq!(removed, 1);
         assert_eq!(store.dissolved_archive_len(), 0); // No traversals = no archive
+    }
+
+    #[test]
+    fn test_timeline_index_entries_maps_timestamp_to_log_position() {
+        let (mut store, _dir) = create_test_store();
+        let from = Uuid::new_v4().to_string();
+        let to = Uuid::new_v4().to_string();
+
+        store.log_mutation(&LogEntry::AppendTraversal {
+            from_node_id: from.clone(),
+            to_node_id: to.clone(),
+            timestamp_ms: 100,
+            trigger: types::PersistedNavigationTrigger::Unknown,
+        });
+        store.log_mutation(&LogEntry::AppendTraversal {
+            from_node_id: from,
+            to_node_id: to,
+            timestamp_ms: 300,
+            trigger: types::PersistedNavigationTrigger::Forward,
+        });
+
+        let idx = store.timeline_index_entries(usize::MAX);
+        assert_eq!(idx.len(), 2);
+        assert_eq!(idx[0].timestamp_ms, 300);
+        assert_eq!(idx[1].timestamp_ms, 100);
+        assert!(idx[0].log_position > idx[1].log_position);
+    }
+
+    #[test]
+    fn test_replay_to_timestamp_produces_subset_of_full_graph() {
+        let (mut store, _dir) = create_test_store();
+        let from = Uuid::new_v4();
+        let to = Uuid::new_v4();
+        let later = Uuid::new_v4();
+
+        store.log_mutation(&LogEntry::AddNode {
+            node_id: from.to_string(),
+            url: "https://from.example".to_string(),
+            position_x: 0.0,
+            position_y: 0.0,
+        });
+        store.log_mutation(&LogEntry::AddNode {
+            node_id: to.to_string(),
+            url: "https://to.example".to_string(),
+            position_x: 32.0,
+            position_y: 0.0,
+        });
+        store.log_mutation(&LogEntry::AppendTraversal {
+            from_node_id: from.to_string(),
+            to_node_id: to.to_string(),
+            timestamp_ms: 1_000,
+            trigger: types::PersistedNavigationTrigger::Forward,
+        });
+        store.log_mutation(&LogEntry::AddNode {
+            node_id: later.to_string(),
+            url: "https://later.example".to_string(),
+            position_x: 64.0,
+            position_y: 0.0,
+        });
+
+        let full = store.recover().expect("full recovery");
+        assert_eq!(full.node_count(), 3);
+
+        let replay = store
+            .replay_to_timestamp(1_000)
+            .expect("timestamp replay should return graph");
+        assert_eq!(replay.node_count(), 2);
+        assert!(replay.get_node_key_by_id(later).is_none());
     }
 }

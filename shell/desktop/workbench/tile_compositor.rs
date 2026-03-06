@@ -24,6 +24,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
     CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+    CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
+    CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
+    CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
@@ -31,12 +34,12 @@ use crate::shell::desktop::workbench::compositor_adapter::{
     OverlayStrokePass,
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
-use crate::shell::desktop::workbench::tile_kind::TileKind;
-#[cfg(feature = "wry")]
-use crate::{
-    mods::native::verso,
-    mods::native::verso::wry_manager::OverlayRect as WryOverlayRect,
+use crate::shell::desktop::workbench::{
+    interaction_policy::{InteractionUiState, OverlaySuppressionReason},
+    tile_kind::TileKind,
 };
+#[cfg(feature = "wry")]
+use crate::{mods::native::verso, mods::native::verso::wry_manager::OverlayRect as WryOverlayRect};
 
 #[derive(Clone, Copy)]
 enum ScheduledOverlay {
@@ -168,6 +171,18 @@ fn sync_native_overlay_for_tile(node_key: NodeKey, tile_rect: egui::Rect, visibl
     #[cfg(not(feature = "wry"))]
     {
         let _ = (node_key, tile_rect, visible);
+    }
+}
+
+fn suppression_reason_channel(reason: OverlaySuppressionReason) -> &'static str {
+    match reason {
+        OverlaySuppressionReason::InteractionMenu => {
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU
+        }
+        OverlaySuppressionReason::HelpPanel => CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
+        OverlaySuppressionReason::RadialMenu => {
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU
+        }
     }
 }
 
@@ -345,6 +360,11 @@ pub(crate) fn composite_active_node_pane_webviews(
         focus_ring_alpha,
         hovered_node_key,
     );
+    let interaction_ui = InteractionUiState::new(
+        graph_app.workspace.show_command_palette,
+        graph_app.workspace.show_help_panel,
+        graph_app.workspace.show_radial_menu,
+    );
     let mut active_composited_nodes = HashSet::new();
     let mut evaluated_composited_passes = 0usize;
     let mut skipped_composited_passes = 0usize;
@@ -354,6 +374,8 @@ pub(crate) fn composite_active_node_pane_webviews(
         let node_key = pass.node_key;
         let tile_rect = pass.tile_rect;
         let render_mode = pass.render_mode;
+        let interaction_render_mode =
+            interaction_ui.effective_interaction_render_mode(render_mode);
         let node_webview_id = graph_app.get_webview_for_node(node_key);
 
         if should_cull_tile_content(tile_rect, viewport_rect) {
@@ -370,7 +392,16 @@ pub(crate) fn composite_active_node_pane_webviews(
         if render_mode == TileRenderMode::NativeOverlay {
             // Native overlay backends are synchronized after layout, even though
             // composited texture painting is skipped for this mode.
-            sync_native_overlay_for_tile(node_key, tile_rect, true);
+            let native_overlay_visible = interaction_ui.native_overlay_visible();
+            sync_native_overlay_for_tile(node_key, tile_rect, native_overlay_visible);
+            if !native_overlay_visible
+                && let Some(reason) = interaction_ui.overlay_suppression_reason()
+            {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: suppression_reason_channel(reason),
+                    byte_len: 1,
+                });
+            }
         }
 
         if render_mode == TileRenderMode::CompositedTexture {
@@ -492,13 +523,13 @@ pub(crate) fn composite_active_node_pane_webviews(
 
         match pass.overlay {
             Some(ScheduledOverlay::Focus) => pending_overlay_passes.push(focus_overlay_for_mode(
-                render_mode,
+                interaction_render_mode,
                 node_key,
                 tile_rect,
                 focus_ring_alpha,
             )),
             Some(ScheduledOverlay::Hover) => pending_overlay_passes.push(hover_overlay_for_mode(
-                render_mode,
+                interaction_render_mode,
                 node_key,
                 tile_rect,
             )),
@@ -657,10 +688,10 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicU64;
 
-    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
-    use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
     #[cfg(feature = "wry")]
     use crate::mods::native::verso;
+    use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
+    use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
 
     fn test_webview_id() -> servo::WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -835,6 +866,38 @@ mod tests {
         let state = verso::last_wry_overlay_sync_for_node_for_tests(node_key)
             .expect("expected overlay sync state");
         assert!(!state.visible);
+    }
+
+    #[test]
+    fn suppression_reason_maps_to_expected_channel_ids() {
+        assert_eq!(
+            suppression_reason_channel(OverlaySuppressionReason::InteractionMenu),
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU
+        );
+        assert_eq!(
+            suppression_reason_channel(OverlaySuppressionReason::HelpPanel),
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL
+        );
+        assert_eq!(
+            suppression_reason_channel(OverlaySuppressionReason::RadialMenu),
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU
+        );
+    }
+
+    #[test]
+    fn suppressed_native_overlay_uses_placeholder_affordance_policy() {
+        let ui_state = InteractionUiState::new(true, false, false);
+        let effective_mode =
+            ui_state.effective_interaction_render_mode(TileRenderMode::NativeOverlay);
+        let overlay = focus_overlay_for_mode(
+            effective_mode,
+            NodeKey::new(702),
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 100.0)),
+            1.0,
+        );
+
+        assert_eq!(effective_mode, TileRenderMode::Placeholder);
+        assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
     }
 
     #[test]

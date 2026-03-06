@@ -605,6 +605,12 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     } = args;
 
     let mut keyboard_actions = input::collect_actions(ctx, graph_app);
+    let preview_active = history_preview_mode_active(graph_app);
+    if preview_active {
+        keyboard_actions.toggle_view = false;
+        keyboard_actions.delete_selected = false;
+        keyboard_actions.clear_graph = false;
+    }
     if suppress_toggle_view {
         keyboard_actions.toggle_view = false;
     }
@@ -852,6 +858,10 @@ fn ensure_webviews_for_active_prewarm_nodes(
     }
 }
 
+fn history_preview_mode_active(graph_app: &GraphBrowserApp) -> bool {
+    graph_app.history_health_summary().preview_mode_active
+}
+
 pub(crate) fn run_lifecycle_reconcile_and_apply(
     args: LifecycleReconcilePhaseArgs<'_>,
     frame_intents: &mut Vec<GraphIntent>,
@@ -869,6 +879,11 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
         responsive_webviews,
         webview_creation_backpressure,
     } = args;
+
+    if history_preview_mode_active(graph_app) {
+        frame_intents.clear();
+        return;
+    }
 
     let reconcile_start_index = frame_intents.len();
 
@@ -998,9 +1013,12 @@ pub(crate) fn run_post_render_phase<FActive>(
 
     let has_node_panes = tile_runtime::has_any_node_panes(tiles_tree);
     let is_graph_view = !has_node_panes;
+    let preview_mode_active = history_preview_mode_active(graph_app);
 
     *toolbar_height = Length::new(ctx.available_rect().min.y);
-    graph_app.check_periodic_snapshot();
+    if !preview_mode_active {
+        graph_app.check_periodic_snapshot();
+    }
 
     let focused_dialog_webview = if graph_surface_focused {
         None
@@ -1038,6 +1056,7 @@ pub(crate) fn run_post_render_phase<FActive>(
             webview_creation_backpressure,
             focused_node_hint,
             graph_surface_focused,
+            suppress_runtime_side_effects: preview_mode_active,
             focus_ring_node_key,
             focus_ring_started_at,
             focus_ring_duration,
@@ -1064,7 +1083,9 @@ pub(crate) fn run_post_render_phase<FActive>(
         graph_app.workspace.hovered_graph_node,
         focused_pane_node,
     );
-    if let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
+    if !preview_mode_active
+        && let Some(target_dir) = graph_app.take_pending_switch_data_dir()
+    {
         match persistence_ops::switch_persistence_store(
             graph_app,
             window,
@@ -1090,15 +1111,17 @@ pub(crate) fn run_post_render_phase<FActive>(
         tile_view_ops::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Settings);
     }
 
-    pending_actions::run_post_render_pending_actions(
-        graph_app,
-        window,
-        tiles_tree,
-        tile_rendering_contexts,
-        tile_favicon_textures,
-        webview_creation_backpressure,
-        focused_node_hint,
-    );
+    if !preview_mode_active {
+        pending_actions::run_post_render_pending_actions(
+            graph_app,
+            window,
+            tiles_tree,
+            tile_rendering_contexts,
+            tile_favicon_textures,
+            webview_creation_backpressure,
+            focused_node_hint,
+        );
+    }
 }
 
 fn handle_pending_frame_snapshot_actions(
@@ -1841,6 +1864,7 @@ fn reset_graph_workspace_after_snapshot_restore(
 #[cfg(all(test, feature = "diagnostics"))]
 mod tests {
     use super::*;
+    use crate::app::GraphIntent;
 
     #[test]
     fn snapshot_restore_focus_reset_emits_ux_navigation_transition_channel() {
@@ -1870,5 +1894,17 @@ mod tests {
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when snapshot restore clears focus hint"
         );
+    }
+
+    #[test]
+    fn history_preview_mode_active_tracks_preview_flag() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        assert!(!history_preview_mode_active(&app));
+
+        app.apply_reducer_intents([GraphIntent::EnterHistoryTimelinePreview]);
+        assert!(history_preview_mode_active(&app));
+
+        app.apply_reducer_intents([GraphIntent::ExitHistoryTimelinePreview]);
+        assert!(!history_preview_mode_active(&app));
     }
 }

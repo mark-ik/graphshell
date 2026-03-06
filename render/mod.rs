@@ -9,9 +9,8 @@
 
 use crate::app::{
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryCaptureStatus,
-    HistoryManagerTab,
-    KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode, SelectionUpdateMode,
-    UnsavedFramePromptAction, UnsavedFramePromptRequest, WorkbenchIntent,
+    HistoryManagerTab, KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode,
+    SelectionUpdateMode, UnsavedFramePromptAction, UnsavedFramePromptRequest, WorkbenchIntent,
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
@@ -55,8 +54,8 @@ mod spatial_index;
 use spatial_index::NodeSpatialIndex;
 
 pub(crate) mod action_registry;
-mod command_profile;
 mod command_palette;
+mod command_profile;
 pub(crate) mod radial_menu;
 pub use command_palette::render_command_palette_panel;
 pub use radial_menu::render_radial_command_menu;
@@ -262,9 +261,9 @@ pub fn render_graph_in_ui_collect_actions(
         .unwrap_or(&app.workspace.graph);
 
     // Compute the current culled key set for change detection.
-    let culled_node_keys: Option<HashSet<NodeKey>> = culled_graph.as_ref().map(|g| {
-        g.nodes().map(|(key, _)| key).collect()
-    });
+    let culled_node_keys: Option<HashSet<NodeKey>> = culled_graph
+        .as_ref()
+        .map(|g| g.nodes().map(|(key, _)| key).collect());
 
     // Only rebuild egui_state when:
     // - no state exists yet, or it was explicitly dirtied by a graph mutation,
@@ -2930,6 +2929,7 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
     let mut intents = Vec::new();
     let (timeline_total, dissolved_total) = app.history_manager_archive_counts();
     let health = app.history_health_summary();
+    let auto_curate_keep = history_manager_auto_curate_keep_latest();
 
     ui.horizontal(|ui| {
         if ui.button("Settings").clicked() {
@@ -3041,8 +3041,17 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                     if ui.button("Clear").clicked() {
                         intents.push(GraphIntent::ClearHistoryTimeline);
                     }
+                    if ui.button("Auto-Curate").clicked() {
+                        intents.push(GraphIntent::AutoCurateHistoryTimeline {
+                            keep_latest: auto_curate_keep,
+                        });
+                    }
                 });
             });
+            ui.small(format!(
+                "Auto-curation keeps latest {} timeline entries.",
+                auto_curate_keep
+            ));
             if health.preview_mode_active {
                 ui.horizontal_wrapped(|ui| {
                     ui.small("Replay controls:");
@@ -3087,8 +3096,17 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                     if ui.button("Clear").clicked() {
                         intents.push(GraphIntent::ClearHistoryDissolved);
                     }
+                    if ui.button("Auto-Curate").clicked() {
+                        intents.push(GraphIntent::AutoCurateHistoryDissolved {
+                            keep_latest: auto_curate_keep,
+                        });
+                    }
                 });
             });
+            ui.small(format!(
+                "Auto-curation keeps latest {} dissolved entries.",
+                auto_curate_keep
+            ));
             let entries = app.history_manager_dissolved_entries(history_manager_entry_limit());
             render_history_manager_rows(ui, app, &entries, &mut intents);
         }
@@ -3800,6 +3818,23 @@ fn history_manager_entry_limit() -> usize {
     })
 }
 
+fn history_manager_auto_curate_keep_latest() -> usize {
+    const DEFAULT_KEEP_LATEST: usize = 5_000;
+    static KEEP_LATEST: OnceLock<usize> = OnceLock::new();
+
+    *KEEP_LATEST.get_or_init(|| {
+        if let Ok(value) = env::var("GRAPHSHELL_HISTORY_ARCHIVE_KEEP_LATEST") {
+            value
+                .parse::<usize>()
+                .ok()
+                .filter(|v| *v > 0)
+                .unwrap_or(DEFAULT_KEEP_LATEST)
+        } else {
+            DEFAULT_KEEP_LATEST
+        }
+    })
+}
+
 #[cfg(test)]
 pub(crate) fn history_manager_entry_limit_for_tests() -> usize {
     history_manager_entry_limit()
@@ -4263,6 +4298,11 @@ mod tests {
     #[test]
     fn locked_camera_autofit_requires_physics_running_and_not_dragging() {
         let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, crate::app::GraphViewState::new("AutoFit Lock Test"));
+        app.workspace.focused_view = Some(view_id);
         app.set_camera_fit_locked(true);
 
         app.workspace.physics.base.is_running = false;
@@ -5368,7 +5408,8 @@ mod tests {
             .views
             .insert(view_id, crate::app::GraphViewState::new("Inertia Pan Test"));
 
-        let changed = apply_background_pan(&ctx, metadata_id, &mut app, view_id, egui::vec2(6.0, -4.0));
+        let changed =
+            apply_background_pan(&ctx, metadata_id, &mut app, view_id, egui::vec2(6.0, -4.0));
         assert!(changed);
 
         ctx.data_mut(|data| {
@@ -5386,9 +5427,10 @@ mod tests {
         let metadata_id = egui::Id::new("test-pan-inertia-decay");
         let view_id = crate::app::GraphViewId::default();
         let mut app = test_app();
-        app.workspace
-            .views
-            .insert(view_id, crate::app::GraphViewState::new("Inertia Decay Test"));
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new("Inertia Decay Test"),
+        );
         app.set_camera_pan_inertia_enabled(true);
         app.set_camera_pan_inertia_damping(0.80);
 

@@ -13,8 +13,14 @@ pub(crate) enum SignalTopic {
 /// Typed signal kinds emitted through Register-owned routing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SignalKind {
-    NavigationResolved { uri: String, viewer_id: String },
-    ModLifecycleChanged { mod_id: String, activated: bool },
+    NavigationResolved {
+        uri: String,
+        viewer_id: String,
+    },
+    ModLifecycleChanged {
+        mod_id: String,
+        activated: bool,
+    },
     LifecycleMemoryPressureChanged,
     SubsystemHealthMemoryPressure {
         level: String,
@@ -53,7 +59,11 @@ pub(crate) struct SignalEnvelope {
 }
 
 impl SignalEnvelope {
-    pub(crate) fn new(kind: SignalKind, source: SignalSource, causality_stamp: Option<u64>) -> Self {
+    pub(crate) fn new(
+        kind: SignalKind,
+        source: SignalSource,
+        causality_stamp: Option<u64>,
+    ) -> Self {
         Self {
             kind,
             source,
@@ -133,15 +143,20 @@ impl SignalRoutingLayer {
         let topic = envelope.kind.topic();
         let callbacks = {
             let mut guard = self.state.lock().expect("signal routing lock poisoned");
-            guard.diagnostics.published_signals = guard.diagnostics.published_signals.saturating_add(1);
+            guard.diagnostics.published_signals =
+                guard.diagnostics.published_signals.saturating_add(1);
             let Some(observers) = guard.observers.get(&topic) else {
-                guard.diagnostics.unrouted_signals = guard.diagnostics.unrouted_signals.saturating_add(1);
+                guard.diagnostics.unrouted_signals =
+                    guard.diagnostics.unrouted_signals.saturating_add(1);
                 return SignalPublishReport {
                     observers_notified: 0,
                     observer_failures: 0,
                 };
             };
-            observers.iter().map(|entry| entry.callback.clone()).collect::<Vec<_>>()
+            observers
+                .iter()
+                .map(|entry| entry.callback.clone())
+                .collect::<Vec<_>>()
         };
 
         let mut failures = 0usize;

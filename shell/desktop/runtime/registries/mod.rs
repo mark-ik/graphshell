@@ -44,10 +44,10 @@ use physics::PhysicsRegistry;
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
 };
+use servo::ServoUrl;
 use signal_routing::{
     ObserverId, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource, SignalTopic,
 };
-use servo::ServoUrl;
 
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_STARTED: &str = "registry.protocol.resolve_started";
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED: &str = "registry.protocol.resolve_succeeded";
@@ -56,6 +56,12 @@ pub(crate) const CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED: &str = "registry.protoc
 pub(crate) const CHANNEL_VIEWER_SELECT_STARTED: &str = "registry.viewer.select_started";
 pub(crate) const CHANNEL_VIEWER_SELECT_SUCCEEDED: &str = "registry.viewer.select_succeeded";
 pub(crate) const CHANNEL_VIEWER_FALLBACK_USED: &str = "registry.viewer.fallback_used";
+pub(crate) const CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED: &str =
+    "registry.viewer.fallback_wry_feature_disabled";
+pub(crate) const CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING: &str =
+    "registry.viewer.fallback_wry_capability_missing";
+pub(crate) const CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE: &str =
+    "registry.viewer.fallback_wry_disabled_by_preference";
 pub(crate) const CHANNEL_VIEWER_CAPABILITY_PARTIAL: &str = "registry.viewer.capability_partial";
 pub(crate) const CHANNEL_VIEWER_CAPABILITY_NONE: &str = "registry.viewer.capability_none";
 pub(crate) const CHANNEL_SURFACE_CONFORMANCE_PARTIAL: &str = "registry.surface.conformance_partial";
@@ -118,16 +124,13 @@ pub(crate) const CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED: &str = "history.archive.c
 pub(crate) const CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED: &str = "history.archive.export_failed";
 pub(crate) const CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED: &str =
     "history.timeline.preview_entered";
-pub(crate) const CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED: &str =
-    "history.timeline.preview_exited";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED: &str = "history.timeline.preview_exited";
 pub(crate) const CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION: &str =
     "history.timeline.preview_isolation_violation";
-pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED: &str =
-    "history.timeline.replay_started";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED: &str = "history.timeline.replay_started";
 pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED: &str =
     "history.timeline.replay_succeeded";
-pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED: &str =
-    "history.timeline.replay_failed";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED: &str = "history.timeline.replay_failed";
 pub(crate) const CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED: &str =
     "history.timeline.return_to_present_failed";
 pub(crate) const CHANNEL_UI_CLIPBOARD_COPY_FAILED: &str = "ui.clipboard.copy_failed";
@@ -213,6 +216,12 @@ pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI: &str =
     "compositor.overlay.mode.embedded_egui";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER: &str =
     "compositor.overlay.mode.placeholder";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU: &str =
+    "compositor.overlay.native.suppressed.interaction_menu";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL: &str =
+    "compositor.overlay.native.suppressed.help_panel";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU: &str =
+    "compositor.overlay.native.suppressed.radial_menu";
 pub(crate) const CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED: &str =
     "compositor.replay.sample_recorded";
 pub(crate) const CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED: &str =
@@ -595,7 +604,11 @@ impl RegistryRuntime {
         false
     }
 
-    pub(crate) fn sign_identity_payload(&self, identity_id: &str, payload: &[u8]) -> Option<String> {
+    pub(crate) fn sign_identity_payload(
+        &self,
+        identity_id: &str,
+        payload: &[u8],
+    ) -> Option<String> {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
             byte_len: identity_id.len().saturating_add(payload.len()),
@@ -1824,9 +1837,9 @@ pub(crate) fn phase5_check_verse_workspace_sync_access_for_tests(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, OnceLock};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Mutex, OnceLock};
 
     use super::*;
 
@@ -1854,7 +1867,7 @@ mod tests {
                 .to_string(),
         );
         assert!(graphshell.supported);
-        assert_eq!(graphshell.matched_scheme, "graphshell");
+        assert_eq!(graphshell.matched_scheme, "verso");
         assert_eq!(
             graphshell.inferred_mime_hint.as_deref(),
             Some("application/x-graphshell-settings")
@@ -2081,11 +2094,7 @@ mod tests {
             });
         }
 
-        runtime.propagate_subsystem_health_memory_pressure(
-            MemoryPressureLevel::Warning,
-            512,
-            4096,
-        );
+        runtime.propagate_subsystem_health_memory_pressure(MemoryPressureLevel::Warning, 512, 4096);
 
         assert_eq!(seen_warning.load(Ordering::Relaxed), 1);
     }
@@ -2637,8 +2646,13 @@ mod tests {
         )
         .expect("caller-scoped subscribe should succeed");
 
-        assert!(!phase3_nostr_relay_unsubscribe_for_caller("mod:beta", &handle));
-        assert!(phase3_nostr_relay_unsubscribe_for_caller("mod:alpha", &handle));
+        assert!(!phase3_nostr_relay_unsubscribe_for_caller(
+            "mod:beta", &handle
+        ));
+        assert!(phase3_nostr_relay_unsubscribe_for_caller(
+            "mod:alpha",
+            &handle
+        ));
     }
 
     #[test]

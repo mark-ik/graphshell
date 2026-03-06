@@ -1771,10 +1771,10 @@ impl DiagnosticsState {
                 let history_preview = self.history_health_snapshot["preview_mode_active"]
                     .as_bool()
                     .unwrap_or(false);
-                let history_failures = self.history_health_snapshot
-                    ["recent_traversal_append_failures"]
-                    .as_u64()
-                    .unwrap_or(0);
+                let history_failures =
+                    self.history_health_snapshot["recent_traversal_append_failures"]
+                        .as_u64()
+                        .unwrap_or(0);
                 ui.small(format!(
                     "history_health: preview_active={} failures={}",
                     history_preview, history_failures
@@ -3215,13 +3215,13 @@ Object {
         });
         insta::assert_debug_snapshot!(shape, @r###"
                 Object {
-                    "starts_with_svg": Bool(true),
-                    "contains_servo_runtime": Bool(true),
-                    "contains_semantic": Bool(true),
                     "contains_intent_pipeline": Bool(true),
-                    "contains_render_pass": Bool(true),
                     "contains_percentile_label": Bool(true),
+                    "contains_render_pass": Bool(true),
+                    "contains_semantic": Bool(true),
+                    "contains_servo_runtime": Bool(true),
                     "line_count": Number(6),
+                    "starts_with_svg": Bool(true),
                     "text_count": Number(12),
                 }
                 "###);

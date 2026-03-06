@@ -20,19 +20,18 @@ use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
 use crate::registries::atomic::knowledge::CompactCode;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::services::persistence::GraphStore;
+use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::services::persistence::types::{
     LogEntry, PersistedEdgeType, PersistedNavigationTrigger,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
-    CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TRAVERSAL_RECORDED,
-    CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED, CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
-    CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION, CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
-    CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED, CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
-    CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
-    CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
+    CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
+    CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
+    CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED, CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
+    CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED, CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
+    CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED, CHANNEL_HISTORY_TRAVERSAL_RECORDED,
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
@@ -372,9 +371,10 @@ impl Default for LensConfig {
 /// `ZSource` is part of `GraphViewState` — it is a per-view configuration.
 /// z-positions are ephemeral: they are recomputed from this source + node metadata on
 /// every 2D→3D switch and are never persisted independently.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ZSource {
     /// All nodes coplanar — soft 3D visual effect only.
+    #[default]
     Zero,
     /// Recent nodes float to front; `max_depth` controls the maximum z offset.
     Recency { max_depth: f32 },
@@ -384,12 +384,6 @@ pub enum ZSource {
     UdcLevel { scale: f32 },
     /// Per-node z override sourced from node metadata.
     Manual,
-}
-
-impl Default for ZSource {
-    fn default() -> Self {
-        Self::Zero
-    }
 }
 
 /// Sub-mode for a 3D graph view.
@@ -417,18 +411,13 @@ pub enum ThreeDMode {
 /// never stored separately.  Snapshot degradation rule: if a persisted snapshot
 /// contains `ThreeD` but 3D rendering is unavailable (e.g., unsupported platform),
 /// the view falls back to `TwoD`; (x, y) positions are preserved unchanged.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ViewDimension {
     /// Standard 2D planar graph (default).
+    #[default]
     TwoD,
     /// 3D graph with the given sub-mode and z-source.
     ThreeD { mode: ThreeDMode, z_source: ZSource },
-}
-
-impl Default for ViewDimension {
-    fn default() -> Self {
-        Self::TwoD
-    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -560,30 +549,20 @@ pub enum ViewRouteTarget {
     Node(Uuid),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FileTreeContainmentRelationSource {
+    #[default]
     GraphContainment,
     SavedViewCollections,
     ImportedFilesystemProjection,
 }
 
-impl Default for FileTreeContainmentRelationSource {
-    fn default() -> Self {
-        Self::GraphContainment
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FileTreeSortMode {
+    #[default]
     Manual,
     NameAscending,
     NameDescending,
-}
-
-impl Default for FileTreeSortMode {
-    fn default() -> Self {
-        Self::Manual
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1410,6 +1389,12 @@ pub enum GraphIntent {
     },
     ClearHistoryTimeline,
     ClearHistoryDissolved,
+    AutoCurateHistoryTimeline {
+        keep_latest: usize,
+    },
+    AutoCurateHistoryDissolved {
+        keep_latest: usize,
+    },
     ExportHistoryTimeline,
     ExportHistoryDissolved,
     EnterHistoryTimelinePreview,
@@ -1453,8 +1438,8 @@ pub enum GraphIntent {
         mod_id: String,
         reason: String,
     },
-    /// Apply remote log entries from peers (Verse sync).
-    ApplyRemoteLogEntries {
+    /// Apply remote sync delta entries from peers (Verse sync).
+    ApplyRemoteDelta {
         entries: Vec<u8>,
     },
     /// Trigger a manual Verse sync pass for the current frame.
@@ -1809,6 +1794,10 @@ pub struct GraphWorkspace {
     history_replay_in_progress: bool,
     history_replay_cursor: Option<usize>,
     history_replay_total_steps: Option<usize>,
+    /// Detached graph copy captured when preview mode is entered.
+    history_preview_live_graph_snapshot: Option<Graph>,
+    /// Detached graph produced by replay-to-timestamp while preview is active.
+    history_preview_graph: Option<Graph>,
     /// Most recent history subsystem event timestamp observed this session.
     history_last_event_unix_ms: Option<u64>,
     /// Most recent history error text surfaced to operators.
@@ -2060,6 +2049,8 @@ impl GraphBrowserApp {
                 history_replay_in_progress: false,
                 history_replay_cursor: None,
                 history_replay_total_steps: None,
+                history_preview_live_graph_snapshot: None,
+                history_preview_graph: None,
                 history_last_event_unix_ms: None,
                 history_last_error: None,
                 history_recent_failure_reason_bucket: None,
@@ -2274,6 +2265,8 @@ impl GraphBrowserApp {
                 history_replay_in_progress: false,
                 history_replay_cursor: None,
                 history_replay_total_steps: None,
+                history_preview_live_graph_snapshot: None,
+                history_preview_graph: None,
                 history_last_event_unix_ms: None,
                 history_last_error: None,
                 history_recent_failure_reason_bucket: None,
@@ -2647,7 +2640,12 @@ impl GraphBrowserApp {
             .graph_view_layout_manager
             .slots
             .values()
-            .any(|slot| !slot.archived && Some(slot.view_id) != except_view && slot.row == row && slot.col == col)
+            .any(|slot| {
+                !slot.archived
+                    && Some(slot.view_id) != except_view
+                    && slot.row == row
+                    && slot.col == col
+            })
     }
 
     fn next_free_graph_view_slot_position(&self) -> (i32, i32) {
@@ -2749,7 +2747,8 @@ impl GraphBrowserApp {
     }
 
     fn load_graph_view_layout_manager_state(&mut self) {
-        let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME)
+        let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME)
         else {
             return;
         };
@@ -2793,7 +2792,12 @@ impl GraphBrowserApp {
         self.workspace.views.insert(view_id, state.clone());
 
         let (row, col) = if let Some(anchor_id) = anchor_view {
-            if let Some(anchor_slot) = self.workspace.graph_view_layout_manager.slots.get(&anchor_id) {
+            if let Some(anchor_slot) = self
+                .workspace
+                .graph_view_layout_manager
+                .slots
+                .get(&anchor_id)
+            {
                 let (target_row, target_col) = match direction {
                     GraphViewLayoutDirection::Up => (anchor_slot.row - 1, anchor_slot.col),
                     GraphViewLayoutDirection::Down => (anchor_slot.row + 1, anchor_slot.col),
@@ -2834,7 +2838,12 @@ impl GraphBrowserApp {
         if trimmed.is_empty() {
             return;
         }
-        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
+        if let Some(slot) = self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .get_mut(&view_id)
+        {
             slot.name = trimmed.to_string();
             if let Some(view) = self.workspace.views.get_mut(&view_id) {
                 view.name = slot.name.clone();
@@ -2847,7 +2856,12 @@ impl GraphBrowserApp {
         if self.graph_view_slot_position_occupied(row, col, Some(view_id)) {
             return;
         }
-        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
+        if let Some(slot) = self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .get_mut(&view_id)
+        {
             slot.row = row;
             slot.col = col;
             self.persist_graph_view_layout_manager_state();
@@ -2855,7 +2869,12 @@ impl GraphBrowserApp {
     }
 
     fn archive_graph_view_slot(&mut self, view_id: GraphViewId) {
-        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
+        if let Some(slot) = self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .get_mut(&view_id)
+        {
             slot.archived = true;
             if self.workspace.focused_view == Some(view_id) {
                 self.set_workspace_focused_view_with_transition(None);
@@ -2866,13 +2885,18 @@ impl GraphBrowserApp {
 
     fn restore_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
         self.ensure_graph_view_registered(view_id);
-        let (next_row, next_col) = if self.graph_view_slot_position_occupied(row, col, Some(view_id))
+        let (next_row, next_col) =
+            if self.graph_view_slot_position_occupied(row, col, Some(view_id)) {
+                self.next_free_graph_view_slot_position()
+            } else {
+                (row, col)
+            };
+        if let Some(slot) = self
+            .workspace
+            .graph_view_layout_manager
+            .slots
+            .get_mut(&view_id)
         {
-            self.next_free_graph_view_slot_position()
-        } else {
-            (row, col)
-        };
-        if let Some(slot) = self.workspace.graph_view_layout_manager.slots.get_mut(&view_id) {
             slot.archived = false;
             slot.row = next_row;
             slot.col = next_col;
@@ -2906,15 +2930,15 @@ impl GraphBrowserApp {
             .keys()
             .copied()
             .collect();
-        self.workspace
-            .views
-            .retain(|view_id, _| live_graph_views.contains(view_id) || registered_views.contains(view_id));
+        self.workspace.views.retain(|view_id, _| {
+            live_graph_views.contains(view_id) || registered_views.contains(view_id)
+        });
         self.workspace
             .graph_view_frames
             .retain(|view_id, _| live_graph_views.contains(view_id));
-        self.workspace
-            .selected_nodes_by_view
-            .retain(|view_id, _| live_graph_views.contains(view_id) || registered_views.contains(view_id));
+        self.workspace.selected_nodes_by_view.retain(|view_id, _| {
+            live_graph_views.contains(view_id) || registered_views.contains(view_id)
+        });
 
         if self
             .workspace
@@ -3380,7 +3404,9 @@ impl GraphBrowserApp {
         if from == to {
             return false;
         }
-        if self.workspace.graph.get_node(from).is_none() || self.workspace.graph.get_node(to).is_none() {
+        if self.workspace.graph.get_node(from).is_none()
+            || self.workspace.graph.get_node(to).is_none()
+        {
             return false;
         }
         !self.has_typed_edge(from, to, EdgeType::UserGrouped)
@@ -3516,9 +3542,54 @@ impl GraphBrowserApp {
                 | GraphIntent::ClearHistoryDissolved
                 | GraphIntent::ExportHistoryTimeline
                 | GraphIntent::ExportHistoryDissolved
-                | GraphIntent::ApplyRemoteLogEntries { .. }
+                | GraphIntent::ApplyRemoteDelta { .. }
                 | GraphIntent::SyncNow
         )
+    }
+
+    fn replay_history_preview_cursor(
+        &mut self,
+        cursor: usize,
+        total_steps: usize,
+    ) -> Result<(), String> {
+        if !self.workspace.history_preview_mode_active {
+            return Err("history preview mode is not active".to_string());
+        }
+
+        if cursor == 0 {
+            if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref() {
+                self.workspace.history_preview_graph = Some(snapshot.clone());
+                return Ok(());
+            }
+            return Err("preview baseline graph is unavailable".to_string());
+        }
+
+        let Some(store) = self.services.persistence.as_ref() else {
+            // Counter-only fallback keeps tests and degraded mode behavior stable.
+            return Ok(());
+        };
+
+        let mut chronological = self.history_timeline_index_entries(total_steps.max(1));
+        if chronological.is_empty() {
+            return Err("timeline index is empty".to_string());
+        }
+
+        chronological.sort_by(|a, b| {
+            a.timestamp_ms
+                .cmp(&b.timestamp_ms)
+                .then_with(|| a.log_position.cmp(&b.log_position))
+        });
+
+        let bounded_cursor = cursor.min(chronological.len());
+        let target = chronological
+            .get(bounded_cursor.saturating_sub(1))
+            .ok_or_else(|| "replay cursor is out of bounds".to_string())?;
+
+        let replay_graph = store
+            .replay_to_timestamp(target.timestamp_ms)
+            .ok_or_else(|| "replay_to_timestamp returned no graph".to_string())?;
+        self.workspace.history_preview_graph = Some(replay_graph);
+        Ok(())
     }
 
     fn apply_reducer_intent(&mut self, intent: GraphReducerIntent) {
@@ -4029,6 +4100,44 @@ impl GraphBrowserApp {
                     });
                 }
             }
+            GraphIntent::AutoCurateHistoryTimeline { keep_latest } => {
+                if let Some(store) = &mut self.services.persistence {
+                    let removed = store.auto_curate_traversal_archive(keep_latest);
+                    log::info!(
+                        "Auto-curated traversal archive: removed {} old entries (keep_latest={})",
+                        removed,
+                        keep_latest
+                    );
+                } else {
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::PersistenceUnavailable,
+                        "auto-curate timeline requested without persistence",
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
+                        latency_us: 0,
+                    });
+                }
+            }
+            GraphIntent::AutoCurateHistoryDissolved { keep_latest } => {
+                if let Some(store) = &mut self.services.persistence {
+                    let removed = store.auto_curate_dissolved_archive(keep_latest);
+                    log::info!(
+                        "Auto-curated dissolved archive: removed {} old entries (keep_latest={})",
+                        removed,
+                        keep_latest
+                    );
+                } else {
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::PersistenceUnavailable,
+                        "auto-curate dissolved requested without persistence",
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
+                        latency_us: 0,
+                    });
+                }
+            }
             GraphIntent::ExportHistoryTimeline => {
                 if let Some(store) = &self.services.persistence {
                     match store.export_traversal_archive() {
@@ -4157,6 +4266,9 @@ impl GraphBrowserApp {
                 self.workspace.history_replay_in_progress = false;
                 self.workspace.history_replay_cursor = None;
                 self.workspace.history_replay_total_steps = None;
+                self.workspace.history_preview_live_graph_snapshot =
+                    Some(self.workspace.graph.clone());
+                self.workspace.history_preview_graph = Some(self.workspace.graph.clone());
                 self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
@@ -4164,8 +4276,14 @@ impl GraphBrowserApp {
                 });
             }
             GraphIntent::ExitHistoryTimelinePreview => {
+                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.take() {
+                    self.workspace.graph = snapshot;
+                    self.workspace.history_last_return_to_present_result =
+                        Some("restored".to_string());
+                }
                 self.workspace.history_preview_mode_active = false;
                 self.workspace.history_replay_in_progress = false;
+                self.workspace.history_preview_graph = None;
                 self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
                 emit_event(DiagnosticEvent::MessageReceived {
                     channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
@@ -4232,6 +4350,20 @@ impl GraphBrowserApp {
 
                 let current_cursor = self.workspace.history_replay_cursor.unwrap_or(0);
                 let next_cursor = current_cursor.saturating_add(steps).min(total_steps);
+
+                if let Err(err) = self.replay_history_preview_cursor(next_cursor, total_steps) {
+                    self.workspace.history_replay_in_progress = false;
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::ReplayFailed,
+                        format!("replay advance failed: {err}"),
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
+                        latency_us: 0,
+                    });
+                    return;
+                }
+
                 self.workspace.history_replay_cursor = Some(next_cursor);
                 self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
 
@@ -4249,6 +4381,9 @@ impl GraphBrowserApp {
                     self.workspace.history_replay_cursor = Some(0);
                 } else {
                     self.workspace.history_replay_cursor = None;
+                }
+                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref() {
+                    self.workspace.history_preview_graph = Some(snapshot.clone());
                 }
                 self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
             }
@@ -4320,19 +4455,17 @@ impl GraphBrowserApp {
             }
             GraphIntent::ModActivated { mod_id } => {
                 crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
-                    &mod_id,
-                    true,
+                    &mod_id, true,
                 );
                 log::info!("mod activated: {mod_id}");
             }
             GraphIntent::ModLoadFailed { mod_id, reason } => {
                 crate::shell::desktop::runtime::registries::phase3_route_mod_lifecycle_event(
-                    &mod_id,
-                    false,
+                    &mod_id, false,
                 );
                 log::warn!("mod load failed: {mod_id} ({reason})");
             }
-            GraphIntent::ApplyRemoteLogEntries { entries } => {
+            GraphIntent::ApplyRemoteDelta { entries } => {
                 // TODO: Phase 6.2 - sync integrated logic for applying peer log entries
                 log::debug!("peer log entries received: {} bytes", entries.len());
             }
@@ -6252,9 +6385,19 @@ impl GraphBrowserApp {
             .unwrap_or((0, 0))
     }
 
+    /// Return timeline index entries for Stage F replay cursors (newest first).
+    pub fn history_timeline_index_entries(&self, limit: usize) -> Vec<TimelineIndexEntry> {
+        self.services
+            .persistence
+            .as_ref()
+            .map(|store| store.timeline_index_entries(limit))
+            .unwrap_or_default()
+    }
+
     /// Return compact history subsystem health fields for History Manager UI.
     pub fn history_health_summary(&self) -> HistoryHealthSummary {
-        let (traversal_archive_count, dissolved_archive_count) = self.history_manager_archive_counts();
+        let (traversal_archive_count, dissolved_archive_count) =
+            self.history_manager_archive_counts();
         let capture_status = if self.services.persistence.is_some() {
             HistoryCaptureStatus::Full
         } else {
@@ -6263,7 +6406,9 @@ impl GraphBrowserApp {
 
         HistoryHealthSummary {
             capture_status,
-            recent_traversal_append_failures: self.workspace.history_recent_traversal_append_failures,
+            recent_traversal_append_failures: self
+                .workspace
+                .history_recent_traversal_append_failures,
             recent_failure_reason_bucket: self
                 .workspace
                 .history_recent_failure_reason_bucket
@@ -6272,11 +6417,16 @@ impl GraphBrowserApp {
             traversal_archive_count,
             dissolved_archive_count,
             preview_mode_active: self.workspace.history_preview_mode_active,
-            last_preview_isolation_violation: self.workspace.history_last_preview_isolation_violation,
+            last_preview_isolation_violation: self
+                .workspace
+                .history_last_preview_isolation_violation,
             replay_in_progress: self.workspace.history_replay_in_progress,
             replay_cursor: self.workspace.history_replay_cursor,
             replay_total_steps: self.workspace.history_replay_total_steps,
-            last_return_to_present_result: self.workspace.history_last_return_to_present_result.clone(),
+            last_return_to_present_result: self
+                .workspace
+                .history_last_return_to_present_result
+                .clone(),
             last_event_unix_ms: self.workspace.history_last_event_unix_ms,
         }
     }
@@ -9369,20 +9519,31 @@ mod tests {
             .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
 
         let before = app.history_health_summary();
-        assert_eq!(before.capture_status, HistoryCaptureStatus::DegradedCaptureOnly);
+        assert_eq!(
+            before.capture_status,
+            HistoryCaptureStatus::DegradedCaptureOnly
+        );
         assert_eq!(before.recent_traversal_append_failures, 0);
         assert!(before.last_event_unix_ms.is_none());
 
         assert!(!app.push_history_traversal_and_sync(a, a, NavigationTrigger::Unknown));
 
         let after = app.history_health_summary();
-        assert_eq!(after.capture_status, HistoryCaptureStatus::DegradedCaptureOnly);
+        assert_eq!(
+            after.capture_status,
+            HistoryCaptureStatus::DegradedCaptureOnly
+        );
         assert_eq!(after.recent_traversal_append_failures, 1);
-        assert_eq!(after.recent_failure_reason_bucket.as_deref(), Some("self_loop"));
-        assert!(after
-            .last_error
-            .as_deref()
-            .is_some_and(|msg| msg.contains("self_loop")));
+        assert_eq!(
+            after.recent_failure_reason_bucket.as_deref(),
+            Some("self_loop")
+        );
+        assert!(
+            after
+                .last_error
+                .as_deref()
+                .is_some_and(|msg| msg.contains("self_loop"))
+        );
         assert!(!after.preview_mode_active);
         assert!(!after.last_preview_isolation_violation);
         assert!(after.last_event_unix_ms.is_some());
@@ -9424,6 +9585,89 @@ mod tests {
         let after_clear = app.history_manager_archive_counts();
         assert_eq!(after_clear.0, 0);
         assert_eq!(after_clear.1, 0);
+    }
+
+    #[test]
+    fn history_archive_auto_curation_keeps_latest_entries() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let from = Uuid::new_v4().to_string();
+        let to = Uuid::new_v4().to_string();
+
+        {
+            let store = app
+                .services
+                .persistence
+                .as_mut()
+                .expect("persistence store should exist");
+            for i in 0..6u64 {
+                let entry = crate::services::persistence::types::LogEntry::AppendTraversal {
+                    from_node_id: from.clone(),
+                    to_node_id: to.clone(),
+                    timestamp_ms: i,
+                    trigger: crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
+                };
+                store
+                    .archive_append_traversal(&entry)
+                    .expect("archive traversal should succeed");
+                store
+                    .archive_dissolved_traversal(&entry)
+                    .expect("archive dissolved should succeed");
+            }
+        }
+
+        app.apply_reducer_intents([
+            GraphIntent::AutoCurateHistoryTimeline { keep_latest: 2 },
+            GraphIntent::AutoCurateHistoryDissolved { keep_latest: 3 },
+        ]);
+
+        let (timeline_count, dissolved_count) = app.history_manager_archive_counts();
+        assert_eq!(timeline_count, 2);
+        assert_eq!(dissolved_count, 3);
+
+        let timeline = app.history_manager_timeline_entries(usize::MAX);
+        assert_eq!(timeline.len(), 2);
+        match &timeline[0] {
+            crate::services::persistence::types::LogEntry::AppendTraversal {
+                timestamp_ms,
+                ..
+            } => assert_eq!(*timestamp_ms, 5),
+            _ => panic!("expected traversal entry"),
+        }
+    }
+
+    #[test]
+    fn history_timeline_index_entries_are_exposed_from_persistence() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let from = Uuid::new_v4().to_string();
+        let to = Uuid::new_v4().to_string();
+
+        {
+            let store = app
+                .services
+                .persistence
+                .as_mut()
+                .expect("persistence store should exist");
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
+                from_node_id: from.clone(),
+                to_node_id: to.clone(),
+                timestamp_ms: 10,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
+            });
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
+                from_node_id: from,
+                to_node_id: to,
+                timestamp_ms: 20,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Forward,
+            });
+        }
+
+        let idx = app.history_timeline_index_entries(usize::MAX);
+        assert_eq!(idx.len(), 2);
+        assert_eq!(idx[0].timestamp_ms, 20);
+        assert_eq!(idx[1].timestamp_ms, 10);
+        assert!(idx[0].log_position > idx[1].log_position);
     }
 
     #[test]
@@ -9487,10 +9731,12 @@ mod tests {
         let health = app.history_health_summary();
         assert!(health.preview_mode_active);
         assert!(health.last_preview_isolation_violation);
-        assert!(health
-            .last_error
-            .as_deref()
-            .is_some_and(|msg| msg.contains("preview_isolation_violation")));
+        assert!(
+            health
+                .last_error
+                .as_deref()
+                .is_some_and(|msg| msg.contains("preview_isolation_violation"))
+        );
     }
 
     #[test]
@@ -9518,6 +9764,126 @@ mod tests {
         let reset = app.history_health_summary();
         assert!(!reset.replay_in_progress);
         assert_eq!(reset.replay_cursor, Some(0));
+    }
+
+    #[test]
+    fn history_preview_replay_builds_detached_graph_without_mutating_live_state() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let from = Uuid::new_v4();
+        let to = Uuid::new_v4();
+        let later = Uuid::new_v4();
+
+        {
+            let store = app
+                .services
+                .persistence
+                .as_mut()
+                .expect("persistence store should exist");
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
+                node_id: from.to_string(),
+                url: "https://from.example".to_string(),
+                position_x: 0.0,
+                position_y: 0.0,
+            });
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
+                node_id: to.to_string(),
+                url: "https://to.example".to_string(),
+                position_x: 32.0,
+                position_y: 0.0,
+            });
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
+                from_node_id: from.to_string(),
+                to_node_id: to.to_string(),
+                timestamp_ms: 1_000,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Forward,
+            });
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
+                node_id: later.to_string(),
+                url: "https://later.example".to_string(),
+                position_x: 64.0,
+                position_y: 0.0,
+            });
+            app.workspace.graph = store.recover().expect("full graph recovery");
+        }
+
+        assert_eq!(app.workspace.graph.node_count(), 3);
+
+        app.apply_reducer_intents([GraphIntent::EnterHistoryTimelinePreview]);
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplaySetTotal { total_steps: 1 }]);
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayAdvance { steps: 1 }]);
+
+        assert_eq!(app.workspace.graph.node_count(), 3);
+        let preview_graph = app
+            .workspace
+            .history_preview_graph
+            .as_ref()
+            .expect("preview graph should be populated");
+        assert_eq!(preview_graph.node_count(), 2);
+        assert!(preview_graph.get_node_key_by_id(later).is_none());
+
+        app.apply_reducer_intents([GraphIntent::ExitHistoryTimelinePreview]);
+        assert_eq!(app.workspace.graph.node_count(), 3);
+        assert!(app.workspace.history_preview_graph.is_none());
+        assert_eq!(
+            app.workspace.history_last_return_to_present_result.as_deref(),
+            Some("restored")
+        );
+    }
+
+    #[test]
+    fn history_preview_replay_does_not_append_persistence_log_entries() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+        let from = Uuid::new_v4();
+        let to = Uuid::new_v4();
+
+        {
+            let store = app
+                .services
+                .persistence
+                .as_mut()
+                .expect("persistence store should exist");
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
+                node_id: from.to_string(),
+                url: "https://from.example".to_string(),
+                position_x: 0.0,
+                position_y: 0.0,
+            });
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
+                node_id: to.to_string(),
+                url: "https://to.example".to_string(),
+                position_x: 32.0,
+                position_y: 0.0,
+            });
+            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
+                from_node_id: from.to_string(),
+                to_node_id: to.to_string(),
+                timestamp_ms: 1_000,
+                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Forward,
+            });
+        }
+
+        let before_log_entries = app
+            .services
+            .persistence
+            .as_ref()
+            .expect("persistence store should exist")
+            .log_entry_count_for_tests();
+
+        app.apply_reducer_intents([GraphIntent::EnterHistoryTimelinePreview]);
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplaySetTotal { total_steps: 1 }]);
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayAdvance { steps: 1 }]);
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayReset]);
+        app.apply_reducer_intents([GraphIntent::ExitHistoryTimelinePreview]);
+
+        let after_log_entries = app
+            .services
+            .persistence
+            .as_ref()
+            .expect("persistence store should exist")
+            .log_entry_count_for_tests();
+        assert_eq!(before_log_entries, after_log_entries);
     }
 
     #[test]
@@ -11648,14 +12014,23 @@ mod tests {
             key,
             new_url: "https://new.example".to_string(),
         }]);
-        assert_eq!(app.workspace.graph.get_node(key).unwrap().url, "https://new.example");
+        assert_eq!(
+            app.workspace.graph.get_node(key).unwrap().url,
+            "https://new.example"
+        );
         assert_eq!(app.undo_stack_len(), 1);
 
         app.apply_reducer_intents([GraphIntent::Undo]);
-        assert_eq!(app.workspace.graph.get_node(key).unwrap().url, "https://old.example");
+        assert_eq!(
+            app.workspace.graph.get_node(key).unwrap().url,
+            "https://old.example"
+        );
 
         app.apply_reducer_intents([GraphIntent::Redo]);
-        assert_eq!(app.workspace.graph.get_node(key).unwrap().url, "https://new.example");
+        assert_eq!(
+            app.workspace.graph.get_node(key).unwrap().url,
+            "https://new.example"
+        );
     }
 
     #[test]
@@ -11817,9 +12192,11 @@ mod tests {
             name: "Investigation View".to_string(),
         }]);
         slots = app.graph_view_slots_for_tests();
-        assert!(slots
-            .iter()
-            .any(|slot| slot.view_id == created && slot.name == "Investigation View"));
+        assert!(
+            slots
+                .iter()
+                .any(|slot| slot.view_id == created && slot.name == "Investigation View")
+        );
 
         app.apply_reducer_intents([GraphIntent::MoveGraphViewSlot {
             view_id: created,
@@ -11827,15 +12204,19 @@ mod tests {
             col: 2,
         }]);
         slots = app.graph_view_slots_for_tests();
-        assert!(slots
-            .iter()
-            .any(|slot| slot.view_id == created && slot.row == 3 && slot.col == 2));
+        assert!(
+            slots
+                .iter()
+                .any(|slot| slot.view_id == created && slot.row == 3 && slot.col == 2)
+        );
 
         app.apply_reducer_intents([GraphIntent::ArchiveGraphViewSlot { view_id: created }]);
         slots = app.graph_view_slots_for_tests();
-        assert!(slots
-            .iter()
-            .any(|slot| slot.view_id == created && slot.archived));
+        assert!(
+            slots
+                .iter()
+                .any(|slot| slot.view_id == created && slot.archived)
+        );
 
         app.apply_reducer_intents([GraphIntent::RestoreGraphViewSlot {
             view_id: created,

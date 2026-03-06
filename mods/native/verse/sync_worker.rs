@@ -490,7 +490,7 @@ impl SyncWorkerHandle {
         if !entries_to_apply.is_empty() {
             let entries_bytes = serde_json::to_vec(&entries_to_apply).unwrap_or_default();
 
-            let delta_intent = GraphIntent::ApplyRemoteLogEntries {
+            let delta_intent = GraphIntent::ApplyRemoteDelta {
                 entries: entries_bytes,
             };
             let queued = QueuedIntent {
@@ -498,7 +498,9 @@ impl SyncWorkerHandle {
                 queued_at: std::time::Instant::now(),
                 source: ControlIntentSource::P2pSync,
             };
-            let _ = self.intent_tx.try_send(queued);
+            if let Err(error) = self.intent_tx.try_send(queued) {
+                log::warn!("verse sync: failed to enqueue remote delta intent: {error}");
+            }
         }
 
         emit_event(DiagnosticEvent::MessageReceived {

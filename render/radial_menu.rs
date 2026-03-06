@@ -117,12 +117,13 @@ fn radial_category_label(category: ActionCategory) -> &'static str {
     }
 }
 
-fn ordered_radial_categories(ctx: &egui::Context, action_context: &ActionContext) -> [ActionCategory; 4] {
+fn ordered_radial_categories(
+    ctx: &egui::Context,
+    action_context: &ActionContext,
+) -> [ActionCategory; 4] {
     let categories_present: Vec<ActionCategory> = default_category_order()
         .into_iter()
-        .filter(|category| {
-            !list_radial_actions_for_category(action_context, *category).is_empty()
-        })
+        .filter(|category| !list_radial_actions_for_category(action_context, *category).is_empty())
         .collect();
     let mut ordered = rank_categories_for_context(
         &categories_present,
@@ -154,7 +155,12 @@ fn load_radial_geometry(ctx: &egui::Context) -> (f32, f32, f32) {
     (hub, tier1, tier2.max(tier1 + 24.0))
 }
 
-fn persist_radial_geometry(ctx: &egui::Context, hub_radius: f32, tier1_radius: f32, tier2_radius: f32) {
+fn persist_radial_geometry(
+    ctx: &egui::Context,
+    hub_radius: f32,
+    tier1_radius: f32,
+    tier2_radius: f32,
+) {
     ctx.data_mut(|d| {
         d.insert_persisted(egui::Id::new(HUB_RADIUS_KEY), hub_radius);
         d.insert_persisted(egui::Id::new(TIER1_RING_RADIUS_KEY), tier1_radius);
@@ -469,7 +475,8 @@ pub fn render_radial_command_menu(
         let mut domain_offsets = [0.0f32; 4];
         let mut command_offsets = [0.0f32; 4];
         let mut semantic_snapshot = RadialPaletteSemanticSnapshot::default();
-        let (mut hub_radius, mut tier1_ring_radius, mut tier2_ring_radius) = load_radial_geometry(ctx);
+        let (mut hub_radius, mut tier1_ring_radius, mut tier2_ring_radius) =
+            load_radial_geometry(ctx);
         for domain in RadialDomain::ALL {
             let category = ordered_categories[domain.index()];
             domain_offsets[domain.index()] = ctx
@@ -495,8 +502,8 @@ pub fn render_radial_command_menu(
                 {
                     let category = ordered_categories[domain.index()];
                     let cmds = list_radial_actions_for_category(&action_context, category);
-                    let page_state_id = egui::Id::new("radial_menu_page")
-                        .with(category_persisted_name(category));
+                    let page_state_id =
+                        egui::Id::new("radial_menu_page").with(category_persisted_name(category));
                     let page_count = ring_page_count(cmds.len(), MAX_VISIBLE_ACTIONS_PER_RING);
                     let mut page = ctx
                         .data_mut(|d| d.get_persisted::<usize>(page_state_id))
@@ -571,22 +578,22 @@ pub fn render_radial_command_menu(
                 if ctx.input(|i| i.modifiers.ctrl) {
                     hub_radius = (hub_radius + 2.0).clamp(HUB_RADIUS_MIN, HUB_RADIUS_MAX);
                 } else if ctx.input(|i| i.modifiers.shift) {
-                    tier2_ring_radius =
-                        (tier2_ring_radius + 4.0).clamp(TIER2_RING_RADIUS_MIN, TIER2_RING_RADIUS_MAX);
+                    tier2_ring_radius = (tier2_ring_radius + 4.0)
+                        .clamp(TIER2_RING_RADIUS_MIN, TIER2_RING_RADIUS_MAX);
                 } else {
-                    tier1_ring_radius =
-                        (tier1_ring_radius + 4.0).clamp(TIER1_RING_RADIUS_MIN, TIER1_RING_RADIUS_MAX);
+                    tier1_ring_radius = (tier1_ring_radius + 4.0)
+                        .clamp(TIER1_RING_RADIUS_MIN, TIER1_RING_RADIUS_MAX);
                 }
             }
             if ctx.input(|i| i.modifiers.alt && i.key_pressed(Key::ArrowDown)) {
                 if ctx.input(|i| i.modifiers.ctrl) {
                     hub_radius = (hub_radius - 2.0).clamp(HUB_RADIUS_MIN, HUB_RADIUS_MAX);
                 } else if ctx.input(|i| i.modifiers.shift) {
-                    tier2_ring_radius =
-                        (tier2_ring_radius - 4.0).clamp(TIER2_RING_RADIUS_MIN, TIER2_RING_RADIUS_MAX);
+                    tier2_ring_radius = (tier2_ring_radius - 4.0)
+                        .clamp(TIER2_RING_RADIUS_MIN, TIER2_RING_RADIUS_MAX);
                 } else {
-                    tier1_ring_radius =
-                        (tier1_ring_radius - 4.0).clamp(TIER1_RING_RADIUS_MIN, TIER1_RING_RADIUS_MAX);
+                    tier1_ring_radius = (tier1_ring_radius - 4.0)
+                        .clamp(TIER1_RING_RADIUS_MIN, TIER1_RING_RADIUS_MAX);
                 }
             }
         }
@@ -865,9 +872,7 @@ pub fn render_radial_command_menu(
             should_close = true;
         }
 
-        if !fallback_to_command_palette
-            && let Some(entry) = clicked_entry
-        {
+        if !fallback_to_command_palette && let Some(entry) = clicked_entry {
             if entry.enabled {
                 record_recent_category(ctx, entry.id.category());
                 super::command_palette::execute_action(
@@ -1523,8 +1528,12 @@ mod tests {
     fn domain_from_angle_with_offsets_tracks_rotated_domain_position() {
         let mut offsets = [0.0f32; 4];
         offsets[RadialDomain::Node.index()] = 0.4;
-        let probe = domain_angle_with_offsets(RadialDomain::Node, offsets[RadialDomain::Node.index()]);
-        assert_eq!(domain_from_angle_with_offsets(probe, &offsets), RadialDomain::Node);
+        let probe =
+            domain_angle_with_offsets(RadialDomain::Node, offsets[RadialDomain::Node.index()]);
+        assert_eq!(
+            domain_from_angle_with_offsets(probe, &offsets),
+            RadialDomain::Node
+        );
     }
 
     #[test]
