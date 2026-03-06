@@ -108,6 +108,16 @@ LOD `Point` are below the legible threshold and are omitted from the UxTree to a
 tree pollution. When all nodes are at `Point` LOD (fully zoomed out), the `GraphView`
 node carries a `StatusIndicator` child with label "Zoom in to interact with nodes."
 
+**C5A — LOD transition emission parity (canvas cross-link)**
+Canvas LOD policy is defined in `../canvas/graph_node_edge_interaction_spec.md §4.8`.
+UxTree build output must match the active LOD tier each frame:
+
+- `Point` tier: omit `GraphNode` children and emit the `StatusIndicator` child.
+- `Compact` / `Expanded` tiers: emit `GraphNode` semantic children for interactable nodes.
+
+Mismatch between active canvas LOD tier and UxTree emission mode must emit
+`ux:navigation_violation` (or `ux:contract_warning` when degraded fallback applies).
+
 ### 3.2 UxNodeId Stability Contracts
 
 **ID1 — Path derivation**
@@ -478,3 +488,8 @@ UxProbeSet continue operating.
 `AC7` — **Boundary test coverage**
 - At least one test proves semantic/presentation ID consistency on healthy path.
 - At least one test injects a presentation-orphan node and verifies consistency probe failure.
+
+`AC8` — **LOD semantic emission parity**
+- At `Point` LOD, `GraphNode` semantic children are omitted and `StatusIndicator` is present.
+- At `Compact` or `Expanded` LOD, `GraphNode` semantic children are present for interactable nodes.
+- Any mismatch emits diagnostics (`ux:navigation_violation` or `ux:contract_warning`).

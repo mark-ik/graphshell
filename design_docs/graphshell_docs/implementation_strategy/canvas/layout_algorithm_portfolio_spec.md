@@ -100,6 +100,36 @@ Metric thresholds are evaluated against graph size bands:
 
 Profiles may tune thresholds by size band but must declare the override in portfolio diagnostics metadata.
 
+### 4.1 Readability-Driven Adaptation Contract (UX migration §6.2)
+
+Readability adaptation uses portfolio quality metrics to choose deterministic adaptation actions.
+
+Adaptation trigger policy:
+
+1. Evaluate `ux:layout_quality` metrics after layout execution.
+2. If no threshold is violated, no adaptation is applied.
+3. If thresholds are violated, apply the first eligible action in the adaptation ladder.
+
+Adaptation ladder (first-success policy):
+
+1. Increase spacing pressure in active algorithm/profile (non-structural adjustment).
+2. Re-run current algorithm with readability-biased parameters.
+3. Fall back to readability-favored algorithm recommendation for current workload (`graph_layout:grid` for dense scan; `graph_layout:tree` for hierarchy-heavy views).
+4. Preserve current layout and emit explicit degraded readability warning if no action improves metrics.
+
+Readability adaptation invariants:
+
+- Adaptation must not mutate graph truth (`GraphId` content, node identity, edge identity).
+- Adaptation must remain per-`GraphViewId`; cross-view camera/layout mutation is forbidden.
+- Adaptation action selection must be deterministic for identical metric payload and profile state.
+- A single evaluation cycle may apply at most one ladder step before re-measuring.
+
+Readability diagnostics requirements:
+
+- Every adaptation evaluation emits `ux:layout_quality`.
+- Any threshold breach emits `ux:layout_quality_violation` with violated metrics and thresholds.
+- Any algorithm switch caused by readability adaptation emits `ux:layout_portfolio_fallback` with `reason=readability_adaptation`.
+
 ---
 
 ## 5. Per-Mode Constraints
@@ -162,5 +192,8 @@ Severity rule: execution failures are `Error`; fallback and threshold overruns a
 | Mode incompatibility blocks auto-recommendation | Unit test: incompatible algorithm excluded from recommendation list in target mode |
 | Snapshot restore does not relayout without explicit request | Regression test: load snapshot then compare positions; no drift |
 | Execution failure severity is `Error` | Diagnostics test: `ux:layout_execution_failure` channel severity is `Error` |
+| Readability violation triggers deterministic adaptation ladder | Scenario/assertion: induced readability breach applies first eligible ladder step and records reason |
+| Readability-driven algorithm switch is observable | Scenario/assertion: adaptation-caused switch emits `ux:layout_portfolio_fallback` with `reason=readability_adaptation` |
+| Readability adaptation does not mutate graph truth | Regression test: adaptation run keeps node/edge identities unchanged |
 
 Green-exit for UX migration §6.1 requires all criteria above to pass and diagnostics channels to be wired into CI gate suites.

@@ -565,6 +565,40 @@ Default bindings are profile-configurable, but semantic action mapping is fixed:
 - Camera motion, node drag, and selection feedback must remain responsive under quick smoke workloads.
 - Degradation may reduce fidelity, but it must not hide interaction ownership or current selection truth.
 
+### 4.8 LOD Semantic Zoom Policy (UX migration §6.3 closure)
+
+**What this domain is for**
+
+- Keep semantic zoom behavior predictable while preserving interaction clarity and UxTree signal quality.
+
+**LOD tiers and thresholds (canonical defaults)**
+
+| LOD tier | Scale range (`camera.scale`) | Node rendering contract | Semantic interaction contract |
+|---|---|---|---|
+| `Point` | `< 0.55` | Node points/minimal marks only | Node-level interactions suppressed; graph-level navigation remains active |
+| `Compact` | `0.55 .. < 1.10` | Compact node glyph + key badge | Node selection/inspection available; reduced detail fields |
+| `Expanded` | `>= 1.10` | Full node affordances and labels | Full node interaction and contextual commands |
+
+**Transition and hysteresis policy**
+
+- LOD transitions are threshold-based with hysteresis band `±0.05` around each threshold.
+- A tier transition commits only when `camera.scale` exits the current tier's hysteresis band.
+- For one zoom sequence, LOD recalculation runs after final camera-scale update for that event tick.
+
+**UxTree cross-link (normative)**
+
+- `GraphNode` semantic emission in UxTree must follow `ux_tree_and_probe_spec.md §3.1 C5`.
+- At `Point` LOD, individual `GraphNode` children are omitted from UxTree and `GraphView` carries a `StatusIndicator` child labeled "Zoom in to interact with nodes.".
+- At `Compact` and `Expanded` LOD, UxTree must emit node-semantic children for interactable nodes.
+
+**Diagnostics assertions (normative)**
+
+| Flow | Required diagnostics assertions |
+|---|---|
+| LOD tier transition committed | `ux:navigation_transition` with `operation=lod_tier_change`, `from_tier`, `to_tier`, `graph_view_id` |
+| LOD transition suppressed by hysteresis | `ux:contract_warning` with `operation=lod_tier_change` and `reason=hysteresis_hold` |
+| UxTree emission mismatch for active LOD | `ux:navigation_violation` (`Warn`) with expected vs observed semantic node-emission mode |
+
 ---
 
 ## 5. Planned Extensions
@@ -670,5 +704,7 @@ Logical self-loops (edges where `source == target`) are currently forbidden by t
 13. Node create/delete/pin/group-move semantic mapping is explicit and deterministic.
 14. Lasso boundary inclusion policy and gesture-owner precedence are explicit and deterministic.
 15. Edge management interactions are explicitly aligned with history append rules and diagnostics.
+16. LOD semantic zoom thresholds and hysteresis rules are explicit and deterministic.
+17. LOD-to-UxTree semantic emission behavior is explicitly cross-linked and diagnostics-backed.
 
 
