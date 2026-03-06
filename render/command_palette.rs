@@ -14,7 +14,10 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
-    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, list_actions_for_context,
+    ActionCategory, ActionContext, ActionEntry, ActionId, CATEGORY_PIN_ORDER_PERSIST_KEY,
+    CATEGORY_RECENCY_PERSIST_KEY, InputMode, category_from_persisted_name,
+    category_persisted_name, default_category_order, list_actions_for_context,
+    rank_categories_for_context,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
@@ -26,7 +29,6 @@ use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
-const CATEGORY_RECENCY_KEY: &str = "command_palette_category_recency";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum SearchPaletteScope {
@@ -93,87 +95,11 @@ fn search_matches(entry: &ActionEntry, query: &str) -> bool {
         || entry.id.short_label().to_ascii_lowercase().contains(&q)
 }
 
-fn base_category_rank(category: ActionCategory) -> usize {
-    match category {
-        ActionCategory::Node => 0,
-        ActionCategory::Edge => 1,
-        ActionCategory::Graph => 2,
-        ActionCategory::Persistence => 3,
-    }
-}
-
-fn category_context_score(category: ActionCategory, action_context: &ActionContext) -> i32 {
-    match category {
-        ActionCategory::Node => {
-            let mut score = 100;
-            if action_context.target_node.is_some() {
-                score += 300;
-            }
-            if action_context.any_selected {
-                score += 60;
-            }
-            if action_context.focused_pane_available {
-                score += 25;
-            }
-            score
-        }
-        ActionCategory::Edge => {
-            let mut score = 60;
-            if action_context.pair_context.is_some() {
-                score += 320;
-            }
-            score
-        }
-        ActionCategory::Graph => 80,
-        ActionCategory::Persistence => 70,
-    }
-}
-
-fn category_recency_score(category: ActionCategory, recency: &[ActionCategory]) -> i32 {
-    recency
-        .iter()
-        .position(|entry| *entry == category)
-        .map(|idx| 120_i32.saturating_sub((idx as i32) * 20))
-        .unwrap_or(0)
-}
-
-fn rank_categories_for_context(
-    categories: &[ActionCategory],
-    action_context: &ActionContext,
-    recency: &[ActionCategory],
-) -> Vec<ActionCategory> {
-    let mut ordered = categories.to_vec();
-    ordered.sort_by_key(|category| {
-        let context = category_context_score(*category, action_context);
-        let recent = category_recency_score(*category, recency);
-        let base = base_category_rank(*category) as i32;
-        (-(context + recent), base)
-    });
-    ordered
-}
-
-fn category_persisted_name(category: ActionCategory) -> &'static str {
-    match category {
-        ActionCategory::Node => "node",
-        ActionCategory::Edge => "edge",
-        ActionCategory::Graph => "graph",
-        ActionCategory::Persistence => "persistence",
-    }
-}
-
-fn category_from_persisted_name(name: &str) -> Option<ActionCategory> {
-    match name {
-        "node" => Some(ActionCategory::Node),
-        "edge" => Some(ActionCategory::Edge),
-        "graph" => Some(ActionCategory::Graph),
-        "persistence" => Some(ActionCategory::Persistence),
-        _ => None,
-    }
-}
-
 fn load_category_recency(ctx: &egui::Context) -> Vec<ActionCategory> {
     let raw = ctx
-        .data_mut(|d| d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_RECENCY_KEY)))
+        .data_mut(|d| {
+            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY))
+        })
         .unwrap_or_default();
     raw.into_iter()
         .filter_map(|entry| category_from_persisted_name(&entry))
@@ -185,7 +111,38 @@ fn persist_category_recency(ctx: &egui::Context, recency: &[ActionCategory]) {
         .iter()
         .map(|category| category_persisted_name(*category).to_string())
         .collect();
-    ctx.data_mut(|d| d.insert_persisted(egui::Id::new(CATEGORY_RECENCY_KEY), raw));
+    ctx.data_mut(|d| {
+        d.insert_persisted(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY), raw)
+    });
+}
+
+fn load_pinned_categories(ctx: &egui::Context) -> Vec<ActionCategory> {
+    let raw = ctx
+        .data_mut(|d| {
+            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_PIN_ORDER_PERSIST_KEY))
+        })
+        .unwrap_or_default();
+    raw.into_iter()
+        .filter_map(|entry| category_from_persisted_name(&entry))
+        .collect()
+}
+
+fn persist_pinned_categories(ctx: &egui::Context, pinned: &[ActionCategory]) {
+    let raw: Vec<String> = pinned
+        .iter()
+        .map(|category| category_persisted_name(*category).to_string())
+        .collect();
+    ctx.data_mut(|d| d.insert_persisted(egui::Id::new(CATEGORY_PIN_ORDER_PERSIST_KEY), raw));
+}
+
+fn toggle_category_pin(ctx: &egui::Context, category: ActionCategory) {
+    let mut pinned = load_pinned_categories(ctx);
+    if pinned.contains(&category) {
+        pinned.retain(|entry| *entry != category);
+    } else {
+        pinned.push(category);
+    }
+    persist_pinned_categories(ctx, &pinned);
 }
 
 fn record_recent_category(ctx: &egui::Context, category: ActionCategory) {
@@ -364,17 +321,16 @@ pub fn render_command_palette_panel(
             && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
     };
     let actions = list_actions_for_context(&action_context);
-    let categories_present: Vec<ActionCategory> = [
-        ActionCategory::Node,
-        ActionCategory::Edge,
-        ActionCategory::Graph,
-        ActionCategory::Persistence,
-    ]
-    .into_iter()
-    .filter(|category| actions.iter().any(|entry| entry.id.category() == *category))
-    .collect();
-    let ordered_categories =
-        rank_categories_for_context(&categories_present, &action_context, &load_category_recency(ctx));
+    let categories_present: Vec<ActionCategory> = default_category_order()
+        .into_iter()
+        .filter(|category| actions.iter().any(|entry| entry.id.category() == *category))
+        .collect();
+    let ordered_categories = rank_categories_for_context(
+        &categories_present,
+        &action_context,
+        &load_category_recency(ctx),
+        &load_pinned_categories(ctx),
+    );
     let contextual_mode = app.pending_node_context_target().is_some();
     let search_query_id = egui::Id::new("command_palette_search_query");
     let search_scope_id = egui::Id::new("command_palette_search_scope");
@@ -438,12 +394,22 @@ pub fn render_command_palette_panel(
                         ui.horizontal_wrapped(|ui| {
                             ui.label("Tier 1:");
                             for category in ordered_categories.iter().copied() {
-                                if ui
-                                    .selectable_label(selected_category == category, category.label())
-                                    .clicked()
-                                {
-                                    selected_category = category;
-                                }
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .selectable_label(
+                                            selected_category == category,
+                                            category.label(),
+                                        )
+                                        .clicked()
+                                    {
+                                        selected_category = category;
+                                    }
+                                    let pinned = load_pinned_categories(ui.ctx()).contains(&category);
+                                    let pin_label = if pinned { "Unpin" } else { "Pin" };
+                                    if ui.small_button(pin_label).clicked() {
+                                        toggle_category_pin(ui.ctx(), category);
+                                    }
+                                });
                             }
                         });
                         ctx.data_mut(|d| {
@@ -897,8 +863,26 @@ mod tests {
             &categories,
             &context,
             &[ActionCategory::Persistence, ActionCategory::Graph],
+            &[],
         );
         assert_eq!(ordered[0], ActionCategory::Node);
         assert_eq!(ordered[1], ActionCategory::Persistence);
+    }
+
+    #[test]
+    fn toggle_pin_round_trip_preserves_pin_order() {
+        let ctx = egui::Context::default();
+        assert!(load_pinned_categories(&ctx).is_empty());
+
+        toggle_category_pin(&ctx, ActionCategory::Graph);
+        toggle_category_pin(&ctx, ActionCategory::Node);
+        assert_eq!(
+            load_pinned_categories(&ctx),
+            vec![ActionCategory::Graph, ActionCategory::Node]
+        );
+
+        // Toggling a pinned category removes it without affecting others.
+        toggle_category_pin(&ctx, ActionCategory::Graph);
+        assert_eq!(load_pinned_categories(&ctx), vec![ActionCategory::Node]);
     }
 }

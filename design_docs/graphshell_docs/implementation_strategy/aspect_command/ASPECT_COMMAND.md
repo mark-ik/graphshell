@@ -57,3 +57,20 @@ The Command subsystem may expose commands that switch or tune those presets, but
 ## 5. Architectural Rule
 
 If a behavior answers "what does this action mean?" it belongs to the **Command aspect**.
+
+---
+
+## 6. Utility Audit (2026-03-06)
+
+Keep:
+
+- `render/action_registry.rs` shared category-policy helpers (`rank_categories_for_context`, persisted category encode/decode) as the single ranking authority for command surfaces.
+- Shared persisted preference keys for category recency/pins to keep Context Palette Mode and Radial Palette Mode aligned.
+
+Consolidate next:
+
+- Move duplicate recency/pin persistence helpers currently living in both `render/command_palette.rs` and `render/radial_menu.rs` into a single command-profile utility module.
+
+Defer:
+
+- Full profile-backed radial geometry persistence (current implementation persists geometry via egui context state and keyboard tuning controls).

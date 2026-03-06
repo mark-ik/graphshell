@@ -159,4 +159,7 @@ Implementation notes:
 
 - Deterministic tier paging, overflow telemetry, and fallback diagnostics are live in `render/radial_menu.rs`.
 - UxTree now projects explicit Tier-1/Tier-2 ring container nodes and a radial overflow/readability summary node in `shell/desktop/workbench/ux_tree.rs`.
-- Remaining open items are the full geometry/readability contract details and the CI scenario-gate pack from §6.
+- Radial Tier-1 category ordering now reuses shared context+recency+pin policy from `render/action_registry.rs`, matching Context Palette Mode behavior.
+- Runtime radial geometry tuning is available in radial mode (`Alt+Up/Down` for Tier-1 ring radius, `Alt+Shift+Up/Down` for Tier-2, `Alt+Ctrl+Up/Down` for hub); values persist via UI state keys.
+- Scenario coverage now includes summon gating and pin round-trip checks in `shell/desktop/workbench/tile_post_render.rs` and `render/command_palette.rs`.
+- Remaining open items are full readability convergence across DPI tiers and CI scenario-gate expansion from §6.

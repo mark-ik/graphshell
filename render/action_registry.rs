@@ -34,6 +34,9 @@ pub enum ActionCategory {
     Persistence,
 }
 
+pub const CATEGORY_RECENCY_PERSIST_KEY: &str = "command_palette_category_recency";
+pub const CATEGORY_PIN_ORDER_PERSIST_KEY: &str = "command_palette_category_pins";
+
 impl ActionCategory {
     /// Display label for the category group heading.
     pub fn label(self) -> &'static str {
@@ -44,6 +47,108 @@ impl ActionCategory {
             Self::Persistence => "Persistence",
         }
     }
+}
+
+pub fn default_category_order() -> [ActionCategory; 4] {
+    [
+        ActionCategory::Node,
+        ActionCategory::Edge,
+        ActionCategory::Graph,
+        ActionCategory::Persistence,
+    ]
+}
+
+pub fn category_persisted_name(category: ActionCategory) -> &'static str {
+    match category {
+        ActionCategory::Node => "node",
+        ActionCategory::Edge => "edge",
+        ActionCategory::Graph => "graph",
+        ActionCategory::Persistence => "persistence",
+    }
+}
+
+pub fn category_from_persisted_name(name: &str) -> Option<ActionCategory> {
+    match name {
+        "node" => Some(ActionCategory::Node),
+        "edge" => Some(ActionCategory::Edge),
+        "graph" => Some(ActionCategory::Graph),
+        "persistence" => Some(ActionCategory::Persistence),
+        _ => None,
+    }
+}
+
+fn base_category_rank(category: ActionCategory) -> usize {
+    match category {
+        ActionCategory::Node => 0,
+        ActionCategory::Edge => 1,
+        ActionCategory::Graph => 2,
+        ActionCategory::Persistence => 3,
+    }
+}
+
+fn category_context_score(category: ActionCategory, action_context: &ActionContext) -> i32 {
+    match category {
+        ActionCategory::Node => {
+            let mut score = 100;
+            if action_context.target_node.is_some() {
+                score += 300;
+            }
+            if action_context.any_selected {
+                score += 60;
+            }
+            if action_context.focused_pane_available {
+                score += 25;
+            }
+            score
+        }
+        ActionCategory::Edge => {
+            let mut score = 60;
+            if action_context.pair_context.is_some() {
+                score += 320;
+            }
+            score
+        }
+        ActionCategory::Graph => 80,
+        ActionCategory::Persistence => 70,
+    }
+}
+
+fn category_recency_score(category: ActionCategory, recency: &[ActionCategory]) -> i32 {
+    recency
+        .iter()
+        .position(|entry| *entry == category)
+        .map(|idx| 120_i32.saturating_sub((idx as i32) * 20))
+        .unwrap_or(0)
+}
+
+pub fn rank_categories_for_context(
+    categories: &[ActionCategory],
+    action_context: &ActionContext,
+    recency: &[ActionCategory],
+    pinned: &[ActionCategory],
+) -> Vec<ActionCategory> {
+    let mut ordered = Vec::new();
+
+    for category in pinned {
+        if categories.contains(category) && !ordered.contains(category) {
+            ordered.push(*category);
+        }
+    }
+
+    let mut dynamic: Vec<ActionCategory> = categories
+        .iter()
+        .copied()
+        .filter(|category| !ordered.contains(category))
+        .collect();
+    dynamic.sort_by_key(|category| {
+        let context = category_context_score(*category, action_context);
+        let recent = category_recency_score(*category, recency);
+        let base = base_category_rank(*category) as i32;
+        (-(context + recent), base)
+    });
+
+    ordered.extend(dynamic);
+    ordered
 }
 
 /// Stable identifier for a registered action.
@@ -548,6 +653,36 @@ mod tests {
         {
             assert!(entry.enabled, "{:?} should always be enabled", entry.id);
         }
+    }
+
+    #[test]
+    fn test_rank_categories_pins_precede_dynamic_order() {
+        let ctx = default_context();
+        let categories = default_category_order();
+        let ordered = rank_categories_for_context(
+            &categories,
+            &ctx,
+            &[ActionCategory::Node],
+            &[ActionCategory::Persistence, ActionCategory::Graph],
+        );
+        assert_eq!(ordered[0], ActionCategory::Persistence);
+        assert_eq!(ordered[1], ActionCategory::Graph);
+    }
+
+    #[test]
+    fn test_rank_categories_node_context_promotes_node_when_unpinned() {
+        let ctx = ActionContext {
+            target_node: Some(NodeKey::new(1)),
+            ..default_context()
+        };
+        let categories = default_category_order();
+        let ordered = rank_categories_for_context(
+            &categories,
+            &ctx,
+            &[ActionCategory::Persistence],
+            &[],
+        );
+        assert_eq!(ordered[0], ActionCategory::Node);
     }
 
     #[test]

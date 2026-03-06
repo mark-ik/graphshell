@@ -155,4 +155,13 @@ mod tests {
             true
         ));
     }
+
+    #[test]
+    fn non_secondary_click_never_summons_palette() {
+        assert!(!should_summon_command_palette_on_secondary_click(
+            false,
+            None,
+            false
+        ));
+    }
 }

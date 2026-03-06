@@ -13,8 +13,10 @@
 use crate::app::{GraphBrowserApp, GraphIntent, SelectionUpdateMode};
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
-    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode,
-    list_radial_actions_for_category,
+    ActionCategory, ActionContext, ActionEntry, ActionId, CATEGORY_PIN_ORDER_PERSIST_KEY,
+    CATEGORY_RECENCY_PERSIST_KEY, InputMode, category_from_persisted_name,
+    category_persisted_name, default_category_order, list_radial_actions_for_category,
+    rank_categories_for_context,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -26,6 +28,15 @@ use std::sync::{Mutex, OnceLock};
 
 const MAX_VISIBLE_ACTIONS_PER_RING: usize = 8;
 const COMMAND_RING_RADIUS: f32 = 165.0;
+const HUB_RADIUS_DEFAULT: f32 = 36.0;
+const TIER1_RING_RADIUS_DEFAULT: f32 = 92.0;
+const TIER2_RING_RADIUS_DEFAULT: f32 = COMMAND_RING_RADIUS;
+const HUB_RADIUS_MIN: f32 = 24.0;
+const HUB_RADIUS_MAX: f32 = 72.0;
+const TIER1_RING_RADIUS_MIN: f32 = 64.0;
+const TIER1_RING_RADIUS_MAX: f32 = 180.0;
+const TIER2_RING_RADIUS_MIN: f32 = 120.0;
+const TIER2_RING_RADIUS_MAX: f32 = 280.0;
 const COMMAND_BUTTON_RADIUS: f32 = 22.0;
 const MIN_COMMAND_CENTER_SPACING: f32 = (COMMAND_BUTTON_RADIUS * 2.0) + 4.0;
 const HOVER_LABEL_MAX_CHARS: usize = 22;
@@ -34,6 +45,9 @@ const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 const RAIL_OFFSET_STEP_RAD: f32 = 0.08;
 const RING_COLLISION_EPSILON: f32 = 2.0;
+const HUB_RADIUS_KEY: &str = "radial_hub_radius";
+const TIER1_RING_RADIUS_KEY: &str = "radial_tier1_ring_radius";
+const TIER2_RING_RADIUS_KEY: &str = "radial_tier2_ring_radius";
 // Current radial UI does not enlarge button radius on hover yet.
 // Keep this explicit so the pre-check gate can be tightened when hover-size growth lands.
 const EFFECTIVE_HOVER_BUTTON_RADIUS: f32 = COMMAND_BUTTON_RADIUS;
@@ -93,6 +107,94 @@ pub(crate) fn clear_semantic_snapshot() {
     if let Ok(mut slot) = radial_snapshot_cache().lock() {
         *slot = None;
     }
+}
+
+fn radial_category_label(category: ActionCategory) -> &'static str {
+    match category {
+        ActionCategory::Persistence => "Persist",
+        _ => category.label(),
+    }
+}
+
+fn load_category_recency(ctx: &egui::Context) -> Vec<ActionCategory> {
+    let raw = ctx
+        .data_mut(|d| {
+            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY))
+        })
+        .unwrap_or_default();
+    raw.into_iter()
+        .filter_map(|entry| category_from_persisted_name(&entry))
+        .collect()
+}
+
+fn load_pinned_categories(ctx: &egui::Context) -> Vec<ActionCategory> {
+    let raw = ctx
+        .data_mut(|d| {
+            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_PIN_ORDER_PERSIST_KEY))
+        })
+        .unwrap_or_default();
+    raw.into_iter()
+        .filter_map(|entry| category_from_persisted_name(&entry))
+        .collect()
+}
+
+fn record_recent_category(ctx: &egui::Context, category: ActionCategory) {
+    let mut recency = load_category_recency(ctx);
+    recency.retain(|entry| *entry != category);
+    recency.insert(0, category);
+    recency.truncate(4);
+    let raw: Vec<String> = recency
+        .iter()
+        .map(|category| category_persisted_name(*category).to_string())
+        .collect();
+    ctx.data_mut(|d| {
+        d.insert_persisted(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY), raw)
+    });
+}
+
+fn ordered_radial_categories(ctx: &egui::Context, action_context: &ActionContext) -> [ActionCategory; 4] {
+    let categories_present: Vec<ActionCategory> = default_category_order()
+        .into_iter()
+        .filter(|category| {
+            !list_radial_actions_for_category(action_context, *category).is_empty()
+        })
+        .collect();
+    let mut ordered = rank_categories_for_context(
+        &categories_present,
+        action_context,
+        &load_category_recency(ctx),
+        &load_pinned_categories(ctx),
+    );
+    for category in default_category_order() {
+        if !ordered.contains(&category) {
+            ordered.push(category);
+        }
+    }
+    [ordered[0], ordered[1], ordered[2], ordered[3]]
+}
+
+fn load_radial_geometry(ctx: &egui::Context) -> (f32, f32, f32) {
+    let hub = ctx
+        .data_mut(|d| d.get_persisted::<f32>(egui::Id::new(HUB_RADIUS_KEY)))
+        .unwrap_or(HUB_RADIUS_DEFAULT)
+        .clamp(HUB_RADIUS_MIN, HUB_RADIUS_MAX);
+    let tier1 = ctx
+        .data_mut(|d| d.get_persisted::<f32>(egui::Id::new(TIER1_RING_RADIUS_KEY)))
+        .unwrap_or(TIER1_RING_RADIUS_DEFAULT)
+        .clamp(TIER1_RING_RADIUS_MIN, TIER1_RING_RADIUS_MAX);
+    let tier2 = ctx
+        .data_mut(|d| d.get_persisted::<f32>(egui::Id::new(TIER2_RING_RADIUS_KEY)))
+        .unwrap_or(TIER2_RING_RADIUS_DEFAULT)
+        .clamp(TIER2_RING_RADIUS_MIN, TIER2_RING_RADIUS_MAX);
+    (hub, tier1, tier2.max(tier1 + 24.0))
+}
+
+fn persist_radial_geometry(ctx: &egui::Context, hub_radius: f32, tier1_radius: f32, tier2_radius: f32) {
+    ctx.data_mut(|d| {
+        d.insert_persisted(egui::Id::new(HUB_RADIUS_KEY), hub_radius);
+        d.insert_persisted(egui::Id::new(TIER1_RING_RADIUS_KEY), tier1_radius);
+        d.insert_persisted(egui::Id::new(TIER2_RING_RADIUS_KEY), tier2_radius);
+    });
 }
 
 /// Radial domain maps to `ActionCategory` for registry-backed content.
@@ -288,6 +390,7 @@ pub fn render_radial_command_menu(
             if let Some(entry) = keyboard_commands.get(command_idx)
                 && entry.enabled
             {
+                record_recent_category(ctx, entry.id.category());
                 super::command_palette::execute_action(
                     app,
                     entry.id,
@@ -324,6 +427,7 @@ pub fn render_radial_command_menu(
                                     .add_enabled(entry.enabled, egui::Button::new(entry.id.label()))
                                     .clicked()
                                 {
+                                    record_recent_category(ctx, entry.id.category());
                                     super::command_palette::execute_action(
                                         app,
                                         entry.id,
@@ -362,6 +466,7 @@ pub fn render_radial_command_menu(
                         .clicked()
                     {
                         command_idx = idx;
+                        record_recent_category(ctx, entry.id.category());
                         super::command_palette::execute_action(
                             app,
                             entry.id,
@@ -395,15 +500,18 @@ pub fn render_radial_command_menu(
         }
     } else {
         // Circular radial mode: hover by angle, click to confirm.
+        let ordered_categories = ordered_radial_categories(ctx, &action_context);
         let mut domain_offsets = [0.0f32; 4];
         let mut command_offsets = [0.0f32; 4];
         let mut semantic_snapshot = RadialPaletteSemanticSnapshot::default();
+        let (mut hub_radius, mut tier1_ring_radius, mut tier2_ring_radius) = load_radial_geometry(ctx);
         for domain in RadialDomain::ALL {
+            let category = ordered_categories[domain.index()];
             domain_offsets[domain.index()] = ctx
-                .data_mut(|d| d.get_persisted::<f32>(domain_offset_id(domain)))
+                .data_mut(|d| d.get_persisted::<f32>(domain_offset_id(category)))
                 .unwrap_or(0.0);
             command_offsets[domain.index()] = ctx
-                .data_mut(|d| d.get_persisted::<f32>(command_offset_id(domain)))
+                .data_mut(|d| d.get_persisted::<f32>(command_offset_id(category)))
                 .unwrap_or(0.0);
         }
 
@@ -420,8 +528,10 @@ pub fn render_radial_command_menu(
                 if r > 120.0
                     && let Some(domain) = hovered_domain
                 {
-                    let cmds = list_radial_actions_for_category(&action_context, domain.category());
-                    let page_state_id = egui::Id::new("radial_menu_page").with(domain.label());
+                    let category = ordered_categories[domain.index()];
+                    let cmds = list_radial_actions_for_category(&action_context, category);
+                    let page_state_id = egui::Id::new("radial_menu_page")
+                        .with(category_persisted_name(category));
                     let page_count = ring_page_count(cmds.len(), MAX_VISIBLE_ACTIONS_PER_RING);
                     let mut page = ctx
                         .data_mut(|d| d.get_persisted::<usize>(page_state_id))
@@ -439,12 +549,13 @@ pub fn render_radial_command_menu(
                             byte_len: cmds.len() - visible_cmds.len(),
                         });
                     }
-                    let hover_layout_ok = ring_layout_supports_hover_non_overlap(
+                    let hover_layout_ok = ring_layout_supports_hover_non_overlap_with_ring_radius(
                         center,
                         domain,
                         visible_cmds.len(),
                         domain_offsets[domain.index()],
                         command_offsets[domain.index()],
+                        tier2_ring_radius,
                     );
                     if !hover_layout_ok {
                         if !fallback_to_command_palette {
@@ -455,13 +566,14 @@ pub fn render_radial_command_menu(
                         }
                         fallback_to_command_palette = true;
                     } else {
-                        hovered_entry = nearest_entry_for_pointer(
+                        hovered_entry = nearest_entry_for_pointer_with_radius(
                             domain,
                             center,
                             pos,
                             visible_cmds,
                             domain_offsets[domain.index()],
                             command_offsets[domain.index()],
+                            tier2_ring_radius,
                         );
                     }
 
@@ -490,14 +602,39 @@ pub fn render_radial_command_menu(
                     domain_offsets[idx] += RAIL_OFFSET_STEP_RAD;
                 }
             }
+            if ctx.input(|i| i.modifiers.alt && i.key_pressed(Key::ArrowUp)) {
+                if ctx.input(|i| i.modifiers.ctrl) {
+                    hub_radius = (hub_radius + 2.0).clamp(HUB_RADIUS_MIN, HUB_RADIUS_MAX);
+                } else if ctx.input(|i| i.modifiers.shift) {
+                    tier2_ring_radius =
+                        (tier2_ring_radius + 4.0).clamp(TIER2_RING_RADIUS_MIN, TIER2_RING_RADIUS_MAX);
+                } else {
+                    tier1_ring_radius =
+                        (tier1_ring_radius + 4.0).clamp(TIER1_RING_RADIUS_MIN, TIER1_RING_RADIUS_MAX);
+                }
+            }
+            if ctx.input(|i| i.modifiers.alt && i.key_pressed(Key::ArrowDown)) {
+                if ctx.input(|i| i.modifiers.ctrl) {
+                    hub_radius = (hub_radius - 2.0).clamp(HUB_RADIUS_MIN, HUB_RADIUS_MAX);
+                } else if ctx.input(|i| i.modifiers.shift) {
+                    tier2_ring_radius =
+                        (tier2_ring_radius - 4.0).clamp(TIER2_RING_RADIUS_MIN, TIER2_RING_RADIUS_MAX);
+                } else {
+                    tier1_ring_radius =
+                        (tier1_ring_radius - 4.0).clamp(TIER1_RING_RADIUS_MIN, TIER1_RING_RADIUS_MAX);
+                }
+            }
         }
+        tier2_ring_radius = tier2_ring_radius.max(tier1_ring_radius + 24.0);
 
         for domain in RadialDomain::ALL {
+            let category = ordered_categories[domain.index()];
             ctx.data_mut(|d| {
-                d.insert_persisted(domain_offset_id(domain), domain_offsets[domain.index()]);
-                d.insert_persisted(command_offset_id(domain), command_offsets[domain.index()]);
+                d.insert_persisted(domain_offset_id(category), domain_offsets[domain.index()]);
+                d.insert_persisted(command_offset_id(category), command_offsets[domain.index()]);
             });
         }
+        persist_radial_geometry(ctx, hub_radius, tier1_ring_radius, tier2_ring_radius);
 
         let mut clicked_entry: Option<ActionEntry> = None;
         if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
@@ -514,14 +651,14 @@ pub fn render_radial_command_menu(
             .show(ctx, |ui| {
                 ui.set_min_size(egui::vec2(440.0, 440.0));
                 let painter = ui.painter();
-                painter.circle_filled(center, 36.0, Color32::from_rgb(28, 32, 36));
+                painter.circle_filled(center, hub_radius, Color32::from_rgb(28, 32, 36));
                 painter.circle_stroke(
                     center,
-                    36.0,
+                    hub_radius,
                     Stroke::new(2.0, Color32::from_rgb(90, 110, 125)),
                 );
                 let hub_label = hovered_domain
-                    .map(|d| d.label().to_string())
+                    .map(|d| radial_category_label(ordered_categories[d.index()]).to_string())
                     .unwrap_or_else(|| "Cmd".to_string());
                 painter.text(
                     center,
@@ -532,16 +669,17 @@ pub fn render_radial_command_menu(
                 );
 
                 for domain in RadialDomain::ALL {
+                    let category = ordered_categories[domain.index()];
                     let base = domain_anchor_with_offsets(
                         center,
                         domain,
-                        92.0,
+                        tier1_ring_radius,
                         domain_offsets[domain.index()],
                     );
                     semantic_snapshot.sectors.push(RadialSectorSemanticMetadata {
                         tier: 1,
-                        domain_label: domain.label().to_string(),
-                        action_id: format!("category:{}", domain.label().to_ascii_lowercase()),
+                        domain_label: radial_category_label(category).to_string(),
+                        action_id: format!("category:{}", category_persisted_name(category)),
                         enabled: true,
                         page: 0,
                         rail_position: domain_offsets[domain.index()],
@@ -561,15 +699,17 @@ pub fn render_radial_command_menu(
                     painter.text(
                         base,
                         egui::Align2::CENTER_CENTER,
-                        domain.label(),
+                        radial_category_label(category),
                         egui::FontId::proportional(12.0),
                         Color32::WHITE,
                     );
                 }
 
                 if let Some(domain) = hovered_domain {
-                    let cmds = list_radial_actions_for_category(&action_context, domain.category());
-                    let page_state_id = egui::Id::new("radial_menu_page").with(domain.label());
+                    let category = ordered_categories[domain.index()];
+                    let cmds = list_radial_actions_for_category(&action_context, category);
+                    let page_state_id = egui::Id::new("radial_menu_page")
+                        .with(category_persisted_name(category));
                     let page_count = ring_page_count(cmds.len(), MAX_VISIBLE_ACTIONS_PER_RING);
                     let mut page = ctx
                         .data_mut(|d| d.get_persisted::<usize>(page_state_id))
@@ -604,12 +744,13 @@ pub fn render_radial_command_menu(
                     }
                     ctx.data_mut(|d| d.insert_persisted(page_state_id, page));
 
-                    let hover_layout_ok = ring_layout_supports_hover_non_overlap(
+                    let hover_layout_ok = ring_layout_supports_hover_non_overlap_with_ring_radius(
                         center,
                         domain,
                         visible_cmds.len(),
                         domain_offsets[domain.index()],
                         command_offsets[domain.index()],
+                        tier2_ring_radius,
                     );
                     if !hover_layout_ok {
                         if !fallback_to_command_palette {
@@ -622,7 +763,12 @@ pub fn render_radial_command_menu(
                         fallback_reason.get_or_insert("hover_non_overlap_precheck_failed");
                     }
 
-                    let label_layout = compute_label_layout_metrics(center, domain, visible_cmds);
+                    let label_layout = compute_label_layout_metrics_with_radius(
+                        center,
+                        domain,
+                        visible_cmds,
+                        tier2_ring_radius,
+                    );
                     let packed_collisions = (label_layout.pre_collisions << 16)
                         .saturating_add(label_layout.post_collisions);
                     semantic_snapshot.summary.label_pre_collisions = label_layout.pre_collisions;
@@ -641,17 +787,18 @@ pub fn render_radial_command_menu(
                     }
 
                     for (idx, entry) in visible_cmds.iter().enumerate() {
-                        let angle = command_angle_with_offsets(
+                        let angle = command_angle_with_offsets_at_radius(
                             domain,
                             idx,
                             visible_cmds.len(),
                             domain_offsets[domain.index()],
                             command_offsets[domain.index()],
+                            tier2_ring_radius,
                         );
                         let is_hovered = hovered_entry.as_ref().is_some_and(|h| h.id == entry.id);
                         semantic_snapshot.sectors.push(RadialSectorSemanticMetadata {
                             tier: 2,
-                            domain_label: domain.label().to_string(),
+                            domain_label: radial_category_label(category).to_string(),
                             action_id: format!("{:?}", entry.id),
                             enabled: entry.enabled,
                             page,
@@ -659,13 +806,14 @@ pub fn render_radial_command_menu(
                             angle_rad: angle,
                             hover_scale: if is_hovered { 1.5 } else { 1.0 },
                         });
-                        let anchor = command_anchor_with_offsets(
+                        let anchor = command_anchor_with_offsets_at_radius(
                             center,
                             domain,
                             idx,
                             visible_cmds.len(),
                             domain_offsets[domain.index()],
                             command_offsets[domain.index()],
+                            tier2_ring_radius,
                         );
                         let color = if is_hovered {
                             Color32::from_rgb(80, 170, 215)
@@ -697,11 +845,13 @@ pub fn render_radial_command_menu(
                 }
 
                 if let Some(domain) = hovered_domain {
-                    let page_state_id = egui::Id::new("radial_menu_page").with(domain.label());
+                    let category = ordered_categories[domain.index()];
+                    let page_state_id = egui::Id::new("radial_menu_page")
+                        .with(category_persisted_name(category));
                     let page = ctx
                         .data_mut(|d| d.get_persisted::<usize>(page_state_id))
                         .unwrap_or(0);
-                    let cmds = list_radial_actions_for_category(&action_context, domain.category());
+                    let cmds = list_radial_actions_for_category(&action_context, category);
                     let page_count = ring_page_count(cmds.len(), MAX_VISIBLE_ACTIONS_PER_RING);
                     if page_count > 1 {
                         painter.text(
@@ -715,7 +865,7 @@ pub fn render_radial_command_menu(
                     painter.text(
                         center + egui::vec2(0.0, 94.0),
                         egui::Align2::CENTER_CENTER,
-                        "Arrow Left/Right: Tier1 rail | Shift+Arrow: Tier2 rail",
+                        "Arrow Left/Right: Tier1 rail | Shift+Arrow: Tier2 rail | Alt+Up/Down radius",
                         egui::FontId::proportional(10.0),
                         Color32::from_rgb(170, 190, 205),
                     );
@@ -754,6 +904,7 @@ pub fn render_radial_command_menu(
             && let Some(entry) = clicked_entry
         {
             if entry.enabled {
+                record_recent_category(ctx, entry.id.category());
                 super::command_palette::execute_action(
                     app,
                     entry.id,
@@ -863,12 +1014,57 @@ fn command_anchor_with_offsets(
     domain_offset: f32,
     command_offset: f32,
 ) -> egui::Pos2 {
-    let angle = command_angle_with_offsets(domain, idx, len, domain_offset, command_offset);
+    command_anchor_with_offsets_at_radius(
+        center,
+        domain,
+        idx,
+        len,
+        domain_offset,
+        command_offset,
+        COMMAND_RING_RADIUS,
+    )
+}
+
+fn command_anchor_with_offsets_at_radius(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    idx: usize,
+    len: usize,
+    domain_offset: f32,
+    command_offset: f32,
+    command_ring_radius: f32,
+) -> egui::Pos2 {
+    let angle = command_angle_with_offsets_at_radius(
+        domain,
+        idx,
+        len,
+        domain_offset,
+        command_offset,
+        command_ring_radius,
+    );
     center
         + egui::vec2(
-            angle.cos() * COMMAND_RING_RADIUS,
-            angle.sin() * COMMAND_RING_RADIUS,
+            angle.cos() * command_ring_radius,
+            angle.sin() * command_ring_radius,
         )
+}
+
+fn command_angle_with_offsets_at_radius(
+    domain: RadialDomain,
+    idx: usize,
+    len: usize,
+    domain_offset: f32,
+    command_offset: f32,
+    command_ring_radius: f32,
+) -> f32 {
+    let base = domain_angle_with_offsets(domain, domain_offset) + command_offset;
+    let spread = command_spread_for_len(len, command_ring_radius, MIN_COMMAND_CENTER_SPACING);
+    let t = if len <= 1 {
+        0.0
+    } else {
+        idx as f32 / (len.saturating_sub(1) as f32) - 0.5
+    };
+    base + t * spread
 }
 
 fn command_angle_with_offsets(
@@ -888,12 +1084,12 @@ fn command_angle_with_offsets(
     base + t * spread
 }
 
-fn domain_offset_id(domain: RadialDomain) -> egui::Id {
-    egui::Id::new("radial_domain_rail_offset").with(domain.label())
+fn domain_offset_id(category: ActionCategory) -> egui::Id {
+    egui::Id::new("radial_domain_rail_offset").with(category_persisted_name(category))
 }
 
-fn command_offset_id(domain: RadialDomain) -> egui::Id {
-    egui::Id::new("radial_command_rail_offset").with(domain.label())
+fn command_offset_id(category: ActionCategory) -> egui::Id {
+    egui::Id::new("radial_command_rail_offset").with(category_persisted_name(category))
 }
 
 fn command_spread_for_len(len: usize, radius: f32, min_center_spacing: f32) -> f32 {
@@ -912,6 +1108,24 @@ fn ring_layout_supports_hover_non_overlap(
     domain_offset: f32,
     command_offset: f32,
 ) -> bool {
+    ring_layout_supports_hover_non_overlap_with_ring_radius(
+        center,
+        domain,
+        len,
+        domain_offset,
+        command_offset,
+        COMMAND_RING_RADIUS,
+    )
+}
+
+fn ring_layout_supports_hover_non_overlap_with_ring_radius(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    len: usize,
+    domain_offset: f32,
+    command_offset: f32,
+    ring_radius: f32,
+) -> bool {
     ring_layout_supports_hover_non_overlap_with_radius(
         center,
         domain,
@@ -919,6 +1133,7 @@ fn ring_layout_supports_hover_non_overlap(
         domain_offset,
         command_offset,
         EFFECTIVE_HOVER_BUTTON_RADIUS,
+        ring_radius,
     )
 }
 
@@ -929,6 +1144,7 @@ fn ring_layout_supports_hover_non_overlap_with_radius(
     domain_offset: f32,
     command_offset: f32,
     hovered_radius: f32,
+    ring_radius: f32,
 ) -> bool {
     if len <= 1 {
         return true;
@@ -936,13 +1152,14 @@ fn ring_layout_supports_hover_non_overlap_with_radius(
 
     let anchors: Vec<egui::Pos2> = (0..len)
         .map(|idx| {
-            command_anchor_with_offsets(
+            command_anchor_with_offsets_at_radius(
                 center,
                 domain,
                 idx,
                 len,
                 domain_offset,
                 command_offset,
+                ring_radius,
             )
         })
         .collect();
@@ -959,6 +1176,38 @@ fn ring_layout_supports_hover_non_overlap_with_radius(
         }
     }
     true
+}
+
+fn nearest_entry_for_pointer_with_radius(
+    domain: RadialDomain,
+    center: egui::Pos2,
+    pointer: egui::Pos2,
+    cmds: &[ActionEntry],
+    domain_offset: f32,
+    command_offset: f32,
+    ring_radius: f32,
+) -> Option<ActionEntry> {
+    let mut best: Option<(f32, ActionEntry)> = None;
+    for (idx, entry) in cmds.iter().enumerate() {
+        if !entry.enabled {
+            continue;
+        }
+        let anchor = command_anchor_with_offsets_at_radius(
+            center,
+            domain,
+            idx,
+            cmds.len(),
+            domain_offset,
+            command_offset,
+            ring_radius,
+        );
+        let d = (pointer - anchor).length_sq();
+        match best {
+            Some((best_d, _)) if d >= best_d => {}
+            _ => best = Some((d, entry.clone())),
+        }
+    }
+    best.map(|(_, entry)| entry)
 }
 
 fn visible_ring_entries(cmds: &[ActionEntry]) -> &[ActionEntry] {
@@ -991,26 +1240,57 @@ fn nearest_entry_for_pointer(
     domain_offset: f32,
     command_offset: f32,
 ) -> Option<ActionEntry> {
-    let mut best: Option<(f32, ActionEntry)> = None;
-    for (idx, entry) in cmds.iter().enumerate() {
-        if !entry.enabled {
-            continue;
-        }
-        let anchor = command_anchor_with_offsets(
-            center,
-            domain,
-            idx,
-            cmds.len(),
-            domain_offset,
-            command_offset,
-        );
-        let d = (pointer - anchor).length_sq();
-        match best {
-            Some((best_d, _)) if d >= best_d => {}
-            _ => best = Some((d, entry.clone())),
-        }
+    nearest_entry_for_pointer_with_radius(
+        domain,
+        center,
+        pointer,
+        cmds,
+        domain_offset,
+        command_offset,
+        COMMAND_RING_RADIUS,
+    )
+}
+
+fn compute_label_layout_metrics_with_radius(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    entries: &[ActionEntry],
+    ring_radius: f32,
+) -> LabelLayoutMetrics {
+    if entries.len() <= 1 {
+        return LabelLayoutMetrics {
+            pre_collisions: 0,
+            post_collisions: 0,
+        };
     }
-    best.map(|(_, entry)| entry)
+
+    let base_rects: Vec<egui::Rect> = entries
+        .iter()
+        .enumerate()
+        .map(|(idx, entry)| {
+            let anchor = command_anchor_with_offsets_at_radius(
+                center,
+                domain,
+                idx,
+                entries.len(),
+                0.0,
+                0.0,
+                ring_radius,
+            );
+            let label_pos = radial_label_anchor(anchor, center, HOVER_LABEL_OFFSET);
+            hover_label_rect(label_pos, entry.id.label())
+        })
+        .collect();
+
+    let pre_collisions = count_rect_collisions(&base_rects);
+
+    let resolved_rects = resolve_label_rect_collisions(base_rects, center);
+    let post_collisions = count_rect_collisions(&resolved_rects);
+
+    LabelLayoutMetrics {
+        pre_collisions,
+        post_collisions,
+    }
 }
 
 fn bounded_hover_label(label: &str, max_chars: usize) -> String {
@@ -1312,6 +1592,7 @@ mod tests {
             0.0,
             0.0,
             COMMAND_BUTTON_RADIUS * 1.5,
+            COMMAND_RING_RADIUS,
         ));
     }
 
