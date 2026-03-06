@@ -135,7 +135,8 @@ Cross-mode equivalence rule:
 
 Invocation and dismissal contract:
 
-- Right-click summons contextual command palette shell.
+- Right-click on a graph node summons contextual shell (Context Palette Mode / Radial Palette Mode).
+- Right-click on non-node tile-tree surfaces (canvas background, pane body, tab region, tool pane body) summons Search Palette Mode.
 - The shell may open directly in Search Palette Mode, Context Palette Mode, or Radial Palette Mode per user preference/profile.
 - When Search Palette Mode is opened from right-click contextual invocation, it must show a search bar with a scope dropdown (for example: current target, active pane, active graph, or workbench).
 - Clicking outside current palette context dismisses the shell without command mutation.
@@ -202,6 +203,7 @@ Canonical wording rules:
 **Core controls**
 
 - `Ctrl+K` or equivalent opens Search Palette Mode.
+- `F2` (default shortcut) toggles the same Search Palette Mode shell.
 - Contextual invocation opens the same palette component in Context Palette Mode.
 - Arrow keys move focus.
 - Enter confirms.

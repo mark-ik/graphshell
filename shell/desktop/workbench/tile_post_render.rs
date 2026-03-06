@@ -25,6 +25,14 @@ pub(crate) struct TileRenderOutputs {
     pub(crate) post_render_intents: Vec<GraphIntent>,
 }
 
+fn should_summon_command_palette_on_secondary_click(
+    secondary_clicked: bool,
+    hovered_graph_node: Option<NodeKey>,
+    command_palette_open: bool,
+) -> bool {
+    secondary_clicked && hovered_graph_node.is_none() && !command_palette_open
+}
+
 pub(crate) fn render_tile_tree_and_collect_outputs(
     ui: &mut egui::Ui,
     tiles_tree: &mut Tree<TileKind>,
@@ -59,6 +67,16 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     let mut post_render_intents = behavior.take_pending_graph_intents();
 
     drop(behavior);
+
+    // Secondary-click outside graph-node context should still summon the command palette.
+    // Graph-node right-click remains owned by radial/context handling in render::mod.
+    if should_summon_command_palette_on_secondary_click(
+        ui.ctx().input(|i| i.pointer.secondary_clicked()),
+        graph_app.workspace.hovered_graph_node,
+        graph_app.workspace.show_command_palette,
+    ) {
+        graph_app.toggle_command_palette();
+    }
 
     let uxtree_snapshot = ux_tree::build_snapshot(
         tiles_tree,
@@ -104,4 +122,37 @@ pub(crate) fn mapped_nodes_without_tiles(
         .map(|(_, node_key)| node_key)
         .filter(|node_key| !node_panes_using_composited_runtime.contains(node_key))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_summon_command_palette_on_secondary_click;
+    use crate::graph::NodeKey;
+
+    #[test]
+    fn secondary_click_without_node_summons_palette() {
+        assert!(should_summon_command_palette_on_secondary_click(
+            true,
+            None,
+            false
+        ));
+    }
+
+    #[test]
+    fn secondary_click_over_node_does_not_summon_palette() {
+        assert!(!should_summon_command_palette_on_secondary_click(
+            true,
+            Some(NodeKey::new(1)),
+            false
+        ));
+    }
+
+    #[test]
+    fn secondary_click_when_palette_already_open_does_not_toggle() {
+        assert!(!should_summon_command_palette_on_secondary_click(
+            true,
+            None,
+            true
+        ));
+    }
 }

@@ -428,6 +428,9 @@ UxProbeSet continue operating.
 
 `AC4` — **Graph surface enrichment**
 - Graph semantic nodes carry graph-domain identity (`GraphViewId`) and graph-surface metadata derived from app/graph surface state.
+- Graph view semantic projection includes Lens/Scope state (`lens_id`, layout/physics/theme bindings, filters, dimension, fit-lock state, focused-view state).
+- Workbench semantic projection includes file-tree navigation state (containment source, sort mode, filter, row/selection expansion counts).
+- Workbench semantic projection includes route/open boundary state (pending context target, pending open-node mode, pending connected-open scope).
 
 `AC5` — **Per-frame snapshot diagnostics**
 - Each frame build emits `ux:tree_snapshot_built` with semantic node count payload.
