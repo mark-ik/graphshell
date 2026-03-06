@@ -337,10 +337,24 @@ Canonical wording rules:
 - Query mode determines whether the user is navigating, searching, or invoking a command.
 - Executing an omnibar command dispatches the same `ActionId` that other command surfaces would invoke.
 
+**Canonical parity contract (normative)**
+
+- Omnibar command rows must resolve to the same `ActionId` semantic meaning used by keyboard, Search Palette Mode, Context Palette Mode, and Radial Palette Mode.
+- Target scope resolution for omnibar-invoked `ActionId`s must use the same `ActionContext` authority path as other command surfaces.
+- Disabled command rows in omnibar must remain visible with the same precondition explanation text used by other command surfaces; silent suppression is forbidden.
+- If omnibar cannot resolve command target scope deterministically, it must degrade to explicit blocked-state feedback (or clarification UI), not implicit retargeting.
+
 **Visual feedback**
 
 - Result rows must clearly distinguish navigation targets from commands.
 - Contextual invocations must clearly indicate the current target scope.
+
+**Focus ownership and identification (normative)**
+
+- Omnibar/search text fields must expose explicit focus ownership state even when caret rendering is unavailable (for example: focus ring, field highlight, focus badge, or equivalent deterministic indicator).
+- Focus must be applied to omnibar/search fields only through explicit user selection actions (pointer selection, `Ctrl+L`/platform equivalent, or explicit command intent).
+- On app/frame open, command-surface open, and context-menu summon paths, focus must not default to omnibar.
+- Keyboard command handling must remain owned by the currently focused semantic region unless omnibar focus has been explicitly requested.
 
 **Fallback / degraded behavior**
 
@@ -399,5 +413,7 @@ Canonical wording rules:
 6. Disabled actions remain visible and explain why they are unavailable.
 7. Dismissal and focus return are deterministic.
 8. Blocked command execution is explicit and diagnosable.
+9. Omnibar command rows execute the same `ActionId` semantics and target-scope resolution as keyboard/palette/radial surfaces.
+10. Omnibar and search fields do not capture keyboard commands by default; focus is explicit and visibly identifiable.
 
 

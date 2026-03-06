@@ -357,6 +357,8 @@ graph, or UX semantics code can merge.
 | `modal_dismiss.yaml` | `flow:modal-dismiss` | Dialog open → keyboard dismiss (N2) |
 | `blocked_node_recovery.yaml` | `flow:blocked-node-recovery` | Node enters blocked state → recovery action visible (S5) |
 | `radial_menu_structural.yaml` | `flow:radial-menu-structural` | Radial menu open → 8 sectors present, all labeled (S1, S8) |
+| `command_surface_action_parity.yaml` | `flow:command-surface-action-parity` | Same `ActionId` invoked via keyboard/palette/radial/omnibar yields identical semantic result, target-scope resolution, and disabled-state reason text |
+| `omnibar_focus_ownership.yaml` | `flow:omnibar-focus-ownership` | Omnibar/search focus is explicit-only (no default capture), visible without caret dependency, and keyboard commands route to non-omnibar owners until explicit omnibar focus |
 
 Additional scenarios are recommended but not required for CI gate:
 
@@ -366,6 +368,20 @@ Additional scenarios are recommended but not required for CI gate:
 | `node_pane_degraded.yaml` | `flow:degraded-pane` | TileRenderMode::Placeholder → degraded state visible (M2) |
 | `graph_node_labels.yaml` | `flow:graph-node-labels` | All visible GraphNode nodes have labels (S1) |
 | `workbar_tab_switch.yaml` | `flow:workbar-switch` | Tab switch → correct pane becomes active |
+
+### 6.1 Command-Surface Parity Assertions (required for `flow:command-surface-action-parity`)
+
+- For a shared action fixture set (same graph/workbench preconditions), each invocation path (`Keyboard`, `SearchPalette`, `ContextPalette`, `RadialPalette`, `Omnibar`) must dispatch the same `ActionId`.
+- Target scope must resolve to the same semantic target identity (`NodeKey`, pane identity, graph scope) for equivalent invocation context.
+- Disabled actions must expose the same blocked/precondition reason text across all invocation paths.
+- Any parity mismatch is a blocking CI failure and must report invocation path, `ActionId`, and divergence payload.
+
+### 6.2 Omnibar Focus Assertions (required for `flow:omnibar-focus-ownership`)
+
+- Initial frame state must prove omnibar/search field is not focused by default.
+- Global keyboard command fixtures must execute without being captured by omnibar until explicit omnibar focus selection occurs.
+- After explicit omnibar focus selection, text-entry keystrokes are routed to omnibar/search field owner.
+- Focus indicator assertions must not depend on caret visibility; scenarios must validate a deterministic focus marker in UxSnapshot state.
 
 ---
 
