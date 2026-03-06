@@ -8,7 +8,8 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
-    CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryManagerTab,
+    CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryCaptureStatus,
+    HistoryManagerTab,
     KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode, SelectionUpdateMode,
     UnsavedFramePromptAction, UnsavedFramePromptRequest, WorkbenchIntent,
 };
@@ -2927,6 +2928,7 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
 pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
     let (timeline_total, dissolved_total) = app.history_manager_archive_counts();
+    let health = app.history_health_summary();
 
     ui.horizontal(|ui| {
         if ui.button("Settings").clicked() {
@@ -2957,6 +2959,76 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
     });
     ui.add_space(8.0);
 
+    let capture_label = match health.capture_status {
+        HistoryCaptureStatus::Full => "active",
+        HistoryCaptureStatus::DegradedCaptureOnly => "degraded",
+    };
+    let preview_label = if health.preview_mode_active {
+        "active"
+    } else {
+        "off"
+    };
+    let last_violation = if health.last_preview_isolation_violation {
+        "yes"
+    } else {
+        "none"
+    };
+    let last_event_label = if let Some(last_ms) = health.last_event_unix_ms {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(last_ms);
+        let elapsed_ms = now_ms.saturating_sub(last_ms);
+        if elapsed_ms < 1_000 {
+            "just now".to_string()
+        } else if elapsed_ms < 60_000 {
+            format!("{}s ago", elapsed_ms / 1_000)
+        } else if elapsed_ms < 3_600_000 {
+            format!("{}m ago", elapsed_ms / 60_000)
+        } else if elapsed_ms < 86_400_000 {
+            format!("{}h ago", elapsed_ms / 3_600_000)
+        } else {
+            format!("{}d ago", elapsed_ms / 86_400_000)
+        }
+    } else {
+        "none".to_string()
+    };
+    let reason_bucket = health
+        .recent_failure_reason_bucket
+        .as_deref()
+        .unwrap_or("none");
+    let last_error = health.last_error.as_deref().unwrap_or("none");
+    let return_to_present = health
+        .last_return_to_present_result
+        .as_deref()
+        .unwrap_or("none");
+    let replay_label = if health.replay_in_progress {
+        format!(
+            "{}/{}",
+            health
+                .replay_cursor
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string()),
+            health
+                .replay_total_steps
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "?".to_string())
+        )
+    } else {
+        "idle".to_string()
+    };
+
+    ui.label(
+        egui::RichText::new(format!(
+            "Health: capture={capture_label} | failures={} | reason={reason_bucket} | archive=({}/{}) | preview={preview_label} | replay={replay_label} | last isolation violation={last_violation} | last return-to-present={return_to_present} | last event={last_event_label} | last error={last_error}",
+            health.recent_traversal_append_failures,
+            health.traversal_archive_count,
+            health.dissolved_archive_count
+        ))
+        .small(),
+    );
+    ui.add_space(6.0);
+
     match app.workspace.history_manager_tab {
         HistoryManagerTab::Timeline => {
             ui.horizontal(|ui| {
@@ -2970,6 +3042,37 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                     }
                 });
             });
+            if health.preview_mode_active {
+                ui.horizontal_wrapped(|ui| {
+                    ui.small("Replay controls:");
+                    if ui.button("Reset").clicked() {
+                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                            total_steps: timeline_total,
+                        });
+                        intents.push(GraphIntent::HistoryTimelineReplayReset);
+                    }
+                    if ui.button("+1").clicked() {
+                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                            total_steps: timeline_total,
+                        });
+                        intents.push(GraphIntent::HistoryTimelineReplayAdvance { steps: 1 });
+                    }
+                    if ui.button("+10").clicked() {
+                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                            total_steps: timeline_total,
+                        });
+                        intents.push(GraphIntent::HistoryTimelineReplayAdvance { steps: 10 });
+                    }
+                    if ui.button("Finish").clicked() {
+                        intents.push(GraphIntent::HistoryTimelineReplaySetTotal {
+                            total_steps: timeline_total,
+                        });
+                        intents.push(GraphIntent::HistoryTimelineReplayAdvance {
+                            steps: timeline_total.max(1),
+                        });
+                    }
+                });
+            }
             let entries = app.history_manager_timeline_entries(history_manager_entry_limit());
             render_history_manager_rows(ui, app, &entries, &mut intents);
         }

@@ -487,6 +487,32 @@ impl Graph {
         Some(records)
     }
 
+    /// Collect traversals from all incident edges without mutating graph state.
+    pub(crate) fn collect_node_traversals(&self, key: NodeKey) -> Option<Vec<DissolvedTraversalRecord>> {
+        let _ = self.get_node(key)?;
+
+        let mut records = Vec::new();
+        for edge in self
+            .inner
+            .edges_directed(key, Direction::Outgoing)
+            .chain(self.inner.edges_directed(key, Direction::Incoming))
+        {
+            if edge.weight().traversals.is_empty() {
+                continue;
+            }
+
+            let from_node = self.get_node(edge.source())?;
+            let to_node = self.get_node(edge.target())?;
+            records.push(DissolvedTraversalRecord {
+                from_node_id: from_node.id,
+                to_node_id: to_node.id,
+                traversals: edge.weight().traversals.clone(),
+            });
+        }
+
+        Some(records)
+    }
+
     /// Dissolve helper: collect traversals for matching edges and remove them.
     pub(crate) fn dissolve_remove_edges_collect_traversals(
         &mut self,
@@ -523,6 +549,43 @@ impl Graph {
 
         let removed = self.remove_edges(from, to, edge_type);
         Some((removed, records))
+    }
+
+    /// Collect traversals for matching edges without mutating graph state.
+    pub(crate) fn collect_edge_traversals(
+        &self,
+        from: NodeKey,
+        to: NodeKey,
+        edge_type: EdgeType,
+    ) -> Option<Vec<DissolvedTraversalRecord>> {
+        if edge_type == EdgeType::History {
+            let _ = self.get_node(from)?;
+            let _ = self.get_node(to)?;
+        }
+
+        let from_node_id = self.get_node(from).map(|n| n.id);
+        let to_node_id = self.get_node(to).map(|n| n.id);
+        let mut records = Vec::new();
+
+        if let (Some(from_node_id), Some(to_node_id)) = (from_node_id, to_node_id) {
+            for edge in self.inner.edge_references().filter(|edge| {
+                edge.source() == from
+                    && edge.target() == to
+                    && edge.weight().has_edge_type(edge_type)
+            }) {
+                if edge.weight().traversals.is_empty() {
+                    continue;
+                }
+
+                records.push(DissolvedTraversalRecord {
+                    from_node_id,
+                    to_node_id,
+                    traversals: edge.weight().traversals.clone(),
+                });
+            }
+        }
+
+        Some(records)
     }
 
     /// Remove all directed edges from `from` to `to` with the given type.

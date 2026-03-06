@@ -426,6 +426,330 @@ renders the Gemini capsule's index page as styled text. Links are clickable and 
 
 ---
 
+### Step 11: Explicit Render Selection + Shared Viewer Profiles
+
+**Goal**: Users can choose rendering path directly (`Servo`, `Wry`, `Viewer`) without one path
+being gated behind another, and Reader behavior is treated as a Viewer profile that can target
+Servo.
+
+#### 11.1 User-facing render selection policy
+
+- Add a context/action surface entry:
+  - `Render With -> Servo | Wry | Viewer`
+- The currently active renderer is shown as selected/disabled in the menu.
+- All available renderers for the current node are directly selectable; fallback suggestions are
+  advisory only.
+- If a renderer is unavailable (feature gate off or capability missing), show it disabled with a
+  reason label.
+
+Suggested command IDs (ActionRegistry-facing):
+
+- `viewer.render_with_servo`
+- `viewer.render_with_wry`
+- `viewer.render_with_viewer`
+- `viewer.profile.reader_toggle` (omnibar/button action on Servo tiles)
+
+#### 11.2 Shared Simple Document Model (`Viewer` profiles)
+
+Define a format-agnostic intermediate model used by Viewer profiles:
+
+```rust
+enum SimpleDocument {
+    Blocks(Vec<SimpleBlock>),
+}
+
+enum SimpleBlock {
+    Heading { level: u8, text: String },
+    Paragraph(String),
+    Link { text: String, href: String },
+    Quote(String),
+    CodeFence { lang: Option<String>, text: String },
+    List { ordered: bool, items: Vec<String> },
+    Rule,
+}
+```
+
+Producers into this model:
+
+- `GeminiRenderer` path (`text/gemini` -> `SimpleDocument`)
+- HTTP reader transform path (`http/https` readable extraction -> `SimpleDocument`)
+
+Consumer:
+
+- profile compiler to `EngineTarget::ServoHtml` (primary)
+- optional `NativeReader` target for deterministic low-surface fallback
+
+This is not a new browser engine. It is a shared text-first presentation layer.
+
+#### 11.3 Relationship to Servo/Wry
+
+- `Servo` is the primary engine path for Viewer profiles.
+- `Wry` remains compatibility-only native webview and does not ingest Viewer profile targets.
+- `Viewer` owns content/policy profiles (Reader, Media, future profiles) and compiles targets for
+  Servo rendering where possible.
+
+#### 11.4 Implementation notes
+
+- Do not require Wry for Viewer profiles; Reader profile must function with Servo-only builds.
+- Prefer reusing existing `PlaintextViewer`-adjacent rendering code for block layout and link
+  interaction instead of introducing a separate graphics renderer.
+- Preserve node identity while switching renderer (same node address, different viewer binding).
+
+**Done gate**:
+
+- Context/action menu exposes `Render With -> Servo | Wry | Viewer` with current mode indicator.
+- A node can switch between renderers without reopening or recreating the node.
+- Gemini and HTTP Reader Mode both render through Viewer profile compilation using one shared
+  document model.
+- Viewer profile mode compiles and runs when `wry` is disabled.
+
+---
+
+### Step 12: Servo-First Content Adaptation Pipeline (Generic)
+
+**Goal**: Maximize Servo coverage by routing non-HTML and simplified content through a generic
+adaptation pipeline that can produce Servo-renderable targets without requiring deep Servo-core
+modifications.
+
+This step formalizes a host-owned adaptation layer in Graphshell. Servo remains the primary full
+renderer; Graphshell compiles content into render targets that Servo can consume.
+
+#### 12.1 Pipeline structure
+
+1. Resolve source content via `ProtocolResolver` (`http`, `https`, `gemini`, `file`, future schemes).
+2. Classify source (`AddressKind`, MIME/content-type, confidence).
+3. Adapt source into a normalized intermediate model (`SimpleDocument` or equivalent).
+4. Compile intermediate model into an engine target package.
+5. Bind selected path (`Servo`, `Wry`, `Viewer`) from explicit user command.
+6. Enforce per-target policy (CSP, script/network/storage constraints, link interception).
+
+#### 12.2 Engine target contract
+
+```rust
+enum EngineTarget {
+  ServoHtml {
+    html: String,
+    base_url: Option<String>,
+    content_security_policy: String,
+    policy: RenderPolicy,
+  },
+  WryWebview {
+    source_url: String,
+  },
+  NativeReader {
+    doc: SimpleDocument,
+    policy: RenderPolicy,
+  },
+}
+
+struct RenderPolicy {
+  scripts_allowed: bool,
+  remote_subresources_allowed: bool,
+  storage_allowed: bool,
+  cookies_allowed: bool,
+  intercept_links: bool,
+}
+```
+
+`ServoHtml` is the key cross-applicability path: Graphshell can transform Gemini or readerized
+HTTP content into constrained HTML and render it through Servo's existing pipeline.
+
+#### 12.3 Servo-first policy
+
+- Default renderer remains Servo when available.
+- `Viewer` and `Wry` are explicit selectable alternatives, not hidden fallback-only paths.
+- For simplified/profiled content, Graphshell should first attempt `EngineTarget::ServoHtml`.
+- `Wry` escalation is compatibility fallback for eligible web-source nodes, not a universal
+  target for Viewer profile outputs.
+- Keep a native-reader target available for deterministic low-surface rendering when needed.
+
+#### 12.4 Five high-value uses for this pipeline
+
+1. Gemini capsule rendering through Servo via constrained HTML compilation.
+2. HTTP reader mode for complex/broken pages without immediate renderer switch.
+3. Markdown/docs and note content rendered through one unified simple presentation contract.
+4. Safe preview mode for untrusted content (sanitized output + restrictive policy envelope).
+5. Snapshot/archive replay from normalized content independent of live site behavior.
+
+#### 12.5 Servo evaluation gates ("get the most out of Servo")
+
+Before recommending `Render With -> Wry`, record whether Servo target path succeeded under policy,
+and ensure the node is eligible for webview compatibility fallback:
+
+- did `ServoHtml` render successfully,
+- did navigation/link interception behave correctly,
+- did policy constraints hold (no script/network escape),
+- was output readable/usable by user criteria.
+
+This turns renderer switching into evidence-based selection rather than premature engine bypass.
+
+**Done gate**:
+
+- `EngineTarget` contract is documented and used by at least one non-HTML adapter path.
+- Gemini or readerized HTTP content can render through Servo without Servo-core protocol changes.
+- Diagnostics can report target type and policy mode for rendered nodes.
+- Renderer switch recommendations are backed by recorded Servo-path outcome data and explicit
+  webview-fallback eligibility.
+
+---
+
+### Step 13: Servo Capability Packs (Built-In Modes + Mod-Provided Support)
+
+**Goal**: Keep Servo as the primary rendering path while allowing user-selectable content
+encapsulations and mod-provided capability packs (codecs, backend options, render profiles,
+format adapters) to expand what Servo can handle.
+
+#### 13.1 Built-in mode model
+
+Two mode families are built in and always user-visible:
+
+- **Reader Mode**: text/document-first rendering contracts for `gemini`, `simplehtml`, `txt`,
+  `markdown`, `pdf`-derived document projections, and other HTML-formattable document inputs.
+- **Media Mode**: structured rendering contracts for image/video/audio-centric content.
+
+Both modes compile content into Servo-compatible targets where possible (`EngineTarget::ServoHtml`)
+and remain selectable directly through `Render With` commands.
+
+#### 13.2 Capability packs as mods
+
+Capability packs are mod contributions that do not replace built-in mode semantics; they extend
+support depth:
+
+- codec packs (decode/transcode capabilities),
+- parser/transform packs (format-specific adapters into `SimpleDocument` or media descriptors),
+- render profile packs (policy presets and style/layout templates),
+- backend support packs (feature-gated integration toggles where host policy allows).
+
+Pack contribution model:
+
+- Built-in mode contracts remain canonical (`Reader`, `Media`).
+- Packs register declared capabilities through registry contracts.
+- Selection UI exposes packs as options/profiles under mode families, not as opaque renderer forks.
+
+#### 13.3 User control contract
+
+- User can always choose rendering mode directly: `Render With -> Servo | Wry | Viewer`.
+- Within `Reader` and `Media`, user can choose available capability profiles/packs.
+- Current mode/profile is visible; unavailable options are disabled with reason.
+
+Wry policy note:
+
+- Wry does not consume Viewer profile targets; it remains a compatibility webview path.
+
+This keeps user agency explicit and avoids hidden fallback-only behavior.
+
+#### 13.4 Registry integration
+
+Viewer and protocol registries remain authorities:
+
+- `ProtocolRegistry` resolves scheme/source content.
+- adaptation layer compiles source into engine targets.
+- `ViewerRegistry` selects/dispatches renderer + mode/profile binding.
+
+Packs declare compatibility and conformance before they become selectable.
+
+#### 13.5 Crate-first implementation guidance
+
+Prefer crate composition over custom engine construction:
+
+- parse/transform using ecosystem crates,
+- compile to constrained Servo HTML targets,
+- keep host policy envelope explicit (CSP, script/storage/network rules),
+- introduce bespoke rendering only when crate-based paths cannot satisfy required behavior.
+
+This approach maximizes Servo utilization while minimizing duplicate rendering stacks.
+
+**Done gate**:
+
+- Built-in `Reader` and `Media` mode families are defined and selectable.
+- At least one capability pack extends Reader and one extends Media via registry declarations.
+- Pack profile selection appears in UI with deterministic availability/diagnostics.
+- Servo remains the default path for supported pack outputs.
+
+---
+
+### Step 14: Servo Adoption Policy (Evidence-Gated, Non-Dogmatic)
+
+**Goal**: Use Servo aggressively where it is technically superior, and avoid forcing Servo into
+formats/workflows where it is lower fidelity, less efficient, or operationally higher risk.
+
+This step codifies a hard decision rule: Servo-first by default, but only kept as the chosen path
+when evidence supports it.
+
+#### 14.1 Four-gate decision scorecard
+
+Every candidate content path should be scored across four gates:
+
+1. **Fidelity**: semantic and visual correctness versus user expectation for the content type.
+2. **Efficiency**: runtime cost (startup, frame time, memory footprint, decode/render overhead).
+3. **Complexity**: implementation and maintenance burden compared to alternatives.
+4. **Reliability**: failure modes, crash/fallback frequency, and cross-platform consistency.
+
+Decision rule:
+
+- If Servo passes all four gates (or ties best option), keep Servo as primary.
+- If Servo fails two or more gates, do not force Servo as primary for that content type.
+- If Servo fails one gate narrowly, keep Servo path behind a profile/flag until metrics improve.
+
+#### 14.2 Two Servo usage classes
+
+Use Servo in one of these two explicit classes:
+
+1. **Servo as renderer**:
+  - content compiled/adapted to Servo-native web output (`EngineTarget::ServoHtml`),
+  - Servo performs primary rendering work.
+2. **Servo as presentation shell**:
+  - external parser/codec/backend performs heavy lifting,
+  - Graphshell wraps results into Servo-presented HTML UI surfaces.
+
+Both are valid. Selection depends on scorecard outcomes, not ideology.
+
+#### 14.3 Viewer policy by outcome
+
+- **Promote Servo path** when scorecard is green and diagnostics confirm stable runtime behavior.
+- **Keep dual path** (Servo + native path) when results are close or platform variability is high.
+- **Prefer non-Servo primary** when Servo evidence is materially worse and no short-term mitigation
+  exists.
+
+Wry policy remains unchanged:
+
+- Wry is compatibility webview fallback for eligible web-source nodes.
+- Wry is not a universal Viewer-profile ingest target.
+
+#### 14.4 Required diagnostics evidence
+
+Before declaring Servo primary for a content/profile path, collect at minimum:
+
+- render success rate,
+- fallback frequency,
+- median and p95 frame/render latency,
+- memory delta versus alternate path,
+- user-visible fidelity regressions count.
+
+Recommendation logic must cite these metrics in lane receipts/issues.
+
+#### 14.5 Initial target guidance
+
+Likely strong Servo candidates:
+
+- readerized HTTP documents,
+- Gemini/Text/Markdown-derived document profiles,
+- HTML-wrapped presentation of structured outputs.
+
+Likely conditional (measure first):
+
+- heavy media codec workflows,
+- PDF primary rendering paths where external engines may remain superior.
+
+**Done gate**:
+
+- Scorecard table exists for initial target formats/profiles.
+- At least one profile is promoted to Servo-primary with recorded diagnostics evidence.
+- At least one profile remains dual-path or non-Servo-primary with documented justification.
+- Viewer policy decisions reference measurable gate outcomes, not preference-only rationale.
+
+---
+
 ## Crate Summary
 
 | Crate | Version | Feature | Purpose | License | Notes |
@@ -495,11 +819,22 @@ Steps 3–6 → Step 8 (Badge Integration)
 Step 1 → Step 9 (Security Model)    [file permission guard at Node creation]
 Step 3 → Step 7 (AudioViewer)       [optional; parallel]
 Step 3 → Step 10 (Gemini)           [optional; parallel]
+Step 2 + Step 3 + Step 10 → Step 11 (Render selection + Reader shared model)
+Step 11 + Step 10 → Step 12 (Servo-first adaptation pipeline)
+Step 12 + registry capability wiring → Step 13 (Servo capability packs)
+Step 12 + Step 13 + diagnostics instrumentation → Step 14 (Servo adoption policy)
 ```
 
-Recommended implementation sequence: 1 → 2 → 3 → 4 → 6 → 8 → 9 → 5 → 7 → 10.
+Recommended implementation sequence: 1 → 2 → 3 → 4 → 6 → 8 → 9 → 5 → 7 → 10 → 11 → 12 → 13 → 14.
 
 Steps 5, 7, and 10 are feature-gated and can be deferred or skipped without blocking the rest.
+Step 11 can ship incrementally: first command/menu wiring, then shared `SimpleDocument` adapters.
+Step 12 can ship incrementally: first `EngineTarget` contract + diagnostics labels, then adapter
+coverage expansion (Gemini, HTTP reader, markdown/docs).
+Step 13 can ship incrementally: first profile declaration/selection plumbing, then codec/parser
+pack coverage expansion.
+Step 14 can ship incrementally: scorecard templates first, then evidence-backed profile decisions
+as diagnostics data accumulates.
 
 ---
 

@@ -286,12 +286,14 @@ pub(super) fn render_settings_menu(
                 ui.separator();
                 ui.label("Diagnostics");
                 if ui.button("Export Diagnostic Snapshot (JSON)").clicked() {
+                    diagnostics_state.sync_history_health_snapshot_from_app(graph_app);
                     match diagnostics_state.export_snapshot_json() {
                         Ok(path) => log::info!("Diagnostics JSON exported: {}", path.display()),
                         Err(err) => log::warn!("Diagnostics JSON export failed: {err}"),
                     }
                 }
                 if ui.button("Export Diagnostic Snapshot (SVG)").clicked() {
+                    diagnostics_state.sync_history_health_snapshot_from_app(graph_app);
                     match diagnostics_state.export_snapshot_svg() {
                         Ok(path) => log::info!("Diagnostics SVG exported: {}", path.display()),
                         Err(err) => log::warn!("Diagnostics SVG export failed: {err}"),

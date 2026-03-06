@@ -27,10 +27,11 @@
 
 This spec defines the canonical contracts for:
 
-1. **Context menu event** — `GraphSemanticEvent::ContextMenu` and its trigger path.
+1. **Context menu event** — `GraphSemanticEvent::ContextMenu` and its trigger path across supported web backends.
 2. **Script injection contract** — how DOM extraction is performed via `EmbedderApi`.
 3. **Clip node data model** — the `#clip` tag, address scheme, and edge semantics.
 4. **Graph rendering of clip nodes** — how clip nodes appear in the canvas.
+5. **Backend capability contract** — how Servo and Wry expose clipping uniformly.
 
 ---
 
@@ -38,13 +39,13 @@ This spec defines the canonical contracts for:
 
 ### 2.1 Trigger Path
 
-DOM extraction is initiated from the viewer's context menu. When the user right-clicks within a Servo-rendered tile:
+DOM extraction is initiated from the viewer's context menu. When the user right-clicks within a web viewer tile (Servo or Wry):
 
-1. The browser engine fires a native context menu event.
-2. Servo's embedder layer intercepts it and emits `GraphSemanticEvent::ContextMenu`.
+1. The backend emits a context-menu event with hit metadata.
+2. The backend integration layer translates it into `GraphSemanticEvent::ContextMenu`.
 3. Graphshell's event pipeline receives `GraphSemanticEvent::ContextMenu` and displays the Graphshell context menu (not the browser's native context menu).
 
-**Invariant**: The browser's native context menu must be suppressed. `GraphSemanticEvent::ContextMenu` is the sole trigger for context menu display within Servo-rendered tiles.
+**Invariant**: The browser-native context menu must be suppressed for all backends that support clipping. `GraphSemanticEvent::ContextMenu` is the sole trigger for Graphshell clipping actions in web viewer tiles.
 
 ### 2.2 GraphSemanticEvent::ContextMenu
 
@@ -108,6 +109,15 @@ EmbedderApi::inject_script(
 
 **Invariant**: The script content is constructed by Graphshell, not by user input or page content. No user-controlled string is interpolated into the script without sanitization.
 
+### 3.1.1 Backend note (Servo and Wry)
+
+The injection contract is backend-neutral at the Graphshell boundary:
+
+- Servo path: existing embedder injection route.
+- Wry path: backend executes equivalent read-only JS evaluation and returns serialized JSON via the same callback/result shape.
+
+Backend-specific API names may differ; behavior at the Graphshell contract boundary must match §3.1.
+
 ### 3.2 DOM Extraction Script
 
 For full-page clipping, the injected script:
@@ -118,6 +128,23 @@ For full-page clipping, the injected script:
 The callback stores the JSON result as the clip node's content body (see §4.2).
 
 **Invariant**: The extraction script does not exfiltrate cookies, localStorage, or any credential data. It reads only publicly visible page content.
+
+### 3.3 Backend Capability Contract
+
+Clipping must be exposed via a backend-neutral capability surface rather than backend-specific callsites.
+
+```rust
+pub trait ViewerClipProvider {
+    fn supports_context_menu_clip(&self) -> bool;
+    fn supports_dom_extract(&self) -> bool;
+    fn clip_from_hit(&mut self, hit: ContextMenuHit) -> Result<ClipKind, ClipError>;
+    fn extract_full_page(&mut self, node_key: NodeKey, callback: ClipExtractCallback) -> Result<(), ClipError>;
+}
+```
+
+- `ServoViewer` and `WryViewer` both implement this capability for pane-hosted web viewers.
+- Graph/render code dispatches clip requests through the capability surface, not through backend type checks.
+- Backends that do not support DOM extraction must return capability false and surface a deterministic fallback message.
 
 ---
 
@@ -207,13 +234,14 @@ Clip nodes use `ClipViewer` (see `universal_content_model_spec.md §6`). `ClipVi
 
 | Criterion | Verification |
 |-----------|-------------|
-| Browser native context menu suppressed in Servo tile | Test: right-click in Servo tile → no browser context menu shown |
-| `GraphSemanticEvent::ContextMenu` emitted on right-click | Test: right-click → `ContextMenu` event in event stream with correct `node_key` and `hit` |
+| Browser native context menu suppressed in web viewer tile | Test: right-click in Servo/Wry tile → no browser context menu shown |
+| `GraphSemanticEvent::ContextMenu` emitted on right-click | Test: right-click in Servo/Wry tile → `ContextMenu` event in event stream with correct `node_key` and `hit` |
 | Clip node address is `graphshell://clip/<uuid>` | Test: create clip → node address matches scheme |
 | `#clip` tag is system-managed and non-removable by user | Test: attempt to remove `#clip` tag via tag panel → tag remains |
 | Clip content stored locally, no external transmission | Architecture invariant: no outbound network calls during `ClipContent` intent processing |
 | `UserGrouped` edge created with clip node | Test: create clip → edge exists from clip node to source node |
 | Injected script does not read cookies or localStorage | Architecture invariant: extraction script source contains no `document.cookie` or `localStorage` access |
+| Clipping contract is backend-neutral | Test: clip actions route through capability surface with both Servo and Wry implementations |
 | `ClipViewer` selected for `GraphshellClip` address | Test: clip node → `ViewerRegistry::select` returns `ClipViewer` |
 | "Delete clip" removes content and node | Test: delete clip → `graphshell://clip/<uuid>` address no longer resolves; node gone |
 | `ClipContent` is the only clip node creator | Architecture invariant: no `#clip`-tagged node creation outside `ClipContent` intent handler |

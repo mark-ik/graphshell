@@ -9,6 +9,8 @@
 - `2026-02-19_ios_port_plan.md` — `wry` is already in scope for the iOS port; coordinate feature-flag usage
 - `2026-02-20_cross_platform_sync_and_extension_plan.md` — cross-platform deployment context
 - `2026-02-26_composited_viewer_pass_contract.md` — canonical surface-composition contract and Appendix A foundation sequencing (`A.2`, `A.7`, `A.8`, `A.9` dependencies)
+- `clipping_and_dom_extraction_spec.md` — backend-neutral clipping contract; Wry and Servo must expose equivalent clip/extract semantics at Graphshell boundary
+- `node_viewport_preview_spec.md` — viewport preview tiering; Wry remains preview-only in graph canvas, pane-interactive in workbench
 
 ---
 

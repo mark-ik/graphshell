@@ -20,6 +20,7 @@ use crate::shell::desktop::lifecycle::webview_backpressure::{
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_runtime;
 
 pub(crate) struct RuntimeReconcileArgs<'a> {
@@ -66,6 +67,27 @@ fn pressure_adjusted_active_limit(base_limit: usize, level: MemoryPressureLevel)
         MemoryPressureLevel::Warning => base_limit.saturating_sub(1).max(1),
         MemoryPressureLevel::Critical => 1,
     }
+}
+
+fn collect_native_overlay_nodes(tiles_tree: &Tree<TileKind>) -> (HashSet<NodeKey>, HashSet<NodeKey>) {
+    let mut all = HashSet::new();
+    let mut active = HashSet::new();
+    let active_tiles: HashSet<_> = tiles_tree.active_tiles().into_iter().collect();
+
+    for (tile_id, tile) in tiles_tree.tiles.iter() {
+        let is_active_tile = active_tiles.contains(tile_id);
+
+        if let egui_tiles::Tile::Pane(TileKind::Node(state)) = tile
+            && state.render_mode == TileRenderMode::NativeOverlay
+        {
+            all.insert(state.node);
+            if is_active_tile {
+                active.insert(state.node);
+            }
+        }
+    }
+
+    (all, active)
 }
 
 pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
@@ -123,6 +145,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .into_iter()
             .map(|(node_key, _)| node_key)
             .collect();
+    let (native_overlay_nodes, active_native_overlay_nodes) =
+        collect_native_overlay_nodes(args.tiles_tree);
     let has_node_panes = !tile_nodes.is_empty();
     // Emit lifecycle promotion intents for active tiles (intents applied after reconcile).
     // Runtime viewer creation happens in tile_render_pass after these intents are applied.
@@ -145,6 +169,34 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 ));
         }
     }
+
+    // NativeOverlay (e.g. Wry) nodes do not participate in composited runtime
+    // context ownership; reconcile their inactive pane state explicitly so
+    // Active/Warm semantics stay deterministic in the lifecycle authority path.
+    for node_key in native_overlay_nodes
+        .difference(&active_native_overlay_nodes)
+        .copied()
+    {
+        if args.graph_app.is_runtime_blocked(node_key, Instant::now())
+            || args.graph_app.is_crash_blocked(node_key)
+        {
+            continue;
+        }
+        let should_demote = args
+            .graph_app
+            .workspace
+            .graph
+            .get_node(node_key)
+            .map(|node| node.lifecycle == NodeLifecycle::Active)
+            .unwrap_or(false);
+        if should_demote {
+            args.frame_intents.push(lifecycle_intents::demote_node_to_warm(
+                node_key,
+                LifecycleCause::WorkspaceRetention,
+            ));
+        }
+    }
+
     let prewarm_selected_node = args
         .graph_app
         .get_single_selected_node()
@@ -330,6 +382,20 @@ mod tests {
         assert!(
             !production_source.contains("graph_app.promote_node_to_active("),
             "reconcile must not directly mutate promote lifecycle state"
+        );
+    }
+
+    #[test]
+    fn test_lifecycle_reconcile_includes_native_overlay_transition_guardrail() {
+        let source = include_str!("lifecycle_reconcile.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("TileRenderMode::NativeOverlay"),
+            "reconcile should include NativeOverlay-specific lifecycle handling"
+        );
+        assert!(
+            production_source.contains("LifecycleCause::WorkspaceRetention"),
+            "inactive NativeOverlay paths should demote to warm with WorkspaceRetention cause"
         );
     }
 }

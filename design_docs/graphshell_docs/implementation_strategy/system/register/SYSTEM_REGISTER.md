@@ -14,6 +14,7 @@
 - [../registry_runtime_spec.md](../registry_runtime_spec.md) (`RegistryRuntime` component spec)
 - [../control_panel_spec.md](../control_panel_spec.md) (`ControlPanel` component spec)
 - [../signal_bus_spec.md](../signal_bus_spec.md) (`SignalBus` / signal-routing component spec)
+- [../coop_session_spec.md](../coop_session_spec.md) (`Coop` host-led co-presence contract; distinct from device sync)
 - [../aspect_render/2026-02-20_embedder_decomposition_plan.md](../aspect_render/2026-02-20_embedder_decomposition_plan.md) (embedder decomposition context)
 - [../2026-02-21_lifecycle_intent_model.md](../2026-02-21_lifecycle_intent_model.md) (intent schema and reducer boundary)
 - [../2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) (registry architecture and provider wiring)
@@ -45,11 +46,17 @@ This hub remains the navigation/index surface and historical implementation guid
 
 ## Purpose
 
-The **Control Panel** is the async adapter layer that allows concurrent background producers — network sync, prefetch scheduler, memory monitor, mod loader lifecycle — to feed intents into the synchronous two-phase reducer without compromising determinism or testability.
+The **Control Panel** is the async adapter layer that allows concurrent background producers — network device sync, prefetch scheduler, memory monitor, mod loader lifecycle — to feed intents into the synchronous two-phase reducer without compromising determinism or testability.
 
 The Control Panel is a core component of **The Register** (implemented today as `RegistryRuntime` + `ControlPanel`, with a transitional signal-routing layer and a planned `SignalBus`-class abstraction).
 
 **Key principle:** The reducer stays 100% synchronous and testable. All I/O and background work happens in supervised tokio tasks that communicate exclusively via the intent queue. This is an async *adapter layer* around a deterministic sync core, not an async rewrite.
+
+### Sync Terminology Contract
+
+- **Device Sync**: durable workspace replication between trusted devices (`ApplyRemoteDelta`, peer status, version-vector convergence).
+- **Coop**: collaborative/co-presence behavior (live follow/presence/shared browsing context) and not implied by Device Sync.
+- UI and docs should use explicit labels (`Sync Devices`, `Start Coop`) instead of plain `Sync` when both concepts are present.
 
 ---
 
@@ -391,19 +398,21 @@ Done gates:
 - CP3 policy now carries selected-node prewarm target + memory pressure level; warning/critical pressure slows or disables prefetch cadence.
 - Congestion policy remains exponential backoff bounded by `PREFETCH_MAX_INTERVAL`.
 
-### Phase CP4: P2P Sync
+### Phase CP4: P2P Device Sync
 
-**Status:** Future (separate design doc required)
+**Status:** Design-ready — see [`system/2026-03-05_cp4_p2p_sync_plan.md`](../2026-03-05_cp4_p2p_sync_plan.md)
 
 Goals:
-- P2P worker syncs peer deltas and queues `ApplyRemoteDelta` intents with Lamport clock stamps
+
+- P2P device-sync worker consumes peer deltas and queues `ApplyRemoteDelta` intents with version vector stamps
 - Network failures emit `MarkPeerOffline` intents (never silent)
-- Causality ordering ensures convergence across all peers
+- Causality ordering via version vectors ensures convergence across all peers
 
 Done gates:
-- [ ] Peer discovery and rendezvous design complete
-- [ ] `p2p_sync_worker` implemented and supervised
-- [ ] Lamport clock persistence wired into `GraphBrowserApp`
+
+- [ ] Peer discovery and rendezvous design complete (covered in Verso Tier 1 plan §2–3)
+- [ ] `p2p_sync_worker` implemented and supervised under `ControlPanel`
+- [ ] Version vector persistence wired into workspace state (note: "Lamport clock" in prior wording — version vectors are the correct mechanism per Verso sync plan §4.3; see CP4 plan §5.3)
 
 ---
 
@@ -627,7 +636,7 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 | **CP1** | ✅ Done | `ControlPanel` struct, channel, memory monitor stub, shutdown |
 | **CP2** | ✅ Done | Mod loader worker + mod lifecycle intents |
 | **CP3** | ✅ Done | Prefetch scheduler + `LifecyclePolicy` watch + selected-prewarm promotion intents |
-| **CP4** | Future | P2P sync worker (separate design doc) |
+| **CP4** | Future | P2P device-sync worker (separate design doc) |
 
 ---
 

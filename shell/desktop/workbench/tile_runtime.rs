@@ -10,6 +10,8 @@ use servo::{OffscreenRenderingContext, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
 use crate::graph::{NodeKey, NodeLifecycle};
+#[cfg(feature = "wry")]
+use crate::mods::native::verso;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode};
@@ -240,6 +242,39 @@ impl TileCoordinator {
         let mapped_webview = graph_app.get_webview_for_node(node_key);
 
         if mapped_webview.is_none() {
+            #[cfg(feature = "wry")]
+            {
+                // NativeOverlay backends do not use mapped Servo webviews; if this
+                // node is currently managed by Wry, hide/detach it on pane release.
+                let handled_by_wry = if node_exists {
+                    verso::hide_wry_overlay_for_node(node_key)
+                } else {
+                    verso::destroy_wry_overlay_for_node(node_key)
+                };
+
+                if handled_by_wry {
+                    if node_exists {
+                        let lifecycle = graph_app
+                            .workspace
+                            .graph
+                            .get_node(node_key)
+                            .map(|node| node.lifecycle)
+                            .unwrap_or(NodeLifecycle::Cold);
+                        if lifecycle != NodeLifecycle::Warm {
+                            lifecycle_intents.push(lifecycle_intents::demote_node_to_warm(
+                                node_key,
+                                LifecycleCause::WorkspaceRetention,
+                            ));
+                        }
+                    } else {
+                        lifecycle_intents.push(lifecycle_intents::demote_node_to_cold(
+                            node_key,
+                            LifecycleCause::NodeRemoval,
+                        ));
+                    }
+                }
+            }
+
             tile_rendering_contexts.remove(&node_key);
             return;
         }

@@ -1,6 +1,6 @@
 # Registry Layer Architecture Plan (2026-02-22)
 
-**Status**: Phases 0–4 complete (2026-02-23). Phase 5 complete (2026-02-25; 5.1–5.3 implemented with diagnostics channel/invariant contracts, and 5.4–5.5 done gates closed). Phase 6 complete (6.1 compile-green; 6.2 seam/boundary contracts in place; 6.3 single-write-path runtime closure complete; 6.4 filesystem/import canonicalization complete; 6.5 shim removal and final boundary lock complete).
+**Status**: Phases 0–4 complete (2026-02-23). Phase 5 complete (2026-02-25; 5.1–5.3 implemented with diagnostics channel/invariant contracts, and 5.4–5.5 done gates closed). Phase 6 complete (6.1 compile-green; 6.2 seam/boundary contracts in place; 6.3 single-write-path runtime closure complete; 6.4 filesystem/import canonicalization complete; 6.5 shim removal and final boundary lock complete). ControlPanel CP4 (P2P sync worker integration) is tracked as a separate follow-on plan in `2026-03-05_cp4_p2p_sync_plan.md`.
 **Supersedes**: `registry_migration_plan.md`, `2026-02-23_registry_architecture_critique.md` (archived to `archive_docs/checkpoint_2026-02-23/`)
 **Goal**: Decompose Graphshell's monolithic logic into a modular ecosystem of registries, enabling extensibility and the "Knowledge User Agent" vision.
 
@@ -88,6 +88,8 @@ This generalizes: "Mind Map" = cycles allowed + force-directed + liquid physics.
 - **KnowledgeRegistry**: the atomic UDC/taxonomy registry (not a domain coordinator).
 - **LensCompositor** (not LensRegistry): composes Graph-domain Canvas + Presentation + Knowledge + Filters into a named, reusable Lens.
 - **WorkflowRegistry** (Future): activates a Lens + InputProfile + WorkbenchSurface = a full session mode. `Workflow = Lens × WorkbenchProfile`.
+- **Device Sync**: replication of durable workspace state between trusted devices for one identity/workspace set (Verse Tier 1 bilateral sync).
+- **Coop**: collaborative or co-presence behavior (for example shared live browsing/view-follow). This is not the same contract as Device Sync and is treated as separate future capability unless explicitly declared in scope.
 
 ---
 
@@ -557,26 +559,26 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 
 ---
 
-### Phase 5: Verse Native Mod (Tier 1: Direct P2P Sync)
+### Phase 5: Verse Native Mod (Tier 1: Direct P2P Device Sync)
 
-**Status**: Complete (2026-02-25). Core scaffolding and runtime hooks are implemented (identity bootstrap, endpoint init, trust model/types, sync worker skeleton, sync panel surface, pair-by-code/decode path, async discovery enqueue path), Phase 5 diagnostics channel + watchdog invariant contracts are in place, and end-to-end done gates for Steps 5.4–5.5 are closed (see issues `#1` and `#2`).
+**Status**: Complete (2026-02-25). Core scaffolding and runtime hooks are implemented (identity bootstrap, endpoint init, trust model/types, device-sync worker skeleton, device-sync panel surface, pair-by-code/decode path, async discovery enqueue path), Phase 5 diagnostics channel + watchdog invariant contracts are in place, and end-to-end done gates for Steps 5.4–5.5 are closed (see issues `#1` and `#2`).
 
 **2026-02-24 audited open items (strict, historical snapshot):**
 - At the time of the 2026-02-24 audit, harness done-gate scenarios were still missing: `verse_delta_sync_basic`, `verse_access_control`.
 - At the time of the 2026-02-24 audit, runtime diagnostics gaps remained for conflict channels (`verse.sync.conflict_detected`, `verse.sync.conflict_resolved`) in code emission paths.
 - Resolved on 2026-02-25 via Phase 5.4/5.5 done-gate closures tracked in issues `#1` and `#2`.
 
-**Goal**: Package direct P2P networking as the Verse native mod. Implements bilateral, zero-cost sync between trusted devices via iroh (QUIC + Noise). No tokens, no servers, no Tier 2 complexity.
+**Goal**: Package direct P2P networking as the Verse native mod. Implements bilateral, zero-cost device sync between trusted devices via iroh (QUIC + Noise). No tokens, no servers, no Tier 2 complexity.
 
 **Technical Reference**: See [`verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md`](../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) for complete specifications covering:
 - Identity model (Ed25519, OS keychain, trust store)
 - Transport (iroh, NAT traversal, connection model)
-- Sync protocol (SyncUnit wire format, version vectors, conflict resolution)
-- SyncWorker control plane integration
-- UX designs (Sync Panel, pairing flows, conflict UI)
+- Device sync protocol (SyncUnit wire format, version vectors, conflict resolution)
+- device-sync worker control plane integration
+- UX designs (Device Sync panel, pairing flows, conflict UI)
 - Security (Noise auth, AES-256-GCM at-rest encryption)
 
-**Tier 1 vs Tier 2**: This phase implements **Tier 1 only** (implementation-ready, bilateral sync). Tier 2 (libp2p community swarms, VerseBlob content addressing, Proof of Access economics, federated search) is documented separately in [`verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`](../../verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md) as long-horizon research — not a Phase 5 dependency. Tier 2 validation begins Q3 2026 after Tier 1 is proven in production.
+**Tier 1 vs Tier 2**: This phase implements **Tier 1 only** (implementation-ready, bilateral device sync). Tier 2 (libp2p community swarms, VerseBlob content addressing, Proof of Access economics, federated search) is documented separately in [`verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`](../../verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md) as long-horizon research — not a Phase 5 dependency. Tier 2 validation begins Q3 2026 after Tier 1 is proven in production.
 
 #### Step 5.1: iroh Scaffold & Identity Bootstrap
 
@@ -958,3 +960,11 @@ The `ProtocolRegistry` effectively abstracts storage. In the future, Verse Tier 
 - Phase 5: no longer blocked by compile stability; now tracked as partial implementation with remaining end-to-end integration and done-gate coverage work.
 - Phase 5 contract closure slice completed: Phase 5 diagnostics required-channel declarations added, default diagnostics seeding includes Phase 5 channels, and watchdog invariants for sync flow (`unit_received`/`unit_sent` -> terminal channels) are registered and tested.
 - Runtime contract visibility added: diagnostics API surface now exposes Phase 5 invariant IDs/snapshots with runtime registry tests asserting required invariant presence.
+
+### 2026-03-05 — CP4 Follow-On Clarification
+
+- Registry-layer migration Phases 0–6 remain complete; no re-opened done gates.
+- ControlPanel CP4 is explicitly tracked out-of-band as its own implementation plan: [`2026-03-05_cp4_p2p_sync_plan.md`](2026-03-05_cp4_p2p_sync_plan.md).
+- Terminology lock for "sync":
+  - "Sync" in registry/runtime plans refers to durable state replication (`ApplyRemoteDelta`, version vectors, peer offline signaling).
+  - Session collaboration semantics (shared live browsing/presence) must be named explicitly as "coop" (or equivalent collaboration term) and are not implied by CP4.

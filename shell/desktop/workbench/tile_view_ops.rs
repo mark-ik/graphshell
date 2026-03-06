@@ -448,10 +448,6 @@ pub(crate) fn detach_node_pane_to_split(
 pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
     if tile_runtime::has_any_node_panes(args.tiles_tree) {
         let node_pane_nodes = tile_runtime::all_node_pane_keys(args.tiles_tree);
-        let composited_runtime_nodes = tile_runtime::all_node_pane_keys_using_composited_runtime(
-            args.tiles_tree,
-            args.graph_app,
-        );
         let tile_ids: Vec<_> = args
             .tiles_tree
             .tiles
@@ -464,7 +460,7 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
         for tile_id in tile_ids {
             args.tiles_tree.remove_recursively(tile_id);
         }
-        for node_key in composited_runtime_nodes.iter().copied() {
+        for node_key in node_pane_nodes.iter().copied() {
             tile_runtime::release_node_runtime_for_pane(
                 args.graph_app,
                 args.window,
@@ -472,11 +468,6 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
                 node_key,
                 args.lifecycle_intents,
             );
-        }
-        for node_key in node_pane_nodes {
-            if !composited_runtime_nodes.contains(&node_key) {
-                args.tile_rendering_contexts.remove(&node_key);
-            }
         }
     } else if let Some(node_key) = preferred_detail_node(args.graph_app) {
         open_or_focus_node_pane(args.tiles_tree, args.graph_app, node_key);

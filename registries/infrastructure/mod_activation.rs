@@ -25,8 +25,24 @@ impl NativeModActivations {
 
         // Register activation hooks for each native mod
         hooks.insert(
+            "mod:nostrcore".to_string(),
+            crate::mods::native::nostrcore::activate as ModActivationFn,
+        );
+        hooks.insert(
+            "nostrcore".to_string(),
+            crate::mods::native::nostrcore::activate as ModActivationFn,
+        );
+        hooks.insert(
+            "mod:verso".to_string(),
+            crate::mods::native::verso::activate as ModActivationFn,
+        );
+        hooks.insert(
             "verso".to_string(),
             crate::mods::native::verso::activate as ModActivationFn,
+        );
+        hooks.insert(
+            "mod:verse".to_string(),
+            crate::mods::native::verse::activate as ModActivationFn,
         );
         hooks.insert(
             "verse".to_string(),

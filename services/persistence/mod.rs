@@ -109,6 +109,8 @@ pub struct GraphStore {
     last_snapshot: Instant,
     snapshot_interval: Duration,
     persistence_key: PersistenceKey,
+    #[cfg(test)]
+    fail_next_dissolved_archive_write: bool,
 }
 
 impl GraphStore {
@@ -175,6 +177,8 @@ impl GraphStore {
             last_snapshot: Instant::now(),
             snapshot_interval: Duration::from_secs(DEFAULT_SNAPSHOT_INTERVAL_SECS),
             persistence_key,
+            #[cfg(test)]
+            fail_next_dissolved_archive_write: false,
         };
 
         if store.has_legacy_plaintext_data() {
@@ -379,6 +383,15 @@ impl GraphStore {
 
     /// Stage E kickoff: append dissolved traversal history entries.
     pub fn archive_dissolved_traversal(&mut self, entry: &LogEntry) -> Result<(), GraphStoreError> {
+        #[cfg(test)]
+        {
+            if self.fail_next_dissolved_archive_write {
+                self.fail_next_dissolved_archive_write = false;
+                return Err(GraphStoreError::Io(
+                    "injected dissolved archive write failure".to_string(),
+                ));
+            }
+        }
         if !matches!(entry, LogEntry::AppendTraversal { .. }) {
             return Err(GraphStoreError::Io(
                 "archive_dissolved_traversal requires LogEntry::AppendTraversal".to_string(),
@@ -550,13 +563,13 @@ impl GraphStore {
     ) -> Result<usize, GraphStoreError> {
         use crate::graph::{EdgeType, NavigationTrigger};
 
-        let (removed, edge_traversals) = graph
-            .dissolve_remove_edges_collect_traversals(from, to, edge_type)
+        let edge_traversals = graph
+            .collect_edge_traversals(from, to, edge_type)
             .ok_or_else(|| GraphStoreError::Io("node not found".to_string()))?;
 
         // Dissolution transfer only applies to History edges with traversal data
         if edge_type != EdgeType::History {
-            return Ok(removed);
+            return Ok(graph.remove_edges(from, to, edge_type));
         }
 
         for record in edge_traversals {
@@ -579,7 +592,7 @@ impl GraphStore {
         }
 
         // Note: fjall uses WAL by default, so writes are durable without explicit flush
-        Ok(removed)
+        Ok(graph.remove_edges(from, to, edge_type))
     }
 
     /// Stage E: Remove node with dissolution transfer.
@@ -592,7 +605,7 @@ impl GraphStore {
         use crate::graph::NavigationTrigger;
 
         let edge_traversals = graph
-            .dissolve_remove_node_collect_traversals(key)
+            .collect_node_traversals(key)
             .ok_or_else(|| GraphStoreError::Io("node not found".to_string()))?;
 
         // Archive all traversals
@@ -616,7 +629,12 @@ impl GraphStore {
         }
 
         // Note: fjall uses WAL by default, so writes are durable without explicit flush
-        Ok(true)
+        Ok(graph.remove_node(key))
+    }
+
+    #[cfg(test)]
+    pub fn fail_next_dissolved_archive_write_for_tests(&mut self) {
+        self.fail_next_dissolved_archive_write = true;
     }
 
     /// Take a full snapshot of the graph and compact the log
@@ -2342,6 +2360,37 @@ mod tests {
         // Verify we can read the archived entries
         let entries: Vec<_> = store.dissolved_archive_keyspace.iter().collect();
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn test_dissolution_archive_failure_preserves_edges() {
+        let (mut store, _dir) = create_test_store();
+        let mut graph = Graph::new();
+
+        let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+
+        let edge_key = graph
+            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .unwrap();
+        if let Some(payload) = graph.get_edge_mut(edge_key) {
+            payload.push_traversal(crate::graph::Traversal {
+                timestamp_ms: 1000,
+                trigger: crate::graph::NavigationTrigger::Forward,
+            });
+        }
+
+        store.fail_next_dissolved_archive_write_for_tests();
+        let result = store.dissolve_and_remove_edges(
+            &mut graph,
+            n1,
+            n2,
+            crate::graph::EdgeType::History,
+        );
+
+        assert!(result.is_err());
+        assert!(graph.get_edge(edge_key).is_some());
+        assert_eq!(store.dissolved_archive_len(), 0);
     }
 
     #[test]

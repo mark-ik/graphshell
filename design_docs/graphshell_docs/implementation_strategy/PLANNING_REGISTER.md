@@ -750,6 +750,104 @@ These are mostly sourced from the forgotten-concepts table and adopted strategy 
 - Promote a lane into `§1C` only when it has a clear execution window, owner hotspot set, and issue stack (or an explicit issue-creation slice).
 - Do not remove future-facing lanes just because they are blocked; mark the blocker and trigger instead.
 
+### G. NostrCore Tier 1 Baseline (Issue Seeding)
+
+This issue-seeding block operationalizes the `NostrCore` native baseline defined in:
+
+- `system/2026-03-05_nostr_mod_system.md`
+- `system/register/nostr_core_registry_spec.md`
+
+Positioning note:
+
+- Treat this as a cross-lane stack, not a new standalone lane.
+- Primary lane anchors: `lane:runtime-followon` (`#91`), `lane:subsystem-hardening` (`#96`), `lane:viewer-platform` (`#92`).
+
+#### Issue: NostrCore Native Provider Registration + Manifest Gate
+
+**Title**: Add first-party `NostrCore` native mod manifest and capability-provider registration
+
+**Scope**:
+1. Register `graphshell:nostr-core` native provider manifest (`provides`/`requires`) per `nostr_core_registry_spec.md`.
+2. Wire capability keys into mod lifecycle validation (`namespace:name` checks + dependency resolution).
+3. Emit explicit diagnostics on manifest/capability gate failures.
+
+**Done gate**:
+- `NostrCore` manifest is discoverable in runtime mod listings.
+- Capability declarations validate and fail deterministically when malformed/missing.
+- Diagnostics channel output includes manifest gate failure reasons.
+
+**Lane**: `lane:runtime-followon` (`#91`)
+**Labels**: `architecture`, `mods`, `nostr`, `lane:runtime-followon`
+
+#### Issue: Nostr Signing Boundary (No-Raw-Secret Contract)
+
+**Title**: Implement operation-level Nostr signing service with no raw key exposure
+
+**Scope**:
+1. Add `sign_event` service boundary under identity/security ownership.
+2. Support local signer backend and NIP-46 delegated signer path.
+3. Enforce explicit denial for key-export or raw-secret access attempts.
+4. Add contract tests proving no raw-secret retrieval path exists.
+
+**Done gate**:
+- Authorized callers can request signatures; unauthorized callers are denied.
+- No API path returns raw secret bytes.
+- Contract tests cover allowed signing and denied key-export behavior.
+
+**Lane**: `lane:subsystem-hardening` (`#96`)
+**Labels**: `security`, `identity`, `nostr`, `lane:subsystem-hardening`
+
+#### Issue: Host-Owned Relay Pool Capability Service
+
+**Title**: Add shared Nostr relay subscribe/publish service with capability gates
+
+**Scope**:
+1. Implement host-owned relay pool service (`subscribe`, `unsubscribe`, `publish`).
+2. Enforce per-caller capability checks and rate/usage policy.
+3. Add diagnostics for publish/subscription failures and denied operations.
+
+**Done gate**:
+- Callers with granted capability can subscribe/publish through one shared host pool.
+- Direct/unmanaged socket access path is absent for mods.
+- Failure/denial channels are visible in diagnostics and testable.
+
+**Lane**: `lane:subsystem-hardening` (`#96`)
+**Labels**: `network`, `security`, `nostr`, `lane:subsystem-hardening`
+
+#### Issue: Nostr Event -> Graph Intent Adapter Baseline
+
+**Title**: Add baseline Nostr event-to-intent adapters for graph-native workflows
+
+**Scope**:
+1. Define adapter mappings for initial event kinds used by graph workflows (note/url/highlight/profile baseline).
+2. Route adapters through existing reducer/workbench intent authorities.
+3. Add payload validation and rejection diagnostics.
+
+**Done gate**:
+- At least one end-to-end mapping path is active and tested.
+- Rejected payloads are diagnosable with explicit reason channels.
+- No direct graph mutation path bypasses intent authorities.
+
+**Lane**: `lane:runtime-followon` (`#91`)
+**Labels**: `architecture`, `graph`, `nostr`, `lane:runtime-followon`
+
+#### Issue: NIP-07 Bridge Capability Checks for App Nodes
+
+**Title**: Add host-controlled NIP-07 bridge with per-origin capability enforcement
+
+**Scope**:
+1. Implement `window.nostr` bridge entrypoint for WebView app-node mode.
+2. Gate NIP-07 methods on declared/granted Nostr capabilities.
+3. Add per-origin denial diagnostics and permission-memory hooks.
+
+**Done gate**:
+- Eligible app nodes can execute approved NIP-07 methods.
+- Non-granted methods are denied deterministically and logged.
+- Bridge behavior is covered by at least one scenario-level test path.
+
+**Lane**: `lane:viewer-platform` (`#92`)
+**Labels**: `viewer`, `security`, `nostr`, `lane:viewer-platform`
+
 ---
 
 ## 2. Top 10 Forgotten Concepts for Adoption (Vision / Research Ideas Missing from Active Queue)

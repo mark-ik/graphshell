@@ -9,6 +9,7 @@
 - `CANVAS.md`
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-22_multi_graph_pane_plan.md`
+- `2026-03-05_hybrid_graph_view_overview_atlas_plan.md`
 - `../workbench/WORKBENCH.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../workbench/pane_chrome_and_promotion_spec.md`

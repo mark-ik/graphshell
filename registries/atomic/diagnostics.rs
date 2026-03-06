@@ -23,7 +23,14 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
-    CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_IDENTITY_KEY_UNAVAILABLE,
+    CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
+    CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED, CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+    CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED, CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
+    CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION, CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
+    CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED, CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
+    CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
+    CHANNEL_HISTORY_TRAVERSAL_RECORDED, CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
+    CHANNEL_IDENTITY_KEY_UNAVAILABLE,
     CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED, CHANNEL_IDENTITY_SIGN_SUCCEEDED,
     CHANNEL_INPUT_BINDING_CONFLICT, CHANNEL_INPUT_BINDING_MISSING, CHANNEL_INPUT_BINDING_RESOLVED,
     CHANNEL_INVARIANT_TIMEOUT, CHANNEL_LAYOUT_FALLBACK_USED, CHANNEL_LAYOUT_LOOKUP_FAILED,
@@ -391,7 +398,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 18] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 63] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 75] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -516,6 +523,66 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 63] = [
         channel_id: CHANNEL_UI_HISTORY_MANAGER_LIMIT,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,

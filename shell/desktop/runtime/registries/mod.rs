@@ -3,6 +3,7 @@ pub(crate) mod identity;
 pub(crate) mod input;
 pub(crate) mod knowledge;
 pub(crate) mod lens;
+pub(crate) mod nostr_core;
 pub(crate) mod physics;
 pub(crate) mod protocol;
 pub(crate) mod signal_routing;
@@ -35,6 +36,10 @@ use identity::IdentityRegistry;
 use input::{INPUT_BINDING_TOOLBAR_SUBMIT, InputRegistry};
 use knowledge::KnowledgeRegistry;
 use lens::LensRegistry;
+use nostr_core::{
+    NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
+    NostrSubscriptionHandle, NostrUnsignedEvent,
+};
 use physics::PhysicsRegistry;
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
@@ -105,6 +110,26 @@ pub(crate) const CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE: &str =
 pub(crate) const CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE: &str =
     "startup.selfcheck.channels_incomplete";
 pub(crate) const CHANNEL_UI_HISTORY_MANAGER_LIMIT: &str = "ui.history_manager.limit_applied";
+pub(crate) const CHANNEL_HISTORY_TRAVERSAL_RECORDED: &str = "history.traversal.recorded";
+pub(crate) const CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED: &str = "history.traversal.record_failed";
+pub(crate) const CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED: &str =
+    "history.archive.dissolved_appended";
+pub(crate) const CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED: &str = "history.archive.clear_failed";
+pub(crate) const CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED: &str = "history.archive.export_failed";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED: &str =
+    "history.timeline.preview_entered";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED: &str =
+    "history.timeline.preview_exited";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION: &str =
+    "history.timeline.preview_isolation_violation";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED: &str =
+    "history.timeline.replay_started";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED: &str =
+    "history.timeline.replay_succeeded";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED: &str =
+    "history.timeline.replay_failed";
+pub(crate) const CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED: &str =
+    "history.timeline.return_to_present_failed";
 pub(crate) const CHANNEL_UI_CLIPBOARD_COPY_FAILED: &str = "ui.clipboard.copy_failed";
 pub(crate) const CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED: &str =
     "runtime.ui.graph.camera_request_blocked";
@@ -151,6 +176,13 @@ pub(crate) const CHANNEL_VERSE_SYNC_CONNECTION_REJECTED: &str = "verse.sync.conn
 pub(crate) const CHANNEL_VERSE_SYNC_IDENTITY_GENERATED: &str = "verse.sync.identity_generated";
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_DETECTED: &str = "verse.sync.conflict_detected";
 pub(crate) const CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED: &str = "verse.sync.conflict_resolved";
+pub(crate) const CHANNEL_NOSTR_CAPABILITY_DENIED: &str = "mod.nostrcore.capability_denied";
+pub(crate) const CHANNEL_NOSTR_SIGN_REQUEST_DENIED: &str = "mod.nostrcore.sign_request_denied";
+pub(crate) const CHANNEL_NOSTR_RELAY_PUBLISH_FAILED: &str = "mod.nostrcore.relay_publish_failed";
+pub(crate) const CHANNEL_NOSTR_RELAY_SUBSCRIPTION_FAILED: &str =
+    "mod.nostrcore.relay_subscription_failed";
+pub(crate) const CHANNEL_NOSTR_INTENT_REJECTED: &str = "mod.nostrcore.intent_rejected";
+pub(crate) const CHANNEL_NOSTR_SECURITY_VIOLATION: &str = "mod.nostrcore.security_violation";
 pub(crate) const CHANNEL_COMPOSITOR_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
 pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS: &str = "diagnostics.compositor_chaos";
 pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS: &str =
@@ -258,6 +290,8 @@ pub(crate) struct RegistryRuntime {
     lens: LensRegistry,
     #[allow(dead_code)]
     physics: PhysicsRegistry,
+    #[allow(dead_code)]
+    nostr_core: NostrCoreRegistry,
     protocol: ProtocolRegistry,
     #[allow(dead_code)]
     theme: ThemeRegistry,
@@ -268,6 +302,106 @@ pub(crate) struct RegistryRuntime {
 #[allow(dead_code)]
 pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) -> Option<String> {
     runtime().sign_identity_payload(identity_id, payload)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_sign_event(
+    persona: &str,
+    unsigned: &NostrUnsignedEvent,
+) -> Result<NostrSignedEvent, NostrCoreError> {
+    runtime().nostr_core.sign_event(persona, unsigned)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_use_local_signer() {
+    runtime().nostr_core.use_local_signer();
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_use_nip46_signer(
+    relay_url: &str,
+    signer_pubkey: &str,
+) -> Result<(), NostrCoreError> {
+    runtime()
+        .nostr_core
+        .use_nip46_signer(relay_url, signer_pubkey)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_subscribe(
+    requested_id: Option<&str>,
+    filters: NostrFilterSet,
+) -> Result<NostrSubscriptionHandle, NostrCoreError> {
+    runtime()
+        .nostr_core
+        .relay_subscribe("runtime:core", requested_id, filters)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_subscribe_for_caller(
+    caller_id: &str,
+    requested_id: Option<&str>,
+    filters: NostrFilterSet,
+) -> Result<NostrSubscriptionHandle, NostrCoreError> {
+    runtime()
+        .nostr_core
+        .relay_subscribe(caller_id, requested_id, filters)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_unsubscribe(handle: &NostrSubscriptionHandle) -> bool {
+    runtime()
+        .nostr_core
+        .relay_unsubscribe("runtime:core", handle)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_unsubscribe_for_caller(
+    caller_id: &str,
+    handle: &NostrSubscriptionHandle,
+) -> bool {
+    runtime().nostr_core.relay_unsubscribe(caller_id, handle)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_publish(
+    signed: &NostrSignedEvent,
+) -> Result<NostrPublishReceipt, NostrCoreError> {
+    runtime().nostr_core.relay_publish("runtime:core", signed)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_publish_for_caller(
+    caller_id: &str,
+    signed: &NostrSignedEvent,
+) -> Result<NostrPublishReceipt, NostrCoreError> {
+    runtime().nostr_core.relay_publish(caller_id, signed)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_publish_to_relays(
+    signed: &NostrSignedEvent,
+    relay_urls: &[String],
+) -> Result<NostrPublishReceipt, NostrCoreError> {
+    runtime()
+        .nostr_core
+        .relay_publish_to_relays("runtime:core", signed, relay_urls)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_relay_publish_to_relays_for_caller(
+    caller_id: &str,
+    signed: &NostrSignedEvent,
+    relay_urls: &[String],
+) -> Result<NostrPublishReceipt, NostrCoreError> {
+    runtime()
+        .nostr_core
+        .relay_publish_to_relays(caller_id, signed, relay_urls)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_report_intent_rejected(byte_len: usize) {
+    runtime().nostr_core.report_intent_rejected(byte_len);
 }
 
 impl RegistryRuntime {
@@ -304,6 +438,7 @@ impl RegistryRuntime {
             layout: LayoutRegistry::default(),
             lens: LensRegistry::default(),
             physics: PhysicsRegistry::default(),
+            nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
             theme: ThemeRegistry::default(),
             viewer: viewer_registry,
@@ -359,6 +494,7 @@ impl RegistryRuntime {
             layout: LayoutRegistry::default(),
             lens: LensRegistry::default(),
             physics: PhysicsRegistry::default(),
+            nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
             theme: ThemeRegistry::default(),
             viewer: viewer_registry,
@@ -1683,10 +1819,18 @@ pub(crate) fn phase5_check_verse_workspace_sync_access_for_tests(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, OnceLock};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+
+    fn nostr_backend_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("nostr backend test lock poisoned")
+    }
 
     #[test]
     fn protocol_registry_resolves_known_scheme_and_falls_back_for_unknown() {
@@ -2438,6 +2582,114 @@ mod tests {
         assert!(resolution.matched);
         assert!(!resolution.fallback_used);
         assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DEFAULT);
+    }
+
+    #[test]
+    fn phase3_nostr_sign_event_returns_signed_payload() {
+        let _guard = nostr_backend_test_guard();
+        phase3_nostr_use_local_signer();
+        let unsigned = NostrUnsignedEvent {
+            kind: 1,
+            content: "hello".to_string(),
+            tags: vec![("t".to_string(), "graphshell".to_string())],
+        };
+
+        let signed = phase3_nostr_sign_event("default", &unsigned)
+            .expect("nostr sign scaffold should return signed payload");
+        assert_eq!(signed.kind, 1);
+        assert_eq!(signed.signature.len(), 128);
+        assert_eq!(signed.event_id.len(), 64);
+    }
+
+    #[test]
+    fn phase3_nostr_subscribe_unsubscribe_scaffold_roundtrip() {
+        let handle = phase3_nostr_relay_subscribe(
+            Some("timeline"),
+            NostrFilterSet {
+                kinds: vec![1],
+                authors: vec!["npub1example".to_string()],
+                hashtags: vec![],
+                relay_urls: vec![],
+            },
+        )
+        .expect("nostr relay subscribe scaffold should accept non-empty filter");
+
+        assert_eq!(handle.id, "timeline");
+        assert!(phase3_nostr_relay_unsubscribe(&handle));
+    }
+
+    #[test]
+    fn phase3_nostr_caller_scoping_prevents_cross_caller_unsubscribe() {
+        let handle = phase3_nostr_relay_subscribe_for_caller(
+            "mod:alpha",
+            Some("shared"),
+            NostrFilterSet {
+                kinds: vec![1],
+                authors: vec!["npub1example".to_string()],
+                hashtags: vec![],
+                relay_urls: vec!["wss://relay.damus.io".to_string()],
+            },
+        )
+        .expect("caller-scoped subscribe should succeed");
+
+        assert!(!phase3_nostr_relay_unsubscribe_for_caller("mod:beta", &handle));
+        assert!(phase3_nostr_relay_unsubscribe_for_caller("mod:alpha", &handle));
+    }
+
+    #[test]
+    fn phase3_nostr_publish_to_relays_for_caller_accepts_explicit_targets() {
+        let publish = phase3_nostr_relay_publish_to_relays_for_caller(
+            "mod:alpha",
+            &NostrSignedEvent {
+                event_id: "evt-typed-caller".to_string(),
+                pubkey: "pk".to_string(),
+                signature: "sig".to_string(),
+                kind: 1,
+                content: "hello".to_string(),
+                tags: Vec::new(),
+            },
+            &["wss://relay.damus.io".to_string()],
+        )
+        .expect("publish-to-relays should accept explicit default relay target");
+
+        assert!(publish.accepted);
+        assert_eq!(publish.relay_count, 1);
+    }
+
+    #[test]
+    fn phase3_nostr_publish_scaffold_rejects_empty_signature() {
+        let _guard = nostr_backend_test_guard();
+        phase3_nostr_use_local_signer();
+        let publish = phase3_nostr_relay_publish(&NostrSignedEvent {
+            event_id: "evt".to_string(),
+            pubkey: "pk".to_string(),
+            signature: String::new(),
+            kind: 1,
+            content: "bad".to_string(),
+            tags: Vec::new(),
+        });
+
+        assert!(publish.is_err());
+    }
+
+    #[test]
+    fn phase3_nostr_nip46_backend_reports_unavailable() {
+        let _guard = nostr_backend_test_guard();
+        phase3_nostr_use_nip46_signer("wss://relay.example", "npub1delegate")
+            .expect("nip46 config should be accepted");
+
+        let result = phase3_nostr_sign_event(
+            "default",
+            &NostrUnsignedEvent {
+                kind: 1,
+                content: "hello".to_string(),
+                tags: Vec::new(),
+            },
+        );
+        assert!(matches!(result, Err(NostrCoreError::BackendUnavailable(_))));
+
+        // Restore default local backend to avoid leaking state into other tests.
+        phase3_nostr_use_local_signer();
     }
 
     #[test]

@@ -1,0 +1,48 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+//! Wry runtime type scaffolds for the Verso native mod.
+//!
+//! These types intentionally stay lightweight in the first implementation slice.
+//! Runtime ownership and compositor contracts are defined in
+//! `design_docs/graphshell_docs/implementation_strategy/viewer/wry_integration_spec.md`.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WryPlatform {
+    Windows,
+    MacOS,
+    Linux,
+    Other,
+}
+
+impl WryPlatform {
+    pub(crate) fn detect() -> Self {
+        if cfg!(target_os = "windows") {
+            Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::MacOS
+        } else if cfg!(target_os = "linux") {
+            Self::Linux
+        } else {
+            Self::Other
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WryRenderMode {
+    NativeOverlay,
+    CompositedTexture,
+}
+
+impl WryRenderMode {
+    pub(crate) fn for_platform(platform: WryPlatform) -> Self {
+        match platform {
+            // Linux is currently NativeOverlay-only in the spec.
+            WryPlatform::Linux => Self::NativeOverlay,
+            // Windows/macOS default to NativeOverlay in initial implementation.
+            WryPlatform::Windows | WryPlatform::MacOS | WryPlatform::Other => Self::NativeOverlay,
+        }
+    }
+}

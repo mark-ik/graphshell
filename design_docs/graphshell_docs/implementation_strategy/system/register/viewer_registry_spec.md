@@ -55,11 +55,13 @@ Canonical interfaces:
 
 - richer capability scoring and content negotiation
 - backend-specific conformance declarations
+- mode/profile selection contracts for built-in renderer families (for example Reader/Media) with mod-provided capability packs
 
 ## Prospective Capabilities
 
 - multi-viewer composition for the same payload
 - progressive viewer handoff based on capability negotiation
+- user-selectable render profiles within one viewer family with explicit diagnostics-backed availability
 
 ## Acceptance Criteria
 

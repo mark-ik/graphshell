@@ -217,3 +217,106 @@ Implementation priority:
 | Wry disabled by default | Test: fresh preferences → `wry_enabled = false`; `Http` nodes use `ServoViewer` |
 | `WryManager` is the only webview creator/destroyer | Architecture invariant: no `wry::WebView::new` calls outside `WryManager` |
 | Linux forces `NativeOverlay` | Test: Linux build → `WryRenderMode` is always `NativeOverlay` |
+
+---
+
+## 9. Implementation Checklist (File-by-File)
+
+This section converts the contracts above into an execution stack for the current repository.
+
+### 9.1 Milestone 1 — Feature Gate + Build Wiring
+
+1. Update `Cargo.toml`:
+- add `wry` dependency under non-mobile desktop target dependencies,
+- add `wry` feature flag and wire it to the dependency,
+- keep default feature set unchanged (`wry` remains opt-in).
+
+2. Add compile checks in CI/task scripts:
+- `cargo build` (without `wry`) must pass,
+- `cargo build --features wry` must pass.
+
+### 9.2 Milestone 2 — Wry Runtime Scaffolds
+
+Create under Verso native module:
+
+- `mods/native/verso/wry_manager.rs`
+- `mods/native/verso/wry_viewer.rs`
+- `mods/native/verso/wry_types.rs` (mode enums / platform capability helpers)
+
+Update:
+
+- `mods/native/verso/mod.rs` to register/construct Wry components when `feature = "wry"`.
+- `mods/native/mod.rs` if needed for feature-gated export wiring.
+
+Checklist:
+
+- `WryManager` owns create/destroy lifecycle for all Wry webviews.
+- `WryViewer` implements the viewer contract methods used by runtime dispatch.
+- no `wry::WebView::new` callsites outside `WryManager`.
+
+### 9.3 Milestone 3 — Workbench/Compositor Integration
+
+Primary files:
+
+- `shell/desktop/workbench/tile_runtime.rs`
+- `shell/desktop/workbench/tile_compositor.rs`
+- `shell/desktop/workbench/tile_render_pass.rs`
+- `shell/desktop/workbench/compositor_adapter.rs`
+
+Checklist:
+
+- bind `viewer:wry` to `TileRenderMode::NativeOverlay` (already scaffolded; keep authoritative),
+- call Wry overlay sync from the post-layout path for native-overlay tiles,
+- enforce occlusion/tab-hidden visibility false behavior,
+- keep affordances clipped to chrome/gutter for native-overlay mode.
+
+### 9.4 Milestone 4 — Lifecycle and Selection Wiring
+
+Primary files:
+
+- `shell/desktop/workbench/tile_behavior.rs`
+- `shell/desktop/workbench/pane_model.rs`
+- `shell/desktop/workbench/tile_view_ops.rs`
+- lifecycle reconciler path (where Active/Warm/Cold attach/detach is handled for viewers)
+
+Checklist:
+
+- `viewer_id_override` selection to `viewer:wry` triggers Wry lifecycle path,
+- Active/Warm/Cold transitions correctly create/hide/destroy Wry webviews,
+- mode transition away from `NativeOverlay` hides native window before detach,
+- node identity and selection semantics remain unchanged.
+
+### 9.5 Milestone 5 — Settings and Command Surface
+
+Primary files (existing command/settings surfaces):
+
+- command palette / context action wiring for backend selection,
+- settings persistence surface for `wry_enabled` and backend defaults.
+
+Checklist:
+
+- global toggle: Wry disabled by default,
+- per-node override: `viewer:webview` vs `viewer:wry`,
+- clear disabled reasons when `wry` feature is not compiled.
+
+### 9.6 Milestone 6 — Test Matrix
+
+Contract tests to add:
+
+1. Feature gate compile matrix (`wry` off/on).
+2. Overlay visibility sync (active tab vs hidden tab).
+3. Occlusion behavior (`set_visible(false)` on inactive/occluded).
+4. Lifecycle destruction on `Warm -> Cold`.
+5. Recreation/restore on `Cold -> Active`.
+6. NativeOverlay compositor clipping invariant.
+7. Wry disabled-by-default preference behavior.
+
+### 9.7 Definition of Ready for First Runtime Slice
+
+A first mergeable slice is ready when:
+
+- `Cargo.toml` has `wry` feature wiring,
+- `WryManager`/`WryViewer` compile behind `#[cfg(feature = "wry")]`,
+- `viewer:wry` registration is feature-gated,
+- no-op overlay sync path is invoked from compositor for `NativeOverlay` tiles,
+- tests include at least compile matrix + one overlay visibility assertion.

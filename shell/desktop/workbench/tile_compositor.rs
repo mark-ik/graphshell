@@ -32,6 +32,11 @@ use crate::shell::desktop::workbench::compositor_adapter::{
 };
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+#[cfg(feature = "wry")]
+use crate::{
+    mods::native::verso,
+    mods::native::verso::wry_manager::OverlayRect as WryOverlayRect,
+};
 
 #[derive(Clone, Copy)]
 enum ScheduledOverlay {
@@ -143,6 +148,27 @@ fn should_degrade_for_gpu_pressure(
     budget_per_frame: usize,
 ) -> bool {
     composed_content_passes >= budget_per_frame
+}
+
+fn sync_native_overlay_for_tile(node_key: NodeKey, tile_rect: egui::Rect, visible: bool) {
+    #[cfg(feature = "wry")]
+    {
+        verso::sync_wry_overlay_for_node(
+            node_key,
+            WryOverlayRect {
+                x: tile_rect.min.x,
+                y: tile_rect.min.y,
+                width: tile_rect.width(),
+                height: tile_rect.height(),
+            },
+            visible,
+        );
+    }
+
+    #[cfg(not(feature = "wry"))]
+    {
+        let _ = (node_key, tile_rect, visible);
+    }
 }
 
 #[cfg(test)]
@@ -331,11 +357,20 @@ pub(crate) fn composite_active_node_pane_webviews(
         let node_webview_id = graph_app.get_webview_for_node(node_key);
 
         if should_cull_tile_content(tile_rect, viewport_rect) {
+            if render_mode == TileRenderMode::NativeOverlay {
+                sync_native_overlay_for_tile(node_key, tile_rect, false);
+            }
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
                 byte_len: 1,
             });
             continue;
+        }
+
+        if render_mode == TileRenderMode::NativeOverlay {
+            // Native overlay backends are synchronized after layout, even though
+            // composited texture painting is skipped for this mode.
+            sync_native_overlay_for_tile(node_key, tile_rect, true);
         }
 
         if render_mode == TileRenderMode::CompositedTexture {
@@ -624,6 +659,8 @@ mod tests {
 
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
+    #[cfg(feature = "wry")]
+    use crate::mods::native::verso;
 
     fn test_webview_id() -> servo::WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -768,6 +805,36 @@ mod tests {
             "expected deferred focus activation channel to be emitted"
         );
         assert_eq!(focused_hint, Some(primary));
+    }
+
+    #[cfg(feature = "wry")]
+    #[test]
+    fn native_overlay_sync_records_visible_true() {
+        verso::reset_wry_manager_for_tests();
+        let node_key = NodeKey::new(700);
+        let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(300.0, 150.0));
+
+        sync_native_overlay_for_tile(node_key, rect, true);
+
+        let state = verso::last_wry_overlay_sync_for_node_for_tests(node_key)
+            .expect("expected overlay sync state");
+        assert!(state.visible);
+        assert_eq!(state.rect.width, 300.0);
+        assert_eq!(state.rect.height, 150.0);
+    }
+
+    #[cfg(feature = "wry")]
+    #[test]
+    fn native_overlay_sync_records_visible_false_for_hidden_tiles() {
+        verso::reset_wry_manager_for_tests();
+        let node_key = NodeKey::new(701);
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(120.0, 80.0));
+
+        sync_native_overlay_for_tile(node_key, rect, false);
+
+        let state = verso::last_wry_overlay_sync_for_node_for_tests(node_key)
+            .expect("expected overlay sync state");
+        assert!(!state.visible);
     }
 
     #[test]

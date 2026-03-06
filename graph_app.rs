@@ -26,6 +26,13 @@ use crate::services::persistence::types::{
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
+    CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
+    CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TRAVERSAL_RECORDED,
+    CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED, CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
+    CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION, CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
+    CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED, CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
+    CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
+    CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
@@ -142,6 +149,77 @@ pub enum HistoryManagerTab {
     #[default]
     Timeline,
     Dissolved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryCaptureStatus {
+    Full,
+    DegradedCaptureOnly,
+}
+
+impl HistoryCaptureStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::DegradedCaptureOnly => "degraded-capture-only",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryTraversalFailureReason {
+    MissingOldUrl,
+    MissingNewUrl,
+    SameUrl,
+    NonHistoryTransition,
+    MissingEndpoint,
+    SelfLoop,
+    GraphRejected,
+    PersistenceUnavailable,
+    ExportWriteFailed,
+    ExportReadFailed,
+    HomeDirectoryUnavailable,
+    PreviewIsolationViolation,
+    ReplayFailed,
+    ReturnToPresentFailed,
+}
+
+impl HistoryTraversalFailureReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingOldUrl => "missing_old_url",
+            Self::MissingNewUrl => "missing_new_url",
+            Self::SameUrl => "same_url",
+            Self::NonHistoryTransition => "non_history_transition",
+            Self::MissingEndpoint => "missing_endpoint",
+            Self::SelfLoop => "self_loop",
+            Self::GraphRejected => "graph_rejected",
+            Self::PersistenceUnavailable => "persistence_unavailable",
+            Self::ExportWriteFailed => "export_write_failed",
+            Self::ExportReadFailed => "export_read_failed",
+            Self::HomeDirectoryUnavailable => "home_directory_unavailable",
+            Self::PreviewIsolationViolation => "preview_isolation_violation",
+            Self::ReplayFailed => "replay_failed",
+            Self::ReturnToPresentFailed => "return_to_present_failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryHealthSummary {
+    pub capture_status: HistoryCaptureStatus,
+    pub recent_traversal_append_failures: u64,
+    pub recent_failure_reason_bucket: Option<String>,
+    pub last_error: Option<String>,
+    pub traversal_archive_count: usize,
+    pub dissolved_archive_count: usize,
+    pub preview_mode_active: bool,
+    pub last_preview_isolation_violation: bool,
+    pub replay_in_progress: bool,
+    pub replay_cursor: Option<usize>,
+    pub replay_total_steps: Option<usize>,
+    pub last_return_to_present_result: Option<String>,
+    pub last_event_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1334,6 +1412,30 @@ pub enum GraphIntent {
     ClearHistoryDissolved,
     ExportHistoryTimeline,
     ExportHistoryDissolved,
+    EnterHistoryTimelinePreview,
+    ExitHistoryTimelinePreview,
+    HistoryTimelinePreviewIsolationViolation {
+        detail: String,
+    },
+    HistoryTimelineReplayStarted,
+    HistoryTimelineReplaySetTotal {
+        total_steps: usize,
+    },
+    HistoryTimelineReplayAdvance {
+        steps: usize,
+    },
+    HistoryTimelineReplayReset,
+    HistoryTimelineReplayProgress {
+        cursor: usize,
+        total_steps: usize,
+    },
+    HistoryTimelineReplayFinished {
+        succeeded: bool,
+        error: Option<String>,
+    },
+    HistoryTimelineReturnToPresentFailed {
+        detail: String,
+    },
     /// No-op intent; used in tests and as a placeholder in async producers.
     Noop,
     /// Update the app's memory pressure status from an async background worker.
@@ -1695,6 +1797,25 @@ pub struct GraphWorkspace {
     /// Last sampled total system memory (MiB).
     memory_total_mib: u64,
 
+    /// Count of traversal append attempts rejected in this runtime session.
+    history_recent_traversal_append_failures: u64,
+    /// Stage F placeholder state for preview-mode activity.
+    history_preview_mode_active: bool,
+    /// Stage F placeholder tracking for latest preview isolation violation.
+    history_last_preview_isolation_violation: bool,
+    /// Stage F replay-state tracking for timeline cursor progress.
+    history_replay_in_progress: bool,
+    history_replay_cursor: Option<usize>,
+    history_replay_total_steps: Option<usize>,
+    /// Most recent history subsystem event timestamp observed this session.
+    history_last_event_unix_ms: Option<u64>,
+    /// Most recent history error text surfaced to operators.
+    history_last_error: Option<String>,
+    /// Last traversal/archive failure bucket label.
+    history_recent_failure_reason_bucket: Option<HistoryTraversalFailureReason>,
+    /// Last known return-to-present outcome summary.
+    history_last_return_to_present_result: Option<String>,
+
     /// Whether form draft capture/replay metadata is enabled.
     form_draft_capture_enabled: bool,
 
@@ -1929,6 +2050,16 @@ impl GraphBrowserApp {
                 memory_pressure_level: MemoryPressureLevel::Unknown,
                 memory_available_mib: 0,
                 memory_total_mib: 0,
+                history_recent_traversal_append_failures: 0,
+                history_preview_mode_active: false,
+                history_last_preview_isolation_violation: false,
+                history_replay_in_progress: false,
+                history_replay_cursor: None,
+                history_replay_total_steps: None,
+                history_last_event_unix_ms: None,
+                history_last_error: None,
+                history_recent_failure_reason_bucket: None,
+                history_last_return_to_present_result: None,
                 form_draft_capture_enabled: std::env::var_os("GRAPHSHELL_ENABLE_FORM_DRAFT")
                     .is_some(),
                 default_registry_lens_id: None,
@@ -2132,6 +2263,16 @@ impl GraphBrowserApp {
                 memory_pressure_level: MemoryPressureLevel::Unknown,
                 memory_available_mib: 0,
                 memory_total_mib: 0,
+                history_recent_traversal_append_failures: 0,
+                history_preview_mode_active: false,
+                history_last_preview_isolation_violation: false,
+                history_replay_in_progress: false,
+                history_replay_cursor: None,
+                history_replay_total_steps: None,
+                history_last_event_unix_ms: None,
+                history_last_error: None,
+                history_recent_failure_reason_bucket: None,
+                history_last_return_to_present_result: None,
                 form_draft_capture_enabled: false,
                 default_registry_lens_id: None,
                 default_registry_physics_id: None,
@@ -3329,8 +3470,63 @@ impl GraphBrowserApp {
             .or_else(|| self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME))
     }
 
+    fn intent_blocked_during_history_preview(intent: &GraphIntent) -> bool {
+        matches!(
+            intent,
+            GraphIntent::CreateNodeNearCenter
+                | GraphIntent::CreateNodeNearCenterAndOpen { .. }
+                | GraphIntent::CreateNodeAtUrl { .. }
+                | GraphIntent::CreateNodeAtUrlAndOpen { .. }
+                | GraphIntent::CreateNoteForNode { .. }
+                | GraphIntent::RemoveSelectedNodes
+                | GraphIntent::ClearGraph
+                | GraphIntent::CreateUserGroupedEdge { .. }
+                | GraphIntent::CreateUserGroupedEdgeFromPrimarySelection
+                | GraphIntent::RemoveEdge { .. }
+                | GraphIntent::SetNodePinned { .. }
+                | GraphIntent::SetNodeUrl { .. }
+                | GraphIntent::ExecuteEdgeCommand { .. }
+                | GraphIntent::TagNode { .. }
+                | GraphIntent::UntagNode { .. }
+                | GraphIntent::UpdateNodeMimeHint { .. }
+                | GraphIntent::UpdateNodeAddressKind { .. }
+                | GraphIntent::SetNodePosition { .. }
+                | GraphIntent::WebViewCreated { .. }
+                | GraphIntent::WebViewUrlChanged { .. }
+                | GraphIntent::WebViewHistoryChanged { .. }
+                | GraphIntent::WebViewScrollChanged { .. }
+                | GraphIntent::WebViewTitleChanged { .. }
+                | GraphIntent::WebViewCrashed { .. }
+                | GraphIntent::SetNodeFormDraft { .. }
+                | GraphIntent::SetNodeThumbnail { .. }
+                | GraphIntent::SetNodeFavicon { .. }
+                | GraphIntent::PromoteNodeToActive { .. }
+                | GraphIntent::DemoteNodeToWarm { .. }
+                | GraphIntent::DemoteNodeToCold { .. }
+                | GraphIntent::MapWebviewToNode { .. }
+                | GraphIntent::UnmapWebview { .. }
+                | GraphIntent::MarkRuntimeBlocked { .. }
+                | GraphIntent::ClearRuntimeBlocked { .. }
+                | GraphIntent::ClearHistoryTimeline
+                | GraphIntent::ClearHistoryDissolved
+                | GraphIntent::ExportHistoryTimeline
+                | GraphIntent::ExportHistoryDissolved
+                | GraphIntent::ApplyRemoteLogEntries { .. }
+                | GraphIntent::SyncNow
+        )
+    }
+
     fn apply_reducer_intent(&mut self, intent: GraphReducerIntent) {
         let intent = intent.into_graph_intent();
+
+        if self.workspace.history_preview_mode_active
+            && Self::intent_blocked_during_history_preview(&intent)
+        {
+            self.apply_reducer_intents([GraphIntent::HistoryTimelinePreviewIsolationViolation {
+                detail: format!("blocked intent during preview: {:?}", intent),
+            }]);
+            return;
+        }
 
         if self.should_capture_undo_checkpoint_for_intent(&intent) {
             self.capture_undo_checkpoint(self.current_undo_checkpoint_layout_json());
@@ -3802,12 +3998,30 @@ impl GraphBrowserApp {
                 if let Some(store) = &mut self.services.persistence {
                     store.clear_traversal_archive();
                     log::info!("Cleared traversal archive (Timeline)");
+                } else {
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::PersistenceUnavailable,
+                        "clear timeline requested without persistence",
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
+                        latency_us: 0,
+                    });
                 }
             }
             GraphIntent::ClearHistoryDissolved => {
                 if let Some(store) = &mut self.services.persistence {
                     store.clear_dissolved_archive();
                     log::info!("Cleared dissolved archive (Dissolved)");
+                } else {
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::PersistenceUnavailable,
+                        "clear dissolved requested without persistence",
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
+                        latency_us: 0,
+                    });
                 }
             }
             GraphIntent::ExportHistoryTimeline => {
@@ -3825,14 +4039,50 @@ impl GraphBrowserApp {
                                 let path = home_dir.join(filename);
                                 if let Err(e) = std::fs::write(&path, content) {
                                     log::error!("Failed to export traversal archive: {e}");
+                                    self.record_history_failure(
+                                        HistoryTraversalFailureReason::ExportWriteFailed,
+                                        format!("timeline export write failed: {e}"),
+                                    );
+                                    emit_event(DiagnosticEvent::MessageReceived {
+                                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                                        latency_us: 0,
+                                    });
                                 } else {
                                     log::info!("Exported traversal archive to {:?}", path);
                                     // TODO: Show toast notification with path
                                 }
+                            } else {
+                                self.record_history_failure(
+                                    HistoryTraversalFailureReason::HomeDirectoryUnavailable,
+                                    "timeline export home directory unavailable",
+                                );
+                                emit_event(DiagnosticEvent::MessageReceived {
+                                    channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                                    latency_us: 0,
+                                });
                             }
                         }
-                        Err(e) => log::error!("Failed to export traversal archive: {e}"),
+                        Err(e) => {
+                            log::error!("Failed to export traversal archive: {e}");
+                            self.record_history_failure(
+                                HistoryTraversalFailureReason::ExportReadFailed,
+                                format!("timeline export read failed: {e}"),
+                            );
+                            emit_event(DiagnosticEvent::MessageReceived {
+                                channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                                latency_us: 0,
+                            });
+                        }
                     }
+                } else {
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::PersistenceUnavailable,
+                        "export timeline requested without persistence",
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                        latency_us: 0,
+                    });
                 }
             }
             GraphIntent::ExportHistoryDissolved => {
@@ -3850,15 +4100,205 @@ impl GraphBrowserApp {
                                 let path = home_dir.join(filename);
                                 if let Err(e) = std::fs::write(&path, content) {
                                     log::error!("Failed to export dissolved archive: {e}");
+                                    self.record_history_failure(
+                                        HistoryTraversalFailureReason::ExportWriteFailed,
+                                        format!("dissolved export write failed: {e}"),
+                                    );
+                                    emit_event(DiagnosticEvent::MessageReceived {
+                                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                                        latency_us: 0,
+                                    });
                                 } else {
                                     log::info!("Exported dissolved archive to {:?}", path);
                                     // TODO: Show toast notification with path
                                 }
+                            } else {
+                                self.record_history_failure(
+                                    HistoryTraversalFailureReason::HomeDirectoryUnavailable,
+                                    "dissolved export home directory unavailable",
+                                );
+                                emit_event(DiagnosticEvent::MessageReceived {
+                                    channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                                    latency_us: 0,
+                                });
                             }
                         }
-                        Err(e) => log::error!("Failed to export dissolved archive: {e}"),
+                        Err(e) => {
+                            log::error!("Failed to export dissolved archive: {e}");
+                            self.record_history_failure(
+                                HistoryTraversalFailureReason::ExportReadFailed,
+                                format!("dissolved export read failed: {e}"),
+                            );
+                            emit_event(DiagnosticEvent::MessageReceived {
+                                channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                                latency_us: 0,
+                            });
+                        }
+                    }
+                } else {
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::PersistenceUnavailable,
+                        "export dissolved requested without persistence",
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
+                        latency_us: 0,
+                    });
+                }
+            }
+            GraphIntent::EnterHistoryTimelinePreview => {
+                self.workspace.history_preview_mode_active = true;
+                self.workspace.history_last_preview_isolation_violation = false;
+                self.workspace.history_replay_in_progress = false;
+                self.workspace.history_replay_cursor = None;
+                self.workspace.history_replay_total_steps = None;
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
+                    latency_us: 0,
+                });
+            }
+            GraphIntent::ExitHistoryTimelinePreview => {
+                self.workspace.history_preview_mode_active = false;
+                self.workspace.history_replay_in_progress = false;
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
+                    latency_us: 0,
+                });
+            }
+            GraphIntent::HistoryTimelinePreviewIsolationViolation { detail } => {
+                self.workspace.history_last_preview_isolation_violation = true;
+                self.workspace.history_last_error = Some(format!(
+                    "{}: {}",
+                    HistoryTraversalFailureReason::PreviewIsolationViolation.as_str(),
+                    detail
+                ));
+                self.workspace.history_recent_failure_reason_bucket =
+                    Some(HistoryTraversalFailureReason::PreviewIsolationViolation);
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
+                    latency_us: 0,
+                });
+            }
+            GraphIntent::HistoryTimelineReplayStarted => {
+                self.workspace.history_replay_in_progress = true;
+                self.workspace.history_replay_cursor = Some(0);
+                self.workspace.history_replay_total_steps = None;
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
+                    latency_us: 0,
+                });
+            }
+            GraphIntent::HistoryTimelineReplaySetTotal { total_steps } => {
+                self.workspace.history_replay_total_steps = Some(total_steps);
+                let next_cursor = self
+                    .workspace
+                    .history_replay_cursor
+                    .unwrap_or(0)
+                    .min(total_steps);
+                self.workspace.history_replay_cursor = Some(next_cursor);
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+            }
+            GraphIntent::HistoryTimelineReplayAdvance { steps } => {
+                let total_steps = self.workspace.history_replay_total_steps.unwrap_or(0);
+                if total_steps == 0 {
+                    self.record_history_failure(
+                        HistoryTraversalFailureReason::ReplayFailed,
+                        "replay advance requested without total steps",
+                    );
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
+                        latency_us: 0,
+                    });
+                    return;
+                }
+
+                let was_running = self.workspace.history_replay_in_progress;
+                self.workspace.history_replay_in_progress = true;
+                if !was_running {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
+                        latency_us: 0,
+                    });
+                }
+
+                let current_cursor = self.workspace.history_replay_cursor.unwrap_or(0);
+                let next_cursor = current_cursor.saturating_add(steps).min(total_steps);
+                self.workspace.history_replay_cursor = Some(next_cursor);
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+
+                if next_cursor >= total_steps {
+                    self.workspace.history_replay_in_progress = false;
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
+                        latency_us: 0,
+                    });
+                }
+            }
+            GraphIntent::HistoryTimelineReplayReset => {
+                self.workspace.history_replay_in_progress = false;
+                if self.workspace.history_replay_total_steps.is_some() {
+                    self.workspace.history_replay_cursor = Some(0);
+                } else {
+                    self.workspace.history_replay_cursor = None;
+                }
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+            }
+            GraphIntent::HistoryTimelineReplayProgress {
+                cursor,
+                total_steps,
+            } => {
+                self.workspace.history_replay_in_progress = true;
+                self.workspace.history_replay_total_steps = Some(total_steps);
+                self.workspace.history_replay_cursor = Some(cursor.min(total_steps));
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+            }
+            GraphIntent::HistoryTimelineReplayFinished { succeeded, error } => {
+                self.workspace.history_replay_in_progress = false;
+                if succeeded {
+                    if let Some(total_steps) = self.workspace.history_replay_total_steps {
+                        self.workspace.history_replay_cursor = Some(total_steps);
                     }
                 }
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                if succeeded {
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
+                        latency_us: 0,
+                    });
+                } else {
+                    let detail = error.unwrap_or_else(|| "unknown replay failure".to_string());
+                    self.workspace.history_last_error = Some(format!(
+                        "{}: {}",
+                        HistoryTraversalFailureReason::ReplayFailed.as_str(),
+                        detail
+                    ));
+                    self.workspace.history_recent_failure_reason_bucket =
+                        Some(HistoryTraversalFailureReason::ReplayFailed);
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
+                        latency_us: 0,
+                    });
+                }
+            }
+            GraphIntent::HistoryTimelineReturnToPresentFailed { detail } => {
+                self.workspace.history_last_return_to_present_result =
+                    Some(format!("failed: {detail}"));
+                self.workspace.history_last_error = Some(format!(
+                    "{}: {}",
+                    HistoryTraversalFailureReason::ReturnToPresentFailed.as_str(),
+                    detail
+                ));
+                self.workspace.history_recent_failure_reason_bucket =
+                    Some(HistoryTraversalFailureReason::ReturnToPresentFailed);
+                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                emit_event(DiagnosticEvent::MessageReceived {
+                    channel_id: CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
+                    latency_us: 0,
+                });
             }
             GraphIntent::Noop => {}
             GraphIntent::SetMemoryPressureStatus {
@@ -4017,21 +4457,34 @@ impl GraphBrowserApp {
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
     ) -> usize {
+        let mut emitted_dissolved_append = false;
         // Use dissolution transfer if persistence is available
         let removed = if let Some(store) = &mut self.services.persistence {
-            store
+            let dissolved_before = store.dissolved_archive_len();
+            let removed = store
                 .dissolve_and_remove_edges(&mut self.workspace.graph, from_key, to_key, edge_type)
                 .unwrap_or_else(|e| {
                     log::warn!("Dissolution transfer failed, falling back to direct removal: {e}");
                     self.workspace
                         .graph
                         .remove_edges(from_key, to_key, edge_type)
-                })
+                });
+            let dissolved_after = store.dissolved_archive_len();
+            emitted_dissolved_append = dissolved_after > dissolved_before;
+            removed
         } else {
             self.workspace
                 .graph
                 .remove_edges(from_key, to_key, edge_type)
         };
+
+        if emitted_dissolved_append {
+            self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
+                latency_us: 0,
+            });
+        }
 
         if removed > 0 {
             self.log_edge_removal_mutation(from_key, to_key, edge_type);
@@ -5765,6 +6218,35 @@ impl GraphBrowserApp {
             .unwrap_or((0, 0))
     }
 
+    /// Return compact history subsystem health fields for History Manager UI.
+    pub fn history_health_summary(&self) -> HistoryHealthSummary {
+        let (traversal_archive_count, dissolved_archive_count) = self.history_manager_archive_counts();
+        let capture_status = if self.services.persistence.is_some() {
+            HistoryCaptureStatus::Full
+        } else {
+            HistoryCaptureStatus::DegradedCaptureOnly
+        };
+
+        HistoryHealthSummary {
+            capture_status,
+            recent_traversal_append_failures: self.workspace.history_recent_traversal_append_failures,
+            recent_failure_reason_bucket: self
+                .workspace
+                .history_recent_failure_reason_bucket
+                .map(|reason| reason.as_str().to_string()),
+            last_error: self.workspace.history_last_error.clone(),
+            traversal_archive_count,
+            dissolved_archive_count,
+            preview_mode_active: self.workspace.history_preview_mode_active,
+            last_preview_isolation_violation: self.workspace.history_last_preview_isolation_violation,
+            replay_in_progress: self.workspace.history_replay_in_progress,
+            replay_cursor: self.workspace.history_replay_cursor,
+            replay_total_steps: self.workspace.history_replay_total_steps,
+            last_return_to_present_result: self.workspace.history_last_return_to_present_result.clone(),
+            last_event_unix_ms: self.workspace.history_last_event_unix_ms,
+        }
+    }
+
     /// Capture current global state as an undo checkpoint.
     pub fn capture_undo_checkpoint(&mut self, workspace_layout_json: Option<String>) {
         self.workspace.undo_stack.push(UndoRedoSnapshot {
@@ -6527,18 +7009,34 @@ impl GraphBrowserApp {
         new_index: usize,
     ) {
         let Some(old_url) = old_entries.get(old_index).filter(|url| !url.is_empty()) else {
+            self.record_history_failure(
+                HistoryTraversalFailureReason::MissingOldUrl,
+                "old history entry missing or empty",
+            );
             return;
         };
         let Some(new_url) = new_entries.get(new_index).filter(|url| !url.is_empty()) else {
+            self.record_history_failure(
+                HistoryTraversalFailureReason::MissingNewUrl,
+                "new history entry missing or empty",
+            );
             return;
         };
         if old_url == new_url {
+            self.record_history_failure(
+                HistoryTraversalFailureReason::SameUrl,
+                "history transition resolves to same URL",
+            );
             return;
         }
 
         let is_back = new_index < old_index;
         let is_forward_same_list = new_index > old_index && new_entries.len() == old_entries.len();
         if !is_back && !is_forward_same_list {
+            self.record_history_failure(
+                HistoryTraversalFailureReason::NonHistoryTransition,
+                "transition is not a back/forward history move",
+            );
             return;
         }
         let trigger = if is_back {
@@ -6562,6 +7060,10 @@ impl GraphBrowserApp {
             .find(|&key| key != node_key)
             .or(Some(node_key));
         let (Some(from_key), Some(to_key)) = (from_key, to_key) else {
+            self.record_history_failure(
+                HistoryTraversalFailureReason::MissingEndpoint,
+                "could not resolve traversal endpoints",
+            );
             return;
         };
 
@@ -6575,6 +7077,10 @@ impl GraphBrowserApp {
         trigger: NavigationTrigger,
     ) -> bool {
         if from_key == to_key {
+            self.record_history_failure(
+                HistoryTraversalFailureReason::SelfLoop,
+                "from_key equals to_key",
+            );
             return false;
         }
         let existing_edge_key = self.workspace.graph.find_edge_key(from_key, to_key);
@@ -6589,8 +7095,19 @@ impl GraphBrowserApp {
             .graph
             .push_traversal(from_key, to_key, traversal);
         if !appended {
+            self.record_history_failure(
+                HistoryTraversalFailureReason::GraphRejected,
+                "graph push_traversal rejected append",
+            );
             return false;
         }
+
+        self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORDED,
+            latency_us: 0,
+        });
 
         if !history_semantic_existed {
             self.log_edge_mutation(from_key, to_key, EdgeType::History);
@@ -6629,6 +7146,37 @@ impl GraphBrowserApp {
                 trigger,
             });
         }
+    }
+
+    fn unix_timestamp_ms_now() -> u64 {
+        SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    fn record_history_failure(
+        &mut self,
+        reason: HistoryTraversalFailureReason,
+        detail: impl Into<String>,
+    ) {
+        let detail = detail.into();
+        self.workspace.history_recent_traversal_append_failures = self
+            .workspace
+            .history_recent_traversal_append_failures
+            .saturating_add(1);
+        self.workspace.history_recent_failure_reason_bucket = Some(reason);
+        self.workspace.history_last_error = Some(format!("{}: {}", reason.as_str(), detail));
+        self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+        emit_event(DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
+            latency_us: 0,
+        });
+        log::warn!(
+            "history traversal record failed: reason={} detail={}",
+            reason.as_str(),
+            detail
+        );
     }
 
     fn add_user_grouped_edge_if_missing(&mut self, from: NodeKey, to: NodeKey) {
@@ -6905,7 +7453,16 @@ impl GraphBrowserApp {
 
             // Remove from graph with dissolution transfer if persistence is active
             if let Some(store) = &mut self.services.persistence {
+                let dissolved_before = store.dissolved_archive_len();
                 let _ = store.dissolve_and_remove_node(&mut self.workspace.graph, node_key);
+                let dissolved_after = store.dissolved_archive_len();
+                if dissolved_after > dissolved_before {
+                    self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
+                    emit_event(DiagnosticEvent::MessageReceived {
+                        channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
+                        latency_us: 0,
+                    });
+                }
             } else {
                 self.workspace.graph.remove_node(node_key);
             }
@@ -8437,6 +8994,30 @@ mod tests {
     }
 
     #[test]
+    fn test_webview_url_changed_self_loop_navigation_does_not_append_traversal() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app
+            .workspace
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, a);
+
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
+            webview_id: wv,
+            new_url: "https://a.com".into(),
+        }]);
+
+        let history_edge_count = app
+            .workspace
+            .graph
+            .edges()
+            .filter(|e| e.edge_type == EdgeType::History)
+            .count();
+        assert_eq!(history_edge_count, 0);
+    }
+
+    #[test]
     fn test_intent_webview_url_changed_ignores_unmapped_webview() {
         let mut app = GraphBrowserApp::new_for_testing();
         let wv = test_webview_id();
@@ -8686,6 +9267,211 @@ mod tests {
         let back_payload = app.workspace.graph.get_edge(back_edge_key).unwrap();
         assert_eq!(back_payload.traversals.len(), 2);
         assert_eq!(back_payload.traversals[1].trigger, NavigationTrigger::Back);
+    }
+
+    #[test]
+    fn set_and_clear_highlighted_edge_do_not_append_traversal() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app
+            .workspace
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+        let b = app
+            .workspace
+            .graph
+            .add_node("https://b.com".into(), Point2D::new(100.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, a);
+
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
+            webview_id: wv,
+            new_url: "https://b.com".into(),
+        }]);
+
+        let edge_key = app
+            .workspace
+            .graph
+            .find_edge_key(a, b)
+            .expect("history traversal edge should exist");
+        let before = app
+            .workspace
+            .graph
+            .get_edge(edge_key)
+            .expect("edge payload")
+            .traversals
+            .len();
+
+        app.apply_reducer_intents([GraphIntent::SetHighlightedEdge { from: a, to: b }]);
+        app.apply_reducer_intents([GraphIntent::ClearHighlightedEdge]);
+
+        let after = app
+            .workspace
+            .graph
+            .get_edge(edge_key)
+            .expect("edge payload")
+            .traversals
+            .len();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn history_health_summary_tracks_capture_status_and_append_failures() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app
+            .workspace
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+
+        let before = app.history_health_summary();
+        assert_eq!(before.capture_status, HistoryCaptureStatus::DegradedCaptureOnly);
+        assert_eq!(before.recent_traversal_append_failures, 0);
+        assert!(before.last_event_unix_ms.is_none());
+
+        assert!(!app.push_history_traversal_and_sync(a, a, NavigationTrigger::Unknown));
+
+        let after = app.history_health_summary();
+        assert_eq!(after.capture_status, HistoryCaptureStatus::DegradedCaptureOnly);
+        assert_eq!(after.recent_traversal_append_failures, 1);
+        assert_eq!(after.recent_failure_reason_bucket.as_deref(), Some("self_loop"));
+        assert!(after
+            .last_error
+            .as_deref()
+            .is_some_and(|msg| msg.contains("self_loop")));
+        assert!(!after.preview_mode_active);
+        assert!(!after.last_preview_isolation_violation);
+        assert!(after.last_event_unix_ms.is_some());
+    }
+
+    #[test]
+    fn history_archive_counts_consistent_after_dissolution_and_clear() {
+        let dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+
+        let a = app.add_node_and_sync("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, a);
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
+            webview_id: wv,
+            new_url: "https://b.com".into(),
+        }]);
+
+        let before = app.history_manager_archive_counts();
+        assert_eq!(before.0, 0);
+        assert_eq!(before.1, 0);
+
+        app.apply_reducer_intents([GraphIntent::RemoveEdge {
+            from: a,
+            to: b,
+            edge_type: EdgeType::History,
+        }]);
+
+        let after_remove = app.history_manager_archive_counts();
+        assert_eq!(after_remove.0, 0);
+        assert!(after_remove.1 > 0);
+        assert_eq!(
+            app.history_manager_dissolved_entries(usize::MAX).len(),
+            after_remove.1
+        );
+
+        app.apply_reducer_intents([GraphIntent::ClearHistoryDissolved]);
+        let after_clear = app.history_manager_archive_counts();
+        assert_eq!(after_clear.0, 0);
+        assert_eq!(after_clear.1, 0);
+    }
+
+    #[test]
+    fn history_health_summary_tracks_preview_and_return_to_present_failure() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([GraphIntent::EnterHistoryTimelinePreview]);
+        let preview = app.history_health_summary();
+        assert!(preview.preview_mode_active);
+        assert!(!preview.last_preview_isolation_violation);
+        assert!(!preview.replay_in_progress);
+        assert!(preview.replay_cursor.is_none());
+        assert!(preview.replay_total_steps.is_none());
+        assert!(preview.last_return_to_present_result.is_none());
+
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayStarted]);
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayProgress {
+            cursor: 2,
+            total_steps: 5,
+        }]);
+        let replay = app.history_health_summary();
+        assert!(replay.replay_in_progress);
+        assert_eq!(replay.replay_cursor, Some(2));
+        assert_eq!(replay.replay_total_steps, Some(5));
+
+        app.apply_reducer_intents([GraphIntent::HistoryTimelinePreviewIsolationViolation {
+            detail: "attempted live mutation".to_string(),
+        }]);
+        let violation = app.history_health_summary();
+        assert!(violation.last_preview_isolation_violation);
+        assert_eq!(
+            violation.recent_failure_reason_bucket.as_deref(),
+            Some("preview_isolation_violation")
+        );
+
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReturnToPresentFailed {
+            detail: "cursor invalid".to_string(),
+        }]);
+        let result = app.history_health_summary();
+        assert_eq!(
+            result.last_return_to_present_result.as_deref(),
+            Some("failed: cursor invalid")
+        );
+        assert_eq!(
+            result.recent_failure_reason_bucket.as_deref(),
+            Some("return_to_present_failed")
+        );
+    }
+
+    #[test]
+    fn history_preview_blocks_graph_mutations_and_records_isolation_violation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([GraphIntent::EnterHistoryTimelinePreview]);
+        let before_count = app.workspace.graph.node_count();
+
+        app.apply_reducer_intents([GraphIntent::CreateNodeNearCenter]);
+
+        let after_count = app.workspace.graph.node_count();
+        assert_eq!(before_count, after_count);
+        let health = app.history_health_summary();
+        assert!(health.preview_mode_active);
+        assert!(health.last_preview_isolation_violation);
+        assert!(health
+            .last_error
+            .as_deref()
+            .is_some_and(|msg| msg.contains("preview_isolation_violation")));
+    }
+
+    #[test]
+    fn history_replay_advance_and_reset_follow_cursor_contract() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([GraphIntent::EnterHistoryTimelinePreview]);
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplaySetTotal { total_steps: 5 }]);
+
+        let seeded = app.history_health_summary();
+        assert_eq!(seeded.replay_cursor, Some(0));
+        assert_eq!(seeded.replay_total_steps, Some(5));
+
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayAdvance { steps: 3 }]);
+        let mid = app.history_health_summary();
+        assert!(mid.replay_in_progress);
+        assert_eq!(mid.replay_cursor, Some(3));
+
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayAdvance { steps: 10 }]);
+        let done = app.history_health_summary();
+        assert!(!done.replay_in_progress);
+        assert_eq!(done.replay_cursor, Some(5));
+
+        app.apply_reducer_intents([GraphIntent::HistoryTimelineReplayReset]);
+        let reset = app.history_health_summary();
+        assert!(!reset.replay_in_progress);
+        assert_eq!(reset.replay_cursor, Some(0));
     }
 
     #[test]
@@ -11187,6 +11973,134 @@ mod tests {
             snapshot.contains("ux:navigation_transition"),
             "expected ux:navigation_transition when edge highlight focus changes"
         );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn webview_url_changed_emits_history_traversal_recorded_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let a = app
+            .workspace
+            .graph
+            .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
+        let _b = app
+            .workspace
+            .graph
+            .add_node("https://b.com".into(), Point2D::new(100.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, a);
+
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
+            webview_id: wv,
+            new_url: "https://b.com".into(),
+        }]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("history.traversal.recorded"),
+            "expected history.traversal.recorded when traversal append succeeds"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn remove_history_edge_emits_history_archive_dissolved_appended_channel() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let dir = TempDir::new().expect("temp dir");
+        let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+
+        let a = app.add_node_and_sync("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let b = app.add_node_and_sync("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+        let wv = test_webview_id();
+        app.map_webview_to_node(wv, a);
+        app.apply_reducer_intents([GraphIntent::WebViewUrlChanged {
+            webview_id: wv,
+            new_url: "https://b.com".into(),
+        }]);
+
+        app.apply_reducer_intents([GraphIntent::RemoveEdge {
+            from: a,
+            to: b,
+            edge_type: EdgeType::History,
+        }]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("history.archive.dissolved_appended"),
+            "expected history.archive.dissolved_appended when dissolution archive receives entries"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn clear_and_export_history_without_persistence_emit_failure_channels() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([
+            GraphIntent::ClearHistoryTimeline,
+            GraphIntent::ClearHistoryDissolved,
+            GraphIntent::ExportHistoryTimeline,
+            GraphIntent::ExportHistoryDissolved,
+        ]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        assert!(
+            snapshot.contains("history.archive.clear_failed"),
+            "expected history.archive.clear_failed when clear is requested without persistence"
+        );
+        assert!(
+            snapshot.contains("history.archive.export_failed"),
+            "expected history.archive.export_failed when export is requested without persistence"
+        );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn history_preview_and_replay_intents_emit_timeline_channels() {
+        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([
+            GraphIntent::EnterHistoryTimelinePreview,
+            GraphIntent::HistoryTimelinePreviewIsolationViolation {
+                detail: "forbidden side effect".to_string(),
+            },
+            GraphIntent::HistoryTimelineReplayStarted,
+            GraphIntent::HistoryTimelineReplayFinished {
+                succeeded: true,
+                error: None,
+            },
+            GraphIntent::HistoryTimelineReplayFinished {
+                succeeded: false,
+                error: Some("replay checksum mismatch".to_string()),
+            },
+            GraphIntent::ExitHistoryTimelinePreview,
+            GraphIntent::HistoryTimelineReturnToPresentFailed {
+                detail: "state restore mismatch".to_string(),
+            },
+        ]);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
+        for channel in [
+            "history.timeline.preview_entered",
+            "history.timeline.preview_exited",
+            "history.timeline.preview_isolation_violation",
+            "history.timeline.replay_started",
+            "history.timeline.replay_succeeded",
+            "history.timeline.replay_failed",
+            "history.timeline.return_to_present_failed",
+        ] {
+            assert!(
+                snapshot.contains(channel),
+                "expected diagnostics snapshot to contain {channel}"
+            );
+        }
     }
 
     #[cfg(feature = "diagnostics")]

@@ -14,19 +14,117 @@ use crate::registries::atomic::{ProtocolHandlerProviders, ViewerHandlerProviders
 use crate::registries::infrastructure::mod_loader::{
     ModCapability, ModManifest, ModType, NativeModRegistration,
 };
+#[cfg(feature = "wry")]
+use crate::{
+    graph::NodeKey,
+    mods::native::verso::wry_manager::{OverlayRect, WryManager},
+};
+#[cfg(all(test, feature = "wry"))]
+use crate::mods::native::verso::wry_manager::OverlaySyncState;
+#[cfg(feature = "wry")]
+use std::sync::{Mutex, OnceLock};
+
+#[cfg(feature = "wry")]
+pub(crate) mod wry_manager;
+#[cfg(feature = "wry")]
+pub(crate) mod wry_types;
+#[cfg(feature = "wry")]
+pub(crate) mod wry_viewer;
+
+#[cfg(feature = "wry")]
+fn shared_wry_manager() -> &'static Mutex<WryManager> {
+    static MANAGER: OnceLock<Mutex<WryManager>> = OnceLock::new();
+    MANAGER.get_or_init(|| Mutex::new(WryManager::new()))
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn sync_wry_overlay_for_node(node_key: NodeKey, rect: OverlayRect, visible: bool) {
+    let node_id = node_key.index() as u64;
+    let mut manager = shared_wry_manager()
+        .lock()
+        .expect("wry manager lock poisoned");
+    if !manager.has_webview(node_id) {
+        manager.create_webview(node_id);
+    }
+    manager.sync_overlay(node_id, rect, visible);
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn hide_wry_overlay_for_node(node_key: NodeKey) -> bool {
+    let node_id = node_key.index() as u64;
+    let mut manager = shared_wry_manager()
+        .lock()
+        .expect("wry manager lock poisoned");
+    if !manager.has_webview(node_id) {
+        return false;
+    }
+
+    if let Some(last_state) = manager.last_sync_state(node_id) {
+        manager.sync_overlay(node_id, last_state.rect, false);
+    }
+    true
+}
+
+#[cfg(feature = "wry")]
+pub(crate) fn destroy_wry_overlay_for_node(node_key: NodeKey) -> bool {
+    let node_id = node_key.index() as u64;
+    let mut manager = shared_wry_manager()
+        .lock()
+        .expect("wry manager lock poisoned");
+    if !manager.has_webview(node_id) {
+        return false;
+    }
+
+    manager.destroy_webview(node_id);
+    true
+}
+
+#[cfg(all(test, feature = "wry"))]
+pub(crate) fn last_wry_overlay_sync_for_node_for_tests(
+    node_key: NodeKey,
+) -> Option<OverlaySyncState> {
+    shared_wry_manager()
+        .lock()
+        .expect("wry manager lock poisoned")
+        .last_sync_state(node_key.index() as u64)
+}
+
+#[cfg(all(test, feature = "wry"))]
+pub(crate) fn reset_wry_manager_for_tests() {
+    let mut manager = shared_wry_manager()
+        .lock()
+        .expect("wry manager lock poisoned");
+    *manager = WryManager::new();
+}
 
 /// Verso mod manifest - registered at compile time via inventory
 pub(crate) fn verso_manifest() -> ModManifest {
+    #[cfg(feature = "wry")]
+    let mut provides = vec![
+        "protocol:http".to_string(),
+        "protocol:https".to_string(),
+        "protocol:data".to_string(),
+        "viewer:webview".to_string(),
+    ];
+
+    #[cfg(feature = "wry")]
+    {
+        provides.push("viewer:wry".to_string());
+    }
+
+    #[cfg(not(feature = "wry"))]
+    let provides = vec![
+        "protocol:http".to_string(),
+        "protocol:https".to_string(),
+        "protocol:data".to_string(),
+        "viewer:webview".to_string(),
+    ];
+
     ModManifest::new(
         "mod:verso",
         "Verso — Web Rendering",
         ModType::Native,
-        vec![
-            "protocol:http".to_string(),
-            "protocol:https".to_string(),
-            "protocol:data".to_string(),
-            "viewer:webview".to_string(),
-        ],
+        provides,
         vec!["ViewerRegistry".to_string(), "ProtocolRegistry".to_string()],
         vec![ModCapability::Network],
     )
@@ -49,6 +147,12 @@ pub(crate) fn activate() -> Result<(), String> {
     //
     // For Phase 2, we establish the hook and structure; Phase 2.3 extends to
     // actual handler registration when registries are mutable during app init.
+    #[cfg(feature = "wry")]
+    {
+        let platform = wry_types::WryPlatform::detect();
+        log::debug!("verso: wry feature enabled ({platform:?})");
+    }
+
     log::debug!("verso: activation hook called");
     Ok(())
 }
@@ -81,6 +185,14 @@ pub(crate) fn register_viewer_handlers(providers: &mut ViewerHandlerProviders) {
         registry.register_extension("htm", "viewer:webview");
         registry.register_extension("pdf", "viewer:webview");
         registry.register_extension("svg", "viewer:webview");
+
+        #[cfg(feature = "wry")]
+        {
+            // Wry is a compatibility backend for HTTP/HTML paths and is selected
+            // through explicit viewer overrides (not mime default replacement).
+            registry.register_mime("application/x-graphshell-wry", "viewer:wry");
+        }
+
         log::debug!("verso: registered viewer handlers for web content");
     });
 }
@@ -88,6 +200,11 @@ pub(crate) fn register_viewer_handlers(providers: &mut ViewerHandlerProviders) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "wry")]
+    use crate::graph::NodeKey;
+
+    #[cfg(feature = "wry")]
+    use crate::mods::native::verso::wry_manager::OverlayRect;
 
     #[test]
     fn verso_manifest_provides_required_capabilities() {
@@ -97,6 +214,10 @@ mod tests {
         assert!(manifest.provides.contains(&"protocol:http".to_string()));
         assert!(manifest.provides.contains(&"protocol:https".to_string()));
         assert!(manifest.provides.contains(&"viewer:webview".to_string()));
+
+        #[cfg(feature = "wry")]
+        assert!(manifest.provides.contains(&"viewer:wry".to_string()));
+
         assert!(manifest.capabilities.contains(&ModCapability::Network));
     }
 
@@ -128,5 +249,48 @@ mod tests {
         // Core seed includes metadata, but Verso adds webview support
         let html_selection = registry.select_for_uri("example.com/page.html", Some("text/html"));
         assert_eq!(html_selection.viewer_id, "viewer:webview");
+    }
+
+    #[cfg(feature = "wry")]
+    #[test]
+    fn wry_overlay_hide_updates_existing_slot_visibility() {
+        reset_wry_manager_for_tests();
+        let node_key = NodeKey::new(600);
+        sync_wry_overlay_for_node(
+            node_key,
+            OverlayRect {
+                x: 2.0,
+                y: 4.0,
+                width: 120.0,
+                height: 80.0,
+            },
+            true,
+        );
+
+        assert!(hide_wry_overlay_for_node(node_key));
+        let state = last_wry_overlay_sync_for_node_for_tests(node_key)
+            .expect("expected wry overlay state");
+        assert!(!state.visible);
+    }
+
+    #[cfg(feature = "wry")]
+    #[test]
+    fn wry_overlay_destroy_removes_existing_slot() {
+        reset_wry_manager_for_tests();
+        let node_key = NodeKey::new(601);
+        sync_wry_overlay_for_node(
+            node_key,
+            OverlayRect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            true,
+        );
+
+        assert!(destroy_wry_overlay_for_node(node_key));
+        assert!(!destroy_wry_overlay_for_node(node_key));
+        assert!(last_wry_overlay_sync_for_node_for_tests(node_key).is_none());
     }
 }

@@ -566,11 +566,12 @@ mod tests {
     }
 
     #[test]
-    fn discovers_native_mods_including_verso() {
+    fn discovers_native_mods_including_verso_and_nostrcore() {
         let mods = discover_native_mods();
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:core-protocol"));
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:core-viewer"));
         assert!(mods.iter().any(|entry| entry.mod_id == "mod:verso"));
+        assert!(mods.iter().any(|entry| entry.mod_id == "mod:nostrcore"));
     }
 
     #[test]

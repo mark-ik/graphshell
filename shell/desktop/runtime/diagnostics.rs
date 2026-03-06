@@ -549,6 +549,7 @@ pub(crate) struct DiagnosticsState {
     latency_percentile: LatencyPercentile,
     bottleneck_latency_us: u64,
     export_feedback: Option<String>,
+    history_health_snapshot: Value,
     analyzer_registry: AnalyzerRegistry,
     startup_selfcheck_emitted: bool,
     #[cfg(feature = "diagnostics_tests")]
@@ -1014,6 +1015,7 @@ impl DiagnosticsState {
             latency_percentile: LatencyPercentile::P95,
             bottleneck_latency_us: DEFAULT_BOTTLENECK_LATENCY_US,
             export_feedback: None,
+            history_health_snapshot: json!({}),
             analyzer_registry: AnalyzerRegistry::default(),
             startup_selfcheck_emitted: false,
             #[cfg(feature = "diagnostics_tests")]
@@ -1356,6 +1358,7 @@ impl DiagnosticsState {
             "version": 1,
             "generated_at_unix_secs": Self::export_timestamp_secs(),
             "event_ring_len": self.event_ring.len(),
+            "history_health": self.history_health_snapshot.clone(),
             "channels": {
                 "message_counts": self.diagnostic_graph.message_counts,
                 "message_bytes_sent": self.diagnostic_graph.message_bytes_sent,
@@ -1384,6 +1387,25 @@ impl DiagnosticsState {
                 })
             }).collect::<Vec<_>>(),
         })
+    }
+
+    pub(crate) fn sync_history_health_snapshot_from_app(&mut self, graph_app: &GraphBrowserApp) {
+        let health = graph_app.history_health_summary();
+        self.history_health_snapshot = json!({
+            "capture_status": format!("{:?}", health.capture_status),
+            "recent_traversal_append_failures": health.recent_traversal_append_failures,
+            "recent_failure_reason_bucket": health.recent_failure_reason_bucket,
+            "last_error": health.last_error,
+            "traversal_archive_count": health.traversal_archive_count,
+            "dissolved_archive_count": health.dissolved_archive_count,
+            "preview_mode_active": health.preview_mode_active,
+            "last_preview_isolation_violation": health.last_preview_isolation_violation,
+            "replay_in_progress": health.replay_in_progress,
+            "replay_cursor": health.replay_cursor,
+            "replay_total_steps": health.replay_total_steps,
+            "last_return_to_present_result": health.last_return_to_present_result,
+            "last_event_unix_ms": health.last_event_unix_ms,
+        });
     }
 
     #[cfg(test)]
@@ -1668,6 +1690,7 @@ impl DiagnosticsState {
     }
 
     pub(crate) fn render_in_pane(&mut self, ui: &mut egui::Ui, graph_app: &mut GraphBrowserApp) {
+        self.sync_history_health_snapshot_from_app(graph_app);
         self.tick_drain();
         self.hovered_node_key = None;
 
@@ -1744,6 +1767,17 @@ impl DiagnosticsState {
                     self.event_ring.len(),
                     self.diagnostic_graph.message_counts.len(),
                     self.diagnostic_graph.last_span_duration_us.len()
+                ));
+                let history_preview = self.history_health_snapshot["preview_mode_active"]
+                    .as_bool()
+                    .unwrap_or(false);
+                let history_failures = self.history_health_snapshot
+                    ["recent_traversal_append_failures"]
+                    .as_u64()
+                    .unwrap_or(0);
+                ui.small(format!(
+                    "history_health: preview_active={} failures={}",
+                    history_preview, history_failures
                 ));
                 let analyzer_snapshots = self.analyzer_snapshots();
                 if !analyzer_snapshots.is_empty() {
@@ -2620,6 +2654,7 @@ mod tests {
 
         let snapshot = state.snapshot_json_value();
         assert_eq!(snapshot["version"].as_u64(), Some(1));
+        assert!(snapshot["history_health"].is_object());
         assert!(snapshot["channels"].is_object());
         assert!(snapshot["spans"].is_object());
         assert!(snapshot["compositor_frames"].is_array());
@@ -2764,29 +2799,30 @@ mod tests {
         });
         insta::assert_debug_snapshot!(shape, @r###"
 Object {
-    "top_level_keys": Array [
-        String("version"),
-        String("generated_at_unix_secs"),
-        String("event_ring_len"),
-        String("channels"),
-        String("spans"),
-        String("compositor_differential"),
-        String("compositor_replay"),
-        String("compositor_frames"),
-        String("compositor_replay_samples"),
-        String("recent_intents"),
-    ],
     "channel_keys": Array [
-        String("message_counts"),
         String("message_bytes_sent"),
-        String("message_latency_us"),
-        String("message_latency_samples"),
+        String("message_counts"),
         String("message_latency_recent_us"),
+        String("message_latency_samples"),
+        String("message_latency_us"),
     ],
-    "frame_count": Number(1),
-    "intent_count": Number(1),
-    "generated_at_unix_secs": String("[unix-secs]"),
     "first_frame_sequence": String("[sequence]"),
+    "frame_count": Number(1),
+    "generated_at_unix_secs": String("[unix-secs]"),
+    "intent_count": Number(1),
+    "top_level_keys": Array [
+        String("channels"),
+        String("compositor_differential"),
+        String("compositor_frames"),
+        String("compositor_replay"),
+        String("compositor_replay_samples"),
+        String("event_ring_len"),
+        String("generated_at_unix_secs"),
+        String("history_health"),
+        String("recent_intents"),
+        String("spans"),
+        String("version"),
+    ],
 }
         "###);
     }

@@ -7,6 +7,7 @@
 **Related**:
 
 - `viewer_presentation_and_fallback_spec.md`
+- `node_viewport_preview_spec.md`
 - `../2026-02-28_ux_contract_register.md`
 
 **Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.5, 3.6, 3.7)):
