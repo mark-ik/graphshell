@@ -34,6 +34,7 @@ It exists to keep one boundary explicit:
 - command target resolution
 - command dispatch and execution routing
 - consistency across keyboard, Search Palette Mode, Context Palette Mode, Radial Palette Mode, and omnibar
+- context-aware category ordering so summon target context shapes first-category priority across command surfaces
 
 ---
 

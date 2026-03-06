@@ -132,6 +132,7 @@ Cross-mode equivalence rule:
 - Context Palette Tier 1 horizontal category strip is semantically equivalent to Radial Palette Tier 1 ring.
 - Context Palette Tier 2 vertical command list is semantically equivalent to Radial Palette Tier 2 option ring.
 - Changing category pin/order in one mode updates the same underlying palette profile used by the other mode.
+- Category ordering in all palette modes is context-aware: summon target context determines the first category (for example node summon => Node first), then recent-category recency may promote subsequent categories.
 
 Invocation and dismissal contract:
 
@@ -225,6 +226,7 @@ Canonical wording rules:
 - Group actions by `ActionCategory`.
 - Disabled actions remain visible and explain why they are unavailable.
 - Search Palette Mode shows search input plus scope dropdown; Context Palette Mode shows target-scoped results.
+- Search Palette Mode and Context Palette Mode must share the same context-aware category ordering policy.
 - Context Palette Mode Tier 1 is a horizontally scrollable category strip.
 - Tier 1 categories can be pinned and reordered by user customization.
 - Context Palette Mode Tier 2 is a vertically scrollable command list for the selected Tier 1 category.
