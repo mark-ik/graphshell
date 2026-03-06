@@ -2,6 +2,7 @@ use crate::app::GraphBrowserApp;
 
 #[cfg(test)]
 use crate::registries::atomic::knowledge::CompactCode;
+use crate::registries::atomic::knowledge::SemanticClassVector;
 pub(crate) use crate::registries::atomic::knowledge::KnowledgeRegistry;
 
 /// Reconciliation function: updates the app's semantic index based on node tags.
@@ -17,11 +18,16 @@ pub fn reconcile_semantics(app: &mut GraphBrowserApp, registry: &KnowledgeRegist
 
     app.workspace.semantic_index.clear();
     for (&key, tags) in &app.workspace.semantic_tags {
+        let mut codes = Vec::new();
         for tag in tags {
             if let Some(code) = registry.parse(tag) {
-                app.workspace.semantic_index.insert(key, code);
-                break;
+                codes.push(code);
             }
+        }
+        if !codes.is_empty() {
+            app.workspace
+                .semantic_index
+                .insert(key, SemanticClassVector::from_codes(codes));
         }
     }
     app.workspace.semantic_index_dirty = false;
@@ -48,10 +54,12 @@ mod tests {
         reconcile_semantics(&mut app, &registry);
 
         assert!(!app.workspace.semantic_index_dirty);
+        let index = app.workspace.semantic_index.get(&key).unwrap();
         assert_eq!(
-            app.workspace.semantic_index.get(&key),
-            Some(&CompactCode(vec![5, 1]))
+            index.primary_code,
+            Some(CompactCode(vec![5, 1]))
         );
+        assert_eq!(index.classes, vec![CompactCode(vec![5, 1])]);
 
         let stale = NodeKey::new(999_999);
         app.workspace

@@ -18,7 +18,7 @@ use tokio::sync::mpsc as tokio_mpsc;
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::{EdgeKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
-use crate::registries::atomic::knowledge::CompactCode;
+use crate::registries::atomic::knowledge::SemanticClassVector;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::services::persistence::types::{
@@ -1820,8 +1820,8 @@ pub struct GraphWorkspace {
     default_registry_theme_id: Option<String>,
 
     /// Cached semantic codes for physics calculations.
-    /// Maps NodeKey -> Parsed UDC Code.
-    pub semantic_index: HashMap<NodeKey, CompactCode>,
+    /// Maps NodeKey -> parsed canonical UDC class vector.
+    pub semantic_index: HashMap<NodeKey, SemanticClassVector>,
     pub semantic_index_dirty: bool,
 
     /// Runtime semantic tags by node key (e.g. "udc:51").
@@ -7414,14 +7414,16 @@ impl GraphBrowserApp {
     /// Group nodes by their UDC semantic tags (Phase 3: Auto-grouping).
     /// Creates UserGrouped edges between nodes that share the same top-level subject.
     fn group_nodes_by_semantic_tags(&mut self) {
-        use std::collections::HashMap;
+        use std::collections::{HashMap, HashSet};
 
         // Group nodes by their top-level UDC code (first digit)
-        let mut clusters: HashMap<u8, Vec<NodeKey>> = HashMap::new();
+        let mut clusters: HashMap<u8, HashSet<NodeKey>> = HashMap::new();
 
-        for (&node_key, code) in &self.workspace.semantic_index {
-            if let Some(&first_digit) = code.0.first() {
-                clusters.entry(first_digit).or_default().push(node_key);
+        for (&node_key, vector) in &self.workspace.semantic_index {
+            for code in &vector.classes {
+                if let Some(&first_digit) = code.0.first() {
+                    clusters.entry(first_digit).or_default().insert(node_key);
+                }
             }
         }
 
@@ -7431,6 +7433,7 @@ impl GraphBrowserApp {
         let mut created_pairs = std::collections::HashSet::new();
 
         for (_subject_code, nodes) in clusters {
+            let nodes: Vec<NodeKey> = nodes.into_iter().collect();
             if nodes.len() < 2 {
                 continue; // Need at least 2 nodes to group
             }

@@ -2419,12 +2419,12 @@ fn apply_semantic_clustering_forces(
     // Collect nodes with semantic tags
     let tagged_nodes: Vec<(
         crate::graph::NodeKey,
-        crate::registries::atomic::knowledge::CompactCode,
+        crate::registries::atomic::knowledge::SemanticClassVector,
     )> = app
         .workspace
         .semantic_index
         .iter()
-        .map(|(&key, code)| (key, code.clone()))
+        .map(|(&key, vector)| (key, vector.clone()))
         .collect();
 
     if tagged_nodes.len() < 2 {
@@ -2437,12 +2437,11 @@ fn apply_semantic_clustering_forces(
 
     for i in 0..tagged_nodes.len() {
         for j in (i + 1)..tagged_nodes.len() {
-            let (key_a, code_a) = &tagged_nodes[i];
-            let (key_b, code_b) = &tagged_nodes[j];
+            let (key_a, vector_a) = &tagged_nodes[i];
+            let (key_b, vector_b) = &tagged_nodes[j];
 
-            // Calculate semantic distance (0.0 = identical, 1.0 = completely different)
-            let distance = code_a.distance(code_b);
-            let similarity = 1.0 - distance;
+            // Multi-class similarity: strongest overlap across all class pairs.
+            let similarity = semantic_pair_similarity(vector_a, vector_b);
 
             // Skip weak similarities to reduce noise
             if similarity < 0.1 {
@@ -2487,6 +2486,26 @@ fn apply_semantic_clustering_forces(
             }
         }
     }
+}
+
+fn semantic_pair_similarity(
+    a: &crate::registries::atomic::knowledge::SemanticClassVector,
+    b: &crate::registries::atomic::knowledge::SemanticClassVector,
+) -> f32 {
+    if a.classes.is_empty() || b.classes.is_empty() {
+        return 0.0;
+    }
+
+    let mut best = 0.0_f32;
+    for ca in &a.classes {
+        for cb in &b.classes {
+            let similarity = 1.0 - ca.distance(cb);
+            if similarity > best {
+                best = similarity;
+            }
+        }
+    }
+    best
 }
 
 /// Draw graph information overlay

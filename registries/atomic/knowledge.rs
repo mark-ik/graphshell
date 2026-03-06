@@ -14,7 +14,7 @@ enum KnowledgeProvider {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CompactCode(pub Vec<u8>);
 
 impl CompactCode {
@@ -35,6 +35,26 @@ impl CompactCode {
         }
 
         1.0 - (shared_prefix as f32 / max_len as f32)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticClassVector {
+    pub classes: Vec<CompactCode>,
+    pub primary_code: Option<CompactCode>,
+}
+
+impl SemanticClassVector {
+    pub fn from_codes(mut codes: Vec<CompactCode>) -> Self {
+        // Deterministic canonical order: deeper codes first, then lexical bytes.
+        codes.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.cmp(b)));
+        codes.dedup();
+
+        let primary_code = codes.first().cloned();
+        Self {
+            classes: codes,
+            primary_code,
+        }
     }
 }
 
