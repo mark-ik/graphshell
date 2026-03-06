@@ -75,7 +75,7 @@ These decisions were made during the doc audit that produced this plan. They are
 
 - `accessibility_baseline_checklist.md` shows most criteria as "Untested."
 - `accessibility_closure_bundle_audit_301.md` records a concrete fail (radial disabled contrast 3.21:1 vs 4.5:1 required for AA text).
-- **Decision**: WCAG 2.2 AA remains the normative product target. For the v0.0.2 release gate, all 7 canonical surfaces must pass Level A, and any remaining AA gaps must be tracked in an explicit waiver register (owner, rationale, deadline).
+- **Decision**: WCAG 2.2 AA remains the normative product target. For the v0.0.2 release gate, all 7 canonical surfaces must pass Level A, and any remaining AA gaps must be tracked in an explicit waiver register (owner, rationale, deadline): `design/accessibility_aa_waiver_register.md`.
 - **Impact**: Expands AG0 scope. Accessibility baseline checklist must be updated to reflect audit results (currently shows "Untested" for rows with known test evidence), and AA deviations must be explicitly tracked rather than implicitly deferred.
 
 ---
@@ -386,7 +386,7 @@ These items are net-new requirements surfaced by the doc audit and contradiction
 1. Run WCAG 2.2 audit across all 7 canonical surface classes from `design/accessibility_baseline_checklist.md` (Graph Pane, Node Pane, Tool Pane, Floating Windows, Dialogs, Omnibar, Workbar), capturing both A and AA rows.
 2. Fix known gating defects and verify radial disabled-state contrast remains compliant with AA text contrast requirements (audit #301 follow-through).
 3. Update `accessibility_baseline_checklist.md` to reflect actual test results (replace stale "Untested" rows).
-4. Maintain an explicit AA waiver register for any remaining AA gaps (owner, rationale, deadline); no implicit AA deferrals.
+4. Maintain an explicit AA waiver register for any remaining AA gaps (owner, rationale, deadline) in `design/accessibility_aa_waiver_register.md`; no implicit AA deferrals.
 
 **Done gate**: For v0.0.2, accessibility baseline checklist shows Pass or N/A for all Level A criteria across all 7 canonical surfaces, and any remaining AA gaps are explicitly tracked in the waiver register.
 

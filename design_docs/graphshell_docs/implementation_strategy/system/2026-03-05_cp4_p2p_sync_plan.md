@@ -238,9 +238,9 @@ On save:
 - If dirty, serializes the updated `WorkspaceSyncState` and clears the flag
 - Persistence is not triggered by every `ApplyRemoteDelta` — the flag batches writes
 
-### 5.3 Terminology note (Lamport vs. vector clocks)
+### 5.3 Terminology note (historical Lamport wording vs. version vectors)
 
-SYSTEM_REGISTER.md's CP4 done gate uses the term "Lamport clock." The Verso sync plan uses **version vectors** (per-peer monotonic counters). These are related but distinct:
+Earlier CP4 wording used "Lamport clock" shorthand. The Verso sync plan uses **version vectors** (per-peer monotonic counters). These are related but distinct:
 
 - A **Lamport clock** is a single monotonically increasing counter per node, advanced on send and `max(local, received)+1` on receive. It provides partial ordering but cannot detect concurrency.
 - A **version vector** (used here) tracks the highest sequence number seen *per peer*. This enables precise gap detection and concurrent intent identification.
