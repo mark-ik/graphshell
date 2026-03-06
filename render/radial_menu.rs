@@ -33,6 +33,10 @@ const HOVER_LABEL_OFFSET: f32 = 34.0;
 const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 const RAIL_OFFSET_STEP_RAD: f32 = 0.08;
+const RING_COLLISION_EPSILON: f32 = 2.0;
+// Current radial UI does not enlarge button radius on hover yet.
+// Keep this explicit so the pre-check gate can be tightened when hover-size growth lands.
+const EFFECTIVE_HOVER_BUTTON_RADIUS: f32 = COMMAND_BUTTON_RADIUS;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RadialSectorSemanticMetadata {
@@ -420,14 +424,31 @@ pub fn render_radial_command_menu(
                             byte_len: cmds.len() - visible_cmds.len(),
                         });
                     }
-                    hovered_entry = nearest_entry_for_pointer(
-                        domain,
+                    let hover_layout_ok = ring_layout_supports_hover_non_overlap(
                         center,
-                        pos,
-                        visible_cmds,
+                        domain,
+                        visible_cmds.len(),
                         domain_offsets[domain.index()],
                         command_offsets[domain.index()],
                     );
+                    if !hover_layout_ok {
+                        if !fallback_to_command_palette {
+                            emit_event(DiagnosticEvent::MessageReceived {
+                                channel_id: CHANNEL_UX_RADIAL_MODE_FALLBACK,
+                                latency_us: visible_cmds.len() as u64,
+                            });
+                        }
+                        fallback_to_command_palette = true;
+                    } else {
+                        hovered_entry = nearest_entry_for_pointer(
+                            domain,
+                            center,
+                            pos,
+                            visible_cmds,
+                            domain_offsets[domain.index()],
+                            command_offsets[domain.index()],
+                        );
+                    }
 
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_UX_RADIAL_LAYOUT,
@@ -561,6 +582,23 @@ pub fn render_radial_command_menu(
                         });
                     }
                     ctx.data_mut(|d| d.insert_persisted(page_state_id, page));
+
+                    let hover_layout_ok = ring_layout_supports_hover_non_overlap(
+                        center,
+                        domain,
+                        visible_cmds.len(),
+                        domain_offsets[domain.index()],
+                        command_offsets[domain.index()],
+                    );
+                    if !hover_layout_ok {
+                        if !fallback_to_command_palette {
+                            emit_event(DiagnosticEvent::MessageReceived {
+                                channel_id: CHANNEL_UX_RADIAL_MODE_FALLBACK,
+                                latency_us: visible_cmds.len() as u64,
+                            });
+                        }
+                        fallback_to_command_palette = true;
+                    }
 
                     let label_layout = compute_label_layout_metrics(center, domain, visible_cmds);
                     let packed_collisions = (label_layout.pre_collisions << 16)
@@ -837,6 +875,62 @@ fn command_spread_for_len(len: usize, radius: f32, min_center_spacing: f32) -> f
 
     let required_min_spread = ((len.saturating_sub(1)) as f32) * (min_center_spacing / radius);
     required_min_spread.max(0.8).min(2.6)
+}
+
+fn ring_layout_supports_hover_non_overlap(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    len: usize,
+    domain_offset: f32,
+    command_offset: f32,
+) -> bool {
+    ring_layout_supports_hover_non_overlap_with_radius(
+        center,
+        domain,
+        len,
+        domain_offset,
+        command_offset,
+        EFFECTIVE_HOVER_BUTTON_RADIUS,
+    )
+}
+
+fn ring_layout_supports_hover_non_overlap_with_radius(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    len: usize,
+    domain_offset: f32,
+    command_offset: f32,
+    hovered_radius: f32,
+) -> bool {
+    if len <= 1 {
+        return true;
+    }
+
+    let anchors: Vec<egui::Pos2> = (0..len)
+        .map(|idx| {
+            command_anchor_with_offsets(
+                center,
+                domain,
+                idx,
+                len,
+                domain_offset,
+                command_offset,
+            )
+        })
+        .collect();
+
+    for hovered_idx in 0..anchors.len() {
+        for other_idx in 0..anchors.len() {
+            if hovered_idx == other_idx {
+                continue;
+            }
+            let distance = (anchors[hovered_idx] - anchors[other_idx]).length();
+            if distance < (hovered_radius + COMMAND_BUTTON_RADIUS + RING_COLLISION_EPSILON) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn visible_ring_entries(cmds: &[ActionEntry]) -> &[ActionEntry] {
@@ -1166,6 +1260,31 @@ mod tests {
         let base = command_anchor(center, RadialDomain::Node, 0, 4);
         let shifted = command_anchor_with_offsets(center, RadialDomain::Node, 0, 4, 0.2, 0.1);
         assert_ne!(base, shifted);
+    }
+
+    #[test]
+    fn ring_layout_hover_non_overlap_precheck_accepts_current_geometry() {
+        let center = egui::pos2(0.0, 0.0);
+        assert!(ring_layout_supports_hover_non_overlap(
+            center,
+            RadialDomain::Node,
+            MAX_VISIBLE_ACTIONS_PER_RING,
+            0.0,
+            0.0
+        ));
+    }
+
+    #[test]
+    fn ring_layout_hover_non_overlap_precheck_detects_expanded_radius_conflict() {
+        let center = egui::pos2(0.0, 0.0);
+        assert!(!ring_layout_supports_hover_non_overlap_with_radius(
+            center,
+            RadialDomain::Node,
+            MAX_VISIBLE_ACTIONS_PER_RING,
+            0.0,
+            0.0,
+            COMMAND_BUTTON_RADIUS * 1.5,
+        ));
     }
 
     #[test]
