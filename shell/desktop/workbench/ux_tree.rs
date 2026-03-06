@@ -9,6 +9,7 @@ use egui_tiles::{Container, Tile, TileId, Tree};
 
 use crate::app::{GraphBrowserApp, GraphViewId};
 use crate::graph::NodeKey;
+use crate::render::radial_menu::latest_semantic_snapshot;
 
 use super::pane_model::TileRenderMode;
 use super::tile_kind::TileKind;
@@ -25,6 +26,8 @@ pub(crate) enum UxNodeRole {
     GraphSurface,
     GraphNode,
     NodePane,
+    RadialPalette,
+    RadialSector,
     #[cfg(feature = "diagnostics")]
     ToolPane,
 }
@@ -37,9 +40,11 @@ pub(crate) enum UxAction {
     Select,
     Open,
     Navigate,
+    Dismiss,
+    Invoke,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum UxDomainIdentity {
     Workbench,
     GraphView {
@@ -52,6 +57,15 @@ pub(crate) enum UxDomainIdentity {
     Tool {
         tool_kind: &'static str,
     },
+    RadialSector {
+        action_id: String,
+        enabled: bool,
+        tier: u8,
+        rail_position: f32,
+        hover_scale: f32,
+        angle_rad: f32,
+        page: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +76,7 @@ pub(crate) struct UxNodeState {
     pub(crate) degraded: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct UxSemanticNode {
     pub(crate) ux_node_id: String,
     pub(crate) role: UxNodeRole,
@@ -225,6 +239,12 @@ pub(crate) fn build_snapshot(
         );
     }
 
+    append_radial_palette_nodes(
+        &mut semantic_nodes,
+        &mut presentation_nodes,
+        &mut trace_nodes,
+    );
+
     UxTreeSnapshot {
         semantic_version: UX_TREE_SEMANTIC_SCHEMA_VERSION,
         presentation_version: UX_TREE_PRESENTATION_SCHEMA_VERSION,
@@ -237,6 +257,93 @@ pub(crate) fn build_snapshot(
             route_events_observed: 0,
             diagnostics_events_observed: 0,
         },
+    }
+}
+
+fn append_radial_palette_nodes(
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    let Some(snapshot) = latest_semantic_snapshot() else {
+        return;
+    };
+
+    let radial_root_id = "uxnode://command/radial/root".to_string();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: radial_root_id.clone(),
+        role: UxNodeRole::RadialPalette,
+        label: "Radial Palette".to_string(),
+        state: UxNodeState {
+            focused: true,
+            selected: false,
+            blocked: false,
+            degraded: false,
+        },
+        allowed_actions: vec![UxAction::Focus, UxAction::Dismiss, UxAction::Navigate],
+        domain: UxDomainIdentity::Workbench,
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: radial_root_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "command.radial",
+        style_flags: vec!["surface:radial"],
+        transient_flags: vec!["mode:radial"],
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: radial_root_id,
+        event_route: "command.radial_route",
+        backend_path: "egui",
+        diagnostics_counter: snapshot.sectors.len() as u64,
+    });
+
+    for (idx, sector) in snapshot.sectors.iter().enumerate() {
+        let sector_id = format!(
+            "uxnode://command/radial/tier{}/domain/{}/sector/{}",
+            sector.tier,
+            sector.domain_label.to_ascii_lowercase(),
+            idx
+        );
+        semantic_nodes.push(UxSemanticNode {
+            ux_node_id: sector_id.clone(),
+            role: UxNodeRole::RadialSector,
+            label: format!("{} [{}]", sector.action_id, sector.domain_label),
+            state: UxNodeState {
+                focused: sector.hover_scale > 1.0,
+                selected: false,
+                blocked: !sector.enabled,
+                degraded: false,
+            },
+            allowed_actions: vec![UxAction::Invoke, UxAction::Navigate],
+            domain: UxDomainIdentity::RadialSector {
+                action_id: sector.action_id.clone(),
+                enabled: sector.enabled,
+                tier: sector.tier,
+                rail_position: sector.rail_position,
+                hover_scale: sector.hover_scale,
+                angle_rad: sector.angle_rad,
+                page: sector.page,
+            },
+        });
+        presentation_nodes.push(UxPresentationNode {
+            ux_node_id: sector_id.clone(),
+            bounds: None,
+            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            z_pass: "command.radial.sector",
+            style_flags: vec!["surface:radial-sector"],
+            transient_flags: if sector.hover_scale > 1.0 {
+                vec!["hovered"]
+            } else {
+                Vec::new()
+            },
+        });
+        trace_nodes.push(UxTraceNode {
+            ux_node_id: sector_id,
+            event_route: "command.radial_sector_route",
+            backend_path: "egui",
+            diagnostics_counter: u64::from(sector.enabled),
+        });
     }
 }
 
@@ -627,6 +734,10 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::radial_menu::{
+        RadialPaletteSemanticSnapshot, RadialSectorSemanticMetadata, clear_semantic_snapshot,
+        publish_semantic_snapshot,
+    };
     use crate::shell::desktop::tests::harness::TestRegistry;
 
     #[test]
@@ -739,5 +850,50 @@ mod tests {
 
         assert_eq!(graph_nodes.len(), 2);
         assert!(graph_nodes.iter().any(|entry| entry.state.selected));
+    }
+
+    #[test]
+    fn snapshot_projects_radial_sector_metadata_when_available() {
+        clear_semantic_snapshot();
+        publish_semantic_snapshot(RadialPaletteSemanticSnapshot {
+            sectors: vec![RadialSectorSemanticMetadata {
+                tier: 2,
+                domain_label: "Node".to_string(),
+                action_id: "NodeDelete".to_string(),
+                enabled: true,
+                page: 0,
+                rail_position: 0.15,
+                angle_rad: 1.2,
+                hover_scale: 1.5,
+            }],
+        });
+
+        let harness = TestRegistry::new();
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 7);
+
+        assert!(
+            snapshot
+                .semantic_nodes
+                .iter()
+                .any(|node| node.role == UxNodeRole::RadialPalette),
+            "snapshot should include radial palette root when metadata is available"
+        );
+        assert!(
+            snapshot.semantic_nodes.iter().any(|node| {
+                node.role == UxNodeRole::RadialSector
+                    && matches!(
+                        &node.domain,
+                        UxDomainIdentity::RadialSector {
+                            action_id,
+                            enabled,
+                            tier,
+                            ..
+                        } if action_id == "NodeDelete" && *enabled && *tier == 2
+                    )
+            }),
+            "snapshot should include radial sector action metadata"
+        );
+
+        clear_semantic_snapshot();
     }
 }

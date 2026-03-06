@@ -22,6 +22,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_RADIAL_MODE_FALLBACK, CHANNEL_UX_RADIAL_OVERFLOW,
 };
 use egui::{Color32, Key, Stroke, Window};
+use std::sync::{Mutex, OnceLock};
 
 const MAX_VISIBLE_ACTIONS_PER_RING: usize = 8;
 const COMMAND_RING_RADIUS: f32 = 165.0;
@@ -32,6 +33,49 @@ const HOVER_LABEL_OFFSET: f32 = 34.0;
 const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 const RAIL_OFFSET_STEP_RAD: f32 = 0.08;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RadialSectorSemanticMetadata {
+    pub(crate) tier: u8,
+    pub(crate) domain_label: String,
+    pub(crate) action_id: String,
+    pub(crate) enabled: bool,
+    pub(crate) page: usize,
+    pub(crate) rail_position: f32,
+    pub(crate) angle_rad: f32,
+    pub(crate) hover_scale: f32,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RadialPaletteSemanticSnapshot {
+    pub(crate) sectors: Vec<RadialSectorSemanticMetadata>,
+}
+
+static LATEST_RADIAL_SEMANTIC_SNAPSHOT: OnceLock<Mutex<Option<RadialPaletteSemanticSnapshot>>> =
+    OnceLock::new();
+
+fn radial_snapshot_cache() -> &'static Mutex<Option<RadialPaletteSemanticSnapshot>> {
+    LATEST_RADIAL_SEMANTIC_SNAPSHOT.get_or_init(|| Mutex::new(None))
+}
+
+pub(crate) fn publish_semantic_snapshot(snapshot: RadialPaletteSemanticSnapshot) {
+    if let Ok(mut slot) = radial_snapshot_cache().lock() {
+        *slot = Some(snapshot);
+    }
+}
+
+pub(crate) fn latest_semantic_snapshot() -> Option<RadialPaletteSemanticSnapshot> {
+    radial_snapshot_cache()
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+}
+
+pub(crate) fn clear_semantic_snapshot() {
+    if let Ok(mut slot) = radial_snapshot_cache().lock() {
+        *slot = None;
+    }
+}
 
 /// Radial domain maps to `ActionCategory` for registry-backed content.
 ///
@@ -335,6 +379,7 @@ pub fn render_radial_command_menu(
         // Circular radial mode: hover by angle, click to confirm.
         let mut domain_offsets = [0.0f32; 4];
         let mut command_offsets = [0.0f32; 4];
+        let mut semantic_snapshot = RadialPaletteSemanticSnapshot::default();
         for domain in RadialDomain::ALL {
             domain_offsets[domain.index()] = ctx
                 .data_mut(|d| d.get_persisted::<f32>(domain_offset_id(domain)))
@@ -457,6 +502,19 @@ pub fn render_radial_command_menu(
                         92.0,
                         domain_offsets[domain.index()],
                     );
+                    semantic_snapshot.sectors.push(RadialSectorSemanticMetadata {
+                        tier: 1,
+                        domain_label: domain.label().to_string(),
+                        action_id: format!("category:{}", domain.label().to_ascii_lowercase()),
+                        enabled: true,
+                        page: 0,
+                        rail_position: domain_offsets[domain.index()],
+                        angle_rad: domain_angle_with_offsets(
+                            domain,
+                            domain_offsets[domain.index()],
+                        ),
+                        hover_scale: if Some(domain) == hovered_domain { 1.5 } else { 1.0 },
+                    });
                     let color = if Some(domain) == hovered_domain {
                         Color32::from_rgb(70, 130, 170)
                     } else {
@@ -520,6 +578,24 @@ pub fn render_radial_command_menu(
                     }
 
                     for (idx, entry) in visible_cmds.iter().enumerate() {
+                        let angle = command_angle_with_offsets(
+                            domain,
+                            idx,
+                            visible_cmds.len(),
+                            domain_offsets[domain.index()],
+                            command_offsets[domain.index()],
+                        );
+                        let is_hovered = hovered_entry.as_ref().is_some_and(|h| h.id == entry.id);
+                        semantic_snapshot.sectors.push(RadialSectorSemanticMetadata {
+                            tier: 2,
+                            domain_label: domain.label().to_string(),
+                            action_id: format!("{:?}", entry.id),
+                            enabled: entry.enabled,
+                            page,
+                            rail_position: command_offsets[domain.index()],
+                            angle_rad: angle,
+                            hover_scale: if is_hovered { 1.5 } else { 1.0 },
+                        });
                         let anchor = command_anchor_with_offsets(
                             center,
                             domain,
@@ -528,7 +604,6 @@ pub fn render_radial_command_menu(
                             domain_offsets[domain.index()],
                             command_offsets[domain.index()],
                         );
-                        let is_hovered = hovered_entry.as_ref().is_some_and(|h| h.id == entry.id);
                         let color = if is_hovered {
                             Color32::from_rgb(80, 170, 215)
                         } else if entry.enabled {
@@ -595,6 +670,12 @@ pub fn render_radial_command_menu(
             });
 
         if fallback_to_command_palette {
+            clear_semantic_snapshot();
+        } else {
+            publish_semantic_snapshot(semantic_snapshot);
+        }
+
+        if fallback_to_command_palette {
             if app.pending_node_context_target().is_none() {
                 app.set_pending_node_context_target(source_context);
             }
@@ -627,12 +708,16 @@ pub fn render_radial_command_menu(
         });
     }
     if !app.workspace.show_radial_menu {
+        clear_semantic_snapshot();
         app.set_pending_node_context_target(None);
         ctx.data_mut(|d| {
             d.remove::<egui::Pos2>(center_id);
             d.remove::<usize>(node_context_group_state_id);
             d.remove::<usize>(node_context_command_state_id);
         });
+    } else if app.pending_node_context_target().is_some() {
+        // Context-window mode has no radial sector geometry to publish.
+        clear_semantic_snapshot();
     }
     super::apply_ui_intents_with_checkpoint(app, intents);
 }
@@ -712,6 +797,21 @@ fn command_anchor_with_offsets(
     domain_offset: f32,
     command_offset: f32,
 ) -> egui::Pos2 {
+    let angle = command_angle_with_offsets(domain, idx, len, domain_offset, command_offset);
+    center
+        + egui::vec2(
+            angle.cos() * COMMAND_RING_RADIUS,
+            angle.sin() * COMMAND_RING_RADIUS,
+        )
+}
+
+fn command_angle_with_offsets(
+    domain: RadialDomain,
+    idx: usize,
+    len: usize,
+    domain_offset: f32,
+    command_offset: f32,
+) -> f32 {
     let base = domain_angle_with_offsets(domain, domain_offset) + command_offset;
     let spread = command_spread_for_len(len, COMMAND_RING_RADIUS, MIN_COMMAND_CENTER_SPACING);
     let t = if len <= 1 {
@@ -719,12 +819,7 @@ fn command_anchor_with_offsets(
     } else {
         idx as f32 / (len.saturating_sub(1) as f32) - 0.5
     };
-    let angle = base + t * spread;
-    center
-        + egui::vec2(
-            angle.cos() * COMMAND_RING_RADIUS,
-            angle.sin() * COMMAND_RING_RADIUS,
-        )
+    base + t * spread
 }
 
 fn domain_offset_id(domain: RadialDomain) -> egui::Id {
