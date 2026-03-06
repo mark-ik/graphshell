@@ -115,12 +115,35 @@ After `apply_reducer_intents()`:
 1. `TagNode` / `UntagNode` intents update `semantic_tags` and set `semantic_index_dirty = true`.
 2. Frame loop calls `knowledge::reconcile_semantics(app, registry)`.
 3. Reconcile checks dirty flag; if clean, returns immediately.
-4. Parses tags via `KnowledgeRegistry`, updates `app.semantic_index: HashMap<NodeKey, CompactCode>`, prunes stale node keys.
+4. Parses tags via `KnowledgeRegistry`, updates `app.semantic_index: HashMap<NodeKey, SemanticClassVector>`, prunes stale node keys.
 5. Clears dirty flag.
 
-**CompactCode**: A compact representation of the UDC path optimized for O(1) distance calculation (for example, `u64` or byte-vector). Derived by reconcile; never stored independently of `semantic_tags`.
+`SemanticClassVector`:
+
+```
+SemanticClassVector {
+  classes: Vec<CompactCode>,        // deduplicated canonical UDC classes for node
+  primary_code: Option<CompactCode> // deterministic reduction for scalar consumers
+}
+```
+
+`CompactCode`: A compact representation of one canonical UDC path (for example, `u64` or byte-vector) used for fast prefix-distance evaluation.
+
+Deterministic reduction rule (`primary_code`):
+
+1. Canonicalize and deduplicate all valid UDC classes for the node.
+2. Sort by `(path_depth DESC, canonical_tag_lex ASC)`.
+3. Select the first element as `primary_code`.
+
+Rationale: deepest class preserves specificity; lexical tiebreak keeps reduction stable and reproducible.
 
 **Invariant**: `semantic_index` must always be derivable from `semantic_tags` + `KnowledgeRegistry`. It is a cache, not a primary source of truth.
+
+Multi-class invariant:
+
+- `classes` is the canonical source for semantic distance and clustering behavior.
+- `primary_code` exists only for compatibility with legacy scalar callsites and diagnostics summaries.
+- New semantic algorithms must consume `classes` rather than `primary_code`.
 
 ### 3.3 Faceted Filter Projection Contract (`udc_classes`)
 
@@ -156,9 +179,18 @@ A `SemanticGravity` custom force is registered as an `ExtraForce` in the physics
 For every node pair (A, B) where both have UDC semantic tags:
 
 ```
-similarity = 1.0 - distance(semantic_index[A], semantic_index[B])
+classes_a = semantic_index[A].classes
+classes_b = semantic_index[B].classes
+
+pair_similarity(a, b) = max(1.0 - distance(ca, cb)) for all ca in classes_a, cb in classes_b
 F = k_semantic * similarity * (position_B - position_A)
 ```
+
+Where:
+
+- `similarity = pair_similarity(A, B)`.
+- If either class set is empty, `similarity = 0.0`.
+- Aggregation by `max` preserves bridge behavior for multi-class nodes while keeping attraction monotonic under added compatible classes.
 
 `k_semantic` is tunable (default from `PhysicsProfile`; also exposed as a "Semantic Strength" control in the Physics settings panel).
 
@@ -175,6 +207,11 @@ This approximation is acceptable for library force behavior; exact pairwise calc
 ### 4.3 Multi-Class Behavior
 
 A node may carry multiple UDC tags (for example, `udc:51` and `udc:93`). The node calculates attraction to all matching clusters. The node drifts toward the spatial region between its semantic homes.
+
+Reduction compatibility rule:
+
+- Any UI surface that requires a single displayed "primary class" uses `primary_code`.
+- Physics and clustering computations must continue using full `classes` set semantics.
 
 ### 4.4 Tuning
 
@@ -295,9 +332,11 @@ Cross-spec rule:
 | Unknown deep code accepted with `None` label | Test: `label(parse("udc:999.999.999"))` -> `None`; `validate` -> `Valid` |
 | Equivalent UDC forms canonicalize identically | Test: `parse(" UDC:519.600 ")` and `parse("udc:519.6")` produce same canonical tag/path |
 | Dirty-flag reconcile only re-indexes on change | Test: call reconcile twice with no intent -> second call is no-op |
+| `primary_code` reduction is deterministic | Test: same multi-tag input set in different insertion orders yields identical `primary_code` |
 | Semantic gravity separates unconnected clusters | Test: 10 Math nodes + 10 Art nodes, no edges, physics run -> two distinct spatial groups |
 | Centroid optimization produces comparable clustering to pairwise | Test: centroid result vs. pairwise result within 10% spatial distance |
 | Multi-class node drifts between clusters | Test: node with `udc:51` + `udc:93` -> position between Math and History centroids |
+| Pair similarity uses multi-class set semantics | Test: node A (`udc:51`,`udc:93`) vs node B (`udc:93`) yields higher similarity than A vs node C (`udc:62`) |
 | `k_semantic = 0` disables semantic separation | Test: all nodes converge regardless of tags |
 | Auto-group creates `UserGrouped` edges, not deletions | Test: "Group by Subject" -> no node or edge deletions in intent log |
 | `udc_classes` `ContainsAny`/`ContainsAll` behavior is deterministic | Test: faceted query over mixed-node set yields stable match sets for both operators |
