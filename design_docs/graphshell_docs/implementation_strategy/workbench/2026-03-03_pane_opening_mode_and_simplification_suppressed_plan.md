@@ -78,6 +78,12 @@ That transition:
 - may trigger deferred traversal edge assertion if history capture is appropriate,
 - must not be confused with a `Docked <-> Tiled` chrome change.
 
+Terminology guardrail:
+
+- Promotion here means graph enrollment (`Pane` -> graph-backed `Tile`) only.
+- Structural tab-container mutations are separate workbench operations (`hoist/unhoist`) defined in `../canvas/multi_view_pane_spec.md`.
+- Structural hoist/unhoist must not be used as a synonym for promotion.
+
 ---
 
 ## 4. Structural Constraints

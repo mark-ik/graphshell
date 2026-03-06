@@ -82,7 +82,7 @@ Rules:
 
 ### 3.4B Ephemeral pane-open non-write behavior
 
-Opening content in an ephemeral pane mode (`QuarterPane`, `HalfPane`, `FullPane`) is explicitly non-durable unless and until the pane is promoted into graph-backed state.
+Opening content in an ephemeral pane mode (`QuarterPane`, `HalfPane`, `FullPane`) is explicitly non-durable unless and until the pane is enrolled into graph-backed `Tile` state (the canonical Promotion event).
 
 That means:
 
@@ -93,8 +93,12 @@ That means:
 
 If an ephemeral pane later becomes graph-backed:
 
-- the promotion/enrollment event is the first durable write point,
+- the enrollment (Promotion) event is the first durable write point,
 - address issuance may occur earlier in transient memory, but persistence authority begins only at canonical graph enrollment.
+
+Guardrail:
+
+- Structural hoist/unhoist operations in the workbench tile tree are not enrollment and must not be treated as durable write triggers.
 
 ### 3.5 Encryption Completeness
 

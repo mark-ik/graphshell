@@ -48,7 +48,7 @@ This spec defines the canonical contracts for:
 3. **Per-view local layout** — multi-pane layout isolation semantics.
 4. **Graph-view layout manager** — slot-grid lifecycle and pane routing semantics.
 5. **Scope isolation** — interaction independence between sibling panes.
-6. **Semantic tab overlay** — `FrameTabSemantics`, promote/demote, demotion repair.
+6. **Semantic tab overlay** — `FrameTabSemantics`, structural hoist/unhoist, simplification repair.
 
 ---
 
@@ -201,13 +201,20 @@ TabGroupMetadata {
 - A pane belongs to at most one semantic tab group.
 - Persistence: serialized with rkyv into the frame bundle (redb). This is frame state, not WAL data — it must not appear in `LogEntry` variants.
 
-### 7.3 Promote / Demote Contract
+### 7.3 Structural Hoist / Unhoist Contract
 
-**Promote** (pane rest state → tab container): pane is hoisted into a `Container::Tabs` node in the tile tree. Semantic metadata is created or updated.
+This section is about structural workbench-tree changes only. It is not the graph-citizenship boundary.
 
-**Demote** (tab container → pane rest state): pane is unhoisted; tab container is removed. Semantic metadata is retained (the tab group still exists in `FrameTabSemantics`; only the visual container is removed). The pane can be re-promoted without losing group membership.
+**Hoist** (pane rest state → tab container): pane is hoisted into a `Container::Tabs` node in the tile tree. Semantic metadata is created or updated.
 
-**Invariant**: Promote and demote are explicit `GraphIntent` variants (e.g., `PromotePane`, `DemotePane`). They must not be ad hoc tree rewrites at UI callsites. The `render/*` layer captures the user event and routes it to `app.rs` as an intent; `app.rs` is the authority for the promotion decision; `desktop/*` applies the workbench tree mutation.
+**Unhoist** (tab container → pane rest state): pane is unhoisted; tab container is removed. Semantic metadata is retained (the tab group still exists in `FrameTabSemantics`; only the visual container is removed). The pane can be re-hoisted without losing group membership.
+
+**Invariant**: Hoist and unhoist are explicit structural intents (e.g., `HoistPaneToTabs`, `UnhoistPaneFromTabs`). They must not be ad hoc tree rewrites at UI callsites. The `render/*` layer captures the user event and routes it to `app.rs` as an intent; `app.rs` is the authority for the structural decision; `desktop/*` applies the workbench tree mutation.
+
+Terminology guardrail:
+
+- `Promotion` is reserved for pane enrollment into graph-backed `Tile` state per `../workbench/2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` and `../../TERMINOLOGY.md`.
+- Structural hoist/unhoist must not perform graph enrollment writes.
 
 ### 7.4 Simplification Repair
 
@@ -233,8 +240,9 @@ When `egui_tiles::simplify()` runs and removes a tab container that has semantic
 | Slot coordinate collision is guarded | Test: moving slot into occupied coordinates is rejected |
 | Graph-view route intent dispatches workbench pane-open intent | Test: route intent enqueues `OpenGraphViewPane` |
 | `GraphViewId` persists across reorder | Test: reorder pane → `GraphViewId` unchanged |
-| Promote creates `Container::Tabs` node | Test: promote pane → tile tree contains `Container::Tabs` parent |
-| Demote removes container but retains semantic metadata | Test: demote → `TabGroupMetadata` still present in `FrameTabSemantics` |
-| `simplify()` does not lose tab group membership | Test: simplify removes tab container → `TabGroupMetadata` intact; re-promote restores group |
+| Hoist creates `Container::Tabs` node | Test: hoist pane → tile tree contains `Container::Tabs` parent |
+| Unhoist removes container but retains semantic metadata | Test: unhoist → `TabGroupMetadata` still present in `FrameTabSemantics` |
+| `simplify()` does not lose tab group membership | Test: simplify removes tab container → `TabGroupMetadata` intact; re-hoist restores group |
 | `active_pane_id` repaired when member removed | Test: remove pane from group → `active_pane_id` set to `None` |
-| Promote/demote routed through `GraphIntent` | Architecture invariant: no direct tile tree mutation from render callsites for promote/demote |
+| Hoist/unhoist routed through structural intents | Architecture invariant: no direct tile tree mutation from render callsites for hoist/unhoist |
+| Structural hoist/unhoist does not enroll graph citizenship | Test: hoist/unhoist cycle without Tile enrollment emits no graph node write |
