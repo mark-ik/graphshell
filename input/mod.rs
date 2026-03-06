@@ -183,7 +183,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             }
         }
 
-        // Toggle edge command palette.
+        // Toggle command palette.
         match graph_app.workspace.command_palette_shortcut {
             CommandPaletteShortcut::F2 => {
                 if i.key_pressed(Key::F2) {
@@ -197,7 +197,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             }
         }
 
-        // Toggle radial command menu.
+        // Toggle radial palette mode.
         match graph_app.workspace.radial_menu_shortcut {
             RadialMenuShortcut::F3 => {
                 if i.key_pressed(Key::F3) {

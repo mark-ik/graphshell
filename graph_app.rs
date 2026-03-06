@@ -1593,7 +1593,7 @@ pub struct GraphWorkspace {
     /// Whether the keyboard shortcut help panel is open
     pub show_help_panel: bool,
 
-    /// Whether the edge command palette is open
+    /// Whether the command palette is open
     pub show_command_palette: bool,
     /// Whether the radial command UI is open.
     pub show_radial_menu: bool,
@@ -5987,7 +5987,7 @@ impl GraphBrowserApp {
         });
     }
 
-    /// Toggle edge command palette visibility.
+    /// Toggle command palette visibility.
     pub fn toggle_command_palette(&mut self) {
         self.workspace.show_command_palette = !self.workspace.show_command_palette;
         if self.workspace.show_command_palette {
@@ -6001,7 +6001,7 @@ impl GraphBrowserApp {
         });
     }
 
-    /// Toggle radial command menu visibility.
+    /// Toggle radial palette mode visibility.
     pub fn toggle_radial_menu(&mut self) {
         self.workspace.show_radial_menu = !self.workspace.show_radial_menu;
         if self.workspace.show_radial_menu {

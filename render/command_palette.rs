@@ -107,6 +107,36 @@ fn empty_graph_message(node_count: usize) -> Option<&'static str> {
     }
 }
 
+fn render_action_entry_button(
+    ui: &mut egui::Ui,
+    app: &mut GraphBrowserApp,
+    entry: &crate::render::action_registry::ActionEntry,
+    action_context: &ActionContext,
+    pair_context: Option<(NodeKey, NodeKey)>,
+    source_context: Option<NodeKey>,
+    intents: &mut Vec<GraphIntent>,
+    focused_pane_node: Option<NodeKey>,
+    should_close: &mut bool,
+) {
+    let mut response = ui.add_enabled(entry.enabled, egui::Button::new(entry.id.label()));
+    if !entry.enabled
+        && let Some(reason) = disabled_action_reason(entry.id, action_context)
+    {
+        response = response.on_hover_text(reason);
+    }
+    if response.clicked() {
+        execute_action(
+            app,
+            entry.id,
+            pair_context,
+            source_context,
+            intents,
+            focused_pane_node,
+        );
+        *should_close = true;
+    }
+}
+
 /// Render the command palette panel.
 ///
 /// Content is driven by [`list_actions_for_context`]; no hardcoded action
@@ -149,6 +179,7 @@ pub fn render_command_palette_panel(
             && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
     };
     let actions = list_actions_for_context(&action_context);
+    let contextual_mode = app.pending_node_context_target().is_some();
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
         should_close = true;
@@ -165,6 +196,11 @@ pub fn render_command_palette_panel(
                 .show(ui, |ui| {
                     ui.label("Node, tile, edge, graph, and persistence commands");
                     ui.small("Delete Node(s) is graph content mutation; tile close remains a tile-tree operation.");
+                    if contextual_mode {
+                        ui.small("Mode: Context Palette (Tier 1 categories + Tier 2 commands)");
+                    } else {
+                        ui.small("Mode: Search Palette (global grouped list)");
+                    }
                     if let Some(message) = empty_graph_message(graph_node_count) {
                         ui.add_space(4.0);
                         ui.small(message);
@@ -175,45 +211,92 @@ pub fn render_command_palette_panel(
                     }
                     ui.add_space(6.0);
 
-                    // Render actions grouped by category, using ActionRegistry content.
+                    // Context Palette Mode: two-tier scaffold.
+                    // Tier 1 selects a category; Tier 2 lists actions for that category.
                     let categories = [
-                        ActionCategory::Edge,
                         ActionCategory::Node,
+                        ActionCategory::Edge,
                         ActionCategory::Graph,
                         ActionCategory::Persistence,
                     ];
 
-                    let mut first_category = true;
-                    for category in categories {
-                        let cat_actions: Vec<_> = actions
-                            .iter()
-                            .filter(|e| e.id.category() == category)
-                            .collect();
-                        if cat_actions.is_empty() {
-                            continue;
-                        }
-                        if !first_category {
-                            ui.separator();
-                        }
-                        first_category = false;
-                        for entry in &cat_actions {
-                            let mut response =
-                                ui.add_enabled(entry.enabled, egui::Button::new(entry.id.label()));
-                            if !entry.enabled
-                                && let Some(reason) = disabled_action_reason(entry.id, &action_context)
-                            {
-                                response = response.on_hover_text(reason);
+                    if contextual_mode {
+                        let category_state_id = egui::Id::new("command_palette_tier1_category");
+                        let mut selected_index = ctx
+                            .data_mut(|d| d.get_persisted::<usize>(category_state_id))
+                            .unwrap_or(0)
+                            % categories.len();
+
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label("Tier 1:");
+                            for (idx, category) in categories.iter().copied().enumerate() {
+                                if ui
+                                    .selectable_label(selected_index == idx, category.label())
+                                    .clicked()
+                                {
+                                    selected_index = idx;
+                                }
                             }
-                            if response.clicked() {
-                                execute_action(
+                        });
+                        ctx.data_mut(|d| d.insert_persisted(category_state_id, selected_index));
+
+                        ui.add_space(4.0);
+                        ui.small("Tier 2:");
+                        let selected_category = categories[selected_index];
+                        let tier2_actions: Vec<_> = actions
+                            .iter()
+                            .filter(|e| e.id.category() == selected_category)
+                            .collect();
+                        if tier2_actions.is_empty() {
+                            ui.small("No actions available in this category for the current context.");
+                        } else {
+                            for entry in &tier2_actions {
+                                render_action_entry_button(
+                                    ui,
                                     app,
-                                    entry.id,
+                                    entry,
+                                    &action_context,
                                     pair_context,
                                     source_context,
                                     &mut intents,
                                     focused_pane_node,
+                                    &mut should_close,
                                 );
-                                should_close = true;
+                            }
+                        }
+                    } else {
+                        // Search Palette Mode scaffold: grouped category list.
+                        let categories = [
+                            ActionCategory::Edge,
+                            ActionCategory::Node,
+                            ActionCategory::Graph,
+                            ActionCategory::Persistence,
+                        ];
+                        let mut first_category = true;
+                        for category in categories {
+                            let cat_actions: Vec<_> = actions
+                                .iter()
+                                .filter(|e| e.id.category() == category)
+                                .collect();
+                            if cat_actions.is_empty() {
+                                continue;
+                            }
+                            if !first_category {
+                                ui.separator();
+                            }
+                            first_category = false;
+                            for entry in &cat_actions {
+                                render_action_entry_button(
+                                    ui,
+                                    app,
+                                    entry,
+                                    &action_context,
+                                    pair_context,
+                                    source_context,
+                                    &mut intents,
+                                    focused_pane_node,
+                                    &mut should_close,
+                                );
                             }
                         }
                     }

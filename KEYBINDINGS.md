@@ -30,8 +30,8 @@ Default keybinds are configurable in `Settings -> Input`.
 - `G`: Connect selected pair (source -> target)
 - `Shift+G`: Connect both directions for selected pair
 - `Alt+G`: Remove user edge for selected pair
-- `F2` (default): Toggle edge command palette
-- `F3` (default): Toggle radial command menu
+- `F2` (default): Toggle command palette
+- `F3` (default): Toggle radial palette mode
 - `Ctrl+F`: Graph search
 - `Ctrl+Z` / `Ctrl+Y`: Undo / Redo
 - `F1` / `?` (default): Toggle keyboard shortcut help
