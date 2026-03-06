@@ -273,6 +273,14 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 | `GraphEdge` | One edge between two graph nodes (if individually addressable). | `TreeItem` |
 | `GraphNodeGroup` | A cluster of graph nodes (Semantic Gravity group). | `Group` |
 
+### 4.6 Projection and Boundary Roles
+
+| Role | Semantics | AccessKit mapping |
+|------|-----------|-------------------|
+| `GraphViewLensScope` | Graph-view lens/scope projection node carrying active lens/profile/filter semantics for a `GraphViewId`. | `Group` |
+| `FileTreeProjection` | Workbench file-tree navigation projection node carrying containment source, sort/filter state, and row/selection expansion metrics. | `Tree` |
+| `RouteOpenBoundary` | Workbench route/open projection node carrying pending contextual-open boundary state (context target, open-node mode, connected-open scope). | `Group` |
+
 ---
 
 ## 5. UxAction Normative Catalogue
@@ -286,6 +294,7 @@ declared in the mod's `ModManifest` and must not shadow core role names.
 | `Open` | Open the node's content in a pane. | `GraphNode` |
 | `Close` | Close the associated pane or tab. | `NodePane`, `ToolPane`, `Tab` |
 | `ScrollTo` | Scroll the parent container to make this node visible. | `GraphNode`, `ListItem` |
+| `Navigate` | Move semantic navigation context within a projection or route boundary without mutating graph truth ownership. | `GraphView`, `GraphViewLensScope`, `FileTreeProjection`, `RouteOpenBoundary`, `Region` |
 | `Expand` | Expand a collapsed region or group. | `GraphNodeGroup`, collapsible `Region` |
 | `Collapse` | Collapse an expanded region or group. | `GraphNodeGroup`, collapsible `Region` |
 
