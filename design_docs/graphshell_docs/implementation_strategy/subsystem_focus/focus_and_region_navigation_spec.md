@@ -113,6 +113,7 @@ Graphshell has these primary navigable regions:
 
 - Exactly one region owns semantic focus at a time.
 - Hover may influence pointer targeting, but it does not silently replace semantic focus unless the owning interaction model explicitly permits it.
+- In canonical Graphshell routing, hover alone must not retarget keyboard/camera command ownership; semantic-owner transfer requires explicit activation (`click`/`tap`/region-cycle/command handoff) through the focus router.
 
 **Who owns it**
 

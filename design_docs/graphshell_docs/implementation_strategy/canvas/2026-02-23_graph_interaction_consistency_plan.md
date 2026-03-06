@@ -23,17 +23,28 @@ Three categories of UX inconsistency:
 
 This document no longer treats a single focus-routing rule as a hard invariant. The default interaction model should prioritize what users generally expect from pane-based interfaces, while exposing alternative routing policies as configuration options.
 
+Canonical override note:
+
+- Semantic focus ownership is governed by `../subsystem_focus/focus_and_region_navigation_spec.md`.
+- Where this plan previously implied hover-driven semantic retargeting, that behavior is superseded.
+- Hover is pointer-targeting input only; semantic keyboard/camera command targeting changes only via explicit activation and router-owned handoff.
+
 Default policy targets:
 
 - **Hovering** a pane makes it the active pointer/scroll target. No click required.
 - **Scrolling** routes to the currently hovered pane — graph panes zoom, webview panes scroll page content. No modifier key required by default.
-- **Keyboard and camera/navigation commands** should target the pane/view the user most recently interacted with (including hover-driven graph-pane focus where that feels more natural), rather than enforcing a custom last-click-only rule across all surfaces.
+- **Keyboard and camera/navigation commands** target the semantic focus owner chosen by the focus router, not merely the hovered region.
+- Pointer hover alone must not retarget semantic keyboard/camera ownership; explicit pointer activation (for example click/tap) or explicit region-navigation commands are required.
 - **`scroll_zoom_requires_ctrl`** remains an explicit opt-out for users who prefer Ctrl-to-zoom conventions.
 
 Design rule:
 
 - Prefer mainstream, predictable defaults first.
 - Preserve configuration hooks so alternate focus/input-routing behaviors can be offered later without re-architecting the input path.
+
+Focus-routing guardrail:
+
+- Any optional alternative input-routing policy must remain compliant with the semantic-owner invariants in `focus_and_region_navigation_spec.md`.
 
 ---
 
