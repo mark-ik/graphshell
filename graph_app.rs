@@ -8714,7 +8714,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_runtime_layers_do_not_call_graph_topology_mutators_directly() {
+    fn contract_only_trusted_writers_call_graph_topology_mutators() {
         const FORBIDDEN_TOKENS: [&str; 5] = [
             "graph.add_node(",
             "graph.remove_node(",
@@ -8764,7 +8764,7 @@ mod tests {
             for token in FORBIDDEN_TOKENS {
                 assert!(
                     !source.contains(token),
-                    "runtime/shell mutation boundary violated in {path}: found '{token}'"
+                    "trusted-writer boundary violated in {path}: found '{token}'"
                 );
             }
         }

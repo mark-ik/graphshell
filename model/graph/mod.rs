@@ -9,8 +9,15 @@
 //! - `Node`: Webpage node with position, velocity, and metadata
 //! - `EdgePayload`: Edge semantics and traversal events between nodes
 //!
-//! Boundary: direct mutation methods are `pub(crate)` — callers outside the
-//! reducer path are single-write-path invariant violations.
+//! Boundary: direct mutation methods are `pub(crate)` and reserved for
+//! trusted writers only.
+//!
+//! Trusted writers:
+//! - reducer-owned mutation flow in `GraphBrowserApp`
+//! - persistence replay/recovery code that reconstructs previously accepted
+//!   reducer state
+//!
+//! This is an internal trust boundary, not reducer-only compiler enforcement.
 
 use euclid::default::{Point2D, Vector2D};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
@@ -396,7 +403,9 @@ impl Graph {
     }
 
     // Single-write-path boundary (Phase 6.5): graph topology mutators are
-    // crate-internal. Callers outside the reducer path are invariant violations.
+    // crate-internal and intended for trusted writers (reducer + persistence
+    // replay/recovery). Other runtime/shell code paths should route through
+    // reducer intents rather than calling topology mutators directly.
 
     /// Add a new node to the graph
     pub(crate) fn add_node(&mut self, url: String, position: Point2D<f32>) -> NodeKey {

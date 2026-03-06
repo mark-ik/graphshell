@@ -1309,6 +1309,9 @@ impl GraphStore {
             };
 
             match archived {
+                // Trusted-writer boundary: persistence replay reconstructs
+                // previously accepted reducer mutations directly onto Graph.
+                // This is the sanctioned non-reducer mutator path.
                 ArchivedLogEntry::AddNode {
                     node_id,
                     url,
