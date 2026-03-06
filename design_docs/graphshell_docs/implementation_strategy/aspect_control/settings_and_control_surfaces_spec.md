@@ -9,6 +9,7 @@
 - `../2026-02-20_settings_architecture_plan.md`
 - `../2026-02-24_control_ui_ux_plan.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
+- `../workbench/workbench_profile_and_workflow_composition_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../../design/KEYBINDINGS.md`
 
@@ -239,6 +240,44 @@ Compatibility note:
 
 - Import actions may be surfaced through settings or related tool pages, but they still route through the same action authority as the command system.
 
+### 4.6 WorkbenchProfile Persistence and Workflow Presets
+
+**What this domain is for**
+
+- Provide one canonical settings-owned path for editing and persisting `WorkbenchProfile` objects.
+
+**Core rules**
+
+- Profile schema authority is `../workbench/workbench_profile_and_workflow_composition_spec.md`.
+- Settings routes must expose:
+  - `verso://settings/workspaces/profiles`
+  - `verso://settings/workspaces/workflows`
+- Edits must preserve persistence boundaries:
+  - profile catalog is user-scoped,
+  - active profile selection is workspace-scoped,
+  - optional profile override is workbench-scoped.
+
+**Who owns it**
+
+- Graphshell settings controller owns CRUD/apply/persist UX for profile objects.
+- Workbench authority owns runtime profile resolution and application.
+
+**State transitions**
+
+- Profile create/update/delete mutates settings-owned profile catalog.
+- Applying active profile updates workspace-level selection and re-resolves runtime profile chain.
+- Workbench-level override updates only target workbench profile binding.
+
+**Visual feedback**
+
+- Pending vs applied profile state must be legible.
+- Scope of each operation (user/workspace/workbench) must be visible before confirmation.
+
+**Fallback / degraded behavior**
+
+- Invalid references degrade by domain with explicit warning; no silent field drop.
+- Persistence write failures must remain recoverable and visible.
+
 ---
 
 ## 5. Planned Extensions
@@ -267,5 +306,6 @@ Compatibility note:
 4. Exit and return paths are deterministic.
 5. Missing or deferred pages are explicit.
 6. Control surfaces remain accessible and diagnosable.
+7. WorkbenchProfile and workflow preset routes, scope boundaries, and persistence rules are explicit.
 
 

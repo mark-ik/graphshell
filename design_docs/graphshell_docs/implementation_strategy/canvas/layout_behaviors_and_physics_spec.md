@@ -7,6 +7,7 @@
 **Related**:
 
 - `CANVAS.md`
+- `layout_algorithm_portfolio_spec.md`
 - `graph_node_edge_interaction_spec.md`
 - `2026-02-24_layout_behaviors_plan.md`
 - `2026-02-24_physics_engine_extensibility_plan.md`
@@ -29,6 +30,8 @@ This spec defines the canonical contracts for:
 6. **Physics engine extension points** — `ExtraForce` hook contract and `LayoutRegistry` algorithm registration.
 
 All layout behavior is canvas-scoped (graph view panes only). Node viewer panes and tool panes are out of scope.
+
+Portfolio-level algorithm catalog, selection/fallback policy, and quality metric governance are defined in `layout_algorithm_portfolio_spec.md` (including diagnostics contract and acceptance criteria in §§6-8). This spec remains authoritative for physics micro-behavior and force injection details.
 
 ---
 

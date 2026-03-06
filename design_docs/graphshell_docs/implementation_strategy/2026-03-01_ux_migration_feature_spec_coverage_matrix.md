@@ -59,9 +59,9 @@
 | Frame management basics | UX migration §5.7 | `workbench/workbench_frame_tile_interaction_spec.md` | Green | Pass | None |
 | Graph-first frame semantics (cross-tree) | UX migration §5.7A | `workbench/graph_first_frame_semantics_spec.md` | Green | Pass | Propagate terminology to remaining canvas docs |
 | Multiple graph views (canonical/divergent) | UX migration §5.8 | `canvas/multi_view_pane_spec.md` | Green | Pass | None |
-| Multiple workbenches | UX migration §5.9 | `workbench/workbench_frame_tile_interaction_spec.md` | Yellow | Partial | Add explicit inter-workbench switch/open semantics to canonical workbench spec |
-| User-configurable WorkbenchProfile | UX migration §5.10 | `aspect_input/input_interaction_spec.md` (InputProfile), `aspect_control/settings_and_control_surfaces_spec.md` | Yellow | Partial | Create **WorkbenchProfile & Workflow Composition Spec** |
-| Layout mode portfolio | UX migration §6.1 | `canvas/layout_behaviors_and_physics_spec.md` | Yellow | Partial | Create **Layout Algorithm Portfolio Spec** |
+| Multiple workbenches | UX migration §5.9 | `workbench/workbench_frame_tile_interaction_spec.md` | Green | Pass | Canonical inter-workbench switch/open/restore contract is defined with deterministic cross-workbench focus return and route/focus diagnostics assertions |
+| User-configurable WorkbenchProfile | UX migration §5.10 | `workbench/workbench_profile_and_workflow_composition_spec.md`, `aspect_input/input_interaction_spec.md` (InputProfile), `aspect_control/settings_and_control_surfaces_spec.md` | Green | Pass | Canonical WorkbenchProfile schema now composes interaction, pane defaults, command-surface preferences, and workflow presets with explicit persistence scope rules wired through settings |
+| Layout mode portfolio | UX migration §6.1 | `canvas/layout_behaviors_and_physics_spec.md`, `canvas/layout_algorithm_portfolio_spec.md` | Green | Pass | Canonical portfolio spec now defines algorithm catalog, selection/fallback policy, quality metrics, per-mode constraints, and diagnostics-backed acceptance criteria |
 | Readability-driven adaptation | UX migration §6.2 | UX migration + research refs only | Red | Missing | Extend layout canonical spec with readability metric contract/channels |
 | LOD semantic zoom policy | UX migration §6.3 | `canvas/graph_node_edge_interaction_spec.md` (partial), UxTree C5 in `ux_tree_and_probe_spec.md` | Yellow | Partial | Add explicit LOD threshold contract to canonical canvas spec and UxTree emission contract cross-link |
 | Modal isolation and focus return | UX migration §7.3 | `aspect_input/input_interaction_spec.md`, `subsystem_focus/focus_and_region_navigation_spec.md`, UxTree spec | Yellow | Partial | Add shared modal isolation contract table across Input + Focus + UxTree specs |
@@ -79,8 +79,8 @@
 1. **Faceted Filter Surface Spec** (Red)
 2. **Facet Pane Routing Spec** (Red)
 3. **Radial Palette Geometry & Overflow Spec** (Red)
-4. **Layout Algorithm Portfolio Spec** (Yellow→Green)
-5. **WorkbenchProfile & Workflow Composition Spec** (Yellow→Green)
+4. **Layout Algorithm Portfolio Spec** (Closed)
+5. **WorkbenchProfile & Workflow Composition Spec** (Closed)
 6. **UxTree Event Dispatch Spec** or equivalent UxTree spec expansion (Yellow→Green)
 
 ---

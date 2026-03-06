@@ -14,6 +14,7 @@
 - `../subsystem_focus/focus_and_region_navigation_spec.md`
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../aspect_control/settings_and_control_surfaces_spec.md`
+- `workbench_profile_and_workflow_composition_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `SYSTEM_REGISTER.md`
 - `../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
@@ -217,6 +218,46 @@ This section defines the stable target behavior for the current workbench layer.
 
 - If a frame or tile cannot be created, the failure must be explicit.
 - Blank or ambiguous frame-switch outcomes are forbidden.
+
+### 4.1A Inter-Workbench Switch, Open, and Restore Contract
+
+This section defines cross-workbench behavior across `WorkbenchId` boundaries.
+
+**Canonical semantics**
+
+1. `SwitchWorkbench(target_workbench_id)` changes active arrangement authority to target workbench without mutating graph truth.
+2. `OpenInWorkbench(target_workbench_id, open_payload)` routes the open action into target workbench authority, then focuses resulting destination pane/tile.
+3. `RestoreWorkbench(target_workbench_id)` restores persisted frame/tile arrangement for the target workbench before focus assignment.
+4. Cross-workbench close/return paths must restore focus to a deterministic source anchor when return policy requests it.
+
+**Target resolution order for open routing**
+
+1. Explicit `target_workbench_id` from command/route intent.
+2. Last-active workbench for the current graph context.
+3. Current active workbench.
+
+If no target can be resolved, Graphshell must stay in current workbench and emit route/focus diagnostics (no silent no-op).
+
+**Persistence boundaries**
+
+- Workbench arrangement state (`frames`, `tiles`, split tree) persists per `WorkbenchId`.
+- Active workbench selection persists per workspace session boundary.
+- Graph content identity and traversal truth do not move ownership when switching workbenches.
+
+**Cross-workbench focus return**
+
+- On `OpenInWorkbench` with source context capture enabled, runtime records `(source_workbench_id, source_frame_id, source_tile_id, source_focus_region)`.
+- On closing the routed pane (or explicit return command), focus router restores to the captured source anchor when still valid.
+- If captured anchor is invalid, fallback order is: source frame root -> source workbench root -> active graph pane in current workbench.
+
+**Route/focus diagnostics assertions (normative)**
+
+| Flow | Required diagnostics assertions |
+| --- | --- |
+| `SwitchWorkbench` success | Emit `ux:navigation_transition` with `operation=switch_workbench`, `from_workbench_id`, `to_workbench_id`, and post-switch focus owner |
+| `OpenInWorkbench` resolution | Emit `ux:open_decision_path` and `ux:open_decision_reason` including requested and resolved `workbench_id` |
+| Cross-workbench focus restore success | Emit `ux:navigation_transition` with `operation=focus_restore`, captured source anchor fields, and resolved focus target |
+| Route/focus fallback triggered | Emit `ux:navigation_violation` (`Warn`) and `ux:contract_warning` with fallback reason and applied fallback target |
 
 ### 4.2 Tile Open, Focus, and Routing
 
@@ -516,5 +557,8 @@ These are exploratory design directions. They are informative only and should no
 8. Split-drop previews and invalid-drop feedback are deterministic and test-covered.
 9. Duplicate-tile policy and open-feedback behavior are deterministic and test-covered.
 10. Focus handoff and empty-state behavior are deterministic and visibly recoverable.
+11. Inter-workbench switch/open/restore semantics are explicitly defined for `WorkbenchId` routing.
+12. Cross-workbench focus return path and fallback order are deterministic and documented.
+13. Route/focus diagnostics assertions for inter-workbench flows are defined and testable.
 
 
