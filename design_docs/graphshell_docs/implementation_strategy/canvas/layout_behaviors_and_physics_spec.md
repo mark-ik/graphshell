@@ -87,55 +87,60 @@ Terminology rule for this section: historical `Zone`/`MagneticZone` wording is r
 ### 4.1 Data Model
 
 ```
-Zone {
-    id: Uuid,
-    name: String,
-    centroid: Vec2,
-    strength: f32,
+FrameAffinityRegion {
+  frame_id: FrameId,     -- references canonical GraphFrame identity
+  centroid: Vec2,
+  strength: f32,
 }
 
-Node.zone_id: Option<Uuid>   -- membership; None = no zone
-GraphWorkspace.zones: Vec<Zone>
+GraphFrame.member_nodes: Vec<NodeKey>          -- canonical membership authority
+NodeFrameMembership.frames: Vec<FrameId>       -- canonical per-node projection
 ```
 
-A node may belong to **at most one zone** at a time. Membership is exclusive.
+A node may belong to zero, one, or many frames. Frame-affinity behavior must evaluate each applicable frame membership without introducing a second membership store.
 
 ### 4.2 Persistence Scope
 
-Zones are **workspace-scoped**: they live in `GraphWorkspace.zones` and are part of the snapshot. All views of the same workspace share the same zone set.
+Frame-affinity regions are **derived from graph-frame state**, not persisted as an independent workspace entity.
 
-**Rationale**: Workspace scope aligns with the existing snapshot shape and requires no view-lifecycle or Lens coupling. Per-view zone isolation is deferred.
+Required persistence authority:
+
+- `GraphFrame` identity and `NodeFrameMembership` are persisted in graph scope per `../workbench/graph_first_frame_semantics_spec.md`.
+- Any region geometry cache (e.g., computed hull/bounds) is derivable/runtime state and must not create a second durable identity.
+- Snapshot roundtrip persists frame identity + memberships only; affinity projection recomputes from that source.
 
 ### 4.3 Force Application
 
 - Zone force is applied through the post-physics injection hook (§3), after global physics forces.
-- Force: attraction toward `Zone.centroid`, magnitude proportional to `Zone.strength` × distance from centroid.
+- Force: attraction toward each applicable frame-affinity centroid, magnitude proportional to region `strength` × distance from centroid.
 - Zone force is a **soft bias**, not a hard constraint. Physics forces may still displace zone members.
 - Gated by `CanvasRegistry.zones_enabled`.
 
+When a node has multiple frame memberships, forces are composed deterministically from all active frame-affinity regions for that node.
+
 ### 4.4 Membership Rules
 
-- A node may belong to at most one zone at a time.
-- If membership reassignment occurs (e.g., drag into overlapping zone backdrop), the most recent explicit assignment wins (last-write precedence).
-- Overlapping zone backdrops are rendered at distinct visual depth (lower z-order renders behind). No force conflict occurs since membership is exclusive.
+- Membership cardinality is defined by graph-first frame semantics: zero, one, or many frame memberships are valid.
+- Canvas interactions that add/remove affinity membership must mutate canonical frame membership (`AddNodeToFrame`, `RemoveNodeFromFrame`), not `Node.zone_id`.
+- Overlapping frame-affinity regions are valid; force composition is deterministic and must not require exclusivity.
 
 ### 4.5 Zone Interaction Contract
 
 | Interaction | Required behavior |
 |-------------|------------------|
-| Create Zone (≥1 nodes selected) | Derive centroid from selection bounding box center; assign all selected nodes to new zone |
-| Rename Zone | Double-click zone label or Command Palette contextual mode → inline rename |
-| Add node to Zone | Drag node onto zone backdrop → node's `zone_id` updated; force bias shifts toward new centroid |
-| Remove node from Zone | Command Palette contextual mode "Remove from Zone" or drag entirely outside zone backdrop; `zone_id` cleared |
-| Drag Zone centroid | Centroid moves; zone members follow via soft force (not teleport) |
-| Delete Zone | Zone removed; all member nodes' `zone_id` fields cleared; node positions are preserved |
-| Merge Zones | Drag one zone backdrop onto another → combine membership under target; source zone deleted |
+| Create Frame-Affinity Region (≥1 nodes selected) | Create/resolve a `Frame` via graph-first semantics and derive centroid from frame member distribution |
+| Rename Frame | Rename canonical `GraphFrame` label; affinity rendering reflects updated label |
+| Add node to Frame | Drag node onto frame-affinity region or command action → `AddNodeToFrame(frame_id, node_key)` |
+| Remove node from Frame | Contextual action or drag-out gesture → `RemoveNodeFromFrame(frame_id, node_key)` |
+| Drag region centroid | Visual centroid/anchor moves; members follow via soft force (not teleport) |
+| Delete Frame | `DeleteFrame(frame_id)` removes frame identity and memberships via destructive path |
+| Merge Frames | `MergeFrames(source, target)` combines memberships under target frame |
 
-**Invariant**: Deleting a zone must clear `zone_id` on all member nodes in the same atomic operation. No node may retain a `zone_id` pointing to a deleted zone.
+**Invariant**: Deleting a frame removes membership links atomically in graph scope. No node may retain membership to a deleted `frame_id`.
 
 ### 4.6 Zone Rendering
 
-Zone backdrops render as: bounding box of member nodes + padding, semi-transparent fill, zone label. Backdrop is rendered below nodes on the z-axis.
+Frame-affinity backdrops render as derived bounds/hulls of member nodes + padding, semi-transparent fill, frame label. Backdrop is rendered below nodes on the z-axis.
 
 ---
 
@@ -265,10 +270,10 @@ Physics profiles may include `ExtraForce` entries. An `ExtraForce` is a named, p
 | Link-follow node spawns near source | Test: new node with parent → position within `parent_position + max_jitter` |
 | Degree repulsion toggle changes hub spread | Test: enable/disable → measurable difference in high-degree node neighbor distances |
 | Domain clustering toggle creates grouping | Test: enable → same-domain nodes converge; disable → disperse |
-| Zone membership is exclusive | Test: node in zone A dragged into zone B → `zone_id` updated to B, not both |
-| Zone delete clears all member `zone_id` fields | Test: delete zone → all former members have `zone_id == None` |
+| Frame membership supports multi-affinity | Test: node may retain memberships in frame A and frame B simultaneously; both affinities render and contribute force |
+| Frame delete clears all member links | Test: `DeleteFrame(frame_id)` → all former members remove that frame from membership projection |
 | Zone force is soft bias, not hard override | Test: zone member can be displaced by physics; force magnitude proportional to strength |
-| Zone survives snapshot roundtrip | Test: save/load → zones and membership intact |
+| Frame-affinity survives snapshot roundtrip | Test: save/load → `GraphFrame` identity + memberships intact; affinity projection recomputes without separate zone store |
 | `lens_physics_binding: Never` blocks auto-switch | Test: apply Lens with `physics_profile_id` → active profile unchanged |
 | `lens_physics_binding: Always` auto-switches | Test: apply Lens → `PhysicsProfileRegistry::activate` called |
 | Progressive switching respects hysteresis | Test: zoom oscillation at threshold → switch fires once, not repeatedly |
