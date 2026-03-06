@@ -13,7 +13,7 @@
 **Policy authority**: This file is the canonical policy authority for top-level system construct boundaries and cross-construct ownership.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
-**Standards alignment**: The canonical adopted/referenced standard set for all Graphshell subsystems and registries is defined in [2026-03-04_standards_alignment_report.md](../research/2026-03-04_standards_alignment_report.md). Every subsystem spec must cite the adopted standards that govern its domain. Validating against an adopted standard is the preferred validation target; internal contract tests translate the standard into Graphshell-specific assertions.
+**Standards alignment**: The canonical adopted/referenced standard set for all Graphshell subsystems and registries is defined in [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md). Every subsystem spec must cite the adopted standards that govern its domain. Validating against an adopted standard is the preferred validation target; internal contract tests translate the standard into Graphshell-specific assertions.
 
 Adopted standards with system-wide scope:
 - **OSGi R8 Service Registry** (conceptual model) — registry vocabulary, capability lifecycle, `namespace:name` key convention, mod manifest `requires`/`provides`.

@@ -1,8 +1,8 @@
 # Wry Integration — Interaction Spec
 
 **Date**: 2026-02-28
-**Status**: Canonical interaction contract
-**Priority**: Active (Windows implementation target)
+**Status**: Canonical contract target (implementation scaffold in runtime)
+**Priority**: Active (Windows-first implementation target)
 
 **Related**:
 
@@ -25,6 +25,8 @@ This spec defines the canonical contracts for:
 4. **Lifecycle integration** — Active/Warm/Cold states for Wry webviews.
 5. **Backend selection** — when Wry is preferred over ServoViewer.
 6. **Platform targeting** — platform-specific constraints and ordering.
+
+Implementation status note (2026-03-06): runtime currently contains scaffold-level Wry integration paths (`wry_manager` slot/pool scaffolding and viewer overlay metadata sync paths), not a fully wired end-to-end native-webview lifecycle implementation. Treat this document as normative target contract plus implementation checklist, not as closure evidence.
 
 ---
 

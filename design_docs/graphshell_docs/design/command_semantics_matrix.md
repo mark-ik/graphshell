@@ -59,7 +59,7 @@ Canonical requirement: command surfaces may differ in presentation, but not in a
 | `EdgeRemoveUser` | Remove User Edge | Edge | per-View | Pair context available | `GraphIntent::ExecuteEdgeCommand { RemoveUserEdgePair }` | Yes | Keyboard, Palette, Radial | Greyed + reason when selected pair unavailable | `Alt+G` |
 | `GraphFit` | Fit Graph to Screen | Graph | per-View | None | `GraphIntent::RequestFitToScreen` | No | Palette, Radial | N/A | None |
 | `GraphTogglePhysics` | Toggle Physics Simulation | Graph | per-View | None | `GraphIntent::TogglePhysics` | Yes | Keyboard, Palette, Radial | N/A | `T` |
-| `GraphPhysicsConfig` | Open Physics Settings | Settings surface | per-Workbench | None | `GraphIntent::OpenSettingsUrl { graphshell://settings/physics }` | No | Keyboard, Palette, Radial, Toolbar | N/A | `P` |
+| `GraphPhysicsConfig` | Open Physics Settings | Settings surface | per-Workbench | None | `WorkbenchIntent::OpenSettingsUrl { verso://settings/physics }` | No | Keyboard, Palette, Radial, Toolbar | N/A | `P` |
 | `GraphCommandPalette` | Open Command Palette | Command surface | Global | None | `GraphIntent::ToggleCommandPalette` | No | Keyboard, Palette, Radial, Toolbar | N/A | `F2` |
 | `PersistUndo` | Undo | Graph/Workbench | per-Workbench | Undo stack available | `GraphIntent::Undo` | No | Keyboard, Palette, Radial | Visible + disabled when stack empty | `Ctrl+Z` |
 | `PersistRedo` | Redo | Graph/Workbench | per-Workbench | Redo stack available | `GraphIntent::Redo` | No | Keyboard, Palette, Radial | Visible + disabled when stack empty | `Ctrl+Y` |
@@ -67,7 +67,7 @@ Canonical requirement: command surfaces may differ in presentation, but not in a
 | `PersistRestoreSession` | Restore Session Frame | Frame | per-Workbench | Session snapshot exists | Requests restore of session workspace layout | No | Palette, Radial | Visible + disabled when snapshot unavailable | None |
 | `PersistSaveGraph` | Save Graph Snapshot | Graph | per-Workbench | Graph state available | Requests timestamped graph snapshot save | No | Palette, Radial | Visible + disabled when graph unavailable | None |
 | `PersistRestoreLatestGraph` | Restore Latest Graph | Graph | per-Workbench | At least one graph snapshot exists | Requests latest graph snapshot restore | No | Palette, Radial | Visible + disabled when snapshot unavailable | None |
-| `PersistOpenHub` | Open Persistence Hub | Tool Pane | per-Workbench | None | `GraphIntent::OpenToolPane { Settings }` | No | Palette, Radial, Toolbar | N/A | None |
+| `PersistOpenHub` | Open Persistence Hub | Tool Pane | per-Workbench | None | `WorkbenchIntent::OpenToolPane { Settings }` | No | Palette, Radial, Toolbar | N/A | None |
 
 ---
 

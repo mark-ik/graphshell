@@ -78,10 +78,9 @@
 
 1. **Faceted Filter Surface Spec** (Red)
 2. **Facet Pane Routing Spec** (Red)
-3. **Radial Palette Geometry & Overflow Spec** (Red)
-4. **Layout Algorithm Portfolio Spec** (Closed)
-5. **WorkbenchProfile & Workflow Composition Spec** (Closed)
-6. **UxTree Event Dispatch Spec** or equivalent UxTree spec expansion (Yellow→Green)
+3. **Layout Algorithm Portfolio Spec** (Closed)
+4. **WorkbenchProfile & Workflow Composition Spec** (Closed)
+5. **UxTree Event Dispatch Spec** or equivalent UxTree spec expansion (Yellow→Green)
 
 ---
 

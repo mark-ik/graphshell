@@ -1,6 +1,6 @@
 # Graphshell Architectural Overview
 
-**Last Updated**: February 17, 2026
+**Last Updated**: March 6, 2026
 **Status**: Core browsing graph functional — Servo integration, egui_tiles multi-pane, persistence, thumbnails/favicons, search/filter all working
 
 ---
@@ -40,7 +40,7 @@ Graphshell is a **spatial tile manager** where webpages are nodes in a force-dir
 - Tile-derived view state (legacy `View` enum retired)
 - Tile-selector rows are projections of graph clusters; closing/eviction paths demote to `Warm` or `Cold` via lifecycle intents
 
-**Physics Runtime** (`app.rs` + `render/mod.rs`) — **Implemented via egui_graphs**
+**Physics Runtime** (`graph_app.rs` + `render/mod.rs`) — **Implemented via egui_graphs**
 - Force-directed layout uses egui_graphs `FruchtermanReingoldState`
 - Runtime state is app-owned (`GraphBrowserApp.physics`) and bridged through `set_layout_state`/`get_layout_state` each frame
 - Physics settings controls operate directly on FR state (damping, attraction, repulsion, scale, run/pause)
@@ -54,14 +54,14 @@ Graphshell is a **spatial tile manager** where webpages are nodes in a force-dir
 - Physics settings surface: live sliders for all force parameters
 - Post-frame zoom clamp: enforces min/max bounds on egui_graphs zoom
 
-**Input** (`input/mod.rs`, 87 lines)
+**Input** (`input/mod.rs`, actively expanded)
 - Mouse interaction delegated to egui_graphs (drag, pan, zoom, selection, double-click)
 - Keyboard shortcuts (guarded — disabled when text field has focus):
   - `T` toggle physics, `Z` smart fit, `+`/`-`/`0` zoom controls, `P` open physics settings, `N` new node
   - `Home`/`Esc` toggle Graph/Detail view
   - `Del` remove selected, `Ctrl+Shift+Del` clear graph
 
-**Application State** (`app.rs`)
+**Application State** (`graph_app.rs`)
 - Tile-derived view state (graph pane vs detail panes determined by tile tree)
 - Bidirectional webview↔node mapping: `HashMap<WebViewId, NodeKey>` and inverse
 - Selection management (single/multi), focus switching

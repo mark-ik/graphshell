@@ -11,7 +11,7 @@
 **Policy authority**: This file is the canonical policy authority for `SignalBus` (or equivalent) behavior and boundaries.
 Policy in this file should be distilled from canonical specs and accepted research conclusions.
 
-**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7):
+**Adopted standards** (see [2026-03-04_standards_alignment_report.md](../../research/2026-03-04_standards_alignment_report.md) §§3.6, 3.7):
 - **OpenTelemetry Semantic Conventions** — routing-health, drop, queue-pressure, and routing-failure diagnostic channel naming and severity
 - **OSGi R8** — typed signal/event routing operates within the Register layer; signal envelopes follow OSGi event-model vocabulary
 
