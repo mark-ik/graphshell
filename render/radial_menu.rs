@@ -19,7 +19,7 @@ use crate::render::action_registry::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
-    CHANNEL_UX_RADIAL_OVERFLOW,
+    CHANNEL_UX_RADIAL_MODE_FALLBACK, CHANNEL_UX_RADIAL_OVERFLOW,
 };
 use egui::{Color32, Key, Stroke, Window};
 
@@ -30,6 +30,7 @@ const MIN_COMMAND_CENTER_SPACING: f32 = (COMMAND_BUTTON_RADIUS * 2.0) + 4.0;
 const HOVER_LABEL_MAX_CHARS: usize = 22;
 const HOVER_LABEL_OFFSET: f32 = 34.0;
 const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
+const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 
 /// Radial domain maps to `ActionCategory` for registry-backed content.
 ///
@@ -324,6 +325,7 @@ pub fn render_radial_command_menu(
         // Circular radial mode: hover by angle, click to confirm.
         let mut hovered_domain = None;
         let mut hovered_entry: Option<ActionEntry> = None;
+        let mut fallback_to_command_palette = false;
         if let Some(pos) = pointer {
             let delta = pos - center;
             let r = delta.length();
@@ -450,6 +452,13 @@ pub fn render_radial_command_menu(
                         channel_id: CHANNEL_UX_RADIAL_LABEL_COLLISION,
                         byte_len: packed_collisions,
                     });
+                    if label_layout.post_collisions > 0 {
+                        fallback_to_command_palette = true;
+                        emit_event(DiagnosticEvent::MessageReceived {
+                            channel_id: CHANNEL_UX_RADIAL_MODE_FALLBACK,
+                            latency_us: label_layout.post_collisions as u64,
+                        });
+                    }
 
                     for (idx, entry) in visible_cmds.iter().enumerate() {
                         let anchor = command_anchor(center, domain, idx, visible_cmds.len());
@@ -500,9 +509,30 @@ pub fn render_radial_command_menu(
                         );
                     }
                 }
+
+                if fallback_to_command_palette {
+                    painter.text(
+                        center + egui::vec2(0.0, 76.0),
+                        egui::Align2::CENTER_CENTER,
+                        "Radial layout constrained. Switching to command palette.",
+                        egui::FontId::proportional(11.0),
+                        Color32::from_rgb(234, 200, 145),
+                    );
+                }
             });
 
-        if let Some(entry) = clicked_entry {
+        if fallback_to_command_palette {
+            if app.pending_node_context_target().is_none() {
+                app.set_pending_node_context_target(source_context);
+            }
+            app.workspace.show_command_palette = true;
+            ctx.data_mut(|d| d.insert_persisted(egui::Id::new(RADIAL_FALLBACK_NOTICE_KEY), true));
+            should_close = true;
+        }
+
+        if !fallback_to_command_palette
+            && let Some(entry) = clicked_entry
+        {
             if entry.enabled {
                 super::command_palette::execute_action(
                     app,

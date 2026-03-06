@@ -251,6 +251,7 @@ pub(crate) const CHANNEL_UX_OPEN_DECISION_REASON: &str = "ux:open_decision_reaso
 pub(crate) const CHANNEL_UX_RADIAL_OVERFLOW: &str = "ux:radial_overflow";
 pub(crate) const CHANNEL_UX_RADIAL_LAYOUT: &str = "ux:radial_layout";
 pub(crate) const CHANNEL_UX_RADIAL_LABEL_COLLISION: &str = "ux:radial_label_collision";
+pub(crate) const CHANNEL_UX_RADIAL_MODE_FALLBACK: &str = "ux:radial_mode_fallback";
 pub(crate) const CHANNEL_UX_TREE_SNAPSHOT_BUILT: &str = "ux:tree_snapshot_built";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED: &str =
     "register.signal_routing.published";

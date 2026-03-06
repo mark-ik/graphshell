@@ -25,6 +25,8 @@ use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum SearchPaletteScope {
     CurrentTarget,
@@ -274,6 +276,17 @@ pub fn render_command_palette_panel(
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    let fallback_notice_id = egui::Id::new(RADIAL_FALLBACK_NOTICE_KEY);
+                    let fallback_notice = ctx
+                        .data_mut(|d| d.get_persisted::<bool>(fallback_notice_id))
+                        .unwrap_or(false);
+                    if fallback_notice {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(234, 200, 145),
+                            "Radial layout constrained; opened command palette for reliable selection.",
+                        );
+                        ctx.data_mut(|d| d.remove::<bool>(fallback_notice_id));
+                    }
                     ui.label("Node, tile, edge, graph, and persistence commands");
                     ui.small("Delete Node(s) is graph content mutation; tile close remains a tile-tree operation.");
                     if contextual_mode {
