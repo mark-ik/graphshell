@@ -59,6 +59,20 @@ A workbench frame UI element is an **open handle** over a graph frame:
 - Closing a frame handle is like closing an open folder view.
 - Neither operation deletes the underlying graph object.
 
+### 2.4 Frame-to-Tilegroup Bridge Contract
+
+Frames intentionally cross the semantic boundary between graph and workbench:
+
+- Graph scope is the authority for frame identity and membership.
+- Workbench scope is the authority for tilegroup layout, docking, focus, and handle lifecycle.
+- A tilegroup is a workbench handle/projection over a `Frame`, not a second frame identity.
+
+Guardrail wording:
+
+- Preferred: "tilegroup is a handle over a frame."
+- Avoid: wording that implies strict identity equivalence between tilegroup lifecycle and frame lifecycle.
+- Consequence: close/split/dock remain non-destructive UI operations, while `DeleteFrame` remains an explicit destructive graph operation.
+
 ---
 
 ## 3. Data Model Contract
@@ -206,6 +220,7 @@ UxTree must expose frame semantics for automation/accessibility:
 5. Deleting frame is explicit and separate from close.
 6. UxTree surfaces frame handles and frame-membership actions.
 7. Canonical docs in this lane use frame-first terminology.
+8. Tilegroup operations (`close`, `split`, `dock`) do not create or delete frame identity unless an explicit frame-destructive command is invoked.
 
 ---
 
