@@ -6559,6 +6559,13 @@ impl GraphBrowserApp {
         self.workspace.pending_open_connected_from.take()
     }
 
+    /// Peek pending connected-open request without consuming it.
+    pub fn pending_open_connected_from(
+        &self,
+    ) -> Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)> {
+        self.workspace.pending_open_connected_from
+    }
+
     /// Request opening a specific node as a tile in the given mode.
     pub fn request_open_node_tile_mode(&mut self, key: NodeKey, mode: PendingTileOpenMode) {
         self.workspace.pending_open_node_request = Some(PendingNodeOpenRequest { key, mode });
@@ -6567,6 +6574,11 @@ impl GraphBrowserApp {
     /// Take and clear pending node-open request.
     pub fn take_pending_open_node_request(&mut self) -> Option<PendingNodeOpenRequest> {
         self.workspace.pending_open_node_request.take()
+    }
+
+    /// Peek pending node-open request without consuming it.
+    pub fn pending_open_node_request(&self) -> Option<PendingNodeOpenRequest> {
+        self.workspace.pending_open_node_request
     }
 
     /// Request saving current frame (tile layout) snapshot.

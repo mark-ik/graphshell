@@ -7,14 +7,16 @@ use std::sync::{Mutex, OnceLock};
 
 use egui_tiles::{Container, Tile, TileId, Tree};
 
-use crate::app::{GraphBrowserApp, GraphViewId};
+use crate::app::{
+    GraphBrowserApp, GraphViewId, PendingConnectedOpenScope, PendingTileOpenMode,
+};
 use crate::graph::NodeKey;
 use crate::render::radial_menu::latest_semantic_snapshot;
 
 use super::pane_model::TileRenderMode;
 use super::tile_kind::TileKind;
 
-pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 1;
+pub(crate) const UX_TREE_SEMANTIC_SCHEMA_VERSION: u32 = 2;
 pub(crate) const UX_TREE_PRESENTATION_SCHEMA_VERSION: u32 = 1;
 pub(crate) const UX_TREE_TRACE_SCHEMA_VERSION: u32 = 1;
 
@@ -30,6 +32,9 @@ pub(crate) enum UxNodeRole {
     RadialTierRing,
     RadialSector,
     RadialSummary,
+    GraphViewLensScope,
+    FileTreeProjection,
+    RouteOpenBoundary,
     #[cfg(feature = "diagnostics")]
     ToolPane,
 }
@@ -84,6 +89,34 @@ pub(crate) enum UxDomainIdentity {
         label_post_collisions: usize,
         fallback_to_palette: bool,
         fallback_reason: Option<String>,
+    },
+    GraphViewLensScope {
+        graph_view_id: GraphViewId,
+        lens_name: String,
+        lens_id: Option<String>,
+        physics_id: Option<String>,
+        layout_id: Option<String>,
+        theme_id: Option<String>,
+        filter_count: usize,
+        dimension: String,
+        position_fit_locked: bool,
+        zoom_fit_locked: bool,
+        focused_view: bool,
+        selection_count: usize,
+    },
+    FileTreeProjection {
+        containment_relation_source: String,
+        sort_mode: String,
+        root_filter: Option<String>,
+        row_count: usize,
+        selected_count: usize,
+        expanded_count: usize,
+        collapsed_count: usize,
+    },
+    RouteOpenBoundary {
+        pending_node_context_target: Option<NodeKey>,
+        pending_open_node: Option<(NodeKey, String)>,
+        pending_open_connected: Option<(NodeKey, String, String)>,
     },
 }
 
@@ -263,6 +296,12 @@ pub(crate) fn build_snapshot(
         &mut presentation_nodes,
         &mut trace_nodes,
     );
+    append_workbench_semantics_nodes(
+        graph_app,
+        &mut semantic_nodes,
+        &mut presentation_nodes,
+        &mut trace_nodes,
+    );
 
     UxTreeSnapshot {
         semantic_version: UX_TREE_SEMANTIC_SCHEMA_VERSION,
@@ -276,6 +315,159 @@ pub(crate) fn build_snapshot(
             route_events_observed: 0,
             diagnostics_events_observed: 0,
         },
+    }
+}
+
+fn append_workbench_semantics_nodes(
+    graph_app: &GraphBrowserApp,
+    semantic_nodes: &mut Vec<UxSemanticNode>,
+    presentation_nodes: &mut Vec<UxPresentationNode>,
+    trace_nodes: &mut Vec<UxTraceNode>,
+) {
+    for (view_id, view_state) in &graph_app.workspace.views {
+        let selection_count = graph_app.selection_for_view(*view_id).len();
+        let focused_view = graph_app.workspace.focused_view == Some(*view_id);
+        let lens_scope_id = format!("uxnode://workbench/graph/{view_id:?}/lens-scope");
+        semantic_nodes.push(UxSemanticNode {
+            ux_node_id: lens_scope_id.clone(),
+            role: UxNodeRole::GraphViewLensScope,
+            label: format!("Graph View Lens/Scope {:?}", view_id),
+            state: UxNodeState {
+                focused: focused_view,
+                selected: false,
+                blocked: false,
+                degraded: false,
+            },
+            allowed_actions: vec![UxAction::Navigate],
+            domain: UxDomainIdentity::GraphViewLensScope {
+                graph_view_id: *view_id,
+                lens_name: view_state.lens.name.clone(),
+                lens_id: view_state.lens.lens_id.clone(),
+                physics_id: view_state.lens.physics_id.clone(),
+                layout_id: view_state.lens.layout_id.clone(),
+                theme_id: view_state.lens.theme_id.clone(),
+                filter_count: view_state.lens.filters.len(),
+                dimension: format!("{:?}", view_state.dimension),
+                position_fit_locked: view_state.position_fit_locked,
+                zoom_fit_locked: view_state.zoom_fit_locked,
+                focused_view,
+                selection_count,
+            },
+        });
+        presentation_nodes.push(UxPresentationNode {
+            ux_node_id: lens_scope_id.clone(),
+            bounds: None,
+            render_mode: Some(TileRenderMode::EmbeddedEgui),
+            z_pass: "workbench.graph.lens_scope",
+            style_flags: vec!["surface:graph-lens-scope"],
+            transient_flags: Vec::new(),
+        });
+        trace_nodes.push(UxTraceNode {
+            ux_node_id: lens_scope_id,
+            event_route: "graph.lens_scope_route",
+            backend_path: "egui_graphs",
+            diagnostics_counter: selection_count as u64,
+        });
+    }
+
+    let file_tree = graph_app.file_tree_projection_state();
+    let file_tree_node_id = "uxnode://workbench/file-tree/projection".to_string();
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: file_tree_node_id.clone(),
+        role: UxNodeRole::FileTreeProjection,
+        label: "File-Tree Projection".to_string(),
+        state: UxNodeState {
+            focused: false,
+            selected: !file_tree.selected_rows.is_empty(),
+            blocked: file_tree.row_targets.is_empty(),
+            degraded: false,
+        },
+        allowed_actions: vec![UxAction::Navigate],
+        domain: UxDomainIdentity::FileTreeProjection {
+            containment_relation_source: format!("{:?}", file_tree.containment_relation_source),
+            sort_mode: format!("{:?}", file_tree.sort_mode),
+            root_filter: file_tree.root_filter.clone(),
+            row_count: file_tree.row_targets.len(),
+            selected_count: file_tree.selected_rows.len(),
+            expanded_count: file_tree.expanded_rows.len(),
+            collapsed_count: file_tree.collapsed_rows.len(),
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: file_tree_node_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "workbench.file_tree.projection",
+        style_flags: vec!["surface:file-tree"],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: file_tree_node_id,
+        event_route: "workbench.file_tree_route",
+        backend_path: "egui",
+        diagnostics_counter: file_tree.row_targets.len() as u64,
+    });
+
+    let route_node_id = "uxnode://workbench/route-open/boundary".to_string();
+    let pending_open_node = graph_app
+        .pending_open_node_request()
+        .map(|pending| (pending.key, pending_tile_mode_label(pending.mode).to_string()));
+    let pending_open_connected = graph_app.pending_open_connected_from().map(
+        |(source, mode, scope)| {
+            (
+                source,
+                pending_tile_mode_label(mode).to_string(),
+                pending_connected_scope_label(scope).to_string(),
+            )
+        },
+    );
+    let pending_count = usize::from(graph_app.pending_node_context_target().is_some())
+        + usize::from(pending_open_node.is_some())
+        + usize::from(pending_open_connected.is_some());
+    semantic_nodes.push(UxSemanticNode {
+        ux_node_id: route_node_id.clone(),
+        role: UxNodeRole::RouteOpenBoundary,
+        label: "Route/Open Boundary".to_string(),
+        state: UxNodeState {
+            focused: false,
+            selected: false,
+            blocked: false,
+            degraded: false,
+        },
+        allowed_actions: vec![UxAction::Open, UxAction::Navigate],
+        domain: UxDomainIdentity::RouteOpenBoundary {
+            pending_node_context_target: graph_app.pending_node_context_target(),
+            pending_open_node,
+            pending_open_connected,
+        },
+    });
+    presentation_nodes.push(UxPresentationNode {
+        ux_node_id: route_node_id.clone(),
+        bounds: None,
+        render_mode: Some(TileRenderMode::EmbeddedEgui),
+        z_pass: "workbench.route_open.boundary",
+        style_flags: vec!["surface:route-open"],
+        transient_flags: Vec::new(),
+    });
+    trace_nodes.push(UxTraceNode {
+        ux_node_id: route_node_id,
+        event_route: "workbench.route_open_route",
+        backend_path: "egui",
+        diagnostics_counter: pending_count as u64,
+    });
+}
+
+fn pending_tile_mode_label(mode: PendingTileOpenMode) -> &'static str {
+    match mode {
+        PendingTileOpenMode::Tab => "tab",
+        PendingTileOpenMode::SplitHorizontal => "split-horizontal",
+    }
+}
+
+fn pending_connected_scope_label(scope: PendingConnectedOpenScope) -> &'static str {
+    match scope {
+        PendingConnectedOpenScope::Neighbors => "neighbors",
+        PendingConnectedOpenScope::Connected => "connected",
     }
 }
 
@@ -866,6 +1058,7 @@ pub(crate) fn snapshot_json_for_tests(snapshot: &UxTreeSnapshot) -> serde_json::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{FileTreeContainmentRelationSource, PendingConnectedOpenScope, PendingTileOpenMode};
     use crate::render::radial_menu::{
         RadialPaletteSemanticSnapshot, RadialPaletteSemanticSummary,
         RadialSectorSemanticMetadata, clear_semantic_snapshot, publish_semantic_snapshot,
@@ -1066,5 +1259,98 @@ mod tests {
         );
 
         clear_semantic_snapshot();
+    }
+
+    #[test]
+    fn snapshot_projects_lens_scope_file_tree_and_route_open_boundary_nodes() {
+        let mut harness = TestRegistry::new();
+        let node = harness.add_node("https://ux-tree-route-open.example");
+        harness.open_node_tab(node);
+
+        let view_id = GraphViewId::default();
+        harness.app.ensure_graph_view_registered(view_id);
+        if let Some(view) = harness.app.workspace.views.get_mut(&view_id) {
+            view.lens.name = "Research Lens".to_string();
+            view.lens.layout_id = Some("layout:free".to_string());
+            view.lens.filters = vec!["tag:#clip".to_string()];
+        }
+        harness.app.workspace.focused_view = Some(view_id);
+
+        harness
+            .app
+            .set_file_tree_containment_relation_source(FileTreeContainmentRelationSource::SavedViewCollections);
+        let row_key = format!("view:{}", view_id.as_uuid());
+        harness.app.set_file_tree_selected_rows([row_key]);
+
+        harness.app.set_pending_node_context_target(Some(node));
+        harness
+            .app
+            .request_open_node_tile_mode(node, PendingTileOpenMode::SplitHorizontal);
+        harness.app.request_open_connected_from(
+            node,
+            PendingTileOpenMode::Tab,
+            PendingConnectedOpenScope::Neighbors,
+        );
+
+        let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 9);
+
+        assert!(
+            snapshot.semantic_nodes.iter().any(|entry| {
+                entry.role == UxNodeRole::GraphViewLensScope
+                    && matches!(
+                        &entry.domain,
+                        UxDomainIdentity::GraphViewLensScope {
+                            graph_view_id,
+                            lens_name,
+                            filter_count,
+                            focused_view,
+                            ..
+                        } if *graph_view_id == view_id
+                            && lens_name == "Research Lens"
+                            && *filter_count == 1
+                            && *focused_view
+                    )
+            }),
+            "snapshot should include graph view lens/scope metadata"
+        );
+        assert!(
+            snapshot.semantic_nodes.iter().any(|entry| {
+                entry.role == UxNodeRole::FileTreeProjection
+                    && matches!(
+                        &entry.domain,
+                        UxDomainIdentity::FileTreeProjection {
+                            containment_relation_source,
+                            selected_count,
+                            row_count,
+                            ..
+                        } if containment_relation_source == "SavedViewCollections"
+                            && *selected_count == 1
+                            && *row_count >= 1
+                    )
+            }),
+            "snapshot should include file-tree projection metadata"
+        );
+        assert!(
+            snapshot.semantic_nodes.iter().any(|entry| {
+                entry.role == UxNodeRole::RouteOpenBoundary
+                    && matches!(
+                        &entry.domain,
+                        UxDomainIdentity::RouteOpenBoundary {
+                            pending_node_context_target,
+                            pending_open_node,
+                            pending_open_connected,
+                        } if *pending_node_context_target == Some(node)
+                            && pending_open_node
+                                .as_ref()
+                                .is_some_and(|(key, mode)| *key == node && mode == "split-horizontal")
+                            && pending_open_connected
+                                .as_ref()
+                                .is_some_and(|(source, mode, scope)| {
+                                    *source == node && mode == "tab" && scope == "neighbors"
+                                })
+                    )
+            }),
+            "snapshot should include route/open boundary pending intent metadata"
+        );
     }
 }
