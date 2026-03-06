@@ -881,6 +881,7 @@ impl EguiGraphState {
                     NodeLifecycle::Active => Color32::from_rgb(100, 200, 255),
                     NodeLifecycle::Warm => Color32::from_rgb(120, 170, 205),
                     NodeLifecycle::Cold => Color32::from_rgb(140, 140, 165),
+                    NodeLifecycle::Tombstone => Color32::from_rgb(96, 96, 96),
                 };
                 node.set_color(color);
 
@@ -889,6 +890,7 @@ impl EguiGraphState {
                     NodeLifecycle::Active => 18.0,
                     NodeLifecycle::Warm => 16.5,
                     NodeLifecycle::Cold => 15.0,
+                    NodeLifecycle::Tombstone => 14.0,
                 };
                 node.display_mut().radius = radius;
 

@@ -7129,18 +7129,20 @@ impl GraphBrowserApp {
         self.workspace.warm_cache_limit
     }
 
-    pub fn lifecycle_counts(&self) -> (usize, usize, usize) {
+    pub fn lifecycle_counts(&self) -> (usize, usize, usize, usize) {
         let mut active = 0usize;
         let mut warm = 0usize;
         let mut cold = 0usize;
+        let mut tombstone = 0usize;
         for (_, node) in self.workspace.graph.nodes() {
             match node.lifecycle {
                 crate::graph::NodeLifecycle::Active => active += 1,
                 crate::graph::NodeLifecycle::Warm => warm += 1,
                 crate::graph::NodeLifecycle::Cold => cold += 1,
+                crate::graph::NodeLifecycle::Tombstone => tombstone += 1,
             }
         }
-        (active, warm, cold)
+        (active, warm, cold, tombstone)
     }
 
     pub fn mapped_webview_count(&self) -> usize {

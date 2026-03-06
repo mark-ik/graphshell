@@ -925,6 +925,9 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         NodeLifecycle::Active => {
                             "Node is active but no runtime viewer is mapped yet."
                         }
+                        NodeLifecycle::Tombstone => {
+                            "Node is tombstoned and is retained for history continuity."
+                        }
                     };
                     if let Some(block_state) = block_state {
                         ui.colored_label(

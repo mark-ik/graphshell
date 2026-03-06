@@ -178,6 +178,9 @@ pub enum NodeLifecycle {
 
     /// Cold (metadata only, no process)
     Cold,
+
+    /// Tombstoned node retained for history/identity continuity but not live rendering/runtime.
+    Tombstone,
 }
 
 /// Type of edge connection

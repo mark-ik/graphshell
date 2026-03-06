@@ -745,6 +745,7 @@ fn draw_hovered_node_tooltip(
             NodeLifecycle::Active => "Active".to_string(),
             NodeLifecycle::Warm => "Warm".to_string(),
             NodeLifecycle::Cold => "Cold".to_string(),
+            NodeLifecycle::Tombstone => "Tombstone".to_string(),
         }
     };
     let last_visited_text = format_last_visited(node.last_visited);
@@ -977,6 +978,7 @@ fn lifecycle_color(lifecycle: NodeLifecycle) -> Color32 {
         NodeLifecycle::Active => Color32::from_rgb(100, 200, 255),
         NodeLifecycle::Warm => Color32::from_rgb(120, 170, 205),
         NodeLifecycle::Cold => Color32::from_rgb(140, 140, 165),
+        NodeLifecycle::Tombstone => Color32::from_rgb(96, 96, 96),
     }
 }
 
