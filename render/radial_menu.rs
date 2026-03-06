@@ -31,12 +31,13 @@ const HOVER_LABEL_MAX_CHARS: usize = 22;
 const HOVER_LABEL_OFFSET: f32 = 34.0;
 const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
+const RAIL_OFFSET_STEP_RAD: f32 = 0.08;
 
 /// Radial domain maps to `ActionCategory` for registry-backed content.
 ///
 /// Kept as an internal UI type for angular layout calculations only.
 /// Action *content* is now driven by `ActionRegistry`, not this enum.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum RadialDomain {
     Node,
     Edge,
@@ -62,6 +63,15 @@ impl RadialDomain {
             Self::Edge => ActionCategory::Edge,
             Self::Graph => ActionCategory::Graph,
             Self::Persistence => ActionCategory::Persistence,
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Node => 0,
+            Self::Edge => 1,
+            Self::Graph => 2,
+            Self::Persistence => 3,
         }
     }
 }
@@ -323,6 +333,17 @@ pub fn render_radial_command_menu(
         }
     } else {
         // Circular radial mode: hover by angle, click to confirm.
+        let mut domain_offsets = [0.0f32; 4];
+        let mut command_offsets = [0.0f32; 4];
+        for domain in RadialDomain::ALL {
+            domain_offsets[domain.index()] = ctx
+                .data_mut(|d| d.get_persisted::<f32>(domain_offset_id(domain)))
+                .unwrap_or(0.0);
+            command_offsets[domain.index()] = ctx
+                .data_mut(|d| d.get_persisted::<f32>(command_offset_id(domain)))
+                .unwrap_or(0.0);
+        }
+
         let mut hovered_domain = None;
         let mut hovered_entry: Option<ActionEntry> = None;
         let mut fallback_to_command_palette = false;
@@ -331,7 +352,7 @@ pub fn render_radial_command_menu(
             let r = delta.length();
             if r > 40.0 {
                 let angle = delta.y.atan2(delta.x);
-                hovered_domain = Some(domain_from_angle(angle));
+                hovered_domain = Some(domain_from_angle_with_offsets(angle, &domain_offsets));
                 if r > 120.0
                     && let Some(domain) = hovered_domain
                 {
@@ -354,7 +375,14 @@ pub fn render_radial_command_menu(
                             byte_len: cmds.len() - visible_cmds.len(),
                         });
                     }
-                    hovered_entry = nearest_entry_for_pointer(domain, center, pos, visible_cmds);
+                    hovered_entry = nearest_entry_for_pointer(
+                        domain,
+                        center,
+                        pos,
+                        visible_cmds,
+                        domain_offsets[domain.index()],
+                        command_offsets[domain.index()],
+                    );
 
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_UX_RADIAL_LAYOUT,
@@ -362,6 +390,32 @@ pub fn render_radial_command_menu(
                     });
                 }
             }
+        }
+
+        if let Some(domain) = hovered_domain {
+            if ctx.input(|i| i.key_pressed(Key::ArrowLeft)) {
+                let idx = domain.index();
+                if ctx.input(|i| i.modifiers.shift) {
+                    command_offsets[idx] -= RAIL_OFFSET_STEP_RAD;
+                } else {
+                    domain_offsets[idx] -= RAIL_OFFSET_STEP_RAD;
+                }
+            }
+            if ctx.input(|i| i.key_pressed(Key::ArrowRight)) {
+                let idx = domain.index();
+                if ctx.input(|i| i.modifiers.shift) {
+                    command_offsets[idx] += RAIL_OFFSET_STEP_RAD;
+                } else {
+                    domain_offsets[idx] += RAIL_OFFSET_STEP_RAD;
+                }
+            }
+        }
+
+        for domain in RadialDomain::ALL {
+            ctx.data_mut(|d| {
+                d.insert_persisted(domain_offset_id(domain), domain_offsets[domain.index()]);
+                d.insert_persisted(command_offset_id(domain), command_offsets[domain.index()]);
+            });
         }
 
         let mut clicked_entry: Option<ActionEntry> = None;
@@ -397,7 +451,12 @@ pub fn render_radial_command_menu(
                 );
 
                 for domain in RadialDomain::ALL {
-                    let base = domain_anchor(center, domain, 92.0);
+                    let base = domain_anchor_with_offsets(
+                        center,
+                        domain,
+                        92.0,
+                        domain_offsets[domain.index()],
+                    );
                     let color = if Some(domain) == hovered_domain {
                         Color32::from_rgb(70, 130, 170)
                     } else {
@@ -461,7 +520,14 @@ pub fn render_radial_command_menu(
                     }
 
                     for (idx, entry) in visible_cmds.iter().enumerate() {
-                        let anchor = command_anchor(center, domain, idx, visible_cmds.len());
+                        let anchor = command_anchor_with_offsets(
+                            center,
+                            domain,
+                            idx,
+                            visible_cmds.len(),
+                            domain_offsets[domain.index()],
+                            command_offsets[domain.index()],
+                        );
                         let is_hovered = hovered_entry.as_ref().is_some_and(|h| h.id == entry.id);
                         let color = if is_hovered {
                             Color32::from_rgb(80, 170, 215)
@@ -508,6 +574,13 @@ pub fn render_radial_command_menu(
                             Color32::from_rgb(170, 190, 205),
                         );
                     }
+                    painter.text(
+                        center + egui::vec2(0.0, 94.0),
+                        egui::Align2::CENTER_CENTER,
+                        "Arrow Left/Right: Tier1 rail | Shift+Arrow: Tier2 rail",
+                        egui::FontId::proportional(10.0),
+                        Color32::from_rgb(170, 190, 205),
+                    );
                 }
 
                 if fallback_to_command_palette {
@@ -583,6 +656,23 @@ fn domain_from_angle(angle: f32) -> RadialDomain {
     best
 }
 
+fn domain_from_angle_with_offsets(angle: f32, domain_offsets: &[f32; 4]) -> RadialDomain {
+    let mut best = RadialDomain::Node;
+    let mut best_dist = f32::MAX;
+    for domain in RadialDomain::ALL {
+        let target = domain_angle_with_offsets(domain, domain_offsets[domain.index()]);
+        let mut d = (angle - target).abs();
+        if d > std::f32::consts::PI {
+            d = 2.0 * std::f32::consts::PI - d;
+        }
+        if d < best_dist {
+            best_dist = d;
+            best = domain;
+        }
+    }
+    best
+}
+
 fn domain_angle(domain: RadialDomain) -> f32 {
     match domain {
         RadialDomain::Node => -std::f32::consts::FRAC_PI_2,
@@ -593,12 +683,36 @@ fn domain_angle(domain: RadialDomain) -> f32 {
 }
 
 fn domain_anchor(center: egui::Pos2, domain: RadialDomain, radius: f32) -> egui::Pos2 {
-    let a = domain_angle(domain);
+    domain_anchor_with_offsets(center, domain, radius, 0.0)
+}
+
+fn domain_anchor_with_offsets(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    radius: f32,
+    domain_offset: f32,
+) -> egui::Pos2 {
+    let a = domain_angle_with_offsets(domain, domain_offset);
     center + egui::vec2(a.cos() * radius, a.sin() * radius)
 }
 
+fn domain_angle_with_offsets(domain: RadialDomain, domain_offset: f32) -> f32 {
+    domain_angle(domain) + domain_offset
+}
+
 fn command_anchor(center: egui::Pos2, domain: RadialDomain, idx: usize, len: usize) -> egui::Pos2 {
-    let base = domain_angle(domain);
+    command_anchor_with_offsets(center, domain, idx, len, 0.0, 0.0)
+}
+
+fn command_anchor_with_offsets(
+    center: egui::Pos2,
+    domain: RadialDomain,
+    idx: usize,
+    len: usize,
+    domain_offset: f32,
+    command_offset: f32,
+) -> egui::Pos2 {
+    let base = domain_angle_with_offsets(domain, domain_offset) + command_offset;
     let spread = command_spread_for_len(len, COMMAND_RING_RADIUS, MIN_COMMAND_CENTER_SPACING);
     let t = if len <= 1 {
         0.0
@@ -611,6 +725,14 @@ fn command_anchor(center: egui::Pos2, domain: RadialDomain, idx: usize, len: usi
             angle.cos() * COMMAND_RING_RADIUS,
             angle.sin() * COMMAND_RING_RADIUS,
         )
+}
+
+fn domain_offset_id(domain: RadialDomain) -> egui::Id {
+    egui::Id::new("radial_domain_rail_offset").with(domain.label())
+}
+
+fn command_offset_id(domain: RadialDomain) -> egui::Id {
+    egui::Id::new("radial_command_rail_offset").with(domain.label())
 }
 
 fn command_spread_for_len(len: usize, radius: f32, min_center_spacing: f32) -> f32 {
@@ -649,13 +771,22 @@ fn nearest_entry_for_pointer(
     center: egui::Pos2,
     pointer: egui::Pos2,
     cmds: &[ActionEntry],
+    domain_offset: f32,
+    command_offset: f32,
 ) -> Option<ActionEntry> {
     let mut best: Option<(f32, ActionEntry)> = None;
     for (idx, entry) in cmds.iter().enumerate() {
         if !entry.enabled {
             continue;
         }
-        let anchor = command_anchor(center, domain, idx, cmds.len());
+        let anchor = command_anchor_with_offsets(
+            center,
+            domain,
+            idx,
+            cmds.len(),
+            domain_offset,
+            command_offset,
+        );
         let d = (pointer - anchor).length_sq();
         match best {
             Some((best_d, _)) if d >= best_d => {}
@@ -924,6 +1055,22 @@ mod tests {
                 "adjacent command anchors overlap: distance={distance}"
             );
         }
+    }
+
+    #[test]
+    fn domain_from_angle_with_offsets_tracks_rotated_domain_position() {
+        let mut offsets = [0.0f32; 4];
+        offsets[RadialDomain::Node.index()] = 0.4;
+        let probe = domain_angle_with_offsets(RadialDomain::Node, offsets[RadialDomain::Node.index()]);
+        assert_eq!(domain_from_angle_with_offsets(probe, &offsets), RadialDomain::Node);
+    }
+
+    #[test]
+    fn command_anchor_with_offsets_moves_anchor_position() {
+        let center = egui::pos2(0.0, 0.0);
+        let base = command_anchor(center, RadialDomain::Node, 0, 4);
+        let shifted = command_anchor_with_offsets(center, RadialDomain::Node, 0, 4, 0.2, 0.1);
+        assert_ne!(base, shifted);
     }
 
     #[test]
