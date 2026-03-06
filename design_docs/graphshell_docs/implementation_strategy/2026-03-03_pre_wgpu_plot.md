@@ -18,7 +18,7 @@ v0.0.2 is the **application readiness gate**: the point at which Graphshell is a
 2. All P1–P2 spec conflict resolutions are landed.
 3. Per-view selection is implemented (per-`GraphViewId`, not per-`GraphBrowserApp`).
 4. Undo stack exists for destructive graph mutations.
-5. WCAG 2.2 Level A is passed across all 7 surface classes.
+5. WCAG 2.2 AA remains the normative target; v0.0.2 requires Level A pass coverage across all 7 canonical surface classes plus explicit AA-waiver tracking for any remaining AA gaps.
 6. Active scaffolds impacting core UX closure are retired or explicitly de-scoped.
 7. Test guide §4 minimum acceptance checks are green.
 
@@ -71,12 +71,12 @@ These decisions were made during the doc audit that produced this plan. They are
 - **Decision**: Per-view selection migration is a v0.0.2 requirement. This closes gap G-PS-1.
 - **Impact**: New work item under AG1 (Graph Camera + Interaction Reliability). Selection state must be scoped to `GraphViewId`, not `GraphBrowserApp`.
 
-### CR4 — All surfaces must pass WCAG 2.2 Level A
+### CR4 — WCAG 2.2 AA is normative; v0.0.2 gates on Level A + tracked AA waivers
 
 - `accessibility_baseline_checklist.md` shows most criteria as "Untested."
 - `accessibility_closure_bundle_audit_301.md` records a concrete fail (radial disabled contrast 3.21:1 vs 4.5:1 required for AA text).
-- **Decision**: All 7 surface classes must pass WCAG 2.2 Level A before v0.0.2. AA criteria are tracked but not gating. Known Level A failures (radial contrast per audit #301) must be fixed.
-- **Impact**: Expands AG0 scope. Accessibility baseline checklist must be updated to reflect audit results (currently shows "Untested" for rows with known test evidence). Level A criteria across non-Graph surfaces must be tested and passed.
+- **Decision**: WCAG 2.2 AA remains the normative product target. For the v0.0.2 release gate, all 7 canonical surfaces must pass Level A, and any remaining AA gaps must be tracked in an explicit waiver register (owner, rationale, deadline).
+- **Impact**: Expands AG0 scope. Accessibility baseline checklist must be updated to reflect audit results (currently shows "Untested" for rows with known test evidence), and AA deviations must be explicitly tracked rather than implicitly deferred.
 
 ---
 
@@ -96,7 +96,7 @@ Primary issues: `#292`–`#301`, `#302`.
 
 **v0.0.2 amendments**:
 
-- WCAG 2.2 Level A must pass across all 7 surface classes (per CR4).
+- WCAG 2.2 AA remains normative; v0.0.2 requires Level A pass coverage across all 7 canonical surfaces and explicit AA-waiver tracking (per CR4).
 - Accessibility baseline checklist must be synchronized with audit results from `#298` and `#301`.
 
 Validation gate:
@@ -286,7 +286,7 @@ Validation gate:
 - Clipboard status/toast semantics now include deterministic message-contract regressions in `gui_orchestration` asserting stable success mapping by copy kind (URL/title) and explicit outcome wording for success/warning/error/unavailable states, adding partial AG0 evidence for `4.1.3 Status Messages` while AT announcement verification remains pending.
 - Clipboard error-message semantics now include deterministic failure-text regressions asserting stable `Copy failed` prefixing and explicit missing-node failure wording, adding partial AG0 evidence for `3.3.1 Error Identification` in command-surface feedback paths.
 - Clipboard missing-node failure messaging now includes explicit actionable recovery guidance (`select a node and try again`) with regression coverage, adding partial AG0 evidence for `3.3.3 Error Suggestion` in command-surface error feedback.
-- AG0 remains open pending full WCAG 2.2 Level A coverage evidence across all seven surface classes (non-radial surfaces still have unverified rows).
+- AG0 remains open pending full WCAG 2.2 Level A gate coverage evidence across all seven canonical surface classes (non-radial surfaces still have unverified rows) and explicit AA waiver tracking for remaining AA gaps.
 
 ---
 
@@ -324,7 +324,7 @@ How the 10 active execution lanes from `PLANNING_REGISTER.md` §1C map to AG gat
 | `lane:embedder-debt` (`#90`) | 3 | AG3, AG6 | **Yes** — content opening semantics + compositor pass contract |
 | `lane:runtime-followon` (`#91`) | 4 | AG7 (partial) | Partial — SR2/SR3 contributes to diagnostics authority |
 | `lane:viewer-platform` (`#92`) | 5 | AG6, AG8 | **Yes** — `TileRenderMode`, viewer fallback, scaffold retirement |
-| `lane:accessibility` (`#95`) | 6 | AG0 | **Yes** — all-surfaces WCAG A (per CR4) |
+| `lane:accessibility` (`#95`) | 6 | AG0 | **Yes** — all-surfaces WCAG Level A gate + AA waiver tracking (per CR4) |
 | `lane:diagnostics` (`#94`) | 7 | AG7 | **Yes** — automation authority gate |
 | `lane:subsystem-hardening` (`#96`) | 8 | AG5, AG8 | Partial — storage/history/security integrity |
 | `lane:test-infra` (`#97`) | 9 | AG7, AG9 | **Yes** — CI gate infrastructure for release validation |
@@ -377,18 +377,18 @@ These items are net-new requirements surfaced by the doc audit and contradiction
 - Final W2 sweep found no notable remaining runtime callsites requiring migration; residual `workspace.selected_nodes` uses are test-only or compatibility-mirror plumbing inside `graph_app.rs`.
 - W2 is treated as implementation-complete; AG1 remains `partial` pending the other AG1 stabilization items.
 
-### W3 — All-Surfaces WCAG 2.2 Level A (CR4)
+### W3 — All-Surfaces WCAG 2.2: AA Normative, Level-A v0.0.2 Gate (CR4)
 
 **Lane**: `lane:accessibility` (`#95`)  
 **AG gate**: AG0  
 **Scope**:
 
-1. Run WCAG 2.2 Level A audit across all 7 surface classes (Graph Pane, Node Pane, Tool Pane, Radial Menu, Command Palette, Omnibar, Settings).
-2. Fix known Level A failures (radial disabled contrast from audit #301).
-3. Update `accessibility_baseline_checklist.md` to reflect actual test results (replace "Untested" rows).
-4. Document any Level A criteria that are not applicable or explicitly deferred with rationale.
+1. Run WCAG 2.2 audit across all 7 canonical surface classes from `design/accessibility_baseline_checklist.md` (Graph Pane, Node Pane, Tool Pane, Floating Windows, Dialogs, Omnibar, Workbar), capturing both A and AA rows.
+2. Fix known gating defects and verify radial disabled-state contrast remains compliant with AA text contrast requirements (audit #301 follow-through).
+3. Update `accessibility_baseline_checklist.md` to reflect actual test results (replace stale "Untested" rows).
+4. Maintain an explicit AA waiver register for any remaining AA gaps (owner, rationale, deadline); no implicit AA deferrals.
 
-**Done gate**: Accessibility baseline checklist shows Pass or N/A for all Level A criteria across all 7 surfaces.
+**Done gate**: For v0.0.2, accessibility baseline checklist shows Pass or N/A for all Level A criteria across all 7 canonical surfaces, and any remaining AA gaps are explicitly tracked in the waiver register.
 
 ---
 
@@ -496,7 +496,7 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 
 **Lanes**: `lane:accessibility` (#95), `lane:diagnostics` (#94), `lane:test-infra` (#97)
 
-1. Run all-surfaces WCAG A audit and fix failures (W3).
+1. Run all-surfaces WCAG audit with Level A gating and AA waiver tracking (W3).
 2. Land UxHarness critical-path scenarios.
 3. Retire or de-scope active scaffolds.
 4. Update stale docs from §8.
@@ -599,7 +599,7 @@ From the pre-wgpu gate checklist, unchanged:
 
 | Gate | Status | Blocking lanes | Key open items |
 | --- | --- | --- | --- |
-| AG0 | `open` | stabilization, accessibility | All-surfaces WCAG A completion sweep (remaining unverified non-radial surfaces) |
+| AG0 | `open` | stabilization, accessibility | All-surfaces WCAG Level A completion sweep + explicit AA waiver tracking (remaining unverified non-radial surfaces) |
 | AG1 | `partial` | stabilization | Camera/lasso/selection reliability evidence in multi-pane paths (W2 complete) |
 | AG2 | `partial` | stabilization, embedder-debt | Focus activation race, close-successor handoff |
 | AG3 | `open` | embedder-debt | Legacy context-menu bypass retirement |

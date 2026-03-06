@@ -54,7 +54,7 @@ The Control Panel is a core component of **The Register** (implemented today as 
 
 ### Sync Terminology Contract
 
-- **Device Sync**: durable workspace replication between trusted devices (`ApplyRemoteDelta`, peer status, version-vector convergence).
+- **Device Sync**: durable workspace replication between trusted devices (remote delta carrier intents, peer status, version-vector convergence).
 - **Coop**: collaborative/co-presence behavior (live follow/presence/shared browsing context) and not implied by Device Sync.
 - UI and docs should use explicit labels (`Sync Devices`, `Start Coop`) instead of plain `Sync` when both concepts are present.
 
@@ -247,7 +247,7 @@ Done gates:
 │  memory_monitor_worker (active)                        │
 │  mod_loader_worker       (stub)                        │
 │  prefetch_scheduler      (future)                      │
-│  p2p_sync_worker         (future)                      │
+│  p2p_sync_worker         (in progress)                 │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -400,18 +400,20 @@ Done gates:
 
 ### Phase CP4: P2P Device Sync
 
-**Status:** Design-ready — see [`system/2026-03-05_cp4_p2p_sync_plan.md`](../2026-03-05_cp4_p2p_sync_plan.md)
+**Status:** In progress (worker scaffold wired; reducer sync semantics pending) — see [`system/2026-03-05_cp4_p2p_sync_plan.md`](../2026-03-05_cp4_p2p_sync_plan.md)
 
 Goals:
 
-- P2P device-sync worker consumes peer deltas and queues `ApplyRemoteDelta` intents with version vector stamps
-- Network failures emit `MarkPeerOffline` intents (never silent)
+- P2P device-sync worker consumes peer deltas and queues remote-sync carrier intents with version vector stamps
+- Network failures emit explicit offline signaling (target `MarkPeerOffline`; never silent)
 - Causality ordering via version vectors ensures convergence across all peers
 
 Done gates:
 
 - [ ] Peer discovery and rendezvous design complete (covered in Verso Tier 1 plan §2–3)
-- [ ] `p2p_sync_worker` implemented and supervised under `ControlPanel`
+- [x] `p2p_sync_worker` implemented and supervised under `ControlPanel`
+- [ ] Remote-sync reducer carrier semantics completed (runtime `ApplyRemoteLogEntries` alias and/or CP4 target `ApplyRemoteDelta` naming)
+- [ ] Explicit peer-offline reducer path completed (`MarkPeerOffline` target behavior or equivalent status intent)
 - [ ] Version vector persistence wired into workspace state (note: "Lamport clock" in prior wording — version vectors are the correct mechanism per Verso sync plan §4.3; see CP4 plan §5.3)
 
 ---
@@ -552,9 +554,9 @@ Async producer intents carry causality metadata for deterministic application:
 impl QueuedIntent {
     pub fn causality_order(&self) -> (u64, IntentSource) {
         match &self.intent {
-            GraphIntent::ApplyRemoteDelta { lamport_clock, .. } => {
-                (*lamport_clock, self.source)
-            }
+            // CP4 runtime scaffold: remote batches arrive through a carrier intent.
+            // Full CP4 convergence will derive ordering from version-vector metadata.
+            GraphIntent::ApplyRemoteLogEntries { .. } => (0, self.source),
             // Local intents have implicit clock 0 (applied first)
             _ => (0, self.source),
         }
@@ -562,7 +564,7 @@ impl QueuedIntent {
 }
 ```
 
-Local UI intents (clock 0) always apply before async producer intents, preserving responsiveness. Remote deltas sort by Lamport clock for cross-peer convergence.
+Local UI intents (clock 0) always apply before async producer intents, preserving responsiveness. CP4 target convergence uses version-vector causality; runtime scaffold currently preserves worker batch order.
 
 ---
 
@@ -636,7 +638,7 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 | **CP1** | ✅ Done | `ControlPanel` struct, channel, memory monitor stub, shutdown |
 | **CP2** | ✅ Done | Mod loader worker + mod lifecycle intents |
 | **CP3** | ✅ Done | Prefetch scheduler + `LifecyclePolicy` watch + selected-prewarm promotion intents |
-| **CP4** | Future | P2P device-sync worker (separate design doc) |
+| **CP4** | In progress | P2P device-sync worker scaffold landed; reducer sync semantics and persistence follow-up |
 
 ---
 

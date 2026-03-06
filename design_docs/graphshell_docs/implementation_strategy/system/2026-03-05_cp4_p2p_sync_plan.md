@@ -1,9 +1,9 @@
 # CP4: P2P Device Sync — ControlPanel Integration Plan
 
 **Date**: 2026-03-05
-**Status**: Design-ready / implementation pending
+**Status**: In progress (worker scaffold wired; reducer sync semantics pending)
 **Phase**: Control Panel Phase 4 (CP4)
-**Context**: Defines how the `p2p_sync_worker` integrates into the `ControlPanel` intent pipeline. The Verso mod's device-sync protocol (iroh transport, identity, pairing, `SyncUnit` exchange, `SyncLog`) is specified in [`verso_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md). This doc covers the **ControlPanel boundary**: worker supervision, `GraphIntent` variants, version vector persistence on `GraphBrowserApp`, and reducer handling of remote deltas.
+**Context**: Defines how the `p2p_sync_worker` integrates into the `ControlPanel` intent pipeline. The Verso mod's device-sync protocol (iroh transport, identity, pairing, `SyncUnit` exchange, `SyncLog`) is specified in [`verso_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md). This doc covers the **ControlPanel boundary**: worker supervision, sync intent carrier naming, version vector persistence on `GraphBrowserApp`, and reducer handling of remote deltas.
 
 **Related docs**:
 - [`SYSTEM_REGISTER.md`](register/SYSTEM_REGISTER.md) — ControlPanel supervision model, CP1–CP3 pattern
@@ -17,7 +17,13 @@
 
 ## 1. Scope
 
-CP4 adds one supervised worker and two `GraphIntent` variants to the existing ControlPanel machinery established in CP1–CP3. The reducer stays 100% synchronous; all network I/O remains in the worker.
+CP4 adds one supervised worker and a remote-sync intent carrier path to the existing ControlPanel machinery established in CP1–CP3. The reducer stays 100% synchronous; all network I/O remains in the worker.
+
+Runtime naming alignment (2026-03-06):
+
+- Current runtime carrier: `GraphIntent::ApplyRemoteLogEntries { entries: Vec<u8> }` (stub-handled in reducer).
+- Target CP4 semantic naming: `ApplyRemoteDelta` + explicit peer-offline signaling.
+- This plan treats `ApplyRemoteLogEntries` as transitional naming until full CP4 reducer semantics are landed.
 
 **Terminology lock (CP4 scope)**:
 - "Sync" in this document means **Device Sync** (durable state replication across trusted devices).
@@ -25,8 +31,8 @@ CP4 adds one supervised worker and two `GraphIntent` variants to the existing Co
 
 **CP4 delivers**:
 - `spawn_p2p_sync_worker()` following the CP1–CP3 supervision pattern
-- `GraphIntent::ApplyRemoteDelta` — carries a batch of remote `SyncedIntent`s into the reducer
-- `GraphIntent::MarkPeerOffline` — signals network failure for a peer; never silent
+- `GraphIntent` remote-sync carrier path (`ApplyRemoteLogEntries` runtime alias; `ApplyRemoteDelta` target naming)
+- Explicit peer-offline signaling path (`MarkPeerOffline` target behavior; runtime equivalent may be emitted through diagnostics/status channels until intent variant lands)
 - Version vector persistence on `GraphBrowserApp` (per-workspace `VersionVector` loaded/saved alongside workspace state)
 - Reducer handling: deduplication, VV update, undo-stack bypass, diagnostics emission
 
@@ -85,9 +91,9 @@ This avoids silent failure and keeps restart policy in the mod layer, not the Co
 
 ---
 
-## 3. GraphIntent Variants
+## 3. GraphIntent Carrier and Target Variants
 
-Two new variants are added to `GraphIntent`:
+Target CP4 naming adds two dedicated variants. Current runtime uses a transitional carrier.
 
 ```rust
 /// CP4 additions to GraphIntent
@@ -123,18 +129,18 @@ pub enum PeerOfflineReason {
 }
 ```
 
-### 3.1 Why a batched `ApplyRemoteDelta` (not one intent per `SyncedIntent`)
+### 3.1 Why a batched remote delta carrier (not one intent per `SyncedIntent`)
 
-The Verso protocol exchanges `SyncUnit`s which may contain hundreds of `SyncedIntent`s from a catch-up batch. Enqueuing each as a separate `GraphIntent` would:
+The Verso protocol exchanges `SyncUnit`s which may contain hundreds of `SyncedIntent`s from a catch-up batch. Enqueuing each as a separate reducer intent would:
 - Fragment VV update atomicity (partial VV update if app exits mid-drain)
 - Add overhead to `drain_pending()` for large syncs
 - Complicate deduplication (must check mid-drain whether a later batch supersedes an earlier one)
 
-Batching at the `SyncUnit` boundary preserves atomicity: either the whole batch lands or none of it does (reducer rolls back on error).
+Batching at the `SyncUnit` boundary preserves atomicity: either the whole batch lands or none of it does (reducer rolls back on error). Runtime `ApplyRemoteLogEntries` exists as this batch carrier while CP4 target naming converges.
 
 ### 3.2 Intent ordering guarantee
 
-The Verso worker enqueues `ApplyRemoteDelta` intents in `from_sequence` order per workspace. The ControlPanel's `mpsc` channel preserves enqueue order. The reducer applies them in drain order. This is sufficient for VV-based convergence — out-of-order batches from different peers are handled by the VV deduplication check (§4.2), not by reordering.
+In the target CP4 model, the Verso worker enqueues `ApplyRemoteDelta` intents in `from_sequence` order per workspace. Current runtime staging may enqueue `ApplyRemoteLogEntries` as the carrier alias. The ControlPanel's `mpsc` channel preserves enqueue order, and the reducer applies batches in drain order. This is sufficient for VV-based convergence — out-of-order batches from different peers are handled by the VV deduplication check (§4.2), not by reordering.
 
 ---
 
@@ -239,7 +245,7 @@ SYSTEM_REGISTER.md's CP4 done gate uses the term "Lamport clock." The Verso sync
 - A **Lamport clock** is a single monotonically increasing counter per node, advanced on send and `max(local, received)+1` on receive. It provides partial ordering but cannot detect concurrency.
 - A **version vector** (used here) tracks the highest sequence number seen *per peer*. This enables precise gap detection and concurrent intent identification.
 
-**Resolution**: CP4 uses version vectors as specified in the Verso plan. SYSTEM_REGISTER.md's "Lamport clock persistence" done gate is satisfied by version vector persistence — it is the more capable mechanism and serves the same intent-ordering purpose. The SYSTEM_REGISTER done gate wording should be updated to "version vector persistence" in a same-session edit when CP4 lands.
+**Resolution**: CP4 uses version vectors as specified in the Verso plan. SYSTEM_REGISTER.md has been updated to use version-vector terminology for CP4 persistence and causality wording.
 
 ---
 
@@ -262,20 +268,21 @@ All channels must include a `severity` field per `CLAUDE.md` guidelines.
 
 ## 7. Done Gates (aligned with SYSTEM_REGISTER CP4)
 
-- [ ] `ControlPanel::spawn_p2p_sync_worker()` implemented; worker supervised with `CancellationToken` + `JoinSet`
-- [ ] `GraphIntent::ApplyRemoteDelta` and `GraphIntent::MarkPeerOffline` defined and handled in `apply_intents()`
+- [x] `ControlPanel::spawn_p2p_sync_worker()` implemented; worker supervised with `CancellationToken` + `JoinSet`
+- [ ] Remote-sync reducer carrier is fully wired (`ApplyRemoteLogEntries` runtime alias and/or `ApplyRemoteDelta` target naming) with dedup + VV semantics
+- [ ] Explicit peer-offline signal path (`MarkPeerOffline` or equivalent reducer-owned status intent) is defined and handled in `apply_intents()`
 - [ ] Version vector loaded from persistence on workspace init; persisted on `vv_dirty` flag
 - [ ] Deduplication: already-seen sequences are skipped without applying or erroring
 - [ ] Undo-stack bypass: `IntentSource::RemotePeer` intents are not pushed to local undo history
 - [ ] `verse.sync.*` diagnostics channels registered with correct severities
-- [ ] Worker crash emits `MarkPeerOffline { peer_id: None, reason: SyncWorkerCrash }` — never silent
+- [ ] Worker crash surfaces non-silent offline state (`MarkPeerOffline` target behavior or equivalent reducer-owned offline status path)
 - [ ] `cargo check --package graphshell` clean; targeted tests for: (a) deduplication, (b) VV advancement, (c) peer-offline state update
 
 ---
 
 ## 8. Implementation Sequence
 
-1. **Add `GraphIntent` variants** — `ApplyRemoteDelta`, `MarkPeerOffline`, `PeerOfflineReason`. Add exhaustive match arms in `apply_intents()` (stubs returning `Ok(())` first to unblock compile).
+1. **Converge sync intent naming** — either: (a) rename runtime carrier from `ApplyRemoteLogEntries` to `ApplyRemoteDelta`, or (b) keep alias with explicit mapping docs. Add exhaustive match arms in `apply_intents()` (stubs returning `Ok(())` first to unblock compile).
 2. **Add `WorkspaceSyncState`** — add field to workspace runtime struct; wire to persistence load/save.
 3. **Implement reducer logic** — deduplication check, `apply_single_intent` call, VV update, undo bypass.
 4. **Add diagnostics channels** — register `verse.sync.*` channels with correct severity in the diagnostics registry.
