@@ -16,7 +16,7 @@ use euclid::default::{Point2D, Vector2D};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{Directed, Direction};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -193,12 +193,31 @@ pub enum EdgeType {
     UserGrouped,
 }
 
-/// Trigger classification for a traversal event (v1 scope).
+/// Canonical edge kind set entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EdgeKind {
+    Hyperlink,
+    TraversalDerived,
+    UserGrouped,
+    AgentDerived,
+}
+
+/// Trigger classification for a traversal event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavigationTrigger {
     Unknown,
+    LinkClick,
     Back,
     Forward,
+    AddressBarEntry,
+    PanePromotion,
+    Programmatic,
+}
+
+impl NavigationTrigger {
+    fn contributes_to_forward_count(self) -> bool {
+        !matches!(self, Self::Back)
+    }
 }
 
 /// A temporal traversal event recorded on an edge.
@@ -221,20 +240,50 @@ impl Traversal {
     }
 }
 
+/// Durable traversal aggregates retained even when rolling-window records are evicted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EdgeMetrics {
+    pub total_navigations: u64,
+    pub forward_navigations: u64,
+    pub backward_navigations: u64,
+    pub last_navigated_at: Option<u64>,
+}
+
+impl EdgeMetrics {
+    fn new() -> Self {
+        Self {
+            total_navigations: 0,
+            forward_navigations: 0,
+            backward_navigations: 0,
+            last_navigated_at: None,
+        }
+    }
+
+    fn record(&mut self, traversal: Traversal) {
+        self.total_navigations = self.total_navigations.saturating_add(1);
+        if traversal.trigger.contributes_to_forward_count() {
+            self.forward_navigations = self.forward_navigations.saturating_add(1);
+        } else {
+            self.backward_navigations = self.backward_navigations.saturating_add(1);
+        }
+        self.last_navigated_at = Some(traversal.timestamp_ms);
+    }
+}
+
 /// Edge semantics payload: structural assertions + temporal traversal events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgePayload {
-    pub hyperlink_asserted: bool,
-    pub user_grouped_asserted: bool,
+    pub kinds: BTreeSet<EdgeKind>,
     pub traversals: Vec<Traversal>,
+    pub metrics: EdgeMetrics,
 }
 
 impl EdgePayload {
     pub fn new() -> Self {
         Self {
-            hyperlink_asserted: false,
-            user_grouped_asserted: false,
+            kinds: BTreeSet::new(),
             traversals: Vec::new(),
+            metrics: EdgeMetrics::new(),
         }
     }
 
@@ -246,35 +295,49 @@ impl EdgePayload {
 
     pub fn add_edge_type(&mut self, edge_type: EdgeType) {
         match edge_type {
-            EdgeType::Hyperlink => self.hyperlink_asserted = true,
-            EdgeType::UserGrouped => self.user_grouped_asserted = true,
-            EdgeType::History => self.traversals.push(Traversal {
-                timestamp_ms: 0,
-                trigger: NavigationTrigger::Unknown,
-            }),
+            EdgeType::Hyperlink => {
+                let _ = self.kinds.insert(EdgeKind::Hyperlink);
+            }
+            EdgeType::UserGrouped => {
+                let _ = self.kinds.insert(EdgeKind::UserGrouped);
+            }
+            EdgeType::History => {
+                let _ = self.kinds.insert(EdgeKind::TraversalDerived);
+                // Preserve legacy semantics where history edges from snapshots imply one traversal.
+                if self.traversals.is_empty() {
+                    self.push_traversal(Traversal {
+                        timestamp_ms: 0,
+                        trigger: NavigationTrigger::Unknown,
+                    });
+                }
+            }
         }
     }
 
     pub fn has_edge_type(&self, edge_type: EdgeType) -> bool {
         match edge_type {
-            EdgeType::Hyperlink => self.hyperlink_asserted,
-            EdgeType::UserGrouped => self.user_grouped_asserted,
-            EdgeType::History => !self.traversals.is_empty(),
+            EdgeType::Hyperlink => self.kinds.contains(&EdgeKind::Hyperlink),
+            EdgeType::UserGrouped => self.kinds.contains(&EdgeKind::UserGrouped),
+            EdgeType::History => self.kinds.contains(&EdgeKind::TraversalDerived),
         }
+    }
+
+    pub fn has_kind(&self, kind: EdgeKind) -> bool {
+        self.kinds.contains(&kind)
     }
 
     pub fn remove_edge_type(&mut self, edge_type: EdgeType) -> bool {
         match edge_type {
-            EdgeType::Hyperlink if self.hyperlink_asserted => {
-                self.hyperlink_asserted = false;
+            EdgeType::Hyperlink if self.kinds.remove(&EdgeKind::Hyperlink) => {
                 true
             }
-            EdgeType::UserGrouped if self.user_grouped_asserted => {
-                self.user_grouped_asserted = false;
+            EdgeType::UserGrouped if self.kinds.remove(&EdgeKind::UserGrouped) => {
                 true
             }
             EdgeType::History if !self.traversals.is_empty() => {
                 self.traversals.clear();
+                self.metrics = EdgeMetrics::new();
+                let _ = self.kinds.remove(&EdgeKind::TraversalDerived);
                 true
             }
             _ => false,
@@ -282,10 +345,12 @@ impl EdgePayload {
     }
 
     pub fn is_empty(&self) -> bool {
-        !self.hyperlink_asserted && !self.user_grouped_asserted && self.traversals.is_empty()
+        self.kinds.is_empty() && self.traversals.is_empty()
     }
 
     pub fn push_traversal(&mut self, traversal: Traversal) {
+        let _ = self.kinds.insert(EdgeKind::TraversalDerived);
+        self.metrics.record(traversal);
         self.traversals.push(traversal);
     }
 }
@@ -711,21 +776,21 @@ impl Graph {
             let to = e.target();
             let payload = e.weight();
             let mut out = Vec::with_capacity(3);
-            if payload.hyperlink_asserted {
+            if payload.has_kind(EdgeKind::Hyperlink) {
                 out.push(EdgeView {
                     from,
                     to,
                     edge_type: EdgeType::Hyperlink,
                 });
             }
-            if !payload.traversals.is_empty() {
+            if payload.has_kind(EdgeKind::TraversalDerived) {
                 out.push(EdgeView {
                     from,
                     to,
                     edge_type: EdgeType::History,
                 });
             }
-            if payload.user_grouped_asserted {
+            if payload.has_kind(EdgeKind::UserGrouped) {
                 out.push(EdgeView {
                     from,
                     to,

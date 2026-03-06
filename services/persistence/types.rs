@@ -96,8 +96,12 @@ pub enum PersistedEdgeType {
 #[rkyv(derive(Debug, PartialEq))]
 pub enum PersistedNavigationTrigger {
     Unknown,
+    LinkClick,
     Back,
     Forward,
+    AddressBarEntry,
+    PanePromotion,
+    Programmatic,
 }
 
 /// Persisted edge.

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::graph::egui_adapter::EguiGraphState;
-use crate::graph::{EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
+use crate::graph::{EdgeKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
 use crate::registries::atomic::knowledge::CompactCode;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
@@ -7282,7 +7282,7 @@ impl GraphBrowserApp {
         let existing_edge_key = self.workspace.graph.find_edge_key(from_key, to_key);
         let history_semantic_existed = existing_edge_key
             .and_then(|edge_key| self.workspace.graph.get_edge(edge_key))
-            .map(|payload| payload.has_edge_type(EdgeType::History))
+            .map(|payload| payload.has_kind(EdgeKind::TraversalDerived))
             .unwrap_or(false);
 
         let traversal = Traversal::now(trigger);
@@ -7332,8 +7332,14 @@ impl GraphBrowserApp {
             };
             let trigger = match traversal.trigger {
                 NavigationTrigger::Unknown => PersistedNavigationTrigger::Unknown,
+                NavigationTrigger::LinkClick => PersistedNavigationTrigger::LinkClick,
                 NavigationTrigger::Back => PersistedNavigationTrigger::Back,
                 NavigationTrigger::Forward => PersistedNavigationTrigger::Forward,
+                NavigationTrigger::AddressBarEntry => {
+                    PersistedNavigationTrigger::AddressBarEntry
+                }
+                NavigationTrigger::PanePromotion => PersistedNavigationTrigger::PanePromotion,
+                NavigationTrigger::Programmatic => PersistedNavigationTrigger::Programmatic,
             };
             store.log_mutation(&LogEntry::AppendTraversal {
                 from_node_id,

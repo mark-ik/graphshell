@@ -3918,11 +3918,23 @@ fn render_history_manager_rows(
                 };
 
                 let trigger_label = match trigger {
+                    crate::services::persistence::types::PersistedNavigationTrigger::LinkClick => {
+                        "🔗 Link"
+                    }
                     crate::services::persistence::types::PersistedNavigationTrigger::Back => {
                         "⬅ Back"
                     }
                     crate::services::persistence::types::PersistedNavigationTrigger::Forward => {
                         "➡ Forward"
+                    }
+                    crate::services::persistence::types::PersistedNavigationTrigger::AddressBarEntry => {
+                        "⌨ Address"
+                    }
+                    crate::services::persistence::types::PersistedNavigationTrigger::PanePromotion => {
+                        "⬆ Promote"
+                    }
+                    crate::services::persistence::types::PersistedNavigationTrigger::Programmatic => {
+                        "⚙ Programmatic"
                     }
                     crate::services::persistence::types::PersistedNavigationTrigger::Unknown => "↔",
                 };

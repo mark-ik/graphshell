@@ -663,11 +663,23 @@ impl GraphStore {
                 types::ArchivedPersistedNavigationTrigger::Unknown => {
                     types::PersistedNavigationTrigger::Unknown
                 }
+                types::ArchivedPersistedNavigationTrigger::LinkClick => {
+                    types::PersistedNavigationTrigger::LinkClick
+                }
                 types::ArchivedPersistedNavigationTrigger::Back => {
                     types::PersistedNavigationTrigger::Back
                 }
                 types::ArchivedPersistedNavigationTrigger::Forward => {
                     types::PersistedNavigationTrigger::Forward
+                }
+                types::ArchivedPersistedNavigationTrigger::AddressBarEntry => {
+                    types::PersistedNavigationTrigger::AddressBarEntry
+                }
+                types::ArchivedPersistedNavigationTrigger::PanePromotion => {
+                    types::PersistedNavigationTrigger::PanePromotion
+                }
+                types::ArchivedPersistedNavigationTrigger::Programmatic => {
+                    types::PersistedNavigationTrigger::Programmatic
                 }
             };
 
@@ -713,8 +725,18 @@ impl GraphStore {
             for traversal in record.traversals {
                 let trigger = match traversal.trigger {
                     NavigationTrigger::Unknown => types::PersistedNavigationTrigger::Unknown,
+                    NavigationTrigger::LinkClick => types::PersistedNavigationTrigger::LinkClick,
                     NavigationTrigger::Back => types::PersistedNavigationTrigger::Back,
                     NavigationTrigger::Forward => types::PersistedNavigationTrigger::Forward,
+                    NavigationTrigger::AddressBarEntry => {
+                        types::PersistedNavigationTrigger::AddressBarEntry
+                    }
+                    NavigationTrigger::PanePromotion => {
+                        types::PersistedNavigationTrigger::PanePromotion
+                    }
+                    NavigationTrigger::Programmatic => {
+                        types::PersistedNavigationTrigger::Programmatic
+                    }
                 };
                 let entry = types::LogEntry::AppendTraversal {
                     from_node_id: from_node_id.clone(),
@@ -750,8 +772,18 @@ impl GraphStore {
             for traversal in record.traversals {
                 let trigger = match traversal.trigger {
                     NavigationTrigger::Unknown => types::PersistedNavigationTrigger::Unknown,
+                    NavigationTrigger::LinkClick => types::PersistedNavigationTrigger::LinkClick,
                     NavigationTrigger::Back => types::PersistedNavigationTrigger::Back,
                     NavigationTrigger::Forward => types::PersistedNavigationTrigger::Forward,
+                    NavigationTrigger::AddressBarEntry => {
+                        types::PersistedNavigationTrigger::AddressBarEntry
+                    }
+                    NavigationTrigger::PanePromotion => {
+                        types::PersistedNavigationTrigger::PanePromotion
+                    }
+                    NavigationTrigger::Programmatic => {
+                        types::PersistedNavigationTrigger::Programmatic
+                    }
                 };
                 let entry = types::LogEntry::AppendTraversal {
                     from_node_id: from_node_id.clone(),
@@ -943,11 +975,23 @@ impl GraphStore {
                     types::ArchivedPersistedNavigationTrigger::Unknown => {
                         crate::graph::NavigationTrigger::Unknown
                     }
+                    types::ArchivedPersistedNavigationTrigger::LinkClick => {
+                        crate::graph::NavigationTrigger::LinkClick
+                    }
                     types::ArchivedPersistedNavigationTrigger::Back => {
                         crate::graph::NavigationTrigger::Back
                     }
                     types::ArchivedPersistedNavigationTrigger::Forward => {
                         crate::graph::NavigationTrigger::Forward
+                    }
+                    types::ArchivedPersistedNavigationTrigger::AddressBarEntry => {
+                        crate::graph::NavigationTrigger::AddressBarEntry
+                    }
+                    types::ArchivedPersistedNavigationTrigger::PanePromotion => {
+                        crate::graph::NavigationTrigger::PanePromotion
+                    }
+                    types::ArchivedPersistedNavigationTrigger::Programmatic => {
+                        crate::graph::NavigationTrigger::Programmatic
                     }
                 };
 
@@ -1352,34 +1396,46 @@ impl GraphStore {
                         types::ArchivedPersistedNavigationTrigger::Unknown => {
                             crate::graph::NavigationTrigger::Unknown
                         }
+                        types::ArchivedPersistedNavigationTrigger::LinkClick => {
+                            crate::graph::NavigationTrigger::LinkClick
+                        }
                         types::ArchivedPersistedNavigationTrigger::Back => {
                             crate::graph::NavigationTrigger::Back
                         }
                         types::ArchivedPersistedNavigationTrigger::Forward => {
                             crate::graph::NavigationTrigger::Forward
                         }
+                        types::ArchivedPersistedNavigationTrigger::AddressBarEntry => {
+                            crate::graph::NavigationTrigger::AddressBarEntry
+                        }
+                        types::ArchivedPersistedNavigationTrigger::PanePromotion => {
+                            crate::graph::NavigationTrigger::PanePromotion
+                        }
+                        types::ArchivedPersistedNavigationTrigger::Programmatic => {
+                            crate::graph::NavigationTrigger::Programmatic
+                        }
                     };
                     let traversal = crate::graph::Traversal {
                         timestamp_ms: (*timestamp_ms).into(),
                         trigger,
                     };
-
-                    if let Some(edge_key) = graph.find_edge_key(from_key, to_key)
-                        && let Some(payload) = graph.get_edge_mut(edge_key)
-                    {
-                        // Stage A compatibility: AddEdge(History) replays as a placeholder
-                        // traversal. Drop that sentinel once a real traversal arrives.
-                        if payload.traversals.len() == 1
+                    if let Some(edge_key) = graph.find_edge_key(from_key, to_key) {
+                        if let Some(payload) = graph.get_edge_mut(edge_key)
+                            && payload.traversals.len() == 1
                             && payload.traversals[0].timestamp_ms == 0
                             && payload.traversals[0].trigger
                                 == crate::graph::NavigationTrigger::Unknown
                         {
                             payload.traversals.clear();
+                            payload.metrics = crate::graph::EdgeMetrics {
+                                total_navigations: 0,
+                                forward_navigations: 0,
+                                backward_navigations: 0,
+                                last_navigated_at: None,
+                            };
                         }
-                        payload.push_traversal(traversal);
-                    } else {
-                        let _ = graph.push_traversal(from_key, to_key, traversal);
                     }
+                    let _ = graph.push_traversal(from_key, to_key, traversal);
                 }
                 ArchivedLogEntry::UpdateNodeTitle { node_id, title } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {

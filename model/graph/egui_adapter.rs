@@ -7,7 +7,7 @@
 //! Converts the Graph's StableGraph to an egui_graphs::Graph each frame,
 //! and reads back user interactions (drag, selection, double-click).
 
-use super::{EdgePayload, Graph, Node, NodeKey, NodeLifecycle};
+use super::{EdgeKind, EdgePayload, Graph, Node, NodeKey, NodeLifecycle};
 use egui::epaint::{CircleShape, CubicBezierShape, TextShape};
 use egui::{
     Color32, FontFamily, FontId, Pos2, Rect, Shape, Stroke, TextureHandle, TextureId, Vec2,
@@ -501,9 +501,9 @@ enum DominantDirectionCue {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LogicalPairTraversalAggregate {
-    ab_count: usize,
-    ba_count: usize,
     total_count: usize,
+    forward_count: usize,
+    backward_count: usize,
     dominant_cue: DominantDirectionCue,
 }
 
@@ -623,9 +623,9 @@ impl GraphEdgeShape {
     }
 
     fn style_from_payload(payload: &EdgePayload) -> GraphEdgeVisualStyle {
-        if payload.user_grouped_asserted {
+        if payload.has_kind(EdgeKind::UserGrouped) {
             GraphEdgeVisualStyle::UserGrouped
-        } else if !payload.traversals.is_empty() {
+        } else if payload.has_kind(EdgeKind::TraversalDerived) {
             GraphEdgeVisualStyle::History
         } else {
             GraphEdgeVisualStyle::Hyperlink
@@ -641,29 +641,20 @@ impl GraphEdgeShape {
     }
 
     fn dominant_direction_from_counts(
-        ab_count: usize,
-        ba_count: usize,
-        canonical_is_ab: bool,
+        forward_count: usize,
+        backward_count: usize,
         threshold_ratio: f32,
     ) -> DominantDirectionCue {
-        let total = ab_count + ba_count;
+        let total = forward_count + backward_count;
         if total == 0 {
             return DominantDirectionCue::None;
         }
-        let ab_ratio = ab_count as f32 / total as f32;
-        let ba_ratio = ba_count as f32 / total as f32;
-        if ab_ratio > threshold_ratio {
-            if canonical_is_ab {
-                DominantDirectionCue::AlongEdge
-            } else {
-                DominantDirectionCue::AgainstEdge
-            }
-        } else if ba_ratio > threshold_ratio {
-            if canonical_is_ab {
-                DominantDirectionCue::AgainstEdge
-            } else {
-                DominantDirectionCue::AlongEdge
-            }
+        let forward_ratio = forward_count as f32 / total as f32;
+        let backward_ratio = backward_count as f32 / total as f32;
+        if forward_ratio > threshold_ratio {
+            DominantDirectionCue::AlongEdge
+        } else if backward_ratio > threshold_ratio {
+            DominantDirectionCue::AgainstEdge
         } else {
             DominantDirectionCue::None
         }
@@ -783,24 +774,39 @@ fn aggregate_logical_pair_traversals(
     let ab_payload = ab_key.and_then(|k| graph.get_edge(k));
     let ba_payload = ba_key.and_then(|k| graph.get_edge(k));
 
-    let ab_count = ab_payload.map(|p| p.traversals.len()).unwrap_or(0);
-    let ba_count = ba_payload.map(|p| p.traversals.len()).unwrap_or(0);
-    let total_count = ab_count + ba_count;
-    let style = if ab_payload.is_some_and(|p| p.user_grouped_asserted)
-        || ba_payload.is_some_and(|p| p.user_grouped_asserted)
+    let ab_total = ab_payload
+        .map(|p| p.metrics.total_navigations as usize)
+        .unwrap_or(0);
+    let ba_total = ba_payload
+        .map(|p| p.metrics.total_navigations as usize)
+        .unwrap_or(0);
+    let total_count = ab_total + ba_total;
+    let dominant_source = ab_payload.or(ba_payload);
+    let forward_count = dominant_source
+        .map(|p| p.metrics.forward_navigations as usize)
+        .unwrap_or(0);
+    let backward_count = dominant_source
+        .map(|p| p.metrics.backward_navigations as usize)
+        .unwrap_or(0);
+    let style = if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::UserGrouped))
+        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::UserGrouped))
     {
         GraphEdgeVisualStyle::UserGrouped
-    } else if total_count > 0 {
+    } else if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::TraversalDerived))
+        || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::TraversalDerived))
+    {
         GraphEdgeVisualStyle::History
     } else {
         GraphEdgeVisualStyle::Hyperlink
     };
     let aggregate = LogicalPairTraversalAggregate {
-        ab_count,
-        ba_count,
         total_count,
+        forward_count,
+        backward_count,
         dominant_cue: GraphEdgeShape::dominant_direction_from_counts(
-            ab_count, ba_count, true, 0.60,
+            forward_count,
+            backward_count,
+            0.60,
         ),
     };
     (style, aggregate)
@@ -940,15 +946,8 @@ impl EguiGraphState {
                 continue;
             }
 
-            let canonical_is_ab = from.index() <= to.index();
             let (a, b) = pair;
-            let (style, mut aggregate) = aggregate_logical_pair_traversals(graph, a, b);
-            aggregate.dominant_cue = GraphEdgeShape::dominant_direction_from_counts(
-                aggregate.ab_count,
-                aggregate.ba_count,
-                canonical_is_ab,
-                0.60,
-            );
+            let (style, aggregate) = aggregate_logical_pair_traversals(graph, a, b);
 
             if (from, to) != pair
                 && let Some(edge) = egui_graph.edge_mut(edge_id)
@@ -1349,9 +1348,9 @@ mod tests {
         edge.configure_logical_pair(
             GraphEdgeVisualStyle::History,
             LogicalPairTraversalAggregate {
-                ab_count: 1,
-                ba_count: 0,
                 total_count: 1,
+                forward_count: 1,
+                backward_count: 0,
                 dominant_cue: DominantDirectionCue::None,
             },
         );
@@ -1359,9 +1358,9 @@ mod tests {
         edge.configure_logical_pair(
             GraphEdgeVisualStyle::History,
             LogicalPairTraversalAggregate {
-                ab_count: 9,
-                ba_count: 0,
                 total_count: 9,
+                forward_count: 9,
+                backward_count: 0,
                 dominant_cue: DominantDirectionCue::None,
             },
         );
@@ -1371,13 +1370,13 @@ mod tests {
 
     #[test]
     fn test_dominant_direction_above_threshold() {
-        let cue = GraphEdgeShape::dominant_direction_from_counts(7, 3, true, 0.60);
+        let cue = GraphEdgeShape::dominant_direction_from_counts(7, 3, 0.60);
         assert_eq!(cue, DominantDirectionCue::AlongEdge);
     }
 
     #[test]
     fn test_dominant_direction_below_threshold() {
-        let cue = GraphEdgeShape::dominant_direction_from_counts(6, 4, true, 0.60);
+        let cue = GraphEdgeShape::dominant_direction_from_counts(6, 4, 0.60);
         assert_eq!(cue, DominantDirectionCue::None);
     }
 
