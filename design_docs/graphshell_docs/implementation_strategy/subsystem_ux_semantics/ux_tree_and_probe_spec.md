@@ -348,6 +348,28 @@ maintains a `HashMap<UxNodeId, u64>` of degraded-since frame counters. The count
 is reset when the node's `degraded` state clears. The counter is removed when the
 node disappears from the tree.
 
+### 6.6 Shared Modal Isolation + Focus Return Contract Table (normative)
+
+This table is canonical and mirrored verbatim in:
+
+- `aspect_input/input_interaction_spec.md`
+- `subsystem_focus/focus_and_region_navigation_spec.md`
+
+| Transition / surface state | Capture owner while active | Required escape path(s) | Deterministic focus return target |
+|---|---|---|---|
+| Modal opened from any host region | Modal surface (`Modal` context) | `Escape` or explicit dismiss action | Stored pre-modal semantic region if still valid; otherwise next valid visible region |
+| Modal dismissed/confirmed | Focus router on pop from `Modal` context | Dismiss action completion | Same region/control anchor captured on modal open (or deterministic fallback as above) |
+| Command palette or radial opened | Command surface (`CommandPalette` context) | `Escape`, click-away dismiss, or explicit close action | Prior semantic region/control captured at open |
+| Command palette or radial dismissed | Focus router on pop from `CommandPalette` context | Dismiss action completion | Prior captured region/control; must not default to omnibar |
+| Omnibar/search explicit focus acquisition | Text-entry control (`TextEntry` context) | `Escape`, explicit unfocus, or region-cycle command | Prior semantic region/control captured before text-entry capture |
+| Embedded content focused | Embedded viewer (`EmbeddedContent` context) with host escape guarantee | Host-focus-reclaim binding (`Escape` or configured equivalent) | Last host semantic region before embedded capture |
+| Region-cycle command (`F6`) while not modal-captured | Focus router | Repeated region-cycle / reverse cycle binding | Next/previous visible landmark in deterministic order; wraps predictably |
+
+UxTree observability requirement: capture owner and focus-return target used by these
+transitions must be inferable from semantic snapshot state (focused owner path + action
+availability + modal presence), and violations must emit `ux:navigation_violation` or
+`ux:contract_warning`.
+
 ---
 
 ## 7. Feature Flag Behaviour

@@ -359,6 +359,8 @@ graph, or UX semantics code can merge.
 | `radial_menu_structural.yaml` | `flow:radial-menu-structural` | Radial menu open → 8 sectors present, all labeled (S1, S8) |
 | `command_surface_action_parity.yaml` | `flow:command-surface-action-parity` | Same `ActionId` invoked via keyboard/palette/radial/omnibar yields identical semantic result, target-scope resolution, and disabled-state reason text |
 | `omnibar_focus_ownership.yaml` | `flow:omnibar-focus-ownership` | Omnibar/search focus is explicit-only (no default capture), visible without caret dependency, and keyboard commands route to non-omnibar owners until explicit omnibar focus |
+| `modal_focus_return_close_restore.yaml` | `flow:modal-focus-return-close-restore` | Modal open/close and explicit restore paths follow deterministic return targets from shared modal-isolation contract table |
+| `focus_cycle_deterministic.yaml` | `flow:focus-cycle-deterministic` | Region-cycle (`F6`) order, wrap behavior, and capture exclusions are deterministic and match shared modal-isolation contract table |
 
 Additional scenarios are recommended but not required for CI gate:
 
@@ -382,6 +384,16 @@ Additional scenarios are recommended but not required for CI gate:
 - Global keyboard command fixtures must execute without being captured by omnibar until explicit omnibar focus selection occurs.
 - After explicit omnibar focus selection, text-entry keystrokes are routed to omnibar/search field owner.
 - Focus indicator assertions must not depend on caret visibility; scenarios must validate a deterministic focus marker in UxSnapshot state.
+
+### 6.3 Modal Isolation + Focus Return Assertions (required for `flow:modal-focus-return-close-restore` and `flow:focus-cycle-deterministic`)
+
+- Scenario assertions must validate the shared modal-isolation/focus-return contract table mirrored in:
+  - `aspect_input/input_interaction_spec.md`
+  - `subsystem_focus/focus_and_region_navigation_spec.md`
+  - `ux_tree_and_probe_spec.md`
+- Close/restore flows must prove captured return target restoration when valid, and deterministic fallback target selection when the original target no longer exists.
+- Focus-cycle flows must prove `F6` region traversal order is deterministic, wraps predictably, and does not break modal capture ownership.
+- Any mismatch against the contract table is a blocking CI failure and must include transition name, observed capture owner, and observed return target.
 
 ---
 
