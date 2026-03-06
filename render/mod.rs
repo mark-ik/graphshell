@@ -55,6 +55,7 @@ mod spatial_index;
 use spatial_index::NodeSpatialIndex;
 
 pub(crate) mod action_registry;
+mod command_profile;
 mod command_palette;
 pub(crate) mod radial_menu;
 pub use command_palette::render_command_palette_panel;

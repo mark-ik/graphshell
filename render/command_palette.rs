@@ -14,10 +14,12 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
-    ActionCategory, ActionContext, ActionEntry, ActionId, CATEGORY_PIN_ORDER_PERSIST_KEY,
-    CATEGORY_RECENCY_PERSIST_KEY, InputMode, category_from_persisted_name,
-    category_persisted_name, default_category_order, list_actions_for_context,
-    rank_categories_for_context,
+    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode,
+    category_from_persisted_name, category_persisted_name, default_category_order,
+    list_actions_for_context, rank_categories_for_context,
+};
+use crate::render::command_profile::{
+    load_category_recency, load_pinned_categories, record_recent_category, toggle_category_pin,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
@@ -93,64 +95,6 @@ fn search_matches(entry: &ActionEntry, query: &str) -> bool {
     let q = trimmed.to_ascii_lowercase();
     entry.id.label().to_ascii_lowercase().contains(&q)
         || entry.id.short_label().to_ascii_lowercase().contains(&q)
-}
-
-fn load_category_recency(ctx: &egui::Context) -> Vec<ActionCategory> {
-    let raw = ctx
-        .data_mut(|d| {
-            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY))
-        })
-        .unwrap_or_default();
-    raw.into_iter()
-        .filter_map(|entry| category_from_persisted_name(&entry))
-        .collect()
-}
-
-fn persist_category_recency(ctx: &egui::Context, recency: &[ActionCategory]) {
-    let raw: Vec<String> = recency
-        .iter()
-        .map(|category| category_persisted_name(*category).to_string())
-        .collect();
-    ctx.data_mut(|d| {
-        d.insert_persisted(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY), raw)
-    });
-}
-
-fn load_pinned_categories(ctx: &egui::Context) -> Vec<ActionCategory> {
-    let raw = ctx
-        .data_mut(|d| {
-            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_PIN_ORDER_PERSIST_KEY))
-        })
-        .unwrap_or_default();
-    raw.into_iter()
-        .filter_map(|entry| category_from_persisted_name(&entry))
-        .collect()
-}
-
-fn persist_pinned_categories(ctx: &egui::Context, pinned: &[ActionCategory]) {
-    let raw: Vec<String> = pinned
-        .iter()
-        .map(|category| category_persisted_name(*category).to_string())
-        .collect();
-    ctx.data_mut(|d| d.insert_persisted(egui::Id::new(CATEGORY_PIN_ORDER_PERSIST_KEY), raw));
-}
-
-fn toggle_category_pin(ctx: &egui::Context, category: ActionCategory) {
-    let mut pinned = load_pinned_categories(ctx);
-    if pinned.contains(&category) {
-        pinned.retain(|entry| *entry != category);
-    } else {
-        pinned.push(category);
-    }
-    persist_pinned_categories(ctx, &pinned);
-}
-
-fn record_recent_category(ctx: &egui::Context, category: ActionCategory) {
-    let mut recency = load_category_recency(ctx);
-    recency.retain(|entry| *entry != category);
-    recency.insert(0, category);
-    recency.truncate(4);
-    persist_category_recency(ctx, &recency);
 }
 
 fn filter_actions_for_search<'a>(

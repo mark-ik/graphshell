@@ -67,9 +67,9 @@ Keep:
 - `render/action_registry.rs` shared category-policy helpers (`rank_categories_for_context`, persisted category encode/decode) as the single ranking authority for command surfaces.
 - Shared persisted preference keys for category recency/pins to keep Context Palette Mode and Radial Palette Mode aligned.
 
-Consolidate next:
+Consolidated:
 
-- Move duplicate recency/pin persistence helpers currently living in both `render/command_palette.rs` and `render/radial_menu.rs` into a single command-profile utility module.
+- Duplicate category recency/pin persistence helpers have been moved into shared `render/command_profile.rs` and are now consumed by both `render/command_palette.rs` and `render/radial_menu.rs`.
 
 Defer:
 

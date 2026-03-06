@@ -13,10 +13,11 @@
 use crate::app::{GraphBrowserApp, GraphIntent, SelectionUpdateMode};
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
-    ActionCategory, ActionContext, ActionEntry, ActionId, CATEGORY_PIN_ORDER_PERSIST_KEY,
-    CATEGORY_RECENCY_PERSIST_KEY, InputMode, category_from_persisted_name,
-    category_persisted_name, default_category_order, list_radial_actions_for_category,
-    rank_categories_for_context,
+    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, category_persisted_name,
+    default_category_order, list_radial_actions_for_category, rank_categories_for_context,
+};
+use crate::render::command_profile::{
+    load_category_recency, load_pinned_categories, record_recent_category,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -114,42 +115,6 @@ fn radial_category_label(category: ActionCategory) -> &'static str {
         ActionCategory::Persistence => "Persist",
         _ => category.label(),
     }
-}
-
-fn load_category_recency(ctx: &egui::Context) -> Vec<ActionCategory> {
-    let raw = ctx
-        .data_mut(|d| {
-            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY))
-        })
-        .unwrap_or_default();
-    raw.into_iter()
-        .filter_map(|entry| category_from_persisted_name(&entry))
-        .collect()
-}
-
-fn load_pinned_categories(ctx: &egui::Context) -> Vec<ActionCategory> {
-    let raw = ctx
-        .data_mut(|d| {
-            d.get_persisted::<Vec<String>>(egui::Id::new(CATEGORY_PIN_ORDER_PERSIST_KEY))
-        })
-        .unwrap_or_default();
-    raw.into_iter()
-        .filter_map(|entry| category_from_persisted_name(&entry))
-        .collect()
-}
-
-fn record_recent_category(ctx: &egui::Context, category: ActionCategory) {
-    let mut recency = load_category_recency(ctx);
-    recency.retain(|entry| *entry != category);
-    recency.insert(0, category);
-    recency.truncate(4);
-    let raw: Vec<String> = recency
-        .iter()
-        .map(|category| category_persisted_name(*category).to_string())
-        .collect();
-    ctx.data_mut(|d| {
-        d.insert_persisted(egui::Id::new(CATEGORY_RECENCY_PERSIST_KEY), raw)
-    });
 }
 
 fn ordered_radial_categories(ctx: &egui::Context, action_context: &ActionContext) -> [ActionCategory; 4] {
