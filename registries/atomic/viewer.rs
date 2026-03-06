@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::registries::domain::layout::{
     AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
 };
-use crate::util::GraphshellAddress;
+use crate::util::VersoAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSubsystemCapabilities {
@@ -101,7 +101,7 @@ impl ViewerRegistry {
     }
 
     pub(crate) fn select_for_uri(&self, uri: &str, mime_hint: Option<&str>) -> ViewerSelection {
-        if let Some(address) = GraphshellAddress::parse(uri) {
+        if let Some(address) = VersoAddress::parse(uri) {
             if address.is_settings() {
                 return self.selection("viewer:settings", false, "internal");
             }
@@ -283,13 +283,13 @@ mod tests {
     use super::*;
     use crate::graph::AddressKind;
     use crate::registries::domain::layout::ConformanceLevel;
-    use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+    use crate::util::{VersoAddress, GraphshellSettingsPath};
 
     #[test]
     fn viewer_registry_selects_internal_settings_viewer_for_graphshell_settings_url() {
         let registry = ViewerRegistry::default();
         let selection = registry.select_for_uri(
-            &GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
+            &VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
             None,
         );
 
@@ -306,7 +306,7 @@ mod tests {
     fn viewer_registry_uses_internal_mime_for_graphshell_frame_route() {
         let registry = ViewerRegistry::default();
         let selection = registry.select_for_uri(
-            &GraphshellAddress::frame("frame-123").to_string(),
+            &VersoAddress::frame("frame-123").to_string(),
             Some("application/x-graphshell-internal"),
         );
 
@@ -319,7 +319,7 @@ mod tests {
     fn viewer_registry_selects_internal_viewer_for_graphshell_frame_route_without_mime_hint() {
         let registry = ViewerRegistry::default();
         let selection =
-            registry.select_for_uri(&GraphshellAddress::frame("frame-123").to_string(), None);
+            registry.select_for_uri(&VersoAddress::frame("frame-123").to_string(), None);
 
         assert_eq!(selection.viewer_id, "viewer:webview");
         assert!(!selection.fallback_used);

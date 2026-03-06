@@ -26,7 +26,7 @@ use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION
 use crate::shell::desktop::workbench::pane_model::{
     NodePaneState, PaneId, PaneViewState, ToolPaneState, ViewerId,
 };
-use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+use crate::util::{VersoAddress, GraphshellSettingsPath};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -640,7 +640,7 @@ pub(super) fn execute_action(
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
         ActionId::GraphPhysicsConfig => {
             app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+                url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
             });
         }
         ActionId::GraphCommandPalette => intents.push(GraphIntent::ToggleCommandPalette),

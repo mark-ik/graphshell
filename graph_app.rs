@@ -44,7 +44,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
 };
 use crate::util::{
-    GraphAddress, GraphshellAddress, GraphshellSettingsPath, NodeAddress, NoteAddress,
+    GraphAddress, VersoAddress, GraphshellSettingsPath, NodeAddress, NoteAddress,
     VersoViewTarget,
 };
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
@@ -1786,11 +1786,11 @@ pub struct GraphWorkspace {
 
     /// Count of traversal append attempts rejected in this runtime session.
     history_recent_traversal_append_failures: u64,
-    /// Stage F placeholder state for preview-mode activity.
+    /// True while history timeline preview mode is active.
     history_preview_mode_active: bool,
-    /// Stage F placeholder tracking for latest preview isolation violation.
+    /// True when preview-mode isolation has been violated in this session.
     history_last_preview_isolation_violation: bool,
-    /// Stage F replay-state tracking for timeline cursor progress.
+    /// Tracks active timeline replay and cursor progression.
     history_replay_in_progress: bool,
     history_replay_cursor: Option<usize>,
     history_replay_total_steps: Option<usize>,
@@ -6150,50 +6150,50 @@ impl GraphBrowserApp {
     }
 
     pub fn resolve_settings_route(url: &str) -> Option<SettingsRouteTarget> {
-        match GraphshellAddress::parse(url)? {
-            GraphshellAddress::Settings(GraphshellSettingsPath::History) => {
+        match VersoAddress::parse(url)? {
+            VersoAddress::Settings(GraphshellSettingsPath::History) => {
                 Some(SettingsRouteTarget::History)
             }
-            GraphshellAddress::Settings(GraphshellSettingsPath::General) => {
+            VersoAddress::Settings(GraphshellSettingsPath::General) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::General))
             }
-            GraphshellAddress::Settings(GraphshellSettingsPath::Persistence) => {
+            VersoAddress::Settings(GraphshellSettingsPath::Persistence) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Persistence))
             }
-            GraphshellAddress::Settings(GraphshellSettingsPath::Physics) => {
+            VersoAddress::Settings(GraphshellSettingsPath::Physics) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Physics))
             }
-            GraphshellAddress::Settings(GraphshellSettingsPath::Sync) => {
+            VersoAddress::Settings(GraphshellSettingsPath::Sync) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Sync))
             }
-            GraphshellAddress::Settings(GraphshellSettingsPath::Appearance) => {
+            VersoAddress::Settings(GraphshellSettingsPath::Appearance) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Appearance))
             }
-            GraphshellAddress::Frame(_)
-            | GraphshellAddress::View(_)
-            | GraphshellAddress::Tool { .. }
-            | GraphshellAddress::Clip(_)
-            | GraphshellAddress::Settings(GraphshellSettingsPath::Other(_))
-            | GraphshellAddress::Other { .. } => None,
+            VersoAddress::Frame(_)
+            | VersoAddress::View(_)
+            | VersoAddress::Tool { .. }
+            | VersoAddress::Clip(_)
+            | VersoAddress::Settings(GraphshellSettingsPath::Other(_))
+            | VersoAddress::Other { .. } => None,
         }
     }
 
     pub fn resolve_frame_route(url: &str) -> Option<String> {
-        match GraphshellAddress::parse(url)? {
-            GraphshellAddress::Frame(frame_name) => Some(frame_name),
-            GraphshellAddress::Settings(_)
-            | GraphshellAddress::View(_)
-            | GraphshellAddress::Tool { .. }
-            | GraphshellAddress::Clip(_)
-            | GraphshellAddress::Other { .. } => None,
+        match VersoAddress::parse(url)? {
+            VersoAddress::Frame(frame_name) => Some(frame_name),
+            VersoAddress::Settings(_)
+            | VersoAddress::View(_)
+            | VersoAddress::Tool { .. }
+            | VersoAddress::Clip(_)
+            | VersoAddress::Other { .. } => None,
         }
     }
 
     pub fn resolve_tool_route(
         url: &str,
     ) -> Option<crate::shell::desktop::workbench::pane_model::ToolPaneState> {
-        match GraphshellAddress::parse(url)? {
-            GraphshellAddress::Tool { name, .. } => match name.as_str() {
+        match VersoAddress::parse(url)? {
+            VersoAddress::Tool { name, .. } => match name.as_str() {
                 "diagnostics" => Some(crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics),
                 "history" => Some(crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager),
                 "accessibility" => Some(
@@ -6202,36 +6202,36 @@ impl GraphBrowserApp {
                 "settings" => Some(crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings),
                 _ => None,
             },
-            GraphshellAddress::Settings(_)
-            | GraphshellAddress::Frame(_)
-            | GraphshellAddress::View(_)
-            | GraphshellAddress::Clip(_)
-            | GraphshellAddress::Other { .. } => None,
+            VersoAddress::Settings(_)
+            | VersoAddress::Frame(_)
+            | VersoAddress::View(_)
+            | VersoAddress::Clip(_)
+            | VersoAddress::Other { .. } => None,
         }
     }
 
     pub fn resolve_view_route(url: &str) -> Option<ViewRouteTarget> {
-        match GraphshellAddress::parse(url)? {
-            GraphshellAddress::View(VersoViewTarget::Legacy(view_id)) => {
+        match VersoAddress::parse(url)? {
+            VersoAddress::View(VersoViewTarget::Legacy(view_id)) => {
                 let parsed = Uuid::parse_str(&view_id).ok()?;
                 Some(ViewRouteTarget::GraphPane(GraphViewId(parsed)))
             }
-            GraphshellAddress::View(VersoViewTarget::Graph(graph_id)) => {
+            VersoAddress::View(VersoViewTarget::Graph(graph_id)) => {
                 Some(ViewRouteTarget::Graph(graph_id))
             }
-            GraphshellAddress::View(VersoViewTarget::Note(note_id)) => {
+            VersoAddress::View(VersoViewTarget::Note(note_id)) => {
                 let parsed = Uuid::parse_str(&note_id).ok()?;
                 Some(ViewRouteTarget::Note(NoteId(parsed)))
             }
-            GraphshellAddress::View(VersoViewTarget::Node(node_id)) => {
+            VersoAddress::View(VersoViewTarget::Node(node_id)) => {
                 let parsed = Uuid::parse_str(&node_id).ok()?;
                 Some(ViewRouteTarget::Node(parsed))
             }
-            GraphshellAddress::Settings(_)
-            | GraphshellAddress::Frame(_)
-            | GraphshellAddress::Tool { .. }
-            | GraphshellAddress::Clip(_)
-            | GraphshellAddress::Other { .. } => None,
+            VersoAddress::Settings(_)
+            | VersoAddress::Frame(_)
+            | VersoAddress::Tool { .. }
+            | VersoAddress::Clip(_)
+            | VersoAddress::Other { .. } => None,
         }
     }
 
@@ -6245,13 +6245,13 @@ impl GraphBrowserApp {
     }
 
     pub fn resolve_clip_route(url: &str) -> Option<String> {
-        match GraphshellAddress::parse(url)? {
-            GraphshellAddress::Clip(clip_id) => Some(clip_id),
-            GraphshellAddress::Settings(_)
-            | GraphshellAddress::Frame(_)
-            | GraphshellAddress::View(_)
-            | GraphshellAddress::Tool { .. }
-            | GraphshellAddress::Other { .. } => None,
+        match VersoAddress::parse(url)? {
+            VersoAddress::Clip(clip_id) => Some(clip_id),
+            VersoAddress::Settings(_)
+            | VersoAddress::Frame(_)
+            | VersoAddress::View(_)
+            | VersoAddress::Tool { .. }
+            | VersoAddress::Other { .. } => None,
         }
     }
 

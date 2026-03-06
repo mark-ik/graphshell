@@ -11,7 +11,7 @@ use crate::app::{
     CommandPaletteShortcut, EdgeCommand, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
     RadialMenuShortcut, WorkbenchIntent,
 };
-use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+use crate::util::{VersoAddress, GraphshellSettingsPath};
 use egui::Key;
 
 /// Keyboard actions collected from egui input events.
@@ -339,12 +339,12 @@ pub fn workbench_intents_from_actions(actions: &KeyboardActions) -> Vec<Workbenc
     let mut intents = Vec::new();
     if actions.open_physics_settings {
         intents.push(WorkbenchIntent::OpenSettingsUrl {
-            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+            url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
         });
     }
     if actions.open_camera_controls {
         intents.push(WorkbenchIntent::OpenSettingsUrl {
-            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+            url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
         });
     }
     if actions.toggle_history_manager {
@@ -523,7 +523,7 @@ mod tests {
                 i,
                 WorkbenchIntent::OpenSettingsUrl { url }
                     if url
-                        == &GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string()
+                        == &VersoAddress::settings(GraphshellSettingsPath::Physics).to_string()
             )
         }));
     }
@@ -538,7 +538,7 @@ mod tests {
             matches!(
                 i,
                 WorkbenchIntent::OpenSettingsUrl { url }
-                    if url == &GraphshellAddress::settings(GraphshellSettingsPath::Physics)
+                    if url == &VersoAddress::settings(GraphshellSettingsPath::Physics)
                             .to_string()
             )
         }));

@@ -1863,7 +1863,7 @@ mod tests {
         assert_eq!(custom.matched_scheme, "https");
 
         let graphshell = registry.resolve(
-            &crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::General)
+            &crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
                 .to_string(),
         );
         assert!(graphshell.supported);
@@ -1890,7 +1890,7 @@ mod tests {
         assert_eq!(fallback.viewer_id, "viewer:webview");
 
         let internal = registry.select_for_uri(
-            &crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::History)
+            &crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
                 .to_string(),
             None,
         );

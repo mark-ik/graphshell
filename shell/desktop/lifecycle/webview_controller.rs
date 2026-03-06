@@ -20,7 +20,7 @@ use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::registries;
-use crate::util::{GraphAddress, GraphshellAddress, NodeAddress, NoteAddress};
+use crate::util::{GraphAddress, VersoAddress, NodeAddress, NoteAddress};
 #[cfg(any(test, not(feature = "diagnostics")))]
 use euclid::default::Point2D;
 
@@ -182,23 +182,23 @@ fn resolve_detail_submit_target(
     (None, None)
 }
 
-fn workbench_route_intent_for_graphshell_url(normalized_url: &str) -> Option<WorkbenchIntent> {
-    let parsed = GraphshellAddress::parse(normalized_url)?;
+fn workbench_route_intent_for_verso_url(normalized_url: &str) -> Option<WorkbenchIntent> {
+    let parsed = VersoAddress::parse(normalized_url)?;
     let canonical_url = parsed.to_string();
     match parsed {
-        GraphshellAddress::Settings(_) => {
+        VersoAddress::Settings(_) => {
             Some(WorkbenchIntent::OpenSettingsUrl { url: canonical_url })
         }
-        GraphshellAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
-        GraphshellAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
-        GraphshellAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),
-        GraphshellAddress::Clip(_) => Some(WorkbenchIntent::OpenClipUrl { url: canonical_url }),
-        GraphshellAddress::Other { .. } => None,
+        VersoAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
+        VersoAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
+        VersoAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),
+        VersoAddress::Clip(_) => Some(WorkbenchIntent::OpenClipUrl { url: canonical_url }),
+        VersoAddress::Other { .. } => None,
     }
 }
 
 fn route_intent_for_internal_or_domain_url(normalized_url: &str) -> Option<WorkbenchIntent> {
-    if let Some(intent) = workbench_route_intent_for_graphshell_url(normalized_url) {
+    if let Some(intent) = workbench_route_intent_for_verso_url(normalized_url) {
         return Some(intent);
     }
 
@@ -628,15 +628,15 @@ mod tests {
     #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_settings_url() {
         let settings_history =
-            crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::History)
+            crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
                 .to_string();
-        let intent = workbench_route_intent_for_graphshell_url(&settings_history);
+        let intent = workbench_route_intent_for_verso_url(&settings_history);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenSettingsUrl { ref url }) if url == &settings_history
         ));
 
-        let none_intent = workbench_route_intent_for_graphshell_url("https://example.com");
+        let none_intent = workbench_route_intent_for_verso_url("https://example.com");
         assert!(none_intent.is_none());
     }
 
@@ -644,7 +644,7 @@ mod tests {
     fn workbench_route_intent_canonicalizes_legacy_graphshell_settings_url() {
         let legacy_url = "graphshell://settings/history";
         let expected_url = "verso://settings/history";
-        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        let intent = workbench_route_intent_for_verso_url(legacy_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenSettingsUrl { ref url }) if url == expected_url
@@ -653,8 +653,8 @@ mod tests {
 
     #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_frame_url() {
-        let frame_url = crate::util::GraphshellAddress::frame("frame-123").to_string();
-        let intent = workbench_route_intent_for_graphshell_url(&frame_url);
+        let frame_url = crate::util::VersoAddress::frame("frame-123").to_string();
+        let intent = workbench_route_intent_for_verso_url(&frame_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenFrameUrl { ref url }) if url == &frame_url
@@ -665,7 +665,7 @@ mod tests {
     fn workbench_route_intent_canonicalizes_legacy_graphshell_frame_url() {
         let legacy_url = "graphshell://frame/frame-legacy";
         let expected_url = "verso://frame/frame-legacy";
-        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        let intent = workbench_route_intent_for_verso_url(legacy_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenFrameUrl { ref url }) if url == expected_url
@@ -674,8 +674,8 @@ mod tests {
 
     #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_tool_url() {
-        let tool_url = crate::util::GraphshellAddress::tool("history", Some(2)).to_string();
-        let intent = workbench_route_intent_for_graphshell_url(&tool_url);
+        let tool_url = crate::util::VersoAddress::tool("history", Some(2)).to_string();
+        let intent = workbench_route_intent_for_verso_url(&tool_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenToolUrl { ref url }) if url == &tool_url
@@ -686,7 +686,7 @@ mod tests {
     fn workbench_route_intent_canonicalizes_legacy_graphshell_tool_url() {
         let legacy_url = "graphshell://tool/history/2";
         let expected_url = "verso://tool/history/2";
-        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        let intent = workbench_route_intent_for_verso_url(legacy_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenToolUrl { ref url }) if url == expected_url
@@ -696,8 +696,8 @@ mod tests {
     #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_view_url() {
         let view_url =
-            crate::util::GraphshellAddress::view(uuid::Uuid::new_v4().to_string()).to_string();
-        let intent = workbench_route_intent_for_graphshell_url(&view_url);
+            crate::util::VersoAddress::view(uuid::Uuid::new_v4().to_string()).to_string();
+        let intent = workbench_route_intent_for_verso_url(&view_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &view_url
@@ -709,7 +709,7 @@ mod tests {
         let node_id = uuid::Uuid::new_v4().to_string();
         let legacy_url = format!("graphshell://view/node/{node_id}");
         let expected_url = format!("verso://view/node/{node_id}");
-        let intent = workbench_route_intent_for_graphshell_url(&legacy_url);
+        let intent = workbench_route_intent_for_verso_url(&legacy_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &expected_url
@@ -721,7 +721,7 @@ mod tests {
         let note_id = uuid::Uuid::new_v4().to_string();
         let legacy_url = format!("graphshell://view/note/{note_id}");
         let expected_url = format!("verso://view/note/{note_id}");
-        let intent = workbench_route_intent_for_graphshell_url(&legacy_url);
+        let intent = workbench_route_intent_for_verso_url(&legacy_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &expected_url
@@ -732,7 +732,7 @@ mod tests {
     fn workbench_route_intent_canonicalizes_legacy_graphshell_view_graph_url() {
         let legacy_url = "graphshell://view/graph/graph-main";
         let expected_url = "verso://view/graph/graph-main";
-        let intent = workbench_route_intent_for_graphshell_url(legacy_url);
+        let intent = workbench_route_intent_for_verso_url(legacy_url);
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == expected_url
@@ -744,7 +744,7 @@ mod tests {
         let view_id = uuid::Uuid::new_v4();
         let legacy_url = format!("graphshell://view/{view_id}");
         let expected_url = format!("verso://view/{view_id}");
-        let intent = workbench_route_intent_for_graphshell_url(legacy_url.as_str());
+        let intent = workbench_route_intent_for_verso_url(legacy_url.as_str());
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenViewUrl { ref url }) if url == &expected_url
@@ -784,7 +784,7 @@ mod tests {
 
     #[test]
     fn workbench_route_intent_is_emitted_for_graphshell_clip_url_with_canonicalization() {
-        let intent = workbench_route_intent_for_graphshell_url("graphshell://clip/clip-123");
+        let intent = workbench_route_intent_for_verso_url("graphshell://clip/clip-123");
         assert!(matches!(
             intent,
             Some(WorkbenchIntent::OpenClipUrl { ref url }) if url == "verso://clip/clip-123"

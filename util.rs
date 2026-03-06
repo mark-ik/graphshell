@@ -26,8 +26,6 @@ pub(crate) enum VersoAddress {
     },
 }
 
-pub(crate) type GraphshellAddress = VersoAddress;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum VersoViewTarget {
     Legacy(String),
@@ -329,44 +327,44 @@ mod tests {
 
     #[test]
     fn parse_graphshell_settings_history_route() {
-        let parsed = GraphshellAddress::parse(" graphshell://settings/history ");
+        let parsed = VersoAddress::parse(" graphshell://settings/history ");
         assert_eq!(
             parsed,
-            Some(GraphshellAddress::settings(GraphshellSettingsPath::History))
+            Some(VersoAddress::settings(GraphshellSettingsPath::History))
         );
     }
 
     #[test]
     fn parse_verso_settings_history_route() {
-        let parsed = GraphshellAddress::parse(" verso://settings/history ");
+        let parsed = VersoAddress::parse(" verso://settings/history ");
         assert_eq!(
             parsed,
-            Some(GraphshellAddress::settings(GraphshellSettingsPath::History))
+            Some(VersoAddress::settings(GraphshellSettingsPath::History))
         );
     }
 
     #[test]
     fn parse_graphshell_settings_root_as_general() {
-        let parsed = GraphshellAddress::parse("graphshell://settings");
+        let parsed = VersoAddress::parse("graphshell://settings");
         assert_eq!(
             parsed,
-            Some(GraphshellAddress::settings(GraphshellSettingsPath::General))
+            Some(VersoAddress::settings(GraphshellSettingsPath::General))
         );
     }
 
     #[test]
     fn parse_graphshell_unknown_route_preserves_segments() {
-        let parsed = GraphshellAddress::parse("graphshell://frame/abc123");
-        assert_eq!(parsed, Some(GraphshellAddress::frame("abc123")));
+        let parsed = VersoAddress::parse("graphshell://frame/abc123");
+        assert_eq!(parsed, Some(VersoAddress::frame("abc123")));
     }
 
     #[test]
     fn parse_verso_view_note_route() {
         let parsed =
-            GraphshellAddress::parse("verso://view/note/550e8400-e29b-41d4-a716-446655440000");
+            VersoAddress::parse("verso://view/note/550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(
             parsed,
-            Some(GraphshellAddress::view_note(
+            Some(VersoAddress::view_note(
                 "550e8400-e29b-41d4-a716-446655440000"
             ))
         );
@@ -374,40 +372,40 @@ mod tests {
 
     #[test]
     fn parse_graphshell_strips_query_and_fragment() {
-        let parsed = GraphshellAddress::parse("graphshell://settings/physics?tab=1#focus");
+        let parsed = VersoAddress::parse("graphshell://settings/physics?tab=1#focus");
         assert_eq!(
             parsed,
-            Some(GraphshellAddress::settings(GraphshellSettingsPath::Physics))
+            Some(VersoAddress::settings(GraphshellSettingsPath::Physics))
         );
     }
 
     #[test]
     fn graphshell_address_display_roundtrips_settings_route() {
-        let address = GraphshellAddress::settings(GraphshellSettingsPath::Appearance);
+        let address = VersoAddress::settings(GraphshellSettingsPath::Appearance);
         assert_eq!(address.to_string(), "verso://settings/appearance");
     }
 
     #[test]
     fn graphshell_address_display_roundtrips_other_route() {
-        let address = GraphshellAddress::frame("abc123");
+        let address = VersoAddress::frame("abc123");
         assert_eq!(address.to_string(), "verso://frame/abc123");
     }
 
     #[test]
     fn parse_graphshell_tool_route_with_instance() {
-        let parsed = GraphshellAddress::parse("graphshell://tool/history/2");
-        assert_eq!(parsed, Some(GraphshellAddress::tool("history", Some(2))));
+        let parsed = VersoAddress::parse("graphshell://tool/history/2");
+        assert_eq!(parsed, Some(VersoAddress::tool("history", Some(2))));
     }
 
     #[test]
     fn graphshell_address_display_roundtrips_view_route() {
-        let address = GraphshellAddress::view("view-123");
+        let address = VersoAddress::view("view-123");
         assert_eq!(address.to_string(), "verso://view/view-123");
     }
 
     #[test]
     fn graphshell_address_display_roundtrips_note_view_route() {
-        let address = GraphshellAddress::view_note("550e8400-e29b-41d4-a716-446655440000");
+        let address = VersoAddress::view_note("550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(
             address.to_string(),
             "verso://view/note/550e8400-e29b-41d4-a716-446655440000"
@@ -416,13 +414,13 @@ mod tests {
 
     #[test]
     fn graphshell_address_display_roundtrips_tool_route_without_instance() {
-        let address = GraphshellAddress::tool("history", None);
+        let address = VersoAddress::tool("history", None);
         assert_eq!(address.to_string(), "verso://tool/history");
     }
 
     #[test]
     fn graphshell_address_display_roundtrips_clip_route() {
-        let address = GraphshellAddress::clip("clip-123");
+        let address = VersoAddress::clip("clip-123");
         assert_eq!(address.to_string(), "verso://clip/clip-123");
     }
 

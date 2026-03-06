@@ -1955,7 +1955,7 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::History,
             )
             .to_string(),
@@ -1977,7 +1977,7 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::Physics,
             )
             .to_string(),
@@ -1999,7 +1999,7 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::Persistence,
             )
             .to_string(),
@@ -2021,7 +2021,7 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::Sync,
             )
             .to_string(),
@@ -2043,7 +2043,7 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::General,
             )
             .to_string(),
@@ -2072,7 +2072,7 @@ mod graph_split_intent_tests {
             )
         });
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::Sync,
             )
             .to_string(),
@@ -2097,7 +2097,7 @@ mod graph_split_intent_tests {
             matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings)))
         });
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::History,
             )
             .to_string(),
@@ -2120,7 +2120,7 @@ mod graph_split_intent_tests {
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
         let mut open_intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::GraphshellAddress::settings(
+            url: crate::util::VersoAddress::settings(
                 crate::util::GraphshellSettingsPath::General,
             )
             .to_string(),

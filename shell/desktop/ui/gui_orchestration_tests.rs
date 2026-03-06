@@ -69,7 +69,7 @@ fn settings_history_url_intent_is_consumed_by_orchestration_authority() {
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::History)
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
             .to_string(),
     }];
 
@@ -85,7 +85,7 @@ fn unknown_settings_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
-    let unresolved_url = crate::util::GraphshellAddress::settings(
+    let unresolved_url = crate::util::VersoAddress::settings(
         crate::util::GraphshellSettingsPath::Other("not-a-real-route".to_string()),
     )
     .to_string();
@@ -110,7 +110,7 @@ fn frame_url_intent_queues_frame_restore_via_orchestration_authority() {
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenFrameUrl {
-        url: crate::util::GraphshellAddress::frame("frame-123").to_string(),
+        url: crate::util::VersoAddress::frame("frame-123").to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -152,7 +152,7 @@ fn tool_url_intent_opens_history_tool_via_orchestration_authority() {
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenToolUrl {
-        url: crate::util::GraphshellAddress::tool("history", Some(2)).to_string(),
+        url: crate::util::VersoAddress::tool("history", Some(2)).to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -168,7 +168,7 @@ fn unknown_tool_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
-    let unresolved_url = crate::util::GraphshellAddress::tool("unknown-tool", None).to_string();
+    let unresolved_url = crate::util::VersoAddress::tool("unknown-tool", None).to_string();
     let mut intents = vec![WorkbenchIntent::OpenToolUrl {
         url: unresolved_url.clone(),
     }];
@@ -191,7 +191,7 @@ fn clip_url_intent_is_consumed_by_orchestration_authority() {
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenClipUrl {
-        url: crate::util::GraphshellAddress::clip("clip-42").to_string(),
+        url: crate::util::VersoAddress::clip("clip-42").to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -233,7 +233,7 @@ fn view_url_intent_opens_graph_view_via_orchestration_authority() {
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let route_uuid = uuid::Uuid::new_v4().to_string();
-    let view_url = crate::util::GraphshellAddress::view(route_uuid).to_string();
+    let view_url = crate::util::VersoAddress::view(route_uuid).to_string();
     let expected_view =
         match GraphBrowserApp::resolve_view_route(&view_url).expect("view url should resolve") {
             crate::app::ViewRouteTarget::GraphPane(view_id) => view_id,
@@ -279,7 +279,7 @@ fn invalid_view_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
-    let unresolved_url = crate::util::GraphshellAddress::view("not-a-uuid").to_string();
+    let unresolved_url = crate::util::VersoAddress::view("not-a-uuid").to_string();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
         url: unresolved_url.clone(),
     }];
@@ -310,7 +310,7 @@ fn note_view_url_intent_queues_note_open_via_orchestration_authority() {
     let _ = app.take_pending_open_note_request();
     let _ = app.take_pending_open_node_request();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
-        url: crate::util::GraphshellAddress::view_note(note_id.as_uuid().to_string()).to_string(),
+        url: crate::util::VersoAddress::view_note(note_id.as_uuid().to_string()).to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -337,7 +337,7 @@ fn node_view_url_intent_opens_node_pane_via_orchestration_authority() {
         .expect("node should exist")
         .id;
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
-        url: crate::util::GraphshellAddress::view_node(node_id.to_string()).to_string(),
+        url: crate::util::VersoAddress::view_node(node_id.to_string()).to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -353,7 +353,7 @@ fn invalid_node_view_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
-    let unresolved_url = crate::util::GraphshellAddress::view_node("not-a-uuid").to_string();
+    let unresolved_url = crate::util::VersoAddress::view_node("not-a-uuid").to_string();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
         url: unresolved_url.clone(),
     }];
@@ -429,7 +429,7 @@ fn graph_view_url_intent_queues_named_graph_restore_when_snapshot_exists() {
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
-        url: crate::util::GraphshellAddress::view_graph("graph-main").to_string(),
+        url: crate::util::VersoAddress::view_graph("graph-main").to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -448,7 +448,7 @@ fn unresolved_graph_view_url_intent_is_not_consumed_by_orchestration_authority()
     let mut tiles = Tiles::default();
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
-    let unresolved_url = crate::util::GraphshellAddress::view_graph("missing-graph").to_string();
+    let unresolved_url = crate::util::VersoAddress::view_graph("missing-graph").to_string();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
         url: unresolved_url.clone(),
     }];
@@ -470,7 +470,7 @@ fn unresolved_note_view_url_intent_is_not_consumed_by_orchestration_authority() 
     let root = tiles.insert_pane(TileKind::Graph(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url =
-        crate::util::GraphshellAddress::view_note(uuid::Uuid::new_v4().to_string()).to_string();
+        crate::util::VersoAddress::view_note(uuid::Uuid::new_v4().to_string()).to_string();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
         url: unresolved_url.clone(),
     }];
@@ -659,7 +659,7 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
     let mut open_intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::General)
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
             .to_string(),
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
@@ -773,7 +773,7 @@ fn unresolved_workbench_intent_emits_contract_warning_for_default_fallback() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::Other(
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Other(
             "unknown".to_string(),
         ))
         .to_string(),
@@ -927,7 +927,7 @@ fn open_settings_url_emits_ux_navigation_transition_channel() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::History)
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
             .to_string(),
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -962,7 +962,7 @@ fn open_settings_url_already_focused_does_not_emit_ux_navigation_transition_chan
         .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))));
 
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::GraphshellAddress::settings(crate::util::GraphshellSettingsPath::General)
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
             .to_string(),
     }];
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);

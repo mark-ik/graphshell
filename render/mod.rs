@@ -32,7 +32,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UX_NAVIGATION_TRANSITION,
 };
-use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+use crate::util::{VersoAddress, GraphshellSettingsPath};
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
@@ -2955,7 +2955,7 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
     ui.horizontal(|ui| {
         if ui.button("Settings").clicked() {
             app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                url: GraphshellAddress::settings(GraphshellSettingsPath::General).to_string(),
+                url: VersoAddress::settings(GraphshellSettingsPath::General).to_string(),
             });
         }
         if ui.button("Done").clicked() {
@@ -3343,7 +3343,7 @@ pub fn render_file_tree_tool_pane_in_ui(
                         }
                         crate::app::FileTreeProjectionTarget::SavedView(view_id) => {
                             app.enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl {
-                                url: GraphshellAddress::view(view_id.as_uuid().to_string())
+                                url: VersoAddress::view(view_id.as_uuid().to_string())
                                     .to_string(),
                             });
                         }
@@ -3371,7 +3371,7 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
             ui.horizontal(|ui| {
                 if ui.button("History").clicked() {
                     app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                        url: GraphshellAddress::settings(GraphshellSettingsPath::History)
+                        url: VersoAddress::settings(GraphshellSettingsPath::History)
                             .to_string(),
                     });
                 }
@@ -3421,7 +3421,7 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     ui.add_space(8.0);
                     if ui.button("Open History Surface").clicked() {
                         app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                            url: GraphshellAddress::settings(GraphshellSettingsPath::History)
+                            url: VersoAddress::settings(GraphshellSettingsPath::History)
                                 .to_string(),
                         });
                     }

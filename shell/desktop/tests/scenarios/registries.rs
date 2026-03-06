@@ -2,7 +2,7 @@ use super::super::harness::TestRegistry;
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::protocol::ProtocolResolveControl;
-use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+use crate::util::{VersoAddress, GraphshellSettingsPath};
 use euclid::default::Point2D;
 use servo::ServoUrl;
 
@@ -144,7 +144,7 @@ fn phase0_registry_decision_uses_protocol_inferred_mime_hint_when_available() {
 fn phase0_registry_decision_selects_settings_viewer_for_graphshell_settings_url() {
     let mut harness = TestRegistry::new();
     let parsed =
-        ServoUrl::parse(&GraphshellAddress::settings(GraphshellSettingsPath::History).to_string())
+        ServoUrl::parse(&VersoAddress::settings(GraphshellSettingsPath::History).to_string())
             .expect("url should parse");
 
     let decision =

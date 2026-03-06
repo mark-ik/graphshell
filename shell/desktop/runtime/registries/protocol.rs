@@ -1,5 +1,5 @@
 use crate::shell::desktop::runtime::protocols::registry as scaffold;
-use crate::util::GraphshellAddress;
+use crate::util::VersoAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProtocolResolution {
@@ -172,14 +172,14 @@ fn infer_data_uri_mime_hint(uri: &str) -> Option<String> {
 }
 
 fn infer_graphshell_mime_hint(uri: &str) -> Option<String> {
-    let parsed = GraphshellAddress::parse(uri)?;
+    let parsed = VersoAddress::parse(uri)?;
     Some(parsed.inferred_mime_hint().to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+    use crate::util::{VersoAddress, GraphshellSettingsPath};
 
     #[test]
     fn protocol_resolution_returns_cancelled_outcome_when_control_cancelled() {
@@ -227,7 +227,7 @@ mod tests {
     fn protocol_resolution_supports_graphshell_scheme_with_settings_hint() {
         let registry = ProtocolRegistry::default();
         let resolution = registry
-            .resolve(&GraphshellAddress::settings(GraphshellSettingsPath::History).to_string());
+            .resolve(&VersoAddress::settings(GraphshellSettingsPath::History).to_string());
 
         assert!(resolution.supported);
         assert!(!resolution.fallback_used);
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn protocol_resolution_supports_graphshell_frame_route_with_internal_hint() {
         let registry = ProtocolRegistry::default();
-        let resolution = registry.resolve(&GraphshellAddress::frame("frame-123").to_string());
+        let resolution = registry.resolve(&VersoAddress::frame("frame-123").to_string());
 
         assert!(resolution.supported);
         assert!(!resolution.fallback_used);

@@ -2,7 +2,7 @@ use super::super::harness::TestRegistry;
 use crate::app::{
     GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkbenchIntent, WorkspaceOpenAction,
 };
-use crate::util::{GraphshellAddress, GraphshellSettingsPath, NodeAddress, NoteAddress};
+use crate::util::{VersoAddress, GraphshellSettingsPath, NodeAddress, NoteAddress};
 use std::collections::{BTreeSet, HashMap};
 
 #[test]
@@ -202,12 +202,12 @@ fn open_settings_url_history_does_not_use_legacy_history_flag() {
 
     harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key: node,
-        new_url: GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
+        new_url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
     }]);
     harness
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-            url: GraphshellAddress::settings(GraphshellSettingsPath::History).to_string(),
+            url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
         });
 
     assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
@@ -222,12 +222,12 @@ fn open_settings_url_physics_is_not_reducer_owned() {
 
     harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key: node,
-        new_url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+        new_url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
     }]);
     harness
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-            url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+            url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
         });
 
     assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
@@ -242,12 +242,12 @@ fn open_settings_url_persistence_does_not_use_legacy_persistence_flag() {
 
     harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key: node,
-        new_url: GraphshellAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+        new_url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
     }]);
     harness
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-            url: GraphshellAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
+            url: VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string(),
         });
 
     assert_eq!(harness.app.workspace.physics.base.is_running, was_running);
@@ -262,12 +262,12 @@ fn open_clip_url_is_not_reducer_owned() {
 
     harness.app.apply_reducer_intents([GraphIntent::SetNodeUrl {
         key: node,
-        new_url: GraphshellAddress::clip("clip-123").to_string(),
+        new_url: VersoAddress::clip("clip-123").to_string(),
     }]);
     harness
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenClipUrl {
-            url: GraphshellAddress::clip("clip-123").to_string(),
+            url: VersoAddress::clip("clip-123").to_string(),
         });
 
     assert_eq!(harness.app.workspace.graph.node_count(), node_count_before);
@@ -279,7 +279,7 @@ fn open_clip_url_is_not_reducer_owned() {
             .get_node(node)
             .expect("node exists")
             .url,
-        GraphshellAddress::clip("clip-123").to_string()
+        VersoAddress::clip("clip-123").to_string()
     );
     assert!(harness.app.take_pending_open_clip_request().is_none());
 }
@@ -385,7 +385,7 @@ fn open_view_url_is_not_reducer_owned() {
     harness.app.select_node(node, false);
     let node_count_before = harness.app.workspace.graph.node_count();
     let view_url =
-        crate::util::GraphshellAddress::view_node(uuid::Uuid::new_v4().to_string()).to_string();
+        crate::util::VersoAddress::view_node(uuid::Uuid::new_v4().to_string()).to_string();
 
     harness
         .app
@@ -402,7 +402,7 @@ fn open_view_note_url_is_not_reducer_owned() {
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
     let node_count_before = harness.app.workspace.graph.node_count();
-    let view_url = GraphshellAddress::view_note(uuid::Uuid::new_v4().to_string()).to_string();
+    let view_url = VersoAddress::view_note(uuid::Uuid::new_v4().to_string()).to_string();
 
     harness
         .app
@@ -418,7 +418,7 @@ fn open_view_graph_url_is_not_reducer_owned() {
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
     let node_count_before = harness.app.workspace.graph.node_count();
-    let view_url = GraphshellAddress::view_graph("graph-main").to_string();
+    let view_url = VersoAddress::view_graph("graph-main").to_string();
 
     harness
         .app
@@ -439,7 +439,7 @@ fn open_frame_url_is_not_reducer_owned() {
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
     let node_count_before = harness.app.workspace.graph.node_count();
-    let frame_url = GraphshellAddress::frame("workspace-alpha").to_string();
+    let frame_url = VersoAddress::frame("workspace-alpha").to_string();
 
     harness
         .app
@@ -460,7 +460,7 @@ fn open_tool_url_is_not_reducer_owned() {
     let node = harness.add_node("https://example.com");
     harness.app.select_node(node, false);
     let node_count_before = harness.app.workspace.graph.node_count();
-    let tool_url = GraphshellAddress::tool("history", Some(1)).to_string();
+    let tool_url = VersoAddress::tool("history", Some(1)).to_string();
 
     harness
         .app

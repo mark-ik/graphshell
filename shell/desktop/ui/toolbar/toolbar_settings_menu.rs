@@ -7,7 +7,7 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::host::running_app_state::{RunningAppState, UserInterfaceCommand};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-use crate::util::{GraphshellAddress, GraphshellSettingsPath};
+use crate::util::{VersoAddress, GraphshellSettingsPath};
 
 pub(super) fn render_settings_menu(
     ui: &mut egui::Ui,
@@ -32,7 +32,7 @@ pub(super) fn render_settings_menu(
             }
             if ui.button("Open Physics Settings").clicked() {
                 graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                    url: GraphshellAddress::settings(GraphshellSettingsPath::Physics).to_string(),
+                    url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
                 });
                 ui.close();
             }
