@@ -14,7 +14,7 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
-    ActionCategory, ActionContext, ActionId, InputMode, list_actions_for_context,
+    ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, list_actions_for_context,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
@@ -24,6 +24,84 @@ use crate::shell::desktop::workbench::pane_model::{
 use crate::util::{GraphshellAddress, GraphshellSettingsPath};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+enum SearchPaletteScope {
+    CurrentTarget,
+    ActivePane,
+    ActiveGraph,
+    Workbench,
+}
+
+impl SearchPaletteScope {
+    const ALL: [Self; 4] = [
+        Self::CurrentTarget,
+        Self::ActivePane,
+        Self::ActiveGraph,
+        Self::Workbench,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::CurrentTarget => "Current Target",
+            Self::ActivePane => "Active Pane",
+            Self::ActiveGraph => "Active Graph",
+            Self::Workbench => "Workbench",
+        }
+    }
+}
+
+fn scope_ready(scope: SearchPaletteScope, action_context: &ActionContext) -> bool {
+    match scope {
+        SearchPaletteScope::CurrentTarget => action_context.target_node.is_some(),
+        SearchPaletteScope::ActivePane => action_context.focused_pane_available,
+        SearchPaletteScope::ActiveGraph | SearchPaletteScope::Workbench => true,
+    }
+}
+
+fn scope_allows_action(
+    entry: &ActionEntry,
+    scope: SearchPaletteScope,
+    action_context: &ActionContext,
+) -> bool {
+    if !scope_ready(scope, action_context) {
+        return false;
+    }
+
+    match scope {
+        SearchPaletteScope::CurrentTarget => {
+            matches!(entry.id.category(), ActionCategory::Node | ActionCategory::Edge)
+        }
+        SearchPaletteScope::ActivePane => !matches!(entry.id, ActionId::PersistOpenHub),
+        SearchPaletteScope::ActiveGraph => {
+            !matches!(entry.id.category(), ActionCategory::Persistence)
+        }
+        SearchPaletteScope::Workbench => true,
+    }
+}
+
+fn search_matches(entry: &ActionEntry, query: &str) -> bool {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let q = trimmed.to_ascii_lowercase();
+    entry.id.label().to_ascii_lowercase().contains(&q)
+        || entry.id.short_label().to_ascii_lowercase().contains(&q)
+}
+
+fn filter_actions_for_search<'a>(
+    actions: &'a [ActionEntry],
+    query: &str,
+    scope: SearchPaletteScope,
+    action_context: &ActionContext,
+) -> Vec<&'a ActionEntry> {
+    actions
+        .iter()
+        .filter(|entry| scope_allows_action(entry, scope, action_context))
+        .filter(|entry| search_matches(entry, query))
+        .collect()
+}
 
 fn disabled_action_reason(
     action_id: ActionId,
@@ -180,6 +258,8 @@ pub fn render_command_palette_panel(
     };
     let actions = list_actions_for_context(&action_context);
     let contextual_mode = app.pending_node_context_target().is_some();
+    let search_query_id = egui::Id::new("command_palette_search_query");
+    let search_scope_id = egui::Id::new("command_palette_search_scope");
 
     if ctx.input(|i| i.key_pressed(Key::Escape)) {
         should_close = true;
@@ -266,6 +346,46 @@ pub fn render_command_palette_panel(
                         }
                     } else {
                         // Search Palette Mode scaffold: grouped category list.
+                        let mut search_query = ctx
+                            .data_mut(|d| d.get_persisted::<String>(search_query_id))
+                            .unwrap_or_default();
+                        let mut search_scope = ctx
+                            .data_mut(|d| d.get_persisted::<SearchPaletteScope>(search_scope_id))
+                            .unwrap_or(SearchPaletteScope::Workbench);
+
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label("Search:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut search_query)
+                                    .desired_width(160.0)
+                                    .hint_text("Type action name..."),
+                            );
+                            egui::ComboBox::from_id_salt("command_palette_scope_dropdown")
+                                .selected_text(search_scope.label())
+                                .show_ui(ui, |ui| {
+                                    for candidate in SearchPaletteScope::ALL {
+                                        ui.selectable_value(
+                                            &mut search_scope,
+                                            candidate,
+                                            candidate.label(),
+                                        );
+                                    }
+                                });
+                        });
+                        ctx.data_mut(|d| {
+                            d.insert_persisted(search_query_id, search_query.clone());
+                            d.insert_persisted(search_scope_id, search_scope);
+                        });
+
+                        if !scope_ready(search_scope, &action_context) {
+                            ui.small(
+                                "Selected scope is unavailable in current context. Choose Workbench or Current Target.",
+                            );
+                        }
+
+                        let filtered =
+                            filter_actions_for_search(&actions, &search_query, search_scope, &action_context);
+
                         let categories = [
                             ActionCategory::Edge,
                             ActionCategory::Node,
@@ -274,9 +394,10 @@ pub fn render_command_palette_panel(
                         ];
                         let mut first_category = true;
                         for category in categories {
-                            let cat_actions: Vec<_> = actions
+                            let cat_actions: Vec<_> = filtered
                                 .iter()
                                 .filter(|e| e.id.category() == category)
+                                .copied()
                                 .collect();
                             if cat_actions.is_empty() {
                                 continue;
@@ -298,6 +419,10 @@ pub fn render_command_palette_panel(
                                     &mut should_close,
                                 );
                             }
+                        }
+
+                        if filtered.is_empty() {
+                            ui.small("No actions match the current search/scope filters.");
                         }
                     }
 
@@ -577,5 +702,56 @@ mod tests {
                 "reason should not rely on color terms: {reason}"
             );
         }
+    }
+
+    #[test]
+    fn search_matches_uses_case_insensitive_label_matching() {
+        let entry = ActionEntry {
+            id: ActionId::NodeDelete,
+            enabled: true,
+        };
+        assert!(search_matches(&entry, "delete"));
+        assert!(search_matches(&entry, "NoDe"));
+        assert!(!search_matches(&entry, "physics"));
+    }
+
+    #[test]
+    fn scope_ready_requires_target_for_current_target_scope() {
+        let mut context = default_action_context();
+        assert!(!scope_ready(SearchPaletteScope::CurrentTarget, &context));
+        context.target_node = Some(NodeKey::new(7));
+        assert!(scope_ready(SearchPaletteScope::CurrentTarget, &context));
+    }
+
+    #[test]
+    fn filter_actions_for_search_respects_scope_and_query() {
+        let context = ActionContext {
+            target_node: Some(NodeKey::new(11)),
+            ..default_action_context()
+        };
+        let actions = vec![
+            ActionEntry {
+                id: ActionId::NodeDelete,
+                enabled: true,
+            },
+            ActionEntry {
+                id: ActionId::GraphTogglePhysics,
+                enabled: true,
+            },
+        ];
+
+        let target_only = filter_actions_for_search(
+            &actions,
+            "delete",
+            SearchPaletteScope::CurrentTarget,
+            &context,
+        );
+        assert_eq!(target_only.len(), 1);
+        assert_eq!(target_only[0].id, ActionId::NodeDelete);
+
+        let graph_scope =
+            filter_actions_for_search(&actions, "physics", SearchPaletteScope::ActiveGraph, &context);
+        assert_eq!(graph_scope.len(), 1);
+        assert_eq!(graph_scope[0].id, ActionId::GraphTogglePhysics);
     }
 }
