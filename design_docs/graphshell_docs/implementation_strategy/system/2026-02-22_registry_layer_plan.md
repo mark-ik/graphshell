@@ -612,7 +612,7 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 - Implement `verse.pair_device` action (initiator path): encode `NodeAddr` as 6-word phrase + QR data; show in dialog with 5-minute expiry.
 - Implement `verse.pair_device` receiver path: decode code → connect via iroh → show fingerprint confirm → name device → workspace grant dialog.
 - Implement mDNS advertisement (`_graphshell-sync._udp.local`) and discovery for local network pairing.
-- Add Sync settings page (`graphshell://settings/sync`): device list, "Add Device" button, sync status per device.
+- Add Sync settings page (`verso://settings/sync`, with legacy `graphshell://settings/sync` alias accepted during migration): device list, "Add Device" button, sync status per device.
 - After confirmation: add peer to trust store, persist.
 - **Done gate**: Two desktop instances on the same machine pair via printed 6-word code. Both show each other in Sync Panel device list. mDNS discovery shows peer on same LAN.
 

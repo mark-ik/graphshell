@@ -2,6 +2,35 @@
   "version": 1,
   "packs": [
     {
+      "id": "docs-parity",
+      "description": "Active-doc stale-term guard for edge model, lifecycle wording, and runtime namespace policy",
+      "policy": {
+        "tiers": [
+          "pr-required",
+          "nightly"
+        ],
+        "platforms": [
+          "linux",
+          "windows",
+          "macos"
+        ],
+        "alwaysRun": true
+      },
+      "matchPaths": [
+        "design_docs/DOC_README.md",
+        "design_docs/graphshell_docs/technical_architecture/",
+        "design_docs/graphshell_docs/implementation_strategy/",
+        "design_docs/graphshell_docs/design/",
+        "design_docs/graphshell_docs/testing/",
+        "scripts/dev/docs-parity.ps1",
+        "scripts/dev/test-contracts.json",
+        "scripts/dev/test-select.ps1"
+      ],
+      "commands": [
+        "pwsh -NoProfile -File scripts/dev/docs-parity.ps1"
+      ]
+    },
+    {
       "id": "camera-lock",
       "description": "Camera fit-lock reducer + input + orchestration modal passthrough",
       "policy": {

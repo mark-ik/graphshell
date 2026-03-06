@@ -66,6 +66,15 @@ These roles must remain explicit and not collapse into one undifferentiated debu
 - Runtime config changes must round-trip correctly.
 - Diagnostics state must remain inspectable without mutating semantic subsystem state.
 
+### 3.5 History Observability Closure
+
+- `history.*` channel families declared by the History subsystem are first-class
+  diagnostics contracts, not optional future logging.
+- Diagnostics must be able to summarize history health without scraping UI text
+  from the History Manager surface.
+- Preview/replay violations must remain visible even when preview UI is
+  disabled or hidden.
+
 ---
 
 ## 4. Planned Extensions
@@ -73,6 +82,8 @@ These roles must remain explicit and not collapse into one undifferentiated debu
 - richer diagnostics summaries by subsystem
 - in-pane grouped counters and recent-history panels
 - stronger invariant coverage across major mutation boundaries
+- history subsystem health-summary projection fed by `history.traversal.*`,
+  `history.archive.*`, and `history.timeline.*`
 
 ---
 
@@ -90,4 +101,5 @@ These roles must remain explicit and not collapse into one undifferentiated debu
 - Invariant violations are observable.
 - Analyzer and harness boundaries are enforced.
 - Diagnostics can summarize subsystem degradation without becoming a mutation authority.
-
+- History summary fields are derivable from explicit `history.*` traffic and do
+  not depend on UI-only inspection.

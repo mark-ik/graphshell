@@ -12,6 +12,22 @@ Status codes:
 - **🔭 Speculative** — Aspirational, research-backed, no committed schedule
 - **🗄️ Archived** — Superseded or deferred indefinitely
 
+## Implementation Closure Register
+
+This section exists to prevent one recurring docs error: a feature having a
+landed canonical spec being misread as "implemented."
+
+Use it only for **spec-landed, runtime-pending** slices that are likely to be
+misreported as complete.
+
+| Slice | Spec status | Runtime status | Closure needed |
+|---|---|---|---|
+| Faceted filter surface | Canonical spec landed (`canvas/faceted_filter_surface_spec.md`) | Not yet implemented | Reducer-owned filter execution, UxTree surface, omnibar/palette parity, diagnostics, scenario coverage |
+| Facet pane routing | Canonical spec landed (`canvas/facet_pane_routing_spec.md`) | Not yet implemented | Facet-rail context binding, pane target resolution, blocked-route handling, focus return, scenario coverage |
+| Temporal navigation / replay | Canonical subsystem contracts landed (`subsystem_history/SUBSYSTEM_HISTORY.md`, `subsystem_history/edge_traversal_spec.md`) | Not yet implemented | Detached preview controller, no-side-effect gates, return-to-present restoration, replay diagnostics/tests |
+| History diagnostics and health summary | Canonical subsystem contracts landed (`subsystem_history/SUBSYSTEM_HISTORY.md`, `subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md`) | Not yet implemented | `history.*` channel wiring, subsystem health summary surface, CI/watchdog coverage |
+| Wry native overlay lifecycle | Canonical target spec landed (`viewer/wry_integration_spec.md`) | Scaffold only | End-to-end attach/hide/destroy lifecycle, overlay sync policy, diagnostics, platform validation |
+
 ---
 
 ## GRAPHSHELL — Core Spatial Browser
@@ -204,8 +220,8 @@ Status codes:
 | Edge metrics: total traversals, last time, dominant direction | ✅ Done | `subsystem_history/edge_traversal_spec.md` |
 | Traversal archive (rolling window + overflow to disk) | ✅ Done | `subsystem_history/edge_traversal_spec.md` |
 | WAL-based traversal logging | ✅ Done | `subsystem_history/edge_traversal_spec.md` |
-| History Manager pane (Timeline + recent traversals) | 📋 Planned | Tool Pane; replaces legacy nav history panel |
-| Timeline visualization of traversals | 📋 Planned | |
+| History Manager pane (Timeline + Dissolved tabs) | ✅ Done | Canonical tool pane; legacy standalone nav history panel retired; see `subsystem_history/2026-02-20_edge_traversal_impl_plan.md` |
+| Timeline visualization of traversals | ✅ Done | Recent traversal timeline is active in History Manager |
 | Temporal navigation / time-travel preview | 📋 Planned | |
 | Traversal scrubber (timeline replay) | 📋 Planned | |
 | Graph state snapshots for recovery | 📋 Planned | |
@@ -221,8 +237,8 @@ Status codes:
 | KnowledgeRegistry (UDC semantic tagging) | ✅ Done | Universal Decimal Classification |
 | Node badges (compact metadata overlay) | 📋 Planned | LOD-driven display |
 | Faceted object model (PMEST: Personality, Matter, Energy, Space, Time) | 📋 Planned | `NodeFacets` struct; `2026-03-01_ux_migration_design_spec.md §4` |
-| Faceted filter surface (Lens component) | 📋 Planned | Spec needed |
-| Facet rail navigation (Enter-to-pane routing) | 📋 Planned | Facet → open dedicated facet pane |
+| Faceted filter surface (Lens component) | 📋 Planned | Canonical spec landed in `canvas/faceted_filter_surface_spec.md`; runtime implementation pending |
+| Facet rail navigation (Enter-to-pane routing) | 📋 Planned | Canonical spec landed in `canvas/facet_pane_routing_spec.md`; runtime implementation pending |
 | Auto-grouping by relevance / time / domain | 📋 Planned | |
 | "Desire paths" semantic suggestions | 🔭 Speculative | Traversal patterns surface implicit connections |
 | Smart filtering and saved views | 📋 Planned | |
@@ -349,7 +365,7 @@ Status codes:
 | Rolling traversal buffer bounds tests | ✅ Done | `subsystem_history/edge_traversal_spec.md` |
 | Compositor chaos mode tests | 📋 Planned | |
 | Lasso correctness regression tests | ✅ Done | `canvas/graph_node_edge_interaction_spec.md` |
-| UxScenario suite (open_node, focus_cycle, modal_dismiss) | 📋 Planned | |
+| UxScenario suite (open_node, focus_cycle, modal_dismiss, facet filter/routing/focus-return) | 📋 Planned | Scenario YAML fixtures are now authored under `tests/scenarios/ux/`; runner closure still pending |
 | Headless scenario execution (CI) | 📋 Planned | `GRAPHSHELL_HEADLESS=1` |
 
 ### iOS / Mobile

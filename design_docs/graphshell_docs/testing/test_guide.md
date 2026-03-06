@@ -96,7 +96,7 @@ If diagnostics-focused checks are needed, use existing diagnostics test targets 
 
 - **Routing regressions**: node→tile/frame context routing, chooser/default behavior.
 - **Tile tree regressions**: split orientation, grouping, reorder stability.
-- **Lifecycle regressions**: Active/Warm/Cold mapping coherence.
+- **Lifecycle regressions**: `Active`/`Warm`/`Cold`/`Tombstone` mapping coherence and restore/remove parity.
 - **Render regressions**: composited overlay visibility and mode dispatch.
 - **Persistence regressions**: frame/tile arrangement restore parity.
 

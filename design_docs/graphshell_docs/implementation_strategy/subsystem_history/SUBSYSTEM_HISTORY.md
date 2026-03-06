@@ -213,7 +213,7 @@ Required checks for PRs touching:
 - History subsystem contracts (capture/archive/replay isolation) are now explicitly defined in this guide.
 
 **What's missing / open**:
-- Dedicated `history.*` diagnostics channels and subsystem health summary.
+- Runtime wiring for the documented `history.*` diagnostics channels and subsystem health summary.
 - Replay/preview controller and isolation enforcement implementation.
 - CI coverage for traversal correctness and preview non-side-effect guarantees.
 
@@ -233,8 +233,8 @@ Required checks for PRs touching:
 ## 12. Implementation Roadmap (Subsystem-Local)
 
 1. **Traversal correctness audit + tests** — especially URL prior/current ordering and edge association.
-2. **History diagnostic channels** — emit `history.*` channels for traversal/archive operations.
-3. **History health summary** — expose capture/archive status in diagnostics and history subsystem pane.
+2. **History diagnostic channel wiring** — emit the documented `history.*` channels for traversal/archive/preview operations.
+3. **History health summary wiring** — expose capture/archive/preview status in diagnostics and the history subsystem pane.
 4. **Archive integrity tests** — dissolved/traversal archive completeness + export checks.
 5. **Stage F replay scaffold** — preview state model + isolation gates in `gui_frame.rs`.
 6. **Replay isolation tests** — lock in no-WAL/no-live-mutation guarantees before UI polish.

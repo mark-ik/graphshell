@@ -167,6 +167,40 @@ Rule: if you read state, it's a probe. If you create state, it's a test. Probes 
 - Active analyzers section: registered analyzers, current output, signal status.
 - Violations view: which invariant, when opened, cumulative count, last channel before timeout.
 
+### 5.3 History Subsystem Integration Baseline
+
+The next required observability slice is explicit closure for the `history`
+subsystem. Canonical history policy remains in
+`../subsystem_history/SUBSYSTEM_HISTORY.md`; diagnostics owns how those signals
+surface and aggregate.
+
+Required channel family:
+
+- `history.traversal.*` for append success/failure and ordering correction
+- `history.archive.*` for dissolved/archive/export operations
+- `history.timeline.*` for preview/replay/return-to-present lifecycle
+
+Required health-summary projection for `history`:
+
+- traversal capture status (`active` / `degraded` / `unavailable`)
+- recent traversal append failure count
+- archive sizes (`traversal_archive`, `dissolved_archive`)
+- preview mode status (`off` / `active`)
+- replay isolation status (healthy / violated / unknown)
+- last return-to-present result
+
+Projection rule:
+
+- Diagnostics may aggregate these values into subsystem health, but it may not
+  infer success from UI state alone. Health summary values must derive from
+  explicit `history.*` channel traffic and/or history-owned state snapshots.
+
+Gate rule:
+
+- PRs that touch traversal append paths, History Manager UI, preview/replay
+  control paths, or archive persistence must update or validate the `history`
+  diagnostics surface in the same slice.
+
 ---
 
 ## 6. Validation Strategy
@@ -242,6 +276,7 @@ Diagnostics does not require per-surface capability declarations (it is the infr
 7. **TestHarness** (`diagnostics_tests` feature) — In-pane runner; smoke tests runnable from diagnostics pane.
 8. **Wire `retention_count`** — Connect `DiagnosticsState` event ring to per-channel retention from registry config.
 9. **Orphan channel surface** — Track auto-registered unknown channels in a dedicated set.
+10. **History observability closure** — land `history.*` channel wiring and the history subsystem health-summary projection defined in §5.3.
 
 ### Test Infrastructure (T1, T2) — `lane:runtime`
 

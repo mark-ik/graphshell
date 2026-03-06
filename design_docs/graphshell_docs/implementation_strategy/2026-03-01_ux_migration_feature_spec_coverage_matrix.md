@@ -45,9 +45,9 @@
 |---|---|---|---|---|---|
 | Three-phase event dispatch | UX migration §3.2, §7 | `aspect_input/input_interaction_spec.md`, `subsystem_ux_semantics/ux_tree_and_probe_spec.md`, `subsystem_ux_semantics/ux_event_dispatch_spec.md` | Green | Pass | Baseline dispatch contract closure implemented and validated via `#261` + `#269` (phase sequencing, modal isolation, fallback diagnostics, shortcut capture tests) |
 | UxTree as UX source of truth trajectory | UX migration §3.3 | `subsystem_ux_semantics/ux_tree_and_probe_spec.md` | Yellow | Partial (UxTree semantic projection and `ux:tree_build`/`ux:tree_snapshot_built` contract channels are wired, but AccessKit consumer closure is incomplete) | Keep Yellow until all Green-exit gates are met: (1) functional WebView subtree injection from UxTree-mapped semantics, (2) Graph Reader virtual-tree projection integrated under same authority model, (3) probe lifecycle channels wired under `ux-probes` runtime, (4) CI scenario evidence for happy-path and degraded-path contracts |
-| Faceted node schema (PMEST) | UX migration §4.1 | UX migration only | Red | Missing | Create **Faceted Filter Surface Spec** (schema, operators, index strategy, result model) |
-| Faceted filter operations | UX migration §4.2 | UX migration only | Red | Missing | Same as above; include acceptance tests and omnibar/palette integration |
-| Facet rail + Enter-to-pane routing | UX migration §4.3, §5.1A | UX migration only | Red | Missing | Create **Facet Pane Routing Spec** (input context, focus return, pane target resolution, UxTree exposure) |
+| Faceted node schema (PMEST) | UX migration §4.1 | `canvas/faceted_filter_surface_spec.md` | Green | Pass | Canonical PMEST schema and namespaced extension rule are explicit with reducer-owned filter authority |
+| Faceted filter operations | UX migration §4.2 | `canvas/faceted_filter_surface_spec.md`, `aspect_command/command_surface_interaction_spec.md` | Green | Pass | Canonical operators/composition model, Lens integration, omnibar/palette parity, and diagnostics-backed acceptance criteria are explicit |
+| Facet rail + Enter-to-pane routing | UX migration §4.3, §5.1A | `canvas/facet_pane_routing_spec.md`, `aspect_input/input_interaction_spec.md`, `workbench/workbench_frame_tile_interaction_spec.md` | Green | Pass | Canonical facet-rail context binding, pane target resolution, deterministic focus return, and UxTree role/action exposure are explicit |
 | Selection and lasso semantics | UX migration §5.1 | `canvas/graph_node_edge_interaction_spec.md`, `aspect_input/input_interaction_spec.md` | Green | Pass | Canonical lasso modifier and boundary-inclusion semantics are explicit with gesture-owner precedence and diagnostics assertions |
 | Target-locked/pointer-relative zoom | UX migration §5.2 | `canvas/graph_node_edge_interaction_spec.md` | Green | Pass | Pointer-anchor resolution, sticky target-lock behavior, and passive-input ownership rule are explicit and diagnostics-backed |
 | Node manipulation (create/delete/pin/group-move) | UX migration §5.3 | `canvas/graph_node_edge_interaction_spec.md` | Green | Pass | Canonical semantic action map and group-move invariants are explicit and deterministic |
@@ -76,11 +76,11 @@
 
 ## 3. New Specs Required (Priority Order)
 
-1. **Faceted Filter Surface Spec** (Red)
-2. **Facet Pane Routing Spec** (Red)
+1. **Faceted Filter Surface Spec** (Closed, 2026-03-06)
+2. **Facet Pane Routing Spec** (Closed, 2026-03-06)
 3. **Layout Algorithm Portfolio Spec** (Closed)
 4. **WorkbenchProfile & Workflow Composition Spec** (Closed)
-5. **UxTree Event Dispatch Spec** or equivalent UxTree spec expansion (Yellow→Green)
+5. **UxTree Event Dispatch Spec** or equivalent UxTree spec expansion (Yellow->Green)
 
 ---
 
@@ -118,7 +118,7 @@ UX migration is complete when:
 
 1. Patch `canvas/layout_behaviors_and_physics_spec.md` to replace organizational `MagneticZone` wording with frame-affinity terminology where applicable.
 2. Propagate the landed Phase 4 authority docs (`graph_first_frame_semantics_spec.md`, `edge_traversal_spec.md`, Pane Opening Mode / internal address plans) into remaining canonical cross-links that still rely on older wording (`graphshell://` historical references vs `verso://` runtime canonical namespace).
-3. Create the three Red specs listed in §3.
+3. Expand UxHarness scenario coverage for newly closed faceted-filter and facet-pane-routing contracts.
 4. Add a recurring checklist item in PR review templates: “feature row updated in UX migration coverage matrix.”
 
 ## 6A. Issue Mapping Delta (2026-03-01)

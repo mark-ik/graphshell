@@ -1,0 +1,25 @@
+id: "facet:pane-route-success"
+description: "Single-node facet rail routes the selected facet into the canonical pane target and transfers focus."
+tags: [ux, facets, routing, focus]
+seed_rng: 0
+input_mode: Keyboard
+preconditions:
+  - graph_has_nodes: 1
+steps:
+  - action: EnsureSingleNodeSelected
+  - action: InvokeUxAction
+    target: "uxnode://workbench/graph-view/selection"
+    action_kind: EnterFacetRail
+  - action: InvokeUxAction
+    target: "uxnode://workbench/graph-view/facet-rail/open-facet-pane"
+    action_kind: Invoke
+  - assert: DiagnosticsChannel
+    channel: "ux:facet_pane_route_attempt"
+    expect_no_severity: Error
+    within_frames: 60
+  - assert: FocusPath
+    ends_with: "uxnode://workbench/tile[node-facet]/pane-root"
+    within_frames: 60
+  - assert: SnapshotInvariant
+    invariants: [S1, S3, N1, N2]
+

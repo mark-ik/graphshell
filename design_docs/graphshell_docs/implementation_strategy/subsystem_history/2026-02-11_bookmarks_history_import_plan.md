@@ -90,5 +90,5 @@ The `ImportWizardMod` is a native mod (compiled-in) that provides:
 
 ## Integration Points
 
--   **Settings**: Add "Import" buttons to `graphshell://settings/persistence` or a new `graphshell://settings/import` page that trigger these actions.
+-   **Settings**: Add "Import" buttons to `verso://settings/persistence` or a new `verso://settings/import` page (legacy `graphshell://settings/...` alias accepted during migration) that trigger these actions.
 -   **Command Palette**: Actions are automatically available via `ActionRegistry`.

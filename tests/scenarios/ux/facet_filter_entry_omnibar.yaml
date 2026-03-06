@@ -1,0 +1,28 @@
+id: "facet:filter-entry-omnibar"
+description: "Applying a valid facet query through the omnibar updates the active filter set and emits success diagnostics."
+tags: [ux, facets, omnibar, filters]
+seed_rng: 0
+input_mode: Keyboard
+preconditions:
+  - graph_has_nodes: 1
+steps:
+  - action: FocusUxNode
+    target: "uxnode://workbench/omnibar/location-field"
+  - action: SetValue
+    target: "uxnode://workbench/omnibar/location-field"
+    value: "facet:mime_hint=application/pdf"
+  - action: InvokeUxAction
+    target: "uxnode://workbench/omnibar/location-field"
+    action_kind: Submit
+  - assert: DiagnosticsChannel
+    channel: "ux:facet_filter_applied"
+    expect_no_severity: Error
+    within_frames: 60
+  - assert: UxNodeExists
+    selector:
+      role: StatusIndicator
+      label: "Active facet filters"
+    within_frames: 60
+  - assert: SnapshotInvariant
+    invariants: [S1, S3, N1]
+

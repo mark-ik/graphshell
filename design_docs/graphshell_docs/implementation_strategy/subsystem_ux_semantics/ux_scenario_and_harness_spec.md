@@ -418,6 +418,25 @@ The UxScenario CI gate runs on PRs that touch:
 4. On state-only diff: pass the gate; attach a warning artifact.
 5. On new baseline creation: pass the gate; prompt for human review and commit.
 
+### 7.2A Required Core UX Scenario Slices
+
+The core suite is not limited to the original open/focus/modal trio. The
+minimum named flow set now includes:
+
+| Scenario file | Required purpose |
+|---|---|
+| `tests/scenarios/ux/open_node_flow.yaml` | Baseline node-open success path |
+| `tests/scenarios/ux/focus_cycle_flow.yaml` | Deterministic region focus traversal |
+| `tests/scenarios/ux/modal_dismiss_flow.yaml` | Modal isolation and dismissal |
+| `tests/scenarios/ux/facet_filter_entry_omnibar.yaml` | Valid facet-filter entry through omnibar with diagnostics success path |
+| `tests/scenarios/ux/facet_pane_route_success.yaml` | Single-node facet route success and pane-focus transfer |
+| `tests/scenarios/ux/facet_pane_route_blocked_multiselect.yaml` | Blocked facet route emits warning and preserves rail focus |
+| `tests/scenarios/ux/facet_pane_focus_return.yaml` | Pane dismiss/back restores captured focus anchor or deterministic fallback |
+
+Any future change to facet filtering, facet-pane routing, blocked-route
+semantics, or focus return must extend or update the corresponding scenario
+fixture in this set.
+
 ### 7.3 Headless Environment Requirements
 
 | Requirement | Implementation |

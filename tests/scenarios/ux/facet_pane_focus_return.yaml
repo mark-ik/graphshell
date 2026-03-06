@@ -1,0 +1,30 @@
+id: "facet:pane-focus-return"
+description: "Closing a facet pane returns focus to the captured graph anchor, or deterministic fallback if the anchor is invalid."
+tags: [ux, facets, routing, focus-return]
+seed_rng: 0
+input_mode: Keyboard
+preconditions:
+  - graph_has_nodes: 1
+steps:
+  - action: EnsureSingleNodeSelected
+  - action: InvokeUxAction
+    target: "uxnode://workbench/graph-view/selection"
+    action_kind: EnterFacetRail
+  - action: InvokeUxAction
+    target: "uxnode://workbench/graph-view/facet-rail/open-facet-pane"
+    action_kind: Invoke
+  - assert: FocusPath
+    ends_with: "uxnode://workbench/tile[node-facet]/pane-root"
+    within_frames: 60
+  - action: InvokeUxAction
+    target: "uxnode://workbench/tile[node-facet]/pane-root"
+    action_kind: Dismiss
+  - assert: DiagnosticsChannel
+    channel: "ux:facet_pane_focus_return"
+    expect_no_severity: Error
+    within_frames: 60
+  - assert: FocusPath
+    ends_with: "uxnode://workbench/graph-view/facet-rail"
+    within_frames: 60
+  - assert: SnapshotInvariant
+    invariants: [S1, S3, N1, N2]
