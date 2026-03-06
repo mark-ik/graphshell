@@ -1,6 +1,6 @@
 # Cross-Cutting Subsystem: Accessibility
 
-**Status**: Active / Project Goal
+**Status**: Active / Partial Delivery
 **Subsystem label**: `accessibility`
 **Long form**: Accessibility Subsystem
 **Scope**: WebView accessibility bridge, graph accessibility (Graph Reader), focus/navigation, live announcements, sonification, and future viewer surfaces
@@ -293,8 +293,10 @@ The graph canvas becomes a navigable structure for screen readers and keyboard-o
 - Accessibility subsystem contracts, diagnostics integration requirements, validation strategy, and degradation policy are now centralized in this guide.
 - WebView bridge event forwarding and GUI queueing path landed, but the injection step is currently a compile-safe fallback (updates drained with diagnostics) due to `accesskit` version mismatch.
 - Phase roadmap for WebView bridge, Graph Reader, and focus/navigation is defined and sequenced.
+- UxTree and accessibility docs align on ownership intent: UxTree is the semantic authority and AccessKit is the projection consumer.
 
 **What's missing / open**:
+- Full closure of the UxTree -> AccessKit path as the single source-of-truth path across native UI + WebView + graph-reader surfaces.
 - Functional WebView tree injection into egui via an `accesskit` compatibility layer or dependency alignment.
 - Stable `WebViewId -> egui::Id` anchor registration path wired from pane/tile render lifecycle.
 - Bridge invariants and CI checks for happy-path injection vs degraded fallback.

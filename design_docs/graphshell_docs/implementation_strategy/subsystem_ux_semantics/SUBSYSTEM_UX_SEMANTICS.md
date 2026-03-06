@@ -1,6 +1,6 @@
 # Cross-Cutting Subsystem: UX Semantics
 
-**Status**: Proposed / Design Phase
+**Status**: Active / Partial Migration
 **Subsystem label**: `ux_semantics`
 **Long form**: UX Semantics Subsystem
 **Scope**: Runtime-queryable semantic tree of Graphshell's own native UI; UX contract verification; snapshot regression testing; UxBridge test harness integration
@@ -32,6 +32,12 @@ Policy in this file should be distilled from canonical specs and accepted resear
 4. **Bridge-separation policy**: UxBridge transports test/control commands but does not become semantic owner of UX policy.
 5. **Accessibility-alignment policy**: UX semantics and accessibility mapping must stay aligned without duplicating ownership.
 
+## 0B. Current Closure State (2026-03-06)
+
+- UxTree runtime snapshot build/publish, probe contracts, and diagnostics emission are active in the workbench render pipeline.
+- The UxTree -> AccessKit path is not fully closed yet as a single source-of-truth path across all surfaces.
+- Remaining closure gap is the end-to-end mapping path for WebView bridge injection + Graph Reader virtual-tree output under the same canonical UxTree ownership model.
+
 ---
 
 ## 1. Why This Exists
@@ -49,8 +55,10 @@ Without this model:
 - The Accessibility subsystem's AccessKit bridge has no internal source of truth to validate
   against — it can inject nodes but cannot verify the structural invariants of what it injects.
 
-The UX Semantics subsystem addresses all four gaps by building one canonical tree that serves
+The UX Semantics subsystem addresses these gaps by building one canonical tree that serves
 three consumers: the test harness, the UxBridge, and (via mapping) the AccessKit OS bridge.
+
+Current implementation note: the first two consumers are active; the AccessKit mapping consumer is partially active and still under closure work tracked in `../subsystem_accessibility/SUBSYSTEM_ACCESSIBILITY.md`.
 
 ---
 
