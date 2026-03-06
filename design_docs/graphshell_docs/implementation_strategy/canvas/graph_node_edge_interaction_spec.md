@@ -269,6 +269,22 @@ The following guardrails are mandatory for camera/navigation changes:
 - Manual pan and manual zoom remain available regardless of active physics preset.
 - Physics presets must never be used as implicit camera-mode selectors.
 
+**Pointer-anchor and passive-input invariants (UX migration §5.2 closure)**
+
+- Pointer-relative zoom anchor is resolved at wheel-sequence start from this order: hovered node anchor -> hovered edge midpoint anchor -> canvas pointer world position.
+- If no valid world-space anchor can be resolved, wheel input is treated as passive for graph zoom (no camera mutation) and a diagnostics warning is emitted.
+- Target lock for a wheel sequence is sticky: once anchor is chosen, subsequent wheel deltas in the same sequence must use the same anchor until sequence end.
+- Graph zoom must not claim wheel input when a higher-priority input owner is active (`Modal`, `CommandPalette`, `TextEntry`, or non-active graph pane).
+- Pointer-relative zoom is scoped to the active graph pane only; non-active panes may inspect hover but must not mutate camera state.
+
+**Zoom diagnostics assertions (normative)**
+
+| Flow | Required diagnostics assertions |
+|---|---|
+| Anchor resolved and zoom applied | `ux:navigation_transition` with `operation=zoom_pointer_relative`, `graph_view_id`, `anchor_kind`, and scale delta |
+| Missing anchor / passive no-op | `ux:navigation_violation` (`Warn`) with `operation=zoom_pointer_relative` and `reason=anchor_unresolved` |
+| Wheel denied due to input ownership | `ux:contract_warning` with `reason=zoom_input_owner_mismatch` and owning context |
+
 **Fallback / degraded behavior**
 
 - If input cannot be claimed, Graphshell must emit diagnostics and preserve existing camera state.
@@ -302,6 +318,24 @@ The following guardrails are mandatory for camera/navigation changes:
 - Additive selection mutates the current selection set without changing graph identity.
 - Node activation routes through the workbench open policy.
 - Node drag changes node position and, when enabled, group position.
+
+**Node manipulation command map (UX migration §5.3 closure)**
+
+Default bindings are profile-configurable, but semantic action mapping is fixed:
+
+| Action semantic | Default command/binding | Required behavior |
+|---|---|---|
+| Create node | `New Node` command (default `N`) | Create node in active graph context; selection moves to new node |
+| Delete selected nodes | `Delete Selected` command (default `Delete`/`Backspace`) | Remove selected nodes via reducer-owned delete intent |
+| Pin selected nodes | `Pin Selected` command (default `P`) | Set selected nodes to pinned state without changing selection scope |
+| Unpin selected nodes | `Unpin Selected` command (`Shift+P`) | Clear pinned state for selected nodes |
+| Group-move mode toggle | `Toggle Group Move` command (`G`) | While active, dragging any selected node moves all selected nodes as a cohort |
+
+**Group-move invariants**
+
+- Group-move applies only when selected set cardinality is greater than 1.
+- Group-move drag preserves pairwise offsets among selected nodes for the duration of one drag sequence.
+- Group-move must not mutate non-selected nodes except through physics side effects after drag commit.
 
 **Visual feedback**
 
@@ -343,6 +377,23 @@ The following guardrails are mandatory for camera/navigation changes:
 - Traversal history mutation is owned by the history/reducer traversal append path, not by edge hover or single-click inspection.
 - Clearing edge focus is explicit and deterministic when the active inspection target changes to none.
 
+**Edge-management interaction parity (UX migration §5.4 closure)**
+
+| Interaction | Canvas semantic result | History semantic result |
+|---|---|---|
+| Edge hover | Update inspection context only | No traversal append |
+| Edge single-click | Set highlighted edge for inspection | No traversal append |
+| Edge double-click with traversal action defined | Invoke traversal/open action | Append traversal through reducer path only |
+| Edge double-click with no traversal action | No-op beyond inspection continuity | No traversal append |
+
+**Edge diagnostics assertions (normative)**
+
+| Flow | Required diagnostics assertions |
+|---|---|
+| Inspection-only edge focus update | `ux:navigation_transition` with `operation=edge_inspection` and `history_append=false` |
+| Traversal-eligible edge activation | `ux:navigation_transition` with `operation=edge_traversal_activate` and resolver target |
+| Edge activation blocked/fallback | `ux:navigation_violation` (`Warn`) plus `ux:contract_warning` with reason |
+
 **Visual feedback**
 
 - Hovered edges must visibly read as inspectable.
@@ -382,6 +433,22 @@ The following guardrails are mandatory for camera/navigation changes:
 - Lasso selection mode is deterministic from binding + modifiers: `Alt => Toggle`; otherwise `Add` when `Ctrl` is active or when the binding is `RightDrag` with `Shift`; otherwise `Replace`.
 - Lasso key sets are canonicalized before intent dispatch (stable sort + deduplicate by node key).
 - Lasso, pan, and node drag are mutually exclusive gesture owners for a pointer sequence; ambiguity must be canceled explicitly with diagnostics.
+
+**Lasso boundary semantics (UX migration §5.1 closure)**
+
+- Boundary inclusion policy is intersection-inclusive: a node is in the lasso candidate set when its hit bounds intersect the lasso polygon/rectangle by any positive area.
+- Replace/Add/Toggle semantics apply over the candidate set after canonicalization (stable sort + dedupe).
+- Lasso region sampling is deterministic: evaluation uses pointer-up finalized region, not intermediate hover jitter.
+- If lasso starts on an eligible node-handle region, node drag owns the sequence and lasso does not arm.
+- If lasso starts on empty canvas under declared lasso binding, lasso owns the sequence and pan is suppressed.
+
+**Lasso diagnostics assertions (normative)**
+
+| Flow | Required diagnostics assertions |
+|---|---|
+| Lasso commit success | `ux:navigation_transition` with `operation=lasso_commit`, `selection_mode`, and `candidate_count` |
+| Lasso canceled due to owner ambiguity | `ux:navigation_violation` (`Warn`) with `reason=gesture_owner_ambiguous` |
+| Lasso denied by higher-priority context | `ux:contract_warning` with owning context and denied operation |
 
 **Gesture precedence**
 
@@ -599,5 +666,9 @@ Logical self-loops (edges where `source == target`) are currently forbidden by t
 9. Planned and exploratory controls are separated from the canonical core.
 10. Lasso modifier-mode resolution and key normalization rules are explicit and deterministic.
 11. Edge-focus inspection is explicitly separated from traversal-history mutation semantics.
+12. Pointer-anchor and passive-input zoom invariants are explicit and diagnostics-backed.
+13. Node create/delete/pin/group-move semantic mapping is explicit and deterministic.
+14. Lasso boundary inclusion policy and gesture-owner precedence are explicit and deterministic.
+15. Edge management interactions are explicitly aligned with history append rules and diagnostics.
 
 

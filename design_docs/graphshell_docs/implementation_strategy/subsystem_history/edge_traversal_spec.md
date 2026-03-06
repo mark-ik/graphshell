@@ -209,6 +209,23 @@ The render layer derives edge visuals from `EdgePayload`. It does not define tra
 - Traversal append occurs only on navigation/traversal actions routed through reducer traversal paths.
 - Hover and single-click inspection must not change `metrics.total_navigations`.
 
+### 4.2A Canvas/History Edge-Management Alignment Assertions
+
+The edge-interaction contract in `../canvas/graph_node_edge_interaction_spec.md` is normative for pointer gesture semantics. This section defines history-side assertions for parity.
+
+| Interaction flow | Required history assertion |
+|---|---|
+| Hover edge | No `AppendTraversal` intent emitted |
+| Single-click edge highlight | No `AppendTraversal` intent emitted; highlight state only |
+| Double-click edge with defined traversal action | Exactly one `AppendTraversal` intent emitted through reducer path |
+| Double-click edge without traversal action | No `AppendTraversal` intent emitted |
+
+Diagnostics expectations:
+
+- Inspection-only flows emit `ux:navigation_transition` with inspection operation metadata and `history_append=false`.
+- Any inspection path that attempts traversal append must emit `ux:navigation_violation` (`Warn`) and be rejected.
+- Blocked traversal activation emits `ux:contract_warning` with explicit reason and fallback.
+
 ### 4.3 Edge Tooltip / Inspection
 
 On edge hover: tooltip shows:
@@ -278,6 +295,7 @@ This section is a placeholder for future spec expansion.
 | `traversal_archive` and `dissolved_archive` are separate keyspaces | Test: append to each → query confirms entries in respective keyspace only |
 | UI cannot mutate traversal state directly | Architecture invariant: no `push_traversal` call from render or UI layer |
 | Edge highlight/focus does not append traversal | Test: set/clear highlighted edge → traversal count and `metrics.total_navigations` unchanged |
+| Edge double-click traversal appends exactly once when eligible | Test: double-click traversable edge -> one `AppendTraversal`; non-traversable edge -> zero appends |
 | Rolling window is bounded | Test: append 1,000 traversals → `traversals.len()` ≤ N (window size); `metrics.total_navigations` == 1,000 |
 | Evicted records reach archive before memory drop | Test: fill window + 1 → oldest record present in `traversal_archive` before in-memory list shrinks |
 | `AgentDerived` edge decays after threshold | Test: assert `AgentDerived` edge; advance clock past decay window → edge evicted from active graph |
