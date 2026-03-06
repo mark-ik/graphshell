@@ -313,13 +313,6 @@ impl EdgePayload {
             }
             EdgeType::History => {
                 let _ = self.kinds.insert(EdgeKind::TraversalDerived);
-                // Preserve legacy semantics where history edges from snapshots imply one traversal.
-                if self.traversals.is_empty() {
-                    self.push_traversal(Traversal {
-                        timestamp_ms: 0,
-                        trigger: NavigationTrigger::Unknown,
-                    });
-                }
             }
         }
     }

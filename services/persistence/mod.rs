@@ -1422,22 +1422,6 @@ impl GraphStore {
                         timestamp_ms: (*timestamp_ms).into(),
                         trigger,
                     };
-                    if let Some(edge_key) = graph.find_edge_key(from_key, to_key) {
-                        if let Some(payload) = graph.get_edge_mut(edge_key)
-                            && payload.traversals.len() == 1
-                            && payload.traversals[0].timestamp_ms == 0
-                            && payload.traversals[0].trigger
-                                == crate::graph::NavigationTrigger::Unknown
-                        {
-                            payload.traversals.clear();
-                            payload.metrics = crate::graph::EdgeMetrics {
-                                total_navigations: 0,
-                                forward_navigations: 0,
-                                backward_navigations: 0,
-                                last_navigated_at: None,
-                            };
-                        }
-                    }
                     let _ = graph.push_traversal(from_key, to_key, traversal);
                 }
                 ArchivedLogEntry::UpdateNodeTitle { node_id, title } => {
@@ -1793,7 +1777,7 @@ mod tests {
     }
 
     #[test]
-    fn test_log_append_traversal_replay_normalizes_history_placeholder() {
+    fn test_log_append_traversal_replay_appends_without_placeholder_cleanup() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().to_path_buf();
         let id_a = Uuid::new_v4();
