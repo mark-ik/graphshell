@@ -56,6 +56,7 @@ pub struct GraphNodeShape {
     label_text: String,
     title_text: String,
     url_text: String,
+    cached_host: Option<String>,
     radius: f32,
     thumbnail_png: Option<Vec<u8>>,
     thumbnail_width: u32,
@@ -92,6 +93,7 @@ impl From<NodeProps<Node>> for GraphNodeShape {
             label_text: node_props.label.to_string(),
             title_text: node_props.payload.title.clone(),
             url_text: node_props.payload.url.clone(),
+            cached_host: node_props.payload.cached_host.clone(),
             radius: 5.0,
             thumbnail_png: node_props.payload.thumbnail_png.clone(),
             thumbnail_width: node_props.payload.thumbnail_width,
@@ -184,6 +186,7 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
         self.label_text = state.label.to_string();
         self.title_text = state.payload.title.clone();
         self.url_text = state.payload.url.clone();
+        self.cached_host = state.payload.cached_host.clone();
         self.color = state.color();
         self.is_pinned = state.payload.is_pinned;
         if !self.selected {
@@ -420,12 +423,19 @@ impl GraphNodeShape {
     }
 
     fn label_text_for_zoom(&self, zoom: f32) -> Option<String> {
-        Self::label_text_for_zoom_value(&self.title_text, &self.url_text, &self.label_text, zoom)
+        Self::label_text_for_zoom_value(
+            &self.title_text,
+            &self.url_text,
+            self.cached_host.as_deref(),
+            &self.label_text,
+            zoom,
+        )
     }
 
     fn label_text_for_zoom_value(
         title: &str,
         url: &str,
+        cached_host: Option<&str>,
         fallback: &str,
         zoom: f32,
     ) -> Option<String> {
@@ -433,8 +443,8 @@ impl GraphNodeShape {
             return None;
         }
         if zoom <= 1.5 {
-            if let Ok(parsed) = url::Url::parse(url)
-                && let Some(host) = parsed.host_str()
+            if let Some(host) = cached_host
+                && !host.is_empty()
             {
                 return Some(host.to_string());
             }
@@ -1383,6 +1393,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "https://example.com/full/path",
             "https://example.com/full/path",
+            Some("example.com"),
             "fallback",
             2.0,
         );
@@ -1394,6 +1405,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "Very Long Title Name",
             "https://docs.example.com/some/path?q=1",
+            Some("docs.example.com"),
             "fallback",
             1.0,
         );
@@ -1405,6 +1417,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "Title",
             "https://example.com",
+            Some("example.com"),
             "fallback",
             0.4,
         );
@@ -1417,6 +1430,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "Title",
             "https://example.com",
+            Some("example.com"),
             "fallback",
             0.59,
         );
@@ -1429,6 +1443,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "Title",
             "https://example.com",
+            Some("example.com"),
             "fallback",
             0.6,
         );
@@ -1441,6 +1456,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "Title",
             "https://example.com",
+            Some("example.com"),
             "fallback",
             1.5,
         );
@@ -1453,6 +1469,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "My Page Title",
             "https://example.com",
+            Some("example.com"),
             "fallback",
             1.51,
         );
@@ -1465,6 +1482,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "My Title",
             "not-a-valid-url",
+            None,
             "fallback",
             1.0,
         );
@@ -1474,7 +1492,7 @@ mod tests {
     #[test]
     fn test_label_tier_domain_empty_title_uses_fallback() {
         // empty title in domain tier falls back to fallback text
-        let label = GraphNodeShape::label_text_for_zoom_value("", "not-a-valid-url", "fb", 1.0);
+        let label = GraphNodeShape::label_text_for_zoom_value("", "not-a-valid-url", None, "fb", 1.0);
         assert_eq!(label.as_deref(), Some("fb"));
     }
 
@@ -1484,6 +1502,7 @@ mod tests {
         let label = GraphNodeShape::label_text_for_zoom_value(
             "Page Title",
             "https://example.com/some/path",
+            Some("example.com"),
             "fallback",
             2.0,
         );
@@ -1493,15 +1512,20 @@ mod tests {
     #[test]
     fn test_label_tier_full_empty_title_uses_url() {
         // empty title in full tier falls back to URL
-        let label =
-            GraphNodeShape::label_text_for_zoom_value("", "https://example.com", "fallback", 2.0);
+        let label = GraphNodeShape::label_text_for_zoom_value(
+            "",
+            "https://example.com",
+            Some("example.com"),
+            "fallback",
+            2.0,
+        );
         assert_eq!(label.as_deref(), Some("https://example.com"));
     }
 
     #[test]
     fn test_label_tier_full_all_empty_returns_none() {
         // all fields empty at full zoom returns None
-        let label = GraphNodeShape::label_text_for_zoom_value("", "", "", 2.0);
+        let label = GraphNodeShape::label_text_for_zoom_value("", "", None, "", 2.0);
         assert!(label.is_none());
     }
 

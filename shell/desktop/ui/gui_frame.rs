@@ -1694,43 +1694,15 @@ fn persist_autosave_session_workspace_layout_if_available(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) {
-    if let Some((bundle_json, layout_json)) =
-        build_session_workspace_layout_payload(graph_app, tiles_tree)
+    if let Some(layout_json) =
+        serialize_tiles_tree_layout_json(tiles_tree, "session frame layout")
     {
-        persist_session_workspace_layout_blob_if_changed(graph_app, &bundle_json, &layout_json);
+        graph_app.save_session_workspace_layout_json_if_changed(&layout_json);
     }
 }
 
 fn is_unsaved_workspace_prompt_pending(graph_app: &GraphBrowserApp) -> bool {
     graph_app.unsaved_workspace_prompt_request().is_some()
-}
-
-fn build_session_workspace_layout_payload(
-    graph_app: &GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-) -> Option<(String, String)> {
-    let layout_json = serialize_tiles_tree_layout_json(tiles_tree, "session frame layout")?;
-
-    let bundle_json = serialize_session_frame_bundle(graph_app, tiles_tree)?;
-
-    Some((bundle_json, layout_json))
-}
-
-fn serialize_session_frame_bundle(
-    graph_app: &GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-) -> Option<String> {
-    match persistence_ops::serialize_named_frame_bundle(
-        graph_app,
-        GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
-        tiles_tree,
-    ) {
-        Ok(bundle_json) => Some(bundle_json),
-        Err(e) => {
-            warn!("Failed to serialize session frame bundle: {e}");
-            None
-        }
-    }
 }
 
 fn serialize_tiles_tree_layout_json(tiles_tree: &Tree<TileKind>, context: &str) -> Option<String> {
@@ -1741,14 +1713,6 @@ fn serialize_tiles_tree_layout_json(tiles_tree: &Tree<TileKind>, context: &str) 
             None
         }
     }
-}
-
-fn persist_session_workspace_layout_blob_if_changed(
-    graph_app: &mut GraphBrowserApp,
-    bundle_json: &str,
-    layout_json: &str,
-) {
-    graph_app.save_session_workspace_layout_blob_if_changed(bundle_json, layout_json);
 }
 
 #[allow(clippy::too_many_arguments)]

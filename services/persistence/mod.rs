@@ -611,6 +611,7 @@ impl GraphStore {
             }
         }
 
+        graph.recompute_cached_hosts();
         Some(graph)
     }
 
@@ -876,6 +877,7 @@ impl GraphStore {
         }
 
         if graph.node_count() > 0 {
+            graph.recompute_cached_hosts();
             Some(graph)
         } else {
             None
@@ -1136,7 +1138,9 @@ impl GraphStore {
         let mut aligned = rkyv::util::AlignedVec::<16>::new();
         aligned.extend_from_slice(&bytes);
         let snapshot = rkyv::from_bytes::<GraphSnapshot, rkyv::rancor::Error>(&aligned).ok()?;
-        Some(Graph::from_snapshot(&snapshot))
+        let mut graph = Graph::from_snapshot(&snapshot);
+        graph.recompute_cached_hosts();
+        Some(graph)
     }
 
     /// List named graph snapshots in stable order.

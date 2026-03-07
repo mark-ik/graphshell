@@ -155,17 +155,17 @@ fn frame_has_unsaved_changes_for_set_node_pinned() {
 }
 
 #[test]
-fn session_frame_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layout() {
+fn session_frame_layout_autosave_uses_layout_hash_and_caches_runtime_layout() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
     app.set_workspace_autosave_interval_secs(1)
         .expect("autosave interval should be configurable");
 
-    app.save_session_workspace_layout_blob_if_changed("bundle-json-v1", "runtime-layout-v1");
+    app.save_session_workspace_layout_json_if_changed("runtime-layout-v1");
     assert_eq!(
         app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
             .as_deref(),
-        Some("bundle-json-v1")
+        Some("runtime-layout-v1")
     );
     assert_eq!(
         app.last_session_workspace_layout_json(),
@@ -173,12 +173,12 @@ fn session_frame_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layou
     );
 
     std::thread::sleep(Duration::from_millis(1100));
-    app.save_session_workspace_layout_blob_if_changed("bundle-json-v2", "runtime-layout-v1");
+    app.save_session_workspace_layout_json_if_changed("runtime-layout-v1");
 
     assert_eq!(
         app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
             .as_deref(),
-        Some("bundle-json-v1")
+        Some("runtime-layout-v1")
     );
     assert_eq!(
         app.last_session_workspace_layout_json(),
@@ -188,7 +188,7 @@ fn session_frame_blob_autosave_uses_runtime_layout_hash_and_caches_runtime_layou
 }
 
 #[test]
-fn session_frame_blob_autosave_rotates_previous_latest_bundle_on_layout_change() {
+fn session_frame_layout_autosave_rotates_previous_latest_on_layout_change() {
     let dir = TempDir::new().expect("temp dir should be created");
     let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
     app.set_workspace_autosave_interval_secs(1)
@@ -196,14 +196,14 @@ fn session_frame_blob_autosave_rotates_previous_latest_bundle_on_layout_change()
     app.set_workspace_autosave_retention(2)
         .expect("retention setting should succeed");
 
-    app.save_session_workspace_layout_blob_if_changed("bundle-json-a", "runtime-layout-a");
+    app.save_session_workspace_layout_json_if_changed("runtime-layout-a");
     std::thread::sleep(Duration::from_millis(1100));
-    app.save_session_workspace_layout_blob_if_changed("bundle-json-b", "runtime-layout-b");
+    app.save_session_workspace_layout_json_if_changed("runtime-layout-b");
 
     assert_eq!(
         app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
             .as_deref(),
-        Some("bundle-json-b")
+        Some("runtime-layout-b")
     );
     let history_name = app
         .list_workspace_layout_names()
@@ -212,7 +212,7 @@ fn session_frame_blob_autosave_rotates_previous_latest_bundle_on_layout_change()
         .expect("rotating autosave should persist one history entry");
     assert_eq!(
         app.load_workspace_layout_json(&history_name).as_deref(),
-        Some("bundle-json-a")
+        Some("runtime-layout-a")
     );
     assert_eq!(
         app.last_session_workspace_layout_json(),

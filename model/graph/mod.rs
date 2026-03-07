@@ -23,6 +23,11 @@ use euclid::default::{Point2D, Vector2D};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{Directed, Direction};
+use rkyv::{
+    Archive, Archived, Deserialize, Place, Resolver, Serialize,
+    rancor::Fallible,
+    with::{ArchiveWith, DeserializeWith, SerializeWith},
+};
 use std::collections::{BTreeSet, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -44,11 +49,125 @@ pub(crate) type GraphDirection = Directed;
 /// Graph backend index type exposed for adapter integration.
 pub(crate) type GraphIndex = petgraph::graph::DefaultIx;
 
+struct UuidAsBytes;
+
+impl ArchiveWith<Uuid> for UuidAsBytes {
+    type Archived = Archived<[u8; 16]>;
+    type Resolver = Resolver<[u8; 16]>;
+
+    fn resolve_with(field: &Uuid, resolver: Self::Resolver, out: Place<Self::Archived>) {
+        let bytes = *field.as_bytes();
+        bytes.resolve(resolver, out);
+    }
+}
+
+impl<S> SerializeWith<Uuid, S> for UuidAsBytes
+where
+    S: Fallible + ?Sized,
+    [u8; 16]: Serialize<S>,
+{
+    fn serialize_with(field: &Uuid, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+        let bytes = *field.as_bytes();
+        bytes.serialize(serializer)
+    }
+}
+
+impl<D> DeserializeWith<Archived<[u8; 16]>, Uuid, D> for UuidAsBytes
+where
+    D: Fallible + ?Sized,
+    Archived<[u8; 16]>: Deserialize<[u8; 16], D>,
+{
+    fn deserialize_with(field: &Archived<[u8; 16]>, deserializer: &mut D) -> Result<Uuid, D::Error> {
+        let bytes = field.deserialize(deserializer)?;
+        Ok(Uuid::from_bytes(bytes))
+    }
+}
+
+struct Point2DAsTuple;
+
+impl ArchiveWith<Point2D<f32>> for Point2DAsTuple {
+    type Archived = Archived<(f32, f32)>;
+    type Resolver = Resolver<(f32, f32)>;
+
+    fn resolve_with(field: &Point2D<f32>, resolver: Self::Resolver, out: Place<Self::Archived>) {
+        let value = (field.x, field.y);
+        value.resolve(resolver, out);
+    }
+}
+
+impl<S> SerializeWith<Point2D<f32>, S> for Point2DAsTuple
+where
+    S: Fallible + ?Sized,
+    (f32, f32): Serialize<S>,
+{
+    fn serialize_with(
+        field: &Point2D<f32>,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, S::Error> {
+        let value = (field.x, field.y);
+        value.serialize(serializer)
+    }
+}
+
+impl<D> DeserializeWith<Archived<(f32, f32)>, Point2D<f32>, D> for Point2DAsTuple
+where
+    D: Fallible + ?Sized,
+    Archived<(f32, f32)>: Deserialize<(f32, f32), D>,
+{
+    fn deserialize_with(
+        field: &Archived<(f32, f32)>,
+        deserializer: &mut D,
+    ) -> Result<Point2D<f32>, D::Error> {
+        let (x, y) = field.deserialize(deserializer)?;
+        Ok(Point2D::new(x, y))
+    }
+}
+
+struct Vector2DAsTuple;
+
+impl ArchiveWith<Vector2D<f32>> for Vector2DAsTuple {
+    type Archived = Archived<(f32, f32)>;
+    type Resolver = Resolver<(f32, f32)>;
+
+    fn resolve_with(field: &Vector2D<f32>, resolver: Self::Resolver, out: Place<Self::Archived>) {
+        let value = (field.x, field.y);
+        value.resolve(resolver, out);
+    }
+}
+
+impl<S> SerializeWith<Vector2D<f32>, S> for Vector2DAsTuple
+where
+    S: Fallible + ?Sized,
+    (f32, f32): Serialize<S>,
+{
+    fn serialize_with(
+        field: &Vector2D<f32>,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, S::Error> {
+        let value = (field.x, field.y);
+        value.serialize(serializer)
+    }
+}
+
+impl<D> DeserializeWith<Archived<(f32, f32)>, Vector2D<f32>, D> for Vector2DAsTuple
+where
+    D: Fallible + ?Sized,
+    Archived<(f32, f32)>: Deserialize<(f32, f32), D>,
+{
+    fn deserialize_with(
+        field: &Archived<(f32, f32)>,
+        deserializer: &mut D,
+    ) -> Result<Vector2D<f32>, D::Error> {
+        let (x, y) = field.deserialize(deserializer)?;
+        Ok(Vector2D::new(x, y))
+    }
+}
+
 /// Address type hint for renderer selection.
 ///
 /// Set automatically from the URL scheme at node creation time; can be overridden
 /// by WAL entry `UpdateNodeAddressKind` when a more precise classification is known.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Archive, Serialize, Deserialize)]
 pub enum AddressKind {
     /// Served over HTTP/HTTPS — default; Servo renders.
     #[default]
@@ -69,6 +188,12 @@ pub(crate) fn address_kind_from_url(url: &str) -> AddressKind {
     } else {
         AddressKind::Custom
     }
+}
+
+pub(crate) fn cached_host_from_url(url: &str) -> Option<String> {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_owned))
 }
 
 /// Detect MIME type from URL + optional content bytes.
@@ -103,21 +228,27 @@ pub(crate) fn detect_mime(url: &str, content_bytes: Option<&[u8]>) -> Option<Str
 pub type EdgeKey = EdgeIndex;
 
 /// Traversal archive payload emitted when dissolving a node.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub(crate) struct DissolvedTraversalRecord {
+    #[rkyv(with = UuidAsBytes)]
     pub(crate) from_node_id: Uuid,
+    #[rkyv(with = UuidAsBytes)]
     pub(crate) to_node_id: Uuid,
     pub(crate) traversals: Vec<Traversal>,
 }
 
 /// A webpage node in the graph
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub struct Node {
     /// Stable node identity.
+    #[rkyv(with = UuidAsBytes)]
     pub id: Uuid,
 
     /// Full URL of the webpage
     pub url: String,
+
+    /// Cached hostname derived from `url` for UI label rendering.
+    pub cached_host: Option<String>,
 
     /// Page title (or URL if no title)
     pub title: String,
@@ -126,18 +257,22 @@ pub struct Node {
     ///
     /// Render and physics code may move this continuously between reducer
     /// commits.
+    #[rkyv(with = Point2DAsTuple)]
     position: Point2D<f32>,
 
     /// Durable committed position used for snapshots and reducer-authored moves.
+    #[rkyv(with = Point2DAsTuple)]
     committed_position: Point2D<f32>,
 
     /// Velocity for physics simulation
+    #[rkyv(with = Vector2DAsTuple)]
     pub velocity: Vector2D<f32>,
 
     /// Whether this node's position is pinned (doesn't move with physics)
     pub is_pinned: bool,
 
     /// Timestamp of last visit
+    #[rkyv(with = rkyv::with::AsUnixTime)]
     pub last_visited: std::time::SystemTime,
 
     /// Navigation history seen for this node's mapped webview.
@@ -188,7 +323,7 @@ pub struct Node {
 }
 
 /// Lifecycle state for webview management
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub enum NodeLifecycle {
     /// Active webview (visible, rendering)
     Active,
@@ -217,6 +352,7 @@ impl Node {
         Self {
             id: Uuid::new_v4(),
             url: url.to_string(),
+            cached_host: cached_host_from_url(url),
             title: url.to_string(),
             position: Point2D::new(0.0, 0.0),
             committed_position: Point2D::new(0.0, 0.0),
@@ -241,7 +377,7 @@ impl Node {
 }
 
 /// Type of edge connection
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub enum EdgeType {
     /// Hyperlink from one page to another
     Hyperlink,
@@ -254,7 +390,10 @@ pub enum EdgeType {
 }
 
 /// Canonical edge kind set entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Archive, Serialize, Deserialize,
+)]
+#[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
 pub enum EdgeKind {
     Hyperlink,
     TraversalDerived,
@@ -263,7 +402,7 @@ pub enum EdgeKind {
 }
 
 /// Trigger classification for a traversal event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub enum NavigationTrigger {
     Unknown,
     LinkClick,
@@ -281,7 +420,7 @@ impl NavigationTrigger {
 }
 
 /// A temporal traversal event recorded on an edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct Traversal {
     pub timestamp_ms: u64,
     pub trigger: NavigationTrigger,
@@ -301,7 +440,7 @@ impl Traversal {
 }
 
 /// Durable traversal aggregates retained even when rolling-window records are evicted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct EdgeMetrics {
     pub total_navigations: u64,
     pub forward_navigations: u64,
@@ -331,7 +470,7 @@ impl EdgeMetrics {
 }
 
 /// Edge semantics payload: structural assertions + temporal traversal events.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct EdgePayload {
     pub kinds: BTreeSet<EdgeKind>,
     pub traversals: Vec<Traversal>,
@@ -463,6 +602,7 @@ impl Graph {
             id,
             title: url.clone(),
             url: url.clone(),
+            cached_host: cached_host_from_url(&url),
             position,
             committed_position: position,
             velocity: Vector2D::zero(),
@@ -503,10 +643,17 @@ impl Graph {
     /// Returns the old URL, or None if the node doesn't exist.
     pub(crate) fn update_node_url(&mut self, key: NodeKey, new_url: String) -> Option<String> {
         let node = self.inner.node_weight_mut(key)?;
+        node.cached_host = cached_host_from_url(&new_url);
         let old_url = std::mem::replace(&mut node.url, new_url.clone());
         self.remove_url_mapping(&old_url, key);
         self.url_to_nodes.entry(new_url).or_default().push(key);
         Some(old_url)
+    }
+
+    pub fn recompute_cached_hosts(&mut self) {
+        for node in self.inner.node_weights_mut() {
+            node.cached_host = cached_host_from_url(&node.url);
+        }
     }
 
     pub(crate) fn set_node_title(&mut self, key: NodeKey, title: String) -> bool {
@@ -1093,6 +1240,7 @@ impl Graph {
             .map(|(_, node)| PersistedNode {
                 node_id: node.id.to_string(),
                 url: node.url.clone(),
+                cached_host: node.cached_host.clone(),
                 title: node.title.clone(),
                 position_x: node.committed_position.x,
                 position_y: node.committed_position.y,
@@ -1172,6 +1320,10 @@ impl Graph {
             let mut restore_url_from_session: Option<String> = None;
             if let Some(node) = graph.inner.node_weight_mut(key) {
                 node.title = pnode.title.clone();
+                node.cached_host = pnode
+                    .cached_host
+                    .clone()
+                    .or_else(|| cached_host_from_url(&node.url));
                 node.is_pinned = pnode.is_pinned;
                 node.history_entries = pnode.history_entries.clone();
                 node.history_index = pnode
@@ -1245,6 +1397,41 @@ impl Graph {
 impl Default for Graph {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Archive for Graph {
+    type Archived = Archived<GraphSnapshot>;
+    type Resolver = Resolver<GraphSnapshot>;
+
+    fn resolve(&self, resolver: Self::Resolver, out: Place<Self::Archived>) {
+        let snapshot = self.to_snapshot();
+        snapshot.resolve(resolver, out);
+    }
+}
+
+impl<S> Serialize<S> for Graph
+where
+    S: Fallible + ?Sized,
+    GraphSnapshot: Serialize<S>,
+{
+    fn serialize(&self, serializer: &mut S) -> Result<Self::Resolver, S::Error> {
+        let snapshot = self.to_snapshot();
+        snapshot.serialize(serializer)
+    }
+}
+
+impl<D> Deserialize<Graph, D> for Archived<GraphSnapshot>
+where
+    D: Fallible + ?Sized,
+    Archived<GraphSnapshot>: Deserialize<GraphSnapshot, D>,
+{
+    fn deserialize(&self, deserializer: &mut D) -> Result<Graph, D::Error> {
+        let snapshot = <Archived<GraphSnapshot> as Deserialize<GraphSnapshot, D>>::deserialize(
+            self,
+            deserializer,
+        )?;
+        Ok(Graph::from_snapshot(&snapshot))
     }
 }
 
@@ -1667,6 +1854,7 @@ mod tests {
             nodes: vec![PersistedNode {
                 node_id: Uuid::new_v4().to_string(),
                 url: "https://a.com".to_string(),
+                cached_host: None,
                 title: String::new(),
                 position_x: 0.0,
                 position_y: 0.0,
@@ -1709,6 +1897,7 @@ mod tests {
                 PersistedNode {
                     node_id: Uuid::new_v4().to_string(),
                     url: "https://same.com".to_string(),
+                    cached_host: None,
                     title: "First".to_string(),
                     position_x: 0.0,
                     position_y: 0.0,
@@ -1728,6 +1917,7 @@ mod tests {
                 PersistedNode {
                     node_id: Uuid::new_v4().to_string(),
                     url: "https://same.com".to_string(),
+                    cached_host: None,
                     title: "Second".to_string(),
                     position_x: 100.0,
                     position_y: 100.0,
@@ -1789,6 +1979,7 @@ mod tests {
             nodes: vec![PersistedNode {
                 node_id: node_id.to_string(),
                 url: "https://fallback.example".to_string(),
+                cached_host: None,
                 title: "Node".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
@@ -1835,6 +2026,7 @@ mod tests {
             nodes: vec![PersistedNode {
                 node_id: Uuid::new_v4().to_string(),
                 url: "https://example.com".to_string(),
+                cached_host: None,
                 title: "Node".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
@@ -1876,6 +2068,7 @@ mod tests {
             nodes: vec![PersistedNode {
                 node_id: Uuid::new_v4().to_string(),
                 url: "https://fallback.example".to_string(),
+                cached_host: None,
                 title: "Node".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,

@@ -29,9 +29,7 @@ use crate::registries::atomic::lens::{
     LayoutMode, PhysicsProfile, ThemeData, deserialize_optional_theme_data,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::services::persistence::types::{
-    LogEntry, PersistedEdgeType, PersistedNavigationTrigger,
-};
+use crate::services::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigationTrigger};
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -573,7 +571,7 @@ pub struct ClipboardCopyRequest {
 
 #[derive(Clone)]
 struct UndoRedoSnapshot {
-    graph: Graph,
+    graph_bytes: Vec<u8>,
     selected_nodes: SelectionState,
     selected_nodes_by_view: HashMap<GraphViewId, SelectionState>,
     highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
@@ -2290,7 +2288,9 @@ pub struct GraphWorkspace {
     /// Cached egui_graphs state (persists across frames for drag/interaction)
     pub egui_state: Option<EguiGraphState>,
 
-    /// Flag: egui_state needs rebuild (set when graph structure changes)
+    /// Invariant: must only be set directly for non-structural visual changes
+    /// (selection, search highlights, viewport culling). All graph structure
+    /// changes must go through `apply_graph_delta_and_sync`.
     pub egui_state_dirty: bool,
 
     /// Node keys excluded by viewport culling on the previous rebuild.
@@ -2354,6 +2354,32 @@ pub struct GraphBrowserApp {
 }
 
 impl GraphBrowserApp {
+    fn encode_undo_graph_bytes(graph: &Graph) -> Option<Vec<u8>> {
+        rkyv::to_bytes::<rkyv::rancor::Error>(graph)
+            .ok()
+            .map(|bytes| bytes.as_slice().to_vec())
+    }
+
+    fn decode_undo_graph_bytes(graph_bytes: &[u8]) -> Option<Graph> {
+        let mut aligned = rkyv::util::AlignedVec::<16>::new();
+        aligned.extend_from_slice(graph_bytes);
+        rkyv::from_bytes::<Graph, rkyv::rancor::Error>(&aligned).ok()
+    }
+
+    fn build_undo_redo_snapshot(
+        &self,
+        workspace_layout_json: Option<String>,
+    ) -> Option<UndoRedoSnapshot> {
+        let graph_bytes = Self::encode_undo_graph_bytes(&self.workspace.domain.graph)?;
+        Some(UndoRedoSnapshot {
+            graph_bytes,
+            selected_nodes: self.workspace.selected_nodes.clone(),
+            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
+            highlighted_graph_edge: self.workspace.highlighted_graph_edge,
+            workspace_layout_json,
+        })
+    }
+
     const STARTUP_PERSISTENCE_OPEN_TIMEOUT_MS: u64 = 600;
 
     pub const SESSION_WORKSPACE_LAYOUT_NAME: &'static str = "workspace:session-latest";
@@ -5400,16 +5426,12 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(&first_key, latest_layout_before_overwrite);
     }
 
-    /// Persist reserved session frame payload only when the live runtime layout changes.
+    /// Persist reserved session frame layout only when the live runtime layout changes.
     ///
-    /// `persisted_blob` is the on-disk payload (bundle JSON for unified reserved frames).
-    /// `layout_json_for_hash` is the live runtime `Tree<TileKind>` JSON used for change detection.
-    pub fn save_session_workspace_layout_blob_if_changed(
-        &mut self,
-        persisted_blob: &str,
-        layout_json_for_hash: &str,
-    ) {
-        let next_hash = Self::layout_json_hash(layout_json_for_hash);
+    /// The persisted payload for `SESSION_WORKSPACE_LAYOUT_NAME` is the canonical
+    /// runtime `egui_tiles::Tree<TileKind>` JSON.
+    pub fn save_session_workspace_layout_json_if_changed(&mut self, layout_json: &str) {
+        let next_hash = Self::layout_json_hash(layout_json);
         if self.workspace.last_session_workspace_layout_hash == Some(next_hash) {
             return;
         }
@@ -5419,12 +5441,12 @@ impl GraphBrowserApp {
             return;
         }
         let previous_latest = self.load_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME);
-        self.save_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME, persisted_blob);
+        self.save_workspace_layout_json(Self::SESSION_WORKSPACE_LAYOUT_NAME, layout_json);
         if let Some(previous_latest) = previous_latest {
             self.rotate_session_workspace_history(&previous_latest);
         }
         self.workspace.last_session_workspace_layout_hash = Some(next_hash);
-        self.workspace.last_session_workspace_layout_json = Some(layout_json_for_hash.to_string());
+        self.workspace.last_session_workspace_layout_json = Some(layout_json.to_string());
         self.workspace.last_workspace_autosave_at = Some(Instant::now());
     }
 
@@ -7018,13 +7040,11 @@ impl GraphBrowserApp {
         workspace_layout_json: Option<String>,
         _reason: UndoBoundaryReason,
     ) {
-        self.workspace.undo_stack.push(UndoRedoSnapshot {
-            graph: self.workspace.domain.graph.clone(),
-            selected_nodes: self.workspace.selected_nodes.clone(),
-            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
-            highlighted_graph_edge: self.workspace.highlighted_graph_edge,
-            workspace_layout_json,
-        });
+        let Some(snapshot) = self.build_undo_redo_snapshot(workspace_layout_json) else {
+            warn!("Failed to serialize graph for undo checkpoint; skipping capture");
+            return;
+        };
+        self.workspace.undo_stack.push(snapshot);
         self.workspace.redo_stack.clear();
         const MAX_UNDO_STEPS: usize = 128;
         if self.workspace.undo_stack.len() > MAX_UNDO_STEPS {
@@ -7035,17 +7055,20 @@ impl GraphBrowserApp {
 
     /// Perform one global undo step using current frame layout as redo checkpoint.
     fn perform_undo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
-        let Some(prev) = self.workspace.undo_stack.pop() else {
+        let Some(prev) = self.workspace.undo_stack.last().cloned() else {
             return false;
         };
-        self.workspace.redo_stack.push(UndoRedoSnapshot {
-            graph: self.workspace.domain.graph.clone(),
-            selected_nodes: self.workspace.selected_nodes.clone(),
-            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
-            highlighted_graph_edge: self.workspace.highlighted_graph_edge,
-            workspace_layout_json: current_workspace_layout_json,
-        });
-        self.apply_loaded_graph(prev.graph);
+        let Some(prev_graph) = Self::decode_undo_graph_bytes(&prev.graph_bytes) else {
+            warn!("Failed to deserialize graph from undo checkpoint");
+            return false;
+        };
+        let Some(redo_snapshot) = self.build_undo_redo_snapshot(current_workspace_layout_json) else {
+            warn!("Failed to serialize graph for redo checkpoint");
+            return false;
+        };
+        let _ = self.workspace.undo_stack.pop();
+        self.workspace.redo_stack.push(redo_snapshot);
+        self.apply_loaded_graph(prev_graph);
         self.workspace.selected_nodes = prev.selected_nodes;
         self.workspace.selected_nodes_by_view = prev.selected_nodes_by_view;
         self.workspace.highlighted_graph_edge = prev.highlighted_graph_edge;
@@ -7055,17 +7078,20 @@ impl GraphBrowserApp {
 
     /// Perform one global redo step using current frame layout as undo checkpoint.
     fn perform_redo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
-        let Some(next) = self.workspace.redo_stack.pop() else {
+        let Some(next) = self.workspace.redo_stack.last().cloned() else {
             return false;
         };
-        self.workspace.undo_stack.push(UndoRedoSnapshot {
-            graph: self.workspace.domain.graph.clone(),
-            selected_nodes: self.workspace.selected_nodes.clone(),
-            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
-            highlighted_graph_edge: self.workspace.highlighted_graph_edge,
-            workspace_layout_json: current_workspace_layout_json,
-        });
-        self.apply_loaded_graph(next.graph);
+        let Some(next_graph) = Self::decode_undo_graph_bytes(&next.graph_bytes) else {
+            warn!("Failed to deserialize graph from redo checkpoint");
+            return false;
+        };
+        let Some(undo_snapshot) = self.build_undo_redo_snapshot(current_workspace_layout_json) else {
+            warn!("Failed to serialize graph for undo checkpoint during redo");
+            return false;
+        };
+        let _ = self.workspace.redo_stack.pop();
+        self.workspace.undo_stack.push(undo_snapshot);
+        self.apply_loaded_graph(next_graph);
         self.workspace.selected_nodes = next.selected_nodes;
         self.workspace.selected_nodes_by_view = next.selected_nodes_by_view;
         self.workspace.highlighted_graph_edge = next.highlighted_graph_edge;

@@ -28,7 +28,15 @@ pub enum PersistedAddressKind {
 }
 
 /// Persisted per-node session fidelity state.
-#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct PersistedNodeSessionState {
     pub history_entries: Vec<String>,
     pub history_index: usize,
@@ -38,11 +46,21 @@ pub struct PersistedNodeSessionState {
 }
 
 /// Persisted node.
-#[derive(Archive, Serialize, Deserialize, Clone, Debug)]
+#[derive(
+    Archive,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct PersistedNode {
     /// Stable node identity.
     pub node_id: String,
     pub url: String,
+    #[serde(default)]
+    pub cached_host: Option<String>,
     pub title: String,
     pub position_x: f32,
     pub position_y: f32,
@@ -192,6 +210,7 @@ mod tests {
         let node = PersistedNode {
             node_id: Uuid::new_v4().to_string(),
             url: "https://example.com".to_string(),
+            cached_host: Some("example.com".to_string()),
             title: "Example".to_string(),
             position_x: 100.0,
             position_y: 200.0,
@@ -278,6 +297,7 @@ mod tests {
             nodes: vec![PersistedNode {
                 node_id: Uuid::new_v4().to_string(),
                 url: "https://a.com".to_string(),
+                cached_host: Some("a.com".to_string()),
                 title: "A".to_string(),
                 position_x: 0.0,
                 position_y: 0.0,
