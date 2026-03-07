@@ -84,51 +84,18 @@ pub(super) fn connected_frame_import_nodes(
     graph_app.domain_graph().connected_frame_import_nodes(seeds)
 }
 
-pub(super) fn connected_candidates_with_depth(
-    graph_app: &GraphBrowserApp,
-    source: NodeKey,
-    scope: PendingConnectedOpenScope,
-) -> Vec<(NodeKey, u8)> {
-    match scope {
-        PendingConnectedOpenScope::Neighbors => graph_app
-            .domain_graph()
-            .neighbors_undirected_sorted(source)
-            .into_iter()
-            .map(|key| (key, 1))
-            .collect(),
-        PendingConnectedOpenScope::Connected => {
-            let mut out = Vec::new();
-            let mut visited = HashSet::from([source]);
-            let depth1 = graph_app.domain_graph().neighbors_undirected_sorted(source);
-            for neighbor in depth1 {
-                if visited.insert(neighbor) {
-                    out.push((neighbor, 1));
-                }
-            }
-
-            let depth1_nodes: Vec<NodeKey> = out
-                .iter()
-                .filter_map(|(node, depth)| (*depth == 1).then_some(*node))
-                .collect();
-            for depth1_node in depth1_nodes {
-                for neighbor in graph_app.domain_graph().neighbors_undirected_sorted(depth1_node) {
-                    if visited.insert(neighbor) {
-                        out.push((neighbor, 2));
-                    }
-                }
-            }
-
-            out
-        }
-    }
-}
-
 fn connected_targets_for_open(
     graph_app: &GraphBrowserApp,
     source: NodeKey,
     scope: PendingConnectedOpenScope,
 ) -> Vec<NodeKey> {
-    let mut candidates = connected_candidates_with_depth(graph_app, source, scope);
+    let max_depth = match scope {
+        PendingConnectedOpenScope::Neighbors => 1,
+        PendingConnectedOpenScope::Connected => 2,
+    };
+    let mut candidates = graph_app
+        .domain_graph()
+        .connected_candidates_with_depth(source, max_depth);
     let cap = MAX_CONNECTED_OPEN_NODES.saturating_sub(1);
 
     if candidates.len() > cap {

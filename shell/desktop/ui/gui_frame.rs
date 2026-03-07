@@ -350,7 +350,6 @@ mod tests {
 #[cfg(test)]
 mod connected_open_tests {
     use super::*;
-    use crate::app::PendingConnectedOpenScope;
     use euclid::Point2D;
 
     #[test]
@@ -370,11 +369,7 @@ mod connected_open_tests {
         let _ = app.add_edge_and_sync(left, shared, crate::model::graph::EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(right, shared, crate::model::graph::EdgeType::Hyperlink);
 
-        let candidates = connected_open::connected_candidates_with_depth(
-            &app,
-            source,
-            PendingConnectedOpenScope::Connected,
-        );
+        let candidates = app.domain_graph().connected_candidates_with_depth(source, 2);
 
         assert!(candidates.contains(&(left, 1)));
         assert!(candidates.contains(&(right, 1)));
@@ -405,11 +400,7 @@ mod connected_open_tests {
         let _ = app.add_edge_and_sync(source, neighbor, crate::model::graph::EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(neighbor, depth_two, crate::model::graph::EdgeType::Hyperlink);
 
-        let candidates = connected_open::connected_candidates_with_depth(
-            &app,
-            source,
-            PendingConnectedOpenScope::Neighbors,
-        );
+        let candidates = app.domain_graph().connected_candidates_with_depth(source, 1);
 
         assert_eq!(candidates, vec![(neighbor, 1)]);
     }

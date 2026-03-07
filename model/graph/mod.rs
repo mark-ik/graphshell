@@ -1255,6 +1255,47 @@ impl Graph {
         nodes
     }
 
+    /// Connected candidate expansion around a source node with depth annotations.
+    ///
+    /// `max_depth` currently supports 1 or 2, matching connected-open scope behavior.
+    pub fn connected_candidates_with_depth(
+        &self,
+        source: NodeKey,
+        max_depth: u8,
+    ) -> Vec<(NodeKey, u8)> {
+        if self.get_node(source).is_none() || max_depth == 0 {
+            return Vec::new();
+        }
+
+        let mut out = Vec::new();
+        let mut visited = HashSet::from([source]);
+
+        let depth1 = self.neighbors_undirected_sorted(source);
+        for neighbor in depth1 {
+            if visited.insert(neighbor) {
+                out.push((neighbor, 1));
+            }
+        }
+
+        if max_depth < 2 {
+            return out;
+        }
+
+        let depth1_nodes: Vec<NodeKey> = out
+            .iter()
+            .filter_map(|(node, depth)| (*depth == 1).then_some(*node))
+            .collect();
+        for depth1_node in depth1_nodes {
+            for neighbor in self.neighbors_undirected_sorted(depth1_node) {
+                if visited.insert(neighbor) {
+                    out.push((neighbor, 2));
+                }
+            }
+        }
+
+        out
+    }
+
     /// Undirected hop distances from `source` using unit edge weights.
     pub fn hop_distances_from(&self, source: NodeKey) -> HashMap<NodeKey, usize> {
         if self.get_node(source).is_none() {
@@ -2418,17 +2459,28 @@ mod tests {
         let seed = graph.add_node("https://seed.example".to_string(), Point2D::new(0.0, 0.0));
         let left = graph.add_node("https://left.example".to_string(), Point2D::new(1.0, 0.0));
         let right = graph.add_node("https://right.example".to_string(), Point2D::new(2.0, 0.0));
+        let shared = graph.add_node("https://shared.example".to_string(), Point2D::new(2.5, 0.0));
         let isolated =
             graph.add_node("https://isolated.example".to_string(), Point2D::new(3.0, 0.0));
 
         let _ = graph.add_edge(seed, right, EdgeType::Hyperlink);
         let _ = graph.add_edge(left, seed, EdgeType::Hyperlink);
+        let _ = graph.add_edge(left, shared, EdgeType::Hyperlink);
+        let _ = graph.add_edge(right, shared, EdgeType::Hyperlink);
 
         let sorted_neighbors = graph.neighbors_undirected_sorted(seed);
         assert_eq!(sorted_neighbors, vec![left, right]);
 
         let import_nodes = graph.connected_frame_import_nodes(&[isolated, seed]);
         assert_eq!(import_nodes, vec![seed, left, right, isolated]);
+
+        let depth_one = graph.connected_candidates_with_depth(seed, 1);
+        assert_eq!(depth_one, vec![(left, 1), (right, 1)]);
+
+        let depth_two = graph.connected_candidates_with_depth(seed, 2);
+        assert!(depth_two.contains(&(left, 1)));
+        assert!(depth_two.contains(&(right, 1)));
+        assert!(depth_two.contains(&(shared, 2)));
     }
 
     #[test]

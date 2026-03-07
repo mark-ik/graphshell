@@ -179,7 +179,7 @@ fn connected_nodes_matches_for_query(
     let Some(context) = graph_app.focused_selection().primary() else {
         return Vec::new();
     };
-    let hop_distances = connected_hop_distances_for_context(graph_app, context);
+    let hop_distances = graph_app.cached_hop_distances_for_context(context);
     let ranked = fuzzy_match_node_keys(graph_app.domain_graph(), query);
     let rank_index: HashMap<NodeKey, usize> = ranked
         .iter()
@@ -440,13 +440,6 @@ fn tab_candidates_for_keys(
         .collect()
 }
 
-fn connected_hop_distances_for_context(
-    graph_app: &mut GraphBrowserApp,
-    context: NodeKey,
-) -> HashMap<NodeKey, usize> {
-    graph_app.cached_hop_distances_for_context(context)
-}
-
 pub(super) fn omnibar_match_signifier(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
@@ -462,7 +455,7 @@ pub(super) fn omnibar_match_signifier(
                 .workspace
                 .selected_nodes
                 .primary()
-                .map(|context| connected_hop_distances_for_context(graph_app, context))
+                .map(|context| graph_app.cached_hop_distances_for_context(context))
                 .and_then(|hops| hops.get(key).copied())
                 .unwrap_or(usize::MAX)
                 != usize::MAX;
@@ -756,7 +749,7 @@ pub(super) fn omnibar_matches_for_query(
                 .workspace
                 .selected_nodes
                 .primary()
-                .map(|context| connected_hop_distances_for_context(graph_app, context))
+                .map(|context| graph_app.cached_hop_distances_for_context(context))
                 .unwrap_or_default();
             let local_tab_set = tab_node_keys_in_tree(tiles_tree);
             if !has_node_panes {
