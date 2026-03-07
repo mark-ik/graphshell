@@ -2340,11 +2340,11 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
 
     let mut pinned_positions = Vec::new();
     for (key, pos) in layout_positions {
-        if let Some(node_mut) = app.workspace.graph.get_node_mut(key) {
-            if node_mut.is_pinned {
-                pinned_positions.push((key, node_mut.position));
+        if let Some(node) = app.workspace.graph.get_node(key) {
+            if node.is_pinned {
+                pinned_positions.push((key, node.position));
             } else {
-                node_mut.position = pos;
+                let _ = app.workspace.graph.set_node_position(key, pos);
             }
         }
     }
@@ -2359,13 +2359,15 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
 
         let mut secondary_updates: Vec<(NodeKey, egui::Pos2)> = Vec::new();
         for other_key in secondary_keys {
-            if let Some(node) = app.workspace.graph.get_node_mut(other_key) {
-                if !node.is_pinned {
-                    node.position.x += delta.x;
-                    node.position.y += delta.y;
-                    secondary_updates
-                        .push((other_key, egui::Pos2::new(node.position.x, node.position.y)));
-                }
+            if let Some(node) = app.workspace.graph.get_node(other_key)
+                && !node.is_pinned
+            {
+                let next_pos = euclid::default::Point2D::new(
+                    node.position.x + delta.x,
+                    node.position.y + delta.y,
+                );
+                let _ = app.workspace.graph.set_node_position(other_key, next_pos);
+                secondary_updates.push((other_key, egui::Pos2::new(next_pos.x, next_pos.y)));
             }
         }
         if let Some(state_mut) = app.workspace.egui_state.as_mut() {
@@ -2467,11 +2469,14 @@ fn apply_semantic_clustering_forces(
 
     // Apply position deltas to app.workspace.graph and sync to egui_state
     for (key, delta) in &position_deltas {
-        if let Some(node) = app.workspace.graph.get_node_mut(*key) {
-            if !node.is_pinned {
-                node.position.x += delta.x;
-                node.position.y += delta.y;
-            }
+        if let Some(node) = app.workspace.graph.get_node(*key)
+            && !node.is_pinned
+        {
+            let next_pos = euclid::default::Point2D::new(
+                node.position.x + delta.x,
+                node.position.y + delta.y,
+            );
+            let _ = app.workspace.graph.set_node_position(*key, next_pos);
         }
     }
 

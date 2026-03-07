@@ -551,6 +551,84 @@ impl Graph {
         true
     }
 
+    pub(crate) fn set_node_position(&mut self, key: NodeKey, position: Point2D<f32>) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.position == position {
+            return false;
+        }
+        node.position = position;
+        true
+    }
+
+    pub(crate) fn set_node_form_draft(&mut self, key: NodeKey, form_draft: Option<String>) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.session_form_draft == form_draft {
+            return false;
+        }
+        node.session_form_draft = form_draft;
+        true
+    }
+
+    pub(crate) fn touch_node_last_visited_now(&mut self, key: NodeKey) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        node.last_visited = std::time::SystemTime::now();
+        true
+    }
+
+    pub(crate) fn set_node_history_state(
+        &mut self,
+        key: NodeKey,
+        history_entries: Vec<String>,
+        history_index: usize,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        let clamped_index = if history_entries.is_empty() {
+            0
+        } else {
+            history_index.min(history_entries.len() - 1)
+        };
+        if node.history_entries == history_entries && node.history_index == clamped_index {
+            return false;
+        }
+        node.history_entries = history_entries;
+        node.history_index = clamped_index;
+        true
+    }
+
+    pub(crate) fn set_node_session_scroll(
+        &mut self,
+        key: NodeKey,
+        session_scroll: Option<(f32, f32)>,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.session_scroll == session_scroll {
+            return false;
+        }
+        node.session_scroll = session_scroll;
+        true
+    }
+
+    pub(crate) fn set_node_lifecycle(&mut self, key: NodeKey, lifecycle: NodeLifecycle) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.lifecycle == lifecycle {
+            return false;
+        }
+        node.lifecycle = lifecycle;
+        true
+    }
+
     /// Add an edge between two nodes
     pub(crate) fn add_edge(
         &mut self,
@@ -831,6 +909,7 @@ impl Graph {
     }
 
     /// Get a mutable node by key
+    #[cfg(test)]
     pub(crate) fn get_node_mut(&mut self, key: NodeKey) -> Option<&mut Node> {
         self.inner.node_weight_mut(key)
     }
@@ -1005,7 +1084,7 @@ impl Graph {
                 Point2D::new(pnode.position_x, pnode.position_y),
             );
             let mut restore_url_from_session: Option<String> = None;
-            if let Some(node) = graph.get_node_mut(key) {
+            if let Some(node) = graph.inner.node_weight_mut(key) {
                 node.title = pnode.title.clone();
                 node.is_pinned = pnode.is_pinned;
                 node.history_entries = pnode.history_entries.clone();
@@ -1039,7 +1118,7 @@ impl Graph {
                 && !current_url.is_empty()
             {
                 // Recompute MIME hint and address kind from the restored URL.
-                if let Some(node) = graph.get_node_mut(key) {
+                if let Some(node) = graph.inner.node_weight_mut(key) {
                     node.mime_hint = detect_mime(&current_url, None);
                     node.address_kind = address_kind_from_url(&current_url);
                 }

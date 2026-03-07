@@ -3327,9 +3327,7 @@ impl GraphBrowserApp {
                 true
             }
             GraphIntent::SetNodePosition { key, position } => {
-                if let Some(node) = self.workspace.graph.get_node_mut(*key) {
-                    node.position = *position;
-                }
+                let _ = self.workspace.graph.set_node_position(*key, *position);
                 true
             }
             GraphIntent::SetZoom { zoom } => {
@@ -3368,9 +3366,10 @@ impl GraphBrowserApp {
                 if !self.workspace.form_draft_capture_enabled {
                     return true;
                 }
-                if let Some(node) = self.workspace.graph.get_node_mut(*key) {
-                    node.session_form_draft = form_draft.clone();
-                }
+                let _ = self
+                    .workspace
+                    .graph
+                    .set_node_form_draft(*key, form_draft.clone());
                 true
             }
             GraphIntent::SetNodeThumbnail {
@@ -4000,9 +3999,7 @@ impl GraphBrowserApp {
                     // URL change should update an existing tab/node, not create a new node.
                     return;
                 };
-                if let Some(node) = self.workspace.graph.get_node_mut(node_key) {
-                    node.last_visited = std::time::SystemTime::now();
-                }
+                let _ = self.workspace.graph.touch_node_last_visited_now(node_key);
                 if self
                     .workspace
                     .graph
@@ -4057,10 +4054,10 @@ impl GraphBrowserApp {
                     &entries,
                     new_index,
                 );
-                if let Some(node) = self.workspace.graph.get_node_mut(node_key) {
-                    node.history_entries = entries;
-                    node.history_index = new_index;
-                }
+                let _ = self
+                    .workspace
+                    .graph
+                    .set_node_history_state(node_key, entries, new_index);
             }
             GraphIntent::WebViewScrollChanged {
                 webview_id,
@@ -4070,9 +4067,10 @@ impl GraphBrowserApp {
                 let Some(node_key) = self.get_node_for_webview(webview_id) else {
                     return;
                 };
-                if let Some(node) = self.workspace.graph.get_node_mut(node_key) {
-                    node.session_scroll = Some((scroll_x, scroll_y));
-                }
+                let _ = self
+                    .workspace
+                    .graph
+                    .set_node_session_scroll(node_key, Some((scroll_x, scroll_y)));
             }
             GraphIntent::WebViewTitleChanged { webview_id, title } => {
                 let Some(node_key) = self.get_node_for_webview(webview_id) else {
@@ -7066,9 +7064,10 @@ impl GraphBrowserApp {
             return;
         }
 
-        if let Some(node) = self.workspace.graph.get_node_mut(node_key) {
-            node.lifecycle = NodeLifecycle::Active;
-        }
+        let _ = self
+            .workspace
+            .graph
+            .set_node_lifecycle(node_key, NodeLifecycle::Active);
         self.touch_active_node(node_key);
         self.remove_warm_cache_node(node_key);
         self.workspace.runtime_block_state.remove(&node_key);
@@ -7102,9 +7101,10 @@ impl GraphBrowserApp {
         }
 
         let has_mapped_webview = self.workspace.node_to_webview.contains_key(&node_key);
-        if let Some(node) = self.workspace.graph.get_node_mut(node_key) {
-            node.lifecycle = NodeLifecycle::Warm;
-        }
+        let _ = self
+            .workspace
+            .graph
+            .set_node_lifecycle(node_key, NodeLifecycle::Warm);
         if has_mapped_webview {
             self.touch_warm_cache_node(node_key);
         } else {
@@ -7124,9 +7124,10 @@ impl GraphBrowserApp {
         if self.workspace.graph.get_node(node_key).is_none() {
             return;
         }
-        if let Some(node) = self.workspace.graph.get_node_mut(node_key) {
-            node.lifecycle = NodeLifecycle::Cold;
-        }
+        let _ = self
+            .workspace
+            .graph
+            .set_node_lifecycle(node_key, NodeLifecycle::Cold);
         self.remove_active_node(node_key);
         self.remove_warm_cache_node(node_key);
         if !matches!(cause, LifecycleCause::Crash) {
@@ -8869,12 +8870,13 @@ mod tests {
 
     #[test]
     fn contract_only_trusted_writers_call_graph_topology_mutators() {
-        const FORBIDDEN_TOKENS: [&str; 10] = [
+        const FORBIDDEN_TOKENS: [&str; 11] = [
             "graph.add_node(",
             "graph.remove_node(",
             "graph.add_edge(",
             "graph.remove_edges(",
             "graph.inner.",
+            "graph.get_node_mut(",
             ".add_node_and_sync(",
             ".add_edge_and_sync(",
             ".capture_undo_checkpoint(",
@@ -8891,7 +8893,19 @@ mod tests {
             .split("\n#[cfg(test)]")
             .next()
             .unwrap_or_default();
+        let webview_controller_runtime_only = include_str!("shell/desktop/lifecycle/webview_controller.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
         let render_runtime_only = include_str!("render/mod.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+        let action_registry_runtime_only = include_str!("shell/desktop/runtime/registries/action.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+        let runtime_registries_runtime_only = include_str!("shell/desktop/runtime/registries/mod.rs")
             .split("\n#[cfg(test)]")
             .next()
             .unwrap_or_default();
@@ -8922,8 +8936,8 @@ mod tests {
                 include_str!("shell/desktop/lifecycle/lifecycle_reconcile.rs"),
             ),
             (
-                "shell/desktop/lifecycle/webview_controller.rs",
-                include_str!("shell/desktop/lifecycle/webview_controller.rs"),
+                "shell/desktop/lifecycle/webview_controller.rs (runtime section)",
+                webview_controller_runtime_only,
             ),
             (
                 "shell/desktop/lifecycle/semantic_event_pipeline.rs",
@@ -8932,6 +8946,14 @@ mod tests {
             (
                 "shell/desktop/host/event_loop.rs",
                 include_str!("shell/desktop/host/event_loop.rs"),
+            ),
+            (
+                "shell/desktop/runtime/registries/action.rs (runtime section)",
+                action_registry_runtime_only,
+            ),
+            (
+                "shell/desktop/runtime/registries/mod.rs (runtime section)",
+                runtime_registries_runtime_only,
             ),
             ("render/mod.rs (runtime section)", render_runtime_only),
             ("shell/desktop/ui/gui.rs (runtime section)", gui_runtime_only),
