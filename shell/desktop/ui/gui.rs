@@ -68,6 +68,8 @@ mod gui_update_coordinator;
 mod accessibility;
 #[path = "gui/update_frame_phases.rs"]
 mod update_frame_phases;
+#[path = "gui/startup.rs"]
+mod startup;
 
 use accessibility::WebViewA11yGraftPlan;
 use update_frame_phases::ExecuteUpdateFrameArgs;
@@ -174,52 +176,6 @@ impl Drop for Gui {
     }
 }
 
-fn restore_startup_session_frame_if_available(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-) -> bool {
-    if let Some(layout_json) = graph_app
-        .load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
-        && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
-    {
-        tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
-        if restored_tree.root().is_some() {
-            graph_app.mark_session_frame_layout_json(&layout_json);
-            log::debug!("gui: restored startup session frame from session layout json");
-            *tiles_tree = restored_tree;
-            return true;
-        }
-    }
-
-    if let Ok(bundle) = persistence_ops::load_named_frame_bundle(
-        graph_app,
-        GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
-    ) && let Ok((restored_tree, _)) =
-        persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle)
-        && restored_tree.root().is_some()
-    {
-        if let Ok(runtime_layout_json) = serde_json::to_string(&restored_tree) {
-            graph_app.mark_session_frame_layout_json(&runtime_layout_json);
-        }
-        log::debug!("gui: restored startup session frame from legacy session bundle");
-        *tiles_tree = restored_tree;
-        return true;
-    }
-
-    if let Some(layout_json) = graph_app.load_tile_layout_json()
-        && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
-    {
-        tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
-        if restored_tree.root().is_some() {
-            graph_app.mark_session_frame_layout_json(&layout_json);
-            log::debug!("gui: restored startup session frame from compatibility layout json");
-            *tiles_tree = restored_tree;
-            return true;
-        }
-    }
-    false
-}
-
 fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
     let was_focused_node_hint = runtime_state.focused_node_hint;
     let was_graph_surface_focused = runtime_state.graph_surface_focused;
@@ -311,7 +267,7 @@ impl Gui {
         let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let mut tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
 
-        let _ = restore_startup_session_frame_if_available(&mut graph_app, &mut tiles_tree);
+        let _ = startup::restore_startup_session_frame_if_available(&mut graph_app, &mut tiles_tree);
 
         // Only create initial node if graph wasn't recovered from persistence
         if !graph_app.has_recovered_graph() {
