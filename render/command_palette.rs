@@ -249,7 +249,7 @@ pub fn render_command_palette_panel(
     let source_context = super::resolve_source_node_context(app, hovered_node, focused_pane_node);
     let focused_selection = app.focused_selection().clone();
     let any_selected = !focused_selection.is_empty();
-    let graph_node_count = app.workspace.graph.node_count();
+    let graph_node_count = app.domain_graph().node_count();
 
     let action_context = ActionContext {
         target_node: source_context,
@@ -508,6 +508,7 @@ pub(super) fn execute_action(
         ActionId::NodePinToggle => {
             if focused_selection.iter().copied().all(|key| {
                 app.workspace
+                    .domain
                     .graph
                     .get_node(key)
                     .is_some_and(|node| node.is_pinned)

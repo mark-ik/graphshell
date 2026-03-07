@@ -19,8 +19,7 @@ fn open_node_frame_routed_preserves_unsaved_prompt_state_until_restore() {
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
-        .workspace
-        .graph
+        .workspace.domain.graph
         .get_node(key)
         .expect("node should exist")
         .id;
@@ -253,14 +252,12 @@ fn switch_persistence_dir_reloads_graph_state() {
 
     let mut app = GraphBrowserApp::new_from_dir(path_a);
     assert!(
-        app.workspace
-            .graph
+        app.workspace.domain.graph
             .get_node_by_url("https://from-a.com")
             .is_some()
     );
     assert!(
-        app.workspace
-            .graph
+        app.workspace.domain.graph
             .get_node_by_url("https://from-b.com")
             .is_none()
     );
@@ -269,14 +266,12 @@ fn switch_persistence_dir_reloads_graph_state() {
         .expect("switching persistence dir should succeed");
 
     assert!(
-        app.workspace
-            .graph
+        app.workspace.domain.graph
             .get_node_by_url("https://from-a.com")
             .is_none()
     );
     assert!(
-        app.workspace
-            .graph
+        app.workspace.domain.graph
             .get_node_by_url("https://from-b.com")
             .is_some()
     );
@@ -284,8 +279,7 @@ fn switch_persistence_dir_reloads_graph_state() {
 
     let new_placeholder = app.create_new_node_near_center();
     assert_eq!(
-        app.workspace
-            .graph
+        app.workspace.domain.graph
             .get_node(new_placeholder)
             .expect("node should exist")
             .url,

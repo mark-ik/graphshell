@@ -2304,6 +2304,7 @@ impl DiagnosticsState {
                             for tile in &last.tiles {
                                 let url = graph_app
                                     .workspace
+                                    .domain
                                     .graph
                                     .get_node(tile.node_key)
                                     .map(|n| n.url.clone())

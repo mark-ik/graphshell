@@ -180,7 +180,7 @@ fn connected_nodes_matches_for_query(
         return Vec::new();
     };
     let hop_distances = connected_hop_distances_for_context(graph_app, context);
-    let ranked = fuzzy_match_node_keys(&graph_app.workspace.graph, query);
+    let ranked = fuzzy_match_node_keys(graph_app.domain_graph(), query);
     let rank_index: HashMap<NodeKey, usize> = ranked
         .iter()
         .copied()
@@ -376,8 +376,7 @@ fn edge_type_label(edge_type: crate::graph::EdgeType) -> &'static str {
 
 pub(super) fn graph_center_for_new_node(graph_app: &GraphBrowserApp) -> Point2D<f32> {
     graph_app
-        .workspace
-        .graph
+        .domain_graph()
         .projected_centroid()
         .unwrap_or_else(|| Point2D::new(0.0, 0.0))
 }
@@ -446,7 +445,7 @@ fn connected_hop_distances_for_context(
     context: NodeKey,
 ) -> HashMap<NodeKey, usize> {
     let mut distances = HashMap::new();
-    if graph_app.workspace.graph.get_node(context).is_none() {
+    if graph_app.domain_graph().get_node(context).is_none() {
         return distances;
     }
     let mut queue = VecDeque::new();
@@ -457,10 +456,9 @@ fn connected_hop_distances_for_context(
             continue;
         };
         for neighbor in graph_app
-            .workspace
-            .graph
+            .domain_graph()
             .out_neighbors(current)
-            .chain(graph_app.workspace.graph.in_neighbors(current))
+            .chain(graph_app.domain_graph().in_neighbors(current))
         {
             if distances.contains_key(&neighbor) {
                 continue;
@@ -516,8 +514,7 @@ pub(super) fn omnibar_match_signifier(
 pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch) -> String {
     match m {
         OmnibarMatch::Node(key) => graph_app
-            .workspace
-            .graph
+            .domain_graph()
             .get_node(*key)
             .map(|node| format!("{}  {}", node.title, node.url))
             .unwrap_or_else(|| format!("node {}", key.index())),
@@ -525,14 +522,12 @@ pub(super) fn omnibar_match_label(graph_app: &GraphBrowserApp, m: &OmnibarMatch)
         OmnibarMatch::SearchQuery { query, .. } => query.clone(),
         OmnibarMatch::Edge { from, to } => {
             let from_label = graph_app
-                .workspace
-                .graph
+                .domain_graph()
                 .get_node(*from)
                 .map(|n| n.title.clone())
                 .unwrap_or_else(|| from.index().to_string());
             let to_label = graph_app
-                .workspace
-                .graph
+                .domain_graph()
                 .get_node(*to)
                 .map(|n| n.title.clone())
                 .unwrap_or_else(|| to.index().to_string());
@@ -589,7 +584,7 @@ pub(super) fn apply_omnibar_match(
         }
         OmnibarMatch::NodeUrl(url) => {
             frame_intents.push(GraphIntent::ClearHighlightedEdge);
-            if let Some((key, _)) = graph_app.workspace.graph.get_node_by_url(&url) {
+            if let Some((key, _)) = graph_app.domain_graph().get_node_by_url(&url) {
                 if has_node_panes {
                     frame_intents.push(GraphIntent::OpenNodeFrameRouted {
                         key,
@@ -650,22 +645,20 @@ pub(super) fn omnibar_matches_for_query(
     }
 
     let local_tab_nodes = tab_node_keys_in_tree(tiles_tree);
-    let local_node_candidates = node_candidates_for_graph(&graph_app.workspace.graph);
-    let local_edge_candidates = edge_candidates_for_graph(&graph_app.workspace.graph, None);
+    let local_node_candidates = node_candidates_for_graph(graph_app.domain_graph());
+    let local_edge_candidates = edge_candidates_for_graph(graph_app.domain_graph(), None);
 
     let saved_tab_nodes = saved_tab_node_keys(graph_app);
 
     let mut all_graph_node_candidates = local_node_candidates.clone();
     let mut all_graph_edge_candidates = local_edge_candidates.clone();
     let mut node_urls_seen: HashSet<String> = graph_app
-        .workspace
-        .graph
+        .domain_graph()
         .nodes()
         .map(|(_, node)| node.url.clone())
         .collect();
     let mut mapped_edge_keys_seen: HashSet<(NodeKey, NodeKey)> = graph_app
-        .workspace
-        .graph
+        .domain_graph()
         .edges()
         .map(|e| (e.from, e.to))
         .collect();
@@ -687,13 +680,11 @@ pub(super) fn omnibar_matches_for_query(
                 continue;
             };
             let current_from = graph_app
-                .workspace
-                .graph
+                .domain_graph()
                 .get_node_by_url(&from_node.url)
                 .map(|(k, _)| k);
             let current_to = graph_app
-                .workspace
-                .graph
+                .domain_graph()
                 .get_node_by_url(&to_node.url)
                 .map(|(k, _)| k);
             if let (Some(from_key), Some(to_key)) = (current_from, current_to)
@@ -735,13 +726,11 @@ pub(super) fn omnibar_matches_for_query(
                     continue;
                 };
                 let current_from = graph_app
-                    .workspace
-                    .graph
+                    .domain_graph()
                     .get_node_by_url(&from_node.url)
                     .map(|(k, _)| k);
                 let current_to = graph_app
-                    .workspace
-                    .graph
+                    .domain_graph()
                     .get_node_by_url(&to_node.url)
                     .map(|(k, _)| k);
                 if let (Some(from_key), Some(to_key)) = (current_from, current_to)
@@ -766,14 +755,13 @@ pub(super) fn omnibar_matches_for_query(
         }
     }
 
-    let local_tab_candidates =
-        tab_candidates_for_keys(&graph_app.workspace.graph, &local_tab_nodes);
+    let local_tab_candidates = tab_candidates_for_keys(graph_app.domain_graph(), &local_tab_nodes);
     let all_tab_keys: HashSet<NodeKey> = local_tab_nodes
         .iter()
         .copied()
         .chain(saved_tab_nodes.iter().copied())
         .collect();
-    let all_tab_candidates = tab_candidates_for_keys(&graph_app.workspace.graph, &all_tab_keys);
+    let all_tab_candidates = tab_candidates_for_keys(graph_app.domain_graph(), &all_tab_keys);
 
     match mode {
         OmnibarSearchMode::NodesLocal => ranked_matches(local_node_candidates, query),
@@ -783,7 +771,7 @@ pub(super) fn omnibar_matches_for_query(
         OmnibarSearchMode::EdgesLocal => ranked_matches(local_edge_candidates, query),
         OmnibarSearchMode::EdgesAll => ranked_matches(all_graph_edge_candidates, query),
         OmnibarSearchMode::Mixed => {
-            let node_matches = fuzzy_match_node_keys(&graph_app.workspace.graph, query);
+            let node_matches = fuzzy_match_node_keys(graph_app.domain_graph(), query);
             if node_matches.is_empty() {
                 return ranked_matches(all_graph_node_candidates, query);
             }
@@ -814,7 +802,7 @@ pub(super) fn omnibar_matches_for_query(
                 return dedupe_matches_in_order(out);
             }
             let all_tab_ranked_matches = ranked_matches(
-                tab_candidates_for_keys(&graph_app.workspace.graph, &all_tab_keys),
+                tab_candidates_for_keys(graph_app.domain_graph(), &all_tab_keys),
                 query,
             );
             let tab_rank: HashMap<NodeKey, usize> = all_tab_ranked_matches

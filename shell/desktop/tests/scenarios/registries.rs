@@ -200,10 +200,9 @@ fn phase2_action_registry_omnibox_search_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
-        .workspace
-        .graph
+        .workspace.domain.graph
         .add_node("https://example.com".into(), Point2D::new(0.0, 0.0));
-    if let Some(node) = app.workspace.graph.get_node_mut(key) {
+    if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
         node.title = "Example Handle".into();
     }
 
@@ -238,8 +237,7 @@ fn phase2_action_registry_graph_submit_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
-        .workspace
-        .graph
+        .workspace.domain.graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
     app.workspace.selected_nodes.select(key, false);
 
@@ -277,8 +275,7 @@ fn phase2_action_registry_detail_submit_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
-        .workspace
-        .graph
+        .workspace.domain.graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
 
     let (open_selected_tile, intents) =

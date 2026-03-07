@@ -266,7 +266,7 @@ fn refresh_graph_search_matches(
         return;
     }
 
-    *matches = fuzzy_match_node_keys(&graph_app.workspace.graph, query);
+    *matches = fuzzy_match_node_keys(graph_app.domain_graph(), query);
     sync_graph_search_active_index(matches, active_index);
 }
 
@@ -555,7 +555,7 @@ fn clipboard_copy_value_for_node(
     kind: ClipboardCopyKind,
     toasts: &mut egui_notify::Toasts,
 ) -> Option<String> {
-    let Some(node) = graph_app.workspace.graph.get_node(key) else {
+    let Some(node) = graph_app.domain_graph().get_node(key) else {
         toasts.error(clipboard_copy_missing_node_failure_text());
         return None;
     };
@@ -676,7 +676,7 @@ pub(crate) fn handle_pending_open_note_after_intents(
         .note_record(note_id)
         .and_then(|note| note.linked_node);
     if let Some(node_key) = linked_node
-        && graph_app.workspace.graph.get_node(node_key).is_some()
+        && graph_app.domain_graph().get_node(node_key).is_some()
     {
         crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
             tiles_tree, graph_app, node_key,
@@ -748,7 +748,7 @@ fn execute_pending_open_node_after_intents(
     frame_intents.push(lifecycle_intents::promote_node_to_active(
         node_key,
         LifecycleCause::UserSelect,
-    ));
+    ).into());
 }
 
 fn capture_open_node_undo_checkpoint(graph_app: &mut GraphBrowserApp, tiles_tree: &Tree<TileKind>) {
@@ -1383,7 +1383,7 @@ fn handle_open_view_url_intent(
             graph_app.request_open_note_by_id(note_id);
         }
         crate::app::ViewRouteTarget::Node(node_id) => {
-            let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(node_id) else {
+            let Some(node_key) = graph_app.domain_graph().get_node_key_by_id(node_id) else {
                 emit_open_decision(
                     UxOpenDecisionPath::ViewUrl,
                     UxOpenDecisionReason::TargetMissing,
@@ -1483,7 +1483,7 @@ fn handle_open_node_url_intent(
         return Some(WorkbenchIntent::OpenNodeUrl { url });
     };
 
-    let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(node_id) else {
+    let Some(node_key) = graph_app.domain_graph().get_node_key_by_id(node_id) else {
         emit_open_decision(
             UxOpenDecisionPath::NodeUrl,
             UxOpenDecisionReason::TargetMissing,

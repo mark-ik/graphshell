@@ -166,7 +166,7 @@ fn execute_detail_view_submit_action(
                 key: *node_key,
                 new_url: normalized_url.clone(),
             },
-            lifecycle_intents::promote_node_to_active(*node_key, LifecycleCause::Restore),
+            lifecycle_intents::promote_node_to_active(*node_key, LifecycleCause::Restore).into(),
         ];
     }
 
@@ -178,6 +178,7 @@ fn execute_detail_view_submit_action(
 
 fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
     app.workspace
+        .domain
         .graph
         .projected_centroid()
         .unwrap_or_else(|| Point2D::new(400.0, 300.0))
@@ -185,9 +186,9 @@ fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
 
 fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>) -> Point2D<f32> {
     let base = anchor
-        .and_then(|key| app.workspace.graph.node_projected_position(key))
+        .and_then(|key| app.domain_graph().node_projected_position(key))
         .unwrap_or_else(|| graph_centroid_or_default(app));
-    let n = app.workspace.graph.node_count() as f32;
+    let n = app.domain_graph().node_count() as f32;
     let angle = n * std::f32::consts::FRAC_PI_4;
     let radius = 90.0;
     Point2D::new(base.x + radius * angle.cos(), base.y + radius * angle.sin())
@@ -201,7 +202,7 @@ fn execute_omnibox_node_search_action(
         return Vec::new();
     };
 
-    let matched_keys = fuzzy_match_node_keys(&app.workspace.graph, query);
+    let matched_keys = fuzzy_match_node_keys(app.domain_graph(), query);
     if let Some(key) = matched_keys.first() {
         return vec![GraphIntent::SelectNode {
             key: *key,
@@ -279,7 +280,7 @@ fn execute_verse_sync_now_action(
     _app: &GraphBrowserApp,
     _payload: &ActionPayload,
 ) -> Vec<GraphIntent> {
-    vec![GraphIntent::SyncNow]
+    vec![crate::app::RuntimeEvent::SyncNow.into()]
 }
 
 fn execute_verse_share_workspace_action(
@@ -327,9 +328,10 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
             .workspace
+            .domain
             .graph
             .add_node("https://example.com".into(), Point2D::new(0.0, 0.0));
-        if let Some(node) = app.workspace.graph.get_node_mut(key) {
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Example Handle".into();
         }
 
@@ -373,6 +375,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
             .workspace
+            .domain
             .graph
             .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
         app.workspace.selected_nodes.select(key, false);
@@ -399,8 +402,7 @@ mod tests {
     fn action_registry_executes_detail_view_submit_action_for_focused_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace
-            .graph
+            .workspace.domain.graph
             .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
 
         let registry = ActionRegistry::default();

@@ -2408,11 +2408,11 @@ mod tests {
     #[test]
     fn phase2_action_registry_omnibox_search_selects_node() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app.workspace.graph.add_node(
+        let key = app.workspace.domain.graph.add_node(
             "https://example.com".into(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
-        if let Some(node) = app.workspace.graph.get_node_mut(key) {
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Example Handle".into();
         }
 
@@ -2427,7 +2427,7 @@ mod tests {
     #[test]
     fn phase2_action_registry_graph_submit_updates_selected_node() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app.workspace.graph.add_node(
+        let key = app.workspace.domain.graph.add_node(
             "https://start.com".into(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
@@ -2446,7 +2446,7 @@ mod tests {
     #[test]
     fn phase2_action_registry_detail_submit_updates_focused_node() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app.workspace.graph.add_node(
+        let key = app.workspace.domain.graph.add_node(
             "https://start.com".into(),
             euclid::default::Point2D::new(0.0, 0.0),
         );

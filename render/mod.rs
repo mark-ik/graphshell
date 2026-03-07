@@ -259,7 +259,7 @@ pub fn render_graph_in_ui_collect_actions(
     let graph_for_render = culled_graph
         .as_ref()
         .or(filtered_graph.as_ref())
-        .unwrap_or(&app.workspace.graph);
+        .unwrap_or(&app.workspace.domain.graph);
 
     // Compute the current culled key set for change detection.
     let culled_node_keys: Option<HashSet<NodeKey>> = culled_graph
@@ -597,15 +597,13 @@ fn draw_hovered_edge_tooltip(
     };
 
     let ab_payload = app
-        .workspace
-        .graph
+        .domain_graph()
         .find_edge_key(from, to)
-        .and_then(|k| app.workspace.graph.get_edge(k));
+        .and_then(|k| app.domain_graph().get_edge(k));
     let ba_payload = app
-        .workspace
-        .graph
+        .domain_graph()
         .find_edge_key(to, from)
-        .and_then(|k| app.workspace.graph.get_edge(k));
+        .and_then(|k| app.domain_graph().get_edge(k));
 
     let ab_count = ab_payload.map(|p| p.traversals.len()).unwrap_or(0);
     let ba_count = ba_payload.map(|p| p.traversals.len()).unwrap_or(0);
@@ -625,20 +623,18 @@ fn draw_hovered_edge_tooltip(
         .max();
 
     let from_label = app
-        .workspace
-        .graph
+        .domain_graph()
         .get_node(from)
         .map(|n| n.title.as_str())
         .filter(|t| !t.is_empty())
-        .or_else(|| app.workspace.graph.get_node(from).map(|n| n.url.as_str()))
+        .or_else(|| app.domain_graph().get_node(from).map(|n| n.url.as_str()))
         .unwrap_or("unknown");
     let to_label = app
-        .workspace
-        .graph
+        .domain_graph()
         .get_node(to)
         .map(|n| n.title.as_str())
         .filter(|t| !t.is_empty())
-        .or_else(|| app.workspace.graph.get_node(to).map(|n| n.url.as_str()))
+        .or_else(|| app.domain_graph().get_node(to).map(|n| n.url.as_str()))
         .unwrap_or("unknown");
 
     let latest_text = latest_ts
@@ -734,7 +730,7 @@ fn draw_hovered_node_tooltip(
     let Some(key) = app.workspace.hovered_graph_node else {
         return;
     };
-    let Some(node) = app.workspace.graph.get_node(key) else {
+    let Some(node) = app.domain_graph().get_node(key) else {
         return;
     };
     let pointer_pos = ui.input(|i| i.pointer.latest_pos());
@@ -833,7 +829,7 @@ fn filtered_graph_for_search(
     app: &GraphBrowserApp,
     search_matches: &HashSet<NodeKey>,
 ) -> crate::graph::Graph {
-    let mut filtered = app.workspace.graph.clone();
+    let mut filtered = app.domain_graph().clone();
     let to_remove: Vec<NodeKey> = filtered
         .nodes()
         .map(|(key, _)| key)
@@ -958,7 +954,7 @@ fn viewport_culled_graph(
     let frame = app.workspace.graph_view_frames.get(&view_id)?;
     let canvas_rect = canvas_rect_from_view_frame(ui.max_rect(), *frame)?;
 
-    viewport_culled_graph_for_canvas_rect(&app.workspace.graph, canvas_rect)
+    viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
 }
 
 fn canvas_rect_from_view_frame(
@@ -998,6 +994,7 @@ fn apply_search_node_visuals(
     let adjacency_set = hovered_adjacency_set(app, hovered);
     let colors: Vec<(NodeKey, Color32)> = app
         .workspace
+        .domain
         .graph
         .nodes()
         .map(|(key, node)| {
@@ -1082,10 +1079,9 @@ fn apply_search_node_visuals(
 fn hovered_adjacency_set(app: &GraphBrowserApp, hovered: Option<NodeKey>) -> HashSet<NodeKey> {
     hovered
         .map(|hover_key| {
-            app.workspace
-                .graph
+            app.domain_graph()
                 .out_neighbors(hover_key)
-                .chain(app.workspace.graph.in_neighbors(hover_key))
+                .chain(app.domain_graph().in_neighbors(hover_key))
                 .chain(std::iter::once(hover_key))
                 .collect()
         })
@@ -1836,7 +1832,7 @@ fn node_bounds_for_selection(
     let mut max_y = f32::NEG_INFINITY;
 
     for key in selection.iter().copied() {
-        if let Some(position) = app.workspace.graph.node_projected_position(key) {
+        if let Some(position) = app.domain_graph().node_projected_position(key) {
             min_x = min_x.min(position.x);
             max_x = max_x.max(position.x);
             min_y = min_y.min(position.y);
@@ -2026,7 +2022,7 @@ fn lasso_state_ids(metadata_id: egui::Id) -> (egui::Id, egui::Id) {
 }
 
 fn node_key_traversal_order(app: &GraphBrowserApp) -> Vec<NodeKey> {
-    let mut keys: Vec<NodeKey> = app.workspace.graph.nodes().map(|(key, _)| key).collect();
+    let mut keys: Vec<NodeKey> = app.domain_graph().nodes().map(|(key, _)| key).collect();
     keys.sort_by_key(|key| key.index());
     keys
 }
@@ -2106,7 +2102,7 @@ fn graph_canvas_accessibility_label(
     selection: &crate::app::SelectionState,
 ) -> String {
     if let Some(primary) = selection.primary()
-        && let Some(node) = app.workspace.graph.get_node(primary)
+        && let Some(node) = app.domain_graph().get_node(primary)
     {
         return format!(
             "Graph canvas. Focused node: {}. Press Tab or Shift+Tab to move between nodes.",
@@ -2290,7 +2286,7 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
 ///
 /// **Group drag**: when the user is actively dragging (`is_interacting`) with
 /// 2+ nodes selected, the dragged node's per-frame delta is detected by comparing
-/// its egui_graphs position to its last-known `app.workspace.graph` position.  That same
+/// its egui_graphs position to its last-known `app.workspace.domain.graph` position.  That same
 /// delta is then applied to every other selected (non-pinned) node in both
 /// `egui_state` and the graph's projected-position lane, keeping the group moving
 /// together without committing durable node positions every frame.
@@ -2307,6 +2303,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
 
     let layout_positions: Vec<(NodeKey, Point2D<f32>)> = app
         .workspace
+        .domain
         .graph
         .nodes()
         .filter_map(|(key, _)| {
@@ -2318,7 +2315,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
         .collect();
 
     // Detect group drag: during active interaction with 2+ selected nodes, find
-    // the node whose egui_graphs position diverged from app.workspace.graph this frame.
+    // the node whose egui_graphs position diverged from app.workspace.domain.graph this frame.
     // This is the node the user is physically dragging.
     let focused_selection = app.focused_selection().clone();
     let group_drag_delta: Option<(NodeKey, egui::Vec2)> =
@@ -2327,7 +2324,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
                 if !focused_selection.contains(key) {
                     return None;
                 }
-                let app_pos = app.workspace.graph.node_projected_position(*key)?;
+                let app_pos = app.domain_graph().node_projected_position(*key)?;
                 let delta = egui::Vec2::new(egui_pos.x - app_pos.x, egui_pos.y - app_pos.y);
                 // Only consider it a drag if it actually moved (filter float noise).
                 if delta.length() > 0.01 {
@@ -2342,13 +2339,13 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
 
     let mut pinned_positions = Vec::new();
     for (key, pos) in layout_positions {
-        if let Some(node) = app.workspace.graph.get_node(key) {
+        if let Some(node) = app.domain_graph().get_node(key) {
             if node.is_pinned {
-                if let Some(position) = app.workspace.graph.node_projected_position(key) {
+                if let Some(position) = app.domain_graph().node_projected_position(key) {
                     pinned_positions.push((key, position));
                 }
             } else {
-                let _ = app.workspace.graph.set_node_projected_position(key, pos);
+                let _ = app.domain_graph_mut().set_node_projected_position(key, pos);
             }
         }
     }
@@ -2363,18 +2360,15 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
 
         let mut secondary_updates: Vec<(NodeKey, egui::Pos2)> = Vec::new();
         for other_key in secondary_keys {
-            if let Some(node) = app.workspace.graph.get_node(other_key)
+            if let Some(node) = app.domain_graph().get_node(other_key)
                 && !node.is_pinned
-                && let Some(position) = app.workspace.graph.node_projected_position(other_key)
+                && let Some(position) = app.domain_graph().node_projected_position(other_key)
             {
                 let next_pos = euclid::default::Point2D::new(
                     position.x + delta.x,
                     position.y + delta.y,
                 );
-                let _ = app
-                    .workspace
-                    .graph
-                    .set_node_projected_position(other_key, next_pos);
+                let _ = app.domain_graph_mut().set_node_projected_position(other_key, next_pos);
                 secondary_updates.push((other_key, egui::Pos2::new(next_pos.x, next_pos.y)));
             }
         }
@@ -2460,8 +2454,8 @@ fn apply_semantic_clustering_forces(
             }
 
             // Get node positions
-            let pos_a = app.workspace.graph.node_projected_position(*key_a);
-            let pos_b = app.workspace.graph.node_projected_position(*key_b);
+            let pos_a = app.domain_graph().node_projected_position(*key_a);
+            let pos_b = app.domain_graph().node_projected_position(*key_b);
 
             if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
                 // Calculate attraction vector
@@ -2475,20 +2469,17 @@ fn apply_semantic_clustering_forces(
         }
     }
 
-    // Apply position deltas to app.workspace.graph and sync to egui_state
+    // Apply position deltas to app.workspace.domain.graph and sync to egui_state
     for (key, delta) in &position_deltas {
-        if let Some(node) = app.workspace.graph.get_node(*key)
+        if let Some(node) = app.domain_graph().get_node(*key)
             && !node.is_pinned
-            && let Some(position) = app.workspace.graph.node_projected_position(*key)
+            && let Some(position) = app.domain_graph().node_projected_position(*key)
         {
             let next_pos = euclid::default::Point2D::new(
                 position.x + delta.x,
                 position.y + delta.y,
             );
-            let _ = app
-                .workspace
-                .graph
-                .set_node_projected_position(*key, next_pos);
+            let _ = app.domain_graph_mut().set_node_projected_position(*key, next_pos);
         }
     }
 
@@ -2496,11 +2487,11 @@ fn apply_semantic_clustering_forces(
     let projected_positions: Vec<_> = position_deltas
         .iter()
         .filter_map(|(key, _delta)| {
-            let node = app.workspace.domain.graph.get_node(*key)?;
+            let node = app.domain_graph().get_node(*key)?;
             if node.is_pinned {
                 return None;
             }
-            let position = app.workspace.domain.graph.node_projected_position(*key)?;
+            let position = app.domain_graph().node_projected_position(*key)?;
             Some((*key, position))
         })
         .collect();
@@ -2537,8 +2528,8 @@ fn semantic_pair_similarity(
 fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     let info_text = format!(
         "Nodes: {} | Edges: {} | Physics: {} | Zoom: {:.1}x",
-        app.workspace.graph.node_count(),
-        app.workspace.graph.edge_count(),
+        app.domain_graph().node_count(),
+        app.domain_graph().edge_count(),
         if app.workspace.physics.base.is_running {
             "Running"
         } else {
@@ -3082,10 +3073,10 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 ui.label(format!("Archived traversal entries: {timeline_total}"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Export").clicked() {
-                        intents.push(GraphIntent::ExportHistoryTimeline);
+                        intents.push(crate::app::RuntimeEvent::ExportHistoryTimeline.into());
                     }
                     if ui.button("Clear").clicked() {
-                        intents.push(GraphIntent::ClearHistoryTimeline);
+                        intents.push(crate::app::RuntimeEvent::ClearHistoryTimeline.into());
                     }
                     if ui.button("Auto-Curate").clicked() {
                         intents.push(GraphIntent::AutoCurateHistoryTimeline {
@@ -3137,10 +3128,10 @@ pub fn render_history_manager_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) -> V
                 ui.label(format!("Archived dissolved entries: {dissolved_total}"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Export").clicked() {
-                        intents.push(GraphIntent::ExportHistoryDissolved);
+                        intents.push(crate::app::RuntimeEvent::ExportHistoryDissolved.into());
                     }
                     if ui.button("Clear").clicked() {
-                        intents.push(GraphIntent::ClearHistoryDissolved);
+                        intents.push(crate::app::RuntimeEvent::ClearHistoryDissolved.into());
                     }
                     if ui.button("Auto-Curate").clicked() {
                         intents.push(GraphIntent::AutoCurateHistoryDissolved {
@@ -3671,7 +3662,7 @@ pub fn render_sync_settings_in_ui(
                         app,
                     );
                 if intents.is_empty() {
-                    apply_reducer_graph_intents_hardened(app, [crate::app::GraphIntent::SyncNow]);
+                    apply_reducer_graph_intents_hardened(app, [crate::app::RuntimeEvent::SyncNow.into()]);
                 } else {
                     apply_reducer_graph_intents_hardened(app, intents);
                 }
@@ -3918,13 +3909,13 @@ fn render_history_manager_rows(
 
                 let from_key = Uuid::parse_str(from_node_id)
                     .ok()
-                    .and_then(|id| app.workspace.graph.get_node_key_by_id(id));
+                    .and_then(|id| app.workspace.domain.graph.get_node_key_by_id(id));
                 let to_key = Uuid::parse_str(to_node_id)
                     .ok()
-                    .and_then(|id| app.workspace.graph.get_node_key_by_id(id));
+                    .and_then(|id| app.workspace.domain.graph.get_node_key_by_id(id));
 
                 let from_label = from_key
-                    .and_then(|k| app.workspace.graph.get_node(k))
+                    .and_then(|k| app.workspace.domain.graph.get_node(k))
                     .map(|n| {
                         if n.title.is_empty() {
                             n.url.as_str()
@@ -3937,7 +3928,7 @@ fn render_history_manager_rows(
                         format!("<missing:{}>", &from_node_id[..from_node_id.len().min(8)])
                     });
                 let to_label = to_key
-                    .and_then(|k| app.workspace.graph.get_node(k))
+                    .and_then(|k| app.workspace.domain.graph.get_node(k))
                     .map(|n| {
                         if n.title.is_empty() {
                             n.url.as_str()
@@ -4035,7 +4026,7 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
         return false;
     };
     let target = request.node;
-    if app.workspace.graph.get_node(target).is_none() {
+    if app.workspace.domain.graph.get_node(target).is_none() {
         app.clear_choose_frame_picker();
         return false;
     }
@@ -4073,6 +4064,7 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
     };
     let title = app
         .workspace
+        .domain
         .graph
         .get_node(target)
         .map(|node| format!("Choose Frame: {}", node.title))
@@ -4165,7 +4157,7 @@ pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp
                     .choose_frame_picker_exact_nodes()
                     .map(|keys| keys.to_vec())
                     .unwrap_or_else(|| vec![target]);
-                nodes.retain(|key| app.workspace.graph.get_node(*key).is_some());
+                nodes.retain(|key| app.workspace.domain.graph.get_node(*key).is_some());
                 nodes.sort_by_key(|key| key.index());
                 nodes.dedup();
                 if !nodes.is_empty() {
@@ -4328,7 +4320,7 @@ mod tests {
         app.apply_reducer_intents(intents);
 
         assert!(!app.workspace.is_interacting);
-        let node = app.workspace.graph.get_node(key).unwrap();
+        let node = app.workspace.domain.graph.get_node(key).unwrap();
         assert_eq!(node.projected_position(), Point2D::new(150.0, 250.0));
     }
 
@@ -4391,7 +4383,7 @@ mod tests {
         app.add_node_and_sync("https://a.example".into(), Point2D::new(-120.0, -80.0));
         app.add_node_and_sync("https://b.example".into(), Point2D::new(180.0, 140.0));
         app.workspace.egui_state = Some(EguiGraphState::from_graph_with_visual_state(
-            &app.workspace.graph,
+            &app.workspace.domain.graph,
             &app.workspace.selected_nodes,
             app.workspace.selected_nodes.primary(),
             &HashSet::new(),
@@ -4480,7 +4472,7 @@ mod tests {
             intents_from_graph_actions(vec![GraphAction::MoveNode(key, Point2D::new(42.0, 84.0))]);
         app.apply_reducer_intents(intents);
 
-        let node = app.workspace.graph.get_node(key).unwrap();
+        let node = app.workspace.domain.graph.get_node(key).unwrap();
         assert_eq!(node.projected_position(), Point2D::new(42.0, 84.0));
     }
 
@@ -4688,7 +4680,7 @@ mod tests {
     fn graph_canvas_accessibility_label_includes_focused_node_name() {
         let mut app = test_app();
         let key = app.add_node_and_sync("https://example.com/path".into(), Point2D::new(0.0, 0.0));
-        if let Some(node) = app.workspace.graph.get_node_mut(key) {
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Example title".to_string();
         }
         app.select_node(key, false);
@@ -5001,7 +4993,7 @@ mod tests {
 
         assert!(app.workspace.selected_nodes.contains(&k1));
         assert_eq!(
-            app.workspace.graph.get_node(k2).unwrap().projected_position(),
+            app.workspace.domain.graph.get_node(k2).unwrap().projected_position(),
             Point2D::new(200.0, 300.0)
         );
         assert!((app.workspace.views[&view_id].camera.current_zoom - 1.5).abs() < 0.01);
@@ -5011,13 +5003,13 @@ mod tests {
     fn test_empty_actions_is_noop() {
         let mut app = test_app();
         let key = app.add_node_and_sync("a".into(), Point2D::new(50.0, 60.0));
-        let pos_before = app.workspace.graph.get_node(key).unwrap().projected_position();
+        let pos_before = app.workspace.domain.graph.get_node(key).unwrap().projected_position();
 
         let intents = intents_from_graph_actions(vec![]);
         app.apply_reducer_intents(intents);
 
         assert_eq!(
-            app.workspace.graph.get_node(key).unwrap().projected_position(),
+            app.workspace.domain.graph.get_node(key).unwrap().projected_position(),
             pos_before
         );
     }
@@ -5145,7 +5137,7 @@ mod tests {
         let b = app.add_node_and_sync("beta".into(), Point2D::new(10.0, 0.0));
         app.workspace.search_display_mode = SearchDisplayMode::Highlight;
         app.workspace.egui_state = Some(EguiGraphState::from_graph_with_visual_state(
-            &app.workspace.graph,
+            &app.workspace.domain.graph,
             &app.workspace.selected_nodes,
             app.workspace.selected_nodes.primary(),
             &HashSet::new(),
@@ -5178,9 +5170,9 @@ mod tests {
     /// then run sync and assert secondary selected nodes follow.
     fn setup_group_drag_sync(app: &mut GraphBrowserApp, dragged_key: NodeKey, delta: egui::Vec2) {
         use crate::graph::egui_adapter::EguiGraphState;
-        // Build egui_state seeded from current app.workspace.graph positions.
+        // Build egui_state seeded from current app.workspace.domain.graph positions.
         app.workspace.egui_state = Some(EguiGraphState::from_graph(
-            &app.workspace.graph,
+            &app.workspace.domain.graph,
             &std::collections::HashSet::new(),
         ));
         // Simulate egui_graphs moving the dragged node by delta.
@@ -5209,17 +5201,17 @@ mod tests {
         sync_graph_positions_from_layout(&mut app);
 
         // A moved to its dragged position.
-        let a_pos = app.workspace.graph.get_node(a).unwrap().projected_position();
+        let a_pos = app.workspace.domain.graph.get_node(a).unwrap().projected_position();
         assert!((a_pos.x - 10.0).abs() < 0.1, "a.x={}", a_pos.x);
         assert!((a_pos.y - 20.0).abs() < 0.1, "a.y={}", a_pos.y);
 
         // B followed by the same delta.
-        let b_pos = app.workspace.graph.get_node(b).unwrap().projected_position();
+        let b_pos = app.workspace.domain.graph.get_node(b).unwrap().projected_position();
         assert!((b_pos.x - 110.0).abs() < 0.1, "b.x={}", b_pos.x);
         assert!((b_pos.y - 20.0).abs() < 0.1, "b.y={}", b_pos.y);
 
         // C was not selected — stays put.
-        let c_pos = app.workspace.graph.get_node(c).unwrap().projected_position();
+        let c_pos = app.workspace.domain.graph.get_node(c).unwrap().projected_position();
         assert!((c_pos.x - 200.0).abs() < 0.1, "c.x={}", c_pos.x);
         assert!((c_pos.y - 0.0).abs() < 0.1, "c.y={}", c_pos.y);
     }
@@ -5238,7 +5230,7 @@ mod tests {
         sync_graph_positions_from_layout(&mut app);
 
         // B must not move (single selection — no group drag).
-        let b_pos = app.workspace.graph.get_node(b).unwrap().projected_position();
+        let b_pos = app.workspace.domain.graph.get_node(b).unwrap().projected_position();
         assert!((b_pos.x - 100.0).abs() < 0.1, "b.x={}", b_pos.x);
         assert!((b_pos.y - 0.0).abs() < 0.1, "b.y={}", b_pos.y);
     }
@@ -5262,7 +5254,7 @@ mod tests {
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(300.0, 300.0));
-        let metrics = viewport_culling_metrics_for_canvas_rect(&app.workspace.graph, canvas_rect)
+        let metrics = viewport_culling_metrics_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
             .expect("culling metrics should be available for dense graph viewport");
 
         assert!(metrics.visible_nodes < metrics.total_nodes);
@@ -5290,13 +5282,13 @@ mod tests {
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(260.0, 260.0));
-        let culled_graph = viewport_culled_graph_for_canvas_rect(&app.workspace.graph, canvas_rect)
+        let culled_graph = viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
             .expect("expected culled graph for benchmark viewport");
 
         let full_start = Instant::now();
         for _ in 0..12 {
             let state = EguiGraphState::from_graph_with_visual_state(
-                &app.workspace.graph,
+                &app.workspace.domain.graph,
                 &app.workspace.selected_nodes,
                 app.workspace.selected_nodes.primary(),
                 &HashSet::new(),
@@ -5522,9 +5514,9 @@ mod tests {
 
         let rect_a = canvas_rect_from_view_frame(screen, near_origin).unwrap();
         let rect_b = canvas_rect_from_view_frame(screen, shifted).unwrap();
-        let selection_a = viewport_culling_selection_for_canvas_rect(&app.workspace.graph, rect_a)
+        let selection_a = viewport_culling_selection_for_canvas_rect(&app.workspace.domain.graph, rect_a)
             .expect("expected culling selection for first view frame");
-        let selection_b = viewport_culling_selection_for_canvas_rect(&app.workspace.graph, rect_b)
+        let selection_b = viewport_culling_selection_for_canvas_rect(&app.workspace.domain.graph, rect_b)
             .expect("expected culling selection for second view frame");
 
         assert!(

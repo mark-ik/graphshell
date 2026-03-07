@@ -20,7 +20,7 @@ fn uxtree_graph_semantic_parity_matches_graph_model_count() {
 
     assert_eq!(
         graph_semantic_nodes,
-        harness.app.workspace.graph.node_count(),
+        harness.app.workspace.domain.graph.node_count(),
         "graph semantic layer should project all graph nodes"
     );
 

@@ -119,7 +119,7 @@ fn restore_named_frame_snapshot(
                     restored_nodes.len()
                 );
                 if let Some(request) = routed_open_request.take()
-                    && graph_app.workspace.graph.get_node(request.key).is_some()
+                    && graph_app.domain_graph().get_node(request.key).is_some()
                 {
                     debug!(
                         "gui_frame: opening routed node {:?} in restored frame",
@@ -134,7 +134,7 @@ fn restore_named_frame_snapshot(
                     let mut restore_intents = vec![lifecycle_intents::promote_node_to_active(
                         request.key,
                         LifecycleCause::Restore,
-                    )];
+                    ).into()];
                     apply_intents_if_any(graph_app, &restored_tree, &mut restore_intents);
                 }
                 graph_app.note_frame_activated(name, restored_nodes);
@@ -190,7 +190,7 @@ fn add_nodes_to_named_frame_snapshot(
     let live_nodes: Vec<NodeKey> = node_keys
         .iter()
         .copied()
-        .filter(|key| graph_app.workspace.graph.get_node(*key).is_some())
+        .filter(|key| graph_app.domain_graph().get_node(*key).is_some())
         .collect();
     if live_nodes.is_empty() {
         warn!("Cannot add empty/missing node set to frame snapshot '{name}'");
@@ -233,16 +233,16 @@ fn add_nodes_to_named_frame_snapshot(
 fn connected_frame_import_nodes(graph_app: &GraphBrowserApp, seeds: &[NodeKey]) -> Vec<NodeKey> {
     let mut out = HashSet::new();
     for seed in seeds {
-        if graph_app.workspace.graph.get_node(*seed).is_none() {
+        if graph_app.domain_graph().get_node(*seed).is_none() {
             continue;
         }
         out.insert(*seed);
-        out.extend(graph_app.workspace.graph.out_neighbors(*seed));
-        out.extend(graph_app.workspace.graph.in_neighbors(*seed));
+        out.extend(graph_app.domain_graph().out_neighbors(*seed));
+        out.extend(graph_app.domain_graph().in_neighbors(*seed));
     }
     let mut nodes: Vec<NodeKey> = out
         .into_iter()
-        .filter(|key| graph_app.workspace.graph.get_node(*key).is_some())
+        .filter(|key| graph_app.domain_graph().get_node(*key).is_some())
         .collect();
     nodes.sort_by_key(|key| key.index());
     nodes
@@ -296,11 +296,10 @@ fn apply_connected_split_layout(tree: &mut Tree<TileKind>, nodes: &[NodeKey]) {
 
 fn undirected_neighbors_sorted(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Vec<NodeKey> {
     let mut neighbors: Vec<NodeKey> = graph_app
-        .workspace
-        .graph
+        .domain_graph()
         .out_neighbors(node_key)
-        .chain(graph_app.workspace.graph.in_neighbors(node_key))
-        .filter(|key| *key != node_key && graph_app.workspace.graph.get_node(*key).is_some())
+        .chain(graph_app.domain_graph().in_neighbors(node_key))
+        .filter(|key| *key != node_key && graph_app.domain_graph().get_node(*key).is_some())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
@@ -414,11 +413,11 @@ pub(crate) fn ingest_pre_frame(
         thumbnail_capture_rx,
         thumbnail_capture_in_flight,
     ));
-    let (semantic_intents, pending_open_child_webviews, responsive_webviews) =
-        semantic_event_pipeline::graph_intents_and_responsive_from_events(
+    let (semantic_events, pending_open_child_webviews, responsive_webviews) =
+        semantic_event_pipeline::runtime_events_and_responsive_from_events(
             app_state.take_pending_graph_events(),
         );
-    frame_intents.extend(semantic_intents);
+    frame_intents.extend(semantic_events.into_iter().map(Into::into));
     frame_intents.extend(thumbnail_pipeline::load_pending_favicons(
         ctx,
         window,
@@ -814,7 +813,7 @@ fn ensure_webviews_for_active_prewarm_nodes(
     // Check if primary selected node is Active and not in a tile.
     if let Some(selected_key) = graph_app.get_single_selected_node() {
         if !tile_nodes.contains(&selected_key) {
-            if let Some(node) = graph_app.workspace.graph.get_node(selected_key) {
+            if let Some(node) = graph_app.domain_graph().get_node(selected_key) {
                 if node.lifecycle == NodeLifecycle::Active {
                     let default_node_pane = NodePaneState::for_node(selected_key);
                     if tile_runtime::node_pane_uses_composited_runtime(
@@ -1569,7 +1568,7 @@ fn take_valid_pending_open_connected_from(
 }
 
 fn is_valid_connected_open_source(graph_app: &GraphBrowserApp, source: NodeKey) -> bool {
-    graph_app.workspace.graph.get_node(source).is_some()
+    graph_app.domain_graph().get_node(source).is_some()
 }
 
 fn ordered_connected_open_nodes(source: NodeKey, connected: Vec<NodeKey>) -> Vec<NodeKey> {
@@ -1601,12 +1600,12 @@ fn build_connected_open_selection_intents(
     intents.push(lifecycle_intents::promote_node_to_active(
         source,
         LifecycleCause::UserSelect,
-    ));
+    ).into());
     for node in ordered.iter().skip(1) {
         intents.push(lifecycle_intents::promote_node_to_active(
             *node,
             LifecycleCause::ActiveTileVisible,
-        ));
+        ).into());
     }
     intents
 }

@@ -6,7 +6,6 @@
 // - Injects remote intents into the app pipeline
 // - Enforces workspace access grants
 
-use crate::app::GraphIntent;
 use crate::mods::native::verse::{
     AccessLevel, SyncLog, SyncedIntent, TrustedPeer, VersionVector, WorkspaceGrant,
 };
@@ -490,9 +489,10 @@ impl SyncWorkerHandle {
         if !entries_to_apply.is_empty() {
             let entries_bytes = serde_json::to_vec(&entries_to_apply).unwrap_or_default();
 
-            let delta_intent = GraphIntent::ApplyRemoteDelta {
+            let delta_intent = crate::app::RuntimeEvent::ApplyRemoteDelta {
                 entries: entries_bytes,
-            };
+            }
+            .into();
             let queued = QueuedIntent {
                 intent: delta_intent,
                 queued_at: std::time::Instant::now(),

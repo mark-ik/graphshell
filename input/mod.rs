@@ -374,7 +374,7 @@ mod tests {
         use euclid::default::Point2D;
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
         let selected_before = app.workspace.selected_nodes.clone();
-        let count_before = app.workspace.graph.node_count();
+        let count_before = app.workspace.domain.graph.node_count();
 
         let intents = intents_from_actions(&KeyboardActions {
             toggle_view: true,
@@ -383,7 +383,7 @@ mod tests {
         app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.selected_nodes, selected_before);
-        assert_eq!(app.workspace.graph.node_count(), count_before);
+        assert_eq!(app.workspace.domain.graph.node_count(), count_before);
     }
 
     #[test]
@@ -591,7 +591,7 @@ mod tests {
     #[test]
     fn test_create_node_action() {
         let mut app = test_app();
-        assert_eq!(app.workspace.graph.node_count(), 0);
+        assert_eq!(app.workspace.domain.graph.node_count(), 0);
 
         let intents = intents_from_actions(&KeyboardActions {
             create_node: true,
@@ -599,7 +599,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.graph.node_count(), 1);
+        assert_eq!(app.workspace.domain.graph.node_count(), 1);
     }
 
     #[test]
@@ -691,7 +691,7 @@ mod tests {
         use euclid::default::Point2D;
         let key = app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
-        assert_eq!(app.workspace.graph.node_count(), 1);
+        assert_eq!(app.workspace.domain.graph.node_count(), 1);
 
         let intents = intents_from_actions(&KeyboardActions {
             delete_selected: true,
@@ -699,7 +699,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.graph.node_count(), 0);
+        assert_eq!(app.workspace.domain.graph.node_count(), 0);
     }
 
     #[test]
@@ -708,7 +708,7 @@ mod tests {
         use euclid::default::Point2D;
         app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
         app.add_node_and_sync("b".into(), Point2D::new(100.0, 0.0));
-        assert_eq!(app.workspace.graph.node_count(), 2);
+        assert_eq!(app.workspace.domain.graph.node_count(), 2);
 
         let intents = intents_from_actions(&KeyboardActions {
             clear_graph: true,
@@ -716,7 +716,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.graph.node_count(), 0);
+        assert_eq!(app.workspace.domain.graph.node_count(), 0);
     }
 
     #[test]
@@ -725,13 +725,13 @@ mod tests {
         use euclid::default::Point2D;
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
 
-        let before_count = app.workspace.graph.node_count();
+        let before_count = app.workspace.domain.graph.node_count();
         let before_physics = app.workspace.physics.base.is_running;
 
         let intents = intents_from_actions(&KeyboardActions::default());
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.graph.node_count(), before_count);
+        assert_eq!(app.workspace.domain.graph.node_count(), before_count);
         assert_eq!(app.workspace.physics.base.is_running, before_physics);
     }
 

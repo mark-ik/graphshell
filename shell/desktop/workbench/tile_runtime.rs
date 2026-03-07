@@ -8,7 +8,7 @@ use std::rc::Rc;
 use egui_tiles::{Tile, Tree};
 use servo::{OffscreenRenderingContext, WebViewId};
 
-use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeEvent};
 use crate::graph::{NodeKey, NodeLifecycle};
 #[cfg(feature = "wry")]
 use crate::mods::native::verso;
@@ -42,7 +42,7 @@ impl TileCoordinator {
             return Some(viewer_id_override.as_str());
         }
 
-        let node = graph_app.workspace.domain.graph.get_node(state.node)?;
+        let node = graph_app.domain_graph().get_node(state.node)?;
         Some(
             crate::registries::atomic::viewer::ViewerRegistry::default()
                 .select_for(node.mime_hint.as_deref(), node.address_kind),
@@ -172,7 +172,7 @@ impl TileCoordinator {
     ) {
         let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
             .into_iter()
-            .filter(|node_key| graph_app.workspace.domain.graph.get_node(*node_key).is_none())
+            .filter(|node_key| graph_app.domain_graph().get_node(*node_key).is_none())
             .collect();
         for node_key in stale_nodes {
             Self::remove_node_pane_for_node(tiles_tree, node_key);
@@ -216,7 +216,7 @@ impl TileCoordinator {
     ) {
         let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
             .into_iter()
-            .filter(|node_key| graph_app.workspace.domain.graph.get_node(*node_key).is_none())
+            .filter(|node_key| graph_app.domain_graph().get_node(*node_key).is_none())
             .collect();
 
         for node_key in stale_nodes {
@@ -238,7 +238,7 @@ impl TileCoordinator {
         node_key: NodeKey,
         lifecycle_intents: &mut Vec<GraphIntent>,
     ) {
-        let node_exists = graph_app.workspace.domain.graph.get_node(node_key).is_some();
+        let node_exists = graph_app.domain_graph().get_node(node_key).is_some();
         let mapped_webview = graph_app.get_webview_for_node(node_key);
 
         if mapped_webview.is_none() {
@@ -255,9 +255,7 @@ impl TileCoordinator {
                 if handled_by_wry {
                     if node_exists {
                         let lifecycle = graph_app
-                            .workspace
-                            .domain
-                            .graph
+                            .domain_graph()
                             .get_node(node_key)
                             .map(|node| node.lifecycle)
                             .unwrap_or(NodeLifecycle::Cold);
@@ -265,13 +263,13 @@ impl TileCoordinator {
                             lifecycle_intents.push(lifecycle_intents::demote_node_to_warm(
                                 node_key,
                                 LifecycleCause::WorkspaceRetention,
-                            ));
+                            ).into());
                         }
                     } else {
                         lifecycle_intents.push(lifecycle_intents::demote_node_to_cold(
                             node_key,
                             LifecycleCause::NodeRemoval,
-                        ));
+                        ).into());
                     }
                 }
             }
@@ -282,8 +280,7 @@ impl TileCoordinator {
 
         if Self::should_preserve_runtime_webview(node_exists, mapped_webview) {
             let lifecycle = graph_app
-                .workspace
-                .graph
+                .domain_graph()
                 .get_node(node_key)
                 .map(|node| node.lifecycle)
                 .unwrap_or(NodeLifecycle::Cold);
@@ -291,7 +288,7 @@ impl TileCoordinator {
                 lifecycle_intents.push(lifecycle_intents::demote_node_to_warm(
                     node_key,
                     LifecycleCause::WorkspaceRetention,
-                ));
+                ).into());
             }
             return;
         }
@@ -300,12 +297,12 @@ impl TileCoordinator {
 
         if let Some(wv_id) = mapped_webview {
             window.close_webview(wv_id);
-            lifecycle_intents.push(GraphIntent::UnmapWebview { webview_id: wv_id });
+            lifecycle_intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
         }
         lifecycle_intents.push(lifecycle_intents::demote_node_to_cold(
             node_key,
             LifecycleCause::NodeRemoval,
-        ));
+        ).into());
     }
 }
 

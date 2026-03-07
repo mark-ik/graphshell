@@ -197,6 +197,7 @@ fn runtime_tree_to_bundle(
             TileKind::Node(state) => {
                 let node = graph_app
                     .workspace
+                    .domain
                     .graph
                     .get_node(state.node)
                     .ok_or_else(|| {
@@ -341,7 +342,11 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
                 Some(PaneContent::Graph) => Some(TileKind::Graph(GraphViewId::default())),
                 Some(PaneContent::NodePane { node_uuid }) => {
-                    if let Some(node_key) = graph_app.workspace.graph.get_node_key_by_id(*node_uuid)
+                    if let Some(node_key) = graph_app
+                        .workspace
+                        .domain
+                        .graph
+                        .get_node_key_by_id(*node_uuid)
                     {
                         restored_nodes.push(node_key);
                         Some(TileKind::Node(node_key.into()))
@@ -576,7 +581,7 @@ pub(crate) fn build_membership_index_from_layouts(
         };
         tile_runtime::prune_stale_node_pane_keys_only(&mut tree, graph_app);
         for node_key in workspace_nodes_from_tree(&tree) {
-            let Some(node) = graph_app.workspace.graph.get_node(node_key) else {
+            let Some(node) = graph_app.domain_graph().get_node(node_key) else {
                 continue;
             };
             index
@@ -717,8 +722,8 @@ mod tests {
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
         let a = app.add_node_and_sync("https://a.example".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("https://b.example".into(), Point2D::new(1.0, 0.0));
-        let a_id = app.workspace.graph.get_node(a).unwrap().id;
-        let b_id = app.workspace.graph.get_node(b).unwrap().id;
+        let a_id = app.workspace.domain.graph.get_node(a).unwrap().id;
+        let b_id = app.workspace.domain.graph.get_node(b).unwrap().id;
         let stale = NodeKey::new(999_999);
 
         app.save_workspace_layout_json(
@@ -752,7 +757,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
         let live = app.add_node_and_sync("https://live.example".into(), Point2D::new(0.0, 0.0));
-        let live_id = app.workspace.graph.get_node(live).unwrap().id;
+        let live_id = app.workspace.domain.graph.get_node(live).unwrap().id;
         let stale = NodeKey::new(888_888);
 
         app.save_workspace_layout_json(
@@ -783,7 +788,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
         let node = app.add_node_and_sync("https://node.example".into(), Point2D::new(0.0, 0.0));
-        let node_id = app.workspace.graph.get_node(node).unwrap().id;
+        let node_id = app.workspace.domain.graph.get_node(node).unwrap().id;
 
         app.save_workspace_layout_json("workspace-old", &workspace_layout_json_with_nodes(&[node]));
         app.save_workspace_layout_json("workspace-mid", &workspace_layout_json_with_nodes(&[node]));
@@ -943,7 +948,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
         let node_key =
             app.add_node_and_sync("https://legacy.example".into(), Point2D::new(0.0, 0.0));
-        let node_uuid = app.workspace.graph.get_node(node_key).unwrap().id;
+        let node_uuid = app.workspace.domain.graph.get_node(node_key).unwrap().id;
 
         let mut runtime_tiles = Tiles::default();
         let graph = runtime_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));

@@ -18,6 +18,7 @@ fn webview_url_changed_updates_existing_mapping() {
     let node = harness
         .app
         .workspace
+        .domain
         .graph
         .get_node(key)
         .expect("mapped node should exist");
@@ -42,19 +43,21 @@ fn webview_url_changed_appends_traversal_between_known_nodes_without_self_loop()
     let edge_key = harness
         .app
         .workspace
+        .domain
         .graph
         .find_edge_key(from, to)
         .expect("history traversal edge from source to destination should exist");
     let edge = harness
         .app
         .workspace
+        .domain
         .graph
         .get_edge(edge_key)
         .expect("edge payload should exist");
     assert_eq!(edge.traversals.len(), 1);
     assert_eq!(edge.traversals[0].trigger, NavigationTrigger::Unknown);
     assert!(
-        harness.app.workspace.graph.find_edge_key(to, to).is_none(),
+        harness.app.workspace.domain.graph.find_edge_key(to, to).is_none(),
         "prior URL should be captured before node URL mutation to avoid self-loop"
     );
 }
@@ -79,6 +82,7 @@ fn webview_history_changed_clamps_index_to_entry_bounds() {
     let node = harness
         .app
         .workspace
+        .domain
         .graph
         .get_node(key)
         .expect("mapped node should exist");
@@ -97,6 +101,7 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         let node = harness
             .app
             .workspace
+            .domain
             .graph
             .get_node_mut(b)
             .expect("destination node should exist");
@@ -143,12 +148,14 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
     let back_edge_key = harness
         .app
         .workspace
+        .domain
         .graph
         .find_edge_key(b, a)
         .expect("back traversal edge should exist");
     let back_edge = harness
         .app
         .workspace
+        .domain
         .graph
         .get_edge(back_edge_key)
         .expect("back edge payload should exist");
@@ -156,6 +163,7 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         harness
             .app
             .workspace
+            .domain
             .graph
             .edges()
             .any(|edge| { edge.edge_type == EdgeType::History && edge.from == b && edge.to == a })
@@ -167,12 +175,14 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
     let forward_edge_key = harness
         .app
         .workspace
+        .domain
         .graph
         .find_edge_key(a, b)
         .expect("forward traversal edge should exist");
     let forward_edge = harness
         .app
         .workspace
+        .domain
         .graph
         .get_edge(forward_edge_key)
         .expect("forward edge payload should exist");
@@ -180,6 +190,7 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
         harness
             .app
             .workspace
+            .domain
             .graph
             .edges()
             .any(|edge| { edge.edge_type == EdgeType::History && edge.from == a && edge.to == b })
@@ -202,6 +213,7 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
         let node = harness
             .app
             .workspace
+            .domain
             .graph
             .get_node_mut(step2)
             .expect("step2 node should exist");
@@ -232,13 +244,14 @@ fn history_callback_is_authoritative_when_url_callback_stays_on_latest_entry() {
     let node = harness
         .app
         .workspace
+        .domain
         .graph
         .get_node(step2)
         .expect("step2 node should exist");
     assert_eq!(node.history_index, 1);
 
     let has_history_edge =
-        harness.app.workspace.graph.edges().any(|edge| {
+        harness.app.workspace.domain.graph.edges().any(|edge| {
             edge.edge_type == EdgeType::History && edge.from == step2 && edge.to == step1
         });
     assert!(

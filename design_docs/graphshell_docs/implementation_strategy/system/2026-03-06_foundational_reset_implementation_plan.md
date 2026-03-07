@@ -53,6 +53,144 @@ What is still missing:
 - a non-overloaded command/planner model
 - a complete demolition of prototype-era duplicate authority
 
+### 2.1 Code-Truth Assessment (2026-03-07)
+
+At time of writing, `graph_app.rs` is still a ~13K-line monolith (`13,194` lines on 2026-03-07).
+It currently contains, in one file:
+
+- top-level types and state carriers
+- the reducer and `GraphIntent`
+- undo/redo logic
+- persistence coordination
+- webview lifecycle coordination
+- history preview execution state
+- workspace management
+- dozens of `pending_*` staging fields
+
+That is the real architecture of the app right now.
+
+The active docs are useful only if they are treated as a way to drive code changes against that reality. They should not be mistaken for architectural closure by themselves.
+
+The highest-leverage contradictions still shaping the product are below.
+
+#### C1. `pending_*` staging is a manual command queue
+
+`graph_app.rs` currently contains hundreds of `pending_` references and roughly dozens of distinct `pending_*` fields. In practice, those fields behave like a hand-managed command queue:
+
+- a field is set in one place
+- consumed in another place
+- cleared in a third place
+
+That gives the app queue-like failure modes:
+
+- ordering ambiguity
+- forgotten clears
+- stale frame-to-frame state
+- poor inspectability
+
+Short-horizon implementation direction:
+
+- collapse `pending_*` staging into a single explicit queue such as `Vec<AppCommand>`
+- use one drain point per frame
+- make ordering explicit in code before pursuing a fuller `AppPlan` / `AppTransaction` model
+
+This is the single highest-leverage near-term simplification because it deletes bespoke staging surfaces while making frame behavior inspectable.
+
+#### C2. `GraphIntent` is overloaded across incompatible categories
+
+`GraphIntent` currently mixes several fundamentally different kinds of things:
+
+- durable graph mutations
+- workbench/view actions
+- runtime notifications
+- camera/input requests
+
+The code already acknowledges this overload. `apply_workspace_only_intent` exists because not all `GraphIntent` variants are actually graph mutations.
+
+Short-horizon implementation direction:
+
+- split the current surface into separate enums with honest names, for example:
+  - `GraphMutation`
+  - `ViewAction`
+  - `RuntimeEvent`
+- allow the reducer/app boundary to accept all three during migration
+- stop presenting runtime notifications and graph mutations as the same semantic kind
+
+This does not require a full planner architecture first. It is a type-truth cleanup that reduces semantic lying in the current reducer surface.
+
+#### C3. `DomainState` is real but still trapped inside the monolith
+
+The extracted durable core is a real improvement:
+
+- `Graph`
+- notes
+- placeholder identity support
+- `GraphDelta` / apply support for part of the mutation surface
+
+But the durable core still lives inside the same monolithic file, and `GraphBrowserApp` remains able to reach broadly across the durable model.
+
+Short-horizon implementation direction:
+
+- move `DomainState` into its own module
+- define the domain-owned mutation subset alongside it
+- keep visibility restricted so the parent module owns boundary crossings intentionally
+
+This should be done as an ownership-enforcement move, not as a crate split.
+
+#### C4. Undo still snapshots world-state instead of recording applied change
+
+Current undo/redo state captures full snapshots of graph and related workbench state. That approach is expensive, hard to replay, and structurally separate from the delta-based mutation path already emerging elsewhere.
+
+Short-horizon implementation direction:
+
+- evolve undo to record applied graph deltas plus the needed workbench diff
+- add inverse delta support for the topology/durable subset
+- keep the snapshot fallback temporarily while the delta path hardens
+
+This would bring undo and durable mutation closer to one shared data model without requiring a full event-sourcing rewrite.
+
+#### C5. The `GraphWorkspace -> DomainState` deref bridge normalizes the boundary violation the reset is trying to remove
+
+The temporary deref bridge means legacy code can still write `workspace.graph` even though the durable core now lives at `workspace.domain.graph`.
+
+That makes the extraction materially incomplete until the bridge is deleted.
+
+Short-horizon implementation direction:
+
+- delete `Deref` / `DerefMut` on `GraphWorkspace`
+- fix callsites mechanically
+- use contract tests to prevent reintroduction
+
+This is the enforcement step that turns CLAT-1 from structural relocation into a real ownership boundary.
+
+#### C6. Documentation breadth is ahead of implemented architecture
+
+The repository has a large amount of active system-level planning and governance material relative to the amount of code that has actually been decomposed.
+
+The main risk is not that those docs are low quality. The risk is that they can create the feeling of architectural progress while the executable architecture remains concentrated in a single file.
+
+Operational consequence for this plan:
+
+- prioritize code diffs over new system-governance prose until the current monolith is materially reduced
+- treat future architectural documentation as a receipt for landed code or an enabler for the next concrete CLAT, not as a substitute for code movement
+
+### 2.2 Immediate Code-First Sequence
+
+If reset work must choose between additional architecture prose and near-term code truth, the preferred order is:
+
+1. delete `GraphWorkspace` `Deref` / `DerefMut` and mechanically fix remaining callsites
+2. split `GraphIntent` into honest categories (`GraphMutation`, `ViewAction`, `RuntimeEvent`) without waiting for a full planner stack
+3. replace the highest-volume `pending_*` staging fields with a single explicit command queue and one drain point
+4. move `DomainState` into its own module with restricted visibility
+5. move undo toward delta-based recording using the existing `GraphDelta` path, with snapshot fallback retained initially
+
+These are preferred because they are concrete diffs that make the code more honest about what it already does.
+
+Execution rule for this sequence:
+
+- do not write new system-level governance docs in place of these code changes
+- each step should land as bounded code movement with regression enforcement
+
 ---
 
 ## 3. Workstreams

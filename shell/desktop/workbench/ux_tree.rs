@@ -719,10 +719,10 @@ fn push_nodes(
                 ux_node_id,
                 event_route: "graph.input_route",
                 backend_path: "egui_graphs",
-                diagnostics_counter: graph_app.workspace.domain.graph.node_count() as u64,
+                diagnostics_counter: graph_app.domain_graph().node_count() as u64,
             });
 
-            for (node_key, node) in graph_app.workspace.domain.graph.nodes() {
+            for (node_key, node) in graph_app.domain_graph().nodes() {
                 let graph_node_ux_id =
                     format!("uxnode://workbench/graph/{view_id:?}/node/{}", node.id);
                 let selected = graph_app.workspace.selected_nodes.contains(&node_key);

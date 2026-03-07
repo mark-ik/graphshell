@@ -15,6 +15,7 @@ mod test;
 // Graph browser core modules
 #[path = "graph_app.rs"]
 mod app;
+mod domain;
 mod graph;
 mod input;
 mod model;

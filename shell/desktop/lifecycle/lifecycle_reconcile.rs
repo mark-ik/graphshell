@@ -11,6 +11,7 @@ use servo::{OffscreenRenderingContext, WebViewId};
 use sysinfo::System;
 
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, MemoryPressureLevel};
+use crate::app::{RuntimeEvent};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
@@ -93,7 +94,7 @@ fn collect_native_overlay_nodes(
 }
 
 pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
-    if args.graph_app.workspace.graph.node_count() == 0 {
+    if args.graph_app.domain_graph().node_count() == 0 {
         args.graph_app.workspace.active_webview_nodes.clear();
         args.webview_creation_backpressure.clear();
         tile_runtime::reset_runtime_webview_state(
@@ -114,28 +115,21 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     for node_key in args.graph_app.take_warm_cache_evictions() {
         if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
             args.window.close_webview(webview_id);
-            args.frame_intents
-                .push(GraphIntent::UnmapWebview { webview_id });
+            args.frame_intents.push(RuntimeEvent::UnmapWebview { webview_id }.into());
         }
         args.tile_rendering_contexts.remove(&node_key);
         // Frame-aware demotion:
         let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
         if is_frame_member {
             args.frame_intents
-                .push(lifecycle_intents::demote_node_to_warm(
-                    node_key,
-                    LifecycleCause::WarmLruEviction,
-                ));
+                .push(RuntimeEvent::DemoteNodeToWarm { key: node_key, cause: LifecycleCause::WarmLruEviction }.into());
         } else {
             args.frame_intents
-                .push(lifecycle_intents::demote_node_to_cold(
-                    node_key,
-                    LifecycleCause::NodeRemoval,
-                ));
+                .push(RuntimeEvent::DemoteNodeToCold { key: node_key, cause: LifecycleCause::NodeRemoval }.into());
         }
     }
     args.tile_favicon_textures
-        .retain(|node_key, _| args.graph_app.workspace.graph.get_node(*node_key).is_some());
+        .retain(|node_key, _| args.graph_app.domain_graph().get_node(*node_key).is_some());
 
     let (memory_pressure_level, available_mib, total_mib) = sample_memory_pressure();
     args.graph_app
@@ -158,8 +152,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         }
         let should_promote = args
             .graph_app
-            .workspace
-            .graph
+            .domain_graph()
             .get_node(node_key)
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false);
@@ -168,7 +161,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 .push(lifecycle_intents::promote_node_to_active(
                     node_key,
                     LifecycleCause::ActiveTileVisible,
-                ));
+                ).into());
         }
     }
 
@@ -186,8 +179,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         }
         let should_demote = args
             .graph_app
-            .workspace
-            .graph
+            .domain_graph()
             .get_node(node_key)
             .map(|node| node.lifecycle == NodeLifecycle::Active)
             .unwrap_or(false);
@@ -196,7 +188,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 .push(lifecycle_intents::demote_node_to_warm(
                     node_key,
                     LifecycleCause::WorkspaceRetention,
-                ));
+                ).into());
         }
     }
 
@@ -210,8 +202,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     if let Some(node_key) = prewarm_selected_node
         && args
             .graph_app
-            .workspace
-            .graph
+            .domain_graph()
             .get_node(node_key)
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false)
@@ -220,7 +211,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .push(lifecycle_intents::promote_node_to_active(
                 node_key,
                 LifecycleCause::SelectedPrewarm,
-            ));
+            ).into());
     }
 
     if has_node_panes {
@@ -259,7 +250,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
                     args.window.close_webview(webview_id);
                     args.frame_intents
-                        .push(GraphIntent::UnmapWebview { webview_id });
+                        .push(RuntimeEvent::UnmapWebview { webview_id }.into());
                 }
                 args.tile_rendering_contexts.remove(&node_key);
                 let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
@@ -268,13 +259,13 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                         .push(lifecycle_intents::demote_node_to_warm(
                             node_key,
                             LifecycleCause::MemoryPressureWarning,
-                        ));
+                        ).into());
                 } else {
                     args.frame_intents
                         .push(lifecycle_intents::demote_node_to_cold(
                             node_key,
                             LifecycleCause::MemoryPressureCritical,
-                        ));
+                        ).into());
                 }
             }
         }
@@ -288,13 +279,13 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                     .push(lifecycle_intents::demote_node_to_warm(
                         node_key,
                         LifecycleCause::ActiveLruEviction,
-                    ));
+                    ).into());
             } else {
                 args.frame_intents
                     .push(lifecycle_intents::demote_node_to_cold(
                         node_key,
                         LifecycleCause::ActiveLruEviction,
-                    ));
+                    ).into());
             }
         }
     } else {

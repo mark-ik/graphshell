@@ -172,7 +172,7 @@ impl ControlPanel {
     /// Spawn the memory monitor background worker.
     ///
     /// The worker samples system memory every [`MEMORY_MONITOR_INTERVAL`] and
-    /// emits `GraphIntent::SetMemoryPressureStatus` when the observed level
+    /// emits `RuntimeEvent::SetMemoryPressureStatus` when the observed level
     /// changes. Respects the shared cancellation token for graceful shutdown.
     ///
     /// Phase CP1: samples and emits level changes. Phase CP3 will extend this
@@ -319,7 +319,7 @@ impl Default for ControlPanel {
 /// Memory monitor background worker.
 ///
 /// Samples system memory every [`MEMORY_MONITOR_INTERVAL`] and emits a
-/// `GraphIntent::SetMemoryPressureStatus` intent whenever the observed level
+/// `RuntimeEvent::SetMemoryPressureStatus` intent whenever the observed level
 /// differs from the previous sample. Non-critical pressure changes are logged
 /// but not emitted if the channel is full.
 async fn memory_monitor_worker(tx: mpsc::Sender<QueuedIntent>) {
@@ -341,11 +341,12 @@ async fn memory_monitor_worker(tx: mpsc::Sender<QueuedIntent>) {
         );
 
         let intent = QueuedIntent {
-            intent: GraphIntent::SetMemoryPressureStatus {
+            intent: crate::app::RuntimeEvent::SetMemoryPressureStatus {
                 level,
                 available_mib,
                 total_mib,
-            },
+            }
+            .into(),
             queued_at: Instant::now(),
             source: IntentSource::MemoryMonitor,
         };
@@ -368,9 +369,10 @@ async fn mod_loader_worker(tx: mpsc::Sender<QueuedIntent>) {
         Ok(ordered) => {
             for manifest in ordered {
                 let intent = QueuedIntent {
-                    intent: GraphIntent::ModActivated {
+                    intent: crate::app::RuntimeEvent::ModActivated {
                         mod_id: manifest.mod_id,
-                    },
+                    }
+                    .into(),
                     queued_at: Instant::now(),
                     source: IntentSource::ModLoader,
                 };
@@ -382,10 +384,11 @@ async fn mod_loader_worker(tx: mpsc::Sender<QueuedIntent>) {
         }
         Err(error) => {
             let intent = QueuedIntent {
-                intent: GraphIntent::ModLoadFailed {
+                intent: crate::app::RuntimeEvent::ModLoadFailed {
                     mod_id: "mod:bootstrap".to_string(),
                     reason: format!("{error:?}"),
-                },
+                }
+                .into(),
                 queued_at: Instant::now(),
                 source: IntentSource::ModLoader,
             };
@@ -430,10 +433,11 @@ async fn prefetch_scheduler_worker(
         };
 
         let queued = QueuedIntent {
-            intent: GraphIntent::PromoteNodeToActive {
+            intent: crate::app::RuntimeEvent::PromoteNodeToActive {
                 key: target,
                 cause: LifecycleCause::SelectedPrewarm,
-            },
+            }
+            .into(),
             queued_at: Instant::now(),
             source: IntentSource::PrefetchScheduler,
         };

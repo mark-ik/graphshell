@@ -247,10 +247,13 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             key: node_key,
             multi_select: false,
         });
-        post_render_intents.push(GraphIntent::PromoteNodeToActive {
-            key: node_key,
-            cause: crate::app::LifecycleCause::UserSelect,
-        });
+        post_render_intents.push(
+            crate::app::RuntimeEvent::PromoteNodeToActive {
+                key: node_key,
+                cause: crate::app::LifecycleCause::UserSelect,
+            }
+            .into(),
+        );
     }
     if !pending_closed_nodes.is_empty() {
         log::debug!(

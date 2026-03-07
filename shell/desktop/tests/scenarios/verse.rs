@@ -190,7 +190,7 @@ fn verse_access_control_deny_does_not_mutate_graph_state() {
     let mut harness = TestRegistry::new();
 
     let _node = harness.add_node("https://example.com");
-    let node_count_before = harness.app.workspace.graph.node_count();
+    let node_count_before = harness.app.workspace.domain.graph.node_count();
 
     let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
     let peers: Vec<TrustedPeer> = vec![];
@@ -206,7 +206,7 @@ fn verse_access_control_deny_does_not_mutate_graph_state() {
 
     assert_eq!(
         node_count_before,
-        harness.app.workspace.graph.node_count(),
+        harness.app.workspace.domain.graph.node_count(),
         "Graph state must not be mutated when sync access is denied"
     );
 }

@@ -331,8 +331,7 @@ fn node_view_url_intent_opens_node_pane_via_orchestration_authority() {
         euclid::default::Point2D::new(0.0, 0.0),
     );
     let node_id = app
-        .workspace
-        .graph
+        .workspace.domain.graph
         .get_node(node_key)
         .expect("node should exist")
         .id;
@@ -607,8 +606,7 @@ fn node_url_intent_opens_node_pane_via_orchestration_authority() {
         euclid::default::Point2D::new(16.0, 24.0),
     );
     let node_id = app
-        .workspace
-        .graph
+        .workspace.domain.graph
         .get_node(node_key)
         .expect("node should exist")
         .id;
@@ -1606,8 +1604,7 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
     assert!(frame_intents.is_empty());
 
     assert_eq!(
-        app.workspace
-            .graph
+        app.workspace.domain.graph
             .get_node(node_key)
             .expect("node should exist")
             .url,

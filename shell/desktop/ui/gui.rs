@@ -1140,7 +1140,7 @@ impl Gui {
     }
 
     fn selected_node_url(graph_app: &GraphBrowserApp, key: NodeKey) -> Option<String> {
-        Self::node_url_in_workspace_graph(&graph_app.workspace.graph, key)
+        Self::node_url_in_workspace_graph(graph_app.domain_graph(), key)
     }
 
     fn node_url_in_workspace_graph(graph: &crate::graph::Graph, key: NodeKey) -> Option<String> {
@@ -1599,14 +1599,23 @@ mod gui_tests;
 
 #[cfg(test)]
 fn graph_intents_from_semantic_events(events: Vec<GraphSemanticEvent>) -> Vec<GraphIntent> {
-    semantic_event_pipeline::graph_intents_from_semantic_events(events)
+    semantic_event_pipeline::runtime_events_from_semantic_events(events)
+        .into_iter()
+        .map(Into::into)
+        .collect()
 }
 
 #[cfg(test)]
 fn graph_intents_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
 ) -> (Vec<GraphIntent>, Vec<WebViewId>, HashSet<WebViewId>) {
-    semantic_event_pipeline::graph_intents_and_responsive_from_events(events)
+    let (runtime_events, pending_open_child_webviews, responsive_webviews) =
+        semantic_event_pipeline::runtime_events_and_responsive_from_events(events);
+    (
+        runtime_events.into_iter().map(Into::into).collect(),
+        pending_open_child_webviews,
+        responsive_webviews,
+    )
 }
 
 #[cfg(test)]

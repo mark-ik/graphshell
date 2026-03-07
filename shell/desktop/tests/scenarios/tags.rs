@@ -50,6 +50,7 @@ fn tag_node_pin_updates_pinned_state() {
         harness
             .app
             .workspace
+            .domain
             .graph
             .get_node(node)
             .is_some_and(|n| n.is_pinned)
@@ -63,6 +64,7 @@ fn tag_node_pin_updates_pinned_state() {
         harness
             .app
             .workspace
+            .domain
             .graph
             .get_node(node)
             .is_some_and(|n| !n.is_pinned)

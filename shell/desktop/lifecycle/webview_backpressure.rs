@@ -11,7 +11,7 @@ use log::warn;
 use servo::{OffscreenRenderingContext, RenderingContext, WebViewId, WindowRenderingContext};
 use url::Url;
 
-use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeBlockReason};
+use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeBlockReason, RuntimeEvent};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::infrastructure::mod_loader;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -115,7 +115,7 @@ pub(crate) fn ensure_webview_for_node(
     #[cfg(feature = "diagnostics")]
     let ensure_started = Instant::now();
     let (Some(node), Some(running_state)) = (
-        graph_app.workspace.graph.get_node(node_key),
+        graph_app.domain_graph().get_node(node_key),
         app_state.as_ref(),
     ) else {
         webview_creation_backpressure.remove(&node_key);
@@ -147,9 +147,12 @@ pub(crate) fn ensure_webview_for_node(
             }
             return;
         }
-        lifecycle_intents.push(GraphIntent::UnmapWebview {
-            webview_id: existing_webview_id,
-        });
+        lifecycle_intents.push(
+            RuntimeEvent::UnmapWebview {
+                webview_id: existing_webview_id,
+            }
+            .into(),
+        );
     }
 
     let state = webview_creation_backpressure.entry(node_key).or_default();
@@ -161,20 +164,26 @@ pub(crate) fn ensure_webview_for_node(
                 .map(|state| state.retry_at != Some(deadline))
                 .unwrap_or(true)
             {
-                lifecycle_intents.push(GraphIntent::MarkRuntimeBlocked {
-                    key: node_key,
-                    reason: RuntimeBlockReason::CreateRetryExhausted,
-                    retry_at: Some(deadline),
-                });
+                lifecycle_intents.push(
+                    RuntimeEvent::MarkRuntimeBlocked {
+                        key: node_key,
+                        reason: RuntimeBlockReason::CreateRetryExhausted,
+                        retry_at: Some(deadline),
+                    }
+                    .into(),
+                );
             }
             return;
         }
         state.cooldown_until = None;
         state.retry_count = 0;
-        lifecycle_intents.push(GraphIntent::ClearRuntimeBlocked {
-            key: node_key,
-            cause: LifecycleCause::Restore,
-        });
+        lifecycle_intents.push(
+            RuntimeEvent::ClearRuntimeBlocked {
+                key: node_key,
+                cause: LifecycleCause::Restore,
+            }
+            .into(),
+        );
     }
     if state.pending.is_some() {
         return;
@@ -193,11 +202,14 @@ pub(crate) fn ensure_webview_for_node(
             "Pausing webview creation for node {:?} after retry exhaustion; cooldown {:?}",
             node_key, delay
         );
-        lifecycle_intents.push(GraphIntent::MarkRuntimeBlocked {
-            key: node_key,
-            reason: RuntimeBlockReason::CreateRetryExhausted,
-            retry_at: Some(now + delay),
-        });
+        lifecycle_intents.push(
+            RuntimeEvent::MarkRuntimeBlocked {
+                key: node_key,
+                reason: RuntimeBlockReason::CreateRetryExhausted,
+                retry_at: Some(now + delay),
+            }
+            .into(),
+        );
         state.retry_count = 0;
         return;
     }
@@ -224,11 +236,12 @@ pub(crate) fn ensure_webview_for_node(
         started_at: Instant::now(),
     });
     lifecycle_intents.extend([
-        GraphIntent::MapWebviewToNode {
+        RuntimeEvent::MapWebviewToNode {
             webview_id: webview.id(),
             key: node_key,
-        },
-        lifecycle_intents::promote_node_to_active(node_key, LifecycleCause::Restore),
+        }
+        .into(),
+        lifecycle_intents::promote_node_to_active(node_key, LifecycleCause::Restore).into(),
     ]);
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_span_duration(
@@ -248,7 +261,7 @@ pub(crate) fn reconcile_webview_creation_backpressure(
     let reconcile_started = Instant::now();
     let tracked_nodes: Vec<NodeKey> = webview_creation_backpressure.keys().copied().collect();
     for node_key in tracked_nodes {
-        let Some(node) = graph_app.workspace.graph.get_node(node_key) else {
+        let Some(node) = graph_app.domain_graph().get_node(node_key) else {
             webview_creation_backpressure.remove(&node_key);
             continue;
         };
@@ -279,10 +292,13 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                     state.retry_count = 0;
                     state.cooldown_until = None;
                     state.cooldown_step = 0;
-                    lifecycle_intents.push(GraphIntent::ClearRuntimeBlocked {
-                        key: node_key,
-                        cause: LifecycleCause::Restore,
-                    });
+                    lifecycle_intents.push(
+                        RuntimeEvent::ClearRuntimeBlocked {
+                            key: node_key,
+                            cause: LifecycleCause::Restore,
+                        }
+                        .into(),
+                    );
                 }
                 WebviewCreationProbeOutcome::Pending => {}
                 WebviewCreationProbeOutcome::TimedOut => {
@@ -296,9 +312,12 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                     if contains_webview {
                         window.close_webview(probe.webview_id);
                     }
-                    lifecycle_intents.push(GraphIntent::UnmapWebview {
-                        webview_id: probe.webview_id,
-                    });
+                    lifecycle_intents.push(
+                        RuntimeEvent::UnmapWebview {
+                            webview_id: probe.webview_id,
+                        }
+                        .into(),
+                    );
                     state.pending = None;
                     if state.retry_count >= WEBVIEW_CREATION_MAX_RETRIES {
                         let now = Instant::now();
@@ -307,11 +326,14 @@ pub(crate) fn reconcile_webview_creation_backpressure(
                             "Cooling down node {:?} after {} webview creation retries without confirmation; cooldown {:?}",
                             node_key, state.retry_count, delay
                         );
-                        lifecycle_intents.push(GraphIntent::MarkRuntimeBlocked {
-                            key: node_key,
-                            reason: RuntimeBlockReason::CreateRetryExhausted,
-                            retry_at: Some(now + delay),
-                        });
+                        lifecycle_intents.push(
+                            RuntimeEvent::MarkRuntimeBlocked {
+                                key: node_key,
+                                reason: RuntimeBlockReason::CreateRetryExhausted,
+                                retry_at: Some(now + delay),
+                            }
+                            .into(),
+                        );
                         state.retry_count = 0;
                     }
                 }

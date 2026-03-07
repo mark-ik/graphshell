@@ -268,8 +268,7 @@ fn request_open_settings_page(
 
 fn frame_pin_name_for_node(node: NodeKey, graph_app: &GraphBrowserApp) -> Option<String> {
     graph_app
-        .workspace
-        .graph
+    .domain_graph()
         .get_node(node)
         .map(|n| format!("workspace:pin:pane:{}", n.id))
 }
@@ -282,8 +281,7 @@ fn render_fullscreen_origin_strip(
     let fullscreen_url = focused_toolbar_node
         .and_then(|key| {
             graph_app
-                .workspace
-                .graph
+                .domain_graph()
                 .get_node(key)
                 .map(|node| node.url.clone())
         })

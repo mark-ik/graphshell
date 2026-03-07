@@ -44,7 +44,7 @@ pub(crate) struct ToggleTileViewArgs<'a> {
 pub(crate) fn preferred_detail_node(graph_app: &GraphBrowserApp) -> Option<NodeKey> {
     graph_app
         .get_single_selected_node()
-    .or_else(|| graph_app.workspace.domain.graph.nodes().next().map(|(key, _)| key))
+        .or_else(|| graph_app.domain_graph().nodes().next().map(|(key, _)| key))
 }
 
 pub(crate) fn active_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<GraphViewId> {

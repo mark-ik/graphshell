@@ -8,13 +8,13 @@ use std::time::Instant;
 
 use servo::WebViewId;
 
-use crate::app::GraphIntent;
+use crate::app::RuntimeEvent;
 use crate::shell::desktop::host::window::{GraphSemanticEvent, GraphSemanticEventKind};
 
-pub(crate) fn graph_intents_from_semantic_events(
+pub(crate) fn runtime_events_from_semantic_events(
     events: Vec<GraphSemanticEvent>,
-) -> Vec<GraphIntent> {
-    let mut intents = Vec::with_capacity(events.len());
+) -> Vec<RuntimeEvent> {
+    let mut events_out = Vec::with_capacity(events.len());
     for event in events {
         match event.kind {
             GraphSemanticEventKind::UrlChanged {
@@ -28,7 +28,7 @@ pub(crate) fn graph_intents_from_semantic_events(
                         byte_len: 1,
                     },
                 );
-                intents.push(GraphIntent::WebViewUrlChanged {
+                events_out.push(RuntimeEvent::WebViewUrlChanged {
                     webview_id,
                     new_url,
                 });
@@ -45,7 +45,7 @@ pub(crate) fn graph_intents_from_semantic_events(
                         byte_len: 1,
                     },
                 );
-                intents.push(GraphIntent::WebViewHistoryChanged {
+                events_out.push(RuntimeEvent::WebViewHistoryChanged {
                     webview_id,
                     entries,
                     current,
@@ -59,7 +59,7 @@ pub(crate) fn graph_intents_from_semantic_events(
                         byte_len: 1,
                     },
                 );
-                intents.push(GraphIntent::WebViewTitleChanged { webview_id, title });
+                events_out.push(RuntimeEvent::WebViewTitleChanged { webview_id, title });
             }
             GraphSemanticEventKind::CreateNewWebView {
                 parent_webview_id,
@@ -73,7 +73,7 @@ pub(crate) fn graph_intents_from_semantic_events(
                         byte_len: 1,
                     },
                 );
-                intents.push(GraphIntent::WebViewCreated {
+                events_out.push(RuntimeEvent::WebViewCreated {
                     parent_webview_id,
                     child_webview_id,
                     initial_url,
@@ -91,7 +91,7 @@ pub(crate) fn graph_intents_from_semantic_events(
                         byte_len: 1,
                     },
                 );
-                intents.push(GraphIntent::WebViewCrashed {
+                events_out.push(RuntimeEvent::WebViewCrashed {
                     webview_id,
                     reason,
                     has_backtrace,
@@ -99,12 +99,12 @@ pub(crate) fn graph_intents_from_semantic_events(
             }
         }
     }
-    intents
+    events_out
 }
 
-pub(crate) fn graph_intents_and_responsive_from_events(
+pub(crate) fn runtime_events_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
-) -> (Vec<GraphIntent>, Vec<WebViewId>, HashSet<WebViewId>) {
+) -> (Vec<RuntimeEvent>, Vec<WebViewId>, HashSet<WebViewId>) {
     #[cfg(feature = "diagnostics")]
     let ingest_started = Instant::now();
     #[cfg(feature = "diagnostics")]
@@ -146,14 +146,14 @@ pub(crate) fn graph_intents_and_responsive_from_events(
         }
     }
 
-    let mut intents = graph_intents_from_semantic_events(create_events);
-    intents.extend(graph_intents_from_semantic_events(other_events));
+    let mut runtime_events = runtime_events_from_semantic_events(create_events);
+    runtime_events.extend(runtime_events_from_semantic_events(other_events));
 
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
             channel_id: "semantic.intents_emitted",
-            byte_len: intents.len(),
+            byte_len: runtime_events.len(),
         },
     );
 
@@ -161,7 +161,7 @@ pub(crate) fn graph_intents_and_responsive_from_events(
     log::trace!(
         "semantic_pipeline ingest_events={} emitted_intents={} created_children={} responsive_webviews={}",
         event_count,
-        intents.len(),
+        runtime_events.len(),
         created_child_webviews.len(),
         responsive_webviews.len()
     );
@@ -176,11 +176,11 @@ pub(crate) fn graph_intents_and_responsive_from_events(
             },
         );
         crate::shell::desktop::runtime::diagnostics::emit_span_duration(
-            "semantic_event_pipeline::graph_intents_and_responsive_from_events",
+            "semantic_event_pipeline::runtime_events_and_responsive_from_events",
             elapsed,
         );
     }
-    (intents, created_child_webviews, responsive_webviews)
+    (runtime_events, created_child_webviews, responsive_webviews)
 }
 
 #[cfg(test)]
@@ -193,8 +193,8 @@ mod tests {
     use servo::WebViewId;
     use tracing_test::traced_test;
 
-    use super::{graph_intents_and_responsive_from_events, graph_intents_from_semantic_events};
-    use crate::app::GraphIntent;
+    use super::{runtime_events_and_responsive_from_events, runtime_events_from_semantic_events};
+    use crate::app::RuntimeEvent;
     use crate::shell::desktop::host::window::{GraphSemanticEvent, GraphSemanticEventKind};
 
     fn event(kind: GraphSemanticEventKind) -> GraphSemanticEvent {
@@ -218,8 +218,8 @@ mod tests {
         });
     }
 
-    fn is_create_intent(intent: &GraphIntent) -> bool {
-        matches!(intent, GraphIntent::WebViewCreated { .. })
+    fn is_create_intent(intent: &RuntimeEvent) -> bool {
+        matches!(intent, RuntimeEvent::WebViewCreated { .. })
     }
 
     #[rstest]
@@ -261,18 +261,18 @@ mod tests {
         }),
         "crash"
     )]
-    fn test_graph_intents_from_semantic_events_maps_variants(
+    fn test_runtime_events_from_semantic_events_maps_variants(
         #[case] event: GraphSemanticEvent,
         #[case] expected_kind: &str,
     ) {
-        let intents = graph_intents_from_semantic_events(vec![event]);
-        assert_eq!(intents.len(), 1);
-        let kind = match &intents[0] {
-            GraphIntent::WebViewUrlChanged { .. } => "url",
-            GraphIntent::WebViewHistoryChanged { .. } => "history",
-            GraphIntent::WebViewTitleChanged { .. } => "title",
-            GraphIntent::WebViewCreated { .. } => "create",
-            GraphIntent::WebViewCrashed { .. } => "crash",
+        let runtime_events = runtime_events_from_semantic_events(vec![event]);
+        assert_eq!(runtime_events.len(), 1);
+        let kind = match &runtime_events[0] {
+            RuntimeEvent::WebViewUrlChanged { .. } => "url",
+            RuntimeEvent::WebViewHistoryChanged { .. } => "history",
+            RuntimeEvent::WebViewTitleChanged { .. } => "title",
+            RuntimeEvent::WebViewCreated { .. } => "create",
+            RuntimeEvent::WebViewCrashed { .. } => "crash",
             _ => "other",
         };
         assert_eq!(kind, expected_kind);
@@ -355,14 +355,14 @@ mod tests {
                 set
             });
 
-            let (intents, created_children, responsive) = graph_intents_and_responsive_from_events(events);
+            let (runtime_events, created_children, responsive) = runtime_events_and_responsive_from_events(events);
 
-            prop_assert_eq!(intents.len(), expected_event_count);
+            prop_assert_eq!(runtime_events.len(), expected_event_count);
             prop_assert_eq!(created_children, expected_created_children);
             prop_assert_eq!(responsive, expected_responsive);
 
             let mut seen_non_create = false;
-            for intent in &intents {
+            for intent in &runtime_events {
                 if !is_create_intent(intent) {
                     seen_non_create = true;
                 } else {
@@ -391,16 +391,16 @@ mod tests {
             }),
         ];
 
-        let (intents, created_children, responsive) =
-            graph_intents_and_responsive_from_events(events);
-        let intent_kinds = intents
+        let (runtime_events, created_children, responsive) =
+            runtime_events_and_responsive_from_events(events);
+        let intent_kinds = runtime_events
             .iter()
             .map(|intent| match intent {
-                GraphIntent::WebViewCreated { .. } => "create",
-                GraphIntent::WebViewUrlChanged { .. } => "url",
-                GraphIntent::WebViewHistoryChanged { .. } => "history",
-                GraphIntent::WebViewTitleChanged { .. } => "title",
-                GraphIntent::WebViewCrashed { .. } => "crash",
+                RuntimeEvent::WebViewCreated { .. } => "create",
+                RuntimeEvent::WebViewUrlChanged { .. } => "url",
+                RuntimeEvent::WebViewHistoryChanged { .. } => "history",
+                RuntimeEvent::WebViewTitleChanged { .. } => "title",
+                RuntimeEvent::WebViewCrashed { .. } => "crash",
                 _ => "other",
             })
             .collect::<Vec<_>>();
@@ -417,12 +417,12 @@ mod tests {
             new_url: "https://trace.example".to_string(),
         })];
 
-        let (intents, created_children, responsive) =
-            graph_intents_and_responsive_from_events(events);
+        let (runtime_events, created_children, responsive) =
+            runtime_events_and_responsive_from_events(events);
         tracing::info!(
             "semantic_pipeline ingest_events={} emitted_intents={} created_children={} responsive_webviews={}",
             1,
-            intents.len(),
+            runtime_events.len(),
             created_children.len(),
             responsive.len()
         );

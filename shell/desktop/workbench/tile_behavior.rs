@@ -287,9 +287,9 @@ impl<'a> GraphshellTileBehavior<'a> {
     ) -> AccessibilityInspectorSnapshot {
         let focused_selection = graph_app.focused_selection();
         let selected_node_count = focused_selection.len();
-        let total_nodes = graph_app.workspace.domain.graph.node_count();
+        let total_nodes = graph_app.domain_graph().node_count();
         let selected_node = focused_selection.primary().and_then(|node_key| {
-            let node = graph_app.workspace.domain.graph.get_node(node_key)?;
+            let node = graph_app.domain_graph().get_node(node_key)?;
             let viewer_registry = crate::registries::atomic::viewer::ViewerRegistry::default();
             let viewer_id =
                 viewer_registry.select_for(node.mime_hint.as_deref(), node.address_kind);
@@ -523,7 +523,7 @@ impl<'a> GraphshellTileBehavior<'a> {
 
     fn favicon_texture_id(&mut self, ui: &Ui, node_key: NodeKey) -> Option<egui::TextureId> {
         let (favicon_rgba, favicon_width, favicon_height) = {
-            let node = self.graph_app.workspace.domain.graph.get_node(node_key)?;
+            let node = self.graph_app.domain_graph().get_node(node_key)?;
             (
                 node.favicon_rgba.clone()?,
                 node.favicon_width as usize,
@@ -728,7 +728,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             }
             TileKind::Node(state) => {
                 let node_key = state.node;
-                let Some(node) = self.graph_app.workspace.domain.graph.get_node(node_key) else {
+                let Some(node) = self.graph_app.domain_graph().get_node(node_key) else {
                     ui.label("Missing node for this tile.");
                     return UiResponse::None;
                 };
@@ -889,7 +889,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 lifecycle_intents::promote_node_to_active(
                                     node_key,
                                     LifecycleCause::UserSelect,
-                                ),
+                                ).into(),
                             );
                         }
                         if ui.button("Close Tile").clicked() {
@@ -966,7 +966,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 lifecycle_intents::promote_node_to_active(
                                     node_key,
                                     LifecycleCause::UserSelect,
-                                ),
+                                ).into(),
                             );
                         }
                     });
@@ -1025,8 +1025,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 .unwrap_or_else(|| "Graph".into()),
             TileKind::Node(state) => self
                 .graph_app
-                .workspace
-                .graph
+                .domain_graph()
                 .get_node(state.node)
                 .map(|n| n.title.clone().into())
                 .unwrap_or_else(|| format!("Node {:?}", state.node).into()),
@@ -1067,8 +1066,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             Some(Tile::Pane(TileKind::Node(state))) => {
                 let title = self
                     .graph_app
-                    .workspace
-                    .graph
+                    .domain_graph()
                     .get_node(state.node)
                     .map(|n| n.title.clone())
                     .unwrap_or_else(|| format!("Node {:?}", state.node));
