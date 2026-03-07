@@ -32,7 +32,7 @@ use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED, CHANNEL_UX_NAVIGATION_TRANSITION,
+    CHANNEL_UX_NAVIGATION_TRANSITION,
 };
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
@@ -59,7 +59,10 @@ mod workspace_layout;
 mod toolbar_dialog;
 #[path = "gui_frame/keyboard_phase.rs"]
 mod keyboard_phase;
+#[path = "gui_frame/child_webviews.rs"]
+mod child_webviews;
 
+pub(crate) use child_webviews::open_pending_child_webviews_for_tiles;
 pub(crate) use keyboard_phase::{KeyboardPhaseArgs, handle_keyboard_phase};
 pub(crate) use toolbar_dialog::{ToolbarDialogPhaseArgs, handle_toolbar_dialog_phase};
 
@@ -198,34 +201,6 @@ pub(crate) fn apply_intents_if_any(
         intents.is_empty(),
         "intent buffer must be drained by apply_intents_if_any"
     );
-}
-
-pub(crate) fn open_pending_child_webviews_for_tiles<F>(
-    graph_app: &GraphBrowserApp,
-    pending_open_child_webviews: Vec<WebViewId>,
-    mut open_for_node: F,
-) -> Vec<WebViewId>
-where
-    F: FnMut(NodeKey),
-{
-    let mut deferred_webviews = Vec::new();
-    for child_webview_id in pending_open_child_webviews {
-        if let Some(node_key) = graph_app.get_node_for_webview(child_webview_id) {
-            open_for_node(node_key);
-        } else {
-            deferred_webviews.push(child_webview_id);
-            warn!(
-                "semantic child-webview {:?} had no node mapping; skipping pane-open",
-                child_webview_id
-            );
-            #[cfg(feature = "diagnostics")]
-            diagnostics::emit_event(diagnostics::DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED,
-                byte_len: 1,
-            });
-        }
-    }
-    deferred_webviews
 }
 
 pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
