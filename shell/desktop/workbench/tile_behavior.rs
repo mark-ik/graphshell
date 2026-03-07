@@ -14,7 +14,8 @@ use egui_tiles::{
 };
 
 use crate::app::{
-    GraphBrowserApp, GraphIntent, LifecycleCause, SearchDisplayMode, WorkbenchIntent,
+    GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent,
+    SearchDisplayMode, ViewAction, WorkbenchIntent,
 };
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::domain::layout::LayoutDomainRegistry;
@@ -199,6 +200,57 @@ pub(crate) struct PendingOpenNode {
     pub mode: PendingOpenMode,
 }
 
+pub(crate) enum TilePendingIntent {
+    ViewAction(ViewAction),
+    GraphMutation(GraphMutation),
+    RuntimeEvent(RuntimeEvent),
+    GraphIntent(GraphIntent),
+}
+
+impl From<ViewAction> for TilePendingIntent {
+    fn from(value: ViewAction) -> Self {
+        Self::ViewAction(value)
+    }
+}
+
+impl From<GraphMutation> for TilePendingIntent {
+    fn from(value: GraphMutation) -> Self {
+        Self::GraphMutation(value)
+    }
+}
+
+impl From<RuntimeEvent> for TilePendingIntent {
+    fn from(value: RuntimeEvent) -> Self {
+        Self::RuntimeEvent(value)
+    }
+}
+
+impl From<GraphIntent> for TilePendingIntent {
+    fn from(value: GraphIntent) -> Self {
+        if let Some(action) = value.as_view_action() {
+            return Self::ViewAction(action);
+        }
+        if let Some(mutation) = value.as_graph_mutation() {
+            return Self::GraphMutation(mutation);
+        }
+        if let Some(event) = value.as_runtime_event() {
+            return Self::RuntimeEvent(event);
+        }
+        Self::GraphIntent(value)
+    }
+}
+
+impl From<TilePendingIntent> for GraphIntent {
+    fn from(value: TilePendingIntent) -> Self {
+        match value {
+            TilePendingIntent::ViewAction(action) => action.into(),
+            TilePendingIntent::GraphMutation(mutation) => mutation.into(),
+            TilePendingIntent::RuntimeEvent(event) => event.into(),
+            TilePendingIntent::GraphIntent(intent) => intent,
+        }
+    }
+}
+
 pub(crate) struct GraphshellTileBehavior<'a> {
     pub graph_app: &'a mut GraphBrowserApp,
     pub control_panel: &'a mut crate::shell::desktop::runtime::control_panel::ControlPanel,
@@ -209,7 +261,7 @@ pub(crate) struct GraphshellTileBehavior<'a> {
     search_query_active: bool,
     pending_open_nodes: Vec<PendingOpenNode>,
     pending_closed_nodes: Vec<NodeKey>,
-    pending_graph_intents: Vec<GraphIntent>,
+    pending_post_render_intents: Vec<TilePendingIntent>,
     pending_tab_drag_stopped_nodes: HashSet<NodeKey>,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
@@ -237,7 +289,7 @@ impl<'a> GraphshellTileBehavior<'a> {
             search_query_active,
             pending_open_nodes: Vec::new(),
             pending_closed_nodes: Vec::new(),
-            pending_graph_intents: Vec::new(),
+            pending_post_render_intents: Vec::new(),
             pending_tab_drag_stopped_nodes: HashSet::new(),
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
@@ -252,12 +304,28 @@ impl<'a> GraphshellTileBehavior<'a> {
         std::mem::take(&mut self.pending_closed_nodes)
     }
 
-    pub fn take_pending_graph_intents(&mut self) -> Vec<GraphIntent> {
-        std::mem::take(&mut self.pending_graph_intents)
+    pub fn take_pending_post_render_intents(&mut self) -> Vec<TilePendingIntent> {
+        std::mem::take(&mut self.pending_post_render_intents)
     }
 
     pub fn take_pending_tab_drag_stopped_nodes(&mut self) -> HashSet<NodeKey> {
         std::mem::take(&mut self.pending_tab_drag_stopped_nodes)
+    }
+
+    fn queue_post_render_intent<T>(&mut self, intent: T)
+    where
+        T: Into<TilePendingIntent>,
+    {
+        self.pending_post_render_intents.push(intent.into());
+    }
+
+    fn extend_post_render_intents<I, T>(&mut self, intents: I)
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<TilePendingIntent>,
+    {
+        self.pending_post_render_intents
+            .extend(intents.into_iter().map(Into::into));
     }
 
     fn hash_favicon(width: u32, height: u32, rgba: &[u8]) -> u64 {
@@ -681,8 +749,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     match action {
                         GraphAction::FocusNode(key) => {
                             log::debug!("tile_behavior: FocusNode action for {:?}", key);
-                            self.pending_graph_intents
-                                .push(GraphIntent::OpenNodeFrameRouted {
+                            self.queue_post_render_intent(GraphIntent::OpenNodeFrameRouted {
                                     key,
                                     prefer_frame: None,
                                 });
@@ -691,14 +758,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                             if let Some(primary) = self.graph_app.focused_selection().primary()
                                 && primary != key
                             {
-                                self.pending_graph_intents.push(
-                                    GraphIntent::CreateUserGroupedEdge {
+                                self.queue_post_render_intent(GraphIntent::CreateUserGroupedEdge {
                                         from: primary,
                                         to: key,
-                                    },
-                                );
+                                    });
                             }
-                            self.pending_graph_intents.push(GraphIntent::SelectNode {
+                            self.queue_post_render_intent(GraphIntent::SelectNode {
                                 key,
                                 multi_select: multi_select_modifier,
                             });
@@ -712,8 +777,9 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     }
                 }
 
-                self.pending_graph_intents
-                    .extend(render::intents_from_graph_actions(passthrough_actions));
+                self.extend_post_render_intents(render::intents_from_graph_actions(
+                    passthrough_actions,
+                ));
                 render::sync_graph_positions_from_layout(self.graph_app);
                 render::render_graph_info_in_ui(ui, self.graph_app);
 
@@ -723,7 +789,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     self.graph_app,
                     view_id,
                     pane_rect,
-                    &mut self.pending_graph_intents,
+                    &mut self.pending_post_render_intents,
                 );
             }
             TileKind::Node(state) => {
@@ -877,7 +943,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
 
-                if let Some(crash) = self.graph_app.runtime_crash_state_for_node(node_key) {
+                if let Some(crash) = self.graph_app.runtime_crash_state_for_node(node_key).cloned() {
                     let crash_reason = crash.message.as_deref().unwrap_or("unknown");
                     ui.colored_label(
                         egui::Color32::from_rgb(220, 120, 120),
@@ -885,11 +951,11 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     );
                     ui.horizontal(|ui| {
                         if ui.button("Reload").clicked() {
-                            self.pending_graph_intents.push(
+                            self.queue_post_render_intent(
                                 lifecycle_intents::promote_node_to_active(
                                     node_key,
                                     LifecycleCause::UserSelect,
-                                ).into(),
+                                ),
                             );
                         }
                         if ui.button("Close Tile").clicked() {
@@ -958,15 +1024,19 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     ui.small(lifecycle_hint);
                     ui.horizontal(|ui| {
                         if ui.button("Reactivate").clicked() {
-                            self.pending_graph_intents.push(GraphIntent::SelectNode {
+                            self.queue_post_render_intent(GraphIntent::SelectNode {
                                 key: node_key,
                                 multi_select: false,
                             });
-                            self.pending_graph_intents.push(
+                            self.queue_post_render_intent(GraphIntent::SelectNode {
+                                key: node_key,
+                                multi_select: false,
+                            });
+                            self.queue_post_render_intent(
                                 lifecycle_intents::promote_node_to_active(
                                     node_key,
                                     LifecycleCause::UserSelect,
-                                ).into(),
+                                ),
                             );
                         }
                     });
@@ -991,14 +1061,14 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     }
                     ToolPaneState::HistoryManager => {
                         let intents = render::render_history_manager_in_ui(ui, self.graph_app);
-                        self.pending_graph_intents.extend(intents);
+                        self.extend_post_render_intents(intents);
                     }
                     ToolPaneState::AccessibilityInspector => {
                         Self::render_accessibility_inspector_scaffold(ui, self.graph_app);
                     }
                     ToolPaneState::FileTree => {
                         let intents = render::render_file_tree_tool_pane_in_ui(ui, self.graph_app);
-                        self.pending_graph_intents.extend(intents);
+                        self.extend_post_render_intents(intents);
                     }
                     ToolPaneState::Settings => {
                         let intents = render::render_settings_tool_pane_in_ui_with_control_panel(
@@ -1006,7 +1076,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                             self.graph_app,
                             Some(self.control_panel),
                         );
-                        self.pending_graph_intents.extend(intents);
+                        self.extend_post_render_intents(intents);
                     }
                 }
             }
@@ -1156,7 +1226,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                 self.graph_app.toggle_tab_selection(node_key);
             } else {
                 self.graph_app.set_tab_selection_single(node_key);
-                self.pending_graph_intents.push(GraphIntent::SelectNode {
+                self.queue_post_render_intent(GraphIntent::SelectNode {
                     key: node_key,
                     multi_select: false,
                 });
@@ -1295,7 +1365,7 @@ fn render_graph_pane_overlay(
     app: &mut GraphBrowserApp,
     view_id: crate::app::GraphViewId,
     pane_rect: egui::Rect,
-    pending_intents: &mut Vec<GraphIntent>,
+    pending_intents: &mut Vec<TilePendingIntent>,
 ) {
     let Some(view) = app.workspace.views.get(&view_id) else {
         return;
@@ -1371,7 +1441,8 @@ fn render_graph_pane_overlay(
                             pending_intents.push(GraphIntent::SetViewLens {
                                 view_id,
                                 lens: crate::app::LensConfig::default(),
-                            });
+                            }
+                            .into());
                         }
                     });
 
@@ -1398,7 +1469,7 @@ fn render_graph_pane_overlay(
                             if !requested.is_empty() {
                                 let mut lens = base_lens.clone();
                                 lens.lens_id = Some(requested.to_string());
-                                pending_intents.push(GraphIntent::SetViewLens { view_id, lens });
+                                pending_intents.push(GraphIntent::SetViewLens { view_id, lens }.into());
                             }
                         }
                     });

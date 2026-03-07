@@ -8,8 +8,8 @@
 //! selection) is handled by egui_graphs via the GraphView widget.
 
 use crate::app::{
-    CommandPaletteShortcut, EdgeCommand, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
-    RadialMenuShortcut, WorkbenchIntent,
+    CommandPaletteShortcut, EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation,
+    HelpPanelShortcut, RadialMenuShortcut, ViewAction, WorkbenchIntent,
 };
 use crate::util::{VersoAddress, GraphshellSettingsPath};
 use egui::Key;
@@ -253,29 +253,29 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
         intents.push(GraphIntent::TogglePhysics);
     }
     if actions.toggle_camera_position_fit_lock {
-        intents.push(GraphIntent::ToggleCameraPositionFitLock);
+        intents.push(ViewAction::ToggleCameraPositionFitLock.into());
     }
     if actions.toggle_camera_zoom_fit_lock {
-        intents.push(GraphIntent::ToggleCameraZoomFitLock);
+        intents.push(ViewAction::ToggleCameraZoomFitLock.into());
     }
     // View toggling is owned by GUI tile logic.
     if actions.fit_to_screen {
-        intents.push(GraphIntent::RequestFitToScreen);
+        intents.push(ViewAction::RequestFitToScreen.into());
     }
     if actions.zoom_in {
-        intents.push(GraphIntent::RequestZoomIn);
+        intents.push(ViewAction::RequestZoomIn.into());
     }
     if actions.zoom_out {
-        intents.push(GraphIntent::RequestZoomOut);
+        intents.push(ViewAction::RequestZoomOut.into());
     }
     if actions.zoom_reset {
-        intents.push(GraphIntent::RequestZoomReset);
+        intents.push(ViewAction::RequestZoomReset.into());
     }
     if actions.zoom_to_selected {
-        intents.push(GraphIntent::RequestZoomToSelected);
+        intents.push(ViewAction::RequestZoomToSelected.into());
     }
     if actions.reheat_physics {
-        intents.push(GraphIntent::ReheatPhysics);
+        intents.push(ViewAction::ReheatPhysics.into());
     }
     if actions.toggle_help_panel {
         intents.push(GraphIntent::ToggleHelpPanel);
@@ -287,7 +287,7 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
         intents.push(GraphIntent::ToggleRadialMenu);
     }
     if actions.create_node {
-        intents.push(GraphIntent::CreateNodeNearCenter);
+        intents.push(GraphMutation::CreateNodeNearCenter.into());
     }
     if actions.connect_selected_pair {
         intents.push(GraphIntent::ExecuteEdgeCommand {
@@ -318,10 +318,10 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
         intents.push(GraphIntent::TogglePrimaryNodePin);
     }
     if actions.delete_selected {
-        intents.push(GraphIntent::RemoveSelectedNodes);
+        intents.push(GraphMutation::RemoveSelectedNodes.into());
     }
     if actions.clear_graph {
-        intents.push(GraphIntent::ClearGraph);
+        intents.push(GraphMutation::ClearGraph.into());
     }
     if actions.undo {
         intents.push(GraphIntent::Undo);
@@ -330,7 +330,7 @@ pub fn intents_from_actions(actions: &KeyboardActions) -> Vec<GraphIntent> {
         intents.push(GraphIntent::Redo);
     }
     if actions.select_all {
-        intents.push(GraphIntent::SelectAll);
+        intents.push(ViewAction::SelectAll.into());
     }
     intents
 }

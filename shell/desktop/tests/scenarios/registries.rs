@@ -1,5 +1,5 @@
 use super::super::harness::TestRegistry;
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, GraphMutation, RuntimeEvent};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::protocol::ProtocolResolveControl;
 use crate::util::{VersoAddress, GraphshellSettingsPath};
@@ -241,16 +241,15 @@ fn phase2_action_registry_graph_submit_emits_action_channels() {
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
     app.workspace.selected_nodes.select(key, false);
 
-    let (open_selected_tile, intents) =
-        registries::phase2_execute_graph_view_submit_action_for_tests(
-            &harness.diagnostics,
-            &app,
-            "https://next.com",
-        );
-    assert!(open_selected_tile);
+    let result = registries::phase2_execute_graph_view_submit_action_for_tests(
+        &harness.diagnostics,
+        &app,
+        "https://next.com",
+    );
+    assert!(result.open_selected_tile);
     assert!(matches!(
-        intents.first(),
-        Some(GraphIntent::SetNodeUrl { key: selected, new_url })
+        result.mutations.first(),
+        Some(GraphMutation::SetNodeUrl { key: selected, new_url })
             if *selected == key && new_url == "https://next.com"
     ));
 
@@ -278,18 +277,21 @@ fn phase2_action_registry_detail_submit_emits_action_channels() {
         .workspace.domain.graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
 
-    let (open_selected_tile, intents) =
-        registries::phase2_execute_detail_view_submit_action_for_tests(
-            &harness.diagnostics,
-            &app,
-            "https://detail-next.com",
-            Some(key),
-        );
-    assert!(!open_selected_tile);
+    let result = registries::phase2_execute_detail_view_submit_action_for_tests(
+        &harness.diagnostics,
+        &app,
+        "https://detail-next.com",
+        Some(key),
+    );
+    assert!(!result.open_selected_tile);
     assert!(matches!(
-        intents.first(),
-        Some(GraphIntent::SetNodeUrl { key: selected, new_url })
+        result.mutations.first(),
+        Some(GraphMutation::SetNodeUrl { key: selected, new_url })
             if *selected == key && new_url == "https://detail-next.com"
+    ));
+    assert!(matches!(
+        result.runtime_events.first(),
+        Some(RuntimeEvent::PromoteNodeToActive { key: selected, .. }) if *selected == key
     ));
 
     let snapshot = harness.snapshot();

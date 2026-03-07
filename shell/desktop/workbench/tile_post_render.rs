@@ -64,7 +64,11 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
     let pending_open_nodes = behavior.take_pending_open_nodes();
     let pending_closed_nodes = behavior.take_pending_closed_nodes();
     let tab_drag_stopped_nodes = behavior.take_pending_tab_drag_stopped_nodes();
-    let mut post_render_intents = behavior.take_pending_graph_intents();
+    let mut post_render_intents: Vec<GraphIntent> = behavior
+        .take_pending_post_render_intents()
+        .into_iter()
+        .map(Into::into)
+        .collect();
 
     drop(behavior);
 

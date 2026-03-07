@@ -11,7 +11,7 @@ use crate::app::{
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryCaptureStatus,
     HistoryManagerTab, KeyboardPanInputMode, KeyboardZoomRequest, ReducerDispatchContext,
     SearchDisplayMode, SelectionUpdateMode, UnsavedFramePromptAction, UnsavedFramePromptRequest,
-    WorkbenchIntent,
+    ViewAction, WorkbenchIntent,
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
@@ -2248,31 +2248,32 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
             }
             GraphAction::DragEnd(key, pos) => {
                 intents.push(GraphIntent::SetInteracting { interacting: false });
-                intents.push(GraphIntent::SetNodePosition { key, position: pos });
+                intents.push(ViewAction::SetNodePosition { key, position: pos }.into());
             }
             GraphAction::MoveNode(key, pos) => {
-                intents.push(GraphIntent::SetNodePosition { key, position: pos });
+                intents.push(ViewAction::SetNodePosition { key, position: pos }.into());
             }
             GraphAction::SelectNode { key, multi_select } => {
                 intents.push(GraphIntent::SelectNode { key, multi_select });
             }
             GraphAction::LassoSelect { keys, mode } => {
-                intents.push(GraphIntent::UpdateSelection { keys, mode });
+                intents.push(ViewAction::UpdateSelection { keys, mode }.into());
             }
             GraphAction::SetHighlightedEdge { from, to } => {
-                intents.push(GraphIntent::SetHighlightedEdge { from, to });
+                intents.push(ViewAction::SetHighlightedEdge { from, to }.into());
             }
             GraphAction::ClearHighlightedEdge => {
-                intents.push(GraphIntent::ClearHighlightedEdge);
+                intents.push(ViewAction::ClearHighlightedEdge.into());
             }
             GraphAction::ClearSelection => {
-                intents.push(GraphIntent::UpdateSelection {
+                intents.push(ViewAction::UpdateSelection {
                     keys: Vec::new(),
                     mode: SelectionUpdateMode::Replace,
-                });
+                }
+                .into());
             }
             GraphAction::Zoom(new_zoom) => {
-                intents.push(GraphIntent::SetZoom { zoom: new_zoom });
+                intents.push(ViewAction::SetZoom { zoom: new_zoom }.into());
             }
         }
     }
@@ -3189,7 +3190,7 @@ pub fn render_file_tree_tool_pane_in_ui(
             });
         }
         if ui.button("Refresh").clicked() {
-            intents.push(GraphIntent::RebuildFileTreeProjection);
+            intents.push(ViewAction::RebuildFileTreeProjection.into());
         }
     });
     ui.add_space(4.0);
@@ -3216,10 +3217,11 @@ pub fn render_file_tree_tool_pane_in_ui(
         );
     });
     if relation_source != app.file_tree_projection_state().containment_relation_source {
-        intents.push(GraphIntent::SetFileTreeContainmentRelationSource {
+        intents.push(ViewAction::SetFileTreeContainmentRelationSource {
             source: relation_source,
-        });
-        intents.push(GraphIntent::RebuildFileTreeProjection);
+        }
+        .into());
+        intents.push(ViewAction::RebuildFileTreeProjection.into());
     }
 
     let mut sort_mode = app.file_tree_projection_state().sort_mode;
@@ -3242,7 +3244,7 @@ pub fn render_file_tree_tool_pane_in_ui(
         );
     });
     if sort_mode != app.file_tree_projection_state().sort_mode {
-        intents.push(GraphIntent::SetFileTreeSortMode { sort_mode });
+        intents.push(ViewAction::SetFileTreeSortMode { sort_mode }.into());
     }
 
     ui.horizontal(|ui| {
@@ -3262,11 +3264,12 @@ pub fn render_file_tree_tool_pane_in_ui(
         {
             let trimmed = root_filter.trim().to_string();
             if trimmed.is_empty() {
-                intents.push(GraphIntent::SetFileTreeRootFilter { root_filter: None });
+                intents.push(ViewAction::SetFileTreeRootFilter { root_filter: None }.into());
             } else {
-                intents.push(GraphIntent::SetFileTreeRootFilter {
+                intents.push(ViewAction::SetFileTreeRootFilter {
                     root_filter: Some(trimmed),
-                });
+                }
+                .into());
             }
         }
     });
@@ -3315,9 +3318,10 @@ pub fn render_file_tree_tool_pane_in_ui(
                         let response =
                             ui.selectable_label(is_selected, file_tree_row_label(row_key));
                         if response.clicked() {
-                            intents.push(GraphIntent::SetFileTreeSelectedRows {
+                            intents.push(ViewAction::SetFileTreeSelectedRows {
                                 rows: vec![row_key.clone()],
-                            });
+                            }
+                            .into());
                         }
                         response.on_hover_text(row_key);
                     });
@@ -3327,9 +3331,10 @@ pub fn render_file_tree_tool_pane_in_ui(
         if expanded_rows_next != app.file_tree_projection_state().expanded_rows {
             let mut expanded_rows: Vec<String> = expanded_rows_next.into_iter().collect();
             expanded_rows.sort();
-            intents.push(GraphIntent::SetFileTreeExpandedRows {
+            intents.push(ViewAction::SetFileTreeExpandedRows {
                 rows: expanded_rows,
-            });
+            }
+            .into());
         }
 
         let selected_row = app

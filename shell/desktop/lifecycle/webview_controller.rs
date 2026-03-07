@@ -70,20 +70,22 @@ fn intents_for_graph_view_address_submit(
     if let Some(selected_node) = app.get_single_selected_node() {
         (
             true,
-            vec![GraphIntent::SetNodeUrl {
+            vec![crate::app::GraphMutation::SetNodeUrl {
                 key: selected_node,
                 new_url: input.to_string(),
-            }],
+            }
+            .into()],
             Vec::new(),
         )
     } else {
         let position = new_node_position_for_context(app, app.focused_selection().primary());
         (
             true,
-            vec![GraphIntent::CreateNodeAtUrl {
+            vec![crate::app::GraphMutation::CreateNodeAtUrl {
                 url: input.to_string(),
                 position,
-            }],
+            }
+            .into()],
             Vec::new(),
         )
     }
@@ -157,6 +159,23 @@ pub(crate) struct AddressBarIntentOutcome {
     pub outcome: AddressBarSubmitOutcome,
     pub intents: Vec<GraphIntent>,
     pub workbench_intents: Vec<WorkbenchIntent>,
+}
+
+fn graph_intents_from_graph_view_submit_result(
+    result: crate::shell::desktop::runtime::registries::Phase2GraphViewSubmitResult,
+) -> (bool, Vec<GraphIntent>) {
+    (
+        result.open_selected_tile,
+        result.mutations.into_iter().map(Into::into).collect(),
+    )
+}
+
+fn graph_intents_from_detail_submit_result(
+    result: crate::shell::desktop::runtime::registries::Phase2DetailViewSubmitResult,
+) -> (bool, Vec<GraphIntent>) {
+    let mut intents: Vec<GraphIntent> = result.mutations.into_iter().map(Into::into).collect();
+    intents.extend(result.runtime_events.into_iter().map(Into::into));
+    (result.open_selected_tile, intents)
 }
 
 fn resolve_detail_submit_target(
@@ -274,8 +293,9 @@ pub(crate) fn handle_address_bar_submit_intents(
                 workbench_intents: vec![workbench_intent],
             };
         }
-        let (open_selected_tile, intents) =
-            registries::phase2_execute_graph_view_submit_action(app, &normalized_input);
+        let (open_selected_tile, intents) = graph_intents_from_graph_view_submit_result(
+            registries::phase2_execute_graph_view_submit_action(app, &normalized_input),
+        );
 
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {
@@ -349,12 +369,13 @@ pub(crate) fn handle_address_bar_submit_intents(
                 viewer_surface.profile.zoom_step
             );
 
-            let (open_selected_tile, intents) =
+            let (open_selected_tile, intents) = graph_intents_from_detail_submit_result(
                 registries::phase2_execute_detail_view_submit_action(
                     app,
                     parsed_url.as_str(),
                     focused_node,
-                );
+                ),
+            );
             return AddressBarIntentOutcome {
                 outcome: AddressBarSubmitOutcome {
                     mark_clean: true,
@@ -388,10 +409,12 @@ pub(crate) fn handle_address_bar_submit_intents(
         // No focused live webview in detail mode:
         // if we still have a focused node/pane target, update/reactivate it;
         // otherwise create a new node as a fallback.
-        let (open_selected_tile, intents) = registries::phase2_execute_detail_view_submit_action(
-            app,
-            parsed_url.as_str(),
-            target_node,
+        let (open_selected_tile, intents) = graph_intents_from_detail_submit_result(
+            registries::phase2_execute_detail_view_submit_action(
+                app,
+                parsed_url.as_str(),
+                target_node,
+            ),
         );
         AddressBarIntentOutcome {
             outcome: AddressBarSubmitOutcome {

@@ -10,7 +10,7 @@
 //! which is shared with the command palette so both surfaces use a single
 //! execution path.
 
-use crate::app::{GraphBrowserApp, GraphIntent, SelectionUpdateMode};
+use crate::app::{GraphBrowserApp, SelectionUpdateMode, ViewAction};
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, category_persisted_name,
@@ -459,10 +459,11 @@ pub fn render_radial_command_menu(
                         .is_some_and(|pos| !response.response.rect.contains(pos))
             });
             if clicked_outside {
-                intents.push(GraphIntent::UpdateSelection {
+                intents.push(ViewAction::UpdateSelection {
                     keys: Vec::new(),
                     mode: SelectionUpdateMode::Replace,
-                });
+                }
+                .into());
                 should_close = true;
             }
         }

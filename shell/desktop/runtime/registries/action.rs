@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause};
+use crate::app::{GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent};
 use crate::graph::NodeKey;
 use crate::services::search::fuzzy_match_node_keys;
-use crate::shell::desktop::lifecycle::lifecycle_intents;
 use euclid::default::Point2D;
 
 pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "action.omnibox_node_search";
@@ -135,16 +134,18 @@ fn execute_graph_view_submit_action(
     }
 
     if let Some(selected_node) = app.get_single_selected_node() {
-        vec![GraphIntent::SetNodeUrl {
+        vec![GraphMutation::SetNodeUrl {
             key: selected_node,
             new_url: input.to_string(),
-        }]
+        }
+        .into()]
     } else {
         let position = new_node_position_for_context(app, app.focused_selection().primary());
-        vec![GraphIntent::CreateNodeAtUrl {
+        vec![GraphMutation::CreateNodeAtUrl {
             url: input.to_string(),
             position,
-        }]
+        }
+        .into()]
     }
 }
 
@@ -162,18 +163,24 @@ fn execute_detail_view_submit_action(
 
     if let Some(node_key) = focused_node {
         return vec![
-            GraphIntent::SetNodeUrl {
+            GraphMutation::SetNodeUrl {
                 key: *node_key,
                 new_url: normalized_url.clone(),
-            },
-            lifecycle_intents::promote_node_to_active(*node_key, LifecycleCause::Restore).into(),
+            }
+            .into(),
+            RuntimeEvent::PromoteNodeToActive {
+                key: *node_key,
+                cause: LifecycleCause::Restore,
+            }
+            .into(),
         ];
     }
 
-    vec![GraphIntent::CreateNodeAtUrl {
+    vec![GraphMutation::CreateNodeAtUrl {
         url: normalized_url.clone(),
         position: new_node_position_for_context(app, app.focused_selection().primary()),
-    }]
+    }
+    .into()]
 }
 
 fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
@@ -311,9 +318,10 @@ fn execute_verse_forget_device_action(
         return Vec::new();
     };
 
-    vec![GraphIntent::ForgetDevice {
+    vec![GraphMutation::ForgetDevice {
         peer_id: node_id.clone(),
-    }]
+    }
+    .into()]
 }
 
 // ===== Core Action Implementations (original) =====

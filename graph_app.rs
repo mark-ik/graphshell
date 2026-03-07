@@ -1950,7 +1950,7 @@ impl From<RuntimeEvent> for GraphIntent {
 }
 
 impl GraphIntent {
-    fn as_view_action(&self) -> Option<ViewAction> {
+    pub(crate) fn as_view_action(&self) -> Option<ViewAction> {
         match self {
             Self::ToggleCameraPositionFitLock => Some(ViewAction::ToggleCameraPositionFitLock),
             Self::ToggleCameraZoomFitLock => Some(ViewAction::ToggleCameraZoomFitLock),
@@ -2021,7 +2021,7 @@ impl GraphIntent {
         }
     }
 
-    fn as_graph_mutation(&self) -> Option<GraphMutation> {
+    pub(crate) fn as_graph_mutation(&self) -> Option<GraphMutation> {
         match self {
             Self::CreateNoteForNode { key, title } => Some(GraphMutation::CreateNoteForNode {
                 key: *key,
@@ -2105,7 +2105,7 @@ impl GraphIntent {
         }
     }
 
-    fn as_runtime_event(&self) -> Option<RuntimeEvent> {
+    pub(crate) fn as_runtime_event(&self) -> Option<RuntimeEvent> {
         match self {
             Self::PromoteNodeToActive { key, cause } => {
                 Some(RuntimeEvent::PromoteNodeToActive { key: *key, cause: *cause })

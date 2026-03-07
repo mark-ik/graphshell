@@ -10,7 +10,7 @@ pub(crate) mod signal_routing;
 
 use std::sync::OnceLock;
 
-use crate::app::{GraphBrowserApp, GraphIntent, MemoryPressureLevel};
+use crate::app::{GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RuntimeEvent};
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::atomic::diagnostics;
@@ -1032,6 +1032,50 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
     execution.intents
 }
 
+pub(crate) struct Phase2GraphViewSubmitResult {
+    pub(crate) open_selected_tile: bool,
+    pub(crate) mutations: Vec<GraphMutation>,
+}
+
+pub(crate) struct Phase2DetailViewSubmitResult {
+    pub(crate) open_selected_tile: bool,
+    pub(crate) mutations: Vec<GraphMutation>,
+    pub(crate) runtime_events: Vec<RuntimeEvent>,
+}
+
+fn expect_graph_mutations(intents: Vec<GraphIntent>, action_id: &str) -> Vec<GraphMutation> {
+    intents
+        .into_iter()
+        .map(|intent| {
+            intent.as_graph_mutation().unwrap_or_else(|| {
+                panic!("phase-2 action '{action_id}' emitted non-mutation intent: {intent:?}")
+            })
+        })
+        .collect()
+}
+
+fn split_detail_submit_intents(
+    intents: Vec<GraphIntent>,
+    action_id: &str,
+) -> (Vec<GraphMutation>, Vec<RuntimeEvent>) {
+    let mut mutations = Vec::new();
+    let mut runtime_events = Vec::new();
+
+    for intent in intents {
+        if let Some(mutation) = intent.as_graph_mutation() {
+            mutations.push(mutation);
+            continue;
+        }
+        if let Some(runtime_event) = intent.as_runtime_event() {
+            runtime_events.push(runtime_event);
+            continue;
+        }
+        panic!("phase-2 action '{action_id}' emitted unsupported mixed intent: {intent:?}");
+    }
+
+    (mutations, runtime_events)
+}
+
 pub(crate) fn phase5_execute_verse_sync_now_action(app: &GraphBrowserApp) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
     let execution =
@@ -1403,7 +1447,7 @@ fn emit_lookup_diagnostics_for_tests(
 pub(crate) fn phase2_execute_graph_view_submit_action(
     app: &GraphBrowserApp,
     input: &str,
-) -> (bool, Vec<GraphIntent>) {
+) -> Phase2GraphViewSubmitResult {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
 
     emit_event(DiagnosticEvent::MessageSent {
@@ -1436,15 +1480,19 @@ pub(crate) fn phase2_execute_graph_view_submit_action(
         latency_us: 1,
     });
 
-    let open_selected_tile = execution.succeeded && !execution.intents.is_empty();
-    (open_selected_tile, execution.intents)
+    let mutations = expect_graph_mutations(execution.intents, execution.action_id.as_str());
+    let open_selected_tile = execution.succeeded && !mutations.is_empty();
+    Phase2GraphViewSubmitResult {
+        open_selected_tile,
+        mutations,
+    }
 }
 
 pub(crate) fn phase2_execute_detail_view_submit_action(
     app: &GraphBrowserApp,
     normalized_url: &str,
     focused_node: Option<crate::graph::NodeKey>,
-) -> (bool, Vec<GraphIntent>) {
+) -> Phase2DetailViewSubmitResult {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
 
     emit_event(DiagnosticEvent::MessageSent {
@@ -1478,11 +1526,16 @@ pub(crate) fn phase2_execute_detail_view_submit_action(
         latency_us: 1,
     });
 
-    let open_selected_tile = execution
-        .intents
+    let (mutations, runtime_events) =
+        split_detail_submit_intents(execution.intents, execution.action_id.as_str());
+    let open_selected_tile = mutations
         .iter()
-        .any(|intent| matches!(intent, GraphIntent::CreateNodeAtUrl { .. }));
-    (open_selected_tile, execution.intents)
+        .any(|mutation| matches!(mutation, GraphMutation::CreateNodeAtUrl { .. }));
+    Phase2DetailViewSubmitResult {
+        open_selected_tile,
+        mutations,
+        runtime_events,
+    }
 }
 
 fn phase0_observe_navigation_url_with_control(
@@ -1714,7 +1767,7 @@ pub(crate) fn phase2_execute_graph_view_submit_action_for_tests(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     app: &GraphBrowserApp,
     input: &str,
-) -> (bool, Vec<GraphIntent>) {
+) -> Phase2GraphViewSubmitResult {
     diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, input.len());
 
     let execution = RegistryRuntime::default().action.execute(
@@ -1734,8 +1787,12 @@ pub(crate) fn phase2_execute_graph_view_submit_action_for_tests(
         1,
     );
 
-    let open_selected_tile = execution.succeeded && !execution.intents.is_empty();
-    (open_selected_tile, execution.intents)
+    let mutations = expect_graph_mutations(execution.intents, execution.action_id.as_str());
+    let open_selected_tile = execution.succeeded && !mutations.is_empty();
+    Phase2GraphViewSubmitResult {
+        open_selected_tile,
+        mutations,
+    }
 }
 
 #[cfg(test)]
@@ -1744,7 +1801,7 @@ pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
     app: &GraphBrowserApp,
     normalized_url: &str,
     focused_node: Option<crate::graph::NodeKey>,
-) -> (bool, Vec<GraphIntent>) {
+) -> Phase2DetailViewSubmitResult {
     diagnostics_state
         .emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, normalized_url.len());
 
@@ -1766,11 +1823,16 @@ pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
         1,
     );
 
-    let open_selected_tile = execution
-        .intents
+    let (mutations, runtime_events) =
+        split_detail_submit_intents(execution.intents, execution.action_id.as_str());
+    let open_selected_tile = mutations
         .iter()
-        .any(|intent| matches!(intent, GraphIntent::CreateNodeAtUrl { .. }));
-    (open_selected_tile, execution.intents)
+        .any(|mutation| matches!(mutation, GraphMutation::CreateNodeAtUrl { .. }));
+    Phase2DetailViewSubmitResult {
+        open_selected_tile,
+        mutations,
+        runtime_events,
+    }
 }
 
 #[cfg(test)]
@@ -2433,12 +2495,11 @@ mod tests {
         );
         app.workspace.selected_nodes.select(key, false);
 
-        let (open_selected_tile, intents) =
-            phase2_execute_graph_view_submit_action(&app, "https://next.com");
-        assert!(open_selected_tile);
+        let result = phase2_execute_graph_view_submit_action(&app, "https://next.com");
+        assert!(result.open_selected_tile);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::SetNodeUrl { key: selected, new_url })
+            result.mutations.first(),
+            Some(GraphMutation::SetNodeUrl { key: selected, new_url })
                 if *selected == key && new_url == "https://next.com"
         ));
     }
@@ -2451,14 +2512,17 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
 
-        let (open_selected_tile, intents) =
-            phase2_execute_detail_view_submit_action(&app, "https://detail-next.com", Some(key));
+        let result = phase2_execute_detail_view_submit_action(&app, "https://detail-next.com", Some(key));
 
-        assert!(!open_selected_tile);
+        assert!(!result.open_selected_tile);
         assert!(matches!(
-            intents.first(),
-            Some(GraphIntent::SetNodeUrl { key: selected, new_url })
+            result.mutations.first(),
+            Some(GraphMutation::SetNodeUrl { key: selected, new_url })
                 if *selected == key && new_url == "https://detail-next.com"
+        ));
+        assert!(matches!(
+            result.runtime_events.first(),
+            Some(RuntimeEvent::PromoteNodeToActive { key: selected, .. }) if *selected == key
         ));
     }
 

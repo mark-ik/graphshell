@@ -9,8 +9,8 @@
 //! for its own dispatch, ensuring both surfaces share a single execution path.
 
 use crate::app::{
-    EdgeCommand, GraphBrowserApp, GraphIntent, PendingConnectedOpenScope, PendingTileOpenMode,
-    WorkbenchIntent,
+    EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, PendingConnectedOpenScope,
+    PendingTileOpenMode, ViewAction, WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
@@ -317,7 +317,7 @@ pub fn render_command_palette_panel(
                         ui.add_space(4.0);
                         ui.small(message);
                         if ui.button("Create First Node").clicked() {
-                            intents.push(GraphIntent::CreateNodeNearCenter);
+                            intents.push(GraphMutation::CreateNodeNearCenter.into());
                             should_close = true;
                         }
                     }
@@ -501,10 +501,11 @@ pub(super) fn execute_action(
     let open_target = source_context.or_else(|| focused_selection.primary());
 
     match action_id {
-        ActionId::NodeNew => intents.push(GraphIntent::CreateNodeNearCenter),
-        ActionId::NodeNewAsTab => intents.push(GraphIntent::CreateNodeNearCenterAndOpen {
+        ActionId::NodeNew => intents.push(GraphMutation::CreateNodeNearCenter.into()),
+        ActionId::NodeNewAsTab => intents.push(GraphMutation::CreateNodeNearCenterAndOpen {
             mode: PendingTileOpenMode::Tab,
-        }),
+        }
+        .into()),
         ActionId::NodePinToggle => {
             if focused_selection.iter().copied().all(|key| {
                 app.workspace
@@ -513,22 +514,26 @@ pub(super) fn execute_action(
                     .get_node(key)
                     .is_some_and(|node| node.is_pinned)
             }) {
-                intents.push(GraphIntent::ExecuteEdgeCommand {
+                intents.push(GraphMutation::ExecuteEdgeCommand {
                     command: EdgeCommand::UnpinSelected,
-                });
+                }
+                .into());
             } else {
-                intents.push(GraphIntent::ExecuteEdgeCommand {
+                intents.push(GraphMutation::ExecuteEdgeCommand {
                     command: EdgeCommand::PinSelected,
-                });
+                }
+                .into());
             }
         }
-        ActionId::NodePinSelected => intents.push(GraphIntent::ExecuteEdgeCommand {
+        ActionId::NodePinSelected => intents.push(GraphMutation::ExecuteEdgeCommand {
             command: EdgeCommand::PinSelected,
-        }),
-        ActionId::NodeUnpinSelected => intents.push(GraphIntent::ExecuteEdgeCommand {
+        }
+        .into()),
+        ActionId::NodeUnpinSelected => intents.push(GraphMutation::ExecuteEdgeCommand {
             command: EdgeCommand::UnpinSelected,
-        }),
-        ActionId::NodeDelete => intents.push(GraphIntent::RemoveSelectedNodes),
+        }
+        .into()),
+        ActionId::NodeDelete => intents.push(GraphMutation::RemoveSelectedNodes.into()),
         ActionId::NodeChooseFrame => {
             if let Some(key) = open_target
                 && !app.frames_for_node_key(key).is_empty()
@@ -618,26 +623,29 @@ pub(super) fn execute_action(
         }
         ActionId::EdgeConnectPair => {
             if let Some((from, to)) = pair_context {
-                intents.push(GraphIntent::ExecuteEdgeCommand {
+                intents.push(GraphMutation::ExecuteEdgeCommand {
                     command: EdgeCommand::ConnectPair { from, to },
-                });
+                }
+                .into());
             }
         }
         ActionId::EdgeConnectBoth => {
             if let Some((a, b)) = pair_context {
-                intents.push(GraphIntent::ExecuteEdgeCommand {
+                intents.push(GraphMutation::ExecuteEdgeCommand {
                     command: EdgeCommand::ConnectBothDirectionsPair { a, b },
-                });
+                }
+                .into());
             }
         }
         ActionId::EdgeRemoveUser => {
             if let Some((a, b)) = pair_context {
-                intents.push(GraphIntent::ExecuteEdgeCommand {
+                intents.push(GraphMutation::ExecuteEdgeCommand {
                     command: EdgeCommand::RemoveUserEdgePair { a, b },
-                });
+                }
+                .into());
             }
         }
-        ActionId::GraphFit => intents.push(GraphIntent::RequestFitToScreen),
+        ActionId::GraphFit => intents.push(ViewAction::RequestFitToScreen.into()),
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
         ActionId::GraphPhysicsConfig => {
             app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
