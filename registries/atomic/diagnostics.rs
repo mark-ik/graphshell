@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_ACTION_EXECUTE_FAILED, CHANNEL_ACTION_EXECUTE_STARTED,
     CHANNEL_ACTION_EXECUTE_SUCCEEDED, CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT,
+    CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED,
     CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE, CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
@@ -15,12 +16,15 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER,
+    CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY, CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE,
+    CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
     CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+    CHANNEL_COMPOSITOR_INVALID_TILE_RECT,
     CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
@@ -375,7 +379,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 9] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 90] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 94] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -663,6 +667,26 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 90] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_COMPOSITOR_INVALID_TILE_RECT,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
     },
@@ -1466,6 +1490,10 @@ mod tests {
         assert!(registry.has_channel(CHANNEL_ACTION_EXECUTE_STARTED));
         assert!(registry.has_channel(CHANNEL_IDENTITY_SIGN_STARTED));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_GL_STATE_VIOLATION));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION));
+        assert!(registry.has_channel(CHANNEL_COMPOSITOR_INVALID_TILE_RECT));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE));
         assert!(registry.has_channel(CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY));
         assert!(

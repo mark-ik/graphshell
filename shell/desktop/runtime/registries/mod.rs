@@ -173,6 +173,13 @@ pub(crate) const CHANNEL_NOSTR_RELAY_SUBSCRIPTION_FAILED: &str =
 pub(crate) const CHANNEL_NOSTR_INTENT_REJECTED: &str = "mod.nostrcore.intent_rejected";
 pub(crate) const CHANNEL_NOSTR_SECURITY_VIOLATION: &str = "mod.nostrcore.security_violation";
 pub(crate) const CHANNEL_COMPOSITOR_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
+pub(crate) const CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED: &str =
+    "compositor.content_pass_registered";
+pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED: &str =
+    "compositor.overlay_pass_registered";
+pub(crate) const CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION: &str =
+    "compositor.pass_order_violation";
+pub(crate) const CHANNEL_COMPOSITOR_INVALID_TILE_RECT: &str = "compositor.invalid_tile_rect";
 pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS: &str = "diagnostics.compositor_chaos";
 pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS: &str =
     "diagnostics.compositor_chaos.pass";
