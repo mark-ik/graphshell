@@ -2,10 +2,23 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+use egui_tiles::Tree;
 use servo::WebViewId;
 
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
+use crate::shell::desktop::workbench::tile_kind::TileKind;
+
+/// Resolve the currently active node-pane tile, if any.
+pub(crate) fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
+    tiles_tree
+        .active_tiles()
+        .into_iter()
+        .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
+            Some(egui_tiles::Tile::Pane(TileKind::Node(state))) => Some(state.node),
+            _ => None,
+        })
+}
 
 /// Resolve which node the toolbar/omnibar should target.
 ///

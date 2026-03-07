@@ -31,6 +31,7 @@ use crate::shell::desktop::ui::graph_search_flow::{self, GraphSearchFlowArgs};
 use crate::shell::desktop::ui::graph_search_ui::{self, GraphSearchUiArgs};
 use crate::shell::desktop::ui::gui_frame::ToolbarDialogPhaseArgs;
 use crate::shell::desktop::ui::gui_frame::{self, PreFrameIngestArgs};
+use crate::shell::desktop::ui::nav_targeting;
 use crate::shell::desktop::ui::gui_state::ToolbarState;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
@@ -760,7 +761,7 @@ fn capture_open_node_undo_checkpoint(graph_app: &mut GraphBrowserApp, tiles_tree
 
 fn anchor_before_tab_open(tiles_tree: &Tree<TileKind>, open_mode: TileOpenMode) -> Option<NodeKey> {
     if open_mode == TileOpenMode::Tab {
-        gui_frame::active_node_pane_node(tiles_tree)
+        nav_targeting::active_node_pane_node(tiles_tree)
     } else {
         None
     }

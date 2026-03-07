@@ -333,16 +333,6 @@ pub(crate) fn handle_keyboard_phase<F1, F2>(
     graph_app.extend_workbench_intents(input::workbench_intents_from_actions(&keyboard_actions));
 }
 
-pub(crate) fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
-    tiles_tree
-        .active_tiles()
-        .into_iter()
-        .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
-            Some(egui_tiles::Tile::Pane(TileKind::Node(state))) => Some(state.node),
-            _ => None,
-        })
-}
-
 pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) winit_window: &'a Window,
@@ -404,7 +394,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         diagnostics_state,
     } = args;
 
-    let active_webview_node = active_node_pane_node(tiles_tree);
+    let active_webview_node = nav_targeting::active_node_pane_node(tiles_tree);
     let focused_toolbar_node_key = if graph_surface_focused {
         None
     } else {
@@ -695,7 +685,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     render::render_help_panel(ctx, graph_app);
     let focused_pane_node = focused_dialog_webview
         .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
-        .or_else(|| active_node_pane_node(tiles_tree));
+        .or_else(|| nav_targeting::active_node_pane_node(tiles_tree));
     render::render_command_palette_panel(
         ctx,
         graph_app,
