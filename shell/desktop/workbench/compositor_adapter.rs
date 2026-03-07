@@ -1006,6 +1006,41 @@ mod tests {
     }
 
     #[test]
+    fn tracker_does_not_emit_pass_order_violation_when_content_pass_exists() {
+        let mut diagnostics = DiagnosticsState::new();
+        let mut tracker = CompositorPassTracker::new();
+        let node = NodeKey::new(91);
+
+        tracker.record_content_pass(node);
+        tracker.record_overlay_pass(node, TileRenderMode::CompositedTexture);
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        let channel_counts = snapshot
+            .get("channels")
+            .and_then(|c| c.get("message_counts"))
+            .expect("diagnostics snapshot must include message_counts");
+
+        let overlay_count = channel_counts
+            .get(CHANNEL_OVERLAY_PASS_REGISTERED)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let violation_count = channel_counts
+            .get(CHANNEL_PASS_ORDER_VIOLATION)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        assert!(
+            overlay_count > 0,
+            "expected overlay pass registration channel"
+        );
+        assert_eq!(
+            violation_count, 0,
+            "no pass-order violation expected when matching content pass was recorded"
+        );
+    }
+
+    #[test]
     fn tracker_does_not_emit_pass_order_violation_for_native_overlay() {
         let mut diagnostics = DiagnosticsState::new();
         let tracker = CompositorPassTracker::new();
