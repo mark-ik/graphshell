@@ -883,33 +883,6 @@ pub(crate) fn run_post_render_phase<FActive>(
     }
 }
 
-fn handle_pending_frame_snapshot_actions(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-) {
-    frame_persistence::handle_pending_frame_snapshot_actions(graph_app, tiles_tree);
-}
-
-fn handle_pending_graph_snapshot_actions(
-    graph_app: &mut GraphBrowserApp,
-    window: &EmbedderWindow,
-    tiles_tree: &mut Tree<TileKind>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    focused_node_hint: &mut Option<NodeKey>,
-) {
-    graph_snapshot::handle_pending_graph_snapshot_actions(
-        graph_app,
-        window,
-        tiles_tree,
-        tile_rendering_contexts,
-        tile_favicon_textures,
-        webview_creation_backpressure,
-        focused_node_hint,
-    );
-}
-
 fn serialize_tiles_tree_layout_json(tiles_tree: &Tree<TileKind>, context: &str) -> Option<String> {
     match serde_json::to_string(tiles_tree) {
         Ok(layout_json) => Some(layout_json),
