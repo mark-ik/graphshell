@@ -2372,4 +2372,35 @@ mod tests {
         sizes.sort_unstable();
         assert_eq!(sizes, vec![1, 2, 2]);
     }
+
+    #[test]
+    fn component_accessors_handle_empty_graph() {
+        let graph = Graph::new();
+
+        assert!(graph.orphan_node_keys().is_empty());
+        assert!(graph.weakly_connected_components().is_empty());
+        assert!(graph.strongly_connected_components().is_empty());
+    }
+
+    #[test]
+    fn strongly_connected_components_reports_cycle_partition() {
+        let mut graph = Graph::new();
+        let a = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let b = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 0.0));
+        let c = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 0.0));
+        let d = graph.add_node("https://d.com".to_string(), Point2D::new(3.0, 0.0));
+
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
+        let _ = graph.add_edge(b, c, EdgeType::Hyperlink);
+        let _ = graph.add_edge(c, a, EdgeType::Hyperlink);
+        let _ = graph.add_edge(c, d, EdgeType::Hyperlink);
+
+        let mut sizes: Vec<usize> = graph
+            .strongly_connected_components()
+            .into_iter()
+            .map(|component| component.len())
+            .collect();
+        sizes.sort_unstable();
+        assert_eq!(sizes, vec![1, 3]);
+    }
 }

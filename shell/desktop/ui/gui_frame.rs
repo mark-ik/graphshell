@@ -1847,3 +1847,65 @@ mod tests {
         assert!(!history_preview_mode_active(&app));
     }
 }
+
+#[cfg(test)]
+mod connected_open_tests {
+    use super::*;
+    use crate::app::PendingConnectedOpenScope;
+    use euclid::Point2D;
+
+    #[test]
+    fn connected_scope_depth_two_dedupes_shared_second_hop() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source = app.add_node_and_sync("https://source.example".into(), Point2D::zero());
+        let left = app.add_node_and_sync("https://left.example".into(), Point2D::new(10.0, 0.0));
+        let right =
+            app.add_node_and_sync("https://right.example".into(), Point2D::new(20.0, 0.0));
+        let shared = app.add_node_and_sync(
+            "https://shared.example".into(),
+            Point2D::new(30.0, 0.0),
+        );
+
+        let _ = app.add_edge_and_sync(source, left, crate::model::graph::EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(source, right, crate::model::graph::EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(left, shared, crate::model::graph::EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(right, shared, crate::model::graph::EdgeType::Hyperlink);
+
+        let candidates =
+            connected_candidates_with_depth(&app, source, PendingConnectedOpenScope::Connected);
+
+        assert!(candidates.contains(&(left, 1)));
+        assert!(candidates.contains(&(right, 1)));
+        assert!(candidates.contains(&(shared, 2)));
+        assert_eq!(
+            candidates
+                .iter()
+                .filter(|(key, depth)| *key == shared && *depth == 2)
+                .count(),
+            1,
+            "shared second-hop candidate should be emitted once"
+        );
+    }
+
+    #[test]
+    fn neighbors_scope_reports_only_depth_one_neighbors() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let source = app.add_node_and_sync("https://source.example".into(), Point2D::zero());
+        let neighbor = app.add_node_and_sync(
+            "https://neighbor.example".into(),
+            Point2D::new(10.0, 0.0),
+        );
+        let depth_two = app.add_node_and_sync(
+            "https://depth-two.example".into(),
+            Point2D::new(20.0, 0.0),
+        );
+
+        let _ = app.add_edge_and_sync(source, neighbor, crate::model::graph::EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(neighbor, depth_two, crate::model::graph::EdgeType::Hyperlink);
+
+        let candidates =
+            connected_candidates_with_depth(&app, source, PendingConnectedOpenScope::Neighbors);
+
+        assert_eq!(candidates, vec![(neighbor, 1)]);
+    }
+}
