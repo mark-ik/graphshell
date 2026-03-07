@@ -43,7 +43,6 @@ use crate::shell::desktop::host::window::GraphSemanticEvent;
 #[cfg(test)]
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
-use crate::shell::desktop::lifecycle::webview_status_sync;
 use crate::shell::desktop::render_backend::{
     UiRenderBackendContract, UiRenderBackendHandle, create_ui_render_backend,
 };
@@ -72,6 +71,8 @@ mod update_frame_phases;
 mod startup;
 #[path = "gui/focus_state.rs"]
 mod focus_state;
+#[path = "gui/toolbar_status_sync.rs"]
+mod toolbar_status_sync;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -765,34 +766,11 @@ impl Gui {
         }
 
         let has_node_panes = self.has_any_node_panes();
-        let selected_node_url = self.selected_node_url_for_toolbar();
-        Self::apply_toolbar_location_update(
+        toolbar_status_sync::update_location_in_toolbar(
             &self.graph_app,
-            self.toolbar_state.location_dirty,
-            &mut self.toolbar_state.location,
+            &mut self.toolbar_state,
             has_node_panes,
-            selected_node_url,
             focused_node_key,
-            window,
-        )
-    }
-
-    fn apply_toolbar_location_update(
-        graph_app: &GraphBrowserApp,
-        location_dirty: bool,
-        location: &mut String,
-        has_node_panes: bool,
-        selected_node_url: Option<String>,
-        focused_node_key: Option<NodeKey>,
-        window: &EmbedderWindow,
-    ) -> bool {
-        webview_status_sync::update_location_in_toolbar(
-            location_dirty,
-            location,
-            has_node_panes,
-            selected_node_url,
-            focused_node_key,
-            graph_app,
             window,
         )
     }
@@ -809,72 +787,12 @@ impl Gui {
 
     fn collect_webview_update_flags(&mut self, window: &EmbedderWindow) -> bool {
         let focused_node_key = self.focused_node_key();
-        Self::sync_toolbar_webview_status_fields(
+        toolbar_status_sync::sync_toolbar_webview_status_fields(
             &mut self.toolbar_state,
             focused_node_key,
             &self.graph_app,
             window,
         ) | self.update_location_in_toolbar(window, focused_node_key)
-    }
-
-    fn sync_toolbar_webview_status_fields(
-        toolbar_state: &mut ToolbarState,
-        focused_node_key: Option<NodeKey>,
-        graph_app: &GraphBrowserApp,
-        window: &EmbedderWindow,
-    ) -> bool {
-        let load_status_changed =
-            Self::sync_toolbar_load_status(toolbar_state, focused_node_key, graph_app, window);
-        let status_text_changed =
-            Self::sync_toolbar_status_text(toolbar_state, focused_node_key, graph_app, window);
-        let nav_state_changed =
-            Self::sync_toolbar_navigation_state(toolbar_state, focused_node_key, graph_app, window);
-
-        load_status_changed | status_text_changed | nav_state_changed
-    }
-
-    fn sync_toolbar_load_status(
-        toolbar_state: &mut ToolbarState,
-        focused_node_key: Option<NodeKey>,
-        graph_app: &GraphBrowserApp,
-        window: &EmbedderWindow,
-    ) -> bool {
-        webview_status_sync::update_load_status(
-            &mut toolbar_state.load_status,
-            &mut toolbar_state.location_dirty,
-            focused_node_key,
-            graph_app,
-            window,
-        )
-    }
-
-    fn sync_toolbar_status_text(
-        toolbar_state: &mut ToolbarState,
-        focused_node_key: Option<NodeKey>,
-        graph_app: &GraphBrowserApp,
-        window: &EmbedderWindow,
-    ) -> bool {
-        webview_status_sync::update_status_text(
-            &mut toolbar_state.status_text,
-            focused_node_key,
-            graph_app,
-            window,
-        )
-    }
-
-    fn sync_toolbar_navigation_state(
-        toolbar_state: &mut ToolbarState,
-        focused_node_key: Option<NodeKey>,
-        graph_app: &GraphBrowserApp,
-        window: &EmbedderWindow,
-    ) -> bool {
-        webview_status_sync::update_can_go_back_and_forward(
-            &mut toolbar_state.can_go_back,
-            &mut toolbar_state.can_go_forward,
-            focused_node_key,
-            graph_app,
-            window,
-        )
     }
 
     fn is_omnibar_node_search_query_active(&self) -> bool {
@@ -891,29 +809,6 @@ impl Gui {
 
     fn tree_has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
         tile_runtime::has_any_node_panes(tiles_tree)
-    }
-
-    fn selected_node_url_for_toolbar(&self) -> Option<String> {
-        self.selected_node_key_for_toolbar()
-            .and_then(|key| Self::selected_node_url(&self.graph_app, key))
-    }
-
-    fn selected_node_key_for_toolbar(&self) -> Option<NodeKey> {
-        self.graph_app.get_single_selected_node()
-    }
-
-    fn selected_node_url(graph_app: &GraphBrowserApp, key: NodeKey) -> Option<String> {
-        Self::node_url_in_workspace_graph(graph_app.domain_graph(), key)
-    }
-
-    fn node_url_in_workspace_graph(graph: &crate::graph::Graph, key: NodeKey) -> Option<String> {
-        graph
-            .get_node(key)
-            .map(|node| Self::clone_node_url(&node.url))
-    }
-
-    fn clone_node_url(url: &str) -> String {
-        url.to_owned()
     }
 
     /// Returns true if a redraw is required after handling the provided event.
