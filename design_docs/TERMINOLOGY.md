@@ -305,6 +305,24 @@ Each subsystem defines its own descriptor type (e.g., `AccessibilityCapabilities
 
 ## Network & Sync (Verse)
 
+### Data Sovereignty: Share vs. Publish
+
+These terms have canonical meaning in graphshell and must be used precisely in code, docs, and UI copy.
+
+*   **Share**: Transfer data to a named, known counterparty over a relationship-scoped channel (iroh P2P transport, Coop session, Device Sync). The data exists on counterparty infrastructure only while the relationship is active. Revocable: closing a Coop session, ending a sync relationship, or revoking a `WorkspaceGrant` terminates the channel. The counterparty retains a local copy (snapshot) after the relationship ends, but the live link is gone. Trust is explicit — the receiving peer is identified by `NodeId` or `CoopSessionId`. Examples: sharing a graph view in a Coop session; syncing a workspace to a trusted device.
+
+*   **Publish**: Commit data to infrastructure the user does not fully control (Nostr relays, Verse community DHT, libp2p gossipsub). Infrastructure-committed, not relationship-scoped. Practically irrevocable — once a NIP-84 event propagates to relays, deletion cannot be guaranteed across all copies. Trust is open or pseudonymous; the receiving audience is not enumerated at publish time. Examples: publishing a clip as a NIP-84 highlight; submitting a `Report` to a Verse community index.
+
+**The defining distinction is infrastructure commitment, not trust or audience size.** You can share with an untrusted stranger (Coop guest) and publish to a private relay only you control — in both cases, the above definitions hold. "Sharing" to a relay is publishing; "publishing" to a named peer over iroh is sharing.
+
+**Degradation rule**: when a sharing relationship ends (host goes offline, Coop session closes), the counterparty's local snapshot is their fallback. They own their copy; they do not own the live link. Publishing is the only path to durable URL-stable identity for an annotation beyond the session.
+
+**Usage notes**:
+- Use "share" for Coop node visibility (`SetCoopShareVisibility`), Device Sync (`WorkspaceGrant`), and Verso bilateral sync.
+- Use "publish" for Nostr event emission, Verse community blob submission, and wallet relay export.
+- Avoid "shared" as a modifier for data that has been published — prefer "published" or "community-visible."
+- In UI copy: "Share with session" / "Publish to Nostr" / "Publish to community" — never "share to relay."
+
 ### Identity & Trust
 
 *   **NodeId**: A 32-byte Ed25519 public key. The canonical peer identity across both Verse tiers. Derives `iroh::NodeId` (raw bytes, Tier 1) and `libp2p::PeerId` (identity multihash, Tier 2) from the same secret key — one keypair, two peer handles.
