@@ -248,3 +248,26 @@ fn close_all_webviews_and_apply_intents(
     let mut close_intents = webview_controller::close_all_webviews(graph_app, window);
     apply_intents_if_any(graph_app, tiles_tree, &mut close_intents);
 }
+
+pub(super) fn reset_graph_workspace_after_snapshot_restore(
+    tiles_tree: &mut Tree<TileKind>,
+    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
+    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
+    focused_node_hint: &mut Option<NodeKey>,
+) {
+    let previous_focus_hint = *focused_node_hint;
+    tile_rendering_contexts.clear();
+    tile_favicon_textures.clear();
+    webview_creation_backpressure.clear();
+    *focused_node_hint = None;
+    if previous_focus_hint != *focused_node_hint {
+        diagnostics::emit_event(diagnostics::DiagnosticEvent::MessageReceived {
+            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+            latency_us: 0,
+        });
+    }
+    let mut tiles = Tiles::default();
+    let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+    *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
+}

@@ -4,6 +4,79 @@
 
 use super::*;
 
+fn tile_open_mode_from_pending(mode: PendingTileOpenMode) -> tile_view_ops::TileOpenMode {
+    match mode {
+        PendingTileOpenMode::Tab => tile_view_ops::TileOpenMode::Tab,
+        PendingTileOpenMode::SplitHorizontal => tile_view_ops::TileOpenMode::SplitHorizontal,
+    }
+}
+
+fn find_node_pane_tile_id(tree: &Tree<TileKind>, node_key: NodeKey) -> Option<TileId> {
+    tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
+        Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(*tile_id),
+        _ => None,
+    })
+}
+
+fn ensure_node_pane_tile_id(tree: &mut Tree<TileKind>, node_key: NodeKey) -> TileId {
+    if let Some(tile_id) = find_node_pane_tile_id(tree, node_key) {
+        if let Some(parent_id) = tree.tiles.parent_of(tile_id)
+            && matches!(
+                tree.tiles.get(parent_id),
+                Some(Tile::Container(Container::Tabs(_)))
+            )
+        {
+            return parent_id;
+        }
+        return tree.tiles.insert_tab_tile(vec![tile_id]);
+    }
+    let pane_id = tree.tiles.insert_pane(TileKind::Node(node_key.into()));
+    tree.tiles.insert_tab_tile(vec![pane_id])
+}
+
+fn apply_connected_split_layout(tree: &mut Tree<TileKind>, nodes: &[NodeKey]) {
+    if nodes.is_empty() {
+        return;
+    }
+    let split_count = nodes.len().min(MAX_CONNECTED_SPLIT_PANES);
+    let split_tile_ids: Vec<TileId> = nodes
+        .iter()
+        .take(split_count)
+        .copied()
+        .map(|key| ensure_node_pane_tile_id(tree, key))
+        .collect();
+    let overflow_tile_ids: Vec<TileId> = nodes
+        .iter()
+        .skip(split_count)
+        .copied()
+        .map(|key| ensure_node_pane_tile_id(tree, key))
+        .collect();
+
+    let row1 = match split_tile_ids.as_slice() {
+        [a] => *a,
+        [a, b, ..] => tree.tiles.insert_horizontal_tile(vec![*a, *b]),
+        [] => return,
+    };
+
+    let grid_root = if split_tile_ids.len() > 2 {
+        let row2 = match split_tile_ids.as_slice() {
+            [_, _, c] => *c,
+            [_, _, c, d, ..] => tree.tiles.insert_horizontal_tile(vec![*c, *d]),
+            _ => return,
+        };
+        tree.tiles.insert_vertical_tile(vec![row1, row2])
+    } else {
+        row1
+    };
+
+    tree.root = if overflow_tile_ids.is_empty() {
+        Some(grid_root)
+    } else {
+        let overflow_tabs = tree.tiles.insert_tab_tile(overflow_tile_ids);
+        Some(tree.tiles.insert_vertical_tile(vec![grid_root, overflow_tabs]))
+    };
+}
+
 pub(super) fn connected_frame_import_nodes(
     graph_app: &GraphBrowserApp,
     seeds: &[NodeKey],
