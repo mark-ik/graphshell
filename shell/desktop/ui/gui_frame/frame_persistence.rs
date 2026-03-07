@@ -319,19 +319,3 @@ fn add_nodes_to_named_frame_snapshot(
     }
 }
 
-fn connected_frame_import_nodes(graph_app: &GraphBrowserApp, seeds: &[NodeKey]) -> Vec<NodeKey> {
-    let mut out = HashSet::new();
-    for seed in seeds {
-        if graph_app.domain_graph().get_node(*seed).is_none() {
-            continue;
-        }
-        out.insert(*seed);
-        out.extend(graph_app.domain_graph().neighbors_undirected(*seed));
-    }
-    let mut nodes: Vec<NodeKey> = out
-        .into_iter()
-        .filter(|key| graph_app.domain_graph().get_node(*key).is_some())
-        .collect();
-    nodes.sort_by_key(|key| key.index());
-    nodes
-}

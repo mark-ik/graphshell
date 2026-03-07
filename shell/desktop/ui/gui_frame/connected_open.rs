@@ -81,32 +81,7 @@ pub(super) fn connected_frame_import_nodes(
     graph_app: &GraphBrowserApp,
     seeds: &[NodeKey],
 ) -> Vec<NodeKey> {
-    let mut out = HashSet::new();
-    for seed in seeds {
-        if graph_app.domain_graph().get_node(*seed).is_none() {
-            continue;
-        }
-        out.insert(*seed);
-        out.extend(graph_app.domain_graph().neighbors_undirected(*seed));
-    }
-    let mut nodes: Vec<NodeKey> = out
-        .into_iter()
-        .filter(|key| graph_app.domain_graph().get_node(*key).is_some())
-        .collect();
-    nodes.sort_by_key(|key| key.index());
-    nodes
-}
-
-fn undirected_neighbors_sorted(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Vec<NodeKey> {
-    let mut neighbors: Vec<NodeKey> = graph_app
-        .domain_graph()
-        .neighbors_undirected(node_key)
-        .filter(|key| *key != node_key && graph_app.domain_graph().get_node(*key).is_some())
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-    neighbors.sort_by_key(|key| key.index());
-    neighbors
+    graph_app.domain_graph().connected_frame_import_nodes(seeds)
 }
 
 pub(super) fn connected_candidates_with_depth(
@@ -115,14 +90,16 @@ pub(super) fn connected_candidates_with_depth(
     scope: PendingConnectedOpenScope,
 ) -> Vec<(NodeKey, u8)> {
     match scope {
-        PendingConnectedOpenScope::Neighbors => undirected_neighbors_sorted(graph_app, source)
+        PendingConnectedOpenScope::Neighbors => graph_app
+            .domain_graph()
+            .neighbors_undirected_sorted(source)
             .into_iter()
             .map(|key| (key, 1))
             .collect(),
         PendingConnectedOpenScope::Connected => {
             let mut out = Vec::new();
             let mut visited = HashSet::from([source]);
-            let depth1 = undirected_neighbors_sorted(graph_app, source);
+            let depth1 = graph_app.domain_graph().neighbors_undirected_sorted(source);
             for neighbor in depth1 {
                 if visited.insert(neighbor) {
                     out.push((neighbor, 1));
@@ -134,7 +111,7 @@ pub(super) fn connected_candidates_with_depth(
                 .filter_map(|(node, depth)| (*depth == 1).then_some(*node))
                 .collect();
             for depth1_node in depth1_nodes {
-                for neighbor in undirected_neighbors_sorted(graph_app, depth1_node) {
+                for neighbor in graph_app.domain_graph().neighbors_undirected_sorted(depth1_node) {
                     if visited.insert(neighbor) {
                         out.push((neighbor, 2));
                     }

@@ -1225,6 +1225,36 @@ impl Graph {
         self.inner.neighbors_undirected(key)
     }
 
+    /// Undirected neighbors sorted by stable node-key order.
+    pub fn neighbors_undirected_sorted(&self, key: NodeKey) -> Vec<NodeKey> {
+        let mut neighbors: Vec<NodeKey> = self
+            .neighbors_undirected(key)
+            .filter(|neighbor| *neighbor != key && self.get_node(*neighbor).is_some())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        neighbors.sort_by_key(|neighbor| neighbor.index());
+        neighbors
+    }
+
+    /// Seed nodes plus one-hop undirected neighbors for frame import workflows.
+    pub fn connected_frame_import_nodes(&self, seeds: &[NodeKey]) -> Vec<NodeKey> {
+        let mut out = HashSet::new();
+        for seed in seeds {
+            if self.get_node(*seed).is_none() {
+                continue;
+            }
+            out.insert(*seed);
+            out.extend(self.neighbors_undirected(*seed));
+        }
+        let mut nodes: Vec<NodeKey> = out
+            .into_iter()
+            .filter(|key| self.get_node(*key).is_some())
+            .collect();
+        nodes.sort_by_key(|key| key.index());
+        nodes
+    }
+
     /// Undirected hop distances from `source` using unit edge weights.
     pub fn hop_distances_from(&self, source: NodeKey) -> HashMap<NodeKey, usize> {
         if self.get_node(source).is_none() {
@@ -2380,6 +2410,25 @@ mod tests {
         assert!(graph.orphan_node_keys().is_empty());
         assert!(graph.weakly_connected_components().is_empty());
         assert!(graph.strongly_connected_components().is_empty());
+    }
+
+    #[test]
+    fn sorted_neighbor_and_connected_import_accessors_are_stable() {
+        let mut graph = Graph::new();
+        let seed = graph.add_node("https://seed.example".to_string(), Point2D::new(0.0, 0.0));
+        let left = graph.add_node("https://left.example".to_string(), Point2D::new(1.0, 0.0));
+        let right = graph.add_node("https://right.example".to_string(), Point2D::new(2.0, 0.0));
+        let isolated =
+            graph.add_node("https://isolated.example".to_string(), Point2D::new(3.0, 0.0));
+
+        let _ = graph.add_edge(seed, right, EdgeType::Hyperlink);
+        let _ = graph.add_edge(left, seed, EdgeType::Hyperlink);
+
+        let sorted_neighbors = graph.neighbors_undirected_sorted(seed);
+        assert_eq!(sorted_neighbors, vec![left, right]);
+
+        let import_nodes = graph.connected_frame_import_nodes(&[isolated, seed]);
+        assert_eq!(import_nodes, vec![seed, left, right, isolated]);
     }
 
     #[test]
