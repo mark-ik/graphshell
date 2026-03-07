@@ -58,6 +58,8 @@ mod connected_open;
 mod graph_snapshot;
 #[path = "gui_frame/frame_persistence.rs"]
 mod frame_persistence;
+#[path = "gui_frame/workspace_layout.rs"]
+mod workspace_layout;
 
 // Ownership map (Stage 4b gui_frame responsibility split):
 // - `gui_frame.rs` remains the frame-phase facade and host for shared frame helpers.
@@ -988,75 +990,6 @@ fn handle_pending_graph_snapshot_actions(
         webview_creation_backpressure,
         focused_node_hint,
     );
-}
-
-fn handle_pending_open_connected_from(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-) {
-    connected_open::handle_pending_open_connected_from(graph_app, tiles_tree);
-}
-
-fn handle_pending_history_frame_restore(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-) {
-    if let Some(layout_json) = graph_app.take_pending_history_frame_layout_json() {
-        if let Some(restored_tree) = deserialize_history_frame_layout(graph_app, &layout_json) {
-            apply_restored_history_frame_layout(graph_app, tiles_tree, restored_tree, &layout_json);
-        }
-    }
-}
-
-fn apply_restored_history_frame_layout(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    restored_tree: Tree<TileKind>,
-    layout_json: &str,
-) {
-    *tiles_tree = restored_tree;
-    graph_app.mark_session_frame_layout_json(layout_json);
-}
-
-fn deserialize_history_frame_layout(
-    graph_app: &GraphBrowserApp,
-    layout_json: &str,
-) -> Option<Tree<TileKind>> {
-    match serde_json::from_str::<Tree<TileKind>>(layout_json) {
-        Ok(mut restored_tree) => {
-            tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
-            restored_tree.root().is_some().then_some(restored_tree)
-        }
-        Err(e) => {
-            warn!("Failed to deserialize undo/redo frame snapshot: {e}");
-            None
-        }
-    }
-}
-
-fn autosave_session_workspace_layout_if_allowed(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-) {
-    let prompt_pending = is_unsaved_workspace_prompt_pending(graph_app);
-    if !prompt_pending {
-        persist_autosave_session_workspace_layout_if_available(graph_app, tiles_tree);
-    }
-}
-
-fn persist_autosave_session_workspace_layout_if_available(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-) {
-    if let Some(layout_json) =
-        serialize_tiles_tree_layout_json(tiles_tree, "session frame layout")
-    {
-        graph_app.save_session_workspace_layout_json_if_changed(&layout_json);
-    }
-}
-
-fn is_unsaved_workspace_prompt_pending(graph_app: &GraphBrowserApp) -> bool {
-    graph_app.unsaved_workspace_prompt_request().is_some()
 }
 
 fn serialize_tiles_tree_layout_json(tiles_tree: &Tree<TileKind>, context: &str) -> Option<String> {
