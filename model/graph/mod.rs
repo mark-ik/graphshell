@@ -33,6 +33,7 @@ use crate::services::persistence::types::{
 };
 
 pub mod egui_adapter;
+pub mod apply;
 
 /// Stable node handle (petgraph NodeIndex — survives other deletions)
 pub type NodeKey = NodeIndex;
@@ -462,6 +463,94 @@ impl Graph {
         Some(old_url)
     }
 
+    pub(crate) fn set_node_title(&mut self, key: NodeKey, title: String) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.title == title {
+            return false;
+        }
+        node.title = title;
+        true
+    }
+
+    pub(crate) fn set_node_thumbnail(
+        &mut self,
+        key: NodeKey,
+        png_bytes: Vec<u8>,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.thumbnail_png.as_ref() == Some(&png_bytes)
+            && node.thumbnail_width == width
+            && node.thumbnail_height == height
+        {
+            return false;
+        }
+        node.thumbnail_png = Some(png_bytes);
+        node.thumbnail_width = width;
+        node.thumbnail_height = height;
+        true
+    }
+
+    pub(crate) fn set_node_favicon(
+        &mut self,
+        key: NodeKey,
+        rgba: Vec<u8>,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.favicon_rgba.as_ref() == Some(&rgba)
+            && node.favicon_width == width
+            && node.favicon_height == height
+        {
+            return false;
+        }
+        node.favicon_rgba = Some(rgba);
+        node.favicon_width = width;
+        node.favicon_height = height;
+        true
+    }
+
+    pub(crate) fn set_node_mime_hint(&mut self, key: NodeKey, mime_hint: Option<String>) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.mime_hint == mime_hint {
+            return false;
+        }
+        node.mime_hint = mime_hint;
+        true
+    }
+
+    pub(crate) fn set_node_address_kind(&mut self, key: NodeKey, kind: AddressKind) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.address_kind == kind {
+            return false;
+        }
+        node.address_kind = kind;
+        true
+    }
+
+    pub(crate) fn set_node_pinned(&mut self, key: NodeKey, is_pinned: bool) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.is_pinned == is_pinned {
+            return false;
+        }
+        node.is_pinned = is_pinned;
+        true
+    }
+
     /// Add an edge between two nodes
     pub(crate) fn add_edge(
         &mut self,
@@ -699,6 +788,7 @@ impl Graph {
     }
 
     /// Get a mutable edge payload by key.
+    #[cfg(test)]
     pub(crate) fn get_edge_mut(&mut self, key: EdgeKey) -> Option<&mut EdgePayload> {
         self.inner.edge_weight_mut(key)
     }
@@ -724,7 +814,7 @@ impl Graph {
             return false;
         }
         if let Some(edge_key) = self.find_edge_key(from, to)
-            && let Some(payload) = self.get_edge_mut(edge_key)
+            && let Some(payload) = self.inner.edge_weight_mut(edge_key)
         {
             payload.push_traversal(traversal);
             return true;

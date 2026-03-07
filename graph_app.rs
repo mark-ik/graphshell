@@ -15,6 +15,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::mpsc as tokio_mpsc;
 
+use crate::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::{EdgeKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
@@ -1498,9 +1499,31 @@ impl From<GraphIntent> for GraphReducerIntent {
 }
 
 impl GraphReducerIntent {
+    fn as_graph_intent(&self) -> &GraphIntent {
+        &self.0
+    }
+
     fn into_graph_intent(self) -> GraphIntent {
         self.0
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UndoBoundaryReason {
+    #[default]
+    ReducerIntents,
+    OpenNodePane,
+    OpenConnectedNodes,
+    RestoreFrameSnapshot,
+    DetachNodeToSplit,
+    RestoreGraphSnapshot,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReducerDispatchContext {
+    pub workspace_layout_before: Option<String>,
+    pub force_undo_boundary: bool,
+    pub undo_boundary_reason: UndoBoundaryReason,
 }
 
 #[derive(Default)]
@@ -3188,7 +3211,38 @@ impl GraphBrowserApp {
         T: Into<GraphReducerIntent>,
     {
         for intent in intents {
-            self.apply_reducer_intent(intent.into());
+            self.apply_reducer_intent_internal(intent.into().into_graph_intent(), true);
+        }
+    }
+
+    /// Apply a batch of reducer intents with reducer-owned undo-boundary context.
+    pub fn apply_reducer_intents_with_context<I, T>(
+        &mut self,
+        intents: I,
+        ctx: ReducerDispatchContext,
+    ) where
+        I: IntoIterator<Item = T>,
+        T: Into<GraphReducerIntent>,
+    {
+        let intents: Vec<GraphReducerIntent> = intents.into_iter().map(Into::into).collect();
+        if intents.is_empty() {
+            return;
+        }
+
+        let should_capture = ctx.force_undo_boundary
+            || intents
+                .iter()
+                .any(|intent| self.should_capture_undo_checkpoint_for_intent(intent.as_graph_intent()));
+
+        if should_capture {
+            let layout_before = ctx
+                .workspace_layout_before
+                .or_else(|| self.current_undo_checkpoint_layout_json());
+            self.capture_undo_checkpoint_internal(layout_before, ctx.undo_boundary_reason);
+        }
+
+        for intent in intents {
+            self.apply_reducer_intent_internal(intent.into_graph_intent(), false);
         }
     }
 
@@ -3325,10 +3379,18 @@ impl GraphBrowserApp {
                 width,
                 height,
             } => {
-                if let Some(node) = self.workspace.graph.get_node_mut(*key) {
-                    node.thumbnail_png = Some(png_bytes.clone());
-                    node.thumbnail_width = *width;
-                    node.thumbnail_height = *height;
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
+                    &mut self.workspace.graph,
+                    GraphDelta::SetNodeThumbnail {
+                        key: *key,
+                        png_bytes: png_bytes.clone(),
+                        width: *width,
+                        height: *height,
+                    },
+                ) else {
+                    unreachable!("thumbnail delta must return NodeMetadataUpdated");
+                };
+                if updated {
                     self.workspace.egui_state_dirty = true;
                 }
                 true
@@ -3339,10 +3401,18 @@ impl GraphBrowserApp {
                 width,
                 height,
             } => {
-                if let Some(node) = self.workspace.graph.get_node_mut(*key) {
-                    node.favicon_rgba = Some(rgba.clone());
-                    node.favicon_width = *width;
-                    node.favicon_height = *height;
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
+                    &mut self.workspace.graph,
+                    GraphDelta::SetNodeFavicon {
+                        key: *key,
+                        rgba: rgba.clone(),
+                        width: *width,
+                        height: *height,
+                    },
+                ) else {
+                    unreachable!("favicon delta must return NodeMetadataUpdated");
+                };
+                if updated {
                     self.workspace.egui_state_dirty = true;
                 }
                 true
@@ -3592,9 +3662,7 @@ impl GraphBrowserApp {
         Ok(())
     }
 
-    fn apply_reducer_intent(&mut self, intent: GraphReducerIntent) {
-        let intent = intent.into_graph_intent();
-
+    fn apply_reducer_intent_internal(&mut self, intent: GraphIntent, allow_undo_capture: bool) {
         if self.workspace.history_preview_mode_active
             && Self::intent_blocked_during_history_preview(&intent)
         {
@@ -3604,8 +3672,11 @@ impl GraphBrowserApp {
             return;
         }
 
-        if self.should_capture_undo_checkpoint_for_intent(&intent) {
-            self.capture_undo_checkpoint(self.current_undo_checkpoint_layout_json());
+        if allow_undo_capture && self.should_capture_undo_checkpoint_for_intent(&intent) {
+            self.capture_undo_checkpoint_internal(
+                self.current_undo_checkpoint_layout_json(),
+                UndoBoundaryReason::ReducerIntents,
+            );
         }
 
         if matches!(
@@ -4013,13 +4084,15 @@ impl GraphBrowserApp {
                 if title.is_empty() {
                     return;
                 }
-                let mut changed = false;
-                if let Some(node) = self.workspace.graph.get_node_mut(node_key) {
-                    if node.title != title {
-                        node.title = title;
-                        changed = true;
-                    }
-                }
+                let GraphDeltaResult::NodeMetadataUpdated(changed) = apply_graph_delta(
+                    &mut self.workspace.graph,
+                    GraphDelta::SetNodeTitle {
+                        key: node_key,
+                        title,
+                    },
+                ) else {
+                    unreachable!("title delta must return NodeMetadataUpdated");
+                };
                 if changed {
                     self.log_title_mutation(node_key);
                     self.workspace.egui_state_dirty = true;
@@ -4508,40 +4581,53 @@ impl GraphBrowserApp {
                 }
             },
             GraphIntent::UpdateNodeMimeHint { key, mime_hint } => {
-                if let Some(node) = self.workspace.graph.get_node_mut(key) {
-                    if node.mime_hint != mime_hint {
-                        let node_id = node.id;
-                        node.mime_hint = mime_hint.clone();
-                        if let Some(store) = &mut self.services.persistence {
-                            store.log_mutation(&LogEntry::UpdateNodeMimeHint {
-                                node_id: node_id.to_string(),
-                                mime_hint,
-                            });
-                        }
-                    }
+                let node_id = self.workspace.graph.get_node(key).map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
+                    &mut self.workspace.graph,
+                    GraphDelta::SetNodeMimeHint {
+                        key,
+                        mime_hint: mime_hint.clone(),
+                    },
+                ) else {
+                    unreachable!("mime hint delta must return NodeMetadataUpdated");
+                };
+                if updated
+                    && let Some(store) = &mut self.services.persistence
+                    && let Some(node_id) = node_id
+                {
+                    store.log_mutation(&LogEntry::UpdateNodeMimeHint {
+                        node_id: node_id.to_string(),
+                        mime_hint,
+                    });
                 }
             }
             GraphIntent::UpdateNodeAddressKind { key, kind } => {
-                if let Some(node) = self.workspace.graph.get_node_mut(key) {
-                    let node_id = node.id;
-                    node.address_kind = kind;
-                    if let Some(store) = &mut self.services.persistence {
-                        let persisted_kind = match kind {
-                            crate::graph::AddressKind::Http => {
-                                crate::services::persistence::types::PersistedAddressKind::Http
-                            }
-                            crate::graph::AddressKind::File => {
-                                crate::services::persistence::types::PersistedAddressKind::File
-                            }
-                            crate::graph::AddressKind::Custom => {
-                                crate::services::persistence::types::PersistedAddressKind::Custom
-                            }
-                        };
-                        store.log_mutation(&LogEntry::UpdateNodeAddressKind {
-                            node_id: node_id.to_string(),
-                            kind: persisted_kind,
-                        });
-                    }
+                let node_id = self.workspace.graph.get_node(key).map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
+                    &mut self.workspace.graph,
+                    GraphDelta::SetNodeAddressKind { key, kind },
+                ) else {
+                    unreachable!("address kind delta must return NodeMetadataUpdated");
+                };
+                if updated
+                    && let Some(store) = &mut self.services.persistence
+                    && let Some(node_id) = node_id
+                {
+                    let persisted_kind = match kind {
+                        crate::graph::AddressKind::Http => {
+                            crate::services::persistence::types::PersistedAddressKind::Http
+                        }
+                        crate::graph::AddressKind::File => {
+                            crate::services::persistence::types::PersistedAddressKind::File
+                        }
+                        crate::graph::AddressKind::Custom => {
+                            crate::services::persistence::types::PersistedAddressKind::Custom
+                        }
+                    };
+                    store.log_mutation(&LogEntry::UpdateNodeAddressKind {
+                        node_id: node_id.to_string(),
+                        kind: persisted_kind,
+                    });
                 }
             }
         }
@@ -4553,7 +4639,16 @@ impl GraphBrowserApp {
         url: String,
         position: euclid::default::Point2D<f32>,
     ) -> NodeKey {
-        let key = self.workspace.graph.add_node(url.clone(), position);
+        let GraphDeltaResult::NodeAdded(key) = apply_graph_delta(
+            &mut self.workspace.graph,
+            GraphDelta::AddNode {
+                id: None,
+                url: url.clone(),
+                position,
+            },
+        ) else {
+            unreachable!("add node delta must return NodeAdded");
+        };
         if let Some(store) = &mut self.services.persistence
             && let Some(node) = self.workspace.graph.get_node(key)
         {
@@ -4577,7 +4672,16 @@ impl GraphBrowserApp {
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
     ) -> Option<crate::graph::EdgeKey> {
-        let edge_key = self.workspace.graph.add_edge(from_key, to_key, edge_type);
+        let GraphDeltaResult::EdgeAdded(edge_key) = apply_graph_delta(
+            &mut self.workspace.graph,
+            GraphDelta::AddEdge {
+                from: from_key,
+                to: to_key,
+                edge_type,
+            },
+        ) else {
+            unreachable!("add edge delta must return EdgeAdded");
+        };
         if edge_key.is_some() {
             self.log_edge_mutation(from_key, to_key, edge_type);
             self.workspace.egui_state_dirty = true; // Graph structure changed
@@ -6431,8 +6535,30 @@ impl GraphBrowserApp {
         }
     }
 
+    /// Record an undo boundary for a pure workspace-layout mutation.
+    pub fn record_workspace_undo_boundary(
+        &mut self,
+        workspace_layout_before: Option<String>,
+        reason: UndoBoundaryReason,
+    ) {
+        let layout_before =
+            workspace_layout_before.or_else(|| self.current_undo_checkpoint_layout_json());
+        self.capture_undo_checkpoint_internal(layout_before, reason);
+    }
+
     /// Capture current global state as an undo checkpoint.
-    pub fn capture_undo_checkpoint(&mut self, workspace_layout_json: Option<String>) {
+    fn capture_undo_checkpoint(&mut self, workspace_layout_json: Option<String>) {
+        self.capture_undo_checkpoint_internal(
+            workspace_layout_json,
+            UndoBoundaryReason::ReducerIntents,
+        );
+    }
+
+    fn capture_undo_checkpoint_internal(
+        &mut self,
+        workspace_layout_json: Option<String>,
+        _reason: UndoBoundaryReason,
+    ) {
         self.workspace.undo_stack.push(UndoRedoSnapshot {
             graph: self.workspace.graph.clone(),
             selected_nodes: self.workspace.selected_nodes.clone(),
@@ -6449,7 +6575,7 @@ impl GraphBrowserApp {
     }
 
     /// Perform one global undo step using current frame layout as redo checkpoint.
-    pub fn perform_undo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
+    fn perform_undo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
         let Some(prev) = self.workspace.undo_stack.pop() else {
             return false;
         };
@@ -6469,7 +6595,7 @@ impl GraphBrowserApp {
     }
 
     /// Perform one global redo step using current frame layout as undo checkpoint.
-    pub fn perform_redo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
+    fn perform_redo(&mut self, current_workspace_layout_json: Option<String>) -> bool {
         let Some(next) = self.workspace.redo_stack.pop() else {
             return false;
         };
@@ -7288,10 +7414,16 @@ impl GraphBrowserApp {
             .unwrap_or(false);
 
         let traversal = Traversal::now(trigger);
-        let appended = self
-            .workspace
-            .graph
-            .push_traversal(from_key, to_key, traversal);
+        let GraphDeltaResult::TraversalAppended(appended) = apply_graph_delta(
+            &mut self.workspace.graph,
+            GraphDelta::AppendTraversal {
+                from: from_key,
+                to: to_key,
+                traversal,
+            },
+        ) else {
+            unreachable!("append traversal delta must return TraversalAppended");
+        };
         if !appended {
             self.record_history_failure(
                 HistoryTraversalFailureReason::GraphRejected,
@@ -7555,9 +7687,10 @@ impl GraphBrowserApp {
             return;
         }
 
-        if let Some(node) = self.workspace.graph.get_node_mut(key) {
-            node.is_pinned = is_pinned;
-        }
+        let _ = apply_graph_delta(
+            &mut self.workspace.graph,
+            GraphDelta::SetNodePinned { key, is_pinned },
+        );
 
         let mut tags_changed = false;
         if is_pinned {
@@ -7671,7 +7804,10 @@ impl GraphBrowserApp {
                     });
                 }
             } else {
-                self.workspace.graph.remove_node(node_key);
+                let _ = apply_graph_delta(
+                    &mut self.workspace.graph,
+                    GraphDelta::RemoveNode { key: node_key },
+                );
             }
             self.workspace.egui_state_dirty = true;
         }
@@ -7855,13 +7991,31 @@ impl GraphBrowserApp {
         let new_mime_hint = crate::graph::detect_mime(&new_url, None);
         let new_address_kind = crate::graph::address_kind_from_url(&new_url);
 
-        let old_url = self.workspace.graph.update_node_url(key, new_url.clone())?;
+        let GraphDeltaResult::NodeUrlUpdated(old_url) = apply_graph_delta(
+            &mut self.workspace.graph,
+            GraphDelta::SetNodeUrl {
+                key,
+                new_url: new_url.clone(),
+            },
+        ) else {
+            unreachable!("url delta must return NodeUrlUpdated");
+        };
+        let old_url = old_url?;
 
-        // Apply updated metadata to the in-memory node.
-        if let Some(node) = self.workspace.graph.get_node_mut(key) {
-            node.mime_hint = new_mime_hint.clone();
-            node.address_kind = new_address_kind;
-        }
+        let _ = apply_graph_delta(
+            &mut self.workspace.graph,
+            GraphDelta::SetNodeMimeHint {
+                key,
+                mime_hint: new_mime_hint.clone(),
+            },
+        );
+        let _ = apply_graph_delta(
+            &mut self.workspace.graph,
+            GraphDelta::SetNodeAddressKind {
+                key,
+                kind: new_address_kind,
+            },
+        );
 
         if let Some(store) = &mut self.services.persistence {
             if let Some(node) = self.workspace.graph.get_node(key) {
@@ -8715,15 +8869,41 @@ mod tests {
 
     #[test]
     fn contract_only_trusted_writers_call_graph_topology_mutators() {
-        const FORBIDDEN_TOKENS: [&str; 5] = [
+        const FORBIDDEN_TOKENS: [&str; 10] = [
             "graph.add_node(",
             "graph.remove_node(",
             "graph.add_edge(",
             "graph.remove_edges(",
             "graph.inner.",
+            ".add_node_and_sync(",
+            ".add_edge_and_sync(",
+            ".capture_undo_checkpoint(",
+            ".perform_undo(",
+            ".perform_redo(",
+        ];
+        const PERSISTENCE_DURABLE_ESCAPE_HATCH_TOKENS: [&str; 3] = [
+            "graph.get_node_mut(",
+            "graph.get_edge_mut(",
+            "graph.update_node_url(",
         ];
 
         let persistence_runtime_only = include_str!("services/persistence/mod.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+        let render_runtime_only = include_str!("render/mod.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+        let gui_runtime_only = include_str!("shell/desktop/ui/gui.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+        let gui_frame_runtime_only = include_str!("shell/desktop/ui/gui_frame.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .unwrap_or_default();
+        let gui_orchestration_runtime_only = include_str!("shell/desktop/ui/gui_orchestration.rs")
             .split("\n#[cfg(test)]")
             .next()
             .unwrap_or_default();
@@ -8753,7 +8933,16 @@ mod tests {
                 "shell/desktop/host/event_loop.rs",
                 include_str!("shell/desktop/host/event_loop.rs"),
             ),
-            ("render/mod.rs", include_str!("render/mod.rs")),
+            ("render/mod.rs (runtime section)", render_runtime_only),
+            ("shell/desktop/ui/gui.rs (runtime section)", gui_runtime_only),
+            (
+                "shell/desktop/ui/gui_frame.rs (runtime section)",
+                gui_frame_runtime_only,
+            ),
+            (
+                "shell/desktop/ui/gui_orchestration.rs (runtime section)",
+                gui_orchestration_runtime_only,
+            ),
             (
                 "services/persistence/mod.rs (runtime section)",
                 persistence_runtime_only,
@@ -8767,6 +8956,13 @@ mod tests {
                     "trusted-writer boundary violated in {path}: found '{token}'"
                 );
             }
+        }
+
+        for token in PERSISTENCE_DURABLE_ESCAPE_HATCH_TOKENS {
+            assert!(
+                !persistence_runtime_only.contains(token),
+                "trusted-writer boundary violated in services/persistence/mod.rs (runtime section): found '{token}'"
+            );
         }
     }
 

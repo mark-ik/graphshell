@@ -11,6 +11,7 @@
 
 pub mod types;
 
+use crate::graph::apply::{GraphDelta, apply_graph_delta};
 use crate::graph::Graph;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
@@ -954,23 +955,6 @@ impl GraphStore {
                     continue;
                 };
 
-                let Some(edge_key) = graph.find_edge_key(from_key, to_key) else {
-                    log::debug!(
-                        "Skipping archived traversal: edge not found ({} -> {})",
-                        from_uuid,
-                        to_uuid
-                    );
-                    continue;
-                };
-
-                let Some(edge_weight) = graph.get_edge_mut(edge_key) else {
-                    log::debug!(
-                        "Skipping archived traversal: edge payload missing ({} -> {})",
-                        from_uuid,
-                        to_uuid
-                    );
-                    continue;
-                };
                 let nav_trigger = match trigger {
                     types::ArchivedPersistedNavigationTrigger::Unknown => {
                         crate::graph::NavigationTrigger::Unknown
@@ -995,10 +979,24 @@ impl GraphStore {
                     }
                 };
 
-                edge_weight.push_traversal(crate::graph::Traversal {
-                    timestamp_ms: (*timestamp_ms).into(),
-                    trigger: nav_trigger,
-                });
+                let appended = apply_graph_delta(
+                    graph,
+                    GraphDelta::AppendTraversal {
+                        from: from_key,
+                        to: to_key,
+                        traversal: crate::graph::Traversal {
+                            timestamp_ms: (*timestamp_ms).into(),
+                            trigger: nav_trigger,
+                        },
+                    },
+                );
+                if !matches!(appended, crate::graph::apply::GraphDeltaResult::TraversalAppended(true)) {
+                    log::debug!(
+                        "Skipping archived traversal: append rejected ({} -> {})",
+                        from_uuid,
+                        to_uuid
+                    );
+                }
             } else {
                 log::warn!("Unexpected non-AppendTraversal entry in traversal_archive keyspace");
             }
@@ -1323,10 +1321,13 @@ impl GraphStore {
                     };
                     let px: f32 = (*position_x).into();
                     let py: f32 = (*position_y).into();
-                    let _ = graph.replay_add_node_with_id_if_missing(
-                        node_id,
-                        url.to_string(),
-                        euclid::default::Point2D::new(px, py),
+                    let _ = apply_graph_delta(
+                        graph,
+                        GraphDelta::ReplayAddNodeWithIdIfMissing {
+                            id: node_id,
+                            url: url.to_string(),
+                            position: euclid::default::Point2D::new(px, py),
+                        },
                     );
                 }
                 ArchivedLogEntry::AddEdge {
@@ -1351,7 +1352,14 @@ impl GraphStore {
                             crate::graph::EdgeType::UserGrouped
                         }
                     };
-                    let _ = graph.replay_add_edge_by_ids(from_node_id, to_node_id, et);
+                    let _ = apply_graph_delta(
+                        graph,
+                        GraphDelta::ReplayAddEdgeByIds {
+                            from_id: from_node_id,
+                            to_id: to_node_id,
+                            edge_type: et,
+                        },
+                    );
                 }
                 ArchivedLogEntry::RemoveEdge {
                     from_node_id,
@@ -1375,7 +1383,14 @@ impl GraphStore {
                             crate::graph::EdgeType::UserGrouped
                         }
                     };
-                    let _ = graph.replay_remove_edges_by_ids(from_node_id, to_node_id, et);
+                    let _ = apply_graph_delta(
+                        graph,
+                        GraphDelta::ReplayRemoveEdgesByIds {
+                            from_id: from_node_id,
+                            to_id: to_node_id,
+                            edge_type: et,
+                        },
+                    );
                 }
                 ArchivedLogEntry::AppendTraversal {
                     from_node_id,
@@ -1422,33 +1437,51 @@ impl GraphStore {
                         timestamp_ms: (*timestamp_ms).into(),
                         trigger,
                     };
-                    let _ = graph.push_traversal(from_key, to_key, traversal);
+                    let _ = apply_graph_delta(
+                        graph,
+                        GraphDelta::AppendTraversal {
+                            from: from_key,
+                            to: to_key,
+                            traversal,
+                        },
+                    );
                 }
                 ArchivedLogEntry::UpdateNodeTitle { node_id, title } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
                     };
-                    if let Some(key) = graph.get_node_key_by_id(node_id)
-                        && let Some(node_mut) = graph.get_node_mut(key)
-                    {
-                        node_mut.title = title.to_string();
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::SetNodeTitle {
+                                key,
+                                title: title.to_string(),
+                            },
+                        );
                     }
                 }
                 ArchivedLogEntry::PinNode { node_id, is_pinned } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
                     };
-                    if let Some(key) = graph.get_node_key_by_id(node_id)
-                        && let Some(node_mut) = graph.get_node_mut(key)
-                    {
-                        node_mut.is_pinned = *is_pinned;
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::SetNodePinned {
+                                key,
+                                is_pinned: *is_pinned,
+                            },
+                        );
                     }
                 }
                 ArchivedLogEntry::RemoveNode { node_id } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
                     };
-                    let _ = graph.replay_remove_node_by_id(node_id);
+                    let _ = apply_graph_delta(
+                        graph,
+                        GraphDelta::ReplayRemoveNodeById { node_id },
+                    );
                 }
                 ArchivedLogEntry::ClearGraph => {
                     *graph = Graph::new();
@@ -1458,7 +1491,13 @@ impl GraphStore {
                         continue;
                     };
                     if let Some(key) = graph.get_node_key_by_id(node_id) {
-                        graph.update_node_url(key, new_url.to_string());
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::SetNodeUrl {
+                                key,
+                                new_url: new_url.to_string(),
+                            },
+                        );
                     }
                 }
                 ArchivedLogEntry::TagNode { .. } => {}
@@ -1467,30 +1506,38 @@ impl GraphStore {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
                     };
-                    if let Some(key) = graph.get_node_key_by_id(node_id)
-                        && let Some(node_mut) = graph.get_node_mut(key)
-                    {
-                        node_mut.mime_hint = mime_hint.as_ref().map(|s| s.to_string());
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::SetNodeMimeHint {
+                                key,
+                                mime_hint: mime_hint.as_ref().map(|s| s.to_string()),
+                            },
+                        );
                     }
                 }
                 ArchivedLogEntry::UpdateNodeAddressKind { node_id, kind } => {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
                     };
-                    if let Some(key) = graph.get_node_key_by_id(node_id)
-                        && let Some(node_mut) = graph.get_node_mut(key)
-                    {
-                        node_mut.address_kind = match kind {
-                            types::ArchivedPersistedAddressKind::Http => {
-                                crate::graph::AddressKind::Http
-                            }
-                            types::ArchivedPersistedAddressKind::File => {
-                                crate::graph::AddressKind::File
-                            }
-                            types::ArchivedPersistedAddressKind::Custom => {
-                                crate::graph::AddressKind::Custom
-                            }
-                        };
+                    if let Some(key) = graph.get_node_key_by_id(node_id) {
+                        let _ = apply_graph_delta(
+                            graph,
+                            GraphDelta::SetNodeAddressKind {
+                                key,
+                                kind: match kind {
+                                    types::ArchivedPersistedAddressKind::Http => {
+                                        crate::graph::AddressKind::Http
+                                    }
+                                    types::ArchivedPersistedAddressKind::File => {
+                                        crate::graph::AddressKind::File
+                                    }
+                                    types::ArchivedPersistedAddressKind::Custom => {
+                                        crate::graph::AddressKind::Custom
+                                    }
+                                },
+                            },
+                        );
                     }
                 }
             }
@@ -2451,24 +2498,21 @@ mod tests {
             let edge_idx = graph.inner.find_edge(from_key, to_key).unwrap();
             let edge_payload = graph.inner.edge_weight(edge_idx).unwrap();
 
-            // Verify traversal events were recovered from archive
-            // Note: History edges start with 1 dummy traversal (timestamp 0), then 2 archived = 3 total
+            // Verify traversal events were recovered from archive.
+            // History edges now store only real traversal events.
             assert_eq!(
                 edge_payload.traversals.len(),
-                3,
-                "Recovery scan should populate: 1 dummy + 2 archived traversals"
+                2,
+                "Recovery scan should populate 2 archived traversals"
             );
-            // First is the dummy traversal from edge creation
-            assert_eq!(edge_payload.traversals[0].timestamp_ms, 0);
-            // Next two are from archive
-            assert_eq!(edge_payload.traversals[1].timestamp_ms, 1000);
+            assert_eq!(edge_payload.traversals[0].timestamp_ms, 1000);
             assert_eq!(
-                edge_payload.traversals[1].trigger,
+                edge_payload.traversals[0].trigger,
                 crate::graph::NavigationTrigger::Forward
             );
-            assert_eq!(edge_payload.traversals[2].timestamp_ms, 2000);
+            assert_eq!(edge_payload.traversals[1].timestamp_ms, 2000);
             assert_eq!(
-                edge_payload.traversals[2].trigger,
+                edge_payload.traversals[1].trigger,
                 crate::graph::NavigationTrigger::Back
             );
         }
@@ -2500,8 +2544,8 @@ mod tests {
             });
         }
 
-        // Verify edge exists with 3 traversals (1 dummy + 2 pushed)
-        assert_eq!(graph.get_edge(edge_key).unwrap().traversals.len(), 3);
+        // Verify edge exists with 2 traversals.
+        assert_eq!(graph.get_edge(edge_key).unwrap().traversals.len(), 2);
         assert_eq!(store.dissolved_archive_len(), 0);
 
         // Remove edges with dissolution transfer
@@ -2513,8 +2557,8 @@ mod tests {
         assert_eq!(removed, 1);
         assert!(graph.get_edge(edge_key).is_none());
 
-        // Verify traversals were archived (3 entries in dissolved_archive)
-        assert_eq!(store.dissolved_archive_len(), 3);
+        // Verify traversals were archived.
+        assert_eq!(store.dissolved_archive_len(), 2);
     }
 
     #[test]
@@ -2549,9 +2593,9 @@ mod tests {
             });
         }
 
-        // Each edge has 2 traversals (1 dummy + 1 pushed)
-        assert_eq!(graph.get_edge(e1).unwrap().traversals.len(), 2);
-        assert_eq!(graph.get_edge(e2).unwrap().traversals.len(), 2);
+        // Each edge has 1 traversal.
+        assert_eq!(graph.get_edge(e1).unwrap().traversals.len(), 1);
+        assert_eq!(graph.get_edge(e2).unwrap().traversals.len(), 1);
         assert_eq!(store.dissolved_archive_len(), 0);
 
         // Remove middle node with dissolution transfer
@@ -2565,8 +2609,8 @@ mod tests {
         assert!(graph.get_edge(e1).is_none());
         assert!(graph.get_edge(e2).is_none());
 
-        // Verify traversals were archived (2 + 2 = 4 entries in dissolved_archive)
-        assert_eq!(store.dissolved_archive_len(), 4);
+        // Verify traversals were archived.
+        assert_eq!(store.dissolved_archive_len(), 2);
     }
 
     #[test]
@@ -2596,12 +2640,12 @@ mod tests {
         // Edge should be gone from graph
         assert!(graph.get_edge(edge_key).is_none());
 
-        // Dissolved archive should have 2 entries (1 dummy + 1 pushed)
-        assert_eq!(store.dissolved_archive_len(), 2);
+        // Dissolved archive should have 1 entry.
+        assert_eq!(store.dissolved_archive_len(), 1);
 
         // Verify we can read the archived entries
         let entries: Vec<_> = store.dissolved_archive_keyspace.iter().collect();
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 1);
     }
 
     #[test]

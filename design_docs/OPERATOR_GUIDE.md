@@ -130,17 +130,25 @@ Reliable recovery path:
 2. Ensure `make` and `mozmake` resolve:
   - `where make`
   - `where mozmake`
+  - first `mozmake` hit should be `C:\mozilla-build\bin\mozmake.exe`
 3. Persist Windows env vars (once):
   - `setx MOZILLABUILD C:\mozilla-build`
   - `setx MOZTOOLS_PATH C:\mozilla-build`
   - `setx CARGO_TARGET_DIR C:\t\graphshell-target`
 4. Open a new shell and run:
-  - `cargo check -q`
+  - `cargo check -p graphshell --all-targets`
+  - `cargo test -p graphshell --lib`
 
 Notes:
 
 - Keeping `CARGO_TARGET_DIR` outside OneDrive reduces archive/unpack fragility during Servo static lib extraction.
-- `bootstrap-dev-env.ps1 --install` now ensures a `mozmake` shim in `~/.cargo/bin` when `make` exists but `mozmake` is absent.
+- `bootstrap-dev-env.ps1 --install` now installs real `make.exe` and `mozmake.exe` into `C:\mozilla-build\bin` and removes any stale `~/.cargo/bin/mozmake.cmd` shim.
+- If `where mozmake` resolves to `~/.cargo/bin/mozmake.cmd`, remove it and rerun bootstrap so the MozillaBuild copy wins.
+- The validated Windows verification environment is:
+  - `MOZILLABUILD=C:\mozilla-build`
+  - `MOZTOOLS_PATH=C:\mozilla-build`
+  - `CARGO_TARGET_DIR=C:\t\graphshell-target`
+  - `PATH` preferring `C:\mozilla-build\bin`
 
 Camera/navigation semantic guardrails (for incident prevention and regression triage):
 

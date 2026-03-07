@@ -9,7 +9,8 @@ use arboard::Clipboard;
 
 use crate::app::{
     ClipboardCopyKind, ClipboardCopyRequest, GraphBrowserApp, GraphIntent, LifecycleCause,
-    PendingTileOpenMode, SearchDisplayMode, ToolSurfaceReturnTarget, WorkbenchIntent,
+    PendingTileOpenMode, SearchDisplayMode, ToolSurfaceReturnTarget, UndoBoundaryReason,
+    WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::services::search::fuzzy_match_node_keys;
@@ -752,7 +753,10 @@ fn execute_pending_open_node_after_intents(
 
 fn capture_open_node_undo_checkpoint(graph_app: &mut GraphBrowserApp, tiles_tree: &Tree<TileKind>) {
     if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-        graph_app.capture_undo_checkpoint(Some(layout_json));
+        graph_app.record_workspace_undo_boundary(
+            Some(layout_json),
+            UndoBoundaryReason::OpenNodePane,
+        );
     }
 }
 

@@ -474,6 +474,22 @@ mod tests {
         servo::WebViewId::new(base::id::PainterId::next())
     }
 
+    fn create_node_via_reducer(
+        app: &mut GraphBrowserApp,
+        url: &str,
+        position: Point2D<f32>,
+    ) -> NodeKey {
+        app.apply_reducer_intents([GraphIntent::CreateNodeAtUrl {
+            url: url.to_string(),
+            position,
+        }]);
+        app.workspace
+            .graph
+            .get_node_by_url(url)
+            .map(|(key, _)| key)
+            .expect("created node should be discoverable by url")
+    }
+
     #[test]
     fn test_new_node_position_for_context_defaults_to_center_when_empty() {
         let app = GraphBrowserApp::new_for_testing();
@@ -1106,8 +1122,9 @@ mod tests {
     fn resolve_detail_submit_target_prefers_focused_node_mapping() {
         let mut app = GraphBrowserApp::new_for_testing();
         let focused =
-            app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
-        let other = app.add_node_and_sync("https://other.example".into(), Point2D::new(20.0, 0.0));
+            create_node_via_reducer(&mut app, "https://focused.example", Point2D::new(0.0, 0.0));
+        let other =
+            create_node_via_reducer(&mut app, "https://other.example", Point2D::new(20.0, 0.0));
         let focused_webview = test_webview_id();
         let preferred_webview = test_webview_id();
         app.map_webview_to_node(focused_webview, focused);
@@ -1123,7 +1140,7 @@ mod tests {
     fn resolve_detail_submit_target_falls_back_to_preferred_webview_mapping() {
         let mut app = GraphBrowserApp::new_for_testing();
         let node =
-            app.add_node_and_sync("https://preferred.example".into(), Point2D::new(0.0, 0.0));
+            create_node_via_reducer(&mut app, "https://preferred.example", Point2D::new(0.0, 0.0));
         let preferred_webview = test_webview_id();
         app.map_webview_to_node(preferred_webview, node);
 
@@ -1147,12 +1164,13 @@ mod tests {
     #[test]
     fn resolve_detail_submit_target_falls_back_when_focused_node_is_stale_after_transition() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let stale_focused = app.add_node_and_sync(
-            "https://stale-focused.example".into(),
+        let stale_focused = create_node_via_reducer(
+            &mut app,
+            "https://stale-focused.example",
             Point2D::new(0.0, 0.0),
         );
         let remaining =
-            app.add_node_and_sync("https://remaining.example".into(), Point2D::new(20.0, 0.0));
+            create_node_via_reducer(&mut app, "https://remaining.example", Point2D::new(20.0, 0.0));
         let remaining_webview = test_webview_id();
         app.map_webview_to_node(remaining_webview, remaining);
 
@@ -1178,7 +1196,7 @@ mod tests {
     fn resolve_detail_submit_target_prefers_focused_mapping_when_preferred_webview_is_stale() {
         let mut app = GraphBrowserApp::new_for_testing();
         let focused =
-            app.add_node_and_sync("https://focused.example".into(), Point2D::new(0.0, 0.0));
+            create_node_via_reducer(&mut app, "https://focused.example", Point2D::new(0.0, 0.0));
         let focused_webview = test_webview_id();
         let stale_preferred_webview = test_webview_id();
         app.map_webview_to_node(focused_webview, focused);

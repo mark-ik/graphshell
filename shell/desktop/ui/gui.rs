@@ -485,8 +485,10 @@ impl Gui {
         // Only create initial node if graph wasn't recovered from persistence
         if !graph_app.has_recovered_graph() {
             use euclid::default::Point2D;
-            let _initial_node =
-                graph_app.add_node_and_sync(initial_url.to_string(), Point2D::new(400.0, 300.0));
+            graph_app.apply_reducer_intents([GraphIntent::CreateNodeAtUrl {
+                url: initial_url.to_string(),
+                position: Point2D::new(400.0, 300.0),
+            }]);
         }
         let membership_index =
             persistence_ops::build_membership_index_from_frame_manifests(&graph_app);

@@ -17,8 +17,8 @@ use super::dialog_panels::{self, DialogPanelsArgs};
 use super::nav_targeting;
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingConnectedOpenScope,
-    PendingNodeOpenRequest, PendingTileOpenMode, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest,
+    PendingNodeOpenRequest, PendingTileOpenMode, ReducerDispatchContext, UndoBoundaryReason,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest,
 };
 use crate::graph::NodeKey;
 use crate::input;
@@ -107,7 +107,10 @@ fn restore_named_frame_snapshot(
     }) {
         Ok((mut restored_tree, restored_nodes)) => {
             if let Ok(current_layout_json) = serde_json::to_string(tiles_tree) {
-                graph_app.capture_undo_checkpoint(Some(current_layout_json));
+                graph_app.record_workspace_undo_boundary(
+                    Some(current_layout_json),
+                    UndoBoundaryReason::RestoreFrameSnapshot,
+                );
             }
             if restored_tree.root().is_some() {
                 debug!(
@@ -459,9 +462,6 @@ pub(crate) fn apply_intents_if_any(
     if !apply_list.is_empty() {
         #[cfg(feature = "diagnostics")]
         let apply_count = apply_list.len();
-        if apply_list.iter().any(is_user_undoable_intent) {
-            graph_app.capture_undo_checkpoint(layout_json.clone());
-        }
         #[cfg(feature = "diagnostics")]
         let apply_started = Instant::now();
         #[cfg(feature = "diagnostics")]
@@ -469,7 +469,13 @@ pub(crate) fn apply_intents_if_any(
             channel_id: "graph_intents.apply",
             byte_len: apply_count,
         });
-        graph_app.apply_reducer_intents(apply_list);
+        graph_app.apply_reducer_intents_with_context(
+            apply_list,
+            ReducerDispatchContext {
+                workspace_layout_before: layout_json.clone(),
+                ..ReducerDispatchContext::default()
+            },
+        );
         #[cfg(feature = "diagnostics")]
         {
             let elapsed = apply_started.elapsed().as_micros() as u64;
@@ -481,11 +487,14 @@ pub(crate) fn apply_intents_if_any(
         }
     }
 
+    if let Some(layout_json) = &layout_json {
+        graph_app.mark_session_frame_layout_json(layout_json);
+    }
     for _ in 0..undo_count {
-        let _ = graph_app.perform_undo(layout_json.clone());
+        graph_app.apply_reducer_intents([GraphIntent::Undo]);
     }
     for _ in 0..redo_count {
-        let _ = graph_app.perform_redo(layout_json.clone());
+        graph_app.apply_reducer_intents([GraphIntent::Redo]);
     }
 
     #[cfg(debug_assertions)]
@@ -493,28 +502,6 @@ pub(crate) fn apply_intents_if_any(
         intents.is_empty(),
         "intent buffer must be drained by apply_intents_if_any"
     );
-}
-
-fn is_user_undoable_intent(intent: &GraphIntent) -> bool {
-    matches!(
-        intent,
-        GraphIntent::CreateNodeNearCenter
-            | GraphIntent::CreateNodeNearCenterAndOpen { .. }
-            | GraphIntent::CreateNodeAtUrl { .. }
-            | GraphIntent::CreateNodeAtUrlAndOpen { .. }
-            | GraphIntent::RemoveSelectedNodes
-            | GraphIntent::ClearGraph
-            | GraphIntent::SetNodePosition { .. }
-            | GraphIntent::SetNodeUrl { .. }
-            | GraphIntent::CreateUserGroupedEdge { .. }
-            | GraphIntent::RemoveEdge { .. }
-            | GraphIntent::ExecuteEdgeCommand { .. }
-            | GraphIntent::SetNodePinned { .. }
-            | GraphIntent::TogglePrimaryNodePin
-            | GraphIntent::PromoteNodeToActive { .. }
-            | GraphIntent::DemoteNodeToWarm { .. }
-            | GraphIntent::DemoteNodeToCold { .. }
-    )
 }
 
 pub(crate) fn open_pending_child_webviews_for_tiles<F>(
@@ -1557,7 +1544,11 @@ fn execute_pending_open_connected_from(
     open_mode: PendingTileOpenMode,
     scope: PendingConnectedOpenScope,
 ) {
-    capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
+    record_workspace_undo_boundary_from_tiles_tree(
+        graph_app,
+        tiles_tree,
+        UndoBoundaryReason::OpenConnectedNodes,
+    );
     let connected = connected_targets_for_open(graph_app, source, scope);
     let ordered = ordered_connected_open_nodes(source, connected);
 
@@ -1658,17 +1649,22 @@ fn handle_pending_detach_node_to_split(
     tiles_tree: &mut Tree<TileKind>,
 ) {
     if let Some(node_key) = graph_app.take_pending_detach_node_to_split() {
-        capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
+        record_workspace_undo_boundary_from_tiles_tree(
+            graph_app,
+            tiles_tree,
+            UndoBoundaryReason::DetachNodeToSplit,
+        );
         tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, node_key);
     }
 }
 
-fn capture_undo_checkpoint_from_tiles_tree(
+fn record_workspace_undo_boundary_from_tiles_tree(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
+    reason: UndoBoundaryReason,
 ) {
     if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-        graph_app.capture_undo_checkpoint(Some(layout_json));
+        graph_app.record_workspace_undo_boundary(Some(layout_json), reason);
     }
 }
 
@@ -1792,7 +1788,11 @@ fn restore_graph_snapshot_and_reset_workspace(
     restore: impl FnOnce(&mut GraphBrowserApp) -> Result<(), String>,
     on_error: impl FnOnce(&str),
 ) {
-    capture_undo_checkpoint_from_tiles_tree(graph_app, tiles_tree);
+    record_workspace_undo_boundary_from_tiles_tree(
+        graph_app,
+        tiles_tree,
+        UndoBoundaryReason::RestoreGraphSnapshot,
+    );
     close_all_webviews_and_apply_intents(graph_app, window, tiles_tree);
     apply_graph_snapshot_restore_result(
         restore(graph_app),

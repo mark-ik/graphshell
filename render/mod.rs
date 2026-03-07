@@ -9,8 +9,9 @@
 
 use crate::app::{
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, HistoryCaptureStatus,
-    HistoryManagerTab, KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode,
-    SelectionUpdateMode, UnsavedFramePromptAction, UnsavedFramePromptRequest, WorkbenchIntent,
+    HistoryManagerTab, KeyboardPanInputMode, KeyboardZoomRequest, ReducerDispatchContext,
+    SearchDisplayMode, SelectionUpdateMode, UnsavedFramePromptAction, UnsavedFramePromptRequest,
+    WorkbenchIntent,
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
@@ -3984,16 +3985,17 @@ fn apply_ui_intents_with_checkpoint(app: &mut GraphBrowserApp, intents: Vec<Grap
     if intents.is_empty() {
         return;
     }
-    if intents.iter().any(is_user_undoable_intent) {
-        let layout = app
-            .last_session_workspace_layout_json()
-            .map(str::to_string)
-            .or_else(|| {
-                app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
-            });
-        app.capture_undo_checkpoint(layout);
-    }
-    apply_reducer_graph_intents_hardened(app, intents);
+    let layout_before = app
+        .last_session_workspace_layout_json()
+        .map(str::to_string)
+        .or_else(|| app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME));
+    app.apply_reducer_intents_with_context(
+        intents,
+        ReducerDispatchContext {
+            workspace_layout_before: layout_before,
+            ..ReducerDispatchContext::default()
+        },
+    );
 }
 
 fn apply_reducer_graph_intents_hardened<I>(app: &mut GraphBrowserApp, intents: I)
@@ -4001,28 +4003,6 @@ where
     I: IntoIterator<Item = GraphIntent>,
 {
     app.apply_reducer_intents(intents);
-}
-
-fn is_user_undoable_intent(intent: &GraphIntent) -> bool {
-    matches!(
-        intent,
-        GraphIntent::CreateNodeNearCenter
-            | GraphIntent::CreateNodeNearCenterAndOpen { .. }
-            | GraphIntent::CreateNodeAtUrl { .. }
-            | GraphIntent::CreateNodeAtUrlAndOpen { .. }
-            | GraphIntent::RemoveSelectedNodes
-            | GraphIntent::ClearGraph
-            | GraphIntent::SetNodePosition { .. }
-            | GraphIntent::SetNodeUrl { .. }
-            | GraphIntent::CreateUserGroupedEdge { .. }
-            | GraphIntent::RemoveEdge { .. }
-            | GraphIntent::ExecuteEdgeCommand { .. }
-            | GraphIntent::SetNodePinned { .. }
-            | GraphIntent::TogglePrimaryNodePin
-            | GraphIntent::PromoteNodeToActive { .. }
-            | GraphIntent::DemoteNodeToWarm { .. }
-            | GraphIntent::DemoteNodeToCold { .. }
-    )
 }
 
 pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) -> bool {

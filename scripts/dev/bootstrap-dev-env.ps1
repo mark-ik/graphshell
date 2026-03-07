@@ -91,30 +91,39 @@ function Install-CargoHelpers {
     }
 }
 
-function Ensure-MozmakeShim {
-    $cargoBin = Join-Path $HOME '.cargo\bin'
-    $shimPath = Join-Path $cargoBin 'mozmake.cmd'
+function Ensure-MozillaBuildMakeTools {
+    $mozillaBuildRoot = if ($env:MOZILLABUILD) { $env:MOZILLABUILD.TrimEnd('\') } else { 'C:\mozilla-build' }
+    $mozillaBuildBin = Join-Path $mozillaBuildRoot 'bin'
+    $cargoShimPath = Join-Path (Join-Path $HOME '.cargo\bin') 'mozmake.cmd'
 
-    if (-not (Test-Path $cargoBin)) {
-        New-Item -ItemType Directory -Path $cargoBin -Force | Out-Null
-    }
-
-    if (Test-HasCommand 'mozmake') {
-        Write-Host "[bootstrap.ps1] mozmake already available: $((Get-Command mozmake).Source)"
+    if (-not (Test-Path $mozillaBuildBin)) {
+        Write-Host "[bootstrap.ps1] MozillaBuild bin directory not found: $mozillaBuildBin"
         return
     }
 
-    if (-not (Test-HasCommand 'make')) {
-        Write-Host '[bootstrap.ps1] make not found; cannot create mozmake shim yet.'
+    $makeCmd = Get-Command make -ErrorAction SilentlyContinue
+    if (-not $makeCmd) {
+        Write-Host '[bootstrap.ps1] make not found; install a real make.exe before repairing MozillaBuild.'
         return
     }
 
-    @'
-@echo off
-make %*
-'@ | Set-Content -Path $shimPath -Encoding Ascii
+    $makeSource = $makeCmd.Source
+    if (-not ($makeSource -like '*.exe')) {
+        Write-Host "[bootstrap.ps1] make resolved to a non-exe command ($makeSource); refusing to mirror it into MozillaBuild."
+        return
+    }
 
-    Write-Host "[bootstrap.ps1] created mozmake shim: $shimPath"
+    $destMake = Join-Path $mozillaBuildBin 'make.exe'
+    $destMozmake = Join-Path $mozillaBuildBin 'mozmake.exe'
+
+    Copy-Item -Path $makeSource -Destination $destMake -Force
+    Copy-Item -Path $makeSource -Destination $destMozmake -Force
+    Write-Host "[bootstrap.ps1] installed make.exe and mozmake.exe into $mozillaBuildBin"
+
+    if (Test-Path $cargoShimPath) {
+        Remove-Item $cargoShimPath -Force
+        Write-Host "[bootstrap.ps1] removed stale user mozmake shim: $cargoShimPath"
+    }
 }
 
 function Print-ServoBuildEnvHint {
@@ -199,11 +208,11 @@ function Install-WindowsBaseline {
         Write-Host '[bootstrap.ps1] ensuring scoop make package'
         & scoop install make | Out-Host
     } else {
-        Write-Host '[bootstrap.ps1] scoop not found; install make manually if mozmake is missing.'
+        Write-Host '[bootstrap.ps1] scoop not found; install make manually before repairing MozillaBuild build tools.'
     }
 
     Install-CargoHelpers
-    Ensure-MozmakeShim
+    Ensure-MozillaBuildMakeTools
     Print-ServoBuildEnvHint
 }
 

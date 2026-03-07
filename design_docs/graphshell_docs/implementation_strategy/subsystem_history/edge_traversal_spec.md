@@ -77,6 +77,8 @@ NavigationTrigger =
 
 Each navigation event between two nodes appends a `Traversal` record to the edge's `traversals` list. Repeated traversals are recorded (not deduplicated). The full traversal list within the rolling window is the recent history; older records are flushed to the archive and reflected in `metrics` (§2.4).
 
+**No dummy-traversal invariant**: `traversals` contains only real navigation events. Edge assertion, history-edge kind assertion, replay, and recovery must not synthesize placeholder traversal records such as zero-timestamp or `Unknown`-trigger sentinels.
+
 `PanePromotion` is the trigger used when an already-open ephemeral pane becomes graph-backed and that transition should materialize a navigation edge in history. It is not used for mere chrome-state changes (`Docked <-> Tiled`) and it is not used for internal surfaces that are graph-backed at creation time (`verso://*` routes that never pass through an ephemeral pre-graph state; older docs may still refer to these as `graphshell://*` compatibility aliases).
 
 ### 2.3A Event-Stream Projection Model
@@ -175,6 +177,8 @@ LogEntry =
 ```
 
 **Replay invariant**: Replaying WAL entries must produce the same `traversals` list as the original append sequence. The replay path reuses the same `push_traversal` append semantics.
+
+**Replay fidelity invariant**: Replay must not normalize, inject, or strip synthetic placeholder traversals. If no real traversal was recorded, replay produces no traversal record.
 
 ### 3.2 Archive Keyspaces
 
