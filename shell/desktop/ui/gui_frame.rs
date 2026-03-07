@@ -28,7 +28,9 @@ use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
-use crate::shell::desktop::lifecycle::lifecycle_reconcile::{self, RuntimeReconcileArgs};
+use crate::shell::desktop::lifecycle::lifecycle_reconcile::{
+    self, ActivePrewarmArgs, RuntimeReconcileArgs,
+};
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::lifecycle::webview_controller;
@@ -42,7 +44,7 @@ use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
-use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
+use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_invariants;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -478,67 +480,6 @@ pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
 }
 
-// After lifecycle intents are applied, ensure runtime viewers exist for Active nodes without tiles.
-// This handles prewarm nodes (selected but not opened in tiles).
-// Visible tile nodes are handled separately in tile_render_pass.
-fn ensure_webviews_for_active_prewarm_nodes(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-    window: &EmbedderWindow,
-    app_state: &Option<Rc<RunningAppState>>,
-    rendering_context: &Rc<OffscreenRenderingContext>,
-    window_rendering_context: &Rc<WindowRenderingContext>,
-    tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    responsive_webviews: &HashSet<WebViewId>,
-    webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-) {
-    use crate::graph::NodeLifecycle;
-    use crate::shell::desktop::workbench::tile_compositor;
-
-    // Find nodes that are Active but don't have visible tiles (prewarm candidates).
-    let tile_nodes: std::collections::HashSet<NodeKey> =
-        tile_compositor::active_node_pane_rects(tiles_tree)
-            .into_iter()
-            .map(|(node_key, _)| node_key)
-            .collect();
-
-    // Local buffer for runtime viewer creation intents.
-    let mut prewarm_intents = Vec::new();
-
-    // Check if primary selected node is Active and not in a tile.
-    if let Some(selected_key) = graph_app.get_single_selected_node() {
-        if !tile_nodes.contains(&selected_key) {
-            if let Some(node) = graph_app.domain_graph().get_node(selected_key) {
-                if node.lifecycle == NodeLifecycle::Active {
-                    let default_node_pane = NodePaneState::for_node(selected_key);
-                    if tile_runtime::node_pane_uses_composited_runtime(
-                        &default_node_pane,
-                        graph_app,
-                    ) {
-                        crate::shell::desktop::lifecycle::webview_backpressure::ensure_webview_for_node(
-                            graph_app,
-                            window,
-                            app_state,
-                            rendering_context,
-                            window_rendering_context,
-                            tile_rendering_contexts,
-                            selected_key,
-                            responsive_webviews,
-                            webview_creation_backpressure,
-                            &mut prewarm_intents,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // Apply prewarm intents immediately (shouldn't include user-undoable intents).
-    if !prewarm_intents.is_empty() {
-        apply_intents_if_any(graph_app, tiles_tree, &mut prewarm_intents);
-    }
-}
-
 fn history_preview_mode_active(graph_app: &GraphBrowserApp) -> bool {
     graph_app.history_health_summary().preview_mode_active
 }
@@ -594,17 +535,20 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
 
     // After intents are applied, ensure runtime viewers for Active nodes without tiles (prewarm).
     // Visible tile nodes are handled later in tile_render_pass.
-    ensure_webviews_for_active_prewarm_nodes(
-        graph_app,
-        tiles_tree,
-        window,
-        app_state,
-        rendering_context,
-        window_rendering_context,
-        tile_rendering_contexts,
-        responsive_webviews,
-        webview_creation_backpressure,
+    let mut prewarm_intents = lifecycle_reconcile::create_runtime_for_active_prewarm_nodes(
+        ActivePrewarmArgs {
+            graph_app,
+            tiles_tree,
+            window,
+            app_state,
+            rendering_context,
+            window_rendering_context,
+            tile_rendering_contexts,
+            responsive_webviews,
+            webview_creation_backpressure,
+        },
     );
+    apply_intents_if_any(graph_app, tiles_tree, &mut prewarm_intents);
 
     #[cfg(debug_assertions)]
     debug_assert!(
