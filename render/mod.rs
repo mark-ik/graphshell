@@ -870,9 +870,11 @@ fn viewport_culling_selection_for_canvas_rect(
     canvas_rect: egui::Rect,
 ) -> Option<ViewportCullingSelection> {
     const DEFAULT_NODE_RADIUS: f32 = 5.0;
-    let index = NodeSpatialIndex::build(graph.nodes().map(|(key, node)| {
-        let pos = egui::Pos2::new(node.position.x, node.position.y);
-        (key, pos, DEFAULT_NODE_RADIUS)
+    let index = NodeSpatialIndex::build(graph.nodes().filter_map(|(key, _)| {
+        graph.node_projected_position(key).map(|position| {
+            let pos = egui::Pos2::new(position.x, position.y);
+            (key, pos, DEFAULT_NODE_RADIUS)
+        })
     }));
 
     let visible: HashSet<NodeKey> = index
@@ -1834,11 +1836,11 @@ fn node_bounds_for_selection(
     let mut max_y = f32::NEG_INFINITY;
 
     for key in selection.iter().copied() {
-        if let Some(node) = app.workspace.graph.get_node(key) {
-            min_x = min_x.min(node.position.x);
-            max_x = max_x.max(node.position.x);
-            min_y = min_y.min(node.position.y);
-            max_y = max_y.max(node.position.y);
+        if let Some(position) = app.workspace.graph.node_projected_position(key) {
+            min_x = min_x.min(position.x);
+            max_x = max_x.max(position.x);
+            min_y = min_y.min(position.y);
+            max_y = max_y.max(position.y);
         }
     }
 
@@ -2342,7 +2344,9 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     for (key, pos) in layout_positions {
         if let Some(node) = app.workspace.graph.get_node(key) {
             if node.is_pinned {
-                pinned_positions.push((key, node.position));
+                if let Some(position) = app.workspace.graph.node_projected_position(key) {
+                    pinned_positions.push((key, position));
+                }
             } else {
                 let _ = app.workspace.graph.set_node_projected_position(key, pos);
             }
@@ -2361,10 +2365,11 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
         for other_key in secondary_keys {
             if let Some(node) = app.workspace.graph.get_node(other_key)
                 && !node.is_pinned
+                && let Some(position) = app.workspace.graph.node_projected_position(other_key)
             {
                 let next_pos = euclid::default::Point2D::new(
-                    node.position.x + delta.x,
-                    node.position.y + delta.y,
+                    position.x + delta.x,
+                    position.y + delta.y,
                 );
                 let _ = app
                     .workspace
@@ -2455,8 +2460,8 @@ fn apply_semantic_clustering_forces(
             }
 
             // Get node positions
-            let pos_a = app.workspace.graph.get_node(*key_a).map(|n| n.position);
-            let pos_b = app.workspace.graph.get_node(*key_b).map(|n| n.position);
+            let pos_a = app.workspace.graph.node_projected_position(*key_a);
+            let pos_b = app.workspace.graph.node_projected_position(*key_b);
 
             if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
                 // Calculate attraction vector
@@ -2474,10 +2479,11 @@ fn apply_semantic_clustering_forces(
     for (key, delta) in &position_deltas {
         if let Some(node) = app.workspace.graph.get_node(*key)
             && !node.is_pinned
+            && let Some(position) = app.workspace.graph.node_projected_position(*key)
         {
             let next_pos = euclid::default::Point2D::new(
-                node.position.x + delta.x,
-                node.position.y + delta.y,
+                position.x + delta.x,
+                position.y + delta.y,
             );
             let _ = app
                 .workspace
@@ -2491,8 +2497,10 @@ fn apply_semantic_clustering_forces(
         for (key, _delta) in position_deltas {
             if let Some(node) = app.workspace.graph.get_node(key) {
                 if !node.is_pinned {
-                    if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                        egui_node.set_location(egui::Pos2::new(node.position.x, node.position.y));
+                    if let Some(position) = app.workspace.graph.node_projected_position(key)
+                        && let Some(egui_node) = state_mut.graph.node_mut(key)
+                    {
+                        egui_node.set_location(egui::Pos2::new(position.x, position.y));
                     }
                 }
             }

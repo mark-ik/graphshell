@@ -317,7 +317,7 @@ Once durable graph apply is stable for non-transient mutation, decide whether to
 - keep position reducer-owned only at commit points
 - or keep a documented exception if that model remains clearly bounded
 
-This stage is now in progress. The first slice keeps snapshot/replay truth on a durable committed position while render/physics synchronize against a separate projected position.
+This stage is now in progress. The first slices keep snapshot/replay truth on a durable committed position, route render/physics mutation through a projected-position lane, and move runtime placement reads onto explicit projected-position helpers.
 
 ### Stage H - Remove trusted-writer wording
 
