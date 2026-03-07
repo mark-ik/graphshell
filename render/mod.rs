@@ -2281,17 +2281,17 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
     intents
 }
 
-/// Sync node positions from egui_graphs layout state back into app graph state.
+/// Sync projected node positions from egui_graphs layout state back into app graph state.
 ///
-/// Pinned nodes keep their app-authored positions; their visual positions are
+/// Pinned nodes keep their app-authored projected positions; their visual positions are
 /// restored after layout so FR simulation does not move them.
 ///
 /// **Group drag**: when the user is actively dragging (`is_interacting`) with
 /// 2+ nodes selected, the dragged node's per-frame delta is detected by comparing
 /// its egui_graphs position to its last-known `app.workspace.graph` position.  That same
 /// delta is then applied to every other selected (non-pinned) node in both
-/// `egui_state` and `app.workspace.graph`, keeping the group moving together without any
-/// changes to `GraphAction` or `GraphIntent`.
+/// `egui_state` and the graph's projected-position lane, keeping the group moving
+/// together without committing durable node positions every frame.
 pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     let Some(state) = app.workspace.egui_state.as_ref() else {
         if app.workspace.is_interacting {
@@ -2344,7 +2344,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
             if node.is_pinned {
                 pinned_positions.push((key, node.position));
             } else {
-                let _ = app.workspace.graph.set_node_position(key, pos);
+                let _ = app.workspace.graph.set_node_projected_position(key, pos);
             }
         }
     }
@@ -2366,7 +2366,10 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
                     node.position.x + delta.x,
                     node.position.y + delta.y,
                 );
-                let _ = app.workspace.graph.set_node_position(other_key, next_pos);
+                let _ = app
+                    .workspace
+                    .graph
+                    .set_node_projected_position(other_key, next_pos);
                 secondary_updates.push((other_key, egui::Pos2::new(next_pos.x, next_pos.y)));
             }
         }
@@ -2476,7 +2479,10 @@ fn apply_semantic_clustering_forces(
                 node.position.x + delta.x,
                 node.position.y + delta.y,
             );
-            let _ = app.workspace.graph.set_node_position(*key, next_pos);
+            let _ = app
+                .workspace
+                .graph
+                .set_node_projected_position(*key, next_pos);
         }
     }
 

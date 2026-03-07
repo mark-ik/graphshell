@@ -116,8 +116,14 @@ pub struct Node {
     /// Page title (or URL if no title)
     pub title: String,
 
-    /// Position in graph space
+    /// Transient projected position in graph space.
+    ///
+    /// Render and physics code may move this continuously between reducer
+    /// commits.
     pub position: Point2D<f32>,
+
+    /// Durable committed position used for snapshots and reducer-authored moves.
+    pub committed_position: Point2D<f32>,
 
     /// Velocity for physics simulation
     pub velocity: Vector2D<f32>,
@@ -419,6 +425,7 @@ impl Graph {
             title: url.clone(),
             url: url.clone(),
             position,
+            committed_position: position,
             velocity: Vector2D::zero(),
             is_pinned: false,
             last_visited: now,
@@ -552,6 +559,22 @@ impl Graph {
     }
 
     pub(crate) fn set_node_position(&mut self, key: NodeKey, position: Point2D<f32>) -> bool {
+        let Some(node) = self.inner.node_weight_mut(key) else {
+            return false;
+        };
+        if node.position == position && node.committed_position == position {
+            return false;
+        }
+        node.position = position;
+        node.committed_position = position;
+        true
+    }
+
+    pub(crate) fn set_node_projected_position(
+        &mut self,
+        key: NodeKey,
+        position: Point2D<f32>,
+    ) -> bool {
         let Some(node) = self.inner.node_weight_mut(key) else {
             return false;
         };
@@ -1008,8 +1031,8 @@ impl Graph {
                 node_id: node.id.to_string(),
                 url: node.url.clone(),
                 title: node.title.clone(),
-                position_x: node.position.x,
-                position_y: node.position.y,
+                position_x: node.committed_position.x,
+                position_y: node.committed_position.y,
                 is_pinned: node.is_pinned,
                 history_entries: node.history_entries.clone(),
                 history_index: node.history_index,
@@ -1184,6 +1207,8 @@ mod tests {
         assert_eq!(node.title, "https://example.com");
         assert_eq!(node.position.x, 100.0);
         assert_eq!(node.position.y, 200.0);
+        assert_eq!(node.committed_position.x, 100.0);
+        assert_eq!(node.committed_position.y, 200.0);
         assert_eq!(node.velocity.x, 0.0);
         assert_eq!(node.velocity.y, 0.0);
         assert!(!node.is_pinned);
@@ -1242,6 +1267,22 @@ mod tests {
         assert_eq!(node.position.x, 100.0);
         assert_eq!(node.position.y, 200.0);
         assert!(node.is_pinned);
+    }
+
+    #[test]
+    fn test_projected_position_does_not_change_committed_snapshot_position() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(10.0, 20.0));
+
+        assert!(graph.set_node_projected_position(key, Point2D::new(150.0, 250.0)));
+
+        let node = graph.get_node(key).unwrap();
+        assert_eq!(node.position, Point2D::new(150.0, 250.0));
+        assert_eq!(node.committed_position, Point2D::new(10.0, 20.0));
+
+        let snapshot = graph.to_snapshot();
+        assert_eq!(snapshot.nodes[0].position_x, 10.0);
+        assert_eq!(snapshot.nodes[0].position_y, 20.0);
     }
 
     #[test]

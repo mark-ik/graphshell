@@ -392,6 +392,7 @@ mod tests {
             url: url.to_string(),
             title: url.to_string(),
             position: Point2D::new(0.0, 0.0),
+            committed_position: Point2D::new(0.0, 0.0),
             velocity: Vector2D::new(0.0, 0.0),
             is_pinned: false,
             last_visited: std::time::SystemTime::now(),

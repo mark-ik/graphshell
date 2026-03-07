@@ -8888,6 +8888,7 @@ mod tests {
             "graph.get_edge_mut(",
             "graph.update_node_url(",
         ];
+        const RENDER_DURABLE_POSITION_ESCAPE_HATCH_TOKENS: [&str; 1] = ["graph.set_node_position("];
 
         let persistence_runtime_only = include_str!("services/persistence/mod.rs")
             .split("\n#[cfg(test)]")
@@ -8984,6 +8985,13 @@ mod tests {
             assert!(
                 !persistence_runtime_only.contains(token),
                 "trusted-writer boundary violated in services/persistence/mod.rs (runtime section): found '{token}'"
+            );
+        }
+
+        for token in RENDER_DURABLE_POSITION_ESCAPE_HATCH_TOKENS {
+            assert!(
+                !render_runtime_only.contains(token),
+                "trusted-writer boundary violated in render/mod.rs (runtime section): found '{token}'"
             );
         }
     }

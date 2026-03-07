@@ -60,7 +60,7 @@ Node position currently straddles two models:
 - durable graph state, because it is persisted
 - transient projection state, because render/physics mutates it continuously
 
-This plan preserves the current hybrid reality while reducing other mutation ambiguity first. A later slice may separate durable committed position from transient projected position, but that is not a prerequisite for this migration.
+This plan originally preserved the hybrid reality while reducing other mutation ambiguity first. The first split is now implemented: nodes carry a durable committed position for snapshot/replay truth and a transient projected position for render/physics churn. The remaining work is to continue shrinking the places that read or write the projected lane directly.
 
 ---
 
@@ -288,7 +288,7 @@ After graph apply exists:
 Implementation status as of 2026-03-06:
 
 - Started: `get_edge_mut` is no longer needed by non-test runtime code after replay moved onto graph-apply for dissolved traversal recovery and pin-state replay.
-- Remaining: `get_node_mut` still serves legitimate transient/session/runtime state writes and cannot be blanket-restricted until those concerns are separated from durable mutation.
+- Updated: `get_node_mut` is now test-only. Runtime transient/session/lifecycle writes use dedicated graph setters, and projected node movement is beginning to move onto an explicit projected-position lane.
 
 Restrict direct graph mutation APIs so non-graph-apply modules cannot compile if they attempt durable graph mutation.
 
@@ -317,7 +317,7 @@ Once durable graph apply is stable for non-transient mutation, decide whether to
 - keep position reducer-owned only at commit points
 - or keep a documented exception if that model remains clearly bounded
 
-This stage is intentionally later because it is a larger architectural choice.
+This stage is now in progress. The first slice keeps snapshot/replay truth on a durable committed position while render/physics synchronize against a separate projected position.
 
 ### Stage H - Remove trusted-writer wording
 
