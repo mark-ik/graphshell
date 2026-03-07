@@ -756,4 +756,137 @@ use petgraph::Direction;
 
 ---
 
+## 7. Execution Checklist (PR-Sized)
+
+This section defines the first implementation slices as small, reviewable PRs.
+
+### PR-1 (P0): Hop-Distance Cache + `dijkstra` Replacement
+
+**Goal:** Remove hot-path repeated BFS in omnibar and replace with petgraph shortest-path primitive.
+
+**Files expected:**
+- `model/graph/mod.rs`
+- `graph_app.rs`
+- `shell/desktop/ui/toolbar/toolbar_omnibar.rs`
+
+**Changes:**
+1. Add `Graph::hop_distances_from(source)` using `petgraph::algo::dijkstra` + `AsUndirected`.
+2. Add `hop_distance_cache: Option<(NodeKey, HashMap<NodeKey, usize>)>` to `GraphWorkspace`.
+3. Add helper in omnibar path to fetch cached distances or recompute once.
+4. Invalidate cache when graph structure changes (`apply_graph_delta_and_sync`).
+5. Invalidate cache when primary selection changes.
+
+**Acceptance criteria:**
+1. No direct `VecDeque` BFS remains in `connected_hop_distances_for_context`.
+2. Omnibar signifier and query filtering share one hop map per frame/selection.
+3. Behavior parity: displayed hop counts remain unchanged for same graph state.
+
+**Validation:**
+1. Targeted tests for omnibar match/signifier behavior (existing and new).
+2. `cargo check -q`.
+
+---
+
+### PR-2 (P1): Depth-2 Connected Candidate Cleanup
+
+**Goal:** Replace hand-rolled depth-capped BFS loop in `gui_frame` with two-round expansion.
+
+**Files expected:**
+- `model/graph/mod.rs`
+- `shell/desktop/ui/gui_frame.rs`
+
+**Changes:**
+1. Add `Graph::neighbors_undirected(key)` accessor.
+2. Replace `connected_candidates_with_depth` queue loop with explicit depth-1 + depth-2 expansions.
+3. Preserve current ordering and cap behavior (`MAX_CONNECTED_OPEN_NODES` logic unchanged).
+
+**Acceptance criteria:**
+1. No queue-based BFS loop remains in that function.
+2. Output set/depth semantics remain equivalent for both `Neighbors` and `Connected` modes.
+
+**Validation:**
+1. Existing `gui_frame`/connected-open tests pass.
+2. Add regression test for depth-2 expansion dedupe and depth annotation.
+3. `cargo check -q`.
+
+---
+
+### PR-3 (P2): Graph Accessor Foundation
+
+**Goal:** Land reusable graph API surface for upcoming P2/P3 features.
+
+**Files expected:**
+- `model/graph/mod.rs`
+
+**Changes:**
+1. Add `orphan_node_keys()`.
+2. Add `shortest_path(from, to)` (A* with unit weights).
+3. Add `is_reachable(from, to)`.
+4. Add `weakly_connected_components()` and `strongly_connected_components()` helpers.
+
+**Acceptance criteria:**
+1. Accessors compile and return stable deterministic outputs.
+2. Unit tests cover empty graph, disconnected graph, and cyclic graph cases.
+
+**Validation:**
+1. New graph unit tests.
+2. `cargo test -q model::graph::tests -- --nocapture`.
+
+---
+
+### PR-4 (P2): Component Membership Cache + Gravity Loci State
+
+**Goal:** Introduce state/cache plumbing for per-component gravity without switching physics behavior yet.
+
+**Files expected:**
+- `graph_app.rs`
+- physics profile/state files where extras are configured
+
+**Changes:**
+1. Add `component_membership_cache` and `component_loci` to workspace state.
+2. Recompute membership only on structural graph updates.
+3. Add locus assignment utility for new/merged components.
+4. Gate new behavior behind profile flag, default OFF in this PR.
+
+**Acceptance criteria:**
+1. No behavior change when flag is disabled.
+2. Cache updates are deterministic and do not churn each frame.
+
+**Validation:**
+1. Unit tests for membership/loci recomputation and merge/remove handling.
+2. `cargo check -q`.
+
+---
+
+### PR-5 (P2): Enable `ComponentGravityLoci` Force
+
+**Goal:** Activate per-component gravity and disable single-center gravity when enabled.
+
+**Files expected:**
+- `graph/forces/component_gravity.rs` (new)
+- physics profile/state integration points
+
+**Changes:**
+1. Implement `ComponentGravityLoci` `ExtraForce`.
+2. Wire profile toggle: when enabled, disable `CenterGravity` and enable `ComponentGravityLoci`.
+3. Seed reasonable defaults for new profiles.
+
+**Acceptance criteria:**
+1. Multi-component graphs remain visually separated under physics.
+2. Single-component behavior remains stable.
+
+**Validation:**
+1. Focused physics tests and/or deterministic snapshot tests where available.
+2. Manual smoke in multi-component workspace.
+
+---
+
+### Notes
+
+1. Keep each PR independently shippable.
+2. Preserve terminology from `design_docs/TERMINOLOGY.md` in code/docs.
+3. Avoid bundling unrelated changes into algorithm replacement PRs.
+
+---
+
 *This spec is the authoritative reference for petgraph algorithm utilization in graphshell. Update it when new use sites are identified or implementations are completed.*
