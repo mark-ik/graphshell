@@ -172,7 +172,7 @@ fn add_connected_nodes_to_named_frame_snapshot(
     frame_name: &str,
     seed_nodes: &[NodeKey],
 ) {
-    let nodes = connected_frame_import_nodes(graph_app, seed_nodes);
+    let nodes = connected_open::connected_frame_import_nodes(graph_app, seed_nodes);
     add_nodes_to_named_frame_snapshot(graph_app, frame_name, &nodes);
 }
 

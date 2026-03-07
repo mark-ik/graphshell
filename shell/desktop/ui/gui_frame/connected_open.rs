@@ -4,6 +4,107 @@
 
 use super::*;
 
+pub(super) fn connected_frame_import_nodes(
+    graph_app: &GraphBrowserApp,
+    seeds: &[NodeKey],
+) -> Vec<NodeKey> {
+    let mut out = HashSet::new();
+    for seed in seeds {
+        if graph_app.domain_graph().get_node(*seed).is_none() {
+            continue;
+        }
+        out.insert(*seed);
+        out.extend(graph_app.domain_graph().neighbors_undirected(*seed));
+    }
+    let mut nodes: Vec<NodeKey> = out
+        .into_iter()
+        .filter(|key| graph_app.domain_graph().get_node(*key).is_some())
+        .collect();
+    nodes.sort_by_key(|key| key.index());
+    nodes
+}
+
+fn undirected_neighbors_sorted(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Vec<NodeKey> {
+    let mut neighbors: Vec<NodeKey> = graph_app
+        .domain_graph()
+        .neighbors_undirected(node_key)
+        .filter(|key| *key != node_key && graph_app.domain_graph().get_node(*key).is_some())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    neighbors.sort_by_key(|key| key.index());
+    neighbors
+}
+
+pub(super) fn connected_candidates_with_depth(
+    graph_app: &GraphBrowserApp,
+    source: NodeKey,
+    scope: PendingConnectedOpenScope,
+) -> Vec<(NodeKey, u8)> {
+    match scope {
+        PendingConnectedOpenScope::Neighbors => undirected_neighbors_sorted(graph_app, source)
+            .into_iter()
+            .map(|key| (key, 1))
+            .collect(),
+        PendingConnectedOpenScope::Connected => {
+            let mut out = Vec::new();
+            let mut visited = HashSet::from([source]);
+            let depth1 = undirected_neighbors_sorted(graph_app, source);
+            for neighbor in depth1 {
+                if visited.insert(neighbor) {
+                    out.push((neighbor, 1));
+                }
+            }
+
+            let depth1_nodes: Vec<NodeKey> = out
+                .iter()
+                .filter_map(|(node, depth)| (*depth == 1).then_some(*node))
+                .collect();
+            for depth1_node in depth1_nodes {
+                for neighbor in undirected_neighbors_sorted(graph_app, depth1_node) {
+                    if visited.insert(neighbor) {
+                        out.push((neighbor, 2));
+                    }
+                }
+            }
+
+            out
+        }
+    }
+}
+
+fn connected_targets_for_open(
+    graph_app: &GraphBrowserApp,
+    source: NodeKey,
+    scope: PendingConnectedOpenScope,
+) -> Vec<NodeKey> {
+    let mut candidates = connected_candidates_with_depth(graph_app, source, scope);
+    let cap = MAX_CONNECTED_OPEN_NODES.saturating_sub(1);
+
+    if candidates.len() > cap {
+        candidates.sort_by(|(a, depth_a), (b, depth_b)| {
+            graph_app
+                .frame_recency_seq_for_node(*b)
+                .cmp(&graph_app.frame_recency_seq_for_node(*a))
+                .then_with(|| depth_a.cmp(depth_b))
+                .then_with(|| a.index().cmp(&b.index()))
+        });
+        candidates.truncate(cap);
+    }
+
+    candidates.sort_by(|(a, depth_a), (b, depth_b)| {
+        depth_a
+            .cmp(depth_b)
+            .then_with(|| {
+                graph_app
+                    .frame_recency_seq_for_node(*b)
+                    .cmp(&graph_app.frame_recency_seq_for_node(*a))
+            })
+            .then_with(|| a.index().cmp(&b.index()))
+    });
+    candidates.into_iter().map(|(key, _)| key).collect()
+}
+
 pub(super) fn handle_pending_open_connected_from(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,

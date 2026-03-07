@@ -150,88 +150,6 @@ fn apply_connected_split_layout(tree: &mut Tree<TileKind>, nodes: &[NodeKey]) {
     };
 }
 
-fn undirected_neighbors_sorted(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Vec<NodeKey> {
-    let mut neighbors: Vec<NodeKey> = graph_app
-        .domain_graph()
-        .neighbors_undirected(node_key)
-        .filter(|key| *key != node_key && graph_app.domain_graph().get_node(*key).is_some())
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-    neighbors.sort_by_key(|key| key.index());
-    neighbors
-}
-
-fn connected_candidates_with_depth(
-    graph_app: &GraphBrowserApp,
-    source: NodeKey,
-    scope: PendingConnectedOpenScope,
-) -> Vec<(NodeKey, u8)> {
-    match scope {
-        PendingConnectedOpenScope::Neighbors => undirected_neighbors_sorted(graph_app, source)
-            .into_iter()
-            .map(|key| (key, 1))
-            .collect(),
-        PendingConnectedOpenScope::Connected => {
-            let mut out = Vec::new();
-            let mut visited = HashSet::from([source]);
-            let depth1 = undirected_neighbors_sorted(graph_app, source);
-            for neighbor in depth1 {
-                if visited.insert(neighbor) {
-                    out.push((neighbor, 1));
-                }
-            }
-
-            let depth1_nodes: Vec<NodeKey> = out
-                .iter()
-                .filter_map(|(node, depth)| (*depth == 1).then_some(*node))
-                .collect();
-            for depth1_node in depth1_nodes {
-                for neighbor in undirected_neighbors_sorted(graph_app, depth1_node) {
-                    if visited.insert(neighbor) {
-                        out.push((neighbor, 2));
-                    }
-                }
-            }
-
-
-            out
-        }
-    }
-}
-
-fn connected_targets_for_open(
-    graph_app: &GraphBrowserApp,
-    source: NodeKey,
-    scope: PendingConnectedOpenScope,
-) -> Vec<NodeKey> {
-    let mut candidates = connected_candidates_with_depth(graph_app, source, scope);
-    let cap = MAX_CONNECTED_OPEN_NODES.saturating_sub(1);
-
-    if candidates.len() > cap {
-        candidates.sort_by(|(a, depth_a), (b, depth_b)| {
-            graph_app
-                .frame_recency_seq_for_node(*b)
-                .cmp(&graph_app.frame_recency_seq_for_node(*a))
-                .then_with(|| depth_a.cmp(depth_b))
-                .then_with(|| a.index().cmp(&b.index()))
-        });
-        candidates.truncate(cap);
-    }
-
-    candidates.sort_by(|(a, depth_a), (b, depth_b)| {
-        depth_a
-            .cmp(depth_b)
-            .then_with(|| {
-                graph_app
-                    .frame_recency_seq_for_node(*b)
-                    .cmp(&graph_app.frame_recency_seq_for_node(*a))
-            })
-            .then_with(|| a.index().cmp(&b.index()))
-    });
-    candidates.into_iter().map(|(key, _)| key).collect()
-}
-
 pub(crate) struct PreFrameIngestArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
     pub(crate) graph_app: &'a GraphBrowserApp,
@@ -1096,8 +1014,11 @@ mod connected_open_tests {
         let _ = app.add_edge_and_sync(left, shared, crate::model::graph::EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(right, shared, crate::model::graph::EdgeType::Hyperlink);
 
-        let candidates =
-            connected_candidates_with_depth(&app, source, PendingConnectedOpenScope::Connected);
+        let candidates = connected_open::connected_candidates_with_depth(
+            &app,
+            source,
+            PendingConnectedOpenScope::Connected,
+        );
 
         assert!(candidates.contains(&(left, 1)));
         assert!(candidates.contains(&(right, 1)));
@@ -1128,8 +1049,11 @@ mod connected_open_tests {
         let _ = app.add_edge_and_sync(source, neighbor, crate::model::graph::EdgeType::Hyperlink);
         let _ = app.add_edge_and_sync(neighbor, depth_two, crate::model::graph::EdgeType::Hyperlink);
 
-        let candidates =
-            connected_candidates_with_depth(&app, source, PendingConnectedOpenScope::Neighbors);
+        let candidates = connected_open::connected_candidates_with_depth(
+            &app,
+            source,
+            PendingConnectedOpenScope::Neighbors,
+        );
 
         assert_eq!(candidates, vec![(neighbor, 1)]);
     }
