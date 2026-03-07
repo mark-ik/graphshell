@@ -50,6 +50,19 @@ pub(super) fn autosave_session_workspace_layout_if_allowed(
     }
 }
 
+pub(super) fn serialize_tiles_tree_layout_json(
+    tiles_tree: &Tree<TileKind>,
+    context: &str,
+) -> Option<String> {
+    match serde_json::to_string(tiles_tree) {
+        Ok(layout_json) => Some(layout_json),
+        Err(e) => {
+            warn!("Failed to serialize tile layout for {context}: {e}");
+            None
+        }
+    }
+}
+
 fn persist_autosave_session_workspace_layout_if_available(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,

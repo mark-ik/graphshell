@@ -108,7 +108,8 @@ fn handle_pending_save_frame_snapshot(
     tiles_tree: &Tree<TileKind>,
 ) {
     if graph_app.take_pending_save_frame_snapshot()
-        && let Some(layout_json) = serialize_tiles_tree_layout_json(tiles_tree, "frame snapshot")
+        && let Some(layout_json) =
+            workspace_layout::serialize_tiles_tree_layout_json(tiles_tree, "frame snapshot")
     {
         graph_app.save_tile_layout_json(&layout_json);
     }
