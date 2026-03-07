@@ -535,19 +535,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         let tiles = active_tiles_for_diag
             .iter()
             .map(|(node_key, rect)| {
-                let render_mode = tiles_tree
-                    .tiles
-                    .iter()
-                    .find_map(|(_, tile)| match tile {
-                        egui_tiles::Tile::Pane(TileKind::Node(state))
-                            if state.node == *node_key =>
-                        {
-                            Some(state.render_mode)
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or(
-                        crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder,
+                let render_mode =
+                    crate::shell::desktop::workbench::tile_runtime::render_mode_for_node_pane_in_tree(
+                        tiles_tree,
+                        *node_key,
                     );
                 let mapped_webview = graph_app.get_webview_for_node(*node_key).is_some();
                 let has_context = tile_rendering_contexts.contains_key(node_key);

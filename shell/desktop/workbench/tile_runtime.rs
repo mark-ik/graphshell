@@ -369,6 +369,20 @@ pub(crate) fn render_path_hint_for_mode(
     TileCoordinator::render_path_hint_for_mode(render_mode, mapped_webview, has_context)
 }
 
+pub(crate) fn render_mode_for_node_pane_in_tree(
+    tiles_tree: &Tree<TileKind>,
+    node_key: NodeKey,
+) -> TileRenderMode {
+    tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(_, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(state.render_mode),
+            _ => None,
+        })
+        .unwrap_or(TileRenderMode::Placeholder)
+}
+
 pub(crate) fn prune_stale_node_pane_keys_only(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -424,6 +438,7 @@ mod tests {
 
     use super::TileCoordinator;
     use crate::app::GraphBrowserApp;
+    use crate::graph::NodeKey;
     use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode, ViewerId};
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
@@ -649,6 +664,18 @@ mod tests {
         assert_eq!(
             TileCoordinator::render_path_hint_for_mode(TileRenderMode::Placeholder, false, false),
             "placeholder"
+        );
+    }
+
+    #[test]
+    fn render_mode_for_node_pane_in_tree_returns_placeholder_for_missing_node() {
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let tree = Tree::new("tile_runtime_render_mode_lookup", graph, tiles);
+
+        assert_eq!(
+            super::render_mode_for_node_pane_in_tree(&tree, NodeKey::new(9999)),
+            TileRenderMode::Placeholder
         );
     }
 }
