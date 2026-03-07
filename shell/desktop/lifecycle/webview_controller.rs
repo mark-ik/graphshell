@@ -91,24 +91,16 @@ fn intents_for_graph_view_address_submit(
 
 #[cfg(any(test, not(feature = "diagnostics")))]
 fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
-    if app.workspace.graph.node_count() == 0 {
-        return Point2D::new(400.0, 300.0);
-    }
-    let mut sum_x = 0.0;
-    let mut sum_y = 0.0;
-    let mut count = 0.0f32;
-    for (_, node) in app.workspace.graph.nodes() {
-        sum_x += node.position.x;
-        sum_y += node.position.y;
-        count += 1.0;
-    }
-    Point2D::new(sum_x / count, sum_y / count)
+    app.workspace
+        .graph
+        .projected_centroid()
+        .unwrap_or_else(|| Point2D::new(400.0, 300.0))
 }
 
 #[cfg(any(test, not(feature = "diagnostics")))]
 fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>) -> Point2D<f32> {
     let base = anchor
-        .and_then(|key| app.workspace.graph.get_node(key).map(|node| node.position))
+        .and_then(|key| app.workspace.graph.node_projected_position(key))
         .unwrap_or_else(|| graph_centroid_or_default(app));
     let n = app.workspace.graph.node_count() as f32;
     let angle = n * std::f32::consts::FRAC_PI_4; // pi/4 steps for simple deterministic spread.

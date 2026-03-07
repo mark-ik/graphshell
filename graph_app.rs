@@ -3961,11 +3961,11 @@ impl GraphBrowserApp {
                     let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
                     self.workspace
                         .graph
-                        .get_node(parent_key)
-                        .map(|node| {
+                        .node_projected_position(parent_key)
+                        .map(|position| {
                             Point2D::new(
-                                node.position.x + 140.0 + jitter_x,
-                                node.position.y + 80.0 + jitter_y,
+                                position.x + 140.0 + jitter_x,
+                                position.y + 80.0 + jitter_y,
                             )
                         })
                         .unwrap_or_else(|| Point2D::new(400.0, 300.0))
@@ -7728,28 +7728,18 @@ impl GraphBrowserApp {
         use rand::Rng;
 
         // Calculate approximate center of existing nodes
-        let (center_x, center_y) = if self.workspace.graph.node_count() > 0 {
-            let mut sum_x = 0.0;
-            let mut sum_y = 0.0;
-            let mut count = 0;
-
-            for (_, node) in self.workspace.graph.nodes() {
-                sum_x += node.position.x;
-                sum_y += node.position.y;
-                count += 1;
-            }
-
-            (sum_x / count as f32, sum_y / count as f32)
-        } else {
-            (400.0, 300.0) // Default center if no nodes
-        };
+        let center = self
+            .workspace
+            .graph
+            .projected_centroid()
+            .unwrap_or_else(|| Point2D::new(400.0, 300.0));
 
         // Add random offset to avoid stacking directly on center
         let mut rng = rand::thread_rng();
         let offset_x = rng.gen_range(-100.0..100.0);
         let offset_y = rng.gen_range(-100.0..100.0);
 
-        let position = Point2D::new(center_x + offset_x, center_y + offset_y);
+        let position = Point2D::new(center.x + offset_x, center.y + offset_y);
         let placeholder_url = self.next_placeholder_url();
 
         let key = self.add_node_and_sync(placeholder_url, position);
@@ -8889,6 +8879,7 @@ mod tests {
             "graph.update_node_url(",
         ];
         const RENDER_DURABLE_POSITION_ESCAPE_HATCH_TOKENS: [&str; 1] = ["graph.set_node_position("];
+        const PROJECTED_READ_ESCAPE_HATCH_TOKENS: [&str; 1] = ["node.position"];
 
         let persistence_runtime_only = include_str!("services/persistence/mod.rs")
             .split("\n#[cfg(test)]")
@@ -8993,6 +8984,29 @@ mod tests {
                 !render_runtime_only.contains(token),
                 "trusted-writer boundary violated in render/mod.rs (runtime section): found '{token}'"
             );
+        }
+
+        for (path, source) in [
+            ("graph_app.rs", include_str!("graph_app.rs").split("\n#[cfg(test)]").next().unwrap_or_default()),
+            (
+                "shell/desktop/lifecycle/webview_controller.rs (runtime section)",
+                webview_controller_runtime_only,
+            ),
+            (
+                "shell/desktop/runtime/registries/action.rs (runtime section)",
+                action_registry_runtime_only,
+            ),
+            (
+                "shell/desktop/ui/toolbar/toolbar_omnibar.rs",
+                include_str!("shell/desktop/ui/toolbar/toolbar_omnibar.rs"),
+            ),
+        ] {
+            for token in PROJECTED_READ_ESCAPE_HATCH_TOKENS {
+                assert!(
+                    !source.contains(token),
+                    "projected-position boundary violated in {path}: found '{token}'"
+                );
+            }
         }
     }
 

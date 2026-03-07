@@ -375,19 +375,11 @@ fn edge_type_label(edge_type: crate::graph::EdgeType) -> &'static str {
 }
 
 pub(super) fn graph_center_for_new_node(graph_app: &GraphBrowserApp) -> Point2D<f32> {
-    let mut count = 0usize;
-    let mut sum_x = 0.0f32;
-    let mut sum_y = 0.0f32;
-    for (_, node) in graph_app.workspace.graph.nodes() {
-        sum_x += node.position.x;
-        sum_y += node.position.y;
-        count += 1;
-    }
-    if count == 0 {
-        Point2D::new(0.0, 0.0)
-    } else {
-        Point2D::new(sum_x / count as f32, sum_y / count as f32)
-    }
+    graph_app
+        .workspace
+        .graph
+        .projected_centroid()
+        .unwrap_or_else(|| Point2D::new(0.0, 0.0))
 }
 
 fn edge_candidates_for_graph(
