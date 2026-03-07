@@ -11,8 +11,8 @@
 
 pub mod types;
 
-use crate::graph::apply::{GraphDelta, apply_graph_delta};
 use crate::graph::Graph;
+use crate::graph::apply::{GraphDelta, apply_graph_delta};
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use log::warn;
@@ -990,7 +990,10 @@ impl GraphStore {
                         },
                     },
                 );
-                if !matches!(appended, crate::graph::apply::GraphDeltaResult::TraversalAppended(true)) {
+                if !matches!(
+                    appended,
+                    crate::graph::apply::GraphDeltaResult::TraversalAppended(true)
+                ) {
                     log::debug!(
                         "Skipping archived traversal: append rejected ({} -> {})",
                         from_uuid,
@@ -1478,10 +1481,7 @@ impl GraphStore {
                     let Ok(node_id) = Uuid::parse_str(node_id.as_str()) else {
                         continue;
                     };
-                    let _ = apply_graph_delta(
-                        graph,
-                        GraphDelta::ReplayRemoveNodeById { node_id },
-                    );
+                    let _ = apply_graph_delta(graph, GraphDelta::ReplayRemoveNodeById { node_id });
                 }
                 ArchivedLogEntry::ClearGraph => {
                     *graph = Graph::new();

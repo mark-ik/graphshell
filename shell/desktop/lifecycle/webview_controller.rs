@@ -20,7 +20,7 @@ use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::registries;
-use crate::util::{GraphAddress, VersoAddress, NodeAddress, NoteAddress};
+use crate::util::{GraphAddress, NodeAddress, NoteAddress, VersoAddress};
 #[cfg(any(test, not(feature = "diagnostics")))]
 use euclid::default::Point2D;
 
@@ -70,22 +70,26 @@ fn intents_for_graph_view_address_submit(
     if let Some(selected_node) = app.get_single_selected_node() {
         (
             true,
-            vec![crate::app::GraphMutation::SetNodeUrl {
-                key: selected_node,
-                new_url: input.to_string(),
-            }
-            .into()],
+            vec![
+                crate::app::GraphMutation::SetNodeUrl {
+                    key: selected_node,
+                    new_url: input.to_string(),
+                }
+                .into(),
+            ],
             Vec::new(),
         )
     } else {
         let position = new_node_position_for_context(app, app.focused_selection().primary());
         (
             true,
-            vec![crate::app::GraphMutation::CreateNodeAtUrl {
-                url: input.to_string(),
-                position,
-            }
-            .into()],
+            vec![
+                crate::app::GraphMutation::CreateNodeAtUrl {
+                    url: input.to_string(),
+                    position,
+                }
+                .into(),
+            ],
             Vec::new(),
         )
     }
@@ -198,9 +202,7 @@ fn workbench_route_intent_for_verso_url(normalized_url: &str) -> Option<Workbenc
     let parsed = VersoAddress::parse(normalized_url)?;
     let canonical_url = parsed.to_string();
     match parsed {
-        VersoAddress::Settings(_) => {
-            Some(WorkbenchIntent::OpenSettingsUrl { url: canonical_url })
-        }
+        VersoAddress::Settings(_) => Some(WorkbenchIntent::OpenSettingsUrl { url: canonical_url }),
         VersoAddress::Frame(_) => Some(WorkbenchIntent::OpenFrameUrl { url: canonical_url }),
         VersoAddress::Tool { .. } => Some(WorkbenchIntent::OpenToolUrl { url: canonical_url }),
         VersoAddress::View(_) => Some(WorkbenchIntent::OpenViewUrl { url: canonical_url }),
@@ -442,10 +444,9 @@ pub(crate) fn close_webviews_for_nodes(
             window.close_webview(wv_id);
             intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
         }
-        intents.push(lifecycle_intents::demote_node_to_cold(
-            node_key,
-            LifecycleCause::ExplicitClose,
-        ).into());
+        intents.push(
+            lifecycle_intents::demote_node_to_cold(node_key, LifecycleCause::ExplicitClose).into(),
+        );
     }
     intents
 }
@@ -462,10 +463,10 @@ pub(crate) fn close_all_webviews(
         window.close_webview(wv_id);
         intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
         if let Some(node_key) = app.get_node_for_webview(wv_id) {
-            intents.push(lifecycle_intents::demote_node_to_cold(
-                node_key,
-                LifecycleCause::ExplicitClose,
-            ).into());
+            intents.push(
+                lifecycle_intents::demote_node_to_cold(node_key, LifecycleCause::ExplicitClose)
+                    .into(),
+            );
         }
     }
     intents
@@ -499,7 +500,9 @@ mod tests {
             url: url.to_string(),
             position,
         }]);
-        app.workspace.domain.graph
+        app.workspace
+            .domain
+            .graph
             .get_node_by_url(url)
             .map(|(key, _)| key)
             .expect("created node should be discoverable by url")
@@ -516,7 +519,9 @@ mod tests {
     fn test_new_node_position_for_context_biases_near_anchor() {
         let mut app = GraphBrowserApp::new_for_testing();
         let anchor = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://anchor.com".into(), Point2D::new(100.0, 200.0));
         let p = new_node_position_for_context(&app, Some(anchor));
         let dx = p.x - 100.0;
@@ -529,10 +534,14 @@ mod tests {
     fn test_reconcile_mappings_removes_stale_webviews() {
         let mut app = GraphBrowserApp::new_for_testing();
         let n1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".into(), Point2D::new(0.0, 0.0));
         let n2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://b.com".into(), Point2D::new(1.0, 1.0));
         let w1 = test_webview_id();
         let w2 = test_webview_id();
@@ -553,7 +562,9 @@ mod tests {
     fn test_apply_graph_view_submit_updates_selected_node_url() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
@@ -590,18 +601,30 @@ mod tests {
     fn test_apply_graph_view_submit_handle_search_selects_without_navigation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".into(), Point2D::new(0.0, 0.0));
         if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
             node.title = "Example Handle".into();
         }
-        let original_url = app.workspace.domain.graph.get_node(key).unwrap().url.clone();
+        let original_url = app
+            .workspace
+            .domain
+            .graph
+            .get_node(key)
+            .unwrap()
+            .url
+            .clone();
 
         let (open_selected_tile, intents) = intents_for_omnibox_node_search(&app, "example handle");
         app.apply_reducer_intents(intents);
 
         assert_eq!(app.get_single_selected_node(), Some(key));
-        assert_eq!(app.workspace.domain.graph.get_node(key).unwrap().url, original_url);
+        assert_eq!(
+            app.workspace.domain.graph.get_node(key).unwrap().url,
+            original_url
+        );
         assert!(open_selected_tile);
     }
 
@@ -821,7 +844,9 @@ mod tests {
     fn graph_view_internal_route_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
@@ -841,7 +866,9 @@ mod tests {
     fn graph_view_settings_route_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
@@ -861,7 +888,9 @@ mod tests {
     fn graph_view_tool_route_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
@@ -881,7 +910,9 @@ mod tests {
     fn graph_view_clip_route_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
@@ -901,7 +932,9 @@ mod tests {
     fn graph_view_note_domain_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let note_url = format!("notes://{}", uuid::Uuid::new_v4());
@@ -922,7 +955,9 @@ mod tests {
     fn graph_view_node_domain_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let node_url = format!("node://{}", uuid::Uuid::new_v4());
@@ -943,7 +978,9 @@ mod tests {
     fn graph_view_graph_domain_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let graph_url = "graph://graph-main".to_string();
@@ -964,7 +1001,9 @@ mod tests {
     fn graph_view_node_view_route_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let node_url = format!("verso://view/node/{}", uuid::Uuid::new_v4());
@@ -985,7 +1024,9 @@ mod tests {
     fn graph_view_note_view_route_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let note_url = format!("verso://view/note/{}", uuid::Uuid::new_v4());
@@ -1006,7 +1047,9 @@ mod tests {
     fn graph_view_graph_view_route_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let graph_url = "verso://view/graph/graph-main".to_string();
@@ -1027,7 +1070,9 @@ mod tests {
     fn graph_view_legacy_view_node_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let node_id = uuid::Uuid::new_v4();
@@ -1050,7 +1095,9 @@ mod tests {
     fn graph_view_legacy_view_note_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let note_id = uuid::Uuid::new_v4();
@@ -1073,7 +1120,9 @@ mod tests {
     fn graph_view_legacy_view_graph_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let legacy_url = "graphshell://view/graph/graph-main".to_string();
@@ -1095,7 +1144,9 @@ mod tests {
     fn graph_view_legacy_view_uuid_submit_does_not_emit_graph_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.com".into(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
         let view_id = uuid::Uuid::new_v4();
@@ -1135,8 +1186,11 @@ mod tests {
     #[test]
     fn resolve_detail_submit_target_falls_back_to_preferred_webview_mapping() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node =
-            create_node_via_reducer(&mut app, "https://preferred.example", Point2D::new(0.0, 0.0));
+        let node = create_node_via_reducer(
+            &mut app,
+            "https://preferred.example",
+            Point2D::new(0.0, 0.0),
+        );
         let preferred_webview = test_webview_id();
         app.map_webview_to_node(preferred_webview, node);
 
@@ -1165,8 +1219,11 @@ mod tests {
             "https://stale-focused.example",
             Point2D::new(0.0, 0.0),
         );
-        let remaining =
-            create_node_via_reducer(&mut app, "https://remaining.example", Point2D::new(20.0, 0.0));
+        let remaining = create_node_via_reducer(
+            &mut app,
+            "https://remaining.example",
+            Point2D::new(20.0, 0.0),
+        );
         let remaining_webview = test_webview_id();
         app.map_webview_to_node(remaining_webview, remaining);
 

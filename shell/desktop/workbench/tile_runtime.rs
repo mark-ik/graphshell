@@ -260,16 +260,22 @@ impl TileCoordinator {
                             .map(|node| node.lifecycle)
                             .unwrap_or(NodeLifecycle::Cold);
                         if lifecycle != NodeLifecycle::Warm {
-                            lifecycle_intents.push(lifecycle_intents::demote_node_to_warm(
-                                node_key,
-                                LifecycleCause::WorkspaceRetention,
-                            ).into());
+                            lifecycle_intents.push(
+                                lifecycle_intents::demote_node_to_warm(
+                                    node_key,
+                                    LifecycleCause::WorkspaceRetention,
+                                )
+                                .into(),
+                            );
                         }
                     } else {
-                        lifecycle_intents.push(lifecycle_intents::demote_node_to_cold(
-                            node_key,
-                            LifecycleCause::NodeRemoval,
-                        ).into());
+                        lifecycle_intents.push(
+                            lifecycle_intents::demote_node_to_cold(
+                                node_key,
+                                LifecycleCause::NodeRemoval,
+                            )
+                            .into(),
+                        );
                     }
                 }
             }
@@ -285,10 +291,13 @@ impl TileCoordinator {
                 .map(|node| node.lifecycle)
                 .unwrap_or(NodeLifecycle::Cold);
             if lifecycle != NodeLifecycle::Warm {
-                lifecycle_intents.push(lifecycle_intents::demote_node_to_warm(
-                    node_key,
-                    LifecycleCause::WorkspaceRetention,
-                ).into());
+                lifecycle_intents.push(
+                    lifecycle_intents::demote_node_to_warm(
+                        node_key,
+                        LifecycleCause::WorkspaceRetention,
+                    )
+                    .into(),
+                );
             }
             return;
         }
@@ -299,10 +308,9 @@ impl TileCoordinator {
             window.close_webview(wv_id);
             lifecycle_intents.push(RuntimeEvent::UnmapWebview { webview_id: wv_id }.into());
         }
-        lifecycle_intents.push(lifecycle_intents::demote_node_to_cold(
-            node_key,
-            LifecycleCause::NodeRemoval,
-        ).into());
+        lifecycle_intents.push(
+            lifecycle_intents::demote_node_to_cold(node_key, LifecycleCause::NodeRemoval).into(),
+        );
     }
 }
 

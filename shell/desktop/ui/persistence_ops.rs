@@ -23,7 +23,9 @@ use crate::shell::desktop::workbench::tile_runtime;
 /// Persisted pane identifier used inside frame bundle schema.
 ///
 /// Distinct from runtime `pane_model::PaneId` (UUID-backed) and scoped only to
-/// a single serialized layout tree.
+/// a single serialized layout tree. Persistence snapshots are derived from the
+/// live runtime `Tree<TileKind>`; they are not a second canonical workbench
+/// tree that runtime state should follow.
 pub(crate) type PersistedPaneId = u64;
 
 /// Backward-compatible local alias retained while migrating callsites.

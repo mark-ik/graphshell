@@ -7,7 +7,7 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::host::running_app_state::{RunningAppState, UserInterfaceCommand};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-use crate::util::{VersoAddress, GraphshellSettingsPath};
+use crate::util::{GraphshellSettingsPath, VersoAddress};
 
 pub(super) fn render_settings_menu(
     ui: &mut egui::Ui,
@@ -274,22 +274,6 @@ pub(super) fn render_settings_menu(
             {
                 let value = physics_id.trim();
                 graph_app.set_default_registry_physics_id((!value.is_empty()).then_some(value));
-            }
-
-            let mut layout_id = graph_app
-                .default_registry_layout_id()
-                .unwrap_or_default()
-                .to_string();
-            if ui
-                .horizontal(|ui| {
-                    ui.label("Layout ID");
-                    ui.text_edit_singleline(&mut layout_id)
-                })
-                .inner
-                .changed()
-            {
-                let value = layout_id.trim();
-                graph_app.set_default_registry_layout_id((!value.is_empty()).then_some(value));
             }
 
             let mut theme_id = graph_app

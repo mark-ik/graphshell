@@ -7,6 +7,10 @@
 //! `TileKind` variants correspond to `PaneViewState` payload kinds.
 //! Dispatch on `TileKind` is the workbench-layer expression of pane view payload dispatch.
 //! See `pane_model.rs` for the canonical pane payload model.
+//!
+//! Layout authority lives in the runtime `egui_tiles::Tree<TileKind>` itself.
+//! `TileKind`/`PaneViewState` define what each pane contains, not an alternate
+//! canonical tree that the runtime layout should diverge from.
 
 use crate::app::GraphViewId;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};

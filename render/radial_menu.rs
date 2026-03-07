@@ -459,11 +459,13 @@ pub fn render_radial_command_menu(
                         .is_some_and(|pos| !response.response.rect.contains(pos))
             });
             if clicked_outside {
-                intents.push(ViewAction::UpdateSelection {
-                    keys: Vec::new(),
-                    mode: SelectionUpdateMode::Replace,
-                }
-                .into());
+                intents.push(
+                    ViewAction::UpdateSelection {
+                        keys: Vec::new(),
+                        mode: SelectionUpdateMode::Replace,
+                    }
+                    .into(),
+                );
                 should_close = true;
             }
         }

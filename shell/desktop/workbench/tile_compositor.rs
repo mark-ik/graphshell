@@ -23,11 +23,11 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
-    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
+    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
-    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
@@ -179,7 +179,9 @@ fn suppression_reason_channel(reason: OverlaySuppressionReason) -> &'static str 
         OverlaySuppressionReason::InteractionMenu => {
             CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU
         }
-        OverlaySuppressionReason::HelpPanel => CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL,
+        OverlaySuppressionReason::HelpPanel => {
+            CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_HELP_PANEL
+        }
         OverlaySuppressionReason::RadialMenu => {
             CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU
         }
@@ -374,8 +376,7 @@ pub(crate) fn composite_active_node_pane_webviews(
         let node_key = pass.node_key;
         let tile_rect = pass.tile_rect;
         let render_mode = pass.render_mode;
-        let interaction_render_mode =
-            interaction_ui.effective_interaction_render_mode(render_mode);
+        let interaction_render_mode = interaction_ui.effective_interaction_render_mode(render_mode);
         let node_webview_id = graph_app.get_webview_for_node(node_key);
 
         if should_cull_tile_content(tile_rect, viewport_rect) {

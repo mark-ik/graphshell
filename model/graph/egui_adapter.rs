@@ -7,7 +7,10 @@
 //! Converts the Graph's StableGraph to an egui_graphs::Graph each frame,
 //! and reads back user interactions (drag, selection, double-click).
 
-use super::{EdgeKind, EdgePayload, Graph, Node, NodeKey, NodeLifecycle};
+use super::apply::{GraphDelta, GraphDeltaResult};
+use super::{
+    EdgeKey, EdgeKind, EdgePayload, Graph, GraphDirection, GraphIndex, Node, NodeKey, NodeLifecycle,
+};
 use egui::epaint::{CircleShape, CubicBezierShape, TextShape};
 use egui::{
     Color32, FontFamily, FontId, Pos2, Rect, Shape, Stroke, TextureHandle, TextureId, Vec2,
@@ -17,17 +20,22 @@ use egui_graphs::{
     DefaultEdgeShape, DisplayEdge, DisplayNode, EdgeProps, NodeProps, to_graph_custom,
 };
 use image::load_from_memory;
-use petgraph::Directed;
-use petgraph::graph::DefaultIx;
-use petgraph::stable_graph::{EdgeIndex, NodeIndex};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 
+use crate::util::CoordBridge;
+
 /// Type alias for the egui_graphs graph with our node/edge types
-pub type EguiGraph =
-    egui_graphs::Graph<Node, EdgePayload, Directed, DefaultIx, GraphNodeShape, GraphEdgeShape>;
+pub type EguiGraph = egui_graphs::Graph<
+    Node,
+    EdgePayload,
+    GraphDirection,
+    GraphIndex,
+    GraphNodeShape,
+    GraphEdgeShape,
+>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 enum SelectionVisualRole {
@@ -111,7 +119,7 @@ impl From<NodeProps<Node>> for GraphNodeShape {
     }
 }
 
-impl DisplayNode<Node, EdgePayload, Directed, DefaultIx> for GraphNodeShape {
+impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeShape {
     fn is_inside(&self, pos: Pos2) -> bool {
         (pos - self.pos).length() <= self.radius
     }
@@ -834,6 +842,9 @@ fn center_x(width: f32, center_x: f32) -> f32 {
 pub struct EguiGraphState {
     /// The egui_graphs graph ready for rendering
     pub graph: EguiGraph,
+    /// True when this retained graph mirrors the full domain graph rather than
+    /// a filtered or culled projection.
+    pub represents_full_graph: bool,
 }
 
 impl EguiGraphState {
@@ -851,13 +862,29 @@ impl EguiGraphState {
         primary_selected: Option<NodeKey>,
         crashed_nodes: &HashSet<NodeKey>,
     ) -> Self {
+        Self::from_graph_with_visual_state_projection(
+            graph,
+            selected_nodes,
+            primary_selected,
+            crashed_nodes,
+            true,
+        )
+    }
+
+    pub fn from_graph_with_visual_state_projection(
+        graph: &Graph,
+        selected_nodes: &HashSet<NodeKey>,
+        primary_selected: Option<NodeKey>,
+        crashed_nodes: &HashSet<NodeKey>,
+        represents_full_graph: bool,
+    ) -> Self {
         let mut egui_graph: EguiGraph = to_graph_custom(
             &graph.inner,
             |node: &mut egui_graphs::Node<
                 Node,
                 EdgePayload,
-                Directed,
-                DefaultIx,
+                GraphDirection,
+                GraphIndex,
                 GraphNodeShape,
             >| {
                 // Extract all data from payload before any mutations
@@ -866,7 +893,7 @@ impl EguiGraphState {
                 let lifecycle = node.payload().lifecycle;
 
                 // Seed position from app graph state
-                node.set_location(Pos2::new(position.x, position.y));
+                node.set_location(position.to_pos2());
 
                 // Keep full label source; zoom tiers are handled in GraphNodeShape.
                 let label = if title.is_empty() {
@@ -924,59 +951,12 @@ impl EguiGraphState {
             }
         }
 
-        // Stage C: treat A<->B as one logical display edge. Keep a single canonical edge visible
-        // and project pair-level traversal aggregates onto it.
-        let edge_ids: Vec<EdgeIndex<DefaultIx>> = graph
-            .inner
-            .edge_references()
-            .map(|edge| edge.id())
-            .collect();
-        let mut processed_pairs = HashSet::new();
-        for edge_id in edge_ids {
-            let Some((from, to)) = graph.inner.edge_endpoints(edge_id) else {
-                continue;
-            };
-            if from == to {
-                // Self-loops remain as-is; no pair dedup.
-                continue;
-            }
-            let pair = logical_pair_key(from, to);
-            if !processed_pairs.insert(pair) {
-                if let Some(edge) = egui_graph.edge_mut(edge_id) {
-                    edge.display_mut().set_hidden(true);
-                }
-                continue;
-            }
+        refresh_logical_pair_edge_display(graph, &mut egui_graph);
 
-            let (a, b) = pair;
-            let (style, aggregate) = aggregate_logical_pair_traversals(graph, a, b);
-
-            if (from, to) != pair
-                && let Some(edge) = egui_graph.edge_mut(edge_id)
-            {
-                edge.display_mut().set_hidden(true);
-            }
-            let canonical_edge_id = if (from, to) == pair {
-                edge_id
-            } else if let Some(id) = graph.find_edge_key(a, b) {
-                id
-            } else {
-                edge_id
-            };
-            if let Some(edge) = egui_graph.edge_mut(canonical_edge_id) {
-                edge.display_mut().set_hidden(false);
-                edge.display_mut().configure_logical_pair(style, aggregate);
-            }
-
-            if let Some(reverse_edge_id) = graph.find_edge_key(b, a)
-                && reverse_edge_id != canonical_edge_id
-                && let Some(edge) = egui_graph.edge_mut(reverse_edge_id)
-            {
-                edge.display_mut().set_hidden(true);
-            }
+        Self {
+            graph: egui_graph,
+            represents_full_graph,
         }
-
-        Self { graph: egui_graph }
     }
 
     /// Build graph adapter state with optional workspace membership metadata.
@@ -987,11 +967,30 @@ impl EguiGraphState {
         crashed_nodes: &HashSet<NodeKey>,
         memberships_by_uuid: &HashMap<Uuid, Vec<String>>,
     ) -> Self {
-        let mut state = Self::from_graph_with_visual_state(
+        Self::from_graph_with_memberships_projection(
             graph,
             selected_nodes,
             primary_selected,
             crashed_nodes,
+            memberships_by_uuid,
+            true,
+        )
+    }
+
+    pub fn from_graph_with_memberships_projection(
+        graph: &Graph,
+        selected_nodes: &HashSet<NodeKey>,
+        primary_selected: Option<NodeKey>,
+        crashed_nodes: &HashSet<NodeKey>,
+        memberships_by_uuid: &HashMap<Uuid, Vec<String>>,
+        represents_full_graph: bool,
+    ) -> Self {
+        let mut state = Self::from_graph_with_visual_state_projection(
+            graph,
+            selected_nodes,
+            primary_selected,
+            crashed_nodes,
+            represents_full_graph,
         );
         for (key, node) in graph.nodes() {
             if let Some(egui_node) = state.graph.node_mut(key) {
@@ -1006,18 +1005,209 @@ impl EguiGraphState {
         state
     }
 
-    /// Get NodeKey from a petgraph NodeIndex.
-    /// Since our NodeKey IS NodeIndex, this just validates the index exists.
-    pub fn get_key(&self, idx: NodeIndex) -> Option<NodeKey> {
+    pub fn sync_from_delta(
+        &mut self,
+        graph: &Graph,
+        delta: &GraphDelta,
+        result: &GraphDeltaResult,
+    ) -> bool {
+        if !self.represents_full_graph {
+            return false;
+        }
+
+        match (delta, result) {
+            (GraphDelta::AddNode { .. }, GraphDeltaResult::NodeAdded(_))
+            | (
+                GraphDelta::ReplayAddNodeWithIdIfMissing { .. },
+                GraphDeltaResult::NodeMaybeAdded(_),
+            )
+            | (GraphDelta::SetNodeTitle { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
+            | (GraphDelta::SetNodeUrl { .. }, GraphDeltaResult::NodeUrlUpdated(_))
+            | (GraphDelta::SetNodeThumbnail { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
+            | (GraphDelta::SetNodeFavicon { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
+            | (GraphDelta::SetNodeMimeHint { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
+            | (GraphDelta::SetNodeAddressKind { .. }, GraphDeltaResult::NodeMetadataUpdated(_))
+            | (GraphDelta::SetNodePinned { .. }, GraphDeltaResult::NodeMetadataUpdated(_)) => {
+                self.sync_nodes_from_graph(graph);
+            }
+            (GraphDelta::RemoveNode { .. }, GraphDeltaResult::NodeRemoved(_))
+            | (GraphDelta::ReplayRemoveNodeById { .. }, GraphDeltaResult::NodeRemoved(_)) => {
+                self.sync_nodes_from_graph(graph);
+                self.sync_edges_from_graph(graph);
+            }
+            (GraphDelta::AddEdge { .. }, GraphDeltaResult::EdgeAdded(_))
+            | (GraphDelta::ReplayAddEdgeByIds { .. }, GraphDeltaResult::EdgeAdded(_))
+            | (GraphDelta::ReplayRemoveEdgesByIds { .. }, GraphDeltaResult::EdgesRemoved(_))
+            | (GraphDelta::RemoveEdges { .. }, GraphDeltaResult::EdgesRemoved(_))
+            | (GraphDelta::AppendTraversal { .. }, GraphDeltaResult::TraversalAppended(_)) => {
+                self.sync_edges_from_graph(graph);
+            }
+            _ => return false,
+        }
+
+        true
+    }
+
+    fn sync_nodes_from_graph(&mut self, graph: &Graph) {
+        let stale_keys: Vec<_> = self
+            .graph
+            .nodes_iter()
+            .map(|(key, _)| key)
+            .filter(|key| graph.get_node(*key).is_none())
+            .collect();
+        for key in stale_keys {
+            let _ = self.graph.remove_node(key);
+        }
+
+        for (key, node) in graph.nodes() {
+            sync_egui_node_from_domain(&mut self.graph, key, node);
+        }
+    }
+
+    fn sync_edges_from_graph(&mut self, graph: &Graph) {
+        let stale_keys: Vec<_> = self
+            .graph
+            .edges_iter()
+            .map(|(key, _)| key)
+            .filter(|key| graph.get_edge(*key).is_none())
+            .collect();
+        for key in stale_keys {
+            let _ = self.graph.remove_edge(key);
+        }
+
+        for edge in graph.inner.edge_references() {
+            sync_egui_edge_from_domain(
+                &mut self.graph,
+                edge.id(),
+                edge.source(),
+                edge.target(),
+                edge.weight(),
+            );
+        }
+
+        refresh_logical_pair_edge_display(graph, &mut self.graph);
+    }
+
+    /// Validate that a graph key exists in the retained egui graph.
+    pub fn get_key(&self, idx: NodeKey) -> Option<NodeKey> {
         self.graph.node(idx).map(|_| idx)
     }
 }
 
 #[cfg(test)]
 impl EguiGraphState {
-    /// Get NodeIndex from a NodeKey (test helper — identity since NodeKey = NodeIndex)
-    fn get_index(&self, key: NodeKey) -> Option<NodeIndex> {
+    /// Test helper: validate that a node key exists in the retained egui graph.
+    fn get_index(&self, key: NodeKey) -> Option<NodeKey> {
         self.graph.node(key).map(|_| key)
+    }
+}
+
+fn sync_egui_node_from_domain(egui_graph: &mut EguiGraph, key: NodeKey, node: &Node) {
+    let position = node.projected_position();
+    let label = if node.title.is_empty() {
+        node.url.clone()
+    } else {
+        node.title.clone()
+    };
+    let color = match node.lifecycle {
+        NodeLifecycle::Active => Color32::from_rgb(100, 200, 255),
+        NodeLifecycle::Warm => Color32::from_rgb(120, 170, 205),
+        NodeLifecycle::Cold => Color32::from_rgb(140, 140, 165),
+        NodeLifecycle::Tombstone => Color32::from_rgb(96, 96, 96),
+    };
+    let radius = match node.lifecycle {
+        NodeLifecycle::Active => 18.0,
+        NodeLifecycle::Warm => 16.5,
+        NodeLifecycle::Cold => 15.0,
+        NodeLifecycle::Tombstone => 14.0,
+    };
+
+    if let Some(egui_node) = egui_graph.node_mut(key) {
+        *egui_node.payload_mut() = node.clone();
+        egui_node.set_location(position.to_pos2());
+        egui_node.set_label(label);
+        egui_node.set_color(color);
+        egui_node.display_mut().radius = radius;
+        return;
+    }
+
+    let created = egui_graph.add_node_custom(node.clone(), |egui_node| {
+        egui_node.set_location(position.to_pos2());
+        egui_node.set_label(label);
+        egui_node.set_color(color);
+        egui_node.display_mut().radius = radius;
+        egui_node.set_selected(false);
+    });
+    debug_assert_eq!(created, key);
+}
+
+fn sync_egui_edge_from_domain(
+    egui_graph: &mut EguiGraph,
+    edge_key: EdgeKey,
+    from: NodeKey,
+    to: NodeKey,
+    payload: &EdgePayload,
+) {
+    if let Some(edge) = egui_graph.edge_mut(edge_key) {
+        *edge.payload_mut() = payload.clone();
+        edge.set_label(String::new());
+        return;
+    }
+
+    let created = egui_graph.add_edge_custom(from, to, payload.clone(), |edge| {
+        edge.set_label(String::new());
+    });
+    debug_assert_eq!(created, edge_key);
+}
+
+fn refresh_logical_pair_edge_display(graph: &Graph, egui_graph: &mut EguiGraph) {
+    let edge_ids: Vec<EdgeKey> = graph
+        .inner
+        .edge_references()
+        .map(|edge| edge.id())
+        .collect();
+    let mut processed_pairs = HashSet::new();
+    for edge_id in edge_ids {
+        let Some((from, to)) = graph.inner.edge_endpoints(edge_id) else {
+            continue;
+        };
+        if from == to {
+            continue;
+        }
+        let pair = logical_pair_key(from, to);
+        if !processed_pairs.insert(pair) {
+            if let Some(edge) = egui_graph.edge_mut(edge_id) {
+                edge.display_mut().set_hidden(true);
+            }
+            continue;
+        }
+
+        let (a, b) = pair;
+        let (style, aggregate) = aggregate_logical_pair_traversals(graph, a, b);
+
+        if (from, to) != pair
+            && let Some(edge) = egui_graph.edge_mut(edge_id)
+        {
+            edge.display_mut().set_hidden(true);
+        }
+        let canonical_edge_id = if (from, to) == pair {
+            edge_id
+        } else if let Some(id) = graph.find_edge_key(a, b) {
+            id
+        } else {
+            edge_id
+        };
+        if let Some(edge) = egui_graph.edge_mut(canonical_edge_id) {
+            edge.display_mut().set_hidden(false);
+            edge.display_mut().configure_logical_pair(style, aggregate);
+        }
+
+        if let Some(reverse_edge_id) = graph.find_edge_key(b, a)
+            && reverse_edge_id != canonical_edge_id
+            && let Some(edge) = egui_graph.edge_mut(reverse_edge_id)
+        {
+            edge.display_mut().set_hidden(true);
+        }
     }
 }
 

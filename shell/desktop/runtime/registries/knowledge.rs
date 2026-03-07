@@ -2,8 +2,8 @@ use crate::app::GraphBrowserApp;
 
 #[cfg(test)]
 use crate::registries::atomic::knowledge::CompactCode;
-use crate::registries::atomic::knowledge::SemanticClassVector;
 pub(crate) use crate::registries::atomic::knowledge::KnowledgeRegistry;
+use crate::registries::atomic::knowledge::SemanticClassVector;
 
 /// Reconciliation function: updates the app's semantic index based on node tags.
 /// This respects the "Data vs System" split: App owns Data, Registry owns Logic.
@@ -63,10 +63,7 @@ mod tests {
 
         assert!(!app.workspace.semantic_index_dirty);
         let index = app.workspace.semantic_index.get(&key).unwrap();
-        assert_eq!(
-            index.primary_code,
-            Some(CompactCode(vec![5, 1]))
-        );
+        assert_eq!(index.primary_code, Some(CompactCode(vec![5, 1])));
         assert_eq!(index.classes, vec![CompactCode(vec![5, 1])]);
 
         let stale = NodeKey::new(999_999);

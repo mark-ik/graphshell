@@ -11,7 +11,7 @@ use crate::app::{
     CommandPaletteShortcut, EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation,
     HelpPanelShortcut, RadialMenuShortcut, ViewAction, WorkbenchIntent,
 };
-use crate::util::{VersoAddress, GraphshellSettingsPath};
+use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::Key;
 
 /// Keyboard actions collected from egui input events.

@@ -33,7 +33,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UX_NAVIGATION_TRANSITION,
 };
-use crate::util::{VersoAddress, GraphshellSettingsPath};
+use crate::util::{CoordBridge, GraphshellSettingsPath, VersoAddress};
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
@@ -148,16 +148,18 @@ pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
     draw_graph_info(ui, app);
 }
 
-fn canvas_navigation_settings() -> SettingsNavigation {
+/// Navigation contract for graph rendering.
+///
+/// Graphshell owns graph camera/navigation as application state. We use
+/// `egui_graphs` for retained graph rendering and interaction hit-testing, but
+/// not for camera authority. Its built-in fit/pan/zoom paths stay disabled and
+/// Graphshell drives `MetadataFrame` directly through the custom camera
+/// pipeline.
+fn graphshell_owned_navigation_settings() -> SettingsNavigation {
     SettingsNavigation::new()
-        // Disable egui_graphs fit-to-screen: graphshell owns fit-to-screen via
-        // `apply_pending_camera_command`. Passing true here causes egui_graphs to
-        // call fit_to_screen() on its MetadataFrame every frame, overwriting any
-        // pan/zoom that graphshell writes — the root cause of the camera-pan bug.
+        // Graphshell, not egui_graphs, is the fit authority.
         .with_fit_to_screen_enabled(false)
-        // Keep egui_graphs navigation disabled so camera movement is owned by
-        // `handle_custom_navigation` only. This avoids duplicate pan/zoom paths
-        // fighting each other under active pointer drag.
+        // Graphshell, not egui_graphs, is the pan/zoom authority.
         .with_zoom_and_pan_enabled(false)
 }
 
@@ -293,12 +295,13 @@ pub fn render_graph_in_ui_collect_actions(
                 )
             })
             .collect();
-        app.workspace.egui_state = Some(EguiGraphState::from_graph_with_memberships(
+        app.workspace.egui_state = Some(EguiGraphState::from_graph_with_memberships_projection(
             graph_for_render,
             &view_selection,
             view_selection.primary(),
             &crashed_nodes,
             &memberships_by_uuid,
+            filtered_graph.is_none() && culled_graph.is_none(),
         ));
         app.workspace.egui_state_dirty = false;
         app.workspace.last_culled_node_keys = culled_node_keys;
@@ -316,19 +319,17 @@ pub fn render_graph_in_ui_collect_actions(
     let events: Rc<RefCell<Vec<Event>>> = Rc::new(RefCell::new(Vec::new()));
 
     // Graph settings resolved from layout domain canvas surface profile.
-    let nav = canvas_navigation_settings();
+    let nav = graphshell_owned_navigation_settings();
     let interaction =
         canvas_interaction_settings(canvas_profile, radial_open, right_button_down, ctrl_pressed);
     let style = canvas_style_settings(canvas_profile);
 
-    // Resolve physics state and lens from the view (or default to global).
+    // `workspace.physics` is the canonical FR runtime state. egui_graphs gets a
+    // transient copy each frame via `set_layout_state`, then we write back the
+    // updated state after render. Per-view local simulation stores positions
+    // only; it does not own a second physics state.
     let (mut physics_state, lens_config) = if let Some(view) = app.workspace.views.get(&view_id) {
-        let state = if let Some(local) = &view.local_simulation {
-            local.physics.clone()
-        } else {
-            app.workspace.physics.clone()
-        };
-        (state, Some(&view.lens))
+        (app.workspace.physics.clone(), Some(&view.lens))
     } else {
         (app.workspace.physics.clone(), None)
     };
@@ -414,13 +415,7 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Pull latest FR state from egui_graphs after this frame's layout step.
     let new_physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
-    if let Some(view) = app.workspace.views.get_mut(&view_id)
-        && let Some(local) = &mut view.local_simulation
-    {
-        local.physics = new_physics;
-    } else {
-        app.workspace.physics = new_physics;
-    }
+    app.workspace.physics = new_physics;
 
     // Apply semantic clustering forces if enabled (UDC Phase 2)
     let semantic_config = app.workspace.views.get(&view_id).map(|v| {
@@ -868,7 +863,7 @@ fn viewport_culling_selection_for_canvas_rect(
     const DEFAULT_NODE_RADIUS: f32 = 5.0;
     let index = NodeSpatialIndex::build(graph.nodes().filter_map(|(key, _)| {
         graph.node_projected_position(key).map(|position| {
-            let pos = egui::Pos2::new(position.x, position.y);
+            let pos = position.to_pos2();
             (key, pos, DEFAULT_NODE_RADIUS)
         })
     }));
@@ -1088,8 +1083,12 @@ fn hovered_adjacency_set(app: &GraphBrowserApp, hovered: Option<NodeKey>) -> Has
         .unwrap_or_default()
 }
 
-/// Handle custom navigation (Zoom/Pan/Fit) by manipulating MetadataFrame directly.
-/// This bypasses egui_graphs built-in navigation to support custom bindings.
+/// Apply Graphshell-owned camera/navigation to the egui_graphs metadata frame.
+///
+/// This is the canonical camera path for graph panes. It is not a fallback for
+/// egui_graphs navigation; egui_graphs navigation is intentionally disabled so
+/// Graphshell can own fit-to-screen, focus-on-selection, keyboard pan/zoom,
+/// and policy-driven camera behavior without a competing camera authority.
 fn handle_custom_navigation(
     ui: &Ui,
     response: &egui::Response,
@@ -2266,11 +2265,13 @@ pub fn intents_from_graph_actions(actions: Vec<GraphAction>) -> Vec<GraphIntent>
                 intents.push(ViewAction::ClearHighlightedEdge.into());
             }
             GraphAction::ClearSelection => {
-                intents.push(ViewAction::UpdateSelection {
-                    keys: Vec::new(),
-                    mode: SelectionUpdateMode::Replace,
-                }
-                .into());
+                intents.push(
+                    ViewAction::UpdateSelection {
+                        keys: Vec::new(),
+                        mode: SelectionUpdateMode::Replace,
+                    }
+                    .into(),
+                );
             }
             GraphAction::Zoom(new_zoom) => {
                 intents.push(ViewAction::SetZoom { zoom: new_zoom }.into());
@@ -2365,12 +2366,12 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
                 && !node.is_pinned
                 && let Some(position) = app.domain_graph().node_projected_position(other_key)
             {
-                let next_pos = euclid::default::Point2D::new(
-                    position.x + delta.x,
-                    position.y + delta.y,
-                );
-                let _ = app.domain_graph_mut().set_node_projected_position(other_key, next_pos);
-                secondary_updates.push((other_key, egui::Pos2::new(next_pos.x, next_pos.y)));
+                let next_pos =
+                    euclid::default::Point2D::new(position.x + delta.x, position.y + delta.y);
+                let _ = app
+                    .domain_graph_mut()
+                    .set_node_projected_position(other_key, next_pos);
+                secondary_updates.push((other_key, next_pos.to_pos2()));
             }
         }
         if let Some(state_mut) = app.workspace.egui_state.as_mut() {
@@ -2385,7 +2386,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     if let Some(state_mut) = app.workspace.egui_state.as_mut() {
         for (key, pos) in pinned_positions {
             if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                egui_node.set_location(egui::Pos2::new(pos.x, pos.y));
+                egui_node.set_location(pos.to_pos2());
             }
         }
     }
@@ -2476,11 +2477,11 @@ fn apply_semantic_clustering_forces(
             && !node.is_pinned
             && let Some(position) = app.domain_graph().node_projected_position(*key)
         {
-            let next_pos = euclid::default::Point2D::new(
-                position.x + delta.x,
-                position.y + delta.y,
-            );
-            let _ = app.domain_graph_mut().set_node_projected_position(*key, next_pos);
+            let next_pos =
+                euclid::default::Point2D::new(position.x + delta.x, position.y + delta.y);
+            let _ = app
+                .domain_graph_mut()
+                .set_node_projected_position(*key, next_pos);
         }
     }
 
@@ -2499,7 +2500,7 @@ fn apply_semantic_clustering_forces(
     if let Some(state_mut) = app.workspace.egui_state.as_mut() {
         for (key, position) in projected_positions {
             if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                egui_node.set_location(egui::Pos2::new(position.x, position.y));
+                egui_node.set_location(position.to_pos2());
             }
         }
     }
@@ -2586,46 +2587,37 @@ fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::G
 fn selected_node_dynamics_profile_id(app: &GraphBrowserApp) -> String {
     if let Some(view_id) = camera_settings_target_view_id(app)
         && let Some(view) = app.workspace.views.get(&view_id)
-        && let Some(physics_id) = view.lens.physics_id.as_deref()
     {
-        return physics_id.to_string();
+        return crate::registries::atomic::lens::physics_profile_id(&view.lens.physics).to_string();
     }
 
     app.default_registry_physics_id()
-        .unwrap_or(crate::registries::atomic::physics_profile::PHYSICS_ID_DEFAULT)
+        .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT)
         .to_string()
 }
 
 fn apply_node_dynamics_profile_selection(app: &mut GraphBrowserApp, physics_id: &str) {
     app.set_default_registry_physics_id(Some(physics_id));
 
+    let profile = crate::registries::atomic::lens::resolve_physics_profile(physics_id).profile;
     let mut resolved_profile = None;
     if let Some(view_id) = camera_settings_target_view_id(app) {
         let updated_lens = app.workspace.views.get(&view_id).map(|view| {
             let mut lens = view.lens.clone();
-            lens.physics_id = Some(physics_id.to_string());
-            crate::shell::desktop::runtime::registries::phase2_resolve_lens_components(&lens)
+            lens.physics = profile.clone();
+            lens
         });
 
         if let Some(updated_lens) = updated_lens {
             let profile = updated_lens.physics.clone();
             if let Some(view) = app.workspace.views.get_mut(&view_id) {
                 view.lens = updated_lens;
-                if let Some(local) = &mut view.local_simulation {
-                    profile.apply_to_state(&mut local.physics);
-                }
             }
             resolved_profile = Some(profile);
         }
     }
 
-    let profile = resolved_profile.unwrap_or_else(|| {
-        let seed = crate::app::LensConfig {
-            physics_id: Some(physics_id.to_string()),
-            ..crate::app::LensConfig::default()
-        };
-        crate::shell::desktop::runtime::registries::phase2_resolve_lens_components(&seed).physics
-    });
+    let profile = resolved_profile.unwrap_or(profile);
 
     let mut config = app.workspace.physics.clone();
     profile.apply_to_state(&mut config);
@@ -2641,17 +2633,17 @@ fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     ui.horizontal_wrapped(|ui| {
         ui.radio_value(
             &mut dynamics_id,
-            crate::registries::atomic::physics_profile::PHYSICS_ID_DEFAULT.to_string(),
+            crate::registries::atomic::lens::PHYSICS_ID_DEFAULT.to_string(),
             "Liquid",
         );
         ui.radio_value(
             &mut dynamics_id,
-            crate::registries::atomic::physics_profile::PHYSICS_ID_GAS.to_string(),
+            crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
             "Gas",
         );
         ui.radio_value(
             &mut dynamics_id,
-            crate::registries::atomic::physics_profile::PHYSICS_ID_SOLID.to_string(),
+            crate::registries::atomic::lens::PHYSICS_ID_SOLID.to_string(),
             "Solid",
         );
     });
@@ -2659,13 +2651,13 @@ fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
         apply_node_dynamics_profile_selection(app, &dynamics_id);
     }
     let dynamics_summary = match dynamics_id.as_str() {
-        crate::registries::atomic::physics_profile::PHYSICS_ID_DEFAULT => {
+        crate::registries::atomic::lens::PHYSICS_ID_DEFAULT => {
             "Liquid: motile clustering with bounded drift."
         }
-        crate::registries::atomic::physics_profile::PHYSICS_ID_GAS => {
+        crate::registries::atomic::lens::PHYSICS_ID_GAS => {
             "Gas: stronger mutual repulsion and broader spread."
         }
-        crate::registries::atomic::physics_profile::PHYSICS_ID_SOLID => {
+        crate::registries::atomic::lens::PHYSICS_ID_SOLID => {
             "Solid: heavily damped movement that settles quickly."
         }
         _ => "Custom profile ID: fallback resolves through registry defaults.",
@@ -3217,10 +3209,12 @@ pub fn render_file_tree_tool_pane_in_ui(
         );
     });
     if relation_source != app.file_tree_projection_state().containment_relation_source {
-        intents.push(ViewAction::SetFileTreeContainmentRelationSource {
-            source: relation_source,
-        }
-        .into());
+        intents.push(
+            ViewAction::SetFileTreeContainmentRelationSource {
+                source: relation_source,
+            }
+            .into(),
+        );
         intents.push(ViewAction::RebuildFileTreeProjection.into());
     }
 
@@ -3266,10 +3260,12 @@ pub fn render_file_tree_tool_pane_in_ui(
             if trimmed.is_empty() {
                 intents.push(ViewAction::SetFileTreeRootFilter { root_filter: None }.into());
             } else {
-                intents.push(ViewAction::SetFileTreeRootFilter {
-                    root_filter: Some(trimmed),
-                }
-                .into());
+                intents.push(
+                    ViewAction::SetFileTreeRootFilter {
+                        root_filter: Some(trimmed),
+                    }
+                    .into(),
+                );
             }
         }
     });
@@ -3318,10 +3314,12 @@ pub fn render_file_tree_tool_pane_in_ui(
                         let response =
                             ui.selectable_label(is_selected, file_tree_row_label(row_key));
                         if response.clicked() {
-                            intents.push(ViewAction::SetFileTreeSelectedRows {
-                                rows: vec![row_key.clone()],
-                            }
-                            .into());
+                            intents.push(
+                                ViewAction::SetFileTreeSelectedRows {
+                                    rows: vec![row_key.clone()],
+                                }
+                                .into(),
+                            );
                         }
                         response.on_hover_text(row_key);
                     });
@@ -3331,10 +3329,12 @@ pub fn render_file_tree_tool_pane_in_ui(
         if expanded_rows_next != app.file_tree_projection_state().expanded_rows {
             let mut expanded_rows: Vec<String> = expanded_rows_next.into_iter().collect();
             expanded_rows.sort();
-            intents.push(ViewAction::SetFileTreeExpandedRows {
-                rows: expanded_rows,
-            }
-            .into());
+            intents.push(
+                ViewAction::SetFileTreeExpandedRows {
+                    rows: expanded_rows,
+                }
+                .into(),
+            );
         }
 
         let selected_row = app
@@ -3364,8 +3364,7 @@ pub fn render_file_tree_tool_pane_in_ui(
                         }
                         crate::app::FileTreeProjectionTarget::SavedView(view_id) => {
                             app.enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl {
-                                url: VersoAddress::view(view_id.as_uuid().to_string())
-                                    .to_string(),
+                                url: VersoAddress::view(view_id.as_uuid().to_string()).to_string(),
                             });
                         }
                     }
@@ -3392,8 +3391,7 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
             ui.horizontal(|ui| {
                 if ui.button("History").clicked() {
                     app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
-                        url: VersoAddress::settings(GraphshellSettingsPath::History)
-                            .to_string(),
+                        url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
                     });
                 }
                 if ui.button("Done").clicked() {
@@ -3550,7 +3548,7 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     ui.label("Theme Mode");
                     let current_dark = matches!(
                         app.default_registry_theme_id(),
-                        Some(crate::registries::atomic::theme::THEME_ID_DARK)
+                        Some(crate::registries::atomic::lens::THEME_ID_DARK)
                     );
                     let mut dark_mode = current_dark;
                     ui.horizontal(|ui| {
@@ -3560,11 +3558,11 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     if dark_mode != current_dark {
                         if dark_mode {
                             app.set_default_registry_theme_id(Some(
-                                crate::registries::atomic::theme::THEME_ID_DARK,
+                                crate::registries::atomic::lens::THEME_ID_DARK,
                             ));
                         } else {
                             app.set_default_registry_theme_id(Some(
-                                crate::registries::atomic::theme::THEME_ID_DEFAULT,
+                                crate::registries::atomic::lens::THEME_ID_DEFAULT,
                             ));
                         }
                     }
@@ -4333,9 +4331,10 @@ mod tests {
     fn locked_camera_autofit_requires_physics_running_and_not_dragging() {
         let mut app = test_app();
         let view_id = crate::app::GraphViewId::new();
-        app.workspace
-            .views
-            .insert(view_id, crate::app::GraphViewState::new("AutoFit Lock Test"));
+        app.workspace.views.insert(
+            view_id,
+            crate::app::GraphViewState::new("AutoFit Lock Test"),
+        );
         app.workspace.focused_view = Some(view_id);
         app.set_camera_fit_locked(true);
 
@@ -4998,7 +4997,12 @@ mod tests {
 
         assert!(app.workspace.selected_nodes.contains(&k1));
         assert_eq!(
-            app.workspace.domain.graph.get_node(k2).unwrap().projected_position(),
+            app.workspace
+                .domain
+                .graph
+                .get_node(k2)
+                .unwrap()
+                .projected_position(),
             Point2D::new(200.0, 300.0)
         );
         assert!((app.workspace.views[&view_id].camera.current_zoom - 1.5).abs() < 0.01);
@@ -5008,13 +5012,24 @@ mod tests {
     fn test_empty_actions_is_noop() {
         let mut app = test_app();
         let key = app.add_node_and_sync("a".into(), Point2D::new(50.0, 60.0));
-        let pos_before = app.workspace.domain.graph.get_node(key).unwrap().projected_position();
+        let pos_before = app
+            .workspace
+            .domain
+            .graph
+            .get_node(key)
+            .unwrap()
+            .projected_position();
 
         let intents = intents_from_graph_actions(vec![]);
         app.apply_reducer_intents(intents);
 
         assert_eq!(
-            app.workspace.domain.graph.get_node(key).unwrap().projected_position(),
+            app.workspace
+                .domain
+                .graph
+                .get_node(key)
+                .unwrap()
+                .projected_position(),
             pos_before
         );
     }
@@ -5184,7 +5199,9 @@ mod tests {
         if let Some(state_mut) = app.workspace.egui_state.as_mut() {
             if let Some(node) = state_mut.graph.node_mut(dragged_key) {
                 let old = node.location();
-                node.set_location(egui::Pos2::new(old.x + delta.x, old.y + delta.y));
+                node.set_location(
+                    euclid::default::Point2D::new(old.x + delta.x, old.y + delta.y).to_pos2(),
+                );
             }
         }
         app.workspace.is_interacting = true;
@@ -5206,17 +5223,35 @@ mod tests {
         sync_graph_positions_from_layout(&mut app);
 
         // A moved to its dragged position.
-        let a_pos = app.workspace.domain.graph.get_node(a).unwrap().projected_position();
+        let a_pos = app
+            .workspace
+            .domain
+            .graph
+            .get_node(a)
+            .unwrap()
+            .projected_position();
         assert!((a_pos.x - 10.0).abs() < 0.1, "a.x={}", a_pos.x);
         assert!((a_pos.y - 20.0).abs() < 0.1, "a.y={}", a_pos.y);
 
         // B followed by the same delta.
-        let b_pos = app.workspace.domain.graph.get_node(b).unwrap().projected_position();
+        let b_pos = app
+            .workspace
+            .domain
+            .graph
+            .get_node(b)
+            .unwrap()
+            .projected_position();
         assert!((b_pos.x - 110.0).abs() < 0.1, "b.x={}", b_pos.x);
         assert!((b_pos.y - 20.0).abs() < 0.1, "b.y={}", b_pos.y);
 
         // C was not selected — stays put.
-        let c_pos = app.workspace.domain.graph.get_node(c).unwrap().projected_position();
+        let c_pos = app
+            .workspace
+            .domain
+            .graph
+            .get_node(c)
+            .unwrap()
+            .projected_position();
         assert!((c_pos.x - 200.0).abs() < 0.1, "c.x={}", c_pos.x);
         assert!((c_pos.y - 0.0).abs() < 0.1, "c.y={}", c_pos.y);
     }
@@ -5235,7 +5270,13 @@ mod tests {
         sync_graph_positions_from_layout(&mut app);
 
         // B must not move (single selection — no group drag).
-        let b_pos = app.workspace.domain.graph.get_node(b).unwrap().projected_position();
+        let b_pos = app
+            .workspace
+            .domain
+            .graph
+            .get_node(b)
+            .unwrap()
+            .projected_position();
         assert!((b_pos.x - 100.0).abs() < 0.1, "b.x={}", b_pos.x);
         assert!((b_pos.y - 0.0).abs() < 0.1, "b.y={}", b_pos.y);
     }
@@ -5259,8 +5300,9 @@ mod tests {
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(300.0, 300.0));
-        let metrics = viewport_culling_metrics_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
-            .expect("culling metrics should be available for dense graph viewport");
+        let metrics =
+            viewport_culling_metrics_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
+                .expect("culling metrics should be available for dense graph viewport");
 
         assert!(metrics.visible_nodes < metrics.total_nodes);
         assert!(metrics.submitted_nodes < metrics.total_nodes);
@@ -5287,8 +5329,9 @@ mod tests {
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(260.0, 260.0));
-        let culled_graph = viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
-            .expect("expected culled graph for benchmark viewport");
+        let culled_graph =
+            viewport_culled_graph_for_canvas_rect(&app.workspace.domain.graph, canvas_rect)
+                .expect("expected culled graph for benchmark viewport");
 
         let full_start = Instant::now();
         for _ in 0..12 {
@@ -5519,10 +5562,12 @@ mod tests {
 
         let rect_a = canvas_rect_from_view_frame(screen, near_origin).unwrap();
         let rect_b = canvas_rect_from_view_frame(screen, shifted).unwrap();
-        let selection_a = viewport_culling_selection_for_canvas_rect(&app.workspace.domain.graph, rect_a)
-            .expect("expected culling selection for first view frame");
-        let selection_b = viewport_culling_selection_for_canvas_rect(&app.workspace.domain.graph, rect_b)
-            .expect("expected culling selection for second view frame");
+        let selection_a =
+            viewport_culling_selection_for_canvas_rect(&app.workspace.domain.graph, rect_a)
+                .expect("expected culling selection for first view frame");
+        let selection_b =
+            viewport_culling_selection_for_canvas_rect(&app.workspace.domain.graph, rect_b)
+                .expect("expected culling selection for second view frame");
 
         assert!(
             selection_a.visible.contains(&keys[0]),

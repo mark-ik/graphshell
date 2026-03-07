@@ -15,3 +15,4 @@ pub(crate) mod persistence_ops;
 pub(crate) mod thumbnail_pipeline;
 pub(crate) mod toolbar;
 pub(crate) mod toolbar_routing;
+pub(crate) mod undo_boundary;

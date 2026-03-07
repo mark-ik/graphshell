@@ -104,8 +104,24 @@ fn test_perform_undo_reverts_to_previous_graph() {
 
     // Graph should have 2 nodes
     assert_eq!(harness.app.workspace.domain.graph.node_count(), 2);
-    assert!(harness.app.workspace.domain.graph.get_node(node_a).is_some());
-    assert!(harness.app.workspace.domain.graph.get_node(node_b).is_some());
+    assert!(
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_a)
+            .is_some()
+    );
+    assert!(
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_b)
+            .is_some()
+    );
 
     // Undo to previous state
     harness.app.apply_reducer_intents([GraphIntent::Undo]);
@@ -116,8 +132,24 @@ fn test_perform_undo_reverts_to_previous_graph() {
         1,
         "after undo, should have 1 node"
     );
-    assert!(harness.app.workspace.domain.graph.get_node(node_a).is_some());
-    assert!(harness.app.workspace.domain.graph.get_node(node_b).is_none());
+    assert!(
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_a)
+            .is_some()
+    );
+    assert!(
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_b)
+            .is_none()
+    );
 }
 
 #[test]
@@ -145,8 +177,24 @@ fn test_perform_redo_reapplies_after_undo() {
         2,
         "after redo, should have 2 nodes"
     );
-    assert!(harness.app.workspace.domain.graph.get_node(node_a).is_some());
-    assert!(harness.app.workspace.domain.graph.get_node(node_b).is_some());
+    assert!(
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_a)
+            .is_some()
+    );
+    assert!(
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .get_node(node_b)
+            .is_some()
+    );
 }
 
 #[test]
@@ -158,7 +206,10 @@ fn test_undo_returns_false_when_stack_empty() {
     let before_undo = harness.app.undo_stack_len();
     let before_redo = harness.app.redo_stack_len();
     harness.app.apply_reducer_intents([GraphIntent::Undo]);
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), before_nodes);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        before_nodes
+    );
     assert_eq!(harness.app.undo_stack_len(), before_undo);
     assert_eq!(harness.app.redo_stack_len(), before_redo);
 
@@ -174,7 +225,10 @@ fn test_undo_returns_false_when_stack_empty() {
     let before_undo = harness.app.undo_stack_len();
     let before_redo = harness.app.redo_stack_len();
     harness.app.apply_reducer_intents([GraphIntent::Undo]);
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), before_nodes);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        before_nodes
+    );
     assert_eq!(harness.app.undo_stack_len(), before_undo);
     assert_eq!(harness.app.redo_stack_len(), before_redo);
 }

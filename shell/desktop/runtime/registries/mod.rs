@@ -4,7 +4,6 @@ pub(crate) mod input;
 pub(crate) mod knowledge;
 pub(crate) mod lens;
 pub(crate) mod nostr_core;
-pub(crate) mod physics;
 pub(crate) mod protocol;
 pub(crate) mod signal_routing;
 
@@ -14,16 +13,14 @@ use crate::app::{GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLeve
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::atomic::diagnostics;
-use crate::registries::atomic::layout::LayoutRegistry;
+use crate::registries::atomic::lens::LensRegistry;
 use crate::registries::atomic::protocol::ProtocolContractRegistry;
-use crate::registries::atomic::theme::ThemeRegistry;
 use crate::registries::atomic::viewer::{ViewerRegistry, ViewerSelection};
 use crate::registries::domain::layout::ConformanceLevel;
 use crate::registries::domain::layout::LayoutDomainRegistry;
 use crate::registries::domain::layout::viewer_surface::{
     VIEWER_SURFACE_DEFAULT, ViewerSurfaceResolution,
 };
-use crate::registries::domain::presentation::PresentationDomainRegistry;
 use crate::registries::infrastructure::ModRegistry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use action::{
@@ -35,12 +32,10 @@ use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
 use input::{INPUT_BINDING_TOOLBAR_SUBMIT, InputRegistry};
 use knowledge::KnowledgeRegistry;
-use lens::LensRegistry;
 use nostr_core::{
     NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
     NostrSubscriptionHandle, NostrUnsignedEvent,
 };
-use physics::PhysicsRegistry;
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
 };
@@ -75,15 +70,6 @@ pub(crate) const CHANNEL_INPUT_BINDING_CONFLICT: &str = "registry.input.binding_
 pub(crate) const CHANNEL_LENS_RESOLVE_SUCCEEDED: &str = "registry.lens.resolve_succeeded";
 pub(crate) const CHANNEL_LENS_RESOLVE_FAILED: &str = "registry.lens.resolve_failed";
 pub(crate) const CHANNEL_LENS_FALLBACK_USED: &str = "registry.lens.fallback_used";
-pub(crate) const CHANNEL_LAYOUT_LOOKUP_SUCCEEDED: &str = "registry.layout.lookup_succeeded";
-pub(crate) const CHANNEL_LAYOUT_LOOKUP_FAILED: &str = "registry.layout.lookup_failed";
-pub(crate) const CHANNEL_LAYOUT_FALLBACK_USED: &str = "registry.layout.fallback_used";
-pub(crate) const CHANNEL_THEME_LOOKUP_SUCCEEDED: &str = "registry.theme.lookup_succeeded";
-pub(crate) const CHANNEL_THEME_LOOKUP_FAILED: &str = "registry.theme.lookup_failed";
-pub(crate) const CHANNEL_THEME_FALLBACK_USED: &str = "registry.theme.fallback_used";
-pub(crate) const CHANNEL_PHYSICS_LOOKUP_SUCCEEDED: &str = "registry.physics.lookup_succeeded";
-pub(crate) const CHANNEL_PHYSICS_LOOKUP_FAILED: &str = "registry.physics.lookup_failed";
-pub(crate) const CHANNEL_PHYSICS_FALLBACK_USED: &str = "registry.physics.fallback_used";
 pub(crate) const CHANNEL_IDENTITY_SIGN_STARTED: &str = "registry.identity.sign_started";
 pub(crate) const CHANNEL_IDENTITY_SIGN_SUCCEEDED: &str = "registry.identity.sign_succeeded";
 pub(crate) const CHANNEL_IDENTITY_SIGN_FAILED: &str = "registry.identity.sign_failed";
@@ -300,15 +286,10 @@ pub(crate) struct RegistryRuntime {
     #[allow(dead_code)]
     identity: IdentityRegistry,
     input: InputRegistry,
-    layout: LayoutRegistry,
     lens: LensRegistry,
-    #[allow(dead_code)]
-    physics: PhysicsRegistry,
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
     protocol: ProtocolRegistry,
-    #[allow(dead_code)]
-    theme: ThemeRegistry,
     viewer: ViewerRegistry,
     pub(crate) knowledge: KnowledgeRegistry,
 }
@@ -449,12 +430,9 @@ impl RegistryRuntime {
             signal_routing: SignalRoutingLayer::default(),
             identity: IdentityRegistry::default(),
             input: InputRegistry::default(),
-            layout: LayoutRegistry::default(),
             lens: LensRegistry::default(),
-            physics: PhysicsRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
-            theme: ThemeRegistry::default(),
             viewer: viewer_registry,
             knowledge: KnowledgeRegistry::default(),
         }
@@ -505,12 +483,9 @@ impl RegistryRuntime {
             signal_routing: SignalRoutingLayer::default(),
             identity: IdentityRegistry::default(),
             input: InputRegistry::default(),
-            layout: LayoutRegistry::default(),
             lens: LensRegistry::default(),
-            physics: PhysicsRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
-            theme: ThemeRegistry::default(),
             viewer: viewer_registry,
             knowledge: KnowledgeRegistry::default(),
         }
@@ -778,156 +753,13 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         });
     }
 
-    let presentation_domain = PresentationDomainRegistry::default();
-    let presentation_resolution = presentation_domain.resolve_profile(
-        &resolution.definition.physics_id,
-        resolution
-            .definition
-            .theme_id
-            .as_deref()
-            .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
-    );
-    let physics_resolution = presentation_resolution.physics;
-    emit_lookup_diagnostics(
-        physics_resolution.matched,
-        physics_resolution.fallback_used,
-        CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
-        CHANNEL_PHYSICS_LOOKUP_FAILED,
-        CHANNEL_PHYSICS_FALLBACK_USED,
-        &physics_resolution.resolved_id,
-    );
-
-    let layout_resolution = runtime.layout.resolve(&resolution.definition.layout_id);
-    emit_lookup_diagnostics(
-        layout_resolution.matched,
-        layout_resolution.fallback_used,
-        CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
-        CHANNEL_LAYOUT_LOOKUP_FAILED,
-        CHANNEL_LAYOUT_FALLBACK_USED,
-        &layout_resolution.resolved_id,
-    );
-
-    let theme_resolution = Some(presentation_resolution.theme);
-    if let Some(theme_resolution) = &theme_resolution {
-        emit_lookup_diagnostics(
-            theme_resolution.matched,
-            theme_resolution.fallback_used,
-            CHANNEL_THEME_LOOKUP_SUCCEEDED,
-            CHANNEL_THEME_LOOKUP_FAILED,
-            CHANNEL_THEME_FALLBACK_USED,
-            &theme_resolution.resolved_id,
-        );
-    }
-
     crate::app::LensConfig {
         name: resolution.definition.display_name,
         lens_id: Some(resolution.resolved_id),
-        physics_id: Some(physics_resolution.resolved_id),
-        layout_id: Some(layout_resolution.resolved_id),
-        theme_id: theme_resolution
-            .as_ref()
-            .map(|resolved| resolved.resolved_id.clone()),
-        physics: physics_resolution.profile,
-        layout: layout_resolution.layout,
-        theme: theme_resolution.map(|resolved| resolved.theme_id),
+        physics: resolution.definition.physics,
+        layout: resolution.definition.layout,
+        theme: resolution.definition.theme,
         filters: resolution.definition.filters,
-    }
-}
-
-pub(crate) fn phase2_resolve_lens_components(
-    lens: &crate::app::LensConfig,
-) -> crate::app::LensConfig {
-    let has_component_ids =
-        lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
-    if !has_component_ids {
-        return lens.clone();
-    }
-
-    let runtime = runtime();
-    let presentation_domain = PresentationDomainRegistry::default();
-    let mut normalized = lens.clone();
-
-    if let Some(physics_id) = lens.physics_id.as_deref() {
-        let physics_resolution = presentation_domain
-            .resolve_profile(
-                physics_id,
-                lens.theme_id
-                    .as_deref()
-                    .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
-            )
-            .physics;
-        emit_lookup_diagnostics(
-            physics_resolution.matched,
-            physics_resolution.fallback_used,
-            CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
-            CHANNEL_PHYSICS_LOOKUP_FAILED,
-            CHANNEL_PHYSICS_FALLBACK_USED,
-            &physics_resolution.resolved_id,
-        );
-        normalized.physics = physics_resolution.profile;
-        normalized.physics_id = Some(physics_resolution.resolved_id);
-    }
-
-    if let Some(layout_id) = lens.layout_id.as_deref() {
-        let layout_resolution = runtime.layout.resolve(layout_id);
-        emit_lookup_diagnostics(
-            layout_resolution.matched,
-            layout_resolution.fallback_used,
-            CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
-            CHANNEL_LAYOUT_LOOKUP_FAILED,
-            CHANNEL_LAYOUT_FALLBACK_USED,
-            &layout_resolution.resolved_id,
-        );
-        normalized.layout = layout_resolution.layout;
-        normalized.layout_id = Some(layout_resolution.resolved_id);
-    }
-
-    if let Some(theme_id) = lens.theme_id.as_deref() {
-        let theme_resolution = presentation_domain
-            .resolve_profile(
-                lens.physics_id.as_deref().unwrap_or(
-                    crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT,
-                ),
-                theme_id,
-            )
-            .theme;
-        emit_lookup_diagnostics(
-            theme_resolution.matched,
-            theme_resolution.fallback_used,
-            CHANNEL_THEME_LOOKUP_SUCCEEDED,
-            CHANNEL_THEME_LOOKUP_FAILED,
-            CHANNEL_THEME_FALLBACK_USED,
-            &theme_resolution.resolved_id,
-        );
-        normalized.theme = Some(theme_resolution.theme_id.clone());
-        normalized.theme_id = Some(theme_resolution.resolved_id);
-    }
-
-    normalized
-}
-
-fn emit_lookup_diagnostics(
-    matched: bool,
-    fallback_used: bool,
-    success_channel: &'static str,
-    failed_channel: &'static str,
-    fallback_channel: &'static str,
-    resolved_id: &str,
-) {
-    emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: if matched {
-            success_channel
-        } else {
-            failed_channel
-        },
-        latency_us: 1,
-    });
-
-    if fallback_used {
-        emit_event(DiagnosticEvent::MessageSent {
-            channel_id: fallback_channel,
-            byte_len: resolved_id.len(),
-        });
     }
 }
 
@@ -1284,163 +1116,13 @@ pub(crate) fn phase2_resolve_lens_for_tests(
             .emit_message_sent_for_tests(CHANNEL_LENS_FALLBACK_USED, resolution.resolved_id.len());
     }
 
-    let presentation_domain = PresentationDomainRegistry::default();
-    let presentation_resolution = presentation_domain.resolve_profile(
-        &resolution.definition.physics_id,
-        resolution
-            .definition
-            .theme_id
-            .as_deref()
-            .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
-    );
-    let physics_resolution = presentation_resolution.physics;
-    emit_lookup_diagnostics_for_tests(
-        diagnostics_state,
-        physics_resolution.matched,
-        physics_resolution.fallback_used,
-        CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
-        CHANNEL_PHYSICS_LOOKUP_FAILED,
-        CHANNEL_PHYSICS_FALLBACK_USED,
-        &physics_resolution.resolved_id,
-    );
-
-    let layout_resolution = runtime.layout.resolve(&resolution.definition.layout_id);
-    emit_lookup_diagnostics_for_tests(
-        diagnostics_state,
-        layout_resolution.matched,
-        layout_resolution.fallback_used,
-        CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
-        CHANNEL_LAYOUT_LOOKUP_FAILED,
-        CHANNEL_LAYOUT_FALLBACK_USED,
-        &layout_resolution.resolved_id,
-    );
-
-    let theme_resolution = Some(presentation_resolution.theme);
-    if let Some(theme_resolution) = &theme_resolution {
-        emit_lookup_diagnostics_for_tests(
-            diagnostics_state,
-            theme_resolution.matched,
-            theme_resolution.fallback_used,
-            CHANNEL_THEME_LOOKUP_SUCCEEDED,
-            CHANNEL_THEME_LOOKUP_FAILED,
-            CHANNEL_THEME_FALLBACK_USED,
-            &theme_resolution.resolved_id,
-        );
-    }
-
     crate::app::LensConfig {
         name: resolution.definition.display_name,
         lens_id: Some(resolution.resolved_id),
-        physics_id: Some(physics_resolution.resolved_id),
-        layout_id: Some(layout_resolution.resolved_id),
-        theme_id: theme_resolution
-            .as_ref()
-            .map(|resolved| resolved.resolved_id.clone()),
-        physics: physics_resolution.profile,
-        layout: layout_resolution.layout,
-        theme: theme_resolution.map(|resolved| resolved.theme_id),
+        physics: resolution.definition.physics,
+        layout: resolution.definition.layout,
+        theme: resolution.definition.theme,
         filters: resolution.definition.filters,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn phase2_resolve_lens_components_for_tests(
-    diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
-    lens: &crate::app::LensConfig,
-) -> crate::app::LensConfig {
-    let has_component_ids =
-        lens.physics_id.is_some() || lens.layout_id.is_some() || lens.theme_id.is_some();
-    if !has_component_ids {
-        return lens.clone();
-    }
-
-    let runtime = RegistryRuntime::default();
-    let presentation_domain = PresentationDomainRegistry::default();
-    let mut normalized = lens.clone();
-
-    if let Some(physics_id) = lens.physics_id.as_deref() {
-        let physics_resolution = presentation_domain
-            .resolve_profile(
-                physics_id,
-                lens.theme_id
-                    .as_deref()
-                    .unwrap_or(crate::registries::atomic::theme::THEME_ID_DEFAULT),
-            )
-            .physics;
-        emit_lookup_diagnostics_for_tests(
-            diagnostics_state,
-            physics_resolution.matched,
-            physics_resolution.fallback_used,
-            CHANNEL_PHYSICS_LOOKUP_SUCCEEDED,
-            CHANNEL_PHYSICS_LOOKUP_FAILED,
-            CHANNEL_PHYSICS_FALLBACK_USED,
-            &physics_resolution.resolved_id,
-        );
-        normalized.physics = physics_resolution.profile;
-        normalized.physics_id = Some(physics_resolution.resolved_id);
-    }
-
-    if let Some(layout_id) = lens.layout_id.as_deref() {
-        let layout_resolution = runtime.layout.resolve(layout_id);
-        emit_lookup_diagnostics_for_tests(
-            diagnostics_state,
-            layout_resolution.matched,
-            layout_resolution.fallback_used,
-            CHANNEL_LAYOUT_LOOKUP_SUCCEEDED,
-            CHANNEL_LAYOUT_LOOKUP_FAILED,
-            CHANNEL_LAYOUT_FALLBACK_USED,
-            &layout_resolution.resolved_id,
-        );
-        normalized.layout = layout_resolution.layout;
-        normalized.layout_id = Some(layout_resolution.resolved_id);
-    }
-
-    if let Some(theme_id) = lens.theme_id.as_deref() {
-        let theme_resolution = presentation_domain
-            .resolve_profile(
-                lens.physics_id.as_deref().unwrap_or(
-                    crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT,
-                ),
-                theme_id,
-            )
-            .theme;
-        emit_lookup_diagnostics_for_tests(
-            diagnostics_state,
-            theme_resolution.matched,
-            theme_resolution.fallback_used,
-            CHANNEL_THEME_LOOKUP_SUCCEEDED,
-            CHANNEL_THEME_LOOKUP_FAILED,
-            CHANNEL_THEME_FALLBACK_USED,
-            &theme_resolution.resolved_id,
-        );
-        normalized.theme = Some(theme_resolution.theme_id.clone());
-        normalized.theme_id = Some(theme_resolution.resolved_id);
-    }
-
-    normalized
-}
-
-#[cfg(test)]
-fn emit_lookup_diagnostics_for_tests(
-    diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
-    matched: bool,
-    fallback_used: bool,
-    success_channel: &'static str,
-    failed_channel: &'static str,
-    fallback_channel: &'static str,
-    resolved_id: &str,
-) {
-    diagnostics_state.emit_message_received_for_tests(
-        if matched {
-            success_channel
-        } else {
-            failed_channel
-        },
-        1,
-    );
-
-    if fallback_used {
-        diagnostics_state.emit_message_sent_for_tests(fallback_channel, resolved_id.len());
     }
 }
 
@@ -2420,17 +2102,14 @@ mod tests {
             lens.lens_id.as_deref(),
             Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT)
         );
+        assert_eq!(lens.physics.name, "Liquid");
+        assert!(matches!(
+            lens.layout,
+            crate::registries::atomic::lens::LayoutMode::Free
+        ));
         assert_eq!(
-            lens.physics_id.as_deref(),
-            Some(crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT)
-        );
-        assert_eq!(
-            lens.layout_id.as_deref(),
-            Some(crate::registries::atomic::layout::LAYOUT_ID_DEFAULT)
-        );
-        assert_eq!(
-            lens.theme_id.as_deref(),
-            Some(crate::registries::atomic::theme::THEME_ID_DEFAULT)
+            lens.theme.as_ref().map(|theme| theme.background_rgb),
+            Some((20, 20, 25))
         );
     }
 
@@ -2445,25 +2124,25 @@ mod tests {
     }
 
     #[test]
-    fn phase2_lens_component_resolution_normalizes_unknown_component_ids() {
+    fn phase2_lens_resolution_preserves_direct_values() {
         let mut lens = crate::app::LensConfig::default();
-        lens.physics_id = Some("physics:unknown".to_string());
-        lens.layout_id = Some("layout:unknown".to_string());
-        lens.theme_id = Some("theme:unknown".to_string());
+        lens.physics = crate::registries::atomic::lens::PhysicsProfile::gas();
+        lens.layout = crate::registries::atomic::lens::LayoutMode::Grid { gap: 32.0 };
+        lens.theme = Some(crate::registries::atomic::lens::ThemeData {
+            background_rgb: (1, 2, 3),
+            accent_rgb: (4, 5, 6),
+            font_scale: 1.2,
+            stroke_width: 2.0,
+        });
 
-        let normalized = phase2_resolve_lens_components(&lens);
-
+        assert_eq!(lens.physics.name, "Gas");
+        assert!(matches!(
+            lens.layout,
+            crate::registries::atomic::lens::LayoutMode::Grid { gap: 32.0 }
+        ));
         assert_eq!(
-            normalized.physics_id.as_deref(),
-            Some(crate::shell::desktop::runtime::registries::physics::PHYSICS_ID_DEFAULT)
-        );
-        assert_eq!(
-            normalized.layout_id.as_deref(),
-            Some(crate::registries::atomic::layout::LAYOUT_ID_DEFAULT)
-        );
-        assert_eq!(
-            normalized.theme_id.as_deref(),
-            Some(crate::registries::atomic::theme::THEME_ID_DEFAULT)
+            lens.theme.as_ref().map(|theme| theme.background_rgb),
+            Some((1, 2, 3))
         );
     }
 
@@ -2512,7 +2191,8 @@ mod tests {
             euclid::default::Point2D::new(0.0, 0.0),
         );
 
-        let result = phase2_execute_detail_view_submit_action(&app, "https://detail-next.com", Some(key));
+        let result =
+            phase2_execute_detail_view_submit_action(&app, "https://detail-next.com", Some(key));
 
         assert!(!result.open_selected_tile);
         assert!(matches!(

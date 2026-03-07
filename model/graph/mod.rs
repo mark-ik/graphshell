@@ -32,11 +32,17 @@ use crate::services::persistence::types::{
     PersistedNodeSessionState,
 };
 
-pub mod egui_adapter;
 pub mod apply;
+pub mod egui_adapter;
 
 /// Stable node handle (petgraph NodeIndex — survives other deletions)
 pub type NodeKey = NodeIndex;
+
+/// Graph backend direction type exposed for adapter integration.
+pub(crate) type GraphDirection = Directed;
+
+/// Graph backend index type exposed for adapter integration.
+pub(crate) type GraphIndex = petgraph::graph::DefaultIx;
 
 /// Address type hint for renderer selection.
 ///
@@ -375,12 +381,8 @@ impl EdgePayload {
 
     pub fn remove_edge_type(&mut self, edge_type: EdgeType) -> bool {
         match edge_type {
-            EdgeType::Hyperlink if self.kinds.remove(&EdgeKind::Hyperlink) => {
-                true
-            }
-            EdgeType::UserGrouped if self.kinds.remove(&EdgeKind::UserGrouped) => {
-                true
-            }
+            EdgeType::Hyperlink if self.kinds.remove(&EdgeKind::Hyperlink) => true,
+            EdgeType::UserGrouped if self.kinds.remove(&EdgeKind::UserGrouped) => true,
             EdgeType::History if !self.traversals.is_empty() => {
                 self.traversals.clear();
                 self.metrics = EdgeMetrics::new();
@@ -1353,8 +1355,14 @@ mod tests {
 
         assert!(graph.set_node_projected_position(key, Point2D::new(40.0, 60.0)));
 
-        assert_eq!(graph.node_projected_position(key), Some(Point2D::new(40.0, 60.0)));
-        assert_eq!(graph.node_committed_position(key), Some(Point2D::new(10.0, 20.0)));
+        assert_eq!(
+            graph.node_projected_position(key),
+            Some(Point2D::new(40.0, 60.0))
+        );
+        assert_eq!(
+            graph.node_committed_position(key),
+            Some(Point2D::new(10.0, 20.0))
+        );
         assert_eq!(graph.projected_centroid(), Some(Point2D::new(40.0, 60.0)));
     }
 

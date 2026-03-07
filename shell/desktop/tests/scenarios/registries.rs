@@ -2,7 +2,7 @@ use super::super::harness::TestRegistry;
 use crate::app::{GraphBrowserApp, GraphIntent, GraphMutation, RuntimeEvent};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::protocol::ProtocolResolveControl;
-use crate::util::{VersoAddress, GraphshellSettingsPath};
+use crate::util::{GraphshellSettingsPath, VersoAddress};
 use euclid::default::Point2D;
 use servo::ServoUrl;
 
@@ -200,7 +200,9 @@ fn phase2_action_registry_omnibox_search_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .add_node("https://example.com".into(), Point2D::new(0.0, 0.0));
     if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
         node.title = "Example Handle".into();
@@ -237,7 +239,9 @@ fn phase2_action_registry_graph_submit_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
     app.workspace.selected_nodes.select(key, false);
 
@@ -274,7 +278,9 @@ fn phase2_action_registry_detail_submit_emits_action_channels() {
     let mut harness = TestRegistry::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let key = app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
 
     let result = registries::phase2_execute_detail_view_submit_action_for_tests(
@@ -372,18 +378,6 @@ fn phase2_lens_registry_default_id_emits_resolve_succeeded_channel() {
         TestRegistry::channel_count(&snapshot, "registry.lens.resolve_succeeded") > 0,
         "lens resolve succeeded channel should be emitted"
     );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.layout.lookup_succeeded") > 0,
-        "layout lookup succeeded channel should be emitted"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.physics.lookup_succeeded") > 0,
-        "physics lookup succeeded channel should be emitted"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.theme.lookup_succeeded") > 0,
-        "theme lookup succeeded channel should be emitted"
-    );
     assert_eq!(
         TestRegistry::channel_count(&snapshot, "registry.lens.resolve_failed"),
         0,
@@ -406,68 +400,6 @@ fn phase2_lens_registry_unknown_id_emits_failed_and_fallback_channels() {
     assert!(
         TestRegistry::channel_count(&snapshot, "registry.lens.fallback_used") > 0,
         "lens fallback channel should be emitted for unknown id"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.layout.lookup_succeeded") > 0,
-        "layout lookup should still resolve through fallback-composed lens"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.physics.lookup_succeeded") > 0,
-        "physics lookup should still resolve through fallback-composed lens"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.theme.lookup_succeeded") > 0,
-        "theme lookup should still resolve through fallback-composed lens"
-    );
-}
-
-#[test]
-fn phase2_lens_component_id_resolution_emits_component_fallback_channels() {
-    let mut harness = TestRegistry::new();
-    let mut lens = crate::app::LensConfig::default();
-    lens.physics_id = Some("physics:unknown".to_string());
-    lens.layout_id = Some("layout:unknown".to_string());
-    lens.theme_id = Some("theme:unknown".to_string());
-
-    let normalized =
-        registries::phase2_resolve_lens_components_for_tests(&harness.diagnostics, &lens);
-    assert_eq!(
-        normalized.physics_id.as_deref(),
-        Some(registries::physics::PHYSICS_ID_DEFAULT)
-    );
-    assert_eq!(
-        normalized.layout_id.as_deref(),
-        Some(crate::registries::atomic::layout::LAYOUT_ID_DEFAULT)
-    );
-    assert_eq!(
-        normalized.theme_id.as_deref(),
-        Some(crate::registries::atomic::theme::THEME_ID_DEFAULT)
-    );
-
-    let snapshot = harness.snapshot();
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.physics.lookup_failed") > 0,
-        "physics lookup failed channel should be emitted for unknown id"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.physics.fallback_used") > 0,
-        "physics fallback channel should be emitted for unknown id"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.layout.lookup_failed") > 0,
-        "layout lookup failed channel should be emitted for unknown id"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.layout.fallback_used") > 0,
-        "layout fallback channel should be emitted for unknown id"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.theme.lookup_failed") > 0,
-        "theme lookup failed channel should be emitted for unknown id"
-    );
-    assert!(
-        TestRegistry::channel_count(&snapshot, "registry.theme.fallback_used") > 0,
-        "theme fallback channel should be emitted for unknown id"
     );
 }
 

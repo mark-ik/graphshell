@@ -6,9 +6,11 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::env;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::OnceLock;
 #[cfg(not(test))]
 use std::sync::mpsc;
@@ -16,16 +18,21 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::mpsc as tokio_mpsc;
 
 use crate::domain::DomainState;
-use crate::graph::apply::{GraphDelta, GraphDeltaResult, apply_graph_delta};
+use crate::graph::apply::{
+    GraphDelta, GraphDeltaResult, apply_graph_delta as apply_domain_graph_delta,
+};
 use crate::graph::egui_adapter::EguiGraphState;
 use crate::graph::{EdgeKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
 use crate::registries::atomic::knowledge::SemanticClassVector;
+use crate::registries::atomic::lens::{
+    LayoutMode, PhysicsProfile, ThemeData, deserialize_optional_theme_data,
+};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::services::persistence::types::{
     LogEntry, PersistedEdgeType, PersistedNavigationTrigger,
 };
+use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
@@ -46,8 +53,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
 };
 use crate::util::{
-    GraphAddress, VersoAddress, GraphshellSettingsPath, NodeAddress, NoteAddress,
-    VersoViewTarget,
+    GraphAddress, GraphshellSettingsPath, NodeAddress, NoteAddress, VersoAddress, VersoViewTarget,
 };
 use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
@@ -66,7 +72,6 @@ pub type RendererId = WebViewId;
 #[cfg(target_os = "ios")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RendererId(u64);
-use petgraph::Direction;
 use uuid::Uuid;
 
 /// Camera state for zoom bounds enforcement
@@ -103,6 +108,29 @@ impl Default for Camera {
     fn default() -> Self {
         Self::new()
     }
+}
+
+macro_rules! impl_display_from_str {
+    ($ty:ty { $($variant:path => $value:literal),+ $(,)? }) => {
+        impl fmt::Display for $ty {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $($variant => f.write_str($value),)+
+                }
+            }
+        }
+
+        impl FromStr for $ty {
+            type Err = ();
+
+            fn from_str(raw: &str) -> Result<Self, Self::Err> {
+                match raw.trim() {
+                    $($value => Ok($variant),)+
+                    _ => Err(()),
+                }
+            }
+        }
+    };
 }
 
 /// Unique identifier for a graph view pane.
@@ -246,109 +274,19 @@ pub enum ToolSurfaceReturnTarget {
     Tool(crate::shell::desktop::workbench::pane_model::ToolPaneState),
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum LayoutMode {
-    Free,
-    Grid {
-        gap: f32,
-    },
-    Tree {
-        direction: Direction,
-        layer_gap: f32,
-    },
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PhysicsProfile {
-    pub name: String,
-    pub repulsion_strength: f32,
-    pub attraction_strength: f32,
-    pub gravity_strength: f32,
-    pub damping: f32,
-    pub degree_repulsion: bool,
-    pub domain_clustering: bool,
-    pub semantic_clustering: bool,
-    pub semantic_strength: f32,
-    pub auto_pause: bool,
-}
-
-impl Default for PhysicsProfile {
-    fn default() -> Self {
-        Self::liquid()
-    }
-}
-
-impl PhysicsProfile {
-    pub fn liquid() -> Self {
-        Self {
-            name: "Liquid".to_string(),
-            repulsion_strength: 0.28,
-            attraction_strength: 0.22,
-            gravity_strength: 0.18,
-            damping: 0.55,
-            degree_repulsion: true,
-            domain_clustering: false,
-            semantic_clustering: false,
-            semantic_strength: 0.05,
-            auto_pause: true,
-        }
-    }
-
-    pub fn gas() -> Self {
-        Self {
-            name: "Gas".to_string(),
-            repulsion_strength: 0.8,
-            attraction_strength: 0.05,
-            gravity_strength: 0.0,
-            damping: 0.8,
-            degree_repulsion: false,
-            domain_clustering: false,
-            semantic_clustering: false,
-            semantic_strength: 0.05,
-            auto_pause: false,
-        }
-    }
-
-    pub fn solid() -> Self {
-        Self {
-            name: "Solid".to_string(),
-            repulsion_strength: 0.12,
-            attraction_strength: 0.42,
-            gravity_strength: 0.24,
-            damping: 0.4,
-            degree_repulsion: true,
-            domain_clustering: true,
-            semantic_clustering: false,
-            semantic_strength: 0.05,
-            auto_pause: true,
-        }
-    }
-
-    /// Apply these profile settings to a runtime physics state.
-    pub fn apply_to_state(&self, state: &mut FruchtermanReingoldWithCenterGravityState) {
-        state.base.c_repulse = self.repulsion_strength;
-        state.base.c_attract = self.attraction_strength;
-        state.base.damping = self.damping;
-        state.extras.0.params.c = self.gravity_strength;
-    }
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LocalSimulation {
     pub positions: HashMap<NodeKey, Point2D<f32>>,
-    pub physics: FruchtermanReingoldWithCenterGravityState,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LensConfig {
     pub name: String,
     pub lens_id: Option<String>,
-    pub physics_id: Option<String>,
-    pub layout_id: Option<String>,
-    pub theme_id: Option<String>,
     pub physics: PhysicsProfile,
     pub layout: LayoutMode,
-    pub theme: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_theme_data")]
+    pub theme: Option<ThemeData>,
     pub filters: Vec<String>,
 }
 
@@ -357,9 +295,6 @@ impl Default for LensConfig {
         Self {
             name: "Default".to_string(),
             lens_id: None,
-            physics_id: None,
-            layout_id: None,
-            theme_id: None,
             physics: PhysicsProfile::default(),
             layout: LayoutMode::Free,
             theme: None,
@@ -866,8 +801,6 @@ pub enum FrameOpenAction {
     OpenInCurrentFrame { node: NodeKey },
 }
 
-pub type WorkspaceOpenAction = FrameOpenAction;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameOpenReason {
     MissingNode,
@@ -877,8 +810,6 @@ pub enum FrameOpenReason {
     NoMembership,
 }
 
-type WorkspaceOpenReason = FrameOpenReason;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnsavedFramePromptRequest {
     FrameSwitch {
@@ -887,15 +818,11 @@ pub enum UnsavedFramePromptRequest {
     },
 }
 
-pub type UnsavedWorkspacePromptRequest = UnsavedFramePromptRequest;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsavedFramePromptAction {
     ProceedWithoutSaving,
     Cancel,
 }
-
-pub type UnsavedWorkspacePromptAction = UnsavedFramePromptAction;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChooseFramePickerMode {
@@ -905,15 +832,11 @@ pub enum ChooseFramePickerMode {
     AddExactSelectionToFrame,
 }
 
-pub type ChooseWorkspacePickerMode = ChooseFramePickerMode;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChooseFramePickerRequest {
     pub node: NodeKey,
     pub mode: ChooseFramePickerMode,
 }
-
-pub type ChooseWorkspacePickerRequest = ChooseFramePickerRequest;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToastAnchorPreference {
@@ -923,26 +846,12 @@ pub enum ToastAnchorPreference {
     BottomLeft,
 }
 
-impl ToastAnchorPreference {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::TopRight => "top-right",
-            Self::TopLeft => "top-left",
-            Self::BottomRight => "bottom-right",
-            Self::BottomLeft => "bottom-left",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "top-right" => Some(Self::TopRight),
-            "top-left" => Some(Self::TopLeft),
-            "bottom-right" => Some(Self::BottomRight),
-            "bottom-left" => Some(Self::BottomLeft),
-            _ => None,
-        }
-    }
-}
+impl_display_from_str!(ToastAnchorPreference {
+    ToastAnchorPreference::TopRight => "top-right",
+    ToastAnchorPreference::TopLeft => "top-left",
+    ToastAnchorPreference::BottomRight => "bottom-right",
+    ToastAnchorPreference::BottomLeft => "bottom-left",
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandPaletteShortcut {
@@ -950,22 +859,10 @@ pub enum CommandPaletteShortcut {
     CtrlK,
 }
 
-impl CommandPaletteShortcut {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::F2 => "f2",
-            Self::CtrlK => "ctrl-k",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "f2" => Some(Self::F2),
-            "ctrl-k" => Some(Self::CtrlK),
-            _ => None,
-        }
-    }
-}
+impl_display_from_str!(CommandPaletteShortcut {
+    CommandPaletteShortcut::F2 => "f2",
+    CommandPaletteShortcut::CtrlK => "ctrl-k",
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HelpPanelShortcut {
@@ -973,22 +870,10 @@ pub enum HelpPanelShortcut {
     H,
 }
 
-impl HelpPanelShortcut {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::F1OrQuestion => "f1-or-question",
-            Self::H => "h",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "f1-or-question" => Some(Self::F1OrQuestion),
-            "h" => Some(Self::H),
-            _ => None,
-        }
-    }
-}
+impl_display_from_str!(HelpPanelShortcut {
+    HelpPanelShortcut::F1OrQuestion => "f1-or-question",
+    HelpPanelShortcut::H => "h",
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RadialMenuShortcut {
@@ -996,22 +881,10 @@ pub enum RadialMenuShortcut {
     R,
 }
 
-impl RadialMenuShortcut {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::F3 => "f3",
-            Self::R => "r",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "f3" => Some(Self::F3),
-            "r" => Some(Self::R),
-            _ => None,
-        }
-    }
-}
+impl_display_from_str!(RadialMenuShortcut {
+    RadialMenuShortcut::F3 => "f3",
+    RadialMenuShortcut::R => "r",
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyboardPanInputMode {
@@ -1019,22 +892,10 @@ pub enum KeyboardPanInputMode {
     ArrowsOnly,
 }
 
-impl KeyboardPanInputMode {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::WasdAndArrows => "wasd-and-arrows",
-            Self::ArrowsOnly => "arrows-only",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "wasd-and-arrows" => Some(Self::WasdAndArrows),
-            "arrows-only" => Some(Self::ArrowsOnly),
-            _ => None,
-        }
-    }
-}
+impl_display_from_str!(KeyboardPanInputMode {
+    KeyboardPanInputMode::WasdAndArrows => "wasd-and-arrows",
+    KeyboardPanInputMode::ArrowsOnly => "arrows-only",
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OmnibarPreferredScope {
@@ -1046,30 +907,14 @@ pub enum OmnibarPreferredScope {
     GlobalTabs,
 }
 
-impl OmnibarPreferredScope {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::LocalTabs => "local-tabs",
-            Self::ConnectedNodes => "connected-nodes",
-            Self::ProviderDefault => "provider-default",
-            Self::GlobalNodes => "global-nodes",
-            Self::GlobalTabs => "global-tabs",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "auto" => Some(Self::Auto),
-            "local-tabs" => Some(Self::LocalTabs),
-            "connected-nodes" => Some(Self::ConnectedNodes),
-            "provider-default" => Some(Self::ProviderDefault),
-            "global-nodes" => Some(Self::GlobalNodes),
-            "global-tabs" => Some(Self::GlobalTabs),
-            _ => None,
-        }
-    }
-}
+impl_display_from_str!(OmnibarPreferredScope {
+    OmnibarPreferredScope::Auto => "auto",
+    OmnibarPreferredScope::LocalTabs => "local-tabs",
+    OmnibarPreferredScope::ConnectedNodes => "connected-nodes",
+    OmnibarPreferredScope::ProviderDefault => "provider-default",
+    OmnibarPreferredScope::GlobalNodes => "global-nodes",
+    OmnibarPreferredScope::GlobalTabs => "global-tabs",
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OmnibarNonAtOrderPreset {
@@ -1077,40 +922,16 @@ pub enum OmnibarNonAtOrderPreset {
     ProviderThenContextualThenGlobal,
 }
 
-impl OmnibarNonAtOrderPreset {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::ContextualThenProviderThenGlobal => "contextual-provider-global",
-            Self::ProviderThenContextualThenGlobal => "provider-contextual-global",
-        }
-    }
+impl_display_from_str!(OmnibarNonAtOrderPreset {
+    OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal => "contextual-provider-global",
+    OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => "provider-contextual-global",
+});
 
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "contextual-provider-global" => Some(Self::ContextualThenProviderThenGlobal),
-            "provider-contextual-global" => Some(Self::ProviderThenContextualThenGlobal),
-            _ => None,
-        }
-    }
-}
-
-impl CanvasLassoBinding {
-    fn as_persisted_str(self) -> &'static str {
-        match self {
-            Self::RightDrag => "right-drag",
-            Self::ShiftLeftDrag => "shift-left-drag",
-        }
-    }
-
-    fn from_persisted_str(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "right-drag" => Some(Self::RightDrag),
-            "shift-left-drag" => Some(Self::ShiftLeftDrag),
-            _ => None,
-        }
-    }
-}
-
+/// Workbench-authority actions.
+///
+/// These either mutate the tile-tree directly or enter the workbench routing
+/// layer, which may then emit follow-on `AppCommand`s for deferred frame/app
+/// operations after routing is resolved.
 #[derive(Debug, Clone)]
 pub enum WorkbenchIntent {
     CycleFocusRegion,
@@ -1161,8 +982,16 @@ pub enum WorkbenchIntent {
         source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
         direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
     },
+    DetachNodeToSplit {
+        key: NodeKey,
+    },
 }
 
+/// Deferred app/frame operations that run after routing has already decided the
+/// target workspace/frame action.
+///
+/// `AppCommand` is not the home for direct tile-tree mutations; those belong in
+/// `WorkbenchIntent`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppCommand {
     CameraCommand {
@@ -1179,21 +1008,36 @@ pub enum AppCommand {
         target_view: GraphViewId,
     },
     UnsavedWorkspacePrompt {
-        request: UnsavedWorkspacePromptRequest,
-        action: Option<UnsavedWorkspacePromptAction>,
+        request: UnsavedFramePromptRequest,
+        action: Option<UnsavedFramePromptAction>,
     },
     ChooseWorkspacePicker {
-        request: ChooseWorkspacePickerRequest,
+        request: ChooseFramePickerRequest,
         exact_nodes: Option<Vec<NodeKey>>,
     },
-    NodeContextTarget { target: NodeKey },
-    ToolSurfaceReturnTarget { target: ToolSurfaceReturnTarget },
+    NodeContextTarget {
+        target: NodeKey,
+    },
+    ToolSurfaceReturnTarget {
+        target: ToolSurfaceReturnTarget,
+    },
     SaveWorkspaceSnapshot,
-    SaveWorkspaceSnapshotNamed { name: String },
-    RestoreWorkspaceSnapshotNamed { name: String },
-    RestoreHistoryWorkspaceLayout { layout_json: String },
-    RestoreWorkspaceOpen { request: PendingNodeOpenRequest },
-    AddNodeToWorkspace { node: NodeKey, workspace_name: String },
+    SaveWorkspaceSnapshotNamed {
+        name: String,
+    },
+    RestoreWorkspaceSnapshotNamed {
+        name: String,
+    },
+    RestoreHistoryWorkspaceLayout {
+        layout_json: String,
+    },
+    RestoreWorkspaceOpen {
+        request: PendingNodeOpenRequest,
+    },
+    AddNodeToWorkspace {
+        node: NodeKey,
+        workspace_name: String,
+    },
     AddConnectedToWorkspace {
         seed_nodes: Vec<NodeKey>,
         workspace_name: String,
@@ -1207,18 +1051,35 @@ pub enum AppCommand {
         mode: PendingTileOpenMode,
         scope: PendingConnectedOpenScope,
     },
-    OpenNode { request: PendingNodeOpenRequest },
-    SaveGraphSnapshotNamed { name: String },
-    RestoreGraphSnapshotNamed { name: String },
+    OpenNode {
+        request: PendingNodeOpenRequest,
+    },
+    SaveGraphSnapshotNamed {
+        name: String,
+    },
+    RestoreGraphSnapshotNamed {
+        name: String,
+    },
     RestoreGraphSnapshotLatest,
-    DeleteGraphSnapshotNamed { name: String },
-    OpenNote { note_id: NoteId },
-    OpenClip { clip_id: String },
-    DetachNodeToSplit { key: NodeKey },
+    DeleteGraphSnapshotNamed {
+        name: String,
+    },
+    OpenNote {
+        note_id: NoteId,
+    },
+    OpenClip {
+        clip_id: String,
+    },
     PruneEmptyWorkspaces,
-    KeepLatestNamedWorkspaces { keep: usize },
-    ClipboardCopy { request: ClipboardCopyRequest },
-    SwitchDataDir { path: PathBuf },
+    KeepLatestNamedWorkspaces {
+        keep: usize,
+    },
+    ClipboardCopy {
+        request: ClipboardCopyRequest,
+    },
+    SwitchDataDir {
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -1757,7 +1618,9 @@ impl From<ViewAction> for GraphIntent {
             ViewAction::ReheatPhysics => Self::ReheatPhysics,
             ViewAction::UpdateSelection { keys, mode } => Self::UpdateSelection { keys, mode },
             ViewAction::SelectAll => Self::SelectAll,
-            ViewAction::SetNodePosition { key, position } => Self::SetNodePosition { key, position },
+            ViewAction::SetNodePosition { key, position } => {
+                Self::SetNodePosition { key, position }
+            }
             ViewAction::SetZoom { zoom } => Self::SetZoom { zoom },
             ViewAction::SetHighlightedEdge { from, to } => Self::SetHighlightedEdge { from, to },
             ViewAction::ClearHighlightedEdge => Self::ClearHighlightedEdge,
@@ -1789,7 +1652,9 @@ impl From<ViewAction> for GraphIntent {
             ViewAction::SetFileTreeContainmentRelationSource { source } => {
                 Self::SetFileTreeContainmentRelationSource { source }
             }
-            ViewAction::SetFileTreeSortMode { sort_mode } => Self::SetFileTreeSortMode { sort_mode },
+            ViewAction::SetFileTreeSortMode { sort_mode } => {
+                Self::SetFileTreeSortMode { sort_mode }
+            }
             ViewAction::SetFileTreeRootFilter { root_filter } => {
                 Self::SetFileTreeRootFilter { root_filter }
             }
@@ -1803,12 +1668,16 @@ impl From<ViewAction> for GraphIntent {
 impl From<GraphMutation> for GraphIntent {
     fn from(value: GraphMutation) -> Self {
         match value {
-            GraphMutation::CreateNoteForNode { key, title } => Self::CreateNoteForNode { key, title },
+            GraphMutation::CreateNoteForNode { key, title } => {
+                Self::CreateNoteForNode { key, title }
+            }
             GraphMutation::CreateNodeNearCenter => Self::CreateNodeNearCenter,
             GraphMutation::CreateNodeNearCenterAndOpen { mode } => {
                 Self::CreateNodeNearCenterAndOpen { mode }
             }
-            GraphMutation::CreateNodeAtUrl { url, position } => Self::CreateNodeAtUrl { url, position },
+            GraphMutation::CreateNodeAtUrl { url, position } => {
+                Self::CreateNodeAtUrl { url, position }
+            }
             GraphMutation::CreateNodeAtUrlAndOpen {
                 url,
                 position,
@@ -1893,9 +1762,13 @@ impl From<RuntimeEvent> for GraphIntent {
                 child_webview_id,
                 initial_url,
             },
-            RuntimeEvent::WebViewUrlChanged { webview_id, new_url } => {
-                Self::WebViewUrlChanged { webview_id, new_url }
-            }
+            RuntimeEvent::WebViewUrlChanged {
+                webview_id,
+                new_url,
+            } => Self::WebViewUrlChanged {
+                webview_id,
+                new_url,
+            },
             RuntimeEvent::WebViewHistoryChanged {
                 webview_id,
                 entries,
@@ -2004,18 +1877,20 @@ impl GraphIntent {
             Self::SetFileTreeContainmentRelationSource { source } => {
                 Some(ViewAction::SetFileTreeContainmentRelationSource { source: *source })
             }
-            Self::SetFileTreeSortMode { sort_mode } => {
-                Some(ViewAction::SetFileTreeSortMode { sort_mode: *sort_mode })
+            Self::SetFileTreeSortMode { sort_mode } => Some(ViewAction::SetFileTreeSortMode {
+                sort_mode: *sort_mode,
+            }),
+            Self::SetFileTreeRootFilter { root_filter } => {
+                Some(ViewAction::SetFileTreeRootFilter {
+                    root_filter: root_filter.clone(),
+                })
             }
-            Self::SetFileTreeRootFilter { root_filter } => Some(ViewAction::SetFileTreeRootFilter {
-                root_filter: root_filter.clone(),
-            }),
-            Self::SetFileTreeSelectedRows { rows } => Some(ViewAction::SetFileTreeSelectedRows {
-                rows: rows.clone(),
-            }),
-            Self::SetFileTreeExpandedRows { rows } => Some(ViewAction::SetFileTreeExpandedRows {
-                rows: rows.clone(),
-            }),
+            Self::SetFileTreeSelectedRows { rows } => {
+                Some(ViewAction::SetFileTreeSelectedRows { rows: rows.clone() })
+            }
+            Self::SetFileTreeExpandedRows { rows } => {
+                Some(ViewAction::SetFileTreeExpandedRows { rows: rows.clone() })
+            }
             Self::RebuildFileTreeProjection => Some(ViewAction::RebuildFileTreeProjection),
             _ => None,
         }
@@ -2058,10 +1933,12 @@ impl GraphIntent {
                 key: *key,
                 tag: tag.clone(),
             }),
-            Self::CreateUserGroupedEdge { from, to } => Some(GraphMutation::CreateUserGroupedEdge {
-                from: *from,
-                to: *to,
-            }),
+            Self::CreateUserGroupedEdge { from, to } => {
+                Some(GraphMutation::CreateUserGroupedEdge {
+                    from: *from,
+                    to: *to,
+                })
+            }
             Self::RemoveEdge {
                 from,
                 to,
@@ -2074,11 +1951,9 @@ impl GraphIntent {
             Self::CreateUserGroupedEdgeFromPrimarySelection => {
                 Some(GraphMutation::CreateUserGroupedEdgeFromPrimarySelection)
             }
-            Self::ExecuteEdgeCommand { command } => {
-                Some(GraphMutation::ExecuteEdgeCommand {
-                    command: command.clone(),
-                })
-            }
+            Self::ExecuteEdgeCommand { command } => Some(GraphMutation::ExecuteEdgeCommand {
+                command: command.clone(),
+            }),
             Self::SetNodePinned { key, is_pinned } => Some(GraphMutation::SetNodePinned {
                 key: *key,
                 is_pinned: *is_pinned,
@@ -2093,29 +1968,36 @@ impl GraphIntent {
                 peer_id: peer_id.clone(),
                 workspace_id: workspace_id.clone(),
             }),
-            Self::UpdateNodeMimeHint { key, mime_hint } => Some(GraphMutation::UpdateNodeMimeHint {
-                key: *key,
-                mime_hint: mime_hint.clone(),
-            }),
-            Self::UpdateNodeAddressKind { key, kind } => Some(GraphMutation::UpdateNodeAddressKind {
-                key: *key,
-                kind: *kind,
-            }),
+            Self::UpdateNodeMimeHint { key, mime_hint } => {
+                Some(GraphMutation::UpdateNodeMimeHint {
+                    key: *key,
+                    mime_hint: mime_hint.clone(),
+                })
+            }
+            Self::UpdateNodeAddressKind { key, kind } => {
+                Some(GraphMutation::UpdateNodeAddressKind {
+                    key: *key,
+                    kind: *kind,
+                })
+            }
             _ => None,
         }
     }
 
     pub(crate) fn as_runtime_event(&self) -> Option<RuntimeEvent> {
         match self {
-            Self::PromoteNodeToActive { key, cause } => {
-                Some(RuntimeEvent::PromoteNodeToActive { key: *key, cause: *cause })
-            }
-            Self::DemoteNodeToCold { key, cause } => {
-                Some(RuntimeEvent::DemoteNodeToCold { key: *key, cause: *cause })
-            }
-            Self::DemoteNodeToWarm { key, cause } => {
-                Some(RuntimeEvent::DemoteNodeToWarm { key: *key, cause: *cause })
-            }
+            Self::PromoteNodeToActive { key, cause } => Some(RuntimeEvent::PromoteNodeToActive {
+                key: *key,
+                cause: *cause,
+            }),
+            Self::DemoteNodeToCold { key, cause } => Some(RuntimeEvent::DemoteNodeToCold {
+                key: *key,
+                cause: *cause,
+            }),
+            Self::DemoteNodeToWarm { key, cause } => Some(RuntimeEvent::DemoteNodeToWarm {
+                key: *key,
+                cause: *cause,
+            }),
             Self::MarkRuntimeBlocked {
                 key,
                 reason,
@@ -2125,9 +2007,10 @@ impl GraphIntent {
                 reason: *reason,
                 retry_at: *retry_at,
             }),
-            Self::ClearRuntimeBlocked { key, cause } => {
-                Some(RuntimeEvent::ClearRuntimeBlocked { key: *key, cause: *cause })
-            }
+            Self::ClearRuntimeBlocked { key, cause } => Some(RuntimeEvent::ClearRuntimeBlocked {
+                key: *key,
+                cause: *cause,
+            }),
             Self::MapWebviewToNode { webview_id, key } => Some(RuntimeEvent::MapWebviewToNode {
                 webview_id: *webview_id,
                 key: *key,
@@ -2144,7 +2027,10 @@ impl GraphIntent {
                 child_webview_id: *child_webview_id,
                 initial_url: initial_url.clone(),
             }),
-            Self::WebViewUrlChanged { webview_id, new_url } => Some(RuntimeEvent::WebViewUrlChanged {
+            Self::WebViewUrlChanged {
+                webview_id,
+                new_url,
+            } => Some(RuntimeEvent::WebViewUrlChanged {
                 webview_id: *webview_id,
                 new_url: new_url.clone(),
             }),
@@ -2166,10 +2052,12 @@ impl GraphIntent {
                 scroll_x: *scroll_x,
                 scroll_y: *scroll_y,
             }),
-            Self::WebViewTitleChanged { webview_id, title } => Some(RuntimeEvent::WebViewTitleChanged {
-                webview_id: *webview_id,
-                title: title.clone(),
-            }),
+            Self::WebViewTitleChanged { webview_id, title } => {
+                Some(RuntimeEvent::WebViewTitleChanged {
+                    webview_id: *webview_id,
+                    title: title.clone(),
+                })
+            }
             Self::WebViewCrashed {
                 webview_id,
                 reason,
@@ -2205,43 +2093,6 @@ impl GraphIntent {
             Self::SyncNow => Some(RuntimeEvent::SyncNow),
             _ => None,
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct GraphReducerIntent(GraphIntent);
-
-impl From<GraphIntent> for GraphReducerIntent {
-    fn from(value: GraphIntent) -> Self {
-        Self(value)
-    }
-}
-
-impl From<ViewAction> for GraphReducerIntent {
-    fn from(value: ViewAction) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<GraphMutation> for GraphReducerIntent {
-    fn from(value: GraphMutation) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<RuntimeEvent> for GraphReducerIntent {
-    fn from(value: RuntimeEvent) -> Self {
-        Self(value.into())
-    }
-}
-
-impl GraphReducerIntent {
-    fn as_graph_intent(&self) -> &GraphIntent {
-        &self.0
-    }
-
-    fn into_graph_intent(self) -> GraphIntent {
-        self.0
     }
 }
 
@@ -2482,11 +2333,9 @@ pub struct GraphWorkspace {
 
     /// Persisted default registry lens id override for view lens resolution.
     default_registry_lens_id: Option<String>,
-    /// Persisted default registry physics id override for component-based lens resolution.
+    /// Persisted default physics preset selection for graph dynamics controls.
     default_registry_physics_id: Option<String>,
-    /// Persisted default registry layout id override for component-based lens resolution.
-    default_registry_layout_id: Option<String>,
-    /// Persisted default registry theme id override for component-based lens resolution.
+    /// Persisted default theme selection for workspace appearance controls.
     default_registry_theme_id: Option<String>,
 
     /// Cached semantic codes for physics calculations.
@@ -2535,8 +2384,6 @@ impl GraphBrowserApp {
     pub const SETTINGS_REGISTRY_LENS_ID_NAME: &'static str = "workspace:settings-registry-lens-id";
     pub const SETTINGS_REGISTRY_PHYSICS_ID_NAME: &'static str =
         "workspace:settings-registry-physics-id";
-    pub const SETTINGS_REGISTRY_LAYOUT_ID_NAME: &'static str =
-        "workspace:settings-registry-layout-id";
     pub const SETTINGS_REGISTRY_THEME_ID_NAME: &'static str =
         "workspace:settings-registry-theme-id";
     pub const SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME: &'static str =
@@ -2700,7 +2547,6 @@ impl GraphBrowserApp {
                     .is_some(),
                 default_registry_lens_id: None,
                 default_registry_physics_id: None,
-                default_registry_layout_id: None,
                 default_registry_theme_id: None,
                 semantic_index: HashMap::new(),
                 semantic_index_dirty: true,
@@ -2886,7 +2732,6 @@ impl GraphBrowserApp {
                 form_draft_capture_enabled: false,
                 default_registry_lens_id: None,
                 default_registry_physics_id: None,
-                default_registry_layout_id: None,
                 default_registry_theme_id: None,
                 semantic_index: HashMap::new(),
                 semantic_index_dirty: true,
@@ -3061,7 +2906,9 @@ impl GraphBrowserApp {
         {
             Source::GraphContainment => {
                 let mut nodes: Vec<(NodeKey, Uuid)> = self
-                    .workspace.domain.graph
+                    .workspace
+                    .domain
+                    .graph
                     .nodes()
                     .map(|(key, node)| (key, node.id))
                     .collect();
@@ -3085,7 +2932,9 @@ impl GraphBrowserApp {
             }
             Source::ImportedFilesystemProjection => {
                 let mut file_rows: Vec<(String, NodeKey, Uuid)> = self
-                    .workspace.domain.graph
+                    .workspace
+                    .domain
+                    .graph
                     .nodes()
                     .filter_map(|(key, node)| {
                         let parsed = url::Url::parse(&node.url).ok()?;
@@ -3321,11 +3170,12 @@ impl GraphBrowserApp {
             let mut state = GraphViewState::new_with_id(view_id, name);
             state.local_simulation = Some(LocalSimulation {
                 positions: self
-                    .workspace.domain.graph
+                    .workspace
+                    .domain
+                    .graph
                     .nodes()
                     .map(|(k, n)| (k, n.projected_position()))
                     .collect(),
-                physics: self.workspace.physics.clone(),
             });
             self.workspace.views.insert(view_id, state);
         } else if self.workspace.views[&view_id].local_simulation.is_none() {
@@ -3336,12 +3186,8 @@ impl GraphBrowserApp {
                 .nodes()
                 .map(|(k, n)| (k, n.projected_position()))
                 .collect();
-            let physics = self.workspace.physics.clone();
             if let Some(view) = self.workspace.views.get_mut(&view_id) {
-                view.local_simulation = Some(LocalSimulation {
-                    positions,
-                    physics,
-                });
+                view.local_simulation = Some(LocalSimulation { positions });
             }
         }
 
@@ -3404,11 +3250,12 @@ impl GraphBrowserApp {
         let mut state = GraphViewState::new_with_id(view_id, self.next_graph_view_slot_name());
         state.local_simulation = Some(LocalSimulation {
             positions: self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .nodes()
                 .map(|(k, n)| (k, n.projected_position()))
                 .collect(),
-            physics: self.workspace.physics.clone(),
         });
         self.workspace.views.insert(view_id, state.clone());
 
@@ -3699,18 +3546,18 @@ impl GraphBrowserApp {
 
     /// Read pending camera command without consuming it.
     pub fn pending_camera_command(&self) -> Option<CameraCommand> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::CameraCommand { .. })
-        })? {
+        match self
+            .pending_app_command(|command| matches!(command, AppCommand::CameraCommand { .. }))?
+        {
             AppCommand::CameraCommand { command, .. } => Some(*command),
             _ => None,
         }
     }
 
     pub fn pending_camera_command_target_raw(&self) -> Option<GraphViewId> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::CameraCommand { .. })
-        })? {
+        match self
+            .pending_app_command(|command| matches!(command, AppCommand::CameraCommand { .. }))?
+        {
             AppCommand::CameraCommand { target_view, .. } => *target_view,
             _ => None,
         }
@@ -3735,22 +3582,16 @@ impl GraphBrowserApp {
     }
 
     pub fn pending_wheel_zoom_delta(&self, view_id: GraphViewId) -> f32 {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::WheelZoom { .. })
-        }) {
+        match self.pending_app_command(|command| matches!(command, AppCommand::WheelZoom { .. })) {
             Some(AppCommand::WheelZoom {
-                target_view,
-                delta,
-                ..
+                target_view, delta, ..
             }) if *target_view == view_id => *delta,
             _ => 0.0,
         }
     }
 
     pub fn pending_wheel_zoom_anchor_screen(&self, view_id: GraphViewId) -> Option<(f32, f32)> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::WheelZoom { .. })
-        }) {
+        match self.pending_app_command(|command| matches!(command, AppCommand::WheelZoom { .. })) {
             Some(AppCommand::WheelZoom {
                 target_view,
                 anchor_screen,
@@ -3806,10 +3647,10 @@ impl GraphBrowserApp {
     pub fn apply_reducer_intents<I, T>(&mut self, intents: I)
     where
         I: IntoIterator<Item = T>,
-        T: Into<GraphReducerIntent>,
+        T: Into<GraphIntent>,
     {
         for intent in intents {
-            self.apply_reducer_intent_internal(intent.into().into_graph_intent(), true);
+            self.apply_reducer_intent_internal(intent.into(), true);
         }
     }
 
@@ -3841,9 +3682,9 @@ impl GraphBrowserApp {
         ctx: ReducerDispatchContext,
     ) where
         I: IntoIterator<Item = T>,
-        T: Into<GraphReducerIntent>,
+        T: Into<GraphIntent>,
     {
-        let intents: Vec<GraphReducerIntent> = intents.into_iter().map(Into::into).collect();
+        let intents: Vec<GraphIntent> = intents.into_iter().map(Into::into).collect();
         if intents.is_empty() {
             return;
         }
@@ -3851,7 +3692,7 @@ impl GraphBrowserApp {
         let should_capture = ctx.force_undo_boundary
             || intents
                 .iter()
-                .any(|intent| self.should_capture_undo_checkpoint_for_intent(intent.as_graph_intent()));
+                .any(|intent| self.should_capture_undo_checkpoint_for_intent(intent));
 
         if should_capture {
             let layout_before = ctx
@@ -3861,7 +3702,7 @@ impl GraphBrowserApp {
         }
 
         for intent in intents {
-            self.apply_reducer_intent_internal(intent.into_graph_intent(), false);
+            self.apply_reducer_intent_internal(intent, false);
         }
     }
 
@@ -3869,7 +3710,7 @@ impl GraphBrowserApp {
     pub(crate) fn apply_intents<I, T>(&mut self, intents: I)
     where
         I: IntoIterator<Item = T>,
-        T: Into<GraphReducerIntent>,
+        T: Into<GraphIntent>,
     {
         self.apply_reducer_intents(intents);
     }
@@ -3935,7 +3776,13 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::SelectAll => {
-                let all_keys: Vec<NodeKey> = self.workspace.domain.graph.nodes().map(|(k, _)| k).collect();
+                let all_keys: Vec<NodeKey> = self
+                    .workspace
+                    .domain
+                    .graph
+                    .nodes()
+                    .map(|(k, _)| k)
+                    .collect();
                 self.workspace
                     .selected_nodes
                     .update_many(all_keys, SelectionUpdateMode::Replace);
@@ -3983,7 +3830,11 @@ impl GraphBrowserApp {
                 if !self.workspace.form_draft_capture_enabled {
                     return true;
                 }
-                let _ = self.workspace.domain.graph.set_node_form_draft(key, form_draft);
+                let _ = self
+                    .workspace
+                    .domain
+                    .graph
+                    .set_node_form_draft(key, form_draft);
                 true
             }
             ViewAction::SetNodeThumbnail {
@@ -3992,20 +3843,16 @@ impl GraphBrowserApp {
                 width,
                 height,
             } => {
-                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
-                    &mut self.workspace.domain.graph,
-                    GraphDelta::SetNodeThumbnail {
+                let GraphDeltaResult::NodeMetadataUpdated(_updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::SetNodeThumbnail {
                         key,
                         png_bytes,
                         width,
                         height,
-                    },
-                ) else {
+                    })
+                else {
                     unreachable!("thumbnail delta must return NodeMetadataUpdated");
                 };
-                if updated {
-                    self.workspace.egui_state_dirty = true;
-                }
                 true
             }
             ViewAction::SetNodeFavicon {
@@ -4014,20 +3861,16 @@ impl GraphBrowserApp {
                 width,
                 height,
             } => {
-                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
-                    &mut self.workspace.domain.graph,
-                    GraphDelta::SetNodeFavicon {
+                let GraphDeltaResult::NodeMetadataUpdated(_updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::SetNodeFavicon {
                         key,
                         rgba,
                         width,
                         height,
-                    },
-                ) else {
+                    })
+                else {
                     unreachable!("favicon delta must return NodeMetadataUpdated");
                 };
-                if updated {
-                    self.workspace.egui_state_dirty = true;
-                }
                 true
             }
             ViewAction::SetFileTreeContainmentRelationSource { source } => {
@@ -4410,7 +4253,9 @@ impl GraphBrowserApp {
                     && !self.is_crash_blocked(key)
                     && self.get_webview_for_node(key).is_none()
                     && self
-                        .workspace.domain.graph
+                        .workspace
+                        .domain
+                        .graph
                         .get_node(key)
                         .map(|node| node.lifecycle != crate::graph::NodeLifecycle::Active)
                         .unwrap_or(false)
@@ -4426,9 +4271,7 @@ impl GraphBrowserApp {
                 } else if lens.name.starts_with("lens:") {
                     crate::shell::desktop::runtime::registries::phase2_resolve_lens(&lens.name)
                 } else {
-                    crate::shell::desktop::runtime::registries::phase2_resolve_lens_components(
-                        &lens,
-                    )
+                    lens
                 };
                 if let Some(view) = self.workspace.views.get_mut(&view_id) {
                     view.lens = lens;
@@ -4557,7 +4400,9 @@ impl GraphBrowserApp {
                     let mut rng = rand::thread_rng();
                     let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
                     let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
-                    self.workspace.domain.graph
+                    self.workspace
+                        .domain
+                        .graph
                         .node_projected_position(parent_key)
                         .map(|position| {
                             Point2D::new(
@@ -4598,9 +4443,15 @@ impl GraphBrowserApp {
                     // URL change should update an existing tab/node, not create a new node.
                     return;
                 };
-                let _ = self.workspace.domain.graph.touch_node_last_visited_now(node_key);
+                let _ = self
+                    .workspace
+                    .domain
+                    .graph
+                    .touch_node_last_visited_now(node_key);
                 if self
-                    .workspace.domain.graph
+                    .workspace
+                    .domain
+                    .graph
                     .get_node(node_key)
                     .map(|n| n.url != new_url)
                     .unwrap_or(false)
@@ -4610,7 +4461,9 @@ impl GraphBrowserApp {
                     // from_url. Capturing to_key after update_node_url_and_log would overwrite the
                     // node URL and produce incorrect from_url/to_url in traversal records.
                     let to_key = self
-                        .workspace.domain.graph
+                        .workspace
+                        .domain
+                        .graph
                         .get_node_by_url(&new_url)
                         .map(|(k, _)| k);
                     if let Some(to_key) = to_key {
@@ -4652,7 +4505,9 @@ impl GraphBrowserApp {
                     new_index,
                 );
                 let _ = self
-                    .workspace.domain.graph
+                    .workspace
+                    .domain
+                    .graph
                     .set_node_history_state(node_key, entries, new_index);
             }
             GraphIntent::WebViewScrollChanged {
@@ -4664,7 +4519,9 @@ impl GraphBrowserApp {
                     return;
                 };
                 let _ = self
-                    .workspace.domain.graph
+                    .workspace
+                    .domain
+                    .graph
                     .set_node_session_scroll(node_key, Some((scroll_x, scroll_y)));
             }
             GraphIntent::WebViewTitleChanged { webview_id, title } => {
@@ -4677,18 +4534,16 @@ impl GraphBrowserApp {
                 if title.is_empty() {
                     return;
                 }
-                let GraphDeltaResult::NodeMetadataUpdated(changed) = apply_graph_delta(
-                    &mut self.workspace.domain.graph,
-                    GraphDelta::SetNodeTitle {
+                let GraphDeltaResult::NodeMetadataUpdated(changed) = self
+                    .apply_graph_delta_and_sync(GraphDelta::SetNodeTitle {
                         key: node_key,
                         title,
-                    },
-                ) else {
+                    })
+                else {
                     unreachable!("title delta must return NodeMetadataUpdated");
                 };
                 if changed {
                     self.log_title_mutation(node_key);
-                    self.workspace.egui_state_dirty = true;
                 }
             }
             GraphIntent::WebViewCrashed {
@@ -5048,7 +4903,8 @@ impl GraphBrowserApp {
                 } else {
                     self.workspace.history_replay_cursor = None;
                 }
-                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref() {
+                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref()
+                {
                     self.workspace.history_preview_graph = Some(snapshot.clone());
                 }
                 self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
@@ -5174,14 +5030,18 @@ impl GraphBrowserApp {
                 }
             },
             GraphIntent::UpdateNodeMimeHint { key, mime_hint } => {
-                let node_id = self.workspace.domain.graph.get_node(key).map(|node| node.id);
-                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
-                    &mut self.workspace.domain.graph,
-                    GraphDelta::SetNodeMimeHint {
+                let node_id = self
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(key)
+                    .map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) = self
+                    .apply_graph_delta_and_sync(GraphDelta::SetNodeMimeHint {
                         key,
                         mime_hint: mime_hint.clone(),
-                    },
-                ) else {
+                    })
+                else {
                     unreachable!("mime hint delta must return NodeMetadataUpdated");
                 };
                 if updated
@@ -5195,11 +5055,15 @@ impl GraphBrowserApp {
                 }
             }
             GraphIntent::UpdateNodeAddressKind { key, kind } => {
-                let node_id = self.workspace.domain.graph.get_node(key).map(|node| node.id);
-                let GraphDeltaResult::NodeMetadataUpdated(updated) = apply_graph_delta(
-                    &mut self.workspace.domain.graph,
-                    GraphDelta::SetNodeAddressKind { key, kind },
-                ) else {
+                let node_id = self
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(key)
+                    .map(|node| node.id);
+                let GraphDeltaResult::NodeMetadataUpdated(updated) =
+                    self.apply_graph_delta_and_sync(GraphDelta::SetNodeAddressKind { key, kind })
+                else {
                     unreachable!("address kind delta must return NodeMetadataUpdated");
                 };
                 if updated
@@ -5232,14 +5096,13 @@ impl GraphBrowserApp {
         url: String,
         position: euclid::default::Point2D<f32>,
     ) -> NodeKey {
-        let GraphDeltaResult::NodeAdded(key) = apply_graph_delta(
-            &mut self.workspace.domain.graph,
-            GraphDelta::AddNode {
+        let GraphDeltaResult::NodeAdded(key) =
+            self.apply_graph_delta_and_sync(GraphDelta::AddNode {
                 id: None,
                 url: url.clone(),
                 position,
-            },
-        ) else {
+            })
+        else {
             unreachable!("add node delta must return NodeAdded");
         };
         if let Some(store) = &mut self.services.persistence
@@ -5252,7 +5115,6 @@ impl GraphBrowserApp {
                 position_y: position.y,
             });
         }
-        self.workspace.egui_state_dirty = true; // Graph structure changed
         self.workspace.physics.base.is_running = true;
         self.workspace.drag_release_frames_remaining = 0;
         key
@@ -5265,19 +5127,17 @@ impl GraphBrowserApp {
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
     ) -> Option<crate::graph::EdgeKey> {
-        let GraphDeltaResult::EdgeAdded(edge_key) = apply_graph_delta(
-            &mut self.workspace.domain.graph,
-            GraphDelta::AddEdge {
+        let GraphDeltaResult::EdgeAdded(edge_key) =
+            self.apply_graph_delta_and_sync(GraphDelta::AddEdge {
                 from: from_key,
                 to: to_key,
                 edge_type,
-            },
-        ) else {
+            })
+        else {
             unreachable!("add edge delta must return EdgeAdded");
         };
         if edge_key.is_some() {
             self.log_edge_mutation(from_key, to_key, edge_type);
-            self.workspace.egui_state_dirty = true; // Graph structure changed
             self.workspace.physics.base.is_running = true;
             self.workspace.drag_release_frames_remaining = 0;
         }
@@ -5297,17 +5157,26 @@ impl GraphBrowserApp {
         let removed = if let Some(store) = &mut self.services.persistence {
             let dissolved_before = store.dissolved_archive_len();
             let removed = store
-                .dissolve_and_remove_edges(&mut self.workspace.domain.graph, from_key, to_key, edge_type)
+                .dissolve_and_remove_edges(
+                    &mut self.workspace.domain.graph,
+                    from_key,
+                    to_key,
+                    edge_type,
+                )
                 .unwrap_or_else(|e| {
                     log::warn!("Dissolution transfer failed, falling back to direct removal: {e}");
-                    self.workspace.domain.graph
+                    self.workspace
+                        .domain
+                        .graph
                         .remove_edges(from_key, to_key, edge_type)
                 });
             let dissolved_after = store.dissolved_archive_len();
             emitted_dissolved_append = dissolved_after > dissolved_before;
             removed
         } else {
-            self.workspace.domain.graph
+            self.workspace
+                .domain
+                .graph
                 .remove_edges(from_key, to_key, edge_type)
         };
 
@@ -5337,11 +5206,15 @@ impl GraphBrowserApp {
     ) {
         if let Some(store) = &mut self.services.persistence {
             let from_id = self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .get_node(from_key)
                 .map(|n| n.id.to_string());
             let to_id = self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .get_node(to_key)
                 .map(|n| n.id.to_string());
             let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
@@ -5369,11 +5242,15 @@ impl GraphBrowserApp {
     ) {
         if let Some(store) = &mut self.services.persistence {
             let from_id = self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .get_node(from_key)
                 .map(|n| n.id.to_string());
             let to_id = self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .get_node(to_key)
                 .map(|n| n.id.to_string());
             let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
@@ -5615,7 +5492,7 @@ impl GraphBrowserApp {
     fn save_toast_anchor_preference(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_TOAST_ANCHOR_NAME,
-            self.workspace.toast_anchor_preference.as_persisted_str(),
+            &self.workspace.toast_anchor_preference.to_string(),
         );
     }
 
@@ -5627,7 +5504,7 @@ impl GraphBrowserApp {
     fn save_command_palette_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME,
-            self.workspace.command_palette_shortcut.as_persisted_str(),
+            &self.workspace.command_palette_shortcut.to_string(),
         );
     }
 
@@ -5639,7 +5516,7 @@ impl GraphBrowserApp {
     fn save_help_panel_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME,
-            self.workspace.help_panel_shortcut.as_persisted_str(),
+            &self.workspace.help_panel_shortcut.to_string(),
         );
     }
 
@@ -5698,7 +5575,7 @@ impl GraphBrowserApp {
     fn save_radial_menu_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
-            self.workspace.radial_menu_shortcut.as_persisted_str(),
+            &self.workspace.radial_menu_shortcut.to_string(),
         );
     }
 
@@ -5712,7 +5589,7 @@ impl GraphBrowserApp {
     fn save_keyboard_pan_input_mode(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME,
-            self.workspace.keyboard_pan_input_mode.as_persisted_str(),
+            &self.workspace.keyboard_pan_input_mode.to_string(),
         );
     }
 
@@ -5737,7 +5614,7 @@ impl GraphBrowserApp {
     fn save_lasso_binding_preference(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_LASSO_BINDING_NAME,
-            self.workspace.lasso_binding_preference.as_persisted_str(),
+            &self.workspace.lasso_binding_preference.to_string(),
         );
     }
 
@@ -5749,7 +5626,7 @@ impl GraphBrowserApp {
     fn save_omnibar_preferred_scope(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME,
-            self.workspace.omnibar_preferred_scope.as_persisted_str(),
+            &self.workspace.omnibar_preferred_scope.to_string(),
         );
     }
 
@@ -5761,7 +5638,7 @@ impl GraphBrowserApp {
     fn save_omnibar_non_at_order(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME,
-            self.workspace.omnibar_non_at_order.as_persisted_str(),
+            &self.workspace.omnibar_non_at_order.to_string(),
         );
     }
 
@@ -5803,15 +5680,6 @@ impl GraphBrowserApp {
         );
     }
 
-    pub fn set_default_registry_layout_id(&mut self, layout_id: Option<&str>) {
-        let normalized = Self::normalize_optional_registry_id(layout_id.map(str::to_owned));
-        self.workspace.default_registry_layout_id = normalized.clone();
-        self.save_workspace_layout_json(
-            Self::SETTINGS_REGISTRY_LAYOUT_ID_NAME,
-            normalized.as_deref().unwrap_or(""),
-        );
-    }
-
     pub fn set_default_registry_theme_id(&mut self, theme_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(theme_id.map(str::to_owned));
         self.workspace.default_registry_theme_id = normalized.clone();
@@ -5827,10 +5695,6 @@ impl GraphBrowserApp {
 
     pub fn default_registry_physics_id(&self) -> Option<&str> {
         self.workspace.default_registry_physics_id.as_deref()
-    }
-
-    pub fn default_registry_layout_id(&self) -> Option<&str> {
-        self.workspace.default_registry_layout_id.as_deref()
     }
 
     pub fn default_registry_theme_id(&self) -> Option<&str> {
@@ -5875,7 +5739,7 @@ impl GraphBrowserApp {
         let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_TOAST_ANCHOR_NAME) else {
             return self.load_additional_persisted_ui_settings();
         };
-        if let Some(preference) = ToastAnchorPreference::from_persisted_str(&raw) {
+        if let Ok(preference) = raw.parse::<ToastAnchorPreference>() {
             self.workspace.toast_anchor_preference = preference;
         } else {
             warn!("Ignoring invalid persisted toast anchor preference: '{raw}'");
@@ -5887,7 +5751,7 @@ impl GraphBrowserApp {
         if let Some(raw) =
             self.load_workspace_layout_json(Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME)
         {
-            if let Some(shortcut) = CommandPaletteShortcut::from_persisted_str(&raw) {
+            if let Ok(shortcut) = raw.parse::<CommandPaletteShortcut>() {
                 self.workspace.command_palette_shortcut = shortcut;
             } else {
                 warn!("Ignoring invalid persisted command-palette shortcut: '{raw}'");
@@ -5895,7 +5759,7 @@ impl GraphBrowserApp {
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME)
         {
-            if let Some(shortcut) = HelpPanelShortcut::from_persisted_str(&raw) {
+            if let Ok(shortcut) = raw.parse::<HelpPanelShortcut>() {
                 self.workspace.help_panel_shortcut = shortcut;
             } else {
                 warn!("Ignoring invalid persisted help-panel shortcut: '{raw}'");
@@ -5903,7 +5767,7 @@ impl GraphBrowserApp {
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME)
         {
-            if let Some(shortcut) = RadialMenuShortcut::from_persisted_str(&raw) {
+            if let Ok(shortcut) = raw.parse::<RadialMenuShortcut>() {
                 self.workspace.radial_menu_shortcut = shortcut;
             } else {
                 warn!("Ignoring invalid persisted radial-menu shortcut: '{raw}'");
@@ -5919,7 +5783,7 @@ impl GraphBrowserApp {
         if let Some(raw) =
             self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME)
         {
-            if let Some(mode) = KeyboardPanInputMode::from_persisted_str(&raw) {
+            if let Ok(mode) = raw.parse::<KeyboardPanInputMode>() {
                 self.workspace.keyboard_pan_input_mode = mode;
             } else {
                 warn!("Ignoring invalid persisted keyboard pan input mode: '{raw}'");
@@ -5944,7 +5808,7 @@ impl GraphBrowserApp {
             }
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_LASSO_BINDING_NAME) {
-            if let Some(binding) = CanvasLassoBinding::from_persisted_str(&raw) {
+            if let Ok(binding) = raw.parse::<CanvasLassoBinding>() {
                 self.workspace.lasso_binding_preference = binding;
             } else {
                 warn!("Ignoring invalid persisted lasso binding preference: '{raw}'");
@@ -5953,7 +5817,7 @@ impl GraphBrowserApp {
         if let Some(raw) =
             self.load_workspace_layout_json(Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME)
         {
-            if let Some(scope) = OmnibarPreferredScope::from_persisted_str(&raw) {
+            if let Ok(scope) = raw.parse::<OmnibarPreferredScope>() {
                 self.workspace.omnibar_preferred_scope = scope;
             } else {
                 warn!("Ignoring invalid persisted omnibar preferred scope: '{raw}'");
@@ -5961,7 +5825,7 @@ impl GraphBrowserApp {
         }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME)
         {
-            if let Some(order) = OmnibarNonAtOrderPreset::from_persisted_str(&raw) {
+            if let Ok(order) = raw.parse::<OmnibarNonAtOrderPreset>() {
                 self.workspace.omnibar_non_at_order = order;
             } else {
                 warn!("Ignoring invalid persisted omnibar non-@ order preset: '{raw}'");
@@ -5980,10 +5844,6 @@ impl GraphBrowserApp {
             .unwrap_or(None);
         self.workspace.default_registry_physics_id = self
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME)
-            .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
-            .unwrap_or(None);
-        self.workspace.default_registry_layout_id = self
-            .load_workspace_layout_json(Self::SETTINGS_REGISTRY_LAYOUT_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
         self.workspace.default_registry_theme_id = self
@@ -6007,15 +5867,6 @@ impl GraphBrowserApp {
     fn with_registry_lens_defaults(&self, mut lens: LensConfig) -> LensConfig {
         if lens.lens_id.is_none() {
             lens.lens_id = self.workspace.default_registry_lens_id.clone();
-        }
-        if lens.physics_id.is_none() {
-            lens.physics_id = self.workspace.default_registry_physics_id.clone();
-        }
-        if lens.layout_id.is_none() {
-            lens.layout_id = self.workspace.default_registry_layout_id.clone();
-        }
-        if lens.theme_id.is_none() {
-            lens.theme_id = self.workspace.default_registry_theme_id.clone();
         }
         lens
     }
@@ -6117,7 +5968,7 @@ impl GraphBrowserApp {
     }
 
     /// Queue/replace an unsaved-workspace prompt request.
-    pub fn request_unsaved_workspace_prompt(&mut self, request: UnsavedWorkspacePromptRequest) {
+    pub fn request_unsaved_workspace_prompt(&mut self, request: UnsavedFramePromptRequest) {
         self.request_unsaved_frame_prompt(request);
     }
 
@@ -6132,7 +5983,7 @@ impl GraphBrowserApp {
     }
 
     /// Inspect active unsaved-workspace prompt request.
-    pub fn unsaved_workspace_prompt_request(&self) -> Option<&UnsavedWorkspacePromptRequest> {
+    pub fn unsaved_workspace_prompt_request(&self) -> Option<&UnsavedFramePromptRequest> {
         self.unsaved_frame_prompt_request()
     }
 
@@ -6145,7 +5996,7 @@ impl GraphBrowserApp {
     }
 
     /// Capture user action from unsaved-workspace prompt UI.
-    pub fn set_unsaved_workspace_prompt_action(&mut self, action: UnsavedWorkspacePromptAction) {
+    pub fn set_unsaved_workspace_prompt_action(&mut self, action: UnsavedFramePromptAction) {
         self.set_unsaved_frame_prompt_action(action);
     }
 
@@ -6154,7 +6005,13 @@ impl GraphBrowserApp {
         &mut self,
     ) -> Option<(UnsavedFramePromptRequest, UnsavedFramePromptAction)> {
         match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::UnsavedWorkspacePrompt { action: Some(_), .. })
+            matches!(
+                command,
+                AppCommand::UnsavedWorkspacePrompt {
+                    action: Some(_),
+                    ..
+                }
+            )
         })? {
             AppCommand::UnsavedWorkspacePrompt {
                 request,
@@ -6167,7 +6024,7 @@ impl GraphBrowserApp {
     /// Resolve and clear active unsaved-workspace prompt when an action was chosen.
     pub fn take_unsaved_workspace_prompt_resolution(
         &mut self,
-    ) -> Option<(UnsavedWorkspacePromptRequest, UnsavedWorkspacePromptAction)> {
+    ) -> Option<(UnsavedFramePromptRequest, UnsavedFramePromptAction)> {
         self.take_unsaved_frame_prompt_resolution()
     }
 
@@ -6433,7 +6290,7 @@ impl GraphBrowserApp {
         &self,
         node: NodeKey,
         prefer_workspace: Option<&str>,
-    ) -> WorkspaceOpenAction {
+    ) -> FrameOpenAction {
         self.resolve_frame_open(node, prefer_workspace)
     }
 
@@ -6441,7 +6298,7 @@ impl GraphBrowserApp {
         &self,
         node: NodeKey,
         prefer_workspace: Option<&str>,
-    ) -> (WorkspaceOpenAction, WorkspaceOpenReason) {
+    ) -> (FrameOpenAction, FrameOpenReason) {
         self.resolve_frame_open_with_reason(node, prefer_workspace)
     }
 
@@ -6543,7 +6400,8 @@ impl GraphBrowserApp {
         self.workspace.current_workspace_is_synthesized = false;
         self.workspace.workspace_has_unsaved_changes = false;
         self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.domain.next_placeholder_id = Self::scan_max_placeholder_id(&self.workspace.domain.graph);
+        self.workspace.domain.next_placeholder_id =
+            Self::scan_max_placeholder_id(&self.workspace.domain.graph);
         self.workspace.egui_state = None;
         self.workspace.egui_state_dirty = true;
         self.workspace.semantic_tags.clear();
@@ -6773,6 +6631,16 @@ impl GraphBrowserApp {
         self.workspace.physics = config;
     }
 
+    fn apply_graph_delta_and_sync(&mut self, delta: GraphDelta) -> GraphDeltaResult {
+        let result = apply_domain_graph_delta(&mut self.workspace.domain.graph, delta.clone());
+        if let Some(egui_state) = self.workspace.egui_state.as_mut()
+            && !egui_state.sync_from_delta(&self.workspace.domain.graph, &delta, &result)
+        {
+            self.workspace.egui_state_dirty = true;
+        }
+        result
+    }
+
     /// Toggle keyboard shortcut help panel visibility
     pub fn toggle_help_panel(&mut self) {
         self.workspace.show_help_panel = !self.workspace.show_help_panel;
@@ -6963,7 +6831,9 @@ impl GraphBrowserApp {
     }
 
     pub fn take_pending_open_note_request(&mut self) -> Option<NoteId> {
-        match self.take_pending_app_command(|command| matches!(command, AppCommand::OpenNote { .. }))? {
+        match self
+            .take_pending_app_command(|command| matches!(command, AppCommand::OpenNote { .. }))?
+        {
             AppCommand::OpenNote { note_id } => Some(note_id),
             _ => None,
         }
@@ -6974,7 +6844,9 @@ impl GraphBrowserApp {
     }
 
     pub fn take_pending_open_clip_request(&mut self) -> Option<String> {
-        match self.take_pending_app_command(|command| matches!(command, AppCommand::OpenClip { .. }))? {
+        match self
+            .take_pending_app_command(|command| matches!(command, AppCommand::OpenClip { .. }))?
+        {
             AppCommand::OpenClip { clip_id } => Some(clip_id),
             _ => None,
         }
@@ -7228,7 +7100,9 @@ impl GraphBrowserApp {
 
     /// Current explicit node context target for command-surface actions.
     pub fn pending_node_context_target(&self) -> Option<NodeKey> {
-        match self.pending_app_command(|command| matches!(command, AppCommand::NodeContextTarget { .. }))? {
+        match self.pending_app_command(|command| {
+            matches!(command, AppCommand::NodeContextTarget { .. })
+        })? {
             AppCommand::NodeContextTarget { target } => Some(*target),
             _ => None,
         }
@@ -7236,7 +7110,9 @@ impl GraphBrowserApp {
 
     /// Set/clear explicit node context target for command-surface actions.
     pub fn set_pending_node_context_target(&mut self, target: Option<NodeKey>) {
-        let _ = self.take_pending_app_command(|command| matches!(command, AppCommand::NodeContextTarget { .. }));
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::NodeContextTarget { .. })
+        });
 
         if let Some(target) = target {
             self.enqueue_app_command(AppCommand::NodeContextTarget { target });
@@ -7319,7 +7195,7 @@ impl GraphBrowserApp {
     }
 
     /// Active request for "Choose Workspace..." picker.
-    pub fn choose_workspace_picker_request(&self) -> Option<ChooseWorkspacePickerRequest> {
+    pub fn choose_workspace_picker_request(&self) -> Option<ChooseFramePickerRequest> {
         self.choose_frame_picker_request()
     }
 
@@ -7507,9 +7383,9 @@ impl GraphBrowserApp {
     pub fn pending_open_connected_from(
         &self,
     ) -> Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::OpenConnected { .. })
-        })? {
+        match self
+            .pending_app_command(|command| matches!(command, AppCommand::OpenConnected { .. }))?
+        {
             AppCommand::OpenConnected {
                 source,
                 mode,
@@ -7521,7 +7397,8 @@ impl GraphBrowserApp {
 
     /// Request opening a specific node as a tile in the given mode.
     pub fn request_open_node_tile_mode(&mut self, key: NodeKey, mode: PendingTileOpenMode) {
-        let _ = self.take_pending_app_command(|command| matches!(command, AppCommand::OpenNode { .. }));
+        let _ =
+            self.take_pending_app_command(|command| matches!(command, AppCommand::OpenNode { .. }));
         self.enqueue_app_command(AppCommand::OpenNode {
             request: PendingNodeOpenRequest { key, mode },
         });
@@ -7529,7 +7406,9 @@ impl GraphBrowserApp {
 
     /// Take and clear pending node-open request.
     pub fn take_pending_open_node_request(&mut self) -> Option<PendingNodeOpenRequest> {
-        match self.take_pending_app_command(|command| matches!(command, AppCommand::OpenNode { .. }))? {
+        match self
+            .take_pending_app_command(|command| matches!(command, AppCommand::OpenNode { .. }))?
+        {
             AppCommand::OpenNode { request } => Some(request),
             _ => None,
         }
@@ -7552,9 +7431,8 @@ impl GraphBrowserApp {
         target_view: Option<GraphViewId>,
         command: Option<CameraCommand>,
     ) {
-        let _ = self.take_pending_app_command(|queued| {
-            matches!(queued, AppCommand::CameraCommand { .. })
-        });
+        let _ = self
+            .take_pending_app_command(|queued| matches!(queued, AppCommand::CameraCommand { .. }));
 
         if let Some(command) = command {
             self.enqueue_app_command(AppCommand::CameraCommand {
@@ -7569,9 +7447,8 @@ impl GraphBrowserApp {
         target_view: Option<GraphViewId>,
         request: Option<KeyboardZoomRequest>,
     ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::KeyboardZoom { .. })
-        });
+        let _ = self
+            .take_pending_app_command(|command| matches!(command, AppCommand::KeyboardZoom { .. }));
 
         if let (Some(target_view), Some(request)) = (target_view, request) {
             self.enqueue_app_command(AppCommand::KeyboardZoom {
@@ -7587,9 +7464,8 @@ impl GraphBrowserApp {
         delta: Option<f32>,
         anchor_screen: Option<(f32, f32)>,
     ) {
-        let existing = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::WheelZoom { .. })
-        });
+        let existing = self
+            .take_pending_app_command(|command| matches!(command, AppCommand::WheelZoom { .. }));
 
         let (Some(target_view), Some(mut delta)) = (target_view, delta) else {
             return;
@@ -7631,8 +7507,8 @@ impl GraphBrowserApp {
 
     fn set_pending_unsaved_workspace_prompt(
         &mut self,
-        request: Option<UnsavedWorkspacePromptRequest>,
-        action: Option<UnsavedWorkspacePromptAction>,
+        request: Option<UnsavedFramePromptRequest>,
+        action: Option<UnsavedFramePromptAction>,
     ) {
         let _ = self.take_pending_app_command(|command| {
             matches!(command, AppCommand::UnsavedWorkspacePrompt { .. })
@@ -7645,7 +7521,7 @@ impl GraphBrowserApp {
 
     fn set_pending_choose_workspace_picker(
         &mut self,
-        request: Option<ChooseWorkspacePickerRequest>,
+        request: Option<ChooseFramePickerRequest>,
         exact_nodes: Option<Vec<NodeKey>>,
     ) {
         let _ = self.take_pending_app_command(|command| {
@@ -7671,22 +7547,20 @@ impl GraphBrowserApp {
     }
 
     fn sanitize_pending_frame_import_commands(&mut self) {
-        let mut retained_commands = VecDeque::with_capacity(self.workspace.pending_app_commands.len());
+        let mut retained_commands =
+            VecDeque::with_capacity(self.workspace.pending_app_commands.len());
 
         while let Some(command) = self.workspace.pending_app_commands.pop_front() {
             let retained = match command {
                 AppCommand::AddNodeToWorkspace {
                     node,
                     workspace_name,
-                } => self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(node)
-                    .map(|_| AppCommand::AddNodeToWorkspace {
+                } => self.workspace.domain.graph.get_node(node).map(|_| {
+                    AppCommand::AddNodeToWorkspace {
                         node,
                         workspace_name,
-                    }),
+                    }
+                }),
                 AppCommand::AddConnectedToWorkspace {
                     seed_nodes,
                     workspace_name,
@@ -7716,25 +7590,20 @@ impl GraphBrowserApp {
                 AppCommand::ChooseWorkspacePicker {
                     request,
                     exact_nodes,
-                } => self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(request.node)
-                    .map(|_| {
-                        let exact_nodes = exact_nodes
-                            .map(|nodes| {
-                                nodes
-                                    .into_iter()
-                                    .filter(|key| self.workspace.domain.graph.get_node(*key).is_some())
-                                    .collect::<Vec<_>>()
-                            })
-                            .filter(|nodes| !nodes.is_empty());
-                        AppCommand::ChooseWorkspacePicker {
-                            request,
-                            exact_nodes,
-                        }
-                    }),
+                } => self.workspace.domain.graph.get_node(request.node).map(|_| {
+                    let exact_nodes = exact_nodes
+                        .map(|nodes| {
+                            nodes
+                                .into_iter()
+                                .filter(|key| self.workspace.domain.graph.get_node(*key).is_some())
+                                .collect::<Vec<_>>()
+                        })
+                        .filter(|nodes| !nodes.is_empty());
+                    AppCommand::ChooseWorkspacePicker {
+                        request,
+                        exact_nodes,
+                    }
+                }),
                 other => Some(other),
             };
 
@@ -7780,8 +7649,10 @@ impl GraphBrowserApp {
 
     /// Take and clear pending frame save request.
     pub fn take_pending_save_workspace_snapshot(&mut self) -> bool {
-        self.take_pending_app_command(|command| matches!(command, AppCommand::SaveWorkspaceSnapshot))
-            .is_some()
+        self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::SaveWorkspaceSnapshot)
+        })
+        .is_some()
     }
 
     /// Take and clear pending frame save request.
@@ -7893,8 +7764,10 @@ impl GraphBrowserApp {
 
     /// Take and clear pending autosaved graph restore request.
     pub fn take_pending_restore_graph_snapshot_latest(&mut self) -> bool {
-        self.take_pending_app_command(|command| matches!(command, AppCommand::RestoreGraphSnapshotLatest))
-            .is_some()
+        self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::RestoreGraphSnapshotLatest)
+        })
+        .is_some()
     }
 
     /// Request deleting a named graph snapshot.
@@ -7914,17 +7787,7 @@ impl GraphBrowserApp {
 
     /// Request detaching a node's pane into split layout.
     pub fn request_detach_node_to_split(&mut self, key: NodeKey) {
-        self.enqueue_app_command(AppCommand::DetachNodeToSplit { key });
-    }
-
-    /// Take and clear pending detach-to-split request.
-    pub fn take_pending_detach_node_to_split(&mut self) -> Option<NodeKey> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::DetachNodeToSplit { .. })
-        })? {
-            AppCommand::DetachNodeToSplit { key } => Some(key),
-            _ => None,
-        }
+        self.enqueue_workbench_intent(WorkbenchIntent::DetachNodeToSplit { key });
     }
 
     /// Request batch prune of empty named frame snapshots.
@@ -8035,7 +7898,9 @@ impl GraphBrowserApp {
         }
 
         let _ = self
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .set_node_lifecycle(node_key, NodeLifecycle::Active);
         self.touch_active_node(node_key);
         self.remove_warm_cache_node(node_key);
@@ -8071,7 +7936,9 @@ impl GraphBrowserApp {
 
         let has_mapped_webview = self.workspace.node_to_webview.contains_key(&node_key);
         let _ = self
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .set_node_lifecycle(node_key, NodeLifecycle::Warm);
         if has_mapped_webview {
             self.touch_warm_cache_node(node_key);
@@ -8093,7 +7960,9 @@ impl GraphBrowserApp {
             return;
         }
         let _ = self
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .set_node_lifecycle(node_key, NodeLifecycle::Cold);
         self.remove_active_node(node_key);
         self.remove_warm_cache_node(node_key);
@@ -8192,7 +8061,9 @@ impl GraphBrowserApp {
         // Backfill any mapped-active nodes not seen in LRU (defensive against stale state).
         for (&key, _) in &self.workspace.node_to_webview {
             let is_active = self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .get_node(key)
                 .map(|node| node.lifecycle == crate::graph::NodeLifecycle::Active)
                 .unwrap_or(false);
@@ -8341,13 +8212,17 @@ impl GraphBrowserApp {
         };
 
         let from_key = self
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_nodes_by_url(old_url)
             .into_iter()
             .find(|&key| key != node_key)
             .or(Some(node_key));
         let to_key = self
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_nodes_by_url(new_url)
             .into_iter()
             .find(|&key| key != node_key)
@@ -8383,14 +8258,13 @@ impl GraphBrowserApp {
             .unwrap_or(false);
 
         let traversal = Traversal::now(trigger);
-        let GraphDeltaResult::TraversalAppended(appended) = apply_graph_delta(
-            &mut self.workspace.domain.graph,
-            GraphDelta::AppendTraversal {
+        let GraphDeltaResult::TraversalAppended(appended) =
+            self.apply_graph_delta_and_sync(GraphDelta::AppendTraversal {
                 from: from_key,
                 to: to_key,
                 traversal,
-            },
-        ) else {
+            })
+        else {
             unreachable!("append traversal delta must return TraversalAppended");
         };
         if !appended {
@@ -8412,7 +8286,6 @@ impl GraphBrowserApp {
             self.log_edge_mutation(from_key, to_key, EdgeType::History);
         }
         self.log_traversal_mutation(from_key, to_key, traversal);
-        self.workspace.egui_state_dirty = true;
         self.workspace.physics.base.is_running = true;
         self.workspace.drag_release_frames_remaining = 0;
         true
@@ -8421,11 +8294,15 @@ impl GraphBrowserApp {
     fn log_traversal_mutation(&mut self, from_key: NodeKey, to_key: NodeKey, traversal: Traversal) {
         if let Some(store) = &mut self.services.persistence {
             let from_id = self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .get_node(from_key)
                 .map(|n| n.id.to_string());
             let to_id = self
-                .workspace.domain.graph
+                .workspace
+                .domain
+                .graph
                 .get_node(to_key)
                 .map(|n| n.id.to_string());
             let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
@@ -8436,9 +8313,7 @@ impl GraphBrowserApp {
                 NavigationTrigger::LinkClick => PersistedNavigationTrigger::LinkClick,
                 NavigationTrigger::Back => PersistedNavigationTrigger::Back,
                 NavigationTrigger::Forward => PersistedNavigationTrigger::Forward,
-                NavigationTrigger::AddressBarEntry => {
-                    PersistedNavigationTrigger::AddressBarEntry
-                }
+                NavigationTrigger::AddressBarEntry => PersistedNavigationTrigger::AddressBarEntry,
                 NavigationTrigger::PanePromotion => PersistedNavigationTrigger::PanePromotion,
                 NavigationTrigger::Programmatic => PersistedNavigationTrigger::Programmatic,
             };
@@ -8638,7 +8513,9 @@ impl GraphBrowserApp {
 
     fn set_node_pinned_and_log(&mut self, key: NodeKey, is_pinned: bool) {
         let Some(current_state) = self
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(key)
             .map(|node| node.is_pinned)
         else {
@@ -8653,10 +8530,7 @@ impl GraphBrowserApp {
             return;
         }
 
-        let _ = apply_graph_delta(
-            &mut self.workspace.domain.graph,
-            GraphDelta::SetNodePinned { key, is_pinned },
-        );
+        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodePinned { key, is_pinned });
 
         let mut tags_changed = false;
         if is_pinned {
@@ -8673,11 +8547,12 @@ impl GraphBrowserApp {
             self.workspace.semantic_index_dirty = true;
         }
 
-        self.workspace.egui_state_dirty = true;
         if let Some(store) = &mut self.services.persistence {
             store.log_mutation(&LogEntry::PinNode {
                 node_id: self
-                    .workspace.domain.graph
+                    .workspace
+                    .domain
+                    .graph
                     .get_node(key)
                     .map(|node| node.id.to_string())
                     .unwrap_or_default(),
@@ -8693,7 +8568,9 @@ impl GraphBrowserApp {
 
         // Calculate approximate center of existing nodes
         let center = self
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .projected_centroid()
             .unwrap_or_else(|| Point2D::new(400.0, 300.0));
 
@@ -8720,7 +8597,12 @@ impl GraphBrowserApp {
         let nodes_to_remove: Vec<NodeKey> = self.focused_selection().iter().copied().collect();
 
         for node_key in nodes_to_remove {
-            let node_id = self.workspace.domain.graph.get_node(node_key).map(|node| node.id);
+            let node_id = self
+                .workspace
+                .domain
+                .graph
+                .get_node(node_key)
+                .map(|node| node.id);
 
             // Log removal to persistence before removing from graph
             if let Some(store) = &mut self.services.persistence {
@@ -8758,12 +8640,8 @@ impl GraphBrowserApp {
                     });
                 }
             } else {
-                let _ = apply_graph_delta(
-                    &mut self.workspace.domain.graph,
-                    GraphDelta::RemoveNode { key: node_key },
-                );
+                let _ = self.apply_graph_delta_and_sync(GraphDelta::RemoveNode { key: node_key });
             }
-            self.workspace.egui_state_dirty = true;
         }
 
         // Clear selection
@@ -8878,31 +8756,24 @@ impl GraphBrowserApp {
         let new_mime_hint = crate::graph::detect_mime(&new_url, None);
         let new_address_kind = crate::graph::address_kind_from_url(&new_url);
 
-        let GraphDeltaResult::NodeUrlUpdated(old_url) = apply_graph_delta(
-            &mut self.workspace.domain.graph,
-            GraphDelta::SetNodeUrl {
+        let GraphDeltaResult::NodeUrlUpdated(old_url) =
+            self.apply_graph_delta_and_sync(GraphDelta::SetNodeUrl {
                 key,
                 new_url: new_url.clone(),
-            },
-        ) else {
+            })
+        else {
             unreachable!("url delta must return NodeUrlUpdated");
         };
         let old_url = old_url?;
 
-        let _ = apply_graph_delta(
-            &mut self.workspace.domain.graph,
-            GraphDelta::SetNodeMimeHint {
-                key,
-                mime_hint: new_mime_hint.clone(),
-            },
-        );
-        let _ = apply_graph_delta(
-            &mut self.workspace.domain.graph,
-            GraphDelta::SetNodeAddressKind {
-                key,
-                kind: new_address_kind,
-            },
-        );
+        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodeMimeHint {
+            key,
+            mime_hint: new_mime_hint.clone(),
+        });
+        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodeAddressKind {
+            key,
+            kind: new_address_kind,
+        });
 
         if let Some(store) = &mut self.services.persistence {
             if let Some(node) = self.workspace.domain.graph.get_node(key) {
@@ -9124,8 +8995,14 @@ mod tests {
     #[test]
     fn removing_nodes_sanitizes_queued_frame_import_requests() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let kept = app.add_node_and_sync("https://example.com/kept".to_string(), Point2D::new(0.0, 0.0));
-        let removed = app.add_node_and_sync("https://example.com/removed".to_string(), Point2D::new(10.0, 0.0));
+        let kept = app.add_node_and_sync(
+            "https://example.com/kept".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let removed = app.add_node_and_sync(
+            "https://example.com/removed".to_string(),
+            Point2D::new(10.0, 0.0),
+        );
 
         app.request_add_node_to_frame(removed, "stale-node");
         app.request_add_connected_to_frame(vec![removed, kept], "mixed-connected");
@@ -9151,7 +9028,10 @@ mod tests {
         app.set_pending_tool_surface_return_target(Some(first.clone()));
         app.set_pending_tool_surface_return_target(Some(second.clone()));
 
-        assert_eq!(app.pending_tool_surface_return_target(), Some(second.clone()));
+        assert_eq!(
+            app.pending_tool_surface_return_target(),
+            Some(second.clone())
+        );
         assert_eq!(app.take_pending_tool_surface_return_target(), Some(second));
         assert!(app.pending_tool_surface_return_target().is_none());
 
@@ -9743,7 +9623,10 @@ mod tests {
         app.request_camera_command_for_view(Some(view_a), CameraCommand::Fit);
         app.request_camera_command_for_view(Some(view_b), CameraCommand::FitSelection);
 
-        assert_eq!(app.pending_camera_command(), Some(CameraCommand::FitSelection));
+        assert_eq!(
+            app.pending_camera_command(),
+            Some(CameraCommand::FitSelection)
+        );
         assert_eq!(app.pending_camera_command_target_raw(), Some(view_b));
         assert_eq!(app.pending_camera_command_target(), Some(view_b));
     }
@@ -9757,10 +9640,14 @@ mod tests {
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
         app.workspace.focused_view = Some(view_id);
         let key_a = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key_b = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(100.0, 50.0));
 
         assert!(app.apply_workspace_only_intent(&GraphIntent::RequestZoomIn));
@@ -9924,9 +9811,17 @@ mod tests {
         assert!(GraphIntent::SyncNow.as_view_action().is_none());
         assert!(GraphIntent::SyncNow.as_graph_mutation().is_none());
 
-        assert!(GraphIntent::CreateNodeNearCenter.as_graph_mutation().is_some());
+        assert!(
+            GraphIntent::CreateNodeNearCenter
+                .as_graph_mutation()
+                .is_some()
+        );
         assert!(GraphIntent::CreateNodeNearCenter.as_view_action().is_none());
-        assert!(GraphIntent::CreateNodeNearCenter.as_runtime_event().is_none());
+        assert!(
+            GraphIntent::CreateNodeNearCenter
+                .as_runtime_event()
+                .is_none()
+        );
     }
 
     #[test]
@@ -9941,7 +9836,10 @@ mod tests {
         app.request_switch_data_dir("C:/graphshell-data");
 
         assert_eq!(app.take_pending_open_note_request(), Some(note_id));
-        assert_eq!(app.take_pending_open_clip_request().as_deref(), Some("clip-queue"));
+        assert_eq!(
+            app.take_pending_open_clip_request().as_deref(),
+            Some("clip-queue")
+        );
         assert!(app.take_pending_prune_empty_workspaces());
         assert_eq!(app.take_pending_keep_latest_named_workspaces(), Some(3));
         assert_eq!(
@@ -9972,9 +9870,10 @@ mod tests {
         use crate::graph::NodeLifecycle;
 
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .workspace.domain.graph
-            .add_node("https://runtime.example".to_string(), Point2D::new(0.0, 0.0));
+        let key = app.workspace.domain.graph.add_node(
+            "https://runtime.example".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
 
         app.apply_runtime_events([RuntimeEvent::PromoteNodeToActive {
             key,
@@ -10008,51 +9907,59 @@ mod tests {
             "graph.update_node_url(",
         ];
         const RENDER_DURABLE_POSITION_ESCAPE_HATCH_TOKENS: [&str; 1] = ["graph.set_node_position("];
-        const RENDER_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 2] = [
-            "workspace.domain.graph.",
-            "workspace\n        .graph",
-        ];
+        const RENDER_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 2] =
+            ["workspace.domain.graph.", "workspace\n        .graph"];
         const RENDER_PROJECTED_READ_ESCAPE_HATCH_TOKENS: [&str; 1] = ["node.position"];
         const PROJECTED_READ_ESCAPE_HATCH_TOKENS: [&str; 1] = ["node.position"];
         const WORKBENCH_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
         const LIFECYCLE_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
         const ACTION_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
         const GUI_FRAME_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
-        const COMMAND_PALETTE_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
-        const GUI_ORCHESTRATION_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
-        const TOOLBAR_OMNIBAR_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
-        const THUMBNAIL_PIPELINE_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
+        const COMMAND_PALETTE_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] =
+            ["workspace.domain.graph"];
+        const GUI_ORCHESTRATION_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] =
+            ["workspace.domain.graph"];
+        const TOOLBAR_OMNIBAR_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] =
+            ["workspace.domain.graph"];
+        const THUMBNAIL_PIPELINE_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] =
+            ["workspace.domain.graph"];
         const GUI_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
-        const PERSISTENCE_OPS_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] = ["workspace.domain.graph"];
+        const PERSISTENCE_OPS_DOMAIN_BRIDGE_ESCAPE_HATCH_TOKENS: [&str; 1] =
+            ["workspace.domain.graph"];
 
         let persistence_runtime_only = include_str!("services/persistence/mod.rs")
             .split("\n#[cfg(test)]")
             .next()
             .unwrap_or_default();
-        let webview_controller_runtime_only = include_str!("shell/desktop/lifecycle/webview_controller.rs")
-            .split("\n#[cfg(test)]")
-            .next()
-            .unwrap_or_default();
-        let webview_backpressure_runtime_only = include_str!("shell/desktop/lifecycle/webview_backpressure.rs")
-            .split("\n#[cfg(test)]")
-            .next()
-            .unwrap_or_default();
-        let lifecycle_reconcile_runtime_only = include_str!("shell/desktop/lifecycle/lifecycle_reconcile.rs")
-            .split("\n#[cfg(test)]")
-            .next()
-            .unwrap_or_default();
+        let webview_controller_runtime_only =
+            include_str!("shell/desktop/lifecycle/webview_controller.rs")
+                .split("\n#[cfg(test)]")
+                .next()
+                .unwrap_or_default();
+        let webview_backpressure_runtime_only =
+            include_str!("shell/desktop/lifecycle/webview_backpressure.rs")
+                .split("\n#[cfg(test)]")
+                .next()
+                .unwrap_or_default();
+        let lifecycle_reconcile_runtime_only =
+            include_str!("shell/desktop/lifecycle/lifecycle_reconcile.rs")
+                .split("\n#[cfg(test)]")
+                .next()
+                .unwrap_or_default();
         let render_runtime_only = include_str!("render/mod.rs")
             .split("\n#[cfg(test)]")
             .next()
             .unwrap_or_default();
-        let action_registry_runtime_only = include_str!("shell/desktop/runtime/registries/action.rs")
-            .split("\n#[cfg(test)]")
-            .next()
-            .unwrap_or_default();
-        let runtime_registries_runtime_only = include_str!("shell/desktop/runtime/registries/mod.rs")
-            .split("\n#[cfg(test)]")
-            .next()
-            .unwrap_or_default();
+        let action_registry_runtime_only =
+            include_str!("shell/desktop/runtime/registries/action.rs")
+                .split("\n#[cfg(test)]")
+                .next()
+                .unwrap_or_default();
+        let runtime_registries_runtime_only =
+            include_str!("shell/desktop/runtime/registries/mod.rs")
+                .split("\n#[cfg(test)]")
+                .next()
+                .unwrap_or_default();
         let gui_runtime_only = include_str!("shell/desktop/ui/gui.rs")
             .split("\n#[cfg(test)]")
             .next()
@@ -10069,10 +9976,11 @@ mod tests {
             .split("\n#[cfg(test)]")
             .next()
             .unwrap_or_default();
-        let thumbnail_pipeline_runtime_only = include_str!("shell/desktop/ui/thumbnail_pipeline.rs")
-            .split("\n#[cfg(test)]")
-            .next()
-            .unwrap_or_default();
+        let thumbnail_pipeline_runtime_only =
+            include_str!("shell/desktop/ui/thumbnail_pipeline.rs")
+                .split("\n#[cfg(test)]")
+                .next()
+                .unwrap_or_default();
         let command_palette_runtime_only = include_str!("render/command_palette.rs")
             .split("\n#[cfg(test)]")
             .next()
@@ -10085,10 +9993,11 @@ mod tests {
             .split("\n#[cfg(test)]")
             .next()
             .unwrap_or_default();
-        let tile_invariants_runtime_only = include_str!("shell/desktop/workbench/tile_invariants.rs")
-            .split("\n#[cfg(test)]")
-            .next()
-            .unwrap_or_default();
+        let tile_invariants_runtime_only =
+            include_str!("shell/desktop/workbench/tile_invariants.rs")
+                .split("\n#[cfg(test)]")
+                .next()
+                .unwrap_or_default();
 
         let guarded_sources = [
             (
@@ -10124,7 +10033,10 @@ mod tests {
                 runtime_registries_runtime_only,
             ),
             ("render/mod.rs (runtime section)", render_runtime_only),
-            ("shell/desktop/ui/gui.rs (runtime section)", gui_runtime_only),
+            (
+                "shell/desktop/ui/gui.rs (runtime section)",
+                gui_runtime_only,
+            ),
             (
                 "shell/desktop/ui/gui_frame.rs (runtime section)",
                 gui_frame_runtime_only,
@@ -10177,7 +10089,13 @@ mod tests {
         }
 
         for (path, source) in [
-            ("graph_app.rs", include_str!("graph_app.rs").split("\n#[cfg(test)]").next().unwrap_or_default()),
+            (
+                "graph_app.rs",
+                include_str!("graph_app.rs")
+                    .split("\n#[cfg(test)]")
+                    .next()
+                    .unwrap_or_default(),
+            ),
             (
                 "shell/desktop/lifecycle/webview_controller.rs (runtime section)",
                 webview_controller_runtime_only,
@@ -10495,7 +10413,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
 
         app.apply_reducer_intents([GraphIntent::SelectNode {
@@ -10532,7 +10452,9 @@ mod tests {
             .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(10.0, 0.0));
 
         app.apply_reducer_intents([GraphIntent::SelectNode {
@@ -10566,7 +10488,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let webview_id = test_webview_id();
         app.map_webview_to_node(webview_id, key);
@@ -10596,10 +10520,14 @@ mod tests {
     fn test_selection_revision_increments_on_change() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(1.0, 0.0));
         let rev0 = app.workspace.selected_nodes.revision();
 
@@ -10670,7 +10598,9 @@ mod tests {
     fn test_intent_webview_created_links_parent_without_direct_selection_mutation() {
         let mut app = GraphBrowserApp::new_for_testing();
         let parent = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://parent.com".into(), Point2D::new(10.0, 20.0));
         let parent_wv = test_webview_id();
         let child_wv = test_webview_id();
@@ -10696,7 +10626,9 @@ mod tests {
     fn test_intent_webview_created_places_child_near_parent() {
         let mut app = GraphBrowserApp::new_for_testing();
         let parent = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://parent.com".into(), Point2D::new(10.0, 20.0));
         let parent_wv = test_webview_id();
         let child_wv = test_webview_id();
@@ -10709,7 +10641,13 @@ mod tests {
         }]);
 
         let child = app.get_node_for_webview(child_wv).unwrap();
-        let child_pos = app.workspace.domain.graph.get_node(child).unwrap().projected_position();
+        let child_pos = app
+            .workspace
+            .domain
+            .graph
+            .get_node(child)
+            .unwrap()
+            .projected_position();
         // Child should be placed near the parent (not at fallback center 400, 300).
         // The base offset is (+140, +80) plus jitter in [-50, +50].
         // So x is in [100, 200] and y is in [50, 150] relative to parent at (10, 20).
@@ -10731,7 +10669,8 @@ mod tests {
         let child = app.get_node_for_webview(child_wv).unwrap();
         assert!(
             app.workspace
-                .domain.graph
+                .domain
+                .graph
                 .get_node(child)
                 .unwrap()
                 .url
@@ -11077,7 +11016,12 @@ mod tests {
             .graph
             .find_edge_key(a, b)
             .expect("forward traversal edge");
-        let forward_payload = app.workspace.domain.graph.get_edge(forward_edge_key).unwrap();
+        let forward_payload = app
+            .workspace
+            .domain
+            .graph
+            .get_edge(forward_edge_key)
+            .unwrap();
         assert_eq!(forward_payload.traversals.len(), 1);
         assert_eq!(
             forward_payload.traversals[0].trigger,
@@ -11241,7 +11185,8 @@ mod tests {
                     from_node_id: from.clone(),
                     to_node_id: to.clone(),
                     timestamp_ms: i,
-                    trigger: crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
+                    trigger:
+                        crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
                 };
                 store
                     .archive_append_traversal(&entry)
@@ -11265,8 +11210,7 @@ mod tests {
         assert_eq!(timeline.len(), 2);
         match &timeline[0] {
             crate::services::persistence::types::LogEntry::AppendTraversal {
-                timestamp_ms,
-                ..
+                timestamp_ms, ..
             } => assert_eq!(*timestamp_ms, 5),
             _ => panic!("expected traversal entry"),
         }
@@ -11285,18 +11229,24 @@ mod tests {
                 .persistence
                 .as_mut()
                 .expect("persistence store should exist");
-            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
-                from_node_id: from.clone(),
-                to_node_id: to.clone(),
-                timestamp_ms: 10,
-                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
-            });
-            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
-                from_node_id: from,
-                to_node_id: to,
-                timestamp_ms: 20,
-                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Forward,
-            });
+            store.log_mutation(
+                &crate::services::persistence::types::LogEntry::AppendTraversal {
+                    from_node_id: from.clone(),
+                    to_node_id: to.clone(),
+                    timestamp_ms: 10,
+                    trigger:
+                        crate::services::persistence::types::PersistedNavigationTrigger::Unknown,
+                },
+            );
+            store.log_mutation(
+                &crate::services::persistence::types::LogEntry::AppendTraversal {
+                    from_node_id: from,
+                    to_node_id: to,
+                    timestamp_ms: 20,
+                    trigger:
+                        crate::services::persistence::types::PersistedNavigationTrigger::Forward,
+                },
+            );
         }
 
         let idx = app.history_timeline_index_entries(usize::MAX);
@@ -11428,12 +11378,15 @@ mod tests {
                 position_x: 32.0,
                 position_y: 0.0,
             });
-            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
-                from_node_id: from.to_string(),
-                to_node_id: to.to_string(),
-                timestamp_ms: 1_000,
-                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Forward,
-            });
+            store.log_mutation(
+                &crate::services::persistence::types::LogEntry::AppendTraversal {
+                    from_node_id: from.to_string(),
+                    to_node_id: to.to_string(),
+                    timestamp_ms: 1_000,
+                    trigger:
+                        crate::services::persistence::types::PersistedNavigationTrigger::Forward,
+                },
+            );
             store.log_mutation(&crate::services::persistence::types::LogEntry::AddNode {
                 node_id: later.to_string(),
                 url: "https://later.example".to_string(),
@@ -11462,7 +11415,9 @@ mod tests {
         assert_eq!(app.workspace.domain.graph.node_count(), 3);
         assert!(app.workspace.history_preview_graph.is_none());
         assert_eq!(
-            app.workspace.history_last_return_to_present_result.as_deref(),
+            app.workspace
+                .history_last_return_to_present_result
+                .as_deref(),
             Some("restored")
         );
     }
@@ -11492,12 +11447,15 @@ mod tests {
                 position_x: 32.0,
                 position_y: 0.0,
             });
-            store.log_mutation(&crate::services::persistence::types::LogEntry::AppendTraversal {
-                from_node_id: from.to_string(),
-                to_node_id: to.to_string(),
-                timestamp_ms: 1_000,
-                trigger: crate::services::persistence::types::PersistedNavigationTrigger::Forward,
-            });
+            store.log_mutation(
+                &crate::services::persistence::types::LogEntry::AppendTraversal {
+                    from_node_id: from.to_string(),
+                    to_node_id: to.to_string(),
+                    timestamp_ms: 1_000,
+                    trigger:
+                        crate::services::persistence::types::PersistedNavigationTrigger::Forward,
+                },
+            );
         }
 
         let before_log_entries = app
@@ -11923,7 +11881,14 @@ mod tests {
             .add_node("https://title.com".into(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
-        let original_title = app.workspace.domain.graph.get_node(key).unwrap().title.clone();
+        let original_title = app
+            .workspace
+            .domain
+            .graph
+            .get_node(key)
+            .unwrap()
+            .title
+            .clone();
 
         app.apply_reducer_intents([GraphIntent::WebViewTitleChanged {
             webview_id: wv,
@@ -11938,7 +11903,10 @@ mod tests {
             webview_id: wv,
             title: Some("Hello".into()),
         }]);
-        assert_eq!(app.workspace.domain.graph.get_node(key).unwrap().title, "Hello");
+        assert_eq!(
+            app.workspace.domain.graph.get_node(key).unwrap().title,
+            "Hello"
+        );
     }
 
     #[test]
@@ -12189,10 +12157,14 @@ mod tests {
     fn test_remove_selected_nodes_single() {
         let mut app = GraphBrowserApp::new_for_testing();
         let k1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let _k2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(100.0, 0.0));
 
         app.select_node(k1, false);
@@ -12207,13 +12179,19 @@ mod tests {
     fn test_remove_selected_nodes_multi() {
         let mut app = GraphBrowserApp::new_for_testing();
         let k1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let k2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(100.0, 0.0));
         let k3 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("c".to_string(), Point2D::new(200.0, 0.0));
 
         app.select_node(k1, false);
@@ -12228,7 +12206,9 @@ mod tests {
     #[test]
     fn test_remove_selected_nodes_empty_selection() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.domain.graph
+        app.workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
 
         // No selection â€” should be a no-op
@@ -12240,7 +12220,9 @@ mod tests {
     fn test_remove_selected_nodes_clears_webview_mapping() {
         let mut app = GraphBrowserApp::new_for_testing();
         let k1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
 
         // Simulate a webview mapping
@@ -12262,10 +12244,14 @@ mod tests {
     fn test_clear_graph_resets_everything() {
         let mut app = GraphBrowserApp::new_for_testing();
         let k1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let k2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(100.0, 0.0));
 
         app.select_node(k1, false);
@@ -12310,7 +12296,9 @@ mod tests {
             Point2D::new(0.0, 0.0),
         );
         let node_id = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(node_key)
             .map(|node| node.id)
             .expect("node must exist");
@@ -12364,7 +12352,9 @@ mod tests {
     #[test]
     fn test_file_tree_projection_rebuild_populates_imported_filesystem_rows_from_file_urls() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.domain.graph
+        app.workspace
+            .domain
+            .graph
             .add_node("file:///tmp/a.txt".to_string(), Point2D::new(0.0, 0.0));
         app.workspace.domain.graph.add_node(
             "https://example.com/not-imported".to_string(),
@@ -12390,9 +12380,13 @@ mod tests {
     #[test]
     fn test_file_tree_projection_root_filter_limits_imported_filesystem_rows() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.workspace.domain.graph
+        app.workspace
+            .domain
+            .graph
             .add_node("file:///tmp/a.txt".to_string(), Point2D::new(0.0, 0.0));
-        app.workspace.domain.graph
+        app.workspace
+            .domain
+            .graph
             .add_node("file:///tmp/b.log".to_string(), Point2D::new(1.0, 0.0));
 
         app.apply_reducer_intents([
@@ -12508,7 +12502,9 @@ mod tests {
     fn test_create_new_node_near_center_selects_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let k1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("existing".to_string(), Point2D::new(0.0, 0.0));
         app.select_node(k1, false);
 
@@ -12526,7 +12522,9 @@ mod tests {
         use crate::graph::NodeLifecycle;
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
 
         // Default lifecycle is Cold
@@ -12552,7 +12550,9 @@ mod tests {
     fn test_demote_clears_webview_mapping() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let fake_wv_id = test_webview_id();
 
@@ -12570,7 +12570,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         app.promote_node_to_active(key);
 
@@ -12597,7 +12599,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
@@ -12630,7 +12634,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
@@ -12658,7 +12664,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
@@ -12693,7 +12701,9 @@ mod tests {
     fn test_policy_explicit_close_clears_crash_state() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv = test_webview_id();
         app.map_webview_to_node(wv, key);
@@ -12716,7 +12726,9 @@ mod tests {
     fn test_mark_runtime_blocked_and_expiry_unblocks_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let retry_at = Instant::now() + Duration::from_millis(5);
         app.apply_reducer_intents([GraphIntent::MarkRuntimeBlocked {
@@ -12735,7 +12747,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         app.apply_reducer_intents([
             GraphIntent::MarkRuntimeBlocked {
@@ -12761,7 +12775,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
         app.map_webview_to_node(wv_id, key);
@@ -12785,7 +12801,9 @@ mod tests {
     fn test_unmap_webview_removes_warm_cache_membership() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
         app.map_webview_to_node(wv_id, key);
@@ -12800,13 +12818,19 @@ mod tests {
     fn test_take_warm_cache_evictions_respects_lru_and_limit() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key_a = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key_b = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(1.0, 0.0));
         let key_c = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("c".to_string(), Point2D::new(2.0, 0.0));
 
         app.map_webview_to_node(test_webview_id(), key_a);
@@ -12830,16 +12854,24 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key_a = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key_b = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(1.0, 0.0));
         let key_c = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("c".to_string(), Point2D::new(2.0, 0.0));
         let key_d = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("d".to_string(), Point2D::new(3.0, 0.0));
 
         for key in [key_a, key_b, key_c, key_d] {
@@ -12861,13 +12893,19 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key_a = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key_b = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(1.0, 0.0));
         let key_c = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("c".to_string(), Point2D::new(2.0, 0.0));
 
         for key in [key_a, key_b, key_c] {
@@ -12885,7 +12923,9 @@ mod tests {
 
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
 
@@ -12929,7 +12969,9 @@ mod tests {
     fn test_clear_graph_clears_runtime_crash_state() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
         app.map_webview_to_node(wv_id, key);
@@ -12950,7 +12992,9 @@ mod tests {
     fn test_webview_mapping_bidirectional() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
 
@@ -12964,7 +13008,9 @@ mod tests {
     fn test_unmap_webview() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let wv_id = test_webview_id();
 
@@ -12988,10 +13034,14 @@ mod tests {
     fn test_webview_node_mappings_iterator() {
         let mut app = GraphBrowserApp::new_for_testing();
         let k1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let k2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(100.0, 0.0));
         let wv1 = test_webview_id();
         let wv2 = test_webview_id();
@@ -13009,7 +13059,9 @@ mod tests {
     fn test_get_single_selected_node_one() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
@@ -13026,10 +13078,14 @@ mod tests {
     fn test_get_single_selected_node_multi() {
         let mut app = GraphBrowserApp::new_for_testing();
         let k1 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let k2 = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("b".to_string(), Point2D::new(100.0, 0.0));
         app.select_node(k1, false);
         app.select_node(k2, true);
@@ -13043,16 +13099,33 @@ mod tests {
     fn test_update_node_url_and_log() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("old-url".to_string(), Point2D::new(0.0, 0.0));
 
         let old = app.update_node_url_and_log(key, "new-url".to_string());
 
         assert_eq!(old, Some("old-url".to_string()));
-        assert_eq!(app.workspace.domain.graph.get_node(key).unwrap().url, "new-url");
+        assert_eq!(
+            app.workspace.domain.graph.get_node(key).unwrap().url,
+            "new-url"
+        );
         // url_to_node should be updated
-        assert!(app.workspace.domain.graph.get_node_by_url("new-url").is_some());
-        assert!(app.workspace.domain.graph.get_node_by_url("old-url").is_none());
+        assert!(
+            app.workspace
+                .domain
+                .graph
+                .get_node_by_url("new-url")
+                .is_some()
+        );
+        assert!(
+            app.workspace
+                .domain
+                .graph
+                .get_node_by_url("old-url")
+                .is_none()
+        );
     }
 
     #[test]
@@ -13096,12 +13169,16 @@ mod tests {
         assert_eq!(app.workspace.domain.graph.node_count(), 2);
         assert_eq!(app.workspace.domain.graph.edge_count(), 1);
         assert!(
-            app.workspace.domain.graph
+            app.workspace
+                .domain
+                .graph
                 .get_node_by_url("https://a.com")
                 .is_some()
         );
         assert!(
-            app.workspace.domain.graph
+            app.workspace
+                .domain
+                .graph
                 .get_node_by_url("https://b.com")
                 .is_some()
         );
@@ -13133,7 +13210,9 @@ mod tests {
     fn test_clear_graph_and_persistence_in_memory_reset() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         app.select_node(key, false);
 
@@ -13164,7 +13243,9 @@ mod tests {
     fn test_resolve_frame_open_deterministic_fallback_without_recency_match() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let node_id = app.workspace.domain.graph.get_node(key).unwrap().id;
 
@@ -13185,7 +13266,7 @@ mod tests {
         for _ in 0..5 {
             assert_eq!(
                 app.resolve_workspace_open(key, None),
-                WorkspaceOpenAction::RestoreFrame {
+                FrameOpenAction::RestoreFrame {
                     name: "workspace-a".to_string(),
                     node: key
                 }
@@ -13197,7 +13278,9 @@ mod tests {
     fn test_resolve_frame_open_reason_honors_preferred_frame() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let node_id = app.workspace.domain.graph.get_node(key).unwrap().id;
         app.init_membership_index(HashMap::from([(
@@ -13208,19 +13291,21 @@ mod tests {
         let (action, reason) = app.resolve_workspace_open_with_reason(key, Some("beta"));
         assert_eq!(
             action,
-            WorkspaceOpenAction::RestoreFrame {
+            FrameOpenAction::RestoreFrame {
                 name: "beta".to_string(),
                 node: key
             }
         );
-        assert_eq!(reason, WorkspaceOpenReason::PreferredFrame);
+        assert_eq!(reason, FrameOpenReason::PreferredFrame);
     }
 
     #[test]
     fn test_resolve_frame_open_reason_recent_membership() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let node_id = app.workspace.domain.graph.get_node(key).unwrap().id;
         app.init_membership_index(HashMap::from([(
@@ -13230,17 +13315,19 @@ mod tests {
         app.note_workspace_activated("beta", [key]);
 
         let (_, reason) = app.resolve_workspace_open_with_reason(key, None);
-        assert_eq!(reason, WorkspaceOpenReason::RecentMembership);
+        assert_eq!(reason, FrameOpenReason::RecentMembership);
     }
 
     #[test]
     fn test_resolve_frame_open_reason_no_membership() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let (_, reason) = app.resolve_workspace_open_with_reason(key, None);
-        assert_eq!(reason, WorkspaceOpenReason::NoMembership);
+        assert_eq!(reason, FrameOpenReason::NoMembership);
     }
 
     #[test]
@@ -13376,23 +13463,18 @@ mod tests {
         let mut app = GraphBrowserApp::new_from_dir(path.clone());
         app.set_default_registry_lens_id(Some("lens:default"));
         app.set_default_registry_physics_id(Some("physics:gas"));
-        app.set_default_registry_layout_id(Some("layout:grid"));
         app.set_default_registry_theme_id(Some("theme:dark"));
         drop(app);
 
         let reopened = GraphBrowserApp::new_from_dir(path);
         assert_eq!(reopened.default_registry_lens_id(), Some("lens:default"));
         assert_eq!(reopened.default_registry_physics_id(), Some("physics:gas"));
-        assert_eq!(reopened.default_registry_layout_id(), Some("layout:grid"));
         assert_eq!(reopened.default_registry_theme_id(), Some("theme:dark"));
     }
 
     #[test]
-    fn test_set_view_lens_applies_persisted_component_defaults_when_ids_missing() {
+    fn test_set_view_lens_preserves_direct_values_when_lens_id_missing() {
         let mut app = GraphBrowserApp::new_for_testing();
-        app.set_default_registry_physics_id(Some("physics:gas"));
-        app.set_default_registry_layout_id(Some("layout:grid"));
-        app.set_default_registry_theme_id(Some("theme:dark"));
 
         let view_id = GraphViewId::new();
         app.workspace
@@ -13402,33 +13484,32 @@ mod tests {
         let lens = LensConfig {
             name: "Custom Lens".to_string(),
             lens_id: None,
-            physics_id: None,
-            layout_id: None,
-            theme_id: None,
-            physics: PhysicsProfile::default(),
-            layout: LayoutMode::Free,
-            theme: None,
+            physics: PhysicsProfile::gas(),
+            layout: LayoutMode::Grid { gap: 24.0 },
+            theme: Some(ThemeData {
+                background_rgb: (1, 2, 3),
+                accent_rgb: (4, 5, 6),
+                font_scale: 1.3,
+                stroke_width: 2.0,
+            }),
             filters: Vec::new(),
         };
 
         app.apply_reducer_intents([GraphIntent::SetViewLens { view_id, lens }]);
 
         let resolved = &app.workspace.views.get(&view_id).unwrap().lens;
-        assert_eq!(resolved.physics_id.as_deref(), Some("physics:gas"));
-        assert_eq!(resolved.layout_id.as_deref(), Some("layout:grid"));
-        assert_eq!(resolved.theme_id.as_deref(), Some("theme:dark"));
         assert_eq!(resolved.physics.name, "Gas");
-        assert!(matches!(resolved.layout, LayoutMode::Grid { .. }));
-        assert_eq!(resolved.theme.as_deref(), Some("theme:dark"));
+        assert!(matches!(resolved.layout, LayoutMode::Grid { gap: 24.0 }));
+        assert_eq!(
+            resolved.theme.as_ref().map(|theme| theme.background_rgb),
+            Some((1, 2, 3))
+        );
     }
 
     #[test]
     fn test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing() {
         let mut app = GraphBrowserApp::new_for_testing();
         app.set_default_registry_lens_id(Some("lens:default"));
-        app.set_default_registry_physics_id(Some("physics:gas"));
-        app.set_default_registry_layout_id(Some("layout:grid"));
-        app.set_default_registry_theme_id(Some("theme:dark"));
 
         let view_id = GraphViewId::new();
         app.workspace
@@ -13438,9 +13519,6 @@ mod tests {
         let lens = LensConfig {
             name: "Custom Lens".to_string(),
             lens_id: None,
-            physics_id: None,
-            layout_id: None,
-            theme_id: None,
             physics: PhysicsProfile::default(),
             layout: LayoutMode::Free,
             theme: None,
@@ -13452,12 +13530,12 @@ mod tests {
         let resolved = &app.workspace.views.get(&view_id).unwrap().lens;
         assert_eq!(resolved.lens_id.as_deref(), Some("lens:default"));
         assert_eq!(resolved.name, "Default");
-        assert_eq!(resolved.physics_id.as_deref(), Some("physics:liquid"));
-        assert_eq!(resolved.layout_id.as_deref(), Some("layout:default"));
-        assert_eq!(resolved.theme_id.as_deref(), Some("theme:default"));
         assert_eq!(resolved.physics.name, "Liquid");
         assert!(matches!(resolved.layout, LayoutMode::Free));
-        assert_eq!(resolved.theme.as_deref(), Some("theme:default"));
+        assert_eq!(
+            resolved.theme.as_ref().map(|theme| theme.background_rgb),
+            Some((20, 20, 25))
+        );
     }
 
     // --- UpdateNodeMimeHint / UpdateNodeAddressKind intent tests ---
@@ -13466,7 +13544,9 @@ mod tests {
     fn update_node_mime_hint_intent_sets_hint_on_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("file:///doc.pdf".to_string(), Point2D::new(0.0, 0.0));
 
         app.apply_reducer_intents([GraphIntent::UpdateNodeMimeHint {
@@ -13509,7 +13589,9 @@ mod tests {
     fn update_node_mime_hint_intent_can_clear_hint() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("file:///doc.pdf".to_string(), Point2D::new(0.0, 0.0));
 
         // Set then clear.
@@ -13530,7 +13612,9 @@ mod tests {
     fn update_node_address_kind_intent_sets_kind_on_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
 
         app.apply_reducer_intents([GraphIntent::UpdateNodeAddressKind {
@@ -13546,7 +13630,9 @@ mod tests {
     fn node_created_with_http_url_has_http_address_kind_after_add_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
         let node = app.workspace.domain.graph.get_node(key).unwrap();
         assert_eq!(node.address_kind, crate::graph::AddressKind::Http);
@@ -13568,12 +13654,19 @@ mod tests {
     fn update_node_url_and_log_refreshes_mime_hint_and_address_kind() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
 
         // Start with HTTP
         assert_eq!(
-            app.workspace.domain.graph.get_node(key).unwrap().address_kind,
+            app.workspace
+                .domain
+                .graph
+                .get_node(key)
+                .unwrap()
+                .address_kind,
             crate::graph::AddressKind::Http
         );
 
@@ -13617,7 +13710,9 @@ mod tests {
     fn undo_redo_set_node_url_round_trips_original_value() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://old.example".to_string(), Point2D::new(0.0, 0.0));
 
         app.apply_reducer_intents([GraphIntent::SetNodeUrl {
@@ -13647,10 +13742,14 @@ mod tests {
     fn undo_redo_user_grouped_edge_create_and_remove_round_trip() {
         let mut app = GraphBrowserApp::new_for_testing();
         let from = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://a.example".to_string(), Point2D::new(0.0, 0.0));
         let to = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://b.example".to_string(), Point2D::new(10.0, 0.0));
 
         app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge { from, to }]);
@@ -13713,7 +13812,9 @@ mod tests {
     fn set_node_url_noop_does_not_capture_undo_checkpoint() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://same.example".to_string(), Point2D::new(0.0, 0.0));
 
         app.apply_reducer_intents([GraphIntent::SetNodeUrl {
@@ -13757,6 +13858,20 @@ mod tests {
             [WorkbenchIntent::CycleFocusRegion]
         ));
         assert_eq!(app.pending_workbench_intent_count_for_tests(), 0);
+    }
+
+    #[test]
+    fn detach_node_to_split_requests_flow_through_workbench_intents() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = NodeKey::new(7);
+
+        app.request_detach_node_to_split(key);
+
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::DetachNodeToSplit { key: drained_key }] if *drained_key == key
+        ));
     }
 
     #[test]
@@ -14418,5 +14533,3 @@ mod tests {
         assert!(!app.workspace.show_command_palette);
     }
 }
-
-

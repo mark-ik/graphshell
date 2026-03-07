@@ -113,9 +113,9 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
         } => GraphDeltaResult::EdgeAdded(graph.add_edge(from, to, edge_type)),
         GraphDelta::RemoveNode { key } => GraphDeltaResult::NodeRemoved(graph.remove_node(key)),
         GraphDelta::ReplayAddNodeWithIdIfMissing { id, url, position } => {
-            GraphDeltaResult::NodeMaybeAdded(graph.replay_add_node_with_id_if_missing(
-                id, url, position,
-            ))
+            GraphDeltaResult::NodeMaybeAdded(
+                graph.replay_add_node_with_id_if_missing(id, url, position),
+            )
         }
         GraphDelta::ReplayAddEdgeByIds {
             from_id,
@@ -161,7 +161,9 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
             rgba,
             width,
             height,
-        } => GraphDeltaResult::NodeMetadataUpdated(graph.set_node_favicon(key, rgba, width, height)),
+        } => {
+            GraphDeltaResult::NodeMetadataUpdated(graph.set_node_favicon(key, rgba, width, height))
+        }
         GraphDelta::SetNodeMimeHint { key, mime_hint } => {
             GraphDeltaResult::NodeMetadataUpdated(graph.set_node_mime_hint(key, mime_hint))
         }

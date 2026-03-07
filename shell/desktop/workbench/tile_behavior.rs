@@ -14,8 +14,8 @@ use egui_tiles::{
 };
 
 use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent,
-    SearchDisplayMode, ViewAction, WorkbenchIntent,
+    GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent, SearchDisplayMode,
+    ViewAction, WorkbenchIntent,
 };
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::domain::layout::LayoutDomainRegistry;
@@ -97,16 +97,18 @@ impl WryUnavailableReason {
     fn diagnostics_channel(self) -> &'static str {
         match self {
             WryUnavailableReason::FeatureDisabled => CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED,
-            WryUnavailableReason::CapabilityMissing => CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING,
-            WryUnavailableReason::DisabledByPreference => CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE,
+            WryUnavailableReason::CapabilityMissing => {
+                CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING
+            }
+            WryUnavailableReason::DisabledByPreference => {
+                CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE
+            }
         }
     }
 
     fn message(self) -> &'static str {
         match self {
-            WryUnavailableReason::FeatureDisabled => {
-                "Wry backend is not compiled in this build."
-            }
+            WryUnavailableReason::FeatureDisabled => "Wry backend is not compiled in this build.",
             WryUnavailableReason::CapabilityMissing => {
                 "Runtime capability 'viewer:wry' is unavailable."
             }
@@ -750,18 +752,18 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         GraphAction::FocusNode(key) => {
                             log::debug!("tile_behavior: FocusNode action for {:?}", key);
                             self.queue_post_render_intent(GraphIntent::OpenNodeFrameRouted {
-                                    key,
-                                    prefer_frame: None,
-                                });
+                                key,
+                                prefer_frame: None,
+                            });
                         }
                         GraphAction::FocusNodeSplit(key) => {
                             if let Some(primary) = self.graph_app.focused_selection().primary()
                                 && primary != key
                             {
                                 self.queue_post_render_intent(GraphIntent::CreateUserGroupedEdge {
-                                        from: primary,
-                                        to: key,
-                                    });
+                                    from: primary,
+                                    to: key,
+                                });
                             }
                             self.queue_post_render_intent(GraphIntent::SelectNode {
                                 key,
@@ -943,7 +945,11 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     return UiResponse::None;
                 }
 
-                if let Some(crash) = self.graph_app.runtime_crash_state_for_node(node_key).cloned() {
+                if let Some(crash) = self
+                    .graph_app
+                    .runtime_crash_state_for_node(node_key)
+                    .cloned()
+                {
                     let crash_reason = crash.message.as_deref().unwrap_or("unknown");
                     ui.colored_label(
                         egui::Color32::from_rgb(220, 120, 120),
@@ -1375,9 +1381,11 @@ fn render_graph_pane_overlay(
         .lens_id
         .clone()
         .unwrap_or_else(|| view.lens.name.clone());
-    let current_lens_id = view.lens.lens_id.clone().unwrap_or_else(|| {
-        crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string()
-    });
+    let current_lens_id = view
+        .lens
+        .lens_id
+        .clone()
+        .unwrap_or_else(|| crate::registries::atomic::lens::LENS_ID_DEFAULT.to_string());
     let base_lens = view.lens.clone();
 
     // Overlay anchored to top-right of the pane, with a small margin.
@@ -1606,15 +1614,21 @@ mod tests {
 
     #[test]
     fn wry_unavailable_reason_exposes_user_facing_messages() {
-        assert!(WryUnavailableReason::FeatureDisabled
-            .message()
-            .contains("not compiled"));
-        assert!(WryUnavailableReason::CapabilityMissing
-            .message()
-            .contains("capability"));
-        assert!(WryUnavailableReason::DisabledByPreference
-            .message()
-            .contains("disabled"));
+        assert!(
+            WryUnavailableReason::FeatureDisabled
+                .message()
+                .contains("not compiled")
+        );
+        assert!(
+            WryUnavailableReason::CapabilityMissing
+                .message()
+                .contains("capability")
+        );
+        assert!(
+            WryUnavailableReason::DisabledByPreference
+                .message()
+                .contains("disabled")
+        );
     }
 
     #[test]

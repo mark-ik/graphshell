@@ -134,18 +134,22 @@ fn execute_graph_view_submit_action(
     }
 
     if let Some(selected_node) = app.get_single_selected_node() {
-        vec![GraphMutation::SetNodeUrl {
-            key: selected_node,
-            new_url: input.to_string(),
-        }
-        .into()]
+        vec![
+            GraphMutation::SetNodeUrl {
+                key: selected_node,
+                new_url: input.to_string(),
+            }
+            .into(),
+        ]
     } else {
         let position = new_node_position_for_context(app, app.focused_selection().primary());
-        vec![GraphMutation::CreateNodeAtUrl {
-            url: input.to_string(),
-            position,
-        }
-        .into()]
+        vec![
+            GraphMutation::CreateNodeAtUrl {
+                url: input.to_string(),
+                position,
+            }
+            .into(),
+        ]
     }
 }
 
@@ -176,11 +180,13 @@ fn execute_detail_view_submit_action(
         ];
     }
 
-    vec![GraphMutation::CreateNodeAtUrl {
-        url: normalized_url.clone(),
-        position: new_node_position_for_context(app, app.focused_selection().primary()),
-    }
-    .into()]
+    vec![
+        GraphMutation::CreateNodeAtUrl {
+            url: normalized_url.clone(),
+            position: new_node_position_for_context(app, app.focused_selection().primary()),
+        }
+        .into(),
+    ]
 }
 
 fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
@@ -318,10 +324,12 @@ fn execute_verse_forget_device_action(
         return Vec::new();
     };
 
-    vec![GraphMutation::ForgetDevice {
-        peer_id: node_id.clone(),
-    }
-    .into()]
+    vec![
+        GraphMutation::ForgetDevice {
+            peer_id: node_id.clone(),
+        }
+        .into(),
+    ]
 }
 
 // ===== Core Action Implementations (original) =====
@@ -410,7 +418,9 @@ mod tests {
     fn action_registry_executes_detail_view_submit_action_for_focused_node() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
 
         let registry = ActionRegistry::default();

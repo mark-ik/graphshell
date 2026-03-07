@@ -1,12 +1,13 @@
 pub(crate) mod canvas;
+pub(crate) mod profile_registry;
 pub(crate) mod viewer_surface;
 pub(crate) mod workbench_surface;
 
 /// Conformance level for a surface capability declaration.
 ///
-/// Used by `AccessibilityCapabilities` and `SecurityCapabilities` to declare
-/// whether a surface or profile fully, partially, or does not implement a
-/// cross-cutting guarantee. Partial conformance must carry a `reason`.
+/// Used by `CapabilityDeclaration` to declare whether a surface or profile
+/// fully, partially, or does not implement a cross-cutting guarantee. Partial
+/// conformance must carry a `reason`.
 ///
 /// Populated at registry registration time; read by subsystem diagnostics and
 /// validation to drive degraded-path warnings and conformance audit trails.
@@ -20,125 +21,19 @@ pub(crate) enum ConformanceLevel {
     None,
 }
 
-/// Accessibility conformance declaration for a surface profile.
+/// Conformance declaration for a surface or viewer subsystem.
 ///
-/// Registered alongside a surface profile to allow accessibility subsystem
-/// diagnostics to audit conformance without reaching into rendering code.
+/// Registered alongside the owning profile to allow diagnostics to audit
+/// conformance without reaching into runtime rendering code.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct AccessibilityCapabilities {
+pub(crate) struct CapabilityDeclaration {
     pub(crate) level: ConformanceLevel,
     /// Required when `level` is `Partial` or `None`; describes the gap or
-    /// degraded path (e.g. "WebView accessibility bridge not available on this
-    /// platform — keyboard navigation limited to tab/arrow within pane").
+    /// degraded path.
     pub(crate) reason: Option<String>,
 }
 
-impl AccessibilityCapabilities {
-    pub(crate) fn full() -> Self {
-        Self {
-            level: ConformanceLevel::Full,
-            reason: None,
-        }
-    }
-
-    pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::Partial,
-            reason: Some(reason.into()),
-        }
-    }
-
-    pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::None,
-            reason: Some(reason.into()),
-        }
-    }
-}
-
-/// Security conformance declaration for a surface profile.
-///
-/// Registered alongside a surface profile to allow security subsystem
-/// diagnostics to audit whether content isolation, sandboxing, or CSP
-/// guarantees are satisfied.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct SecurityCapabilities {
-    pub(crate) level: ConformanceLevel,
-    /// Required when `level` is `Partial` or `None`; describes the gap or
-    /// degraded path (e.g. "content rendered without sandbox — legacy mode").
-    pub(crate) reason: Option<String>,
-}
-
-impl SecurityCapabilities {
-    pub(crate) fn full() -> Self {
-        Self {
-            level: ConformanceLevel::Full,
-            reason: None,
-        }
-    }
-
-    pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::Partial,
-            reason: Some(reason.into()),
-        }
-    }
-
-    pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::None,
-            reason: Some(reason.into()),
-        }
-    }
-}
-
-/// Storage conformance declaration for a surface profile.
-///
-/// Declares whether the surface/profile participates in canonical workspace
-/// persistence contracts (schema integrity, deterministic restore semantics,
-/// and no special-case bypasses).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct StorageCapabilities {
-    pub(crate) level: ConformanceLevel,
-    /// Required when `level` is `Partial` or `None`; describes the gap.
-    pub(crate) reason: Option<String>,
-}
-
-impl StorageCapabilities {
-    pub(crate) fn full() -> Self {
-        Self {
-            level: ConformanceLevel::Full,
-            reason: None,
-        }
-    }
-
-    pub(crate) fn partial(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::Partial,
-            reason: Some(reason.into()),
-        }
-    }
-
-    pub(crate) fn none(reason: impl Into<String>) -> Self {
-        Self {
-            level: ConformanceLevel::None,
-            reason: Some(reason.into()),
-        }
-    }
-}
-
-/// History conformance declaration for a surface profile.
-///
-/// Declares whether traversal/timeline semantics and preview/replay integrity
-/// guarantees are supported for this surface/profile.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) struct HistoryCapabilities {
-    pub(crate) level: ConformanceLevel,
-    /// Required when `level` is `Partial` or `None`; describes the gap.
-    pub(crate) reason: Option<String>,
-}
-
-impl HistoryCapabilities {
+impl CapabilityDeclaration {
     pub(crate) fn full() -> Self {
         Self {
             level: ConformanceLevel::Full,
@@ -168,19 +63,19 @@ impl HistoryCapabilities {
 /// instead of ad hoc per-subsystem plumbing.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SurfaceSubsystemCapabilities {
-    pub(crate) accessibility: AccessibilityCapabilities,
-    pub(crate) security: SecurityCapabilities,
-    pub(crate) storage: StorageCapabilities,
-    pub(crate) history: HistoryCapabilities,
+    pub(crate) accessibility: CapabilityDeclaration,
+    pub(crate) security: CapabilityDeclaration,
+    pub(crate) storage: CapabilityDeclaration,
+    pub(crate) history: CapabilityDeclaration,
 }
 
 impl SurfaceSubsystemCapabilities {
     pub(crate) fn full() -> Self {
         Self {
-            accessibility: AccessibilityCapabilities::full(),
-            security: SecurityCapabilities::full(),
-            storage: StorageCapabilities::full(),
-            history: HistoryCapabilities::full(),
+            accessibility: CapabilityDeclaration::full(),
+            security: CapabilityDeclaration::full(),
+            storage: CapabilityDeclaration::full(),
+            history: CapabilityDeclaration::full(),
         }
     }
 }
@@ -270,21 +165,21 @@ mod tests {
 
     #[test]
     fn conformance_level_full_has_no_reason() {
-        let caps = AccessibilityCapabilities::full();
+        let caps = CapabilityDeclaration::full();
         assert_eq!(caps.level, ConformanceLevel::Full);
         assert!(caps.reason.is_none());
     }
 
     #[test]
     fn conformance_level_partial_has_reason() {
-        let caps = AccessibilityCapabilities::partial("WebView bridge unavailable");
+        let caps = CapabilityDeclaration::partial("WebView bridge unavailable");
         assert_eq!(caps.level, ConformanceLevel::Partial);
         assert_eq!(caps.reason.as_deref(), Some("WebView bridge unavailable"));
     }
 
     #[test]
     fn conformance_level_none_has_reason() {
-        let caps = SecurityCapabilities::none("content rendered without sandbox");
+        let caps = CapabilityDeclaration::none("content rendered without sandbox");
         assert_eq!(caps.level, ConformanceLevel::None);
         assert!(caps.reason.is_some());
     }
@@ -361,9 +256,9 @@ mod tests {
 
     #[test]
     fn conformance_capability_structs_round_trip_via_json() {
-        let capability = AccessibilityCapabilities::partial("keyboard-only degraded path");
+        let capability = CapabilityDeclaration::partial("keyboard-only degraded path");
         let json = serde_json::to_string(&capability).expect("capability should serialize");
-        let restored: AccessibilityCapabilities =
+        let restored: CapabilityDeclaration =
             serde_json::from_str(&json).expect("capability should deserialize");
 
         assert_eq!(restored.level, ConformanceLevel::Partial);

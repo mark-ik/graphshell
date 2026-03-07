@@ -1,25 +1,23 @@
 use std::collections::HashMap;
 
-use crate::registries::domain::layout::{
-    AccessibilityCapabilities, HistoryCapabilities, SecurityCapabilities, StorageCapabilities,
-};
+use crate::registries::domain::layout::CapabilityDeclaration;
 use crate::util::VersoAddress;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSubsystemCapabilities {
-    pub(crate) accessibility: AccessibilityCapabilities,
-    pub(crate) security: SecurityCapabilities,
-    pub(crate) storage: StorageCapabilities,
-    pub(crate) history: HistoryCapabilities,
+    pub(crate) accessibility: CapabilityDeclaration,
+    pub(crate) security: CapabilityDeclaration,
+    pub(crate) storage: CapabilityDeclaration,
+    pub(crate) history: CapabilityDeclaration,
 }
 
 impl ViewerSubsystemCapabilities {
     pub(crate) fn full() -> Self {
         Self {
-            accessibility: AccessibilityCapabilities::full(),
-            security: SecurityCapabilities::full(),
-            storage: StorageCapabilities::full(),
-            history: HistoryCapabilities::full(),
+            accessibility: CapabilityDeclaration::full(),
+            security: CapabilityDeclaration::full(),
+            storage: CapabilityDeclaration::full(),
+            history: CapabilityDeclaration::full(),
         }
     }
 }
@@ -199,12 +197,12 @@ impl Default for ViewerRegistry {
         registry.register_capabilities(
             "viewer:webview",
             ViewerSubsystemCapabilities {
-                accessibility: AccessibilityCapabilities::partial(
+                accessibility: CapabilityDeclaration::partial(
                     "WebView accessibility tree injection deferred due accesskit version mismatch",
                 ),
-                security: SecurityCapabilities::full(),
-                storage: StorageCapabilities::full(),
-                history: HistoryCapabilities::full(),
+                security: CapabilityDeclaration::full(),
+                storage: CapabilityDeclaration::full(),
+                history: CapabilityDeclaration::full(),
             },
         );
         registry.register_capabilities("viewer:settings", ViewerSubsystemCapabilities::full());
@@ -283,7 +281,7 @@ mod tests {
     use super::*;
     use crate::graph::AddressKind;
     use crate::registries::domain::layout::ConformanceLevel;
-    use crate::util::{VersoAddress, GraphshellSettingsPath};
+    use crate::util::{GraphshellSettingsPath, VersoAddress};
 
     #[test]
     fn viewer_registry_selects_internal_settings_viewer_for_graphshell_settings_url() {
@@ -348,10 +346,10 @@ mod tests {
         registry.register_capabilities(
             "viewer:plaintext",
             ViewerSubsystemCapabilities {
-                accessibility: AccessibilityCapabilities::partial("access bridge disabled in test"),
-                security: SecurityCapabilities::full(),
-                storage: StorageCapabilities::full(),
-                history: HistoryCapabilities::full(),
+                accessibility: CapabilityDeclaration::partial("access bridge disabled in test"),
+                security: CapabilityDeclaration::full(),
+                storage: CapabilityDeclaration::full(),
+                history: CapabilityDeclaration::full(),
             },
         );
 
@@ -370,10 +368,10 @@ mod tests {
     #[test]
     fn viewer_capabilities_round_trip_via_json() {
         let capabilities = ViewerSubsystemCapabilities {
-            accessibility: AccessibilityCapabilities::partial("access bridge degraded"),
-            security: SecurityCapabilities::full(),
-            storage: StorageCapabilities::full(),
-            history: HistoryCapabilities::none("history replay unavailable"),
+            accessibility: CapabilityDeclaration::partial("access bridge degraded"),
+            security: CapabilityDeclaration::full(),
+            storage: CapabilityDeclaration::full(),
+            history: CapabilityDeclaration::none("history replay unavailable"),
         };
 
         let json = serde_json::to_string(&capabilities).expect("capabilities should serialize");

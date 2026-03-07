@@ -4,11 +4,39 @@
 
 use std::fmt;
 
+use egui::Pos2;
+use euclid::Point2D;
+
 pub(crate) const VERSO_SCHEME_PREFIX: &str = "verso://";
 pub(crate) const GRAPHSHELL_SCHEME_PREFIX: &str = "graphshell://";
 pub(crate) const GRAPH_SCHEME_PREFIX: &str = "graph://";
 pub(crate) const NODE_SCHEME_PREFIX: &str = "node://";
 pub(crate) const NOTES_SCHEME_PREFIX: &str = "notes://";
+
+pub(crate) trait CoordBridge {
+    fn to_pos2(self) -> Pos2;
+    fn to_point2d<U>(self) -> Point2D<f32, U>;
+}
+
+impl<U> CoordBridge for Point2D<f32, U> {
+    fn to_pos2(self) -> Pos2 {
+        Pos2::new(self.x, self.y)
+    }
+
+    fn to_point2d<V>(self) -> Point2D<f32, V> {
+        Point2D::new(self.x, self.y)
+    }
+}
+
+impl CoordBridge for Pos2 {
+    fn to_pos2(self) -> Pos2 {
+        self
+    }
+
+    fn to_point2d<U>(self) -> Point2D<f32, U> {
+        Point2D::new(self.x, self.y)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum VersoAddress {
@@ -360,8 +388,7 @@ mod tests {
 
     #[test]
     fn parse_verso_view_note_route() {
-        let parsed =
-            VersoAddress::parse("verso://view/note/550e8400-e29b-41d4-a716-446655440000");
+        let parsed = VersoAddress::parse("verso://view/note/550e8400-e29b-41d4-a716-446655440000");
         assert_eq!(
             parsed,
             Some(VersoAddress::view_note(

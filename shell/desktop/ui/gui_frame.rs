@@ -15,6 +15,7 @@ use winit::window::Window;
 
 use super::dialog_panels::{self, DialogPanelsArgs};
 use super::nav_targeting;
+use super::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingConnectedOpenScope,
     PendingNodeOpenRequest, PendingTileOpenMode, ReducerDispatchContext, UndoBoundaryReason,
@@ -131,10 +132,13 @@ fn restore_named_frame_snapshot(
                         request.key,
                         pending_tile_mode_to_tile_mode(request.mode),
                     );
-                    let mut restore_intents = vec![lifecycle_intents::promote_node_to_active(
-                        request.key,
-                        LifecycleCause::Restore,
-                    ).into()];
+                    let mut restore_intents = vec![
+                        lifecycle_intents::promote_node_to_active(
+                            request.key,
+                            LifecycleCause::Restore,
+                        )
+                        .into(),
+                    ];
                     apply_intents_if_any(graph_app, &restored_tree, &mut restore_intents);
                 }
                 graph_app.note_frame_activated(name, restored_nodes);
@@ -1069,9 +1073,7 @@ pub(crate) fn run_post_render_phase<FActive>(
         graph_app.workspace.hovered_graph_node,
         focused_pane_node,
     );
-    if !preview_mode_active
-        && let Some(target_dir) = graph_app.take_pending_switch_data_dir()
-    {
+    if !preview_mode_active && let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
         match persistence_ops::switch_persistence_store(
             graph_app,
             window,
@@ -1597,15 +1599,13 @@ fn build_connected_open_selection_intents(
         key: source,
         multi_select: false,
     });
-    intents.push(lifecycle_intents::promote_node_to_active(
-        source,
-        LifecycleCause::UserSelect,
-    ).into());
+    intents
+        .push(lifecycle_intents::promote_node_to_active(source, LifecycleCause::UserSelect).into());
     for node in ordered.iter().skip(1) {
-        intents.push(lifecycle_intents::promote_node_to_active(
-            *node,
-            LifecycleCause::ActiveTileVisible,
-        ).into());
+        intents.push(
+            lifecycle_intents::promote_node_to_active(*node, LifecycleCause::ActiveTileVisible)
+                .into(),
+        );
     }
     intents
 }
@@ -1640,30 +1640,6 @@ fn open_connected_nodes_as_tabs(
             *node,
             tile_view_ops::TileOpenMode::Tab,
         );
-    }
-}
-
-fn handle_pending_detach_node_to_split(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &mut Tree<TileKind>,
-) {
-    if let Some(node_key) = graph_app.take_pending_detach_node_to_split() {
-        record_workspace_undo_boundary_from_tiles_tree(
-            graph_app,
-            tiles_tree,
-            UndoBoundaryReason::DetachNodeToSplit,
-        );
-        tile_view_ops::detach_node_pane_to_split(tiles_tree, graph_app, node_key);
-    }
-}
-
-fn record_workspace_undo_boundary_from_tiles_tree(
-    graph_app: &mut GraphBrowserApp,
-    tiles_tree: &Tree<TileKind>,
-    reason: UndoBoundaryReason,
-) {
-    if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-        graph_app.record_workspace_undo_boundary(Some(layout_json), reason);
     }
 }
 

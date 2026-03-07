@@ -60,6 +60,7 @@ use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
+use crate::util::CoordBridge;
 
 #[path = "gui/gui_update_coordinator.rs"]
 mod gui_update_coordinator;
@@ -275,7 +276,11 @@ pub struct Gui {
     rendering_context: Rc<OffscreenRenderingContext>,
     window_rendering_context: Rc<WindowRenderingContext>,
     context: UiRenderBackendHandle,
-    /// Tile tree backing graph/detail pane layout.
+    /// Live workbench layout authority.
+    ///
+    /// This `egui_tiles::Tree<TileKind>` is the canonical runtime pane tree.
+    /// `pane_model` defines the payload/schema carried by this tree, but does
+    /// not own a separate competing retained layout tree.
     tiles_tree: Tree<TileKind>,
     toolbar_height: Length<f32, DeviceIndependentPixel>,
 
@@ -652,7 +657,7 @@ impl Gui {
             let Some(webview_id) = self.graph_app.get_webview_for_node(state.node) else {
                 continue;
             };
-            let local = Point2D::new(point.x - rect.min.x, point.y - rect.min.y);
+            let local = egui::Pos2::new(point.x - rect.min.x, point.y - rect.min.y).to_point2d();
             return Some((webview_id, local));
         }
         None
@@ -740,7 +745,7 @@ impl Gui {
         self.context
             .egui_context()
             .input(|i| i.pointer.hover_pos())
-            .map(|p| Point2D::new(p.x, p.y))
+            .map(|p| p.to_point2d())
     }
 
     pub(crate) fn ui_overlay_active(&self) -> bool {
@@ -1966,10 +1971,8 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::VersoAddress::settings(
-                crate::util::GraphshellSettingsPath::History,
-            )
-            .to_string(),
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
+                .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -1988,10 +1991,8 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::VersoAddress::settings(
-                crate::util::GraphshellSettingsPath::Physics,
-            )
-            .to_string(),
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Physics)
+                .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2032,10 +2033,8 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::VersoAddress::settings(
-                crate::util::GraphshellSettingsPath::Sync,
-            )
-            .to_string(),
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Sync)
+                .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2054,10 +2053,8 @@ mod graph_split_intent_tests {
         let root = tiles.insert_pane(TileKind::Graph(initial_view));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::VersoAddress::settings(
-                crate::util::GraphshellSettingsPath::General,
-            )
-            .to_string(),
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
+                .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2083,10 +2080,8 @@ mod graph_split_intent_tests {
             )
         });
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::VersoAddress::settings(
-                crate::util::GraphshellSettingsPath::Sync,
-            )
-            .to_string(),
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Sync)
+                .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2108,10 +2103,8 @@ mod graph_split_intent_tests {
             matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings)))
         });
         let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::VersoAddress::settings(
-                crate::util::GraphshellSettingsPath::History,
-            )
-            .to_string(),
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
+                .to_string(),
         }];
 
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -2131,10 +2124,8 @@ mod graph_split_intent_tests {
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
         let mut open_intents = vec![WorkbenchIntent::OpenSettingsUrl {
-            url: crate::util::VersoAddress::settings(
-                crate::util::GraphshellSettingsPath::General,
-            )
-            .to_string(),
+            url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
+                .to_string(),
         }];
         gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut open_intents);
         assert!(open_intents.is_empty());

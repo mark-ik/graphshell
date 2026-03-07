@@ -10,6 +10,9 @@
 //! - **Tool panes**: diagnostic, history, accessibility, and settings surfaces.
 //!
 //! This is the canonical type model for P5 "Pane-hosted multi-view architecture".
+//! It is not a second canonical layout tree. Live workbench layout authority
+//! remains the runtime `egui_tiles::Tree<TileKind>`; this module defines the
+//! pane payload/schema carried inside that tree and by persistence formats.
 //! Dispatch, persistence, and intent routing in subsequent phases (P6–P8) operate
 //! on `PaneViewState` variants rather than backend-specific tile assumptions.
 //!

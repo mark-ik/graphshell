@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 
 use super::SurfaceSubsystemCapabilities;
+use super::profile_registry::{ProfileRegistry, ProfileResolution};
 
 pub(crate) const CANVAS_PROFILE_DEFAULT: &str = "canvas:default";
 
@@ -70,11 +72,39 @@ fn default_wheel_zoom_inertia_min_abs() -> f32 {
     0.00035
 }
 
+macro_rules! impl_display_from_str {
+    ($ty:ty { $($variant:path => $value:literal),+ $(,)? }) => {
+        impl fmt::Display for $ty {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $($variant => f.write_str($value),)+
+                }
+            }
+        }
+
+        impl FromStr for $ty {
+            type Err = ();
+
+            fn from_str(raw: &str) -> Result<Self, Self::Err> {
+                match raw.trim() {
+                    $($value => Ok($variant),)+
+                    _ => Err(()),
+                }
+            }
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum CanvasLassoBinding {
     RightDrag,
     ShiftLeftDrag,
 }
+
+impl_display_from_str!(CanvasLassoBinding {
+    CanvasLassoBinding::RightDrag => "right-drag",
+    CanvasLassoBinding::ShiftLeftDrag => "shift-left-drag",
+});
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CanvasInteractionPolicy {
@@ -148,69 +178,26 @@ impl CanvasSurfaceProfile {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct CanvasSurfaceResolution {
-    pub(crate) requested_id: String,
-    pub(crate) resolved_id: String,
-    pub(crate) matched: bool,
-    pub(crate) fallback_used: bool,
-    pub(crate) profile: CanvasSurfaceProfile,
-}
+pub(crate) type CanvasSurfaceResolution = ProfileResolution<CanvasSurfaceProfile>;
 
 pub(crate) struct CanvasRegistry {
-    profiles: HashMap<String, CanvasSurfaceProfile>,
-    fallback_id: String,
+    profiles: ProfileRegistry<CanvasSurfaceProfile>,
 }
 
 impl CanvasRegistry {
     pub(crate) fn register(&mut self, profile_id: &str, profile: CanvasSurfaceProfile) {
-        self.profiles
-            .insert(profile_id.to_ascii_lowercase(), profile);
+        self.profiles.register(profile_id, profile);
     }
 
     pub(crate) fn resolve(&self, profile_id: &str) -> CanvasSurfaceResolution {
-        let requested = profile_id.trim().to_ascii_lowercase();
-        let fallback = self
-            .profiles
-            .get(&self.fallback_id)
-            .cloned()
-            .expect("canvas fallback profile must exist");
-
-        if requested.is_empty() {
-            return CanvasSurfaceResolution {
-                requested_id: requested,
-                resolved_id: self.fallback_id.clone(),
-                matched: false,
-                fallback_used: true,
-                profile: fallback,
-            };
-        }
-
-        if let Some(profile) = self.profiles.get(&requested).cloned() {
-            return CanvasSurfaceResolution {
-                requested_id: requested.clone(),
-                resolved_id: requested,
-                matched: true,
-                fallback_used: false,
-                profile,
-            };
-        }
-
-        CanvasSurfaceResolution {
-            requested_id: requested,
-            resolved_id: self.fallback_id.clone(),
-            matched: false,
-            fallback_used: true,
-            profile: fallback,
-        }
+        self.profiles.resolve(profile_id, "canvas")
     }
 }
 
 impl Default for CanvasRegistry {
     fn default() -> Self {
         let mut registry = Self {
-            profiles: HashMap::new(),
-            fallback_id: CANVAS_PROFILE_DEFAULT.to_string(),
+            profiles: ProfileRegistry::new(CANVAS_PROFILE_DEFAULT),
         };
         registry.register(
             CANVAS_PROFILE_DEFAULT,

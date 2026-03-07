@@ -1,8 +1,8 @@
 use super::super::harness::TestRegistry;
 use crate::app::{
-    GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkbenchIntent, WorkspaceOpenAction,
+    FrameOpenAction, GraphIntent, PendingNodeOpenRequest, PendingTileOpenMode, WorkbenchIntent,
 };
-use crate::util::{VersoAddress, GraphshellSettingsPath, NodeAddress, NoteAddress};
+use crate::util::{GraphshellSettingsPath, NodeAddress, NoteAddress, VersoAddress};
 use std::collections::{BTreeSet, HashMap};
 
 #[test]
@@ -39,7 +39,9 @@ fn open_node_frame_routed_with_preferred_frame_requests_restore() {
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .get_node(key)
         .expect("node should exist")
         .id;
@@ -78,7 +80,9 @@ fn remove_selected_nodes_clears_frame_membership_entry() {
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .get_node(key)
         .expect("node should exist")
         .id;
@@ -99,7 +103,9 @@ fn resolve_frame_open_prefers_recent_membership() {
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .get_node(key)
         .expect("node should exist")
         .id;
@@ -114,7 +120,7 @@ fn resolve_frame_open_prefers_recent_membership() {
 
     assert_eq!(
         harness.app.resolve_workspace_open(key, None),
-        WorkspaceOpenAction::RestoreFrame {
+        FrameOpenAction::RestoreFrame {
             name: "beta".to_string(),
             node: key,
         }
@@ -127,7 +133,9 @@ fn resolve_frame_open_honors_preferred_frame() {
     let key = harness.add_node("https://example.com");
     let node_id = harness
         .app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .get_node(key)
         .expect("node should exist")
         .id;
@@ -142,7 +150,7 @@ fn resolve_frame_open_honors_preferred_frame() {
 
     assert_eq!(
         harness.app.resolve_workspace_open(key, Some("alpha")),
-        WorkspaceOpenAction::RestoreFrame {
+        FrameOpenAction::RestoreFrame {
             name: "alpha".to_string(),
             node: key,
         }
@@ -155,7 +163,9 @@ fn set_node_url_preserves_frame_membership() {
     let key = harness.add_node("https://before.example");
     let node_id = harness
         .app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .get_node(key)
         .expect("node should exist")
         .id;
@@ -175,7 +185,9 @@ fn set_node_url_preserves_frame_membership() {
     assert_eq!(
         harness
             .app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(key)
             .expect("node should exist")
             .url,
@@ -264,11 +276,16 @@ fn open_clip_url_is_not_reducer_owned() {
             url: VersoAddress::clip("clip-123").to_string(),
         });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert_eq!(
         harness
             .app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(node)
             .expect("node exists")
             .url,
@@ -293,7 +310,9 @@ fn open_node_url_is_not_reducer_owned() {
     harness.app.select_node(node, false);
     let node_id = harness
         .app
-        .workspace.domain.graph
+        .workspace
+        .domain
+        .graph
         .get_node(node)
         .expect("node exists")
         .id;
@@ -310,11 +329,16 @@ fn open_node_url_is_not_reducer_owned() {
             url: node_url.clone(),
         });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert_eq!(
         harness
             .app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(node)
             .expect("node exists")
             .url,
@@ -342,7 +366,10 @@ fn open_note_url_is_not_reducer_owned() {
             url: note_url.clone(),
         });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert!(harness.app.take_pending_open_note_request().is_none());
 }
 
@@ -360,7 +387,10 @@ fn open_graph_url_is_not_reducer_owned() {
             url: graph_url.clone(),
         });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert!(
         harness
             .app
@@ -382,7 +412,10 @@ fn open_view_url_is_not_reducer_owned() {
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl { url: view_url });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert!(harness.app.take_pending_open_node_request().is_none());
     assert!(harness.app.take_pending_open_note_request().is_none());
 }
@@ -399,7 +432,10 @@ fn open_view_note_url_is_not_reducer_owned() {
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl { url: view_url });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert!(harness.app.take_pending_open_note_request().is_none());
 }
 
@@ -415,7 +451,10 @@ fn open_view_graph_url_is_not_reducer_owned() {
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl { url: view_url });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert!(
         harness
             .app
@@ -436,7 +475,10 @@ fn open_frame_url_is_not_reducer_owned() {
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenFrameUrl { url: frame_url });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert!(
         harness
             .app
@@ -457,6 +499,9 @@ fn open_tool_url_is_not_reducer_owned() {
         .app
         .enqueue_workbench_intent(WorkbenchIntent::OpenToolUrl { url: tool_url });
 
-    assert_eq!(harness.app.workspace.domain.graph.node_count(), node_count_before);
+    assert_eq!(
+        harness.app.workspace.domain.graph.node_count(),
+        node_count_before
+    );
     assert!(harness.app.take_pending_open_node_request().is_none());
 }

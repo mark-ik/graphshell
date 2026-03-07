@@ -40,7 +40,10 @@ impl InteractionUiState {
         self.overlay_suppression_reason().is_none()
     }
 
-    pub(crate) fn effective_interaction_render_mode(self, base_mode: TileRenderMode) -> TileRenderMode {
+    pub(crate) fn effective_interaction_render_mode(
+        self,
+        base_mode: TileRenderMode,
+    ) -> TileRenderMode {
         if base_mode == TileRenderMode::NativeOverlay && !self.native_overlay_visible() {
             TileRenderMode::Placeholder
         } else {

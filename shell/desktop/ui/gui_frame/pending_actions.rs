@@ -83,7 +83,6 @@ fn run_pending_graph_snapshot_stage(pipeline: &mut PendingPostRenderActionPipeli
 }
 
 fn run_pending_workspace_layout_stage(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
-    handle_pending_detach_node_to_split(pipeline.graph_app, pipeline.tiles_tree);
     handle_pending_open_connected_from(pipeline.graph_app, pipeline.tiles_tree);
     handle_pending_history_frame_restore(pipeline.graph_app, pipeline.tiles_tree);
     autosave_session_workspace_layout_if_allowed(pipeline.graph_app, pipeline.tiles_tree);

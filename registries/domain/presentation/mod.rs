@@ -1,16 +1,19 @@
-use crate::registries::atomic::physics_profile::PhysicsProfileRegistry;
-use crate::registries::atomic::theme::ThemeRegistry;
+use crate::registries::atomic::lens::{
+    PhysicsProfileResolution, ThemeResolution, resolve_physics_profile, resolve_theme_data,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct PresentationDomainProfileResolution {
-    pub(crate) physics: crate::registries::atomic::physics_profile::PhysicsProfileResolution,
-    pub(crate) theme: crate::registries::atomic::theme::ThemeResolution,
+    pub(crate) physics: PhysicsProfileResolution,
+    pub(crate) theme: ThemeResolution,
 }
 
-#[derive(Default)]
-pub(crate) struct PresentationDomainRegistry {
-    physics_profile: PhysicsProfileRegistry,
-    theme: ThemeRegistry,
+pub(crate) struct PresentationDomainRegistry {}
+
+impl Default for PresentationDomainRegistry {
+    fn default() -> Self {
+        Self {}
+    }
 }
 
 impl PresentationDomainRegistry {
@@ -20,8 +23,8 @@ impl PresentationDomainRegistry {
         theme_id: &str,
     ) -> PresentationDomainProfileResolution {
         PresentationDomainProfileResolution {
-            physics: self.physics_profile.resolve(physics_id),
-            theme: self.theme.resolve(theme_id),
+            physics: resolve_physics_profile(physics_id),
+            theme: resolve_theme_data(theme_id),
         }
     }
 }
@@ -29,8 +32,7 @@ impl PresentationDomainRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registries::atomic::physics_profile::PHYSICS_ID_DEFAULT;
-    use crate::registries::atomic::theme::THEME_ID_DEFAULT;
+    use crate::registries::atomic::lens::{PHYSICS_ID_DEFAULT, THEME_ID_DEFAULT};
 
     #[test]
     fn presentation_domain_resolves_default_profile() {

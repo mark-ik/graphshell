@@ -179,7 +179,7 @@ fn infer_graphshell_mime_hint(uri: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::{VersoAddress, GraphshellSettingsPath};
+    use crate::util::{GraphshellSettingsPath, VersoAddress};
 
     #[test]
     fn protocol_resolution_returns_cancelled_outcome_when_control_cancelled() {
@@ -226,8 +226,8 @@ mod tests {
     #[test]
     fn protocol_resolution_supports_graphshell_scheme_with_settings_hint() {
         let registry = ProtocolRegistry::default();
-        let resolution = registry
-            .resolve(&VersoAddress::settings(GraphshellSettingsPath::History).to_string());
+        let resolution =
+            registry.resolve(&VersoAddress::settings(GraphshellSettingsPath::History).to_string());
 
         assert!(resolution.supported);
         assert!(!resolution.fallback_used);

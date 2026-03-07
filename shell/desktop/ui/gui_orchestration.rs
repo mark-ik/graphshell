@@ -33,6 +33,7 @@ use crate::shell::desktop::ui::gui_frame::ToolbarDialogPhaseArgs;
 use crate::shell::desktop::ui::gui_frame::{self, PreFrameIngestArgs};
 use crate::shell::desktop::ui::gui_state::ToolbarState;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
+use crate::shell::desktop::ui::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::ui::toolbar_routing::ToolbarOpenMode;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
@@ -745,18 +746,15 @@ fn execute_pending_open_node_after_intents(
         anchor_before_open,
         node_key,
     );
-    frame_intents.push(lifecycle_intents::promote_node_to_active(
-        node_key,
-        LifecycleCause::UserSelect,
-    ).into());
+    frame_intents.push(
+        lifecycle_intents::promote_node_to_active(node_key, LifecycleCause::UserSelect).into(),
+    );
 }
 
 fn capture_open_node_undo_checkpoint(graph_app: &mut GraphBrowserApp, tiles_tree: &Tree<TileKind>) {
     if let Ok(layout_json) = serde_json::to_string(tiles_tree) {
-        graph_app.record_workspace_undo_boundary(
-            Some(layout_json),
-            UndoBoundaryReason::OpenNodePane,
-        );
+        graph_app
+            .record_workspace_undo_boundary(Some(layout_json), UndoBoundaryReason::OpenNodePane);
     }
 }
 
@@ -859,10 +857,10 @@ fn focus_tool_surface_return_target(
 ///   not flow through the graph reducer or the WAL.
 ///
 /// Intents tagged as workbench-authority (`OpenToolPane`, `SplitPane`,
-/// `SetPaneView`, `OpenNodeInPane`, tool-surface toggles/settings URLs) must
-/// be drained here, before `apply_intents` is called. Any that leak through
-/// will trip reducer hardening (panic in debug/test, warning in release for
-/// non-layout authority leaks).
+/// `DetachNodeToSplit`, `SetPaneView`, `OpenNodeInPane`, tool-surface
+/// toggles/settings URLs) must be drained here, before `apply_intents` is
+/// called. Any that leak through will trip reducer hardening (panic in
+/// debug/test, warning in release for non-layout authority leaks).
 pub(crate) fn handle_tool_pane_intents(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
@@ -992,6 +990,7 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::OpenClipUrl { .. }
         | WorkbenchIntent::SetPaneView { .. }
         | WorkbenchIntent::SplitPane { .. }
+        | WorkbenchIntent::DetachNodeToSplit { .. }
         | WorkbenchIntent::OpenNodeInPane { .. }
         | WorkbenchIntent::CycleFocusRegion => UX_DISPATCH_NODE_TOOL_SURFACE,
     };
@@ -1075,11 +1074,30 @@ fn dispatch_workbench_authority_intent(
             handle_split_pane_intent(tiles_tree, source_pane, direction);
             None
         }
+        WorkbenchIntent::DetachNodeToSplit { key } => {
+            handle_detach_node_to_split_intent(graph_app, tiles_tree, key);
+            None
+        }
     }
 }
 
 fn handle_cycle_focus_region_intent(tiles_tree: &mut Tree<TileKind>) -> bool {
     crate::shell::desktop::workbench::tile_view_ops::cycle_focus_region(tiles_tree)
+}
+
+fn handle_detach_node_to_split_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    key: NodeKey,
+) {
+    record_workspace_undo_boundary_from_tiles_tree(
+        graph_app,
+        tiles_tree,
+        UndoBoundaryReason::DetachNodeToSplit,
+    );
+    crate::shell::desktop::workbench::tile_view_ops::detach_node_pane_to_split(
+        tiles_tree, graph_app, key,
+    );
 }
 
 fn dispatch_open_settings_url_workbench_intent(

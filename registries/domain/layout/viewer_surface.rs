@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use super::SurfaceSubsystemCapabilities;
+use super::profile_registry::{ProfileRegistry, ProfileResolution};
 
 pub(crate) const VIEWER_SURFACE_DEFAULT: &str = "viewer_surface:default";
 
@@ -15,69 +14,26 @@ pub(crate) struct ViewerSurfaceProfile {
     pub(crate) subsystems: SurfaceSubsystemCapabilities,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct ViewerSurfaceResolution {
-    pub(crate) requested_id: String,
-    pub(crate) resolved_id: String,
-    pub(crate) matched: bool,
-    pub(crate) fallback_used: bool,
-    pub(crate) profile: ViewerSurfaceProfile,
-}
+pub(crate) type ViewerSurfaceResolution = ProfileResolution<ViewerSurfaceProfile>;
 
 pub(crate) struct ViewerSurfaceRegistry {
-    profiles: HashMap<String, ViewerSurfaceProfile>,
-    fallback_id: String,
+    profiles: ProfileRegistry<ViewerSurfaceProfile>,
 }
 
 impl ViewerSurfaceRegistry {
     pub(crate) fn register(&mut self, profile_id: &str, profile: ViewerSurfaceProfile) {
-        self.profiles
-            .insert(profile_id.to_ascii_lowercase(), profile);
+        self.profiles.register(profile_id, profile);
     }
 
     pub(crate) fn resolve(&self, profile_id: &str) -> ViewerSurfaceResolution {
-        let requested = profile_id.trim().to_ascii_lowercase();
-        let fallback = self
-            .profiles
-            .get(&self.fallback_id)
-            .cloned()
-            .expect("viewer surface fallback profile must exist");
-
-        if requested.is_empty() {
-            return ViewerSurfaceResolution {
-                requested_id: requested,
-                resolved_id: self.fallback_id.clone(),
-                matched: false,
-                fallback_used: true,
-                profile: fallback,
-            };
-        }
-
-        if let Some(profile) = self.profiles.get(&requested).cloned() {
-            return ViewerSurfaceResolution {
-                requested_id: requested.clone(),
-                resolved_id: requested,
-                matched: true,
-                fallback_used: false,
-                profile,
-            };
-        }
-
-        ViewerSurfaceResolution {
-            requested_id: requested,
-            resolved_id: self.fallback_id.clone(),
-            matched: false,
-            fallback_used: true,
-            profile: fallback,
-        }
+        self.profiles.resolve(profile_id, "viewer surface")
     }
 }
 
 impl Default for ViewerSurfaceRegistry {
     fn default() -> Self {
         let mut registry = Self {
-            profiles: HashMap::new(),
-            fallback_id: VIEWER_SURFACE_DEFAULT.to_string(),
+            profiles: ProfileRegistry::new(VIEWER_SURFACE_DEFAULT),
         };
         registry.register(
             VIEWER_SURFACE_DEFAULT,

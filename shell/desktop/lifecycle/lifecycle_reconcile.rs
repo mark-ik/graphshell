@@ -10,8 +10,8 @@ use egui_tiles::Tree;
 use servo::{OffscreenRenderingContext, WebViewId};
 use sysinfo::System;
 
+use crate::app::RuntimeEvent;
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, MemoryPressureLevel};
-use crate::app::{RuntimeEvent};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
@@ -115,17 +115,28 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     for node_key in args.graph_app.take_warm_cache_evictions() {
         if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
             args.window.close_webview(webview_id);
-            args.frame_intents.push(RuntimeEvent::UnmapWebview { webview_id }.into());
+            args.frame_intents
+                .push(RuntimeEvent::UnmapWebview { webview_id }.into());
         }
         args.tile_rendering_contexts.remove(&node_key);
         // Frame-aware demotion:
         let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
         if is_frame_member {
-            args.frame_intents
-                .push(RuntimeEvent::DemoteNodeToWarm { key: node_key, cause: LifecycleCause::WarmLruEviction }.into());
+            args.frame_intents.push(
+                RuntimeEvent::DemoteNodeToWarm {
+                    key: node_key,
+                    cause: LifecycleCause::WarmLruEviction,
+                }
+                .into(),
+            );
         } else {
-            args.frame_intents
-                .push(RuntimeEvent::DemoteNodeToCold { key: node_key, cause: LifecycleCause::NodeRemoval }.into());
+            args.frame_intents.push(
+                RuntimeEvent::DemoteNodeToCold {
+                    key: node_key,
+                    cause: LifecycleCause::NodeRemoval,
+                }
+                .into(),
+            );
         }
     }
     args.tile_favicon_textures
@@ -157,11 +168,13 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false);
         if should_promote && !args.graph_app.is_crash_blocked(node_key) {
-            args.frame_intents
-                .push(lifecycle_intents::promote_node_to_active(
+            args.frame_intents.push(
+                lifecycle_intents::promote_node_to_active(
                     node_key,
                     LifecycleCause::ActiveTileVisible,
-                ).into());
+                )
+                .into(),
+            );
         }
     }
 
@@ -184,11 +197,13 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|node| node.lifecycle == NodeLifecycle::Active)
             .unwrap_or(false);
         if should_demote {
-            args.frame_intents
-                .push(lifecycle_intents::demote_node_to_warm(
+            args.frame_intents.push(
+                lifecycle_intents::demote_node_to_warm(
                     node_key,
                     LifecycleCause::WorkspaceRetention,
-                ).into());
+                )
+                .into(),
+            );
         }
     }
 
@@ -207,11 +222,10 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .map(|node| node.lifecycle != NodeLifecycle::Active)
             .unwrap_or(false)
     {
-        args.frame_intents
-            .push(lifecycle_intents::promote_node_to_active(
-                node_key,
-                LifecycleCause::SelectedPrewarm,
-            ).into());
+        args.frame_intents.push(
+            lifecycle_intents::promote_node_to_active(node_key, LifecycleCause::SelectedPrewarm)
+                .into(),
+        );
     }
 
     if has_node_panes {
@@ -255,17 +269,21 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
                 args.tile_rendering_contexts.remove(&node_key);
                 let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
                 if is_frame_member {
-                    args.frame_intents
-                        .push(lifecycle_intents::demote_node_to_warm(
+                    args.frame_intents.push(
+                        lifecycle_intents::demote_node_to_warm(
                             node_key,
                             LifecycleCause::MemoryPressureWarning,
-                        ).into());
+                        )
+                        .into(),
+                    );
                 } else {
-                    args.frame_intents
-                        .push(lifecycle_intents::demote_node_to_cold(
+                    args.frame_intents.push(
+                        lifecycle_intents::demote_node_to_cold(
                             node_key,
                             LifecycleCause::MemoryPressureCritical,
-                        ).into());
+                        )
+                        .into(),
+                    );
                 }
             }
         }
@@ -275,17 +293,21 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         {
             let is_frame_member = !args.graph_app.frames_for_node_key(node_key).is_empty();
             if is_frame_member {
-                args.frame_intents
-                    .push(lifecycle_intents::demote_node_to_warm(
+                args.frame_intents.push(
+                    lifecycle_intents::demote_node_to_warm(
                         node_key,
                         LifecycleCause::ActiveLruEviction,
-                    ).into());
+                    )
+                    .into(),
+                );
             } else {
-                args.frame_intents
-                    .push(lifecycle_intents::demote_node_to_cold(
+                args.frame_intents.push(
+                    lifecycle_intents::demote_node_to_cold(
                         node_key,
                         LifecycleCause::ActiveLruEviction,
-                    ).into());
+                    )
+                    .into(),
+                );
             }
         }
     } else {

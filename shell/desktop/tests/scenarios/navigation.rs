@@ -57,7 +57,13 @@ fn webview_url_changed_appends_traversal_between_known_nodes_without_self_loop()
     assert_eq!(edge.traversals.len(), 1);
     assert_eq!(edge.traversals[0].trigger, NavigationTrigger::Unknown);
     assert!(
-        harness.app.workspace.domain.graph.find_edge_key(to, to).is_none(),
+        harness
+            .app
+            .workspace
+            .domain
+            .graph
+            .find_edge_key(to, to)
+            .is_none(),
         "prior URL should be captured before node URL mutation to avoid self-loop"
     );
 }

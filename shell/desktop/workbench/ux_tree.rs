@@ -92,9 +92,9 @@ pub(crate) enum UxDomainIdentity {
         graph_view_id: GraphViewId,
         lens_name: String,
         lens_id: Option<String>,
-        physics_id: Option<String>,
-        layout_id: Option<String>,
-        theme_id: Option<String>,
+        physics_name: String,
+        layout_mode: String,
+        theme_name: Option<String>,
         filter_count: usize,
         dimension: String,
         position_fit_locked: bool,
@@ -341,9 +341,13 @@ fn append_workbench_semantics_nodes(
                 graph_view_id: *view_id,
                 lens_name: view_state.lens.name.clone(),
                 lens_id: view_state.lens.lens_id.clone(),
-                physics_id: view_state.lens.physics_id.clone(),
-                layout_id: view_state.lens.layout_id.clone(),
-                theme_id: view_state.lens.theme_id.clone(),
+                physics_name: view_state.lens.physics.name.clone(),
+                layout_mode: format!("{:?}", view_state.lens.layout),
+                theme_name: view_state
+                    .lens
+                    .theme
+                    .as_ref()
+                    .map(|theme| crate::registries::atomic::lens::theme_data_id(theme).to_string()),
                 filter_count: view_state.lens.filters.len(),
                 dimension: format!("{:?}", view_state.dimension),
                 position_fit_locked: view_state.position_fit_locked,
@@ -1275,7 +1279,7 @@ mod tests {
         harness.app.ensure_graph_view_registered(view_id);
         if let Some(view) = harness.app.workspace.views.get_mut(&view_id) {
             view.lens.name = "Research Lens".to_string();
-            view.lens.layout_id = Some("layout:free".to_string());
+            view.lens.layout = crate::registries::atomic::lens::LayoutMode::Free;
             view.lens.filters = vec!["tag:#clip".to_string()];
         }
         harness.app.workspace.focused_view = Some(view_id);

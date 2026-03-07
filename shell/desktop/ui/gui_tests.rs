@@ -64,7 +64,9 @@ mod tests {
         });
 
         let before = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(node_key)
             .expect("node should exist")
             .url
@@ -77,7 +79,9 @@ mod tests {
         assert_eq!(intents.len(), 1);
 
         let still_before = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(node_key)
             .expect("node should exist")
             .url
@@ -86,7 +90,9 @@ mod tests {
 
         app.apply_reducer_intents(intents);
         let after = app
-            .workspace.domain.graph
+            .workspace
+            .domain
+            .graph
             .get_node(node_key)
             .expect("node should exist")
             .url

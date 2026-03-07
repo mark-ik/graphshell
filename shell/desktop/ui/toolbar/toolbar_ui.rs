@@ -268,7 +268,7 @@ fn request_open_settings_page(
 
 fn frame_pin_name_for_node(node: NodeKey, graph_app: &GraphBrowserApp) -> Option<String> {
     graph_app
-    .domain_graph()
+        .domain_graph()
         .get_node(node)
         .map(|n| format!("workspace:pin:pane:{}", n.id))
 }
