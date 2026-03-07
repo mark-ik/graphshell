@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+use crate::shell::desktop::lifecycle::webview_controller;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn handle_pending_graph_snapshot_actions(

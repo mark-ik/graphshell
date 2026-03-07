@@ -20,7 +20,6 @@ use crate::app::{
     UnsavedFramePromptAction, UnsavedFramePromptRequest,
 };
 use crate::graph::NodeKey;
-use crate::input;
 use crate::render;
 use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -31,7 +30,6 @@ use crate::shell::desktop::lifecycle::lifecycle_reconcile::{
 };
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
-use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED, CHANNEL_UX_NAVIGATION_TRANSITION,
@@ -59,7 +57,10 @@ mod frame_persistence;
 mod workspace_layout;
 #[path = "gui_frame/toolbar_dialog.rs"]
 mod toolbar_dialog;
+#[path = "gui_frame/keyboard_phase.rs"]
+mod keyboard_phase;
 
+pub(crate) use keyboard_phase::{KeyboardPhaseArgs, handle_keyboard_phase};
 pub(crate) use toolbar_dialog::{ToolbarDialogPhaseArgs, handle_toolbar_dialog_phase};
 
 // Ownership map (Stage 4b gui_frame responsibility split):
@@ -225,111 +226,6 @@ where
         }
     }
     deferred_webviews
-}
-
-pub(crate) struct KeyboardPhaseArgs<'a> {
-    pub(crate) ctx: &'a egui::Context,
-    pub(crate) graph_app: &'a mut GraphBrowserApp,
-    pub(crate) window: &'a EmbedderWindow,
-    pub(crate) tiles_tree: &'a mut Tree<TileKind>,
-    pub(crate) tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    pub(crate) tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    pub(crate) favicon_textures:
-        &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    pub(crate) app_state: &'a Option<Rc<RunningAppState>>,
-    pub(crate) rendering_context: &'a Rc<OffscreenRenderingContext>,
-    pub(crate) window_rendering_context: &'a Rc<WindowRenderingContext>,
-    pub(crate) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(crate) webview_creation_backpressure:
-        &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    pub(crate) suppress_toggle_view: bool,
-}
-
-pub(crate) fn handle_keyboard_phase<F1, F2>(
-    args: KeyboardPhaseArgs<'_>,
-    frame_intents: &mut Vec<GraphIntent>,
-    mut toggle_tile_view: F1,
-    mut reset_runtime_webview_state: F2,
-) where
-    F1: FnMut(
-        &mut Tree<TileKind>,
-        &mut GraphBrowserApp,
-        &EmbedderWindow,
-        &Option<Rc<RunningAppState>>,
-        &Rc<OffscreenRenderingContext>,
-        &Rc<WindowRenderingContext>,
-        &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        &HashSet<WebViewId>,
-        &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-        &mut Vec<GraphIntent>,
-    ),
-    F2: FnMut(
-        &mut Tree<TileKind>,
-        &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-        &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-        &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    ),
-{
-    let KeyboardPhaseArgs {
-        ctx,
-        graph_app,
-        window,
-        tiles_tree,
-        tile_rendering_contexts,
-        tile_favicon_textures,
-        favicon_textures,
-        app_state,
-        rendering_context,
-        window_rendering_context,
-        responsive_webviews,
-        webview_creation_backpressure,
-        suppress_toggle_view,
-    } = args;
-
-    let mut keyboard_actions = input::collect_actions(ctx, graph_app);
-    let preview_active = history_preview_mode_active(graph_app);
-    if preview_active {
-        keyboard_actions.toggle_view = false;
-        keyboard_actions.delete_selected = false;
-        keyboard_actions.clear_graph = false;
-    }
-    if suppress_toggle_view {
-        keyboard_actions.toggle_view = false;
-    }
-    if keyboard_actions.toggle_view {
-        toggle_tile_view(
-            tiles_tree,
-            graph_app,
-            window,
-            app_state,
-            rendering_context,
-            window_rendering_context,
-            tile_rendering_contexts,
-            responsive_webviews,
-            webview_creation_backpressure,
-            frame_intents,
-        );
-        keyboard_actions.toggle_view = false;
-    }
-    if keyboard_actions.delete_selected {
-        let nodes_to_close: Vec<_> = graph_app.focused_selection().iter().copied().collect();
-        frame_intents.extend(webview_controller::close_webviews_for_nodes(
-            graph_app,
-            &nodes_to_close,
-            window,
-        ));
-    }
-    if keyboard_actions.clear_graph {
-        frame_intents.extend(webview_controller::close_all_webviews(graph_app, window));
-        reset_runtime_webview_state(
-            tiles_tree,
-            tile_rendering_contexts,
-            tile_favicon_textures,
-            favicon_textures,
-        );
-    }
-    frame_intents.extend(input::intents_from_actions(&keyboard_actions));
-    graph_app.extend_workbench_intents(input::workbench_intents_from_actions(&keyboard_actions));
 }
 
 pub(crate) struct LifecycleReconcilePhaseArgs<'a> {
