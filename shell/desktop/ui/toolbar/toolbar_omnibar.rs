@@ -172,7 +172,7 @@ fn parse_provider_suggestion_body(body: &str, fallback_query: &str) -> Option<Ve
 }
 
 fn connected_nodes_matches_for_query(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     query: &str,
     exclude: &HashSet<NodeKey>,
 ) -> Vec<OmnibarMatch> {
@@ -207,7 +207,7 @@ fn connected_nodes_matches_for_query(
 }
 
 fn non_at_contextual_matches(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
     has_node_panes: bool,
@@ -236,7 +236,7 @@ fn non_at_contextual_matches(
 }
 
 pub(super) fn non_at_primary_matches_for_scope(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
     has_node_panes: bool,
@@ -281,7 +281,7 @@ pub(super) fn non_at_primary_matches_for_scope(
 }
 
 pub(super) fn non_at_matches_for_settings(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
     has_node_panes: bool,
@@ -310,7 +310,7 @@ pub(super) fn non_at_matches_for_settings(
 }
 
 pub(super) fn non_at_global_fallback_matches(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     query: &str,
     has_node_panes: bool,
@@ -441,37 +441,14 @@ fn tab_candidates_for_keys(
 }
 
 fn connected_hop_distances_for_context(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     context: NodeKey,
 ) -> HashMap<NodeKey, usize> {
-    let mut distances = HashMap::new();
-    if graph_app.domain_graph().get_node(context).is_none() {
-        return distances;
-    }
-    let mut queue = VecDeque::new();
-    distances.insert(context, 0);
-    queue.push_back(context);
-    while let Some(current) = queue.pop_front() {
-        let Some(current_hop) = distances.get(&current).copied() else {
-            continue;
-        };
-        for neighbor in graph_app
-            .domain_graph()
-            .out_neighbors(current)
-            .chain(graph_app.domain_graph().in_neighbors(current))
-        {
-            if distances.contains_key(&neighbor) {
-                continue;
-            }
-            distances.insert(neighbor, current_hop + 1);
-            queue.push_back(neighbor);
-        }
-    }
-    distances
+    graph_app.cached_hop_distances_for_context(context)
 }
 
 pub(super) fn omnibar_match_signifier(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     m: &OmnibarMatch,
 ) -> &'static str {
@@ -627,7 +604,7 @@ pub(super) fn apply_omnibar_match(
 }
 
 pub(super) fn omnibar_matches_for_query(
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
     mode: OmnibarSearchMode,
     query: &str,
@@ -950,7 +927,7 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![local_leaf]);
         let tree = Tree::new("non_at_contextual", root, tiles);
 
-        let matches = non_at_contextual_matches(&app, &tree, "alpha", true);
+        let matches = non_at_contextual_matches(&mut app, &tree, "alpha", true);
         assert!(!matches.is_empty());
         assert_eq!(matches[0], OmnibarMatch::Node(local_tab));
         let connected_count = matches
@@ -1007,8 +984,13 @@ mod tests {
         let tabs = tiles.insert_tab_tile(vec![tab_tile]);
         let tree = Tree::new("tabs_mode_test", tabs, tiles);
 
-        let matches =
-            omnibar_matches_for_query(&app, &tree, OmnibarSearchMode::TabsLocal, "alpha", true);
+        let matches = omnibar_matches_for_query(
+            &mut app,
+            &tree,
+            OmnibarSearchMode::TabsLocal,
+            "alpha",
+            true,
+        );
         assert_eq!(matches, vec![OmnibarMatch::Node(tab_key)]);
         assert!(!matches.contains(&OmnibarMatch::Node(non_tab_key)));
     }
@@ -1026,7 +1008,7 @@ mod tests {
         let tree = Tree::new("mixed_mode_test", tabs, tiles);
 
         let matches =
-            omnibar_matches_for_query(&app, &tree, OmnibarSearchMode::Mixed, "beta", true);
+            omnibar_matches_for_query(&mut app, &tree, OmnibarSearchMode::Mixed, "beta", true);
         assert!(!matches.is_empty());
         assert_eq!(matches.first().cloned(), Some(OmnibarMatch::Node(tab_key)));
         assert!(matches.contains(&OmnibarMatch::Node(node_key)));
@@ -1059,7 +1041,7 @@ mod tests {
         let tree = Tree::new("mixed_related_test", tabs, tiles);
 
         let matches =
-            omnibar_matches_for_query(&app, &tree, OmnibarSearchMode::Mixed, "alpha", true);
+            omnibar_matches_for_query(&mut app, &tree, OmnibarSearchMode::Mixed, "alpha", true);
         assert!(matches.len() >= 2);
         assert_eq!(matches[0], OmnibarMatch::Node(related_tab));
         assert_eq!(matches[1], OmnibarMatch::Node(unrelated_tab));
@@ -1091,8 +1073,13 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![context_leaf, hop3_leaf, hop2_leaf, hop1_leaf]);
         let tree = Tree::new("hop_order_test", root, tiles);
 
-        let matches =
-            omnibar_matches_for_query(&app, &tree, OmnibarSearchMode::Mixed, "alpha-hop", true);
+        let matches = omnibar_matches_for_query(
+            &mut app,
+            &tree,
+            OmnibarSearchMode::Mixed,
+            "alpha-hop",
+            true,
+        );
         assert!(matches.len() >= 3);
         assert_eq!(matches[0], OmnibarMatch::Node(hop1));
         assert_eq!(matches[1], OmnibarMatch::Node(hop2));
@@ -1123,7 +1110,7 @@ mod tests {
         let tree = Tree::new("graph_hop_order_test", root, tiles);
 
         let matches = omnibar_matches_for_query(
-            &app,
+            &mut app,
             &tree,
             OmnibarSearchMode::Mixed,
             "alpha-graph-hop",
@@ -1154,7 +1141,7 @@ mod tests {
         let tree = Tree::new("nodes_all_test", root, tiles);
 
         let matches = omnibar_matches_for_query(
-            &app,
+            &mut app,
             &tree,
             OmnibarSearchMode::NodesAll,
             "saved-node",
@@ -1184,7 +1171,7 @@ mod tests {
         let current_tree = Tree::new("current_tree", current_root, current_tiles);
 
         let matches = omnibar_matches_for_query(
-            &app,
+            &mut app,
             &current_tree,
             OmnibarSearchMode::TabsAll,
             "saved-tab",
@@ -1216,8 +1203,13 @@ mod tests {
         persistence_ops::save_named_frame_bundle(&mut app, "frame:saved-alpha", &frame_tree)
             .expect("save frame bundle");
 
-        let matches =
-            omnibar_matches_for_query(&app, &current_tree, OmnibarSearchMode::Mixed, "alpha", true);
+        let matches = omnibar_matches_for_query(
+            &mut app,
+            &current_tree,
+            OmnibarSearchMode::Mixed,
+            "alpha",
+            true,
+        );
         assert!(matches.len() >= 2);
         assert_eq!(matches[0], OmnibarMatch::Node(local_tab));
         assert!(matches.contains(&OmnibarMatch::Node(saved_tab)));
@@ -1238,8 +1230,13 @@ mod tests {
         let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
         let tree = Tree::new("edges_all_test", root, tiles);
 
-        let matches =
-            omnibar_matches_for_query(&app, &tree, OmnibarSearchMode::EdgesAll, "edge-a", false);
+        let matches = omnibar_matches_for_query(
+            &mut app,
+            &tree,
+            OmnibarSearchMode::EdgesAll,
+            "edge-a",
+            false,
+        );
         assert_eq!(matches, vec![OmnibarMatch::Edge { from, to }]);
     }
 

@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -241,8 +241,7 @@ fn connected_frame_import_nodes(graph_app: &GraphBrowserApp, seeds: &[NodeKey]) 
             continue;
         }
         out.insert(*seed);
-        out.extend(graph_app.domain_graph().out_neighbors(*seed));
-        out.extend(graph_app.domain_graph().in_neighbors(*seed));
+        out.extend(graph_app.domain_graph().neighbors_undirected(*seed));
     }
     let mut nodes: Vec<NodeKey> = out
         .into_iter()
@@ -301,8 +300,7 @@ fn apply_connected_split_layout(tree: &mut Tree<TileKind>, nodes: &[NodeKey]) {
 fn undirected_neighbors_sorted(graph_app: &GraphBrowserApp, node_key: NodeKey) -> Vec<NodeKey> {
     let mut neighbors: Vec<NodeKey> = graph_app
         .domain_graph()
-        .out_neighbors(node_key)
-        .chain(graph_app.domain_graph().in_neighbors(node_key))
+        .neighbors_undirected(node_key)
         .filter(|key| *key != node_key && graph_app.domain_graph().get_node(*key).is_some())
         .collect::<HashSet<_>>()
         .into_iter()
@@ -324,23 +322,25 @@ fn connected_candidates_with_depth(
         PendingConnectedOpenScope::Connected => {
             let mut out = Vec::new();
             let mut visited = HashSet::from([source]);
-            let mut queue = VecDeque::from([(source, 0_u8)]);
-
-            while let Some((current, depth)) = queue.pop_front() {
-                if depth >= 2 {
-                    continue;
+            let depth1 = undirected_neighbors_sorted(graph_app, source);
+            for neighbor in depth1 {
+                if visited.insert(neighbor) {
+                    out.push((neighbor, 1));
                 }
-                for neighbor in undirected_neighbors_sorted(graph_app, current) {
-                    if !visited.insert(neighbor) {
-                        continue;
-                    }
-                    let next_depth = depth + 1;
-                    out.push((neighbor, next_depth));
-                    if next_depth < 2 {
-                        queue.push_back((neighbor, next_depth));
+            }
+
+            let depth1_nodes: Vec<NodeKey> = out
+                .iter()
+                .filter_map(|(node, depth)| (*depth == 1).then_some(*node))
+                .collect();
+            for depth1_node in depth1_nodes {
+                for neighbor in undirected_neighbors_sorted(graph_app, depth1_node) {
+                    if visited.insert(neighbor) {
+                        out.push((neighbor, 2));
                     }
                 }
             }
+
 
             out
         }

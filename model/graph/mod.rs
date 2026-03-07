@@ -20,15 +20,17 @@
 //! This is an internal trust boundary, not reducer-only compiler enforcement.
 
 use euclid::default::{Point2D, Vector2D};
+use petgraph::algo::{astar, dijkstra, has_path_connecting, kosaraju_scc};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use petgraph::visit::UndirectedAdaptor;
 use petgraph::{Directed, Direction};
 use rkyv::{
     Archive, Archived, Deserialize, Place, Resolver, Serialize,
     rancor::Fallible,
     with::{ArchiveWith, DeserializeWith, SerializeWith},
 };
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -1218,6 +1220,88 @@ impl Graph {
         self.inner.neighbors_directed(key, Direction::Incoming)
     }
 
+    /// Iterate undirected neighbor keys for a node.
+    pub fn neighbors_undirected(&self, key: NodeKey) -> impl Iterator<Item = NodeKey> + '_ {
+        self.inner.neighbors_undirected(key)
+    }
+
+    /// Undirected hop distances from `source` using unit edge weights.
+    pub fn hop_distances_from(&self, source: NodeKey) -> HashMap<NodeKey, usize> {
+        if self.get_node(source).is_none() {
+            return HashMap::new();
+        }
+        dijkstra(
+            &UndirectedAdaptor(&self.inner),
+            source,
+            None,
+            |_| 1_usize,
+        )
+        .into_iter()
+        .collect()
+    }
+
+    /// Nodes with no incoming or outgoing edges.
+    pub fn orphan_node_keys(&self) -> Vec<NodeKey> {
+        self.inner
+            .node_indices()
+            .filter(|&key| {
+                self.inner.edges_directed(key, Direction::Outgoing).next().is_none()
+                    && self.inner.edges_directed(key, Direction::Incoming).next().is_none()
+            })
+            .collect()
+    }
+
+    /// Shortest undirected path between two nodes using unit edge weights.
+    pub fn shortest_path(&self, from: NodeKey, to: NodeKey) -> Option<Vec<NodeKey>> {
+        if self.get_node(from).is_none() || self.get_node(to).is_none() {
+            return None;
+        }
+        astar(
+            &UndirectedAdaptor(&self.inner),
+            from,
+            |node| node == to,
+            |_| 1_usize,
+            |_| 0_usize,
+        )
+        .map(|(_, path)| path)
+    }
+
+    /// Reachability in the undirected graph.
+    pub fn is_reachable(&self, from: NodeKey, to: NodeKey) -> bool {
+        if self.get_node(from).is_none() || self.get_node(to).is_none() {
+            return false;
+        }
+        has_path_connecting(&UndirectedAdaptor(&self.inner), from, to, None)
+    }
+
+    /// Weakly connected components (undirected projection).
+    pub fn weakly_connected_components(&self) -> Vec<Vec<NodeKey>> {
+        let mut visited = HashSet::new();
+        let mut components = Vec::new();
+        for start in self.inner.node_indices() {
+            if !visited.insert(start) {
+                continue;
+            }
+            let mut component = Vec::new();
+            let mut stack = vec![start];
+            while let Some(current) = stack.pop() {
+                component.push(current);
+                for neighbor in self.neighbors_undirected(current) {
+                    if visited.insert(neighbor) {
+                        stack.push(neighbor);
+                    }
+                }
+            }
+            components.push(component);
+        }
+        components
+    }
+
+    /// Strongly connected components in the directed graph.
+    pub fn strongly_connected_components(&self) -> Vec<Vec<NodeKey>> {
+        kosaraju_scc(&self.inner)
+    }
+
     /// Check if a directed edge exists from `from` to `to`
     pub fn has_edge_between(&self, from: NodeKey, to: NodeKey) -> bool {
         self.inner.find_edge(from, to).is_some()
@@ -2237,5 +2321,55 @@ mod tests {
             .unwrap();
         assert_eq!(rnode.mime_hint.as_deref(), Some("application/pdf"));
         assert_eq!(rnode.address_kind, AddressKind::File);
+    }
+
+    #[test]
+    fn hop_distances_shortest_path_and_reachability_use_undirected_connectivity() {
+        let mut graph = Graph::new();
+        let a = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let b = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 0.0));
+        let c = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 0.0));
+        let d = graph.add_node("https://d.com".to_string(), Point2D::new(3.0, 0.0));
+
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
+        let _ = graph.add_edge(b, c, EdgeType::Hyperlink);
+
+        let hops = graph.hop_distances_from(a);
+        assert_eq!(hops.get(&a).copied(), Some(0));
+        assert_eq!(hops.get(&b).copied(), Some(1));
+        assert_eq!(hops.get(&c).copied(), Some(2));
+        assert!(hops.get(&d).is_none());
+
+        let path = graph.shortest_path(a, c).expect("path should exist");
+        assert_eq!(path.first().copied(), Some(a));
+        assert_eq!(path.last().copied(), Some(c));
+
+        assert!(graph.is_reachable(a, c));
+        assert!(!graph.is_reachable(a, d));
+    }
+
+    #[test]
+    fn orphan_and_weak_component_accessors_report_expected_partitions() {
+        let mut graph = Graph::new();
+        let a = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let b = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 0.0));
+        let c = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 0.0));
+        let d = graph.add_node("https://d.com".to_string(), Point2D::new(3.0, 0.0));
+        let e = graph.add_node("https://e.com".to_string(), Point2D::new(4.0, 0.0));
+
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
+        let _ = graph.add_edge(d, e, EdgeType::Hyperlink);
+
+        let mut orphans = graph.orphan_node_keys();
+        orphans.sort_by_key(|k| k.index());
+        assert_eq!(orphans, vec![c]);
+
+        let mut sizes: Vec<usize> = graph
+            .weakly_connected_components()
+            .into_iter()
+            .map(|component| component.len())
+            .collect();
+        sizes.sort_unstable();
+        assert_eq!(sizes, vec![1, 2, 2]);
     }
 }

@@ -2251,6 +2251,8 @@ pub struct GraphWorkspace {
     undo_stack: Vec<UndoRedoSnapshot>,
     /// Global redo history snapshots.
     redo_stack: Vec<UndoRedoSnapshot>,
+    /// Cached hop-distance map from current primary selection for omnibar ranking/signifiers.
+    hop_distance_cache: Option<(NodeKey, HashMap<NodeKey, usize>)>,
 
     /// Hash of last persisted session frame layout json.
     last_session_workspace_layout_hash: Option<u64>,
@@ -2538,6 +2540,7 @@ impl GraphBrowserApp {
                 focused_view: None,
                 undo_stack: Vec::new(),
                 redo_stack: Vec::new(),
+                hop_distance_cache: None,
                 last_session_workspace_layout_hash: None,
                 last_session_workspace_layout_json: None,
                 workspace_autosave_interval: Duration::from_secs(
@@ -2724,6 +2727,7 @@ impl GraphBrowserApp {
                 focused_view: None,
                 undo_stack: Vec::new(),
                 redo_stack: Vec::new(),
+                hop_distance_cache: None,
                 last_session_workspace_layout_hash: None,
                 last_session_workspace_layout_json: None,
                 workspace_autosave_interval: Duration::from_secs(
@@ -2780,6 +2784,33 @@ impl GraphBrowserApp {
         &mut self.workspace.domain.graph
     }
 
+    pub fn clear_hop_distance_cache(&mut self) {
+        self.workspace.hop_distance_cache = None;
+    }
+
+    pub fn cached_hop_distances_for_context(&mut self, context: NodeKey) -> HashMap<NodeKey, usize> {
+        if self.workspace.domain.graph.get_node(context).is_none() {
+            return HashMap::new();
+        }
+        if let Some((cached_context, cached)) = self.workspace.hop_distance_cache.as_ref()
+            && *cached_context == context
+        {
+            return cached.clone();
+        }
+        let distances = self.workspace.domain.graph.hop_distances_from(context);
+        self.workspace.hop_distance_cache = Some((context, distances.clone()));
+        distances
+    }
+
+    fn invalidate_hop_distance_cache_on_primary_change(
+        &mut self,
+        previous_primary: Option<NodeKey>,
+    ) {
+        if previous_primary != self.workspace.selected_nodes.primary() {
+            self.clear_hop_distance_cache();
+        }
+    }
+
     /// Select a node
     pub fn select_node(&mut self, key: NodeKey, multi_select: bool) {
         // Ignore stale keys.
@@ -2787,7 +2818,9 @@ impl GraphBrowserApp {
             return;
         }
 
+        let previous_primary = self.workspace.selected_nodes.primary();
         self.workspace.selected_nodes.select(key, multi_select);
+        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.sync_selection_into_focused_view();
 
         // Selection changes require egui_graphs state refresh.
@@ -2803,6 +2836,7 @@ impl GraphBrowserApp {
     }
 
     fn load_selection_from_focused_view(&mut self) {
+        let previous_primary = self.workspace.selected_nodes.primary();
         if let Some(view_id) = self.workspace.focused_view {
             self.workspace.selected_nodes = self
                 .workspace
@@ -2810,10 +2844,12 @@ impl GraphBrowserApp {
                 .get(&view_id)
                 .cloned()
                 .unwrap_or_default();
+            self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
             return;
         }
 
         self.workspace.selected_nodes.clear();
+        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
     }
 
     pub fn selection_for_view(&self, view_id: GraphViewId) -> &SelectionState {
@@ -6655,12 +6691,28 @@ impl GraphBrowserApp {
 
     fn apply_graph_delta_and_sync(&mut self, delta: GraphDelta) -> GraphDeltaResult {
         let result = apply_domain_graph_delta(&mut self.workspace.domain.graph, delta.clone());
+        if Self::graph_structure_changed(&result) {
+            self.clear_hop_distance_cache();
+        }
         if let Some(egui_state) = self.workspace.egui_state.as_mut()
             && !egui_state.sync_from_delta(&self.workspace.domain.graph, &delta, &result)
         {
             self.workspace.egui_state_dirty = true;
         }
         result
+    }
+
+    fn graph_structure_changed(result: &GraphDeltaResult) -> bool {
+        match result {
+            GraphDeltaResult::NodeAdded(_) => true,
+            GraphDeltaResult::NodeMaybeAdded(maybe) => maybe.is_some(),
+            GraphDeltaResult::EdgeAdded(maybe) => maybe.is_some(),
+            GraphDeltaResult::NodeRemoved(changed) => *changed,
+            GraphDeltaResult::EdgesRemoved(count) => *count > 0,
+            GraphDeltaResult::TraversalAppended(_) => false,
+            GraphDeltaResult::NodeMetadataUpdated(_) => false,
+            GraphDeltaResult::NodeUrlUpdated(_) => false,
+        }
     }
 
     /// Toggle keyboard shortcut help panel visibility
@@ -7069,7 +7121,9 @@ impl GraphBrowserApp {
         let _ = self.workspace.undo_stack.pop();
         self.workspace.redo_stack.push(redo_snapshot);
         self.apply_loaded_graph(prev_graph);
+        let previous_primary = self.workspace.selected_nodes.primary();
         self.workspace.selected_nodes = prev.selected_nodes;
+        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.selected_nodes_by_view = prev.selected_nodes_by_view;
         self.workspace.highlighted_graph_edge = prev.highlighted_graph_edge;
         self.set_pending_history_workspace_layout_json(prev.workspace_layout_json);
@@ -7092,7 +7146,9 @@ impl GraphBrowserApp {
         let _ = self.workspace.redo_stack.pop();
         self.workspace.undo_stack.push(undo_snapshot);
         self.apply_loaded_graph(next_graph);
+        let previous_primary = self.workspace.selected_nodes.primary();
         self.workspace.selected_nodes = next.selected_nodes;
+        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.selected_nodes_by_view = next.selected_nodes_by_view;
         self.workspace.highlighted_graph_edge = next.highlighted_graph_edge;
         self.set_pending_history_workspace_layout_json(next.workspace_layout_json);

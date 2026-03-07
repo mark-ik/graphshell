@@ -9,7 +9,7 @@ use egui::{Key, Modifiers, TopBottomPanel, Vec2};
 use egui_tiles::Tree;
 use euclid::default::Point2D;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::thread;
 use std::time::{Duration, Instant};
 use winit::window::Window;
