@@ -70,6 +70,8 @@ mod accessibility;
 mod update_frame_phases;
 #[path = "gui/startup.rs"]
 mod startup;
+#[path = "gui/focus_state.rs"]
+mod focus_state;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -180,20 +182,7 @@ impl Drop for Gui {
 }
 
 fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
-    let was_focused_node_hint = runtime_state.focused_node_hint;
-    let was_graph_surface_focused = runtime_state.graph_surface_focused;
-
-    runtime_state.focused_node_hint = node_key;
-    runtime_state.graph_surface_focused = false;
-
-    if runtime_state.focused_node_hint != was_focused_node_hint
-        || runtime_state.graph_surface_focused != was_graph_surface_focused
-    {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
+    focus_state::apply_node_focus_state(runtime_state, node_key)
 }
 
 fn apply_graph_surface_focus_state(
@@ -201,23 +190,7 @@ fn apply_graph_surface_focus_state(
     graph_app: &mut GraphBrowserApp,
     active_graph_view: Option<GraphViewId>,
 ) {
-    let was_focused_node_hint = runtime_state.focused_node_hint;
-    let was_graph_surface_focused = runtime_state.graph_surface_focused;
-    let was_focused_view = graph_app.workspace.focused_view;
-
-    runtime_state.focused_node_hint = None;
-    runtime_state.graph_surface_focused = true;
-    graph_app.workspace.focused_view = active_graph_view;
-
-    if runtime_state.focused_node_hint != was_focused_node_hint
-        || runtime_state.graph_surface_focused != was_graph_surface_focused
-        || graph_app.workspace.focused_view != was_focused_view
-    {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
+    focus_state::apply_graph_surface_focus_state(runtime_state, graph_app, active_graph_view)
 }
 
 impl Gui {
@@ -1069,7 +1042,12 @@ fn ui_overlay_active_from_flags(
     show_radial_menu: bool,
     show_clear_data_confirm: bool,
 ) -> bool {
-    show_command_palette || show_help_panel || show_radial_menu || show_clear_data_confirm
+    focus_state::ui_overlay_active_from_flags(
+        show_command_palette,
+        show_help_panel,
+        show_radial_menu,
+        show_clear_data_confirm,
+    )
 }
 
 #[cfg(test)]
