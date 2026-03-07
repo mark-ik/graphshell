@@ -9,7 +9,6 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use arboard::Clipboard;
-use egui::pos2;
 use egui_tiles::{Tile, TileId, Tiles, Tree};
 use egui_winit::EventResponse;
 use euclid::{Length, Point2D};
@@ -73,6 +72,8 @@ mod startup;
 mod focus_state;
 #[path = "gui/toolbar_status_sync.rs"]
 mod toolbar_status_sync;
+#[path = "gui/hit_testing.rs"]
+mod hit_testing;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -398,42 +399,11 @@ impl Gui {
         &self,
         point: Point2D<f32, DeviceIndependentPixel>,
     ) -> Option<(WebViewId, Point2D<f32, DeviceIndependentPixel>)> {
-        let cursor = pos2(point.x, point.y);
-        for (tile_id, tile) in self.tiles_tree.tiles.iter() {
-            let tile_id = *tile_id;
-            let Tile::Pane(TileKind::Node(state)) = tile else {
-                continue;
-            };
-            if !self.tiles_tree.is_visible(tile_id) {
-                continue;
-            }
-            let Some(rect) = self.tiles_tree.tiles.rect(tile_id) else {
-                continue;
-            };
-            if !rect.contains(cursor) {
-                continue;
-            }
-            let Some(webview_id) = self.graph_app.get_webview_for_node(state.node) else {
-                continue;
-            };
-            let local = egui::Pos2::new(point.x - rect.min.x, point.y - rect.min.y).to_point2d();
-            return Some((webview_id, local));
-        }
-        None
+        hit_testing::webview_at_point(&self.tiles_tree, &self.graph_app, point)
     }
 
     pub(crate) fn graph_at_point(&self, point: Point2D<f32, DeviceIndependentPixel>) -> bool {
-        let cursor = pos2(point.x, point.y);
-        self.tiles_tree.tiles.iter().any(|(tile_id, tile)| {
-            let tile_id = *tile_id;
-            matches!(tile, Tile::Pane(TileKind::Graph(_)))
-                && self.tiles_tree.is_visible(tile_id)
-                && self
-                    .tiles_tree
-                    .tiles
-                    .rect(tile_id)
-                    .is_some_and(|rect| rect.contains(cursor))
-        })
+        hit_testing::graph_at_point(&self.tiles_tree, point)
     }
 
     pub(crate) fn focused_node_key(&self) -> Option<NodeKey> {
