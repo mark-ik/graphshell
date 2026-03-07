@@ -7,6 +7,7 @@
 **Related**:
 - `system_architecture_spec.md`
 - `register_layer_spec.md`
+- `2026-03-06_foundational_reset_implementation_plan.md`
 - `../../subsystem_storage/storage_and_persistence_integrity_spec.md`
 - `../../subsystem_history/edge_traversal_spec.md`
 - `../../../TERMINOLOGY.md`

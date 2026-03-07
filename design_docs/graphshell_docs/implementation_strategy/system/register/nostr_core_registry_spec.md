@@ -132,7 +132,7 @@ Severity rule: denial/degraded/fallback channels use `Warn`; security/failure ch
 
 - Capability invocations originate from native features, WebView bridge callers, or granted mods.
 - Register routing may use direct call internally within owned boundaries, but cross-boundary state changes flow through intent authorities.
-- Nostr event processing may emit `GraphReducerIntent` or `WorkbenchIntent` proposals; ownership remains with existing authorities.
+- Nostr event processing may emit current reducer-carrier or workbench proposals (`GraphIntent` / `WorkbenchIntent` today); ownership remains with existing authorities even if the top-level carrier shape evolves later.
 
 ## Planned Extensions
 

@@ -24,7 +24,7 @@ Adopted standards with system-wide scope:
 ## System Component Policies
 
 1. **Single-owner policy**: Each major behavior class has one subsystem authority; cross-subsystem implementation is allowed, cross-subsystem ownership is not.
-2. **Mutation-authority policy**: Graph/model mutation stays in reducer authority; tile-tree/layout mutation stays in workbench authority.
+2. **Mutation-authority policy**: Graph/model mutation stays in reducer authority; tile-tree/layout mutation stays in workbench authority. Current runtime carriers may still use `GraphIntent` / reducer-intent forms, but the target architecture should converge toward `AppCommand -> AppPlan -> AppTransaction -> AppEffect` without changing the underlying authority split.
 3. **Routing policy**: Commands and framework events must route through Graphshell semantic authorities; host/widget layers cannot become policy owners.
 4. **Register-boundary policy**: Register infrastructure composes capabilities and routes signals/intents but must not absorb product-surface semantics.
 5. **Policy-change rule**: Any change to cross-construct ownership or boundaries must update this file in the same slice as affected child specs.
@@ -68,6 +68,28 @@ Graphshell is organized in three layers:
 
 The Register is part of the **system layer**. It is not the whole system. It is the runtime composition and capability-routing layer that hosts registries and coordination infrastructure.
 
+Important interpretation rule:
+
+- this document defines **subsystem and layer authority**
+- state-container plans may separately define where concrete state is stored
+
+These are different axes, not competing architectures.
+
+For example:
+
+- Graph subsystem may own graph-camera interaction policy while view-local camera state is stored in workbench-owned state containers.
+- Focus subsystem may own focus rules while concrete focus/selection state lives in workbench-owned state containers.
+- Runtime/Register layers may own composition and routing policy while runtime handles live in explicit runtime/service containers.
+
+The existing `GraphWorkspace` / `AppServices` split and any future refinement into `DomainState` / `WorkbenchState` / `RuntimeState` should be read as state-container refinements under this same subsystem-ownership model, not as replacements for it.
+
+Current execution note (2026-03-07):
+
+- the first Phase B state-layer CLAT is now landed in code as `GraphWorkspace { domain: DomainState, ... }`
+- the durable core moved into `DomainState { graph, notes, next_placeholder_id }`
+- the first bounded bridge-reduction follow-on slice is also landed for the workbench consumer family's graph reads
+- the temporary `GraphWorkspace -> DomainState` deref bridge remains active while remaining families are migrated
+
 ## Normative Core
 
 ### System decomposition
@@ -75,10 +97,10 @@ The Register is part of the **system layer**. It is not the whole system. It is 
 Graphshell is composed of these major system responsibilities:
 
 - **Graph subsystem**
-  - owns graph/content truth, node and edge semantics, graph interaction policy, graph camera policy
+  - owns graph/content truth, node and edge semantics, graph interaction policy, and graph-space camera semantics/policy
 
 - **Workbench subsystem**
-  - owns arrangement truth, tile-tree layout, pane lifecycle, split/tab behavior, focus within workbench layout
+  - owns arrangement truth, tile-tree layout, pane lifecycle, split/tab behavior, focus within workbench layout, and view-local camera state/preferences
 
 - **Viewer subsystem**
   - owns viewer presentation behavior, fallback/placeholder semantics, embedded/composited viewer policy
@@ -104,6 +126,8 @@ The system has explicit mutation authorities:
 
 - **Graph reducer authority**
   - synchronous graph/model mutations and deterministic state transitions
+  - current reducer carriers may still be `GraphIntent` / `GraphReducerIntent`
+  - target top-level pipeline should evolve toward `AppCommand -> AppPlan -> AppTransaction -> AppEffect`
 
 - **Workbench authority**
   - tile-tree and pane arrangement mutations

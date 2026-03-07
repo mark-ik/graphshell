@@ -72,7 +72,7 @@ impl std::fmt::Display for ViewerId {
 /// Graph pane reference payload.
 ///
 /// Identifies which `GraphViewState` (camera + Lens + per-view local layout state) is active in this pane.
-/// The graph data itself (`GraphWorkspace.graph`) remains shared across all graph panes.
+/// The graph data itself (`GraphWorkspace.domain.graph`) remains shared across all graph panes.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct GraphPaneRef {
     /// The graph view state driving this pane's camera, Lens, and layout.

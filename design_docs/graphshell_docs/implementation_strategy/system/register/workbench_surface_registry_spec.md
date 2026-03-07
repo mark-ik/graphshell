@@ -68,7 +68,7 @@ Canonical interfaces:
 ## Planned Extensions
 
 - richer container profile variants
-- more explicit promotion and overlay policies
+- more explicit pane-structure and overlay policies
 
 ## Prospective Capabilities
 

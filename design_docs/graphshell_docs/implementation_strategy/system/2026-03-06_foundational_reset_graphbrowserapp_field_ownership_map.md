@@ -1,21 +1,20 @@
 # Foundational Reset GraphBrowserApp Field Ownership Map
 
 **Date**: 2026-03-06
-**Status**: Phase A receipt
+**Status**: Phase A receipt (updated after CLAT-1 landing)
 **Purpose**: Classify current `GraphBrowserApp`-owned mutable state as `domain`, `workbench`, `runtime`, or `unknown` so the foundational reset can move state by declared ownership instead of intuition.
 
 **Related**:
-- `2026-03-06_foundational_reset_architecture_vision.md`
-- `2026-03-06_foundational_reset_migration_governance.md`
-- `2026-03-06_foundational_reset_demolition_plan.md`
+- `system_architecture_spec.md`
 - `2026-03-06_foundational_reset_implementation_plan.md`
+- `2026-03-06_reducer_only_mutation_enforcement_plan.md`
 - `2026-02-22_registry_layer_plan.md`
 
 ---
 
 ## 1. Scope And Rules
 
-This receipt classifies mutable state reachable from `GraphBrowserApp` in [graph_app.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\graph_app.rs).
+This receipt classifies mutable state reachable from `GraphBrowserApp` in `graph_app.rs`.
 
 Classification vocabulary:
 
@@ -28,6 +27,17 @@ Deliberate scope limit:
 
 - opaque value types such as `Camera`, `LensConfig`, and physics parameter structs are classified at the containing-field level unless they are themselves primary state carriers in `graph_app.rs`
 - nested state carriers defined in `graph_app.rs` are expanded below when they materially affect ownership decisions
+
+Important reconciliation rule:
+
+- this receipt classifies **state storage ownership**
+- it does not replace existing **subsystem policy ownership**
+
+Examples:
+
+- Graph subsystem may own graph-camera interaction policy while concrete view-local camera state is stored in workbench-owned containers.
+- Focus subsystem may own focus rules while focus/selection state is stored in workbench-owned containers.
+- Register/runtime may own async composition while service handles remain runtime-owned state.
 
 ---
 
@@ -49,6 +59,14 @@ The real unresolved seams are concentrated in a short list:
 4. `semantic_tags`: runtime-keyed semantic storage that conflicts with the reset's domain-owned semantic truth model
 
 Those should be treated as the first explicit `unknown` items for Phase B and later transaction work.
+
+Current execution note:
+
+- the first concrete Phase B CLAT is now landed in code as `DomainState { graph, notes, next_placeholder_id }`
+- `GraphWorkspace` now stores that durable core under `domain: DomainState`
+- the first bounded bridge-reduction follow-on slice is complete for workbench-family graph reads
+- that completed slice does not close the remaining unknowns above
+- those unknowns remain separate future CLATs
 
 ---
 
@@ -74,9 +92,7 @@ Those should be treated as the first explicit `unknown` items for Phase B and la
 
 | Field | Why |
 | --- | --- |
-| `graph` | Canonical durable graph truth. |
-| `next_placeholder_id` | Supports stable creation of durable placeholder node URLs; derived from graph state but semantically part of graph-authoring identity support. |
-| `notes` | Durable note documents keyed by note identity. |
+| `domain` | Bridge container for the landed durable core CLAT. `GraphWorkspace` no longer stores `graph`, `notes`, or `next_placeholder_id` directly. |
 
 ### 4.2 Workbench-owned
 
@@ -93,10 +109,10 @@ Those should be treated as the first explicit `unknown` items for Phase B and la
 | `command_palette_shortcut` | Persisted shell preference. |
 | `help_panel_shortcut` | Persisted shell preference. |
 | `radial_menu_shortcut` | Persisted shell preference. |
-| `keyboard_pan_step` | Local camera-control preference. |
-| `keyboard_pan_input_mode` | Local camera-control preference. |
-| `camera_pan_inertia_enabled` | Local camera-control preference. |
-| `camera_pan_inertia_damping` | Local camera-control preference. |
+| `keyboard_pan_step` | View/workbench-owned camera-control preference storage. Graph subsystem still owns graph-space camera interaction semantics. |
+| `keyboard_pan_input_mode` | View/workbench-owned camera-control preference storage. Graph subsystem still owns graph-space camera interaction semantics. |
+| `camera_pan_inertia_enabled` | View/workbench-owned camera-control preference storage. Graph subsystem still owns graph-space camera interaction semantics. |
+| `camera_pan_inertia_damping` | View/workbench-owned camera-control preference storage. Graph subsystem still owns graph-space camera interaction semantics. |
 | `lasso_binding_preference` | Canvas interaction preference. |
 | `omnibar_preferred_scope` | Omnibar preference state. |
 | `omnibar_non_at_order` | Omnibar preference state. |
@@ -202,7 +218,7 @@ Those should be treated as the first explicit `unknown` items for Phase B and la
 | Field | Why it is still unresolved |
 | --- | --- |
 | `views` | Container mixes workbench view state (`id`, `name`, `camera`, `lens`, locks, `dimension`) with runtime-only caches (`local_simulation`, `egui_state`). This should be split into workbench view state plus per-view runtime state. |
-| `camera` | Legacy global camera state competes with per-view camera ownership; canonical owner is unclear. |
+| `camera` | Legacy global camera state competes with per-view camera ownership. Storage owner is unclear, and it currently muddies the distinction between Graph-subsystem camera policy and workbench-owned persisted view camera state. |
 | `undo_stack` | Snapshot payload mixes domain graph, workbench selection, and workspace layout in one legacy transaction model. |
 | `redo_stack` | Same mixed-transaction problem as `undo_stack`. |
 | `semantic_tags` | Comment describes runtime tags keyed by `NodeKey`, but reset target expects semantic truth to be durable/domain-owned and identity-stable. |
@@ -211,23 +227,33 @@ Those should be treated as the first explicit `unknown` items for Phase B and la
 
 ## 5. Nested State Carriers
 
-### 5.1 GraphViewState
+### 5.1 DomainState
 
-Current source: [graph_app.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\graph_app.rs)
+Current source: `graph_app.rs`
+
+| Field | Classification | Why |
+| --- | --- | --- |
+| `graph` | `domain` | Canonical durable graph truth. |
+| `next_placeholder_id` | `domain` | Stable durable-node identity support for placeholder URL creation. |
+| `notes` | `domain` | Durable note documents keyed by note identity. |
+
+### 5.2 GraphViewState
+
+Current source: `graph_app.rs`
 
 | Field | Classification | Why |
 | --- | --- | --- |
 | `id` | `workbench` | Stable view identity in workbench state. |
 | `name` | `workbench` | Operator-facing view metadata. |
-| `camera` | `workbench` | View-local camera ownership target. |
-| `position_fit_locked` | `workbench` | View-local camera preference/policy. |
-| `zoom_fit_locked` | `workbench` | View-local camera preference/policy. |
+| `camera` | `workbench` | View-local camera state storage and persistence. This does not contradict Graph-subsystem ownership of graph-camera interaction policy or runtime hydration of live view state. |
+| `position_fit_locked` | `workbench` | View-local camera preference/policy storage. |
+| `zoom_fit_locked` | `workbench` | View-local camera preference/policy storage. |
 | `lens` | `workbench` | View-local presentation/policy choice. |
 | `local_simulation` | `runtime` | Local simulation/projection cache, not canonical authored truth. |
 | `dimension` | `workbench` | Persisted per-view presentation choice. |
 | `egui_state` | `runtime` | Runtime render cache. |
 
-### 5.2 GraphViewSlot
+### 5.3 GraphViewSlot
 
 | Field | Classification | Why |
 | --- | --- | --- |
@@ -237,14 +263,14 @@ Current source: [graph_app.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\grap
 | `col` | `workbench` | Workbench arrangement coordinate. |
 | `archived` | `workbench` | Workbench visibility/lifecycle state. |
 
-### 5.3 GraphViewLayoutManagerState
+### 5.4 GraphViewLayoutManagerState
 
 | Field | Classification | Why |
 | --- | --- | --- |
 | `active` | `workbench` | Workbench manager toggle. |
 | `slots` | `workbench` | Workbench arrangement authority. |
 
-### 5.4 FileTreeProjectionState
+### 5.5 FileTreeProjectionState
 
 | Field | Classification | Why |
 | --- | --- | --- |
@@ -256,7 +282,7 @@ Current source: [graph_app.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\grap
 | `root_filter` | `workbench` | Workbench filter state. |
 | `row_targets` | `workbench` | Derived projection index for a workbench tool surface. |
 
-### 5.5 SelectionState
+### 5.6 SelectionState
 
 | Field | Classification | Why |
 | --- | --- | --- |

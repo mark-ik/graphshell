@@ -184,7 +184,7 @@ A Nostr mod would expose the Nostr social layer inside Graphshell as a first-cla
 - **Signing capability**: access to the user's `UserIdentity` signing function (never the raw `nsec`) — implemented via NIP-46 remote signing protocol or a local signing interface.
 - **Relay pool**: a managed set of WebSocket connections to the user's configured relays, shared across mods (not one connection pool per mod).
 - **Event emit / subscribe**: publish events and subscribe to filters, scoped to the relay pool.
-- **Graph integration hook**: when a Nostr event references a URL or a known `npub`, the mod can propose a graph node creation via the `GraphIntent` path.
+- **Graph integration hook**: when a Nostr event references a URL or a known `npub`, the mod can propose a graph node creation via the current reducer bridge carrier path (`GraphIntent` today; future command/planner entry may wrap it).
 
 The interesting native integration is **Nostr→graph**: a kind 1 note referencing a URL becomes a clippable graph node. A NIP-23 long-form article becomes a content node. A kind 9802 highlight (NIP-84) annotating a webpage maps to a Graphshell annotation node. These are richer than embedding a foreign Nostr client — they make the graph the primary surface.
 

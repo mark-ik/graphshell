@@ -176,7 +176,9 @@ The following are valid aspirational features, noted for future planning:
 
 ## 11. Intent Surface
 
-### 11.1 Reducer-owned (`GraphIntent`)
+### 11.1 Reducer-owned (current bridge carrier: `GraphIntent`)
+
+This section uses the current reducer bridge carrier naming. The long-term architecture may introduce `AppCommand` / planner layers above it, but durable Coop session mutations still belong on the reducer-owned side of the authority boundary.
 
 These mutate durable Coop session state and belong in `apply_intents()`:
 
@@ -232,7 +234,7 @@ If these events need diagnostics, emit diagnostics directly from the presence ch
 - `coop_reuse_profile_requires_all_guests_preapproved`
 - `coop_snapshot_contains_host_shared_plus_guest_owned_only`
 - `coop_domain_policy_is_session_scoped_only`
-- `coop_contributor_to_editor_promotion_auto_approves_pending`
+- `coop_contributor_to_editor_role_elevation_auto_approves_pending`
 - `coop_session_drop_includes_pending_in_snapshot`
 
 ## 13. Rollout Order

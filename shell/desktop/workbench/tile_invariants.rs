@@ -21,7 +21,7 @@ pub(crate) fn collect_tile_invariant_violations(
     let mut violations = Vec::new();
     for node_key in tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app)
     {
-        if graph_app.workspace.graph.get_node(node_key).is_none() {
+        if graph_app.workspace.domain.graph.get_node(node_key).is_none() {
             violations.push(format!(
                 "tile/node-viewer-runtime desync: tile has stale node key {}",
                 node_key.index()
@@ -61,7 +61,7 @@ pub(crate) fn collect_active_tile_mapping_violations(
         if !node_panes_using_composited_runtime.contains(&node_key) {
             continue;
         }
-        if graph_app.workspace.graph.get_node(node_key).is_none() {
+        if graph_app.workspace.domain.graph.get_node(node_key).is_none() {
             violations.push(format!(
                 "active tile desync: node {} no longer exists in graph",
                 node_key.index()

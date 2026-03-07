@@ -111,7 +111,7 @@ The layout system is built on `egui_tiles`. Every visible surface is a node in a
 *   **Lens**: A named configuration composing a Layout, Theme, Physics Profile, and Filter(s). Defines how the graph *looks* and *moves*.
 *   **Command Palette**: A modifiable context menu that serves as an accessible interface for executing Actions.
 *   **The Register**: See *Registry Architecture* section below for the canonical definition (this interface-components mention is intentionally a cross-reference only to avoid duplicate-definition drift).
-*   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View/Frame pane. Camera state is per-view runtime state, not a global layout concern.
+*   **Camera**: The graph viewport state (pan offset, zoom level) for a Graph View/Frame pane. Camera semantics and interaction policy are Graph-owned; concrete camera state is stored per view in workbench/view state, can be persisted with that view state, and is hydrated into runtime render state when the view is live. Camera is never a single global layout authority.
 
 ## View Dimension Terms
 

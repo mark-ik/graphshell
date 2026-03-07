@@ -42,7 +42,7 @@ impl TileCoordinator {
             return Some(viewer_id_override.as_str());
         }
 
-        let node = graph_app.workspace.graph.get_node(state.node)?;
+        let node = graph_app.workspace.domain.graph.get_node(state.node)?;
         Some(
             crate::registries::atomic::viewer::ViewerRegistry::default()
                 .select_for(node.mime_hint.as_deref(), node.address_kind),
@@ -172,7 +172,7 @@ impl TileCoordinator {
     ) {
         let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
             .into_iter()
-            .filter(|node_key| graph_app.workspace.graph.get_node(*node_key).is_none())
+            .filter(|node_key| graph_app.workspace.domain.graph.get_node(*node_key).is_none())
             .collect();
         for node_key in stale_nodes {
             Self::remove_node_pane_for_node(tiles_tree, node_key);
@@ -216,7 +216,7 @@ impl TileCoordinator {
     ) {
         let stale_nodes: Vec<_> = Self::all_node_pane_keys(tiles_tree)
             .into_iter()
-            .filter(|node_key| graph_app.workspace.graph.get_node(*node_key).is_none())
+            .filter(|node_key| graph_app.workspace.domain.graph.get_node(*node_key).is_none())
             .collect();
 
         for node_key in stale_nodes {
@@ -238,7 +238,7 @@ impl TileCoordinator {
         node_key: NodeKey,
         lifecycle_intents: &mut Vec<GraphIntent>,
     ) {
-        let node_exists = graph_app.workspace.graph.get_node(node_key).is_some();
+        let node_exists = graph_app.workspace.domain.graph.get_node(node_key).is_some();
         let mapped_webview = graph_app.get_webview_for_node(node_key);
 
         if mapped_webview.is_none() {
@@ -256,6 +256,7 @@ impl TileCoordinator {
                     if node_exists {
                         let lifecycle = graph_app
                             .workspace
+                            .domain
                             .graph
                             .get_node(node_key)
                             .map(|node| node.lifecycle)

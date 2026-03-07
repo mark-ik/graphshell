@@ -12,9 +12,17 @@ pub fn reconcile_semantics(app: &mut GraphBrowserApp, registry: &KnowledgeRegist
         return;
     }
 
+    let valid_keys: std::collections::HashSet<_> = app
+        .workspace
+        .domain
+        .graph
+        .nodes()
+        .map(|(key, _)| key)
+        .collect();
+
     app.workspace
         .semantic_tags
-        .retain(|key, _| app.workspace.graph.get_node(*key).is_some());
+        .retain(|key, _| valid_keys.contains(key));
 
     app.workspace.semantic_index.clear();
     for (&key, tags) in &app.workspace.semantic_tags {

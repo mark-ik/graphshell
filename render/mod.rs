@@ -2493,16 +2493,21 @@ fn apply_semantic_clustering_forces(
     }
 
     // Sync updated positions back to egui_state
+    let projected_positions: Vec<_> = position_deltas
+        .iter()
+        .filter_map(|(key, _delta)| {
+            let node = app.workspace.domain.graph.get_node(*key)?;
+            if node.is_pinned {
+                return None;
+            }
+            let position = app.workspace.domain.graph.node_projected_position(*key)?;
+            Some((*key, position))
+        })
+        .collect();
     if let Some(state_mut) = app.workspace.egui_state.as_mut() {
-        for (key, _delta) in position_deltas {
-            if let Some(node) = app.workspace.graph.get_node(key) {
-                if !node.is_pinned {
-                    if let Some(position) = app.workspace.graph.node_projected_position(key)
-                        && let Some(egui_node) = state_mut.graph.node_mut(key)
-                    {
-                        egui_node.set_location(egui::Pos2::new(position.x, position.y));
-                    }
-                }
+        for (key, position) in projected_positions {
+            if let Some(egui_node) = state_mut.graph.node_mut(key) {
+                egui_node.set_location(egui::Pos2::new(position.x, position.y));
             }
         }
     }

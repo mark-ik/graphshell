@@ -40,7 +40,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 6, 2026
+Last updated: March 7, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -119,6 +119,8 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/system/2026-03-05_cp4_p2p_sync_plan.md](graphshell_docs/implementation_strategy/system/2026-03-05_cp4_p2p_sync_plan.md) - CP4 ControlPanel integration plan: `p2p_sync_worker` supervision, `ApplyRemoteDelta`/`MarkPeerOffline` intent variants, version vector persistence, reducer handling, and done gates.
 - [graphshell_docs/implementation_strategy/system/coop_session_spec.md](graphshell_docs/implementation_strategy/system/coop_session_spec.md) - Coop session authority: host-led co-presence, roles, sharing, approval workflow, snapshot, session UI, intent surface, flock model (§14), Nostr identity (§15), wallet integration (§16).
 - [graphshell_docs/implementation_strategy/system/2026-03-05_network_architecture.md](graphshell_docs/implementation_strategy/system/2026-03-05_network_architecture.md) - Network protocol layer assignments: iroh (Coop/Device Sync transport), libp2p (Verse swarm), Nostr (identity/social/event bus). Covers public profile/follows, DMs, relay posture, Blossom, NIP-72/29 as Verse primitives, Nostr mod plugin surface, and iroh/libp2p/Nostr interoperability notes.
+- [graphshell_docs/implementation_strategy/system/2026-03-06_foundational_reset_implementation_plan.md](graphshell_docs/implementation_strategy/system/2026-03-06_foundational_reset_implementation_plan.md) - Active foundational reset execution plan. Tracks landed CLAT progress, remaining state-layer work, command/planner follow-ons, and verification gates.
+- [graphshell_docs/implementation_strategy/system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md](graphshell_docs/implementation_strategy/system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md) - Active state-ownership receipt for `GraphBrowserApp` / `GraphWorkspace`, updated to reflect the landed `DomainState` extraction.
 - [graphshell_docs/implementation_strategy/system/2026-03-06_reducer_only_mutation_enforcement_plan.md](graphshell_docs/implementation_strategy/system/2026-03-06_reducer_only_mutation_enforcement_plan.md) - Migration plan from trusted-writer boundary to compiler-enforced reducer-only graph mutation, including `GraphMutation` staging, replay alignment, side-effect isolation, and acceptance gates.
 - [graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md](graphshell_docs/implementation_strategy/system/register/protocol_registry_spec.md) - Registry spec family starts here; protocol resolution and handler floor.
 - [graphshell_docs/implementation_strategy/system/register/nostr_core_registry_spec.md](graphshell_docs/implementation_strategy/system/register/nostr_core_registry_spec.md) - Canonical `NostrCore` provider profile: capability IDs, diagnostics channel descriptors, and initial native `ModManifest` shape.
@@ -203,3 +205,4 @@ Project status source: [../README.md](../README.md)
 - [archive_docs/checkpoint_2026-02-27/](archive_docs/checkpoint_2026-02-27/) — archived stale active docs: `technical_architecture/DEVELOPER_GUIDE.md`, `technical_architecture/CODEBASE_MAP.md`, `testing/VALIDATION_TESTING.md`; superseded by active `codebase_guide.md` and `test_guide.md`.
 - [archive_docs/checkpoint_2026-03-01/](archive_docs/checkpoint_2026-03-01/) — bridge spike receipts and embedder-debt records for `#180` and `#183`.
 - [archive_docs/checkpoint_2026-03-05/](archive_docs/checkpoint_2026-03-05/) — `2026-03-05_camera_navigation_fix_postmortem.md`: root-cause and fix record for longstanding camera pan/zoom bug (dead metadata slot + every-frame fit reset).
+- [archive_docs/checkpoint_2026-03-07/](archive_docs/checkpoint_2026-03-07/) — foundational reset receipt consolidation: archived `2026-03-06_foundational_reset_architecture_vision.md`, `2026-03-06_foundational_reset_migration_governance.md`, `2026-03-06_foundational_reset_demolition_plan.md`, and `2026-03-06_clat_domain_state_core_extraction.md` after consolidating active policy/progress into `system_architecture_spec.md`, `2026-03-06_foundational_reset_implementation_plan.md`, and `2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md`.

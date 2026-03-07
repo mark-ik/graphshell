@@ -50,7 +50,7 @@ The **Control Panel** is the async adapter layer that allows concurrent backgrou
 
 The Control Panel is a core component of **The Register** (implemented today as `RegistryRuntime` + `ControlPanel`, with a transitional signal-routing layer and a planned `SignalBus`-class abstraction).
 
-**Key principle:** The reducer stays 100% synchronous and testable. All I/O and background work happens in supervised tokio tasks that communicate exclusively via the intent queue. This is an async *adapter layer* around a deterministic sync core, not an async rewrite.
+**Key principle:** The reducer stays 100% synchronous and testable. All I/O and background work happens in supervised tokio tasks that communicate exclusively via the current intent queue. This is an async *adapter layer* around a deterministic sync core, not an async rewrite.
 
 ### Sync Terminology Contract
 
@@ -105,7 +105,7 @@ one of these four rows.
 | Mechanism | When to use | Authority boundary |
 | --------- | ----------- | ------------------ |
 | **Direct call** | Same module / same struct; synchronous, co-owned state | No boundary crossing |
-| **`GraphReducerIntent` → `apply_reducer_intents()`** | Mutation of reducer-owned semantic graph data model; must be deterministic, testable, WAL-logged | Graph Reducer boundary |
+| **Current reducer carrier (`GraphIntent` / reducer-intent path)** | Mutation of reducer-owned semantic graph data model; must be deterministic, testable, WAL-logged | Graph Reducer boundary |
 | **`WorkbenchIntent` (frame-loop intercept)** | Mutation of tile-tree shape (`egui_tiles`); workbench authority owns layout | Workbench Mutation Authority |
 | **Signal / `SignalBus`** | Decoupled cross-registry or cross-subsystem notification; emitter must not know observer | Register-owned signal layer |
 
@@ -158,8 +158,14 @@ immediately during development.
   Legacy panel booleans have been removed; pane-open/close state must live in
   the tile tree.
 - **Do not bypass `ControlPanel` for background intent producers.** All
-  background tasks that produce `GraphIntent` values must go through
+  background tasks that produce current reducer-carrier values must go through
   `ControlPanel`'s supervised worker model, not spawn independent threads.
+
+Carrier interpretation note:
+
+- `GraphIntent` is the active bridge carrier across much of the current runtime
+- this hub should not be read as freezing the top-level architecture around a permanently universal `GraphIntent`
+- Register-layer routing and authority rules remain valid even if the carrier surface later evolves into `AppCommand` / planner / transaction layers
 
 ## Implementation Roadmap (Register-Local)
 

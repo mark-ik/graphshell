@@ -3,12 +3,12 @@
 **Date**: 2026-03-05
 **Status**: In progress (worker scaffold wired; reducer sync semantics pending)
 **Phase**: Control Panel Phase 4 (CP4)
-**Context**: Defines how the `p2p_sync_worker` integrates into the `ControlPanel` intent pipeline. The Verso mod's device-sync protocol (iroh transport, identity, pairing, `SyncUnit` exchange, `SyncLog`) is specified in [`verso_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md). This doc covers the **ControlPanel boundary**: worker supervision, sync intent carrier naming, version vector persistence on `GraphBrowserApp`, and reducer handling of remote deltas.
+**Context**: Defines how the `p2p_sync_worker` integrates into the `ControlPanel` intent pipeline. The Verso mod's device-sync protocol (iroh transport, identity, pairing, `SyncUnit` exchange, `SyncLog`) is specified in [`verso_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md). This doc covers the **ControlPanel boundary**: worker supervision, sync intent carrier naming, version vector persistence on current workspace/app state containers, and reducer handling of remote deltas.
 
 **Related docs**:
 - [`SYSTEM_REGISTER.md`](register/SYSTEM_REGISTER.md) — ControlPanel supervision model, CP1–CP3 pattern
 - [`2026-02-23_verse_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) — Verso device-sync protocol authority
-- [`2026-02-21_lifecycle_intent_model.md`](2026-02-21_lifecycle_intent_model.md) — `GraphIntent` schema and reducer boundary
+- [`2026-02-21_lifecycle_intent_model.md`](2026-02-21_lifecycle_intent_model.md) — current reducer carrier schema and lifecycle boundary
 - [`coop_session_spec.md`](coop_session_spec.md) — Coop co-presence authority (host-led session semantics, roles, sharing, snapshot)
 - [`SUBSYSTEM_SECURITY.md`](../subsystem_security/SUBSYSTEM_SECURITY.md) — trust/grant model (Phase 5.4/5.5)
 - [`SUBSYSTEM_DIAGNOSTICS.md`](../subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md) — diagnostics channel conventions
@@ -17,7 +17,7 @@
 
 ## 1. Scope
 
-CP4 adds one supervised worker and a remote-sync intent carrier path to the existing ControlPanel machinery established in CP1–CP3. The reducer stays 100% synchronous; all network I/O remains in the worker.
+CP4 adds one supervised worker and a remote-sync carrier path to the existing ControlPanel machinery established in CP1–CP3. The reducer stays 100% synchronous; all network I/O remains in the worker.
 
 Runtime naming alignment (2026-03-06):
 
@@ -31,9 +31,9 @@ Runtime naming alignment (2026-03-06):
 
 **CP4 delivers**:
 - `spawn_p2p_sync_worker()` following the CP1–CP3 supervision pattern
-- `GraphIntent` remote-sync carrier path (`ApplyRemoteLogEntries` runtime alias; `ApplyRemoteDelta` target naming)
+- current `GraphIntent` remote-sync carrier path (`ApplyRemoteLogEntries` runtime alias; `ApplyRemoteDelta` target naming)
 - Explicit peer-offline signaling path (`MarkPeerOffline` target behavior; runtime equivalent may be emitted through diagnostics/status channels until intent variant lands)
-- Version vector persistence on `GraphBrowserApp` (per-workspace `VersionVector` loaded/saved alongside workspace state)
+- Version vector persistence on current workspace/app state (per-workspace `VersionVector` loaded/saved alongside workspace state)
 - Reducer handling: deduplication, VV update, undo-stack bypass, diagnostics emission
 
 **CP4 explicitly excludes** (covered in the Verso mod spec):
@@ -91,7 +91,9 @@ This avoids silent failure and keeps restart policy in the mod layer, not the Co
 
 ---
 
-## 3. GraphIntent Carrier and Target Variants
+## 3. Current Carrier and Target Variants
+
+This section describes the current reducer bridge carrier (`GraphIntent`). It should not be read as a claim that remote sync must permanently enter the system through a universal `GraphIntent` API.
 
 Target CP4 naming adds two dedicated variants. Current runtime uses a transitional carrier.
 
@@ -230,7 +232,7 @@ struct WorkspaceSyncState {
 
 `WorkspaceSyncState` is serialized alongside workspace persistence data (the existing `services/persistence` path). On load:
 
-1. `GraphBrowserApp::init()` loads workspace state from disk
+1. Current app/workspace init path loads workspace state from disk
 2. `WorkspaceSyncState` is deserialized; if absent (new workspace or pre-CP4 data), `local_vv` defaults to an empty `VersionVector` (triggers full snapshot sync on first peer connection)
 
 On save:

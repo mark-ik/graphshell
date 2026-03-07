@@ -40,9 +40,15 @@ Out of scope:
 This registry is a named capability surface within the Register. It should expose stable lookup and capability contracts, keep failures explicit, and avoid hidden fallback semantics.
 
 Canonical interfaces:
-- `execute(context) -> Vec<GraphIntent>`
+- `execute(context) -> Vec<GraphIntent>` (current reducer bridge carrier)
 - `describe_action(id) -> ActionCapability`
 - `list_actions(scope) -> Iterator<ActionId>`
+
+Carrier note:
+
+- the registry contract is that actions execute through explicit authority boundaries
+- `GraphIntent` is the current bridge carrier shape
+- future top-level command/planner work may adapt this surface without changing registry ownership rules
 
 ## Normative Core
 

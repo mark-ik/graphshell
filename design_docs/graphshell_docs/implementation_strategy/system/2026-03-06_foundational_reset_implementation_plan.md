@@ -1,13 +1,12 @@
 # Foundational Reset Implementation Plan
 
 **Date**: 2026-03-06
-**Status**: Active implementation plan
+**Status**: Active implementation plan (Phase B CLAT-1 landed; follow-on bridge reduction in progress)
 **Purpose**: Define the concrete spec changes, codebase changes, verification strategy, and unknown-surface discovery work required to implement the foundational reset.
 
 **Related**:
-- `2026-03-06_foundational_reset_architecture_vision.md`
-- `2026-03-06_foundational_reset_migration_governance.md`
-- `2026-03-06_foundational_reset_demolition_plan.md`
+- `system_architecture_spec.md`
+- `2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md`
 - `2026-02-22_registry_layer_plan.md`
 - `2026-03-06_reducer_only_mutation_enforcement_plan.md`
 - `../../../testing/test_guide.md`
@@ -18,29 +17,38 @@
 
 The foundational reset should be implemented as a sequence of authority transfers, not as a big-bang rewrite.
 
-Each phase must do four things:
+Execution unit:
+
+- one Component-Local Authority Transfer (CLAT) at a time
+
+Each CLAT must do four things:
 
 1. change active specs
 2. change canonical code paths
 3. remove or bridge legacy paths
 4. add enforcement against regression
 
+The phase/workstream structure in this document is umbrella sequencing only. It should not be treated as permission to execute D1-D8 as giant parallel migrations.
+
 ---
 
 ## 2. Current-State Baseline
 
-As of 2026-03-06:
+As of 2026-03-07:
 
 - reducer-owned durable graph mutation has started landing
 - graph-apply and `GraphDelta` exist for a meaningful subset of durable graph writes
 - undo boundary ownership is moving into reducer/app-owned surfaces
 - semantic plurality is defined in active spec
 - history no longer uses dummy traversal records
-- a foundational architecture vision now exists
+- a precursor structural split already exists in active planning/docs: `GraphWorkspace` / `AppServices`
+- `DomainState { graph, notes, next_placeholder_id }` is now extracted in code
+- `GraphWorkspace { domain: DomainState, ... }` is now the active durable-core storage shape
+- the first bounded bridge-reduction follow-on slice is landed for workbench graph reads, with a regression guard in the contract test
 
 What is still missing:
 
-- explicit `DomainState` / `WorkbenchState` / `RuntimeState` structure in code
+- explicit `WorkbenchState` / `RuntimeState` structure in code
 - a first-class transaction model
 - a non-overloaded command/planner model
 - a complete demolition of prototype-era duplicate authority
@@ -59,6 +67,11 @@ The reset should proceed as five linked workstreams:
 
 These workstreams overlap, but each must retain its own closure criteria.
 
+Operational rule:
+
+- workstreams are backlog buckets
+- CLATs are the actual execution units
+
 ---
 
 ## 4. Spec Authority Cleanup
@@ -67,12 +80,14 @@ These workstreams overlap, but each must retain its own closure criteria.
 
 The following active docs should be updated or reconciled as part of the reset:
 
-- [system_architecture_spec.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\system\system_architecture_spec.md)
-- [register_layer_spec.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\system\register_layer_spec.md)
-- [2026-02-22_registry_layer_plan.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\system\2026-02-22_registry_layer_plan.md)
-- [2026-03-06_reducer_only_mutation_enforcement_plan.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\system\2026-03-06_reducer_only_mutation_enforcement_plan.md)
-- [edge_traversal_spec.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\subsystem_history\edge_traversal_spec.md)
-- [semantic_tagging_and_knowledge_spec.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\canvas\semantic_tagging_and_knowledge_spec.md)
+- `system_architecture_spec.md`
+- `register_layer_spec.md`
+- `2026-02-22_registry_layer_plan.md`
+- `2026-03-06_reducer_only_mutation_enforcement_plan.md`
+- `2026-03-03_graphshell_address_scheme_implementation_plan.md`
+- `../../../TERMINOLOGY.md`
+- `../subsystem_history/edge_traversal_spec.md`
+- `../canvas/semantic_tagging_and_knowledge_spec.md`
 
 Likely additional active docs needing terminology cleanup:
 
@@ -83,7 +98,7 @@ Likely additional active docs needing terminology cleanup:
 
 Important overlap:
 
-- [2026-02-22_registry_layer_plan.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\system\2026-02-22_registry_layer_plan.md) already proposes splitting `GraphBrowserApp` and introducing cleaner registry boundaries.
+- `2026-02-22_registry_layer_plan.md` already proposes splitting `GraphBrowserApp` and introducing cleaner registry boundaries.
 - The foundational reset must reconcile with that plan rather than create a competing state-split story.
 
 ### 4.2 Required spec changes
@@ -108,6 +123,13 @@ They should describe the target pipeline:
 - `AppPlan`
 - `AppTransaction`
 - `AppEffect`
+
+Before Phase C starts in code, a dedicated planner spec should exist for:
+
+- what `AppPlan` contains
+- how planner output differs from register/runtime routing
+- how `AppPlan` relates to reducer-owned transactions and post-apply effects
+- which first feature lane will use it
 
 #### S3. Position model
 
@@ -155,7 +177,7 @@ Before large code movement, create an ownership map of current `GraphBrowserApp`
 
 Primary file:
 
-- [graph_app.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\graph_app.rs)
+- `graph_app.rs`
 
 Likely adjacent files:
 
@@ -165,7 +187,7 @@ Likely adjacent files:
 
 Phase A receipt:
 
-- [2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md](c:\Users\mark_\OneDrive\code\rust\graphshell\design_docs\graphshell_docs\implementation_strategy\system\2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md)
+- `2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md`
 
 Current known unknowns from that map:
 
@@ -178,6 +200,11 @@ Closure condition:
 
 - every mutable field is classified
 - unknown fields are explicitly called out for follow-up
+
+Reconciliation rule:
+
+- this ownership map refines the earlier `GraphWorkspace` / `AppServices` split
+- it does not replace that split with a second incompatible story
 
 ### 5.2 Phase B - Introduce explicit state structs
 
@@ -193,10 +220,32 @@ Goal:
 
 - shift from semantic mixing to named ownership, even before deeper reducer changes
 
+Compatibility mapping to current active docs:
+
+- `GraphWorkspace` should evolve toward `DomainState + WorkbenchState`
+- `AppServices` should remain the runtime/service side of the boundary
+- any runtime residue still sitting in `GraphWorkspace` becomes an explicit migration target rather than a second architecture model
+
 Closure condition:
 
 - migrated fields live in explicit layer structs
 - new code stops adding unowned top-level fields to the monolith
+
+Initial CLAT sequence for Phase B:
+
+1. extract `DomainState { graph, notes, next_placeholder_id }`
+2. extract workbench selection/view state
+3. extract runtime webview/render/cache state
+4. resolve `views`
+5. resolve global `camera`
+
+Current execution note (2026-03-07):
+
+- CLAT-1 is complete for `DomainState { graph, notes, next_placeholder_id }`
+- `GraphWorkspace` now stores the durable core at `domain: DomainState`
+- the workbench consumer family has been migrated from `workspace.graph` to `workspace.domain.graph` for its bounded graph-read surface
+- the trusted-writer contract test now includes a workbench-specific guard preventing reintroduction of `workspace.graph` in that migrated family
+- focused validation passed with `cargo test -q contract_only_trusted_writers_call_graph_topology_mutators -- --nocapture` and `cargo test -q tile_behavior -- --nocapture`
 
 ### 5.3 Phase C - Command/planner boundary
 
@@ -214,9 +263,38 @@ Best initial domain:
 
 because it currently mixes graph/workbench/runtime semantics heavily.
 
+Authoring prerequisite:
+
+- write a dedicated `AppPlan` spec before starting Phase C extraction so planner semantics do not remain an underspecified paragraph in the reset vision
+
 Closure condition:
 
 - at least one subsystem no longer treats `GraphIntent` as the top-level architecture truth
+
+Bridge note:
+
+- active system docs still use `GraphIntent` as the current carrier in several places
+- during migration, `GraphIntent` should be treated as the active bridge carrier rather than incorrectly described as already retired
+
+Named bridge ledger for the current `GraphIntent` bridge:
+
+- Spec bridge locations:
+  - `2026-02-21_lifecycle_intent_model.md`
+  - `2026-02-22_registry_layer_plan.md`
+  - `2026-03-05_cp4_p2p_sync_plan.md`
+  - `coop_session_spec.md`
+  - `register/action_registry_spec.md`
+  - `register/SYSTEM_REGISTER.md`
+- Code bridge locations:
+  - `graph_app.rs`
+  - `shell/desktop/ui/gui.rs`
+  - `shell/desktop/ui/gui_frame.rs`
+  - `shell/desktop/ui/gui_orchestration.rs`
+  - `render/mod.rs`
+- Removal condition:
+  - at least one live feature lane enters through `AppCommand` / planner-first APIs instead of direct `GraphIntent` construction
+  - no active system doc presents `GraphIntent` as the future-facing top-level architecture
+  - boundary tests and repo searches prevent new direct bridge expansion without explicit classification
 
 ### 5.4 Phase D - First-class transaction model
 
@@ -242,10 +320,10 @@ Continue current `GraphDelta` work:
 
 Likely files:
 
-- [apply.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\model\graph\apply.rs)
-- [mod.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\model\graph\mod.rs)
-- [graph_app.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\graph_app.rs)
-- [mod.rs](c:\Users\mark_\OneDrive\code\rust\graphshell\services\persistence\mod.rs)
+- `model/graph/apply.rs`
+- `model/graph/mod.rs`
+- `graph_app.rs`
+- `services/persistence/mod.rs`
 
 Closure condition:
 
@@ -404,9 +482,9 @@ Targeted commands vary by slice.
 
 The best next implementation slice is:
 
-1. produce a `GraphBrowserApp` field ownership map
-2. introduce explicit `DomainState` / `WorkbenchState` / `RuntimeState` containers
-3. update active system docs to reference those containers
-4. add enforcement preventing new unowned state from accreting back into the monolith
+1. treat the ownership map as a backlog of CLATs, not as one giant migration ticket
+2. land `DomainState { graph, notes, next_placeholder_id }` as the first state-layer CLAT
+3. update active system docs to reference CLAT execution where needed
+4. add enforcement preventing new unowned durable-domain fields from accreting back into `GraphWorkspace`
 
-That is the most leverage-positive step because it affects every later migration and reduces ambiguity before deeper API changes land.
+That is the most leverage-positive next step because it proves the CLAT pattern on a narrow authority transfer before deeper API changes land.

@@ -4,6 +4,12 @@
 
 This document is the single source of truth for lifecycle modeling. Where it conflicts with other design docs, this section takes precedence.
 
+Interpretation note:
+
+- this document defines lifecycle semantics and the current reducer-facing carrier shape
+- `GraphIntent` here should be read as the active reducer bridge carrier, not as a permanent claim that top-level app commands will always be modeled directly as `GraphIntent`
+- future `AppCommand` / planner / transaction work may wrap or replace the top-level carrier while preserving this lifecycle contract
+
 ---
 
 ## 1) Two-layer lifecycle state
@@ -37,7 +43,7 @@ enum LifecycleCause {
 }
 ```
 
-## 3) Intent schema (reducer input)
+## 3) Current reducer carrier schema
 
 ```rust
 enum GraphIntent {
@@ -74,6 +80,8 @@ enum GraphIntent {
 ```
 
 `MapWebviewToNode` and `UnmapWebview` remain effect/reconcile-related intents but should not be the only signal of runtime truth.
+
+This section is authoritative about lifecycle mutation semantics. It is not intended to freeze the long-term top-level command API.
 
 ## 4) State-machine rules
 

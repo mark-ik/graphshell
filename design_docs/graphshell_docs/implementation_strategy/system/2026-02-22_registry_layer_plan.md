@@ -161,7 +161,7 @@ These manage specific, isolated resources or algorithms. Mods can extend these d
 **Logic & Security**
 *   **Action Registry** (Atomic):
     *   **Role**: Definitions of executable actions (`ActionId` → `Handler`).
-    *   **Interface**: `execute(context) -> Vec<GraphIntent>`
+    *   **Interface**: `execute(context) -> Vec<GraphIntent>` (current reducer bridge carrier)
 *   **Identity Registry**:
     *   **Role**: Manages keys/peer identities for signing and auth. **(The Security Root)**.
     *   **Interface**: `sign(payload, persona)`
@@ -700,6 +700,12 @@ The single most important structural change. `GraphBrowserApp` currently holds b
 `SideEffect` is a new enum (defined in Step 6.1) covering effects the reducer cannot apply itself: `SpawnWebview`, `DestroyWebview`, `PersistSnapshot`, `EmitDiagnostic`. These are handed to the shell/reconcile layer after the pure data mutation completes — the reducer does not call Servo or touch I/O.
 
 Registries receive `(&GraphWorkspace, &AppServices)` via `RegistryContext` — never `&mut GraphBrowserApp`.
+
+Relationship to later reset planning:
+
+- `GraphWorkspace` / `AppServices` is the precursor state split already landed by this plan.
+- Later reset work may further refine `GraphWorkspace` into narrower state containers such as domain-owned and workbench-owned state, while keeping `AppServices` as the runtime/service side of the boundary.
+- That later refinement should be treated as a continuation of this split, not as a competing replacement architecture.
 
 **Done gate**: `GraphWorkspace` is `Send + Sync` (no `Rc`, no `Cell`). `cargo test` passes. No `AppServices` fields remain on `GraphWorkspace`.
 
