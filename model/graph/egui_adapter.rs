@@ -861,7 +861,7 @@ impl EguiGraphState {
                 GraphNodeShape,
             >| {
                 // Extract all data from payload before any mutations
-                let position = node.payload().position;
+                let position = node.payload().projected_position();
                 let title = node.payload().title.clone();
                 let lifecycle = node.payload().lifecycle;
 

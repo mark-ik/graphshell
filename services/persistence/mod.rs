@@ -1660,8 +1660,8 @@ mod tests {
             assert_eq!(graph.edge_count(), 1);
 
             let (_, a) = graph.get_node_by_url("https://a.com").unwrap();
-            assert_eq!(a.position.x, 10.0);
-            assert_eq!(a.position.y, 20.0);
+            assert_eq!(a.projected_position().x, 10.0);
+            assert_eq!(a.projected_position().y, 20.0);
         }
     }
 
@@ -2068,8 +2068,8 @@ mod tests {
         assert_eq!(graph.node_count(), 1);
         assert!(graph.get_node_by_url("https://old.com").is_none());
         let (_, node) = graph.get_node_by_url("https://new.com").unwrap();
-        assert_eq!(node.position.x, 10.0);
-        assert_eq!(node.position.y, 20.0);
+        assert_eq!(node.projected_position().x, 10.0);
+        assert_eq!(node.projected_position().y, 20.0);
     }
 
     #[test]

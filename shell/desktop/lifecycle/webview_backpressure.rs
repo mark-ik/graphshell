@@ -328,9 +328,7 @@ pub(crate) fn reconcile_webview_creation_backpressure(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Node, NodeLifecycle};
-    use euclid::default::{Point2D, Vector2D};
-    use uuid::Uuid;
+    use crate::graph::Node;
 
     #[test]
     fn test_classify_webview_creation_probe_confirms_on_responsive_signal() {
@@ -387,29 +385,7 @@ mod tests {
     }
 
     fn test_node(url: &str) -> Node {
-        Node {
-            id: Uuid::new_v4(),
-            url: url.to_string(),
-            title: url.to_string(),
-            position: Point2D::new(0.0, 0.0),
-            committed_position: Point2D::new(0.0, 0.0),
-            velocity: Vector2D::new(0.0, 0.0),
-            is_pinned: false,
-            last_visited: std::time::SystemTime::now(),
-            history_entries: Vec::new(),
-            history_index: 0,
-            thumbnail_png: None,
-            thumbnail_width: 0,
-            thumbnail_height: 0,
-            favicon_rgba: None,
-            favicon_width: 0,
-            favicon_height: 0,
-            session_scroll: None,
-            session_form_draft: None,
-            lifecycle: NodeLifecycle::Cold,
-            mime_hint: None,
-            address_kind: crate::model::graph::AddressKind::Http,
-        }
+        Node::test_stub(url)
     }
 
     #[test]

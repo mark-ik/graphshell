@@ -120,10 +120,10 @@ pub struct Node {
     ///
     /// Render and physics code may move this continuously between reducer
     /// commits.
-    pub position: Point2D<f32>,
+    position: Point2D<f32>,
 
     /// Durable committed position used for snapshots and reducer-authored moves.
-    pub committed_position: Point2D<f32>,
+    committed_position: Point2D<f32>,
 
     /// Velocity for physics simulation
     pub velocity: Vector2D<f32>,
@@ -195,6 +195,43 @@ pub enum NodeLifecycle {
 
     /// Tombstoned node retained for history/identity continuity but not live rendering/runtime.
     Tombstone,
+}
+
+impl Node {
+    pub fn projected_position(&self) -> Point2D<f32> {
+        self.position
+    }
+
+    pub fn committed_position(&self) -> Point2D<f32> {
+        self.committed_position
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_stub(url: &str) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            url: url.to_string(),
+            title: url.to_string(),
+            position: Point2D::new(0.0, 0.0),
+            committed_position: Point2D::new(0.0, 0.0),
+            velocity: Vector2D::new(0.0, 0.0),
+            is_pinned: false,
+            last_visited: std::time::SystemTime::now(),
+            history_entries: Vec::new(),
+            history_index: 0,
+            thumbnail_png: None,
+            thumbnail_width: 0,
+            thumbnail_height: 0,
+            favicon_rgba: None,
+            favicon_width: 0,
+            favicon_height: 0,
+            session_scroll: None,
+            session_form_draft: None,
+            mime_hint: None,
+            address_kind: AddressKind::Http,
+            lifecycle: NodeLifecycle::Cold,
+        }
+    }
 }
 
 /// Type of edge connection
@@ -586,11 +623,11 @@ impl Graph {
     }
 
     pub fn node_projected_position(&self, key: NodeKey) -> Option<Point2D<f32>> {
-        self.get_node(key).map(|node| node.position)
+        self.get_node(key).map(Node::projected_position)
     }
 
     pub fn node_committed_position(&self, key: NodeKey) -> Option<Point2D<f32>> {
-        self.get_node(key).map(|node| node.committed_position)
+        self.get_node(key).map(Node::committed_position)
     }
 
     pub fn projected_centroid(&self) -> Option<Point2D<f32>> {

@@ -2327,7 +2327,7 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
                 if !focused_selection.contains(key) {
                     return None;
                 }
-                let app_pos = app.workspace.graph.get_node(*key)?.position;
+                let app_pos = app.workspace.graph.node_projected_position(*key)?;
                 let delta = egui::Vec2::new(egui_pos.x - app_pos.x, egui_pos.y - app_pos.y);
                 // Only consider it a drag if it actually moved (filter float noise).
                 if delta.length() > 0.01 {
@@ -4324,7 +4324,7 @@ mod tests {
 
         assert!(!app.workspace.is_interacting);
         let node = app.workspace.graph.get_node(key).unwrap();
-        assert_eq!(node.position, Point2D::new(150.0, 250.0));
+        assert_eq!(node.projected_position(), Point2D::new(150.0, 250.0));
     }
 
     #[test]
@@ -4476,7 +4476,7 @@ mod tests {
         app.apply_reducer_intents(intents);
 
         let node = app.workspace.graph.get_node(key).unwrap();
-        assert_eq!(node.position, Point2D::new(42.0, 84.0));
+        assert_eq!(node.projected_position(), Point2D::new(42.0, 84.0));
     }
 
     #[test]
@@ -4996,7 +4996,7 @@ mod tests {
 
         assert!(app.workspace.selected_nodes.contains(&k1));
         assert_eq!(
-            app.workspace.graph.get_node(k2).unwrap().position,
+            app.workspace.graph.get_node(k2).unwrap().projected_position(),
             Point2D::new(200.0, 300.0)
         );
         assert!((app.workspace.views[&view_id].camera.current_zoom - 1.5).abs() < 0.01);
@@ -5006,13 +5006,13 @@ mod tests {
     fn test_empty_actions_is_noop() {
         let mut app = test_app();
         let key = app.add_node_and_sync("a".into(), Point2D::new(50.0, 60.0));
-        let pos_before = app.workspace.graph.get_node(key).unwrap().position;
+        let pos_before = app.workspace.graph.get_node(key).unwrap().projected_position();
 
         let intents = intents_from_graph_actions(vec![]);
         app.apply_reducer_intents(intents);
 
         assert_eq!(
-            app.workspace.graph.get_node(key).unwrap().position,
+            app.workspace.graph.get_node(key).unwrap().projected_position(),
             pos_before
         );
     }
@@ -5204,17 +5204,17 @@ mod tests {
         sync_graph_positions_from_layout(&mut app);
 
         // A moved to its dragged position.
-        let a_pos = app.workspace.graph.get_node(a).unwrap().position;
+        let a_pos = app.workspace.graph.get_node(a).unwrap().projected_position();
         assert!((a_pos.x - 10.0).abs() < 0.1, "a.x={}", a_pos.x);
         assert!((a_pos.y - 20.0).abs() < 0.1, "a.y={}", a_pos.y);
 
         // B followed by the same delta.
-        let b_pos = app.workspace.graph.get_node(b).unwrap().position;
+        let b_pos = app.workspace.graph.get_node(b).unwrap().projected_position();
         assert!((b_pos.x - 110.0).abs() < 0.1, "b.x={}", b_pos.x);
         assert!((b_pos.y - 20.0).abs() < 0.1, "b.y={}", b_pos.y);
 
         // C was not selected — stays put.
-        let c_pos = app.workspace.graph.get_node(c).unwrap().position;
+        let c_pos = app.workspace.graph.get_node(c).unwrap().projected_position();
         assert!((c_pos.x - 200.0).abs() < 0.1, "c.x={}", c_pos.x);
         assert!((c_pos.y - 0.0).abs() < 0.1, "c.y={}", c_pos.y);
     }
@@ -5233,7 +5233,7 @@ mod tests {
         sync_graph_positions_from_layout(&mut app);
 
         // B must not move (single selection — no group drag).
-        let b_pos = app.workspace.graph.get_node(b).unwrap().position;
+        let b_pos = app.workspace.graph.get_node(b).unwrap().projected_position();
         assert!((b_pos.x - 100.0).abs() < 0.1, "b.x={}", b_pos.x);
         assert!((b_pos.y - 0.0).abs() < 0.1, "b.y={}", b_pos.y);
     }

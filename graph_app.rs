@@ -2727,7 +2727,7 @@ impl GraphBrowserApp {
                     .workspace
                     .graph
                     .nodes()
-                    .map(|(k, n)| (k, n.position))
+                    .map(|(k, n)| (k, n.projected_position()))
                     .collect(),
                 physics: self.workspace.physics.clone(),
             });
@@ -2739,7 +2739,7 @@ impl GraphBrowserApp {
                         .workspace
                         .graph
                         .nodes()
-                        .map(|(k, n)| (k, n.position))
+                        .map(|(k, n)| (k, n.projected_position()))
                         .collect(),
                     physics: self.workspace.physics.clone(),
                 });
@@ -2808,7 +2808,7 @@ impl GraphBrowserApp {
                 .workspace
                 .graph
                 .nodes()
-                .map(|(k, n)| (k, n.position))
+                .map(|(k, n)| (k, n.projected_position()))
                 .collect(),
             physics: self.workspace.physics.clone(),
         });
@@ -9361,7 +9361,7 @@ mod tests {
         }]);
 
         let child = app.get_node_for_webview(child_wv).unwrap();
-        let child_pos = app.workspace.graph.get_node(child).unwrap().position;
+        let child_pos = app.workspace.graph.get_node(child).unwrap().projected_position();
         // Child should be placed near the parent (not at fallback center 400, 300).
         // The base offset is (+140, +80) plus jitter in [-50, +50].
         // So x is in [100, 200] and y is in [50, 150] relative to parent at (10, 20).
