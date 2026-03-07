@@ -66,8 +66,14 @@ use crate::util::CoordBridge;
 mod gui_update_coordinator;
 #[path = "gui/accessibility.rs"]
 mod accessibility;
+#[path = "gui/update_frame_phases.rs"]
+mod update_frame_phases;
 
 use accessibility::WebViewA11yGraftPlan;
+use update_frame_phases::ExecuteUpdateFrameArgs;
+
+#[cfg(test)]
+use update_frame_phases::UpdateFrameStage;
 
 pub(crate) struct GuiUpdateInput<'a> {
     pub(crate) state: &'a RunningAppState,
@@ -76,189 +82,6 @@ pub(crate) struct GuiUpdateInput<'a> {
 }
 
 pub(crate) struct GuiUpdateOutput;
-
-struct GraphSearchAndKeyboardPhaseArgs<'a> {
-    ctx: &'a egui::Context,
-    graph_app: &'a mut GraphBrowserApp,
-    window: &'a EmbedderWindow,
-    tiles_tree: &'a mut Tree<TileKind>,
-    graph_search_open: &'a mut bool,
-    graph_search_query: &'a mut String,
-    graph_search_filter_mode: &'a mut bool,
-    graph_search_matches: &'a mut Vec<NodeKey>,
-    graph_search_active_match_index: &'a mut Option<usize>,
-    toolbar_state: &'a mut ToolbarState,
-    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    app_state: &'a Option<Rc<RunningAppState>>,
-    rendering_context: &'a Rc<OffscreenRenderingContext>,
-    window_rendering_context: &'a Rc<WindowRenderingContext>,
-    responsive_webviews: &'a HashSet<WebViewId>,
-    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    frame_intents: &'a mut Vec<GraphIntent>,
-}
-
-struct ToolbarAndGraphSearchWindowPhaseArgs<'a> {
-    ctx: &'a egui::Context,
-    winit_window: &'a Window,
-    state: &'a RunningAppState,
-    graph_app: &'a mut GraphBrowserApp,
-    #[cfg(feature = "diagnostics")]
-    diagnostics_state: &'a mut diagnostics::DiagnosticsState,
-    window: &'a EmbedderWindow,
-    tiles_tree: &'a mut Tree<TileKind>,
-    focused_node_hint: Option<NodeKey>,
-    graph_surface_focused: bool,
-    toolbar_state: &'a mut ToolbarState,
-    omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
-    toasts: &'a mut egui_notify::Toasts,
-    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    app_state: &'a Option<Rc<RunningAppState>>,
-    rendering_context: &'a Rc<OffscreenRenderingContext>,
-    window_rendering_context: &'a Rc<WindowRenderingContext>,
-    responsive_webviews: &'a HashSet<WebViewId>,
-    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    graph_search_open: &'a mut bool,
-    graph_search_query: &'a mut String,
-    graph_search_filter_mode: &'a mut bool,
-    graph_search_matches: &'a mut Vec<NodeKey>,
-    graph_search_active_match_index: &'a mut Option<usize>,
-    graph_search_output: &'a mut graph_search_flow::GraphSearchFlowOutput,
-    frame_intents: &'a mut Vec<GraphIntent>,
-    open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
-}
-
-struct SemanticLifecyclePhaseArgs<'a> {
-    graph_app: &'a mut GraphBrowserApp,
-    tiles_tree: &'a mut Tree<TileKind>,
-    modal_surface_active: bool,
-    window: &'a EmbedderWindow,
-    app_state: &'a Option<Rc<RunningAppState>>,
-    rendering_context: &'a Rc<OffscreenRenderingContext>,
-    window_rendering_context: &'a Rc<WindowRenderingContext>,
-    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    responsive_webviews: &'a HashSet<WebViewId>,
-    pending_open_child_webviews: Vec<WebViewId>,
-    deferred_open_child_webviews: &'a mut Vec<WebViewId>,
-    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
-    frame_intents: &'a mut Vec<GraphIntent>,
-}
-
-struct SemanticAndPostRenderPhaseArgs<'a> {
-    ctx: &'a egui::Context,
-    graph_app: &'a mut GraphBrowserApp,
-    window: &'a EmbedderWindow,
-    headed_window: &'a headed_window::HeadedWindow,
-    tiles_tree: &'a mut Tree<TileKind>,
-    modal_surface_active: bool,
-    toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
-    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    app_state: &'a Option<Rc<RunningAppState>>,
-    rendering_context: &'a Rc<OffscreenRenderingContext>,
-    window_rendering_context: &'a Rc<WindowRenderingContext>,
-    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    focused_node_hint: &'a mut Option<NodeKey>,
-    graph_surface_focused: &'a mut bool,
-    focus_ring_node_key: &'a mut Option<NodeKey>,
-    focus_ring_started_at: &'a mut Option<std::time::Instant>,
-    focus_ring_duration: &'a mut Duration,
-    graph_search_query: &'a mut String,
-    graph_search_matches: &'a mut Vec<NodeKey>,
-    graph_search_active_match_index: &'a mut Option<usize>,
-    graph_search_filter_mode: &'a mut bool,
-    toasts: &'a mut egui_notify::Toasts,
-    registry_runtime: &'a RegistryRuntime,
-    control_panel: &'a mut ControlPanel,
-    #[cfg(feature = "diagnostics")]
-    diagnostics_state: &'a mut diagnostics::DiagnosticsState,
-    responsive_webviews: &'a HashSet<WebViewId>,
-    pending_open_child_webviews: Vec<WebViewId>,
-    deferred_open_child_webviews: &'a mut Vec<WebViewId>,
-    open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
-    frame_intents: &'a mut Vec<GraphIntent>,
-}
-
-struct PreFrameAndIntentInitArgs<'a> {
-    ctx: &'a egui::Context,
-    graph_app: &'a mut GraphBrowserApp,
-    state: &'a RunningAppState,
-    window: &'a EmbedderWindow,
-    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
-    thumbnail_capture_rx: &'a Receiver<ThumbnailCaptureResult>,
-    thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
-    command_palette_toggle_requested: &'a mut bool,
-    control_panel: &'a mut ControlPanel,
-}
-
-struct ExecuteUpdateFrameArgs<'a> {
-    ctx: &'a egui::Context,
-    winit_window: &'a Window,
-    state: &'a RunningAppState,
-    window: &'a EmbedderWindow,
-    headed_window: &'a headed_window::HeadedWindow,
-    graph_app: &'a mut GraphBrowserApp,
-    pending_webview_a11y_updates: &'a mut HashMap<WebViewId, accesskit::TreeUpdate>,
-    tiles_tree: &'a mut Tree<TileKind>,
-    toolbar_height: &'a mut Length<f32, DeviceIndependentPixel>,
-    toolbar_state: &'a mut ToolbarState,
-    toasts: &'a mut egui_notify::Toasts,
-    clipboard: &'a mut Option<Clipboard>,
-    favicon_textures: &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
-    tile_rendering_contexts: &'a mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    tile_favicon_textures: &'a mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
-    thumbnail_capture_tx: &'a Sender<ThumbnailCaptureResult>,
-    thumbnail_capture_rx: &'a Receiver<ThumbnailCaptureResult>,
-    thumbnail_capture_in_flight: &'a mut HashSet<WebViewId>,
-    webview_creation_backpressure: &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
-    app_state: &'a Option<Rc<RunningAppState>>,
-    graph_search_open: &'a mut bool,
-    graph_search_query: &'a mut String,
-    graph_search_filter_mode: &'a mut bool,
-    graph_search_matches: &'a mut Vec<NodeKey>,
-    graph_search_active_match_index: &'a mut Option<usize>,
-    focused_node_hint: &'a mut Option<NodeKey>,
-    graph_surface_focused: &'a mut bool,
-    focus_ring_node_key: &'a mut Option<NodeKey>,
-    focus_ring_started_at: &'a mut Option<std::time::Instant>,
-    focus_ring_duration: &'a mut Duration,
-    omnibar_search_session: &'a mut Option<OmnibarSearchSession>,
-    command_palette_toggle_requested: &'a mut bool,
-    deferred_open_child_webviews: &'a mut Vec<WebViewId>,
-    rendering_context: &'a Rc<OffscreenRenderingContext>,
-    window_rendering_context: &'a Rc<WindowRenderingContext>,
-    registry_runtime: &'a RegistryRuntime,
-    control_panel: &'a mut ControlPanel,
-    #[cfg(feature = "diagnostics")]
-    diagnostics_state: &'a mut diagnostics::DiagnosticsState,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-enum UpdateFrameStage {
-    Prelude,
-    PreFrameInit,
-    GraphSearchAndKeyboard,
-    ToolbarAndGraphSearchWindow,
-    SemanticAndPostRender,
-    Finalize,
-}
-
-const UPDATE_FRAME_STAGE_SEQUENCE: [UpdateFrameStage; 6] = [
-    UpdateFrameStage::Prelude,
-    UpdateFrameStage::PreFrameInit,
-    UpdateFrameStage::GraphSearchAndKeyboard,
-    UpdateFrameStage::ToolbarAndGraphSearchWindow,
-    UpdateFrameStage::SemanticAndPostRender,
-    UpdateFrameStage::Finalize,
-];
 
 /// The user interface of a headed Graphshell runtime. Currently this is implemented via
 /// egui.
