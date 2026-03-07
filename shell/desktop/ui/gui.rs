@@ -70,6 +70,9 @@ mod accessibility;
 mod update_frame_phases;
 #[path = "gui/startup.rs"]
 mod startup;
+#[cfg(test)]
+#[path = "gui/intent_translation.rs"]
+mod intent_translation;
 
 use accessibility::WebViewA11yGraftPlan;
 use update_frame_phases::ExecuteUpdateFrameArgs;
@@ -1075,23 +1078,14 @@ mod gui_tests;
 
 #[cfg(test)]
 fn graph_intents_from_semantic_events(events: Vec<GraphSemanticEvent>) -> Vec<GraphIntent> {
-    semantic_event_pipeline::runtime_events_from_semantic_events(events)
-        .into_iter()
-        .map(Into::into)
-        .collect()
+    intent_translation::graph_intents_from_semantic_events(events)
 }
 
 #[cfg(test)]
 fn graph_intents_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
 ) -> (Vec<GraphIntent>, Vec<WebViewId>, HashSet<WebViewId>) {
-    let (runtime_events, pending_open_child_webviews, responsive_webviews) =
-        semantic_event_pipeline::runtime_events_and_responsive_from_events(events);
-    (
-        runtime_events.into_iter().map(Into::into).collect(),
-        pending_open_child_webviews,
-        responsive_webviews,
-    )
+    intent_translation::graph_intents_and_responsive_from_events(events)
 }
 
 #[cfg(test)]
