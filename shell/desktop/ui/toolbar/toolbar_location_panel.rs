@@ -3,6 +3,41 @@ use super::*;
 
 const LOCATION_INPUT_HINT_TEXT: &str = "Search or enter address";
 
+fn provider_cache_key(provider: SearchProviderKind, query: &str) -> String {
+    let provider_key = match provider {
+        SearchProviderKind::DuckDuckGo => "duckduckgo",
+        SearchProviderKind::Bing => "bing",
+        SearchProviderKind::Google => "google",
+    };
+    format!("provider:{provider_key}:{}", query.trim())
+}
+
+fn provider_query_for_session(session: &OmnibarSearchSession) -> String {
+    if let Some(raw) = session.query.strip_prefix('@')
+        && let Some((_provider, query)) = parse_provider_search_query(raw)
+    {
+        let trimmed = query.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    session.query.trim().to_string()
+}
+
+fn outcome_from_cached_suggestions(
+    provider: SearchProviderKind,
+    suggestions: &[String],
+) -> ProviderSuggestionFetchOutcome {
+    ProviderSuggestionFetchOutcome {
+        matches: suggestions
+            .iter()
+            .cloned()
+            .map(|query| OmnibarMatch::SearchQuery { query, provider })
+            .collect(),
+        status: ProviderSuggestionStatus::Ready,
+    }
+}
+
 fn should_dispatch_location_submit(
     enter_while_focused: bool,
     location_submitted: bool,
@@ -198,16 +233,24 @@ pub(super) fn render_location_search_panel(
         && location_field.has_focus()
         && session.query == location.trim()
     {
+        let mut fetched_outcome = None;
         if let Some(deadline) = session.provider_debounce_deadline
             && session.provider_rx.is_none()
             && Instant::now() >= deadline
             && let OmnibarSessionKind::SearchProvider(provider) = session.kind
         {
             session.provider_debounce_deadline = None;
-            session.provider_rx = Some(spawn_provider_suggestion_request(provider, &session.query));
+            let provider_query = provider_query_for_session(session);
+            let cache_key = provider_cache_key(provider, &provider_query);
+            if let Some(cached_suggestions) = graph_app.workspace.runtime_caches.get_suggestions(&cache_key)
+            {
+                fetched_outcome = Some(outcome_from_cached_suggestions(provider, &cached_suggestions));
+            } else {
+                session.provider_rx =
+                    Some(spawn_provider_suggestion_request(provider, &provider_query));
+            }
         }
 
-        let mut fetched_outcome = None;
         if let Some(rx) = &session.provider_rx {
             match rx.try_recv() {
                 Ok(outcome) => fetched_outcome = Some(outcome),
@@ -227,6 +270,28 @@ pub(super) fn render_location_search_panel(
         }
         if let Some(outcome) = fetched_outcome {
             session.provider_rx = None;
+            if let OmnibarSessionKind::SearchProvider(provider) = session.kind
+                && matches!(outcome.status, ProviderSuggestionStatus::Ready)
+            {
+                let suggestions: Vec<String> = outcome
+                    .matches
+                    .iter()
+                    .filter_map(|entry| match entry {
+                        OmnibarMatch::SearchQuery {
+                            query,
+                            provider: entry_provider,
+                        } if *entry_provider == provider => Some(query.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                if !suggestions.is_empty() {
+                    let provider_query = provider_query_for_session(session);
+                    graph_app.workspace.runtime_caches.insert_suggestions(
+                        provider_cache_key(provider, &provider_query),
+                        suggestions,
+                    );
+                }
+            }
             session.provider_status = outcome.status;
             if !session.query.starts_with('@') {
                 let fallback_scope = if graph_app.workspace.omnibar_preferred_scope
@@ -329,7 +394,12 @@ pub(super) fn render_location_search_panel(
 
 #[cfg(test)]
 mod tests {
-    use super::{LOCATION_INPUT_HINT_TEXT, should_dispatch_location_submit};
+    use super::{
+        LOCATION_INPUT_HINT_TEXT, OmnibarSearchSession, OmnibarSessionKind,
+        ProviderSuggestionStatus, SearchProviderKind, provider_cache_key,
+        provider_query_for_session, should_dispatch_location_submit,
+    };
+    use std::collections::HashSet;
 
     #[test]
     fn submit_dispatch_triggers_for_focused_enter() {
@@ -360,5 +430,61 @@ mod tests {
     fn location_input_hint_text_provides_search_and_address_instruction() {
         assert!(LOCATION_INPUT_HINT_TEXT.contains("Search"));
         assert!(LOCATION_INPUT_HINT_TEXT.contains("address"));
+    }
+
+    #[test]
+    fn provider_cache_key_namespaces_provider_and_query() {
+        assert_eq!(
+            provider_cache_key(SearchProviderKind::Google, "rust"),
+            "provider:google:rust"
+        );
+    }
+
+    #[test]
+    fn provider_query_for_session_strips_at_provider_prefix() {
+        let session = OmnibarSearchSession {
+            kind: OmnibarSessionKind::SearchProvider(SearchProviderKind::DuckDuckGo),
+            query: "@d rust async".to_string(),
+            matches: Vec::new(),
+            active_index: 0,
+            selected_indices: HashSet::new(),
+            anchor_index: None,
+            provider_rx: None,
+            provider_debounce_deadline: None,
+            provider_status: ProviderSuggestionStatus::Idle,
+        };
+        assert_eq!(provider_query_for_session(&session), "rust async");
+    }
+
+    #[test]
+    fn provider_query_for_session_keeps_plain_query_for_non_at_mode() {
+        let session = OmnibarSearchSession {
+            kind: OmnibarSessionKind::SearchProvider(SearchProviderKind::Bing),
+            query: "plain query".to_string(),
+            matches: Vec::new(),
+            active_index: 0,
+            selected_indices: HashSet::new(),
+            anchor_index: None,
+            provider_rx: None,
+            provider_debounce_deadline: None,
+            provider_status: ProviderSuggestionStatus::Idle,
+        };
+        assert_eq!(provider_query_for_session(&session), "plain query");
+    }
+
+    #[test]
+    fn provider_query_for_session_falls_back_when_provider_token_invalid() {
+        let session = OmnibarSearchSession {
+            kind: OmnibarSessionKind::SearchProvider(SearchProviderKind::Google),
+            query: "@x raw".to_string(),
+            matches: Vec::new(),
+            active_index: 0,
+            selected_indices: HashSet::new(),
+            anchor_index: None,
+            provider_rx: None,
+            provider_debounce_deadline: None,
+            provider_status: ProviderSuggestionStatus::Idle,
+        };
+        assert_eq!(provider_query_for_session(&session), "@x raw");
     }
 }

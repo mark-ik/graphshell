@@ -32,6 +32,7 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigationTrigger};
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
     CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
@@ -2152,6 +2153,8 @@ pub struct GraphWorkspace {
     node_to_webview: HashMap<NodeKey, RendererId>,
     /// Runtime-only block/backoff metadata keyed by graph node.
     runtime_block_state: HashMap<NodeKey, RuntimeBlockState>,
+    /// Non-authoritative runtime caches for data-plane acceleration.
+    pub(crate) runtime_caches: RuntimeCaches,
 
     /// Nodes that had webviews before switching to graph view (for restoration).
     /// Managed by the webview_controller module.
@@ -2501,6 +2504,7 @@ impl GraphBrowserApp {
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
                 runtime_block_state: HashMap::new(),
+                runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
                 active_webview_nodes: Vec::new(),
                 active_lru: Vec::new(),
                 active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,
@@ -2688,6 +2692,7 @@ impl GraphBrowserApp {
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
                 runtime_block_state: HashMap::new(),
+                runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
                 active_webview_nodes: Vec::new(),
                 active_lru: Vec::new(),
                 active_webview_limit: Self::DEFAULT_ACTIVE_WEBVIEW_LIMIT,

@@ -8,6 +8,7 @@
 //! They must not mutate lifecycle state or emit reducer intents.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use moka::notification::RemovalCause;
@@ -66,6 +67,23 @@ pub(crate) struct RuntimeCaches {
     metadata_cache: Cache<String, Arc<Value>>,
     suggestion_cache: Cache<String, Arc<Vec<String>>>,
     snapshot_cache: Cache<String, Arc<Vec<u8>>>,
+    metrics: Arc<CacheMetrics>,
+}
+
+#[derive(Debug, Default)]
+struct CacheMetrics {
+    hits: AtomicU64,
+    misses: AtomicU64,
+    inserts: AtomicU64,
+    evictions: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CacheMetricsSnapshot {
+    pub(crate) hits: u64,
+    pub(crate) misses: u64,
+    pub(crate) inserts: u64,
+    pub(crate) evictions: u64,
 }
 
 impl RuntimeCaches {
@@ -74,12 +92,14 @@ impl RuntimeCaches {
         rewarm_tx: Option<mpsc::UnboundedSender<RewarmHint>>,
     ) -> Self {
         let ttl = policy.ttl;
+        let metrics = Arc::new(CacheMetrics::default());
 
         let thumbnail_cache = Cache::builder()
             .max_capacity(policy.thumbnail_capacity)
             .time_to_live(ttl)
             .eviction_listener(build_listener(
                 CacheKind::Thumbnail,
+                metrics.clone(),
                 rewarm_tx.clone(),
                 |key| CacheKey::Thumbnail(*key),
             ))
@@ -90,6 +110,7 @@ impl RuntimeCaches {
             .time_to_live(ttl)
             .eviction_listener(build_listener(
                 CacheKind::ParsedMetadata,
+                metrics.clone(),
                 rewarm_tx.clone(),
                 |key: &String| CacheKey::ParsedMetadata(key.clone()),
             ))
@@ -100,6 +121,7 @@ impl RuntimeCaches {
             .time_to_live(ttl)
             .eviction_listener(build_listener(
                 CacheKind::Suggestion,
+                metrics.clone(),
                 rewarm_tx.clone(),
                 |key: &String| CacheKey::Suggestion(key.clone()),
             ))
@@ -110,6 +132,7 @@ impl RuntimeCaches {
             .time_to_live(ttl)
             .eviction_listener(build_listener(
                 CacheKind::SnapshotArtifact,
+                metrics.clone(),
                 rewarm_tx,
                 |key: &String| CacheKey::SnapshotArtifact(key.clone()),
             ))
@@ -120,39 +143,69 @@ impl RuntimeCaches {
             metadata_cache,
             suggestion_cache,
             snapshot_cache,
+            metrics,
         }
     }
 
     pub(crate) fn insert_thumbnail(&self, key: NodeKey, bytes: Vec<u8>) {
+        self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
         self.thumbnail_cache.insert(key, Arc::new(bytes));
     }
 
     pub(crate) fn get_thumbnail(&self, key: NodeKey) -> Option<Arc<Vec<u8>>> {
-        self.thumbnail_cache.get(&key)
+        let value = self.thumbnail_cache.get(&key);
+        self.record_get(value.is_some());
+        value
     }
 
     pub(crate) fn insert_parsed_metadata(&self, key: String, value: Value) {
+        self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
         self.metadata_cache.insert(key, Arc::new(value));
     }
 
     pub(crate) fn get_parsed_metadata(&self, key: &str) -> Option<Arc<Value>> {
-        self.metadata_cache.get(key)
+        let value = self.metadata_cache.get(key);
+        self.record_get(value.is_some());
+        value
     }
 
     pub(crate) fn insert_suggestions(&self, key: String, suggestions: Vec<String>) {
+        self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
         self.suggestion_cache.insert(key, Arc::new(suggestions));
     }
 
     pub(crate) fn get_suggestions(&self, key: &str) -> Option<Arc<Vec<String>>> {
-        self.suggestion_cache.get(key)
+        let value = self.suggestion_cache.get(key);
+        self.record_get(value.is_some());
+        value
     }
 
     pub(crate) fn insert_snapshot_artifact(&self, key: String, bytes: Vec<u8>) {
+        self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
         self.snapshot_cache.insert(key, Arc::new(bytes));
     }
 
     pub(crate) fn get_snapshot_artifact(&self, key: &str) -> Option<Arc<Vec<u8>>> {
-        self.snapshot_cache.get(key)
+        let value = self.snapshot_cache.get(key);
+        self.record_get(value.is_some());
+        value
+    }
+
+    pub(crate) fn metrics_snapshot(&self) -> CacheMetricsSnapshot {
+        CacheMetricsSnapshot {
+            hits: self.metrics.hits.load(Ordering::Relaxed),
+            misses: self.metrics.misses.load(Ordering::Relaxed),
+            inserts: self.metrics.inserts.load(Ordering::Relaxed),
+            evictions: self.metrics.evictions.load(Ordering::Relaxed),
+        }
+    }
+
+    fn record_get(&self, hit: bool) {
+        if hit {
+            self.metrics.hits.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.metrics.misses.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     #[cfg(test)]
@@ -166,6 +219,7 @@ impl RuntimeCaches {
 
 fn build_listener<K, V, F>(
     kind: CacheKind,
+    metrics: Arc<CacheMetrics>,
     rewarm_tx: Option<mpsc::UnboundedSender<RewarmHint>>,
     to_key: F,
 ) -> impl Fn(Arc<K>, Arc<V>, RemovalCause) + Send + Sync + 'static
@@ -175,6 +229,7 @@ where
     F: Fn(&K) -> CacheKey + Send + Sync + Clone + 'static,
 {
     move |key, _value, cause| {
+        metrics.evictions.fetch_add(1, Ordering::Relaxed);
         if let Some(tx) = &rewarm_tx {
             let _ = tx.send(RewarmHint {
                 kind,
@@ -228,6 +283,11 @@ mod tests {
                 .map(|v| v.as_slice()),
             Some(&[9, 8, 7][..])
         );
+
+        let metrics = caches.metrics_snapshot();
+        assert_eq!(metrics.inserts, 4);
+        assert_eq!(metrics.hits, 4);
+        assert_eq!(metrics.misses, 0);
     }
 
     #[tokio::test]
@@ -255,5 +315,16 @@ mod tests {
         assert_eq!(hint.kind, CacheKind::Thumbnail);
         assert!(matches!(hint.key, CacheKey::Thumbnail(_)));
         assert!(matches!(hint.cause, RemovalCause::Size));
+
+        let metrics = caches.metrics_snapshot();
+        assert!(metrics.evictions >= 1);
+    }
+
+    #[test]
+    fn cache_metrics_tracks_misses() {
+        let caches = RuntimeCaches::new(CachePolicy::default(), None);
+        assert!(caches.get_suggestions("missing").is_none());
+        let metrics = caches.metrics_snapshot();
+        assert_eq!(metrics.misses, 1);
     }
 }

@@ -1,7 +1,7 @@
 # Embedder Decomposition Plan (Revised)
 
 **Date:** 2026-02-21 (revision of 2026-02-20 plan)
-**Status:** Active — Stages 1-3 complete; Stage 4 in progress
+**Status:** Active — Stages 1-5 complete; Stage 6 in progress
 **Relates to:** Architectural Concerns doc §8 (Monolithic UI)
 
 **Coordination note (2026-02-26):** Stage 4 decomposition should follow the foundation-first sequencing in `2026-02-26_composited_viewer_pass_contract.md` Appendix A and `PLANNING_REGISTER.md` §0.10. Specifically, compositor pass-order correctness + GL-state diagnostics hardening should land before UX-expansion slices that increase render-path complexity.
@@ -292,7 +292,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 
 ---
 
-### Stage 6: Data Plane Caching (Future, Policy-Gated)
+### Stage 6: Data Plane Caching (Active, Policy-Gated)
 
 **Goal:** Add concurrent non-authoritative artifact caches without reintroducing direct lifecycle mutation.
 
@@ -393,6 +393,8 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 4a closure: introduced canonical `toolbar_ui::Input`/`Output` boundary types and added focused omnibar settings-order unit tests for stateful toolbar behavior.
 - Stage 5 core primitives landed in runtime `ControlPanel`: mpsc lifecycle queue, watch-driven policy fan-out, cancellation-token worker shutdown, and deterministic concurrent-producer drain-order tests.
 - Stage 6 cache plane landed: added `runtime/caches.rs` with `moka`-backed thumbnail/metadata/suggestion/snapshot caches, policy-driven capacities/TTL, and non-blocking eviction rewarm hints.
+- Stage 6 integration slice landed for omnibar provider suggestions: provider query normalization + cache-keyed read-through/write-through path in `toolbar_location_panel.rs`, with focused helper tests.
+- Stage 6 measurability slice landed: runtime cache metrics snapshot (`hits`/`misses`/`inserts`/`evictions`) added and covered by focused cache-module tests.
 
 **2026-03-01 Revision:**
 - Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.
