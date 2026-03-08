@@ -52,8 +52,8 @@ The desired architecture for managing state is not yet fully implemented.
 
 The documentation explicitly identifies areas of duplicated state.
 
-- **Selection State**: [implementation_strategy/2026-02-14_selection_semantics_plan.md](../../archive_docs/checkpoint_2026-02-19/2026-02-14_selection_semantics_plan.md) was created to address the problem of duplicated selection state between different components. This is a known weakness in the current component wiring that can lead to UI inconsistencies and bugs.
-- **Status (Feb 17)**: Keep as active concern only to the extent unresolved items remain in the selection semantics plan.
+- **Selection State**: The old global-selection concern is largely addressed. Canonical selection ownership is now the active `GraphViewId` within the active Frame, as documented in [focus_and_region_navigation_spec.md](../implementation_strategy/subsystem_focus/focus_and_region_navigation_spec.md) §4.7, and the W2 per-view migration is recorded as landed in [2026-03-03_pre_wgpu_plot.md](../implementation_strategy/2026-03-03_pre_wgpu_plot.md).
+- **Residual Concern (2026-03-08)**: `graph_app.rs` still retains `workspace.selected_nodes` as a compatibility mirror of the focused view selection while `workspace.selected_nodes_by_view` is the canonical owner. This is no longer a broad architectural contradiction, but it remains a cleanup/hardening concern until the mirror is removed or fully demoted to compatibility-only plumbing.
 
 ---
 
@@ -84,11 +84,11 @@ The primary UI components have been reduced through recent decomposition but som
 - **Original Concern**: `desktop/gui.rs` was ~1,741 lines (as of Feb 21), well above the ~800-1000 guideline.
 - **Decomposition completed (as of 2026-03-08)**: `shell/desktop/ui/gui.rs` is now **681 lines**. `toolbar_ui.rs` is **408 lines** (coordinator) with 8 focused submodules under `shell/desktop/ui/toolbar/`. `gui_frame.rs` is **426 lines** with 9 submodules under `shell/desktop/ui/gui_frame/`. `gui_orchestration.rs` is **1,834 lines** (still large; primary orchestration façade).
 - **Remaining — significant (as of 2026-03-08)**:
-  - `graph_app.rs`: **14,714 lines** — the dominant hotspot; substantially larger than the ~6k noted previously and still growing. No dedicated decomposition plan exists.
-  - `render/mod.rs`: **5,617 lines** — also larger than the ~3.4k noted previously. No dedicated decomposition plan exists.
+  - `graph_app.rs`: **11,269 lines** after the 2026-03-08 Stage 1-3 extractions (`app/selection.rs`, `app/intents.rs`, `app/history.rs`, `app/persistence.rs`). Still the dominant hotspot, but now has an active dedicated plan: [../implementation_strategy/system/2026-03-08_graph_app_decomposition_plan.md](../implementation_strategy/system/2026-03-08_graph_app_decomposition_plan.md).
+  - `render/mod.rs`: **5,146 lines** after the 2026-03-08 Stage 1 extraction (`render/panels.rs`, `render/reducer_bridge.rs`). Still larger than target and now has an active dedicated plan: [../implementation_strategy/aspect_render/2026-03-08_render_mod_decomposition_plan.md](../implementation_strategy/aspect_render/2026-03-08_render_mod_decomposition_plan.md).
   - `runtime/diagnostics.rs`: **3,466 lines** — large but diagnostics-focused; lower priority.
   - `runtime/registries/mod.rs`: **2,514 lines** — registry hub; manageable but worth watching.
-- **Impact**: `gui`/`toolbar`/`gui_frame` decomposition is complete and successful. `graph_app.rs` and `render/mod.rs` are now the dominant hotspots and the primary candidates for the next decomposition pass. Neither is covered by an active plan.
+- **Impact**: `gui`/`toolbar`/`gui_frame` decomposition is complete and successful. `graph_app.rs` and `render/mod.rs` remain the dominant hotspots, but both now have active decomposition plans and landed extraction slices. The remaining work is follow-on staging, not plan absence.
 
 ---
 
