@@ -3701,6 +3701,15 @@ impl GraphBrowserApp {
     /// Advance frame-local physics housekeeping.
     /// Handles short post-drag inertia decay when simulation was previously paused.
     pub fn tick_frame(&mut self) {
+        #[cfg(feature = "tracing")]
+        let _tick_span = tracing::trace_span!(
+            "graph.tick_frame",
+            drag_release_frames_remaining = self.workspace.drag_release_frames_remaining,
+            is_interacting = self.workspace.is_interacting,
+            physics_running = self.workspace.physics.base.is_running,
+        )
+        .entered();
+
         if self.workspace.drag_release_frames_remaining == 0 || self.workspace.is_interacting {
             return;
         }
@@ -3756,6 +3765,18 @@ impl GraphBrowserApp {
             return;
         }
 
+        #[cfg(feature = "tracing")]
+        let apply_started = Instant::now();
+
+        #[cfg(feature = "tracing")]
+        let _apply_span = tracing::trace_span!(
+            "graph.apply_reducer_intents_with_context",
+            intent_count = intents.len(),
+            force_undo_boundary = ctx.force_undo_boundary,
+            undo_reason = ?ctx.undo_boundary_reason,
+        )
+        .entered();
+
         let should_capture = ctx.force_undo_boundary
             || intents
                 .iter()
@@ -3771,6 +3792,13 @@ impl GraphBrowserApp {
         for intent in intents {
             self.apply_reducer_intent_internal(intent, false);
         }
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            target: "graphshell::perf",
+            elapsed_us = apply_started.elapsed().as_micros() as u64,
+            "graph.apply_reducer_intents_with_context.complete"
+        );
     }
 
     #[cfg(test)]

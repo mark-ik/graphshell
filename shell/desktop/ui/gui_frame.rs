@@ -162,6 +162,18 @@ pub(crate) fn apply_intents_if_any(
 
     let layout_json = serde_json::to_string(tiles_tree).ok();
     if !apply_list.is_empty() {
+        #[cfg(feature = "tracing")]
+        let tracing_apply_started = Instant::now();
+
+        #[cfg(feature = "tracing")]
+        let _apply_span = tracing::trace_span!(
+            "gui.apply_intents_if_any",
+            apply_count = apply_list.len(),
+            undo_count,
+            redo_count,
+        )
+        .entered();
+
         #[cfg(feature = "diagnostics")]
         let apply_count = apply_list.len();
         #[cfg(feature = "diagnostics")]
@@ -187,6 +199,13 @@ pub(crate) fn apply_intents_if_any(
             });
             diagnostics::emit_span_duration("gui_frame::apply_intents_if_any", elapsed);
         }
+
+        #[cfg(feature = "tracing")]
+        tracing::trace!(
+            target: "graphshell::perf",
+            elapsed_us = tracing_apply_started.elapsed().as_micros() as u64,
+            "gui.apply_intents_if_any.complete"
+        );
     }
 
     if let Some(layout_json) = &layout_json {

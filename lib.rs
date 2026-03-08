@@ -92,6 +92,9 @@ pub fn init_tracing(filter_directives: Option<&str>) {
         use tracing_subscriber::layer::SubscriberExt;
         let subscriber = tracing_subscriber::registry();
 
+        let subscriber =
+            subscriber.with(crate::shell::desktop::runtime::tracing::PerfRingLayer::default());
+
         #[cfg(feature = "tracing-perfetto")]
         let subscriber = {
             // Set up a PerfettoLayer for performance tracing.

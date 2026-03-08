@@ -37,6 +37,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_INVARIANT_TIMEOUT, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
     CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
 };
+use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositorReplaySample, replay_samples_snapshot,
 };
@@ -269,7 +270,7 @@ pub(crate) struct AnalyzerResult {
     pub(crate) summary: String,
 }
 
-type DiagnosticsAnalyzerFn = fn(&DiagnosticGraph, &VecDeque<DiagnosticEvent>) -> AnalyzerResult;
+type DiagnosticsAnalyzerFn = fn(&DiagnosticGraph, &VecDeque<DiagnosticEvent>, &Value) -> AnalyzerResult;
 
 #[derive(Clone, Debug)]
 struct RegisteredAnalyzer {
@@ -314,10 +315,15 @@ impl AnalyzerRegistry {
         true
     }
 
-    fn run_all(&mut self, graph: &DiagnosticGraph, event_ring: &VecDeque<DiagnosticEvent>) {
+    fn run_all(
+        &mut self,
+        graph: &DiagnosticGraph,
+        event_ring: &VecDeque<DiagnosticEvent>,
+        tracing_perf_snapshot: &Value,
+    ) {
         for analyzer in &mut self.analyzers {
             analyzer.run_count = analyzer.run_count.saturating_add(1);
-            analyzer.last_result = Some((analyzer.analyze)(graph, event_ring));
+            analyzer.last_result = Some((analyzer.analyze)(graph, event_ring, tracing_perf_snapshot));
         }
     }
 
@@ -337,6 +343,7 @@ impl AnalyzerRegistry {
 fn analyze_event_ring_pressure(
     _graph: &DiagnosticGraph,
     event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
 ) -> AnalyzerResult {
     let size = event_ring.len();
     let (signal, summary) = if size >= 480 {
@@ -359,6 +366,7 @@ fn analyze_event_ring_pressure(
 fn analyze_startup_structural_selfcheck(
     graph: &DiagnosticGraph,
     _event_ring: &VecDeque<DiagnosticEvent>,
+    _tracing_perf_snapshot: &Value,
 ) -> AnalyzerResult {
     let incomplete_count = graph
         .message_counts
@@ -395,6 +403,40 @@ fn analyze_startup_structural_selfcheck(
     AnalyzerResult {
         signal: AnalyzerSignal::Quiet,
         summary: "startup self-check pending first drain".to_string(),
+    }
+}
+
+fn analyze_tracing_hotpath_latency(
+    _graph: &DiagnosticGraph,
+    _event_ring: &VecDeque<DiagnosticEvent>,
+    tracing_perf_snapshot: &Value,
+) -> AnalyzerResult {
+    let sample_count = tracing_perf_snapshot["sample_count"].as_u64().unwrap_or(0);
+    if sample_count == 0 {
+        return AnalyzerResult {
+            signal: AnalyzerSignal::Quiet,
+            summary: "tracing perf ring idle (no samples yet)".to_string(),
+        };
+    }
+
+    let p95_elapsed_us = tracing_perf_snapshot["p95_elapsed_us"].as_u64().unwrap_or(0);
+    let avg_elapsed_us = tracing_perf_snapshot["avg_elapsed_us"].as_u64().unwrap_or(0);
+    let max_elapsed_us = tracing_perf_snapshot["max_elapsed_us"].as_u64().unwrap_or(0);
+
+    let (signal, status) = if p95_elapsed_us >= 16_000 {
+        (AnalyzerSignal::Alert, "hotpath p95 above 16ms")
+    } else if p95_elapsed_us >= 8_000 {
+        (AnalyzerSignal::Active, "hotpath p95 elevated")
+    } else {
+        (AnalyzerSignal::Active, "hotpath latency nominal")
+    };
+
+    AnalyzerResult {
+        signal,
+        summary: format!(
+            "{status} (samples={sample_count}, avg={}us, p95={}us, max={}us)",
+            avg_elapsed_us, p95_elapsed_us, max_elapsed_us
+        ),
     }
 }
 
@@ -551,6 +593,7 @@ pub(crate) struct DiagnosticsState {
     export_feedback: Option<String>,
     history_health_snapshot: Value,
     runtime_cache_snapshot: Value,
+    tracing_perf_snapshot: Value,
     analyzer_registry: AnalyzerRegistry,
     startup_selfcheck_emitted: bool,
     #[cfg(feature = "diagnostics_tests")]
@@ -568,6 +611,11 @@ impl DiagnosticsState {
             "startup.selfcheck.structural",
             "Startup Structural Self-Check",
             analyze_startup_structural_selfcheck,
+        );
+        let _ = self.register_analyzer(
+            "tracing.hotpath.latency",
+            "Tracing Hotpath Latency",
+            analyze_tracing_hotpath_latency,
         );
     }
 
@@ -1018,6 +1066,7 @@ impl DiagnosticsState {
             export_feedback: None,
             history_health_snapshot: json!({}),
             runtime_cache_snapshot: json!({}),
+            tracing_perf_snapshot: json!({}),
             analyzer_registry: AnalyzerRegistry::default(),
             startup_selfcheck_emitted: false,
             #[cfg(feature = "diagnostics_tests")]
@@ -1054,6 +1103,7 @@ impl DiagnosticsState {
             return;
         }
         self.last_drain_at = Instant::now();
+        self.sync_tracing_perf_snapshot_from_runtime();
 
         while let Ok(event) = self.event_rx.try_recv() {
             self.aggregate_event(&event);
@@ -1064,7 +1114,11 @@ impl DiagnosticsState {
         }
 
         self.analyzer_registry
-            .run_all(&self.diagnostic_graph, &self.event_ring);
+            .run_all(
+                &self.diagnostic_graph,
+                &self.event_ring,
+                &self.tracing_perf_snapshot,
+            );
     }
 
     fn aggregate_event(&mut self, event: &DiagnosticEvent) {
@@ -1362,6 +1416,7 @@ impl DiagnosticsState {
             "event_ring_len": self.event_ring.len(),
             "history_health": self.history_health_snapshot.clone(),
             "runtime_cache": self.runtime_cache_snapshot.clone(),
+            "tracing_perf": self.tracing_perf_snapshot.clone(),
             "channels": {
                 "message_counts": self.diagnostic_graph.message_counts,
                 "message_bytes_sent": self.diagnostic_graph.message_bytes_sent,
@@ -1418,6 +1473,44 @@ impl DiagnosticsState {
             "misses": metrics.misses,
             "inserts": metrics.inserts,
             "evictions": metrics.evictions,
+        });
+    }
+
+    pub(crate) fn sync_tracing_perf_snapshot_from_runtime(&mut self) {
+        let samples = perf_ring_snapshot();
+        let sample_count = samples.len() as u64;
+
+        let mut elapsed_values: Vec<u64> = samples.iter().map(|sample| sample.elapsed_us).collect();
+        let total_elapsed_us: u64 = elapsed_values.iter().copied().sum();
+        let avg_elapsed_us = if sample_count == 0 {
+            0
+        } else {
+            total_elapsed_us / sample_count
+        };
+        let max_elapsed_us = elapsed_values.iter().copied().max().unwrap_or(0);
+        let p95_elapsed_us = Self::percentile(&mut elapsed_values, 0.95);
+
+        let last_sample_name = samples.last().map(|sample| sample.name.clone());
+        let recent_samples: Vec<Value> = samples
+            .iter()
+            .rev()
+            .take(16)
+            .map(|sample| {
+                json!({
+                    "name": sample.name,
+                    "elapsed_us": sample.elapsed_us,
+                    "captured_at_unix_ms": sample.captured_at_unix_ms,
+                })
+            })
+            .collect();
+
+        self.tracing_perf_snapshot = json!({
+            "sample_count": sample_count,
+            "avg_elapsed_us": avg_elapsed_us,
+            "p95_elapsed_us": p95_elapsed_us,
+            "max_elapsed_us": max_elapsed_us,
+            "last_sample_name": last_sample_name,
+            "recent_samples": recent_samples,
         });
     }
 
@@ -1705,6 +1798,7 @@ impl DiagnosticsState {
     pub(crate) fn render_in_pane(&mut self, ui: &mut egui::Ui, graph_app: &mut GraphBrowserApp) {
         self.sync_history_health_snapshot_from_app(graph_app);
         self.sync_runtime_cache_snapshot_from_app(graph_app);
+        self.sync_tracing_perf_snapshot_from_runtime();
         self.tick_drain();
         self.hovered_node_key = None;
 
@@ -1802,7 +1896,31 @@ impl DiagnosticsState {
                     "runtime_cache: hits={} misses={} inserts={} evictions={}",
                     cache_hits, cache_misses, cache_inserts, cache_evictions
                 ));
+                let perf_sample_count = self.tracing_perf_snapshot["sample_count"].as_u64().unwrap_or(0);
+                let perf_avg_us = self.tracing_perf_snapshot["avg_elapsed_us"].as_u64().unwrap_or(0);
+                let perf_p95_us = self.tracing_perf_snapshot["p95_elapsed_us"].as_u64().unwrap_or(0);
+                let perf_max_us = self.tracing_perf_snapshot["max_elapsed_us"].as_u64().unwrap_or(0);
+                ui.small(format!(
+                    "tracing_perf: samples={} avg={}us p95={}us max={}us",
+                    perf_sample_count, perf_avg_us, perf_p95_us, perf_max_us
+                ));
                 let analyzer_snapshots = self.analyzer_snapshots();
+                if let Some(hotpath) = analyzer_snapshots
+                    .iter()
+                    .find(|snapshot| snapshot.id == "tracing.hotpath.latency")
+                {
+                    let signal = hotpath
+                        .last_result
+                        .as_ref()
+                        .map(|result| result.signal)
+                        .unwrap_or(AnalyzerSignal::Quiet);
+                    let signal_label = match signal {
+                        AnalyzerSignal::Quiet => "quiet",
+                        AnalyzerSignal::Active => "active",
+                        AnalyzerSignal::Alert => "alert",
+                    };
+                    ui.small(format!("tracing_hotpath_analyzer: {signal_label}"));
+                }
                 if !analyzer_snapshots.is_empty() {
                     egui::CollapsingHeader::new("Active analyzers")
                         .default_open(true)
@@ -2509,6 +2627,7 @@ mod tests {
     fn test_active_analyzer(
         _graph: &DiagnosticGraph,
         _event_ring: &VecDeque<DiagnosticEvent>,
+        _tracing_perf_snapshot: &Value,
     ) -> AnalyzerResult {
         AnalyzerResult {
             signal: AnalyzerSignal::Active,
@@ -2679,6 +2798,8 @@ mod tests {
         let snapshot = state.snapshot_json_value();
         assert_eq!(snapshot["version"].as_u64(), Some(1));
         assert!(snapshot["history_health"].is_object());
+        assert!(snapshot["runtime_cache"].is_object());
+        assert!(snapshot["tracing_perf"].is_object());
         assert!(snapshot["channels"].is_object());
         assert!(snapshot["spans"].is_object());
         assert!(snapshot["compositor_frames"].is_array());
@@ -2844,7 +2965,9 @@ Object {
         String("generated_at_unix_secs"),
         String("history_health"),
         String("recent_intents"),
+        String("runtime_cache"),
         String("spans"),
+        String("tracing_perf"),
         String("version"),
     ],
 }
