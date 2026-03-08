@@ -240,7 +240,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 *This is a separate concern from structural decomposition — behavioral assumptions inherited from the fork.*
 
 1. [x] Audit all `TODO`/`FIXME` comments in `gui.rs`, `gui_frame.rs`, `headed_window.rs`, `running_app_state.rs` — completed 2026-03-07: no markers remain in `gui.rs`, `gui_frame.rs`, or `running_app_state.rs`; two `headed_window.rs` markers were converted to explicit deferred notes with tracking references.
-2. [~] Verify `CreateNewWebView` path: delegate/link-click flow routes via `request_create_new -> notify_create_new_webview -> GraphSemanticEvent::CreateNewWebView`, and keyboard shortcut path now emits the same semantic event after creating `servo:newtab` (2026-03-07). Semantic pipeline tests cover `CreateNewWebView -> RuntimeEvent::WebViewCreated` mapping and ordering; a dedicated per-entrypoint integration harness remains pending.
+2. [x] Verify `CreateNewWebView` path: delegate/link-click flow routes via `request_create_new -> notify_create_new_webview -> GraphSemanticEvent::CreateNewWebView`, and keyboard shortcut path emits the same semantic event after creating `servo:newtab` (2026-03-07). Semantic pipeline tests now include explicit entrypoint-spec coverage (delegate/link-click/keyboard-shortcut) for `CreateNewWebView -> RuntimeEvent::WebViewCreated` mapping/order.
 3. [x] Audit context-menu actions in `Dialog::new_context_menu` (`headed_window.rs:1373`): current flow is `EmbedderControl::ContextMenu -> Dialog::new_context_menu -> ContextMenu::select(action)` and does not resolve through `GraphIntent`/`apply_intents`; this is now recorded as an explicit deferred integration boundary while embedder-control actions remain Servo-owned.
 4. [x] Grep for any remaining `servoshell`/`servo_shell` identifiers or comments in `shell/desktop/`; retired remaining legacy identifier references in runtime tracing docs.
 5. [x] Review `headed_window.rs` screen space/system-UI subtraction limitation — documented as a known deferred limitation with issue reference (`winit` #2494) during Stage 4f audit.
@@ -388,6 +388,7 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 4d extractions 3-7 are now landed (`ui/gui_frame/connected_open.rs`, `ui/gui_frame/frame_persistence.rs`, `ui/gui_frame/graph_snapshot.rs`), and `gui_frame.rs` is now 364 lines.
 - Stage 4f audit task 1 completed: `TODO`/`FIXME` markers audited across `gui.rs`, `gui_frame.rs`, `headed_window.rs`, `running_app_state.rs`; remaining `headed_window.rs` markers were converted to explicit deferred notes with tracking references.
 - Stage 4f task 2 progressed: keyboard new-tab shortcut now emits `GraphSemanticEvent::CreateNewWebView` (matching delegate/link-click pipeline); per-entrypoint integration harness remains open.
+- Stage 4f task 2 completed: added entrypoint-spec semantic-pipeline tests (delegate/link-click/keyboard-shortcut) validating `CreateNewWebView` emits `RuntimeEvent::WebViewCreated` with expected responsive/created sets.
 - Stage 4f task 3 completed: context-menu actions currently execute via Servo `ContextMenu::select(action)` callback path rather than GraphIntent reducer routing; recorded as explicit deferred boundary.
 
 **2026-03-01 Revision:**

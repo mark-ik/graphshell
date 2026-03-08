@@ -325,6 +325,40 @@ mod tests {
         }
     }
 
+    #[rstest]
+    #[case("delegate")]
+    #[case("link-click")]
+    #[case("keyboard-shortcut")]
+    fn create_new_webview_entrypoint_specs_map_to_webview_created_runtime_event(
+        #[case] entrypoint: &str,
+    ) {
+        let parent = make_webview_id();
+        let child = make_webview_id();
+        let events = vec![event(GraphSemanticEventKind::CreateNewWebView {
+            parent_webview_id: parent,
+            child_webview_id: child,
+            initial_url: Some(format!("https://{entrypoint}.example/new")),
+        })];
+
+        let (runtime_events, created_children, responsive) =
+            runtime_events_and_responsive_from_events(events);
+
+        assert_eq!(created_children, vec![child]);
+        assert!(responsive.contains(&parent));
+        assert!(responsive.contains(&child));
+        assert_eq!(runtime_events.len(), 1);
+        assert!(matches!(
+            &runtime_events[0],
+            RuntimeEvent::WebViewCreated {
+                parent_webview_id,
+                child_webview_id,
+                initial_url,
+            } if *parent_webview_id == parent
+                && *child_webview_id == child
+                && initial_url.as_deref() == Some(format!("https://{entrypoint}.example/new").as_str())
+        ));
+    }
+
     proptest! {
         #[test]
         fn proptest_graph_intents_and_responsive_preserves_accounting(
