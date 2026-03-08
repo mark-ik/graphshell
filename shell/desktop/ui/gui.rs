@@ -74,6 +74,8 @@ mod focus_state;
 mod toolbar_status_sync;
 #[path = "gui/hit_testing.rs"]
 mod hit_testing;
+#[path = "gui/accesskit_input.rs"]
+mod accesskit_input;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -807,46 +809,20 @@ impl Gui {
     }
 
     fn handle_accesskit_initial_tree_requested(&mut self) -> bool {
-        Self::set_accesskit_enabled(self.context.egui_context(), true);
-        true
+        accesskit_input::handle_accesskit_initial_tree_requested(self.context.egui_context())
     }
 
     fn handle_accesskit_action_requested(&mut self, req: &egui::accesskit::ActionRequest) -> bool {
-        Self::forward_accesskit_action_request(self.context.egui_winit_state_mut(), req);
-        true
-    }
-
-    fn forward_accesskit_action_request(
-        egui_winit: &mut egui_winit::State,
-        req: &egui::accesskit::ActionRequest,
-    ) {
-        egui_winit.on_accesskit_action_request(req.clone());
+        accesskit_input::handle_accesskit_action_requested(self.context.egui_winit_state_mut(), req)
     }
 
     fn handle_accesskit_deactivated(&mut self) -> bool {
-        Self::set_accesskit_enabled(self.context.egui_context(), false);
-        false
-    }
-
-    fn set_accesskit_enabled(egui_ctx: &egui::Context, enabled: bool) {
-        if enabled {
-            egui_ctx.enable_accesskit();
-        } else {
-            egui_ctx.disable_accesskit();
-        }
+        accesskit_input::handle_accesskit_deactivated(self.context.egui_context())
     }
 
     pub(crate) fn set_zoom_factor(&self, factor: f32) {
-        let clamped = Self::clamp_zoom_factor(factor);
+        let clamped = accesskit_input::clamp_zoom_factor(factor);
         self.context.egui_context().set_zoom_factor(clamped);
-    }
-
-    fn clamp_zoom_factor(factor: f32) -> f32 {
-        if factor.is_finite() {
-            factor.clamp(0.25, 4.0)
-        } else {
-            1.0
-        }
     }
 
     #[cfg(feature = "diagnostics")]
