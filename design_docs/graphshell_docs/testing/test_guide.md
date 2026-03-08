@@ -71,6 +71,12 @@ Use `--quiet` to suppress changed-file listings and show pack-focused output for
 
 If diagnostics-focused checks are needed, use existing diagnostics test targets already referenced in strategy docs.
 
+Diagnostics infrastructure conventions (Graphshell-wide):
+
+- Use `proptest` for diagnostics invariants (event-stream and aggregate-counter properties).
+- Use `insta` for diagnostics snapshot regression checks (JSON shape and deterministic traces).
+- New diagnostics channel families should include at least one deterministic test in one of the two forms above.
+
 ---
 
 ## 3) Scope Rules

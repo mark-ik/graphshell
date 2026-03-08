@@ -128,7 +128,7 @@ The current `RunningAppState` monolith conflates embedder and app-layer responsi
 | 1 | Complete | Semantic bridge extraction (`semantic_event_pipeline.rs`) |
 | 2 | Complete | Toolbar decomposition (7 focused submodules) |
 | 3 | Complete | `CompositorAdapter` extraction (wraps rendering paths `EmbedderCore` exposes) |
-| 4a | In progress | `gui.rs` frame orchestration isolated from workbench layout driving |
+| 4a | ✅ Complete | `shell/desktop/ui/gui.rs` frame orchestration isolated from workbench layout driving |
 | 4b | Planned | `EmbedderCore` split from `RunningAppState`; lifecycle intent boundary closure |
 
 **Stage 4 sequencing constraint**: Compositor pass-order correctness and GL-state diagnostics hardening must land before Stage 4b decomposition work that increases render-path complexity. See `viewer/2026-02-26_composited_viewer_pass_contract.md` Appendix A.

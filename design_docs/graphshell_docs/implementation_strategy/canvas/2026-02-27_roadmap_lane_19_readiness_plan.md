@@ -13,7 +13,7 @@ This plan defines a merge-safe roadmap lane that can proceed while stabilization
 
 The lane is intentionally **docs/planning only** and avoids runtime hotspots:
 
-- `app.rs`
+- `graph_app.rs`
 - `render/mod.rs`
 - `shell/desktop/ui/gui.rs`
 - compositor implementation files under `shell/desktop/workbench/*`
@@ -107,7 +107,7 @@ Reference draft:
 #### R4.1 — State Transition Contract + Reducer Checkpoints (issue template)
 
 - **Scope**: `ViewDimension` transition intents and reducer invariants for `TwoD↔ThreeD`.
-- **Runtime hotspots**: `app.rs` reducer paths; graph-view state transition helpers.
+- **Runtime hotspots**: `graph_app.rs` reducer paths; graph-view state transition helpers.
 - **Acceptance gates**:
   - `SetViewDimension` transition paths are explicit and deterministic.
   - Selection/camera continuity checks are covered by focused tests.
@@ -125,7 +125,7 @@ Reference draft:
 #### R4.3 — Persistence + Degradation Tests (issue template)
 
 - **Scope**: restore semantics for persisted `ViewDimension` and deterministic fallback when `ThreeD` is unavailable.
-- **Runtime hotspots**: persistence/restore flow in `app.rs` and related persistence helpers.
+- **Runtime hotspots**: persistence/restore flow in `graph_app.rs` and related persistence helpers.
 - **Acceptance gates**:
   - Persisted `ViewDimension` restores when supported.
   - Unsupported `ThreeD` restores degrade deterministically to `TwoD`.

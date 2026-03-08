@@ -17,7 +17,7 @@ To avoid breaking the existing `Node` schema or persistence layer during the cur
 *   **Persistence (Planned)**: Persist semantic tags once the registry phase is complete and schema strategy is finalized.
 *   **Runtime (Semantic Index)**: The `KnowledgeRegistry` maintains a high-performance index mapping `NodeKey` $\to$ `CompactCode`.
     *   **CompactCode**: A `u64` or byte-vector representation of the UDC path (e.g., `[5, 1, 9, 6]`) optimized for O(1) distance calculations.
-    *   **Sync (Reconciliation)**: `app.rs` does not call the registry directly. Instead, `gui.rs` runs a reconciliation step after `apply_intents` to update the index if tags changed.
+    *   **Sync (Reconciliation)**: `graph_app.rs` does not call the registry directly. Instead, `shell/desktop/ui/gui.rs` runs a reconciliation step after `apply_intents` to update the index if tags changed.
 
 ### 2. The Knowledge Registry
 A new Atomic Registry (see `2026-02-22_registry_layer_plan.md`) responsible for semantic definitions.
@@ -65,7 +65,7 @@ A custom force added to the physics engine that runs alongside Fruchterman-Reing
 
 **Phase 1 progress (2026-02-23):**
 - `KnowledgeRegistry` runtime parser/search is wired and seeded with MVP UDC definitions.
-- `gui.rs` reconciliation path runs via `knowledge::reconcile_semantics(...)` after intent application.
+- `shell/desktop/ui/gui.rs` reconciliation path runs via `knowledge::reconcile_semantics(...)` after intent application.
 - Added focused ontology unit coverage:
     - UDC parse path (`udc:519.6`)
     - label-first search query hit (`math` -> includes `51`)
@@ -82,7 +82,7 @@ A custom force added to the physics engine that runs alongside Fruchterman-Reing
     *   Integrate `nucleo` fuzzy search in `KnowledgeRegistry::search(query)`.
     *   Update Tag Assignment UI (`T` key) to call `search` and display UDC matches alongside existing tags.
     *   Selecting a UDC match applies the `udc:<code>` tag.
-    *   Implement reconciliation logic in `desktop/registries/knowledge.rs` and wire into `gui.rs`.
+    *   Implement reconciliation logic in `shell/desktop/runtime/registries/knowledge.rs` and wire into `shell/desktop/ui/gui.rs`.
 
 ### Phase 2: Semantic Physics
 **Goal**: Graph layout reflects semantic similarity.

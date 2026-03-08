@@ -113,7 +113,7 @@ one of these four rows.
 
 The architecture has **two distinct mutation authorities** — not one:
 
-**1. Graph Reducer** (`apply_reducer_intents` in `app.rs`)
+**1. Graph Reducer** (`apply_reducer_intents` in `graph_app.rs`)
 
 Authoritative for:
 
@@ -136,7 +136,7 @@ not need the WAL, the graph reducer, or `ControlPanel` involvement.
 
 Intents that cross from workbench into the graph reducer (e.g. `OpenToolPane`
 dispatched during a graph interaction) belong in the Workbench Authority
-intercept path (`handle_tool_pane_intents` in `gui.rs`). This is correct
+intercept path (`handle_tool_pane_intents` in `shell/desktop/ui/gui.rs`). This is correct
 architecture — not a gap — **provided the intercept is documented and
 consistent**.
 

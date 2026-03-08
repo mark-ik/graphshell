@@ -9,6 +9,7 @@
 - `2026-02-22_registry_layer_plan.md` — `ViewerRegistry` (Phase 2, complete) is the primary contract surface; `ProtocolRegistry` and `KnowledgeRegistry` are prerequisites for Steps 3 and 6
 - `2026-02-22_multi_graph_pane_plan.md` — node viewers are pane-hosted view payloads; graph panes remain separate surface types
 - `2026-02-23_wry_integration_strategy.md` — Wry backend is a `Viewer` implementation; Steps 1–3 here are prerequisites for the Wry plan
+- `2026-03-08_simple_document_engine_target_spec.md` — canonical spec for `SimpleDocument`, `EngineTarget`, `RenderPolicy` (Steps 11–12)
 - `2026-02-23_udc_semantic_tagging_plan.md` — UDC semantic tags drive renderer selection hints and the tag badge system
 - `2026-02-24_layout_behaviors_plan.md` — Zone attractor and semantic physics extend naturally to content-type clusters
 
@@ -66,14 +67,10 @@ pub mime_hint: Option<String>,     // e.g. "application/pdf", "image/png"
 pub address_kind: AddressKind,
 ```
 
-```rust
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum AddressKind {
-    Http,      // served over HTTP/HTTPS — default, Servo renders
-    File,      // local filesystem path (file:// or PathBuf)
-    Custom,    // any other scheme; renderer selected by ViewerRegistry
-}
-```
+**Canonical `AddressKind` definition**: The six-variant enum is defined in
+`universal_content_model_spec.md §2.2` (authoritative). The three-variant sketch above is
+superseded by the spec. Use the spec's variants: `Http`, `File`, `Data`, `GraphshellClip`,
+`Directory`, `Unknown`.
 
 **What does NOT change:**
 
@@ -82,40 +79,28 @@ pub enum AddressKind {
 - `Node.viewer_id_override: Option<ViewerId>` — explicit user backend override (from Wry plan).
 - Persistence: `fjall` WAL entries for `mime_hint` and `address_kind` follow the same
   `UpdateNodeMetadata` log entry pattern. These are semantic graph facts; they belong in the WAL.
+  Both fields are **core types** (live in `graphshell-core`); see spec §9 for the core/host split.
 
 **Why not the full `Address` enum from the research document?**
 
-The `Address` enum in the research doc (`Http`, `File`, `Onion`, `Ipfs`, `Gemini`, `Dat`,
-`Custom`) is the long-term vision. The current `Node.url: String` already covers the same address
-space with URL encoding. Adding `AddressKind` as a hint is additive and non-breaking; migrating
-to a typed `Address` enum is a schema migration that warrants its own plan when IPFS/Gemini/Tor
-resolvers become implementation priorities. This plan does not attempt that migration.
+The `Address` enum in the research doc and the core extraction plan (`Http(Url)`, `File(PathBuf)`,
+`Onion`, `Ipfs(Cid)`, `Gemini`, `Custom`) is the long-term target for `graphshell-core`. The
+current `Node.url: String` + `AddressKind` hint covers the same address space non-breakingly.
+Migration to the typed enum is a separate schema change deferred to the core extraction plan
+(`2026-03-08_graphshell_core_extraction_plan.md §2.2`).
 
 ---
 
 ## The Viewer Trait (Current Contract)
 
-The `Viewer` trait was extended in `2026-02-23_wry_integration_strategy.md`. All new renderer
-implementations use this interface:
+**Canonical definition**: `universal_content_model_spec.md §3`. The trait reproduced here in
+earlier drafts is superseded; do not redefine it in this plan.
 
-```rust
-pub trait Viewer {
-    /// Render content into an egui Ui region (texture mode).
-    /// Returns true if the viewer handled rendering, false if it requires overlay mode.
-    fn render_embedded(&mut self, ui: &mut egui::Ui, node: &Node) -> bool;
-
-    /// Synchronize overlay position and visibility (overlay mode).
-    /// Called by TileCompositor after layout is computed for overlay-backed tiles.
-    fn sync_overlay(&mut self, rect: egui::Rect, visible: bool);
-
-    /// Returns true if this viewer requires overlay mode (cannot render embedded).
-    fn is_overlay_mode(&self) -> bool { false }
-}
-```
-
-Non-web renderers (`PdfViewer`, `ImageViewer`, `TextViewer`, `AudioViewer`) all implement
-`render_embedded` returning true and `is_overlay_mode` returning false. They are purely
-egui-widget-based and never require overlay mode.
+Key points for implementers: non-web renderers (`PdfViewer`, `ImageViewer`, `PlaintextViewer`,
+`AudioViewer`) implement `render_embedded` (no return value; renders into the provided rect) and
+`is_overlay_mode` returning false. They use `on_attach`/`on_detach`/`on_navigate` for lifecycle.
+The old `-> bool` return on `render_embedded` and the `node: &Node` parameter are removed in the
+spec; viewers receive node state at `on_attach` time, not per-frame.
 
 ---
 
@@ -127,16 +112,20 @@ Selection order at node open / lifecycle promotion time:
 2. Frame `viewer_id_default` — frame-level default (from `FrameManifest`).
 3. `ViewerRegistry::select_for(mime: Option<&str>, address_kind: AddressKind)` — highest-priority
    registered viewer where `can_render()` returns true.
+   - `viewer:text-editor` registers for editable `text/*` nodes (edit-intent open). It takes
+     priority over `viewer:plaintext` for the same MIME types when the node is opened for editing.
+     `viewer:plaintext` remains the read-only display path.
+   - See `2026-03-08_servo_text_editor_architecture_plan.md` §9 for the editor selection rule.
 4. `viewer:webview` — fallback for all `Http` and `File(html)` addresses.
-5. `viewer:plaintext` — last resort; always succeeds; shows raw content.
+5. `viewer:plaintext` — last resort; always succeeds; shows raw content (read-only).
 
 The MIME detection pipeline runs on first open:
 
 ```rust
 fn detect_mime(url: &str, content_bytes: Option<&[u8]>) -> Option<String> {
     // 1. Content-Type header (for HTTP responses — provided by Servo resolver)
-    // 2. Magic bytes via `infer` crate (most reliable for local files)
-    // 3. Extension fallback via `mime_guess` crate
+  // 2. Extension lookup via `mime_guess` crate (cheap, synchronous)
+  // 3. Magic bytes via `infer` crate only when extension is missing/ambiguous
     // 4. None — ViewerRegistry falls back to address-kind heuristics
 }
 ```
@@ -158,12 +147,14 @@ a transitive dependency via `image`; `mime_guess` is already in `Cargo.toml`.
 - Add `GraphIntent::UpdateNodeMimeHint` and `GraphIntent::UpdateNodeAddressKind` variants;
   reducer handles both.
 - MIME detection: call `detect_mime(url, None)` at node creation time (extension-only pass);
-  call with `content_bytes` when content arrives (magic-byte pass). Emit `UpdateNodeMimeHint`
+  call with `content_bytes` when content arrives (magic-byte fallback for missing/ambiguous extension cases). Emit `UpdateNodeMimeHint`
   intent on first detection; do not re-emit if already set unless URL changes.
 - Add `infer` crate to `Cargo.toml` (pure Rust, 0.9.x, MIT/Apache).
 
 **Done gate**: `cargo test --lib` passes. A node created with `url = "file:///foo.pdf"` has
 `mime_hint = Some("application/pdf")` and `address_kind = AddressKind::File` after detection.
+A node created with `url = "file:///foo/Documents/"` resolving to a directory has
+`address_kind = AddressKind::Directory` (classified via `Path::is_dir()` at address resolution time).
 A node created with `url = "https://example.com"` has `address_kind = AddressKind::Http`.
 
 ---
@@ -194,20 +185,29 @@ when registered and `viewer:webview` otherwise. No regression in existing Servo 
 `viewer:plaintext` already exists as a seed in `ViewerRegistry`. Implement it fully:
 
 - Accepts all `text/*` MIME types, `application/json`, `application/toml`, `application/yaml`.
+  **Read-only display only.** When the same MIME type is opened for editing, `viewer:text-editor`
+  takes priority (see ViewerRegistry Selection Policy above).
 - Renders content using egui `ScrollArea` + `TextEdit::multiline` (read-only).
 - For Markdown (`text/markdown`, `text/x-markdown`): use `egui_commonmark` (third-party crate
   wrapping `pulldown-cmark` for egui, targets egui 0.29+). Verify it builds against egui 0.33
   before adding it; if not updated, write a minimal Markdown renderer using `pulldown-cmark`
   directly (convert to egui `RichText` spans). Do not route Markdown through Servo.
 - For syntax highlighting (`text/x-rust`, `text/x-python`, etc.): use `syntect` (MIT, pure Rust,
-  5.3.x). Cache the `SyntaxSet` and `ThemeSet` as `std::sync::OnceLock` statics — they are
-  expensive to build. Convert `syntect`'s styled ranges to `egui::RichText` spans for rendering.
-  The full syntax set adds ~5MB to the binary; mitigate by enabling only a curated language subset.
+  5.3.x) **with the `fancy-regex` feature** (pure Rust regex; required for WASM portability —
+  the default oniguruma backend is not WASM-safe). Cache the `SyntaxSet` and `ThemeSet` as
+  `std::sync::OnceLock` statics — they are expensive to build. Convert `syntect`'s styled ranges
+  to `egui::RichText` spans for rendering. The full syntax set adds ~5MB to the binary; mitigate
+  by enabling only a curated language subset.
+  **Why not `tree-sitter` here**: `tree-sitter` (the Rust crate) does not compile to
+  `wasm32-unknown-unknown` (Cranelift transitive dep blocks it). `syntect` with `fancy-regex` is
+  the portable choice for the read-only display path. `tree-sitter` is used in `editor-core`
+  (desktop-only, non-WASM) for incremental parse/highlight in `viewer:text-editor`.
 - Module: `registries/atomic/viewer/plaintext_viewer.rs`.
 
 Add to `Cargo.toml`:
-- `syntect = "5"` (pure Rust, MIT) — default features include many languages; disable
-  `fancy-regex` feature if binary size matters.
+
+- `syntect = { version = "5", default-features = false, features = ["default-fancy"] }` (pure Rust,
+  MIT) — `fancy-regex` backend; WASM-portable. Enable a curated language subset to limit binary size.
 - `pulldown-cmark = "0.13"` (pure Rust, MIT) — for Markdown.
 
 **Done gate**: `viewer:plaintext` renders a `.rs` file with syntax highlighting in a workbench
@@ -234,8 +234,11 @@ to hex display). Contract test for `render_embedded` returning true.
   crate is needed — this is a clean 10-line integration. `resvg` does not support SVG animations
   or `<script>` elements; animated SVGs fall through to the Servo renderer.
   Rasterize at display size, cache the texture. Implement a size-budget LRU cache (target 64MB).
-- Thumbnail fallback: when an image node is in graph view (Cold), use `Node.thumbnail_data` as
-  before — the `ImageViewer` generates and stores the thumbnail on first open.
+- Thumbnail fallback: when an image node is in graph view (Cold), emit `MarkNodePreviewDirty` on
+  first open and let the preview system handle thumbnail generation via the event-driven refresh
+  path (`2026-03-05_node_viewport_preview_minimal_slice_plan.md` Slice C). Do not write
+  `Node.thumbnail_data` directly — the preview system is the canonical thumbnail authority for
+  all viewer types.
 
 Add to `Cargo.toml`:
 - `resvg = "0.47"` (pure Rust, MIT) with `tiny-skia` rasterizer.
@@ -284,23 +287,32 @@ clean. Contract test for `can_render` gated by feature flag.
 
 ---
 
-### Step 6: DirectoryViewer (File Manager Mode)
+### Step 6: DirectoryViewer (Browse-in-Place)
 
-**Goal**: `file://` addresses that point to directories render as a navigable file listing.
+**Goal**: `file://` addresses that point to directories render as a navigable file listing inside
+the current tile (browse-in-place), without creating new graph nodes.
+
+**Scope note**: This viewer handles *in-tile local navigation only*. Bulk import of a directory
+into graph nodes (files → nodes, folders → frames) is a separate feature covered by
+`2026-03-02_filesystem_ingest_graph_mapping_plan.md`, which gates on this viewer being active.
 
 This is pure Rust using `std::fs` — no new crates required.
 
 - Module: `registries/atomic/viewer/directory_viewer.rs`.
-- `can_render(address_kind: AddressKind::File, mime: None)` — returns true when the `file://`
-  URL resolves to a directory path (check `Path::is_dir()`).
+- `can_render(address_kind: AddressKind::Directory, mime: None)` — returns true unconditionally
+  for `Directory` address kind. No `Path::is_dir()` check needed in the viewer; address
+  classification (Step 1) is where the `is_dir()` check lives and sets `address_kind = Directory`.
 - Render a two-column table (name + size/type) inside a `ScrollArea`.
 - Click on a file: emit `GraphIntent::NavigateNode { node_key, url: file_url }` — navigates the
-  current node to the file (viewer swaps to the appropriate viewer for that file type).
+  *current tile* to that file (viewer swaps to the appropriate viewer for that file type). This
+  is browse-in-place: no new graph node is created. Use this for exploration within a single node.
 - Click on a directory: emit `GraphIntent::NavigateNode` with the directory URL — navigates in.
-- Drag a file to graph: emit `GraphIntent::CreateNode { url: file_url }` — creates a new node.
+- Drag a file to graph canvas: emit `GraphIntent::CreateNode { url: file_url }` — creates a new
+  graph node for that file (the explicit import gesture).
 - Breadcrumb navigation: maintain a `Vec<PathBuf>` history in `DirectoryViewerState` per node.
 
-`address_kind = AddressKind::File` is set by the URL detection in Step 1.
+`address_kind = AddressKind::Directory` is set by the URL detection in Step 1 (via `Path::is_dir()`
+on the resolved path). `AddressKind::File` is reserved for file addresses only.
 
 **Done gate**: Opening `file:///C:/Users/foo/Documents/` in a workbench tile shows a file listing.
 Clicking a `.pdf` file navigates the tile to show the PDF via `PdfViewer`. Clicking up (..)
@@ -358,11 +370,21 @@ This step integrates with `2026-02-20_node_badge_and_tagging_plan.md`:
 Badge ordering follows the priority table from the badge plan (ContentType lower priority than
 Pinned/Starred, but visible in expanded orbit).
 
+**Render mode note**: `ContentType` badges for native viewers (`viewer:pdf`, `viewer:image`,
+`viewer:plaintext`, `viewer:audio`, `viewer:directory`) render in the standard overlay pass —
+these viewers use `placeholder`/`thumbnail` render mode in graph view, so standard Graphshell
+overlays are always permitted over them. See `2026-02-26_composited_viewer_pass_contract.md`
+§Affordance Policy for the full render-mode/overlay permission table.
+
 ---
 
 ### Step 9: Security and Sandboxing Model
 
 **Goal**: Define the permission model for non-HTTP content types.
+
+**Prerequisite note**: `FilePermissionGuard` (defined below) is a hard prerequisite for the
+filesystem ingest feature (`2026-03-02_filesystem_ingest_graph_mapping_plan.md`). Step 9 must
+reach its done gate before filesystem ingest Phase 1 can close.
 
 All new viewers access content through the existing `file://` URL routing path or via Servo's
 net layer. The permission model follows the research document's table:
@@ -518,10 +540,14 @@ renderer; Graphshell compiles content into render targets that Servo can consume
 
 1. Resolve source content via `ProtocolResolver` (`http`, `https`, `gemini`, `file`, future schemes).
 2. Classify source (`AddressKind`, MIME/content-type, confidence).
-3. Adapt source into a normalized intermediate model (`SimpleDocument` or equivalent).
-4. Compile intermediate model into an engine target package.
-5. Bind selected path (`Servo`, `Wry`, `Viewer`) from explicit user command.
-6. Enforce per-target policy (CSP, script/network/storage constraints, link interception).
+3. **Short-circuit check**: if `address_kind = File` and `mime_hint` is in the `text/*` family and
+   the node is opened for editing, route directly to `viewer:text-editor` — do **not** run the
+   adaptation pipeline. Editing semantics are owned by `editor-core`, not `SimpleDocument`.
+   See `2026-03-08_servo_text_editor_architecture_plan.md` §9.
+4. Adapt source into a normalized intermediate model (`SimpleDocument` or equivalent).
+5. Compile intermediate model into an engine target package.
+6. Bind selected path (`Servo`, `Wry`, `Viewer`) from explicit user command.
+7. Enforce per-target policy (CSP, script/network/storage constraints, link interception).
 
 #### 12.2 Engine target contract
 
@@ -756,7 +782,7 @@ Likely conditional (measure first):
 | ----- | ------- | ------- | ------- | ------- | ----- |
 | `infer` | 0.19 | default | MIME magic-byte detection | MIT | Pure Rust; transitive dep via `image` |
 | `mime_guess` | 2.0.5 | default | MIME extension detection | MIT | Already in `Cargo.toml` |
-| `syntect` | 5.3 | default | Syntax highlighting | MIT | Pure Rust; cache via `OnceLock` |
+| `syntect` | 5.3 | default | Syntax highlighting (`viewer:plaintext` read-only) | MIT | Use `fancy-regex` feature; WASM-portable. `tree-sitter` used in `editor-core` (desktop-only) for `viewer:text-editor`. |
 | `pulldown-cmark` | 0.13 | default | Markdown parsing | MIT | Pure Rust; use with `egui_commonmark` |
 | `resvg` | 0.47 | default | SVG rasterization | MIT | Pure Rust; `tiny-skia`; render to `Pixmap` |
 | `pdfium-render` | 0.8.37 | `pdf` | PDF rendering | MIT | PDFium C FFI; bundle DLL from bblanchon |
@@ -801,6 +827,10 @@ they require only already-in-`Cargo.toml` crates (`image`, `mime_guess`). `synte
 | `2026-02-23_udc_semantic_tagging_plan.md` | MIME hints drive UDC tag suggestions; semantic physics clusters by content type |
 | `2026-02-24_layout_behaviors_plan.md` | Zone attractors can group PDF nodes together, image nodes together, etc. |
 | `2026-02-21_lifecycle_intent_model.md` | Lifecycle promotion/demotion applies to all viewer types; `lifecycle_reconcile.rs` must dispatch to the correct viewer |
+| `2026-03-08_servo_text_editor_architecture_plan.md` | `viewer:text-editor` takes priority over `viewer:plaintext` for editable `text/*` nodes; Step 12 pipeline short-circuits to it; `tree-sitter` (desktop-only) vs `syntect`/`fancy-regex` (WASM-portable) split originates here |
+| `2026-03-02_filesystem_ingest_graph_mapping_plan.md` | Step 6 (`DirectoryViewer`) is a browse-in-place prerequisite for ingest; Step 9 (`FilePermissionGuard`) is a hard ingest gate |
+| `2026-03-05_node_viewport_preview_minimal_slice_plan.md` | Step 4 (`ImageViewer`) defers thumbnail generation to the preview system via `MarkNodePreviewDirty` |
+| `2026-02-26_composited_viewer_pass_contract.md` | Step 8 badges render in overlay pass; native viewers use `placeholder` render mode — standard overlays always permitted |
 
 ---
 
@@ -825,7 +855,10 @@ Step 12 + registry capability wiring → Step 13 (Servo capability packs)
 Step 12 + Step 13 + diagnostics instrumentation → Step 14 (Servo adoption policy)
 ```
 
-Recommended implementation sequence: 1 → 2 → 3 → 4 → 6 → 8 → 9 → 5 → 7 → 10 → 11 → 12 → 13 → 14.
+Recommended implementation sequence: 1 → 2 → 3 → 4 → 6 → 9 → 8 → 5 → 7 → 10 → 11 → 12 → 13 → 14.
+
+Step 9 is moved before Step 8 because `FilePermissionGuard` is a hard prerequisite for the
+filesystem ingest feature gate (`2026-03-02_filesystem_ingest_graph_mapping_plan.md`).
 
 Steps 5, 7, and 10 are feature-gated and can be deferred or skipped without blocking the rest.
 Step 11 can ship incrementally: first command/menu wiring, then shared `SimpleDocument` adapters.

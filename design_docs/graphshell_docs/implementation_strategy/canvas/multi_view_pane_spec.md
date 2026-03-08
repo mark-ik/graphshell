@@ -209,7 +209,7 @@ This section is about structural workbench-tree changes only. It is not the grap
 
 **Unhoist** (tab container → pane rest state): pane is unhoisted; tab container is removed. Semantic metadata is retained (the tab group still exists in `FrameTabSemantics`; only the visual container is removed). The pane can be re-hoisted without losing group membership.
 
-**Invariant**: Hoist and unhoist are explicit structural intents (e.g., `HoistPaneToTabs`, `UnhoistPaneFromTabs`). They must not be ad hoc tree rewrites at UI callsites. The `render/*` layer captures the user event and routes it to `app.rs` as an intent; `app.rs` is the authority for the structural decision; `desktop/*` applies the workbench tree mutation.
+**Invariant**: Hoist and unhoist are explicit structural intents (e.g., `HoistPaneToTabs`, `UnhoistPaneFromTabs`). They must not be ad hoc tree rewrites at UI callsites. The `render/*` layer captures the user event and routes it to `graph_app.rs` as an intent; `graph_app.rs` is the authority for the structural decision; `desktop/*` applies the workbench tree mutation.
 
 Terminology guardrail:
 

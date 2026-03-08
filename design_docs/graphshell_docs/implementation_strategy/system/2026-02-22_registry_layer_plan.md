@@ -304,6 +304,54 @@ All registries must adhere to a common lifecycle and integration pattern:
 5.  **Fallback Policy**: Every Atomic Registry must implement `get_or_default(id)` to handle missing/unloaded items gracefully.
 6.  **Execution Ownership**: Long-running or async work is owned by `AppServices` task runners; registries return intents/events and cancellation handles, not unmanaged background tasks.
 
+### Service-Layer Middleware Guidance (Tower Pattern)
+
+For async/provider-oriented registry boundaries, prefer a `tower::Service`-compatible dispatch seam so reliability concerns can be composed instead of hardcoded.
+
+- **Use middleware at boundary seams**: protocol resolution, remote/federated index providers, external knowledge providers, and any registry path that crosses process/network/runtime fault domains.
+- **Keep direct dispatch for local sync paths**: pure in-memory lookups and deterministic reducers do not need middleware layering.
+- **Compose reliability concerns in layers**: timeout, concurrency/rate limits, retries (where idempotent), backpressure, tracing, and metrics.
+- **Preserve diagnostics contract ownership**: middleware may emit transport/service events, but canonical `registry.<name>.<event>` channels remain required and must still satisfy this plan's diagnostics checklist.
+- **Avoid architecture inflation**: do not wrap every registry in middleware "for consistency" when the call path is local and bounded.
+
+#### Adoption Criteria
+
+Introduce a service-layer seam when one or more conditions apply:
+
+1. The operation is async and may stall/fail independently of the reducer loop.
+2. The operation crosses network/process/plugin boundaries.
+3. The operation requires centralized policy controls (timeouts, quotas, retries, circuit-break behavior).
+4. The operation must expose standardized latency/failure telemetry across multiple providers.
+
+#### Retry Policy Note (`backon` vs `tower`)
+
+- Prefer retry composition in `tower` layers for registry boundaries already modeled as `tower::Service`.
+- Use `backon` at narrow call sites only when introducing a service boundary is not justified (for example, one isolated runtime recovery loop).
+- Do not stack independent retry loops (`backon` + `tower`) on the same request path unless explicitly documented; this multiplies latency and obscures failure attribution.
+- If a call path migrates to a `tower` boundary, remove ad-hoc `backon` wrappers and keep retry/timeout policy in one place.
+- Keep retries idempotency-aware and diagnostics-visible (`*.retry_started`, `*.retry_exhausted`, or equivalent mapped registry channels).
+
+#### Cache Runtime Note (`moka` sync vs future)
+
+- Keep `moka::sync::Cache` for reducer-thread and short, in-memory `get/insert` lookups.
+- If a cache is read/populated directly inside Tokio async tasks, prefer `moka::future::Cache` for that path.
+- Do not perform heavy miss computation in sync cache closures on async worker threads.
+- If compute-on-miss is required in async contexts, move to `future::Cache` (or isolate work via `spawn_blocking`) and keep a single cache policy per request path.
+
+#### Runtime Metrics Note (`sysinfo` vs `tracing`)
+
+- Keep `sysinfo` scoped to coarse system-pressure classification (for example memory pressure workers), not per-frame hot-path telemetry.
+- Prefer `tracing` spans/events for ongoing performance metrics (intent apply duration, frame-phase timing, physics housekeeping cost).
+- Treat tracing as composable instrumentation: emit span timing at hot boundaries, then route via subscriber layers (for example in-process ring buffer, perfetto/hitrace, or logs) without changing call sites.
+
+#### Staged Rollout
+
+1. **Boundary declaration**: document the registry interface as a service boundary (request/response types, cancellation semantics, idempotency expectations).
+2. **Adapter introduction**: add a thin adapter implementing `tower::Service` without changing observable behavior.
+3. **Layer composition**: add timeout/rate-limit/tracing/metrics layers in a deterministic order.
+4. **Diagnostics closure**: extend contract + harness tests so middleware failure modes map cleanly to required registry diagnostic channels.
+5. **Legacy path removal**: once tests pass, delete ad-hoc per-call reliability code replaced by shared middleware layers.
+
 ## Refactoring Strategy: Data vs. Systems
 
 To avoid borrow-checker conflicts and monolithic state, `GraphBrowserApp` must be split:
@@ -536,7 +584,7 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 - Register `theme:default` in `ThemeRegistry` as core seed.
 
 #### Step 4.2: Physics Profile Subregistry
-- Extract `PhysicsProfile` presets (Liquid, Gas, Solid) from `app.rs` as named parameter sets.
+- Extract `PhysicsProfile` presets (Liquid, Gas, Solid) from `graph_app.rs` as named parameter sets.
 - Register them in `PhysicsProfileRegistry` as presentation-domain semantic labels.
 - Remove `layout_mode` from `PhysicsProfile`. Layout mode is independently resolved by the Layout Domain. A Lens composes both, but physics must not override layout.
 
@@ -723,11 +771,11 @@ The seam between Servo callbacks and graph state is the highest-risk layer bound
 
 The reducer (`apply_intents`) must be the only site that calls `graph.add_node()`, `graph.remove_node()`, `graph.add_edge()`, etc. Verify this is the case and lock it in.
 
-- Run `grep -r "graph\.add_node\|graph\.remove_node\|graph\.add_edge\|graph\.remove_edge" --include="*.rs"` excluding `graph/mod.rs` and `app.rs`. Any hit outside those two files is a violation.
+- Run `grep -r "graph\.add_node\|graph\.remove_node\|graph\.add_edge\|graph\.remove_edge" --include="*.rs"` excluding `graph/mod.rs` and `graph_app.rs`. Any hit outside those two files is a violation.
 - If violations exist, wrap the call in a new `GraphIntent` variant and route through the reducer.
 - Add a comment in `graph/mod.rs` header: `// Direct mutation methods are pub(super) — call sites outside app.rs are invariant violations.` Change the visibility of mutating methods to `pub(super)` so the compiler enforces it.
 
-**Done gate**: `graph.add_node()` and peer methods are `pub(super)` in `graph/mod.rs`. `cargo check` confirms no callers outside `app.rs`.
+**Done gate**: `graph.add_node()` and peer methods are `pub(super)` in `graph/mod.rs`. `cargo check` confirms no callers outside `graph_app.rs`.
 
 #### Step 6.4: Filesystem Restructure
 
@@ -739,7 +787,7 @@ With types correctly bounded (6.1–6.3), the path moves are mechanical. Execute
 
 - `graph/` — graph data structure (from root)
 - `intent.rs` — `GraphIntent` enum + reducer (`apply_intents`)
-- `workspace.rs` — `GraphWorkspace` struct (extracted from `app.rs` in 6.1)
+- `workspace.rs` — `GraphWorkspace` struct (extracted from `graph_app.rs` in 6.1)
 - `selection.rs` — `SelectionState`
 
 **`services/` (crate root)**:
@@ -756,7 +804,7 @@ With types correctly bounded (6.1–6.3), the path moves are mechanical. Execute
 - `ui/toolbar/` — `toolbar_ui.rs` and all `toolbar_ui/*` submodules
 - `ui/` — `gui.rs`, `gui_frame.rs`, dialog/panel rendering modules
 - `protocols/` — stays as-is
-- `runtime/` — `cli.rs`, `app.rs`, `control_panel.rs`, diagnostics/tracing/runtime glue
+- `runtime/` — `cli.rs`, `graph_app.rs`, `control_panel.rs`, diagnostics/tracing/runtime glue
 
 Use `pub(crate)` re-exports at old paths during migration; remove them in Step 6.5.
 

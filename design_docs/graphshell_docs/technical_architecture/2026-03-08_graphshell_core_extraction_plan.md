@@ -6,30 +6,41 @@
 
 **Date**: 2026-03-08
 **Status**: Design / Planning
-**Scope**: Extract the graph domain model, intent/reducer system, and headless physics engine into
-a WASM-clean crate (`graphshell-core`) that compiles to `wasm32-unknown-unknown` with zero errors
-and has no knowledge of egui, wgpu, or Servo.
+**Scope**: Extract the identity, authority, and mutation kernel of graphshell into a WASM-clean
+crate (`graphshell-core`) that compiles to `wasm32-unknown-unknown` with zero errors and has no
+knowledge of egui, wgpu, Servo, or any platform I/O. This crate is the shared foundation for the
+desktop app, iOS/Android apps, browser extensions (Firefox/Chrome), and Verse server-side nodes.
 
 **Related docs**:
 
-- [`canvas/petgraph_algorithm_utilization_spec.md`](../implementation_strategy/canvas/petgraph_algorithm_utilization_spec.md) — petgraph algorithm surface used in graph/physics pre-passes
+- [`canvas/petgraph_algorithm_utilization_spec.md`](../implementation_strategy/canvas/petgraph_algorithm_utilization_spec.md) — petgraph algorithm surface
 - [`canvas/2026-02-24_physics_engine_extensibility_plan.md`](../implementation_strategy/canvas/2026-02-24_physics_engine_extensibility_plan.md) — current physics extensibility architecture
-- [`canvas/2026-02-23_udc_semantic_tagging_plan.md`](../implementation_strategy/canvas/2026-02-23_udc_semantic_tagging_plan.md) — UDC semantic tagging (partially in-core)
-- [`2026-02-18_universal_node_content_model.md`](2026-02-18_universal_node_content_model.md) — node identity / `Address` enum vision
-- [`aspect_render/2026-02-20_embedder_decomposition_plan.md`](../implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md) — completed Stage 4 decomposition (prerequisite context)
+- [`canvas/2026-02-23_udc_semantic_tagging_plan.md`](../implementation_strategy/canvas/2026-02-23_udc_semantic_tagging_plan.md) — UDC semantic tagging
+- [`2026-02-18_universal_node_content_model.md`](2026-02-18_universal_node_content_model.md) — node identity / `Address` enum
+- [`system/coop_session_spec.md`](../implementation_strategy/system/coop_session_spec.md) — Coop session authority (§3, §6, §15, §16)
+- [`viewer/2026-02-11_clipping_dom_extraction_plan.md`](../implementation_strategy/viewer/2026-02-11_clipping_dom_extraction_plan.md) — clip publication (NIP-84)
 
 ---
 
-## 1. Motivation
+## 1. Purpose and Principle
 
-Graphshell's graph domain logic (topology, identity, intents, reducers) is currently entangled with
-the host application crate. This produces three concrete problems:
+`graphshell-core` is not a graph library. It is the **identity, authority, and mutation kernel**
+of the graphshell system — the minimal set of logic that must be identical across all deployments
+or the system is incoherent.
 
-1. **No headless testing**: testing graph state changes requires a running egui context.
-2. **No Verse server-side hosting**: a server-side Verse node that maintains a shared graph cannot
-   use the same reducer without pulling in egui/Servo as dead weight.
-3. **No WASM deployment path**: if Graphshell ever runs in a browser tab, the graph core needs to
-   be available on `wasm32-unknown-unknown` without the host's platform dependencies.
+The test for any candidate component: *if two platforms disagree about this, can the system still
+function coherently?* If the answer is no, it belongs in core.
+
+**Target deployment contexts**:
+
+| Context | How core is used |
+| --- | --- |
+| Desktop app (Linux/macOS/Windows) | Native dependency; host adds egui, wgpu, Servo, iroh |
+| iOS / Android app | Native dependency via UniFFI or `cdylib`; host adds platform UI |
+| Firefox / Chrome extension | Compiled to WASM; host adds browser DOM APIs |
+| Browser tab (WASM) | Compiled to WASM; host adds web UI framework |
+| Verse server-side node | Native or WASM; host adds libp2p/iroh networking |
+| Headless test harness | Native; no host UI at all |
 
 The WASM compilation constraint is the mechanical enforcement mechanism. If `graphshell-core`
 compiles to `wasm32-unknown-unknown` with zero errors, it is definitionally free of platform
@@ -37,233 +48,124 @@ dependencies. This is better than any code review.
 
 ---
 
-## 2. Crate Boundary: What Goes In, What Stays Out
+## 2. What Belongs in Core
 
-### 2.1 In `graphshell-core`
+### 2.1 Graph Domain State and Mutations
+
+The graph is the primary shared state. Every platform that touches the graph must use the same
+types, the same identity system, and the same reducer. Divergence here means sync is impossible.
 
 | Component | Current location | Notes |
 | --- | --- | --- |
-| `Graph` (petgraph-backed) | `model/graph/mod.rs` | Includes all petgraph algorithm accessors (§4) |
-| `NodeKey` / `EdgeKey` UUID identity | `model/graph/mod.rs` | UUID is WASM-clean (`uuid` crate has wasm32 support) |
+| `Graph` (petgraph-backed topology) | `model/graph/mod.rs` | All petgraph algorithm accessors live here (§5) |
+| `NodeKey` / `EdgeKey` UUID identity | `model/graph/mod.rs` | `uuid` crate is WASM-clean |
 | `Node`, `EdgePayload` data types | `model/graph/mod.rs` | Pure data; no render state |
-| `GraphWorkspace` | `graph_app.rs` | State container; no egui types (see §2.3) |
-| `GraphIntent` enum | intent system | All variants; `apply_intents()` reducer |
-| `GraphSemanticEvent` | event boundary | The clean boundary between core and host |
-| `Address` enum | aspirational (UNC model) | Pure data; WASM-clean including `PathBuf` |
-| `HistoryEntry` | aspirational (UNC model) | Pure data |
-| `semantic_tags` / `semantic_index_dirty` | currently `GraphBrowserApp` | Moves to core after UDC stabilizes (§6.2) |
-| `TagNode` / `UntagNode` intent variants | intent system | Already graph mutations |
-| URL normalization utilities | scattered | Shared by NIP-84 `r` tag and node deduplication |
-| Petgraph algorithm accessors | specified in petgraph spec §4.1 | `hop_distances_from`, `shortest_path`, `orphan_node_keys`, etc. |
-| **Headless physics engine** | `graph/physics.rs` (new) | Pure math; see §3 |
-| Topology pre-passes (MST seed, component loci, `LayoutHint`) | new | Uses petgraph; feeds physics engine |
+| `GraphWorkspace` | `graph_app.rs` | State container; no egui types (see §2.7) |
+| `GraphIntent` enum + `apply_intents()` | intent system | The single authority for all durable mutations |
+| `GraphSemanticEvent` | event boundary | The only type that crosses from core to host |
 
-### 2.2 Not In `graphshell-core`
+### 2.2 Node Identity and Address
 
-| Component | Reason |
+A browser extension clipping a page must store `Address::Http(url)` in exactly the same format
+the desktop app reads from its snapshot. A mobile app receiving a synced node must interpret its
+address correctly. These types must be identical across platforms.
+
+| Component | Notes |
 | --- | --- |
-| `egui::Pos2`, `egui::Vec2`, any egui type | Would break WASM compilation gate |
-| `GraphPhysicsState` / `GraphPhysicsLayout` (egui_graphs types) | egui_graphs is not WASM-clean |
-| `KnowledgeRegistry`, `reconcile_semantics` | Application-layer; depends on `nucleo`, UDC dataset |
-| `ContentRenderer`, `ProtocolResolver` traits | Reference egui, filesystem, OS |
-| iroh, libp2p, Nostr transports | Network I/O; host crate concern |
-| Servo / webview lifecycle | Host crate only |
-| `PhysicsProfile.apply_to_state()` | Depends on egui_graphs state types |
-| Tile compositor, workbench layout | Render pipeline concern |
+| `NodeId` (UUID) | Stable across sync, Coop sessions, NIP-84 publication |
+| `Address` enum | `Http(Url)`, `File(PathBuf)`, `Onion`, `Ipfs(Cid)`, `Gemini`, `Custom` |
+| `HistoryEntry` | Append-only navigation log per node; WAL-replayed across platforms |
+| `RendererKind` hint enum | Names which renderer a node prefers; not the renderer itself |
+| URL normalization | Shared by NIP-84 `r` tag, node deduplication, Coop contribution routing |
 
-### 2.3 Position Type: No `egui::Pos2` in Core
+`Address::File` and `Address::Directory` compile on WASM (PathBuf is in std) but are never
+resolved inside core. Resolution is a host-only concern. See §7.2.
 
-The petgraph spec's `ComponentGravityParams` currently uses `egui::Pos2` for locus positions.
-This must change. `graphshell-core` owns a position newtype:
+### 2.3 Session Authority (Coop)
 
-```rust
-/// A 2D position in graph layout space. WASM-clean; no egui dependency.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GraphPos2 {
-    pub x: f32,
-    pub y: f32,
-}
+A mobile Coop guest must enforce the same contribution approval rules as the desktop host. A
+browser extension participating in a session must produce the same snapshot format. If authority
+logic is platform-specific, security guarantees are meaningless.
 
-impl From<GraphPos2> for egui::Pos2 {
-    fn from(p: GraphPos2) -> Self { egui::Pos2::new(p.x, p.y) }
-}
+| Component | Notes |
+| --- | --- |
+| `CoopSessionId(Uuid)` | Session identity independent of `GraphViewId` |
+| Role enum | `Host`, `Guest(ViewOnly)`, `Guest(Contributor)`, `Guest(Editor)` |
+| Authority rules | Host owns domain policy; approval workflow logic |
+| `CoopContribution` type | Proposed mutation from guest; includes approval state machine |
+| Snapshot contract | What `TakeCoopSnapshot` produces; cross-platform serialization |
+| Ephemeral signal types | `CursorPosition`, `PresenceHeartbeat` — defined in core as data, never persisted |
 
-impl From<egui::Pos2> for GraphPos2 {
-    fn from(p: egui::Pos2) -> Self { GraphPos2 { x: p.x, y: p.y } }
-}
-```
+What stays in the host: cursor rendering, presence UI, command palette role-filtering, approval
+dialog UX. Core defines the authority rules; platforms define how to surface them.
 
-The conversions live in the host crate (which knows about egui), not in core. Core uses `GraphPos2`
-everywhere positions appear.
+### 2.4 Publication Schema (NIP-84 / Clips)
 
----
+A browser extension clipping a page and the desktop app must produce the same NIP-84 `kind 9802`
+event structure. The wire format is the shared contract. Signing and network I/O are platform
+concerns.
 
-## 3. Headless Physics Engine
+| Component | Notes |
+| --- | --- |
+| NIP-84 `kind 9802` event struct | Content, `r` tag (canonical URL), `context` tag |
+| Clip node type | DOM-extracted content node; same schema on all platforms |
+| `nostr_event_id` metadata field | Set after publication; stored for deduplication and link-back |
+| URL normalization (canonical form) | Strips UTM/tracking params; shared with `Address::Http` deduplication |
 
-### 3.1 Design Principles
+What stays in the host: Nostr signing (keypair is platform-specific — NIP-46 on desktop, browser
+`window.nostr`, iOS Secure Enclave), relay pool, network I/O.
 
-- Pure math: no allocator beyond `std`, no platform I/O, no callbacks into render code.
-- WASM-clean: compiles to `wasm32-unknown-unknown` with zero errors.
-- No petgraph dependency: topology analysis is a pre-pass in the host/core graph layer;
-  the physics engine receives results (node positions, force params) and outputs positions.
-- Topology-aware via `LayoutHint`: the engine selects initial conditions and force parameters
-  based on a hint from the topology classifier pre-pass.
+### 2.5 Persistence Schema
 
-### 3.2 Core Interface
+Every platform that reads or writes graph state must use the same WAL log entry types and snapshot
+serialization format. If these are host-crate types, cross-platform sync is impossible.
 
-```rust
-/// Opaque node description for the physics engine.
-/// The engine does not know about NodeKey, URLs, or graph topology.
-pub struct PhysicsNode {
-    pub pos: GraphPos2,
-    pub mass: f32,           // default 1.0; heavier = less displaced by repulsion
-    pub pinned: bool,        // if true, repulsion/attraction are applied but displacement is not
-}
+| Component | Notes |
+| --- | --- |
+| WAL log entry types | `AddNode`, `NavigateNode`, `AddEdge`, `TagNode`, `TakeCoopSnapshot`, etc. |
+| Snapshot serialization format | The format that travels over iroh-docs for Device Sync |
+| `GraphDelta` / batch mutation type | Used for atomic snapshot application and WAL replay |
 
-/// Force configuration parameters for one physics step.
-pub struct PhysicsParams {
-    pub k: f32,              // optimal distance constant (Fruchterman-Reingold)
-    pub temperature: f32,    // current annealing temperature
-    pub gravity: GravityMode,
-    pub semantic_forces: Vec<SemanticForce>,   // UDC attraction pairs
-    pub extra_forces: Vec<ExtraForceSpec>,
-}
+What stays in the host: fjall storage (OS filesystem), iroh-docs sync transport, platform-specific
+snapshot storage locations.
 
-pub enum GravityMode {
-    /// Single center well at canvas origin.
-    Center { strength: f32 },
-    /// Per-component gravity loci (from ComponentGravityParams pre-pass).
-    ComponentLoci { loci: Vec<(usize, GraphPos2)>, strength: f32 },
-    /// No gravity.
-    None,
-}
+### 2.6 UDC Semantic Tagging (Partial)
 
-/// UDC-derived semantic attraction between two node indices.
-pub struct SemanticForce {
-    pub a: usize,
-    pub b: usize,
-    pub similarity: f32,    // [0.0, 1.0] from KnowledgeRegistry prefix distance
-}
-
-/// A layout hint from the topology classifier pre-pass.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LayoutHint {
-    /// General graph — standard Fruchterman-Reingold.
-    ForceGeneral,
-    /// Tree or DAG — radial or BFS-level initial positions.
-    ForceTree,
-    /// Linear chain (bus) — horizontal spine, branch repulsion.
-    ForceBus,
-    /// Cycle / ring — circular initial arrangement, then spring-relax.
-    ForceRing,
-    /// Dense clique — charge repulsion dominant, minimize crossings.
-    ForceClique,
-    /// Caller provides explicit initial positions; engine only relaxes.
-    ExplicitSeed,
-}
-
-/// Step the physics simulation by `dt` seconds.
-/// `nodes` positions are updated in-place.
-/// `edges` are (a_index, b_index) pairs into `nodes`.
-/// Returns the maximum displacement of any node (convergence signal).
-pub fn step(
-    nodes: &mut [PhysicsNode],
-    edges: &[(usize, usize)],
-    params: &PhysicsParams,
-    dt: f32,
-) -> f32;
-
-/// Compute topology-aware initial positions for a cold-start graph.
-/// Call once before the first `step()` when nodes have no committed positions.
-/// Uses `LayoutHint` to select the initial arrangement algorithm.
-pub fn cold_start_positions(
-    node_count: usize,
-    edges: &[(usize, usize)],
-    hint: LayoutHint,
-    area: f32,   // canvas area hint for scaling
-) -> Vec<GraphPos2>;
-```
-
-### 3.3 Algorithm Selection by `LayoutHint`
-
-| `LayoutHint` | `cold_start_positions` algorithm | `step` force profile |
+| Component | Core? | Notes |
 | --- | --- | --- |
-| `ForceGeneral` | Random scatter in area circle | Standard FR: repulsion + attraction + gravity |
-| `ForceTree` | BFS-level layout (root = highest-degree node, children at angular intervals per depth) | FR with reduced repulsion, stronger attraction along edges |
-| `ForceBus` | Nodes on horizontal line, branches above/below | Spine-constraint force keeping chain nodes horizontal |
-| `ForceRing` | Nodes equally spaced on a circle | Circular constraint force preserving ring spacing |
-| `ForceClique` | Random scatter in small area (nodes are tightly bound) | Charge repulsion dominant; attraction suppressed within clique |
-| `ExplicitSeed` | No-op (caller has set positions) | Standard FR |
+| `TagNode` / `UntagNode` intent variants | Yes | Graph mutations; must flow through reducer |
+| `semantic_tags: HashMap<NodeKey, HashSet<String>>` | Yes | Graph state; moves onto `GraphWorkspace` |
+| `semantic_index_dirty: bool` | Yes | Graph state flag; drives host reconciliation |
+| `CompactCode` (parsed UDC representation) | Yes | Mobile + extension must agree on encoding |
+| `KnowledgeRegistry`, `reconcile_semantics` | No | `nucleo` uses threads; host-only |
+| UDC dataset, fuzzy search | No | Heavy; host-only |
 
-### 3.4 Topology Classifier Pre-Pass
+`semantic_tags` is currently held on `GraphBrowserApp`. It moves to `GraphWorkspace` in core
+when this crate is extracted. The host holds the `GraphWorkspace` and passes it to
+`reconcile_semantics` as before.
 
-The classifier runs in the host/core graph layer (has petgraph access) before handing work to the
-physics engine. It returns a `LayoutHint`:
+### 2.7 Layout: Position Type and Physics Engine
 
-```rust
-/// Classify the graph topology for physics layout hint selection.
-/// Runs petgraph algorithms; lives in graphshell-core alongside Graph.
-pub fn classify_topology(graph: &Graph) -> LayoutHint {
-    let node_count = graph.node_count();
-    if node_count == 0 { return LayoutHint::ForceGeneral; }
+| Component | Notes |
+| --- | --- |
+| `GraphPos2 { x: f32, y: f32 }` | WASM-clean position newtype; replaces `egui::Pos2` everywhere in core |
+| `LayoutHint` enum | Topology-driven layout selection hint |
+| Topology classifier | Uses petgraph; returns `LayoutHint`; lives alongside `Graph` |
+| MST warm seed pre-pass | petgraph MST + radial layout → initial `GraphPos2` positions |
+| Component locus pre-pass | Kosaraju → per-component gravity loci; inputs for `ComponentGravityLoci` force |
+| **Headless physics engine** | `step(nodes, edges, params, dt) -> f32`; pure math (§6) |
 
-    // Check for linear chain (bus): all nodes have degree ≤ 2, graph is connected
-    let max_degree = graph.inner.node_indices()
-        .map(|n| graph.inner.edges(n).count() + graph.inner.edges_directed(n, Direction::Incoming).count())
-        .max().unwrap_or(0);
+`From<GraphPos2> for egui::Pos2` and the inverse live in the host crate only. Core never imports
+egui.
 
-    // Ring: cycle detected, all nodes degree == 2
-    // Bus: no cycle, all nodes degree ≤ 2
-    // Tree/DAG: toposort succeeds, no cycles
-    // Clique: edge count ≈ n*(n-1)/2
-    // General: everything else
+`PhysicsProfile.apply_to_state()` stays in the host — it depends on `egui_graphs` state types.
+The physics computation (`step()`) moves to core; the rendering adapter (`egui_graphs`) stays in
+the host.
 
-    match petgraph::algo::toposort(&graph.inner, None) {
-        Ok(_) if max_degree <= 2 => LayoutHint::ForceBus,
-        Ok(_) => LayoutHint::ForceTree,
-        Err(_) => {
-            let e = graph.inner.edge_count();
-            let n = node_count;
-            let clique_threshold = n * (n - 1) / 2;
-            if e >= clique_threshold * 3 / 4 { LayoutHint::ForceClique }
-            else if max_degree == 2 { LayoutHint::ForceRing }
-            else { LayoutHint::ForceGeneral }
-        }
-    }
-}
-```
+### 2.8 Petgraph Algorithm Surface
 
-### 3.5 MST Warm Seed Integration
-
-The MST warm seed (petgraph spec §2.6) feeds `LayoutHint::ExplicitSeed`:
-
-1. Host calls `graph.min_spanning_tree_positions()` — petgraph MST + radial tree layout → `Vec<GraphPos2>`.
-2. Host writes positions to `PhysicsNode::pos` for each node.
-3. Host calls `step()` with `LayoutHint::ExplicitSeed` — engine relaxes from the MST seed, not random scatter.
-
-Guard: only apply when all nodes have `pos == GraphPos2::zero()` (first load or imported graph
-with no committed positions). If any node has a non-zero position, skip the seed entirely.
-
-### 3.6 Semantic Forces Integration
-
-The `KnowledgeRegistry` (host crate) computes per-pair UDC similarity after each
-`reconcile_semantics` call and produces a `Vec<SemanticForce>`. This is passed into `PhysicsParams`
-each frame. The physics engine applies:
-
-```
-F_semantic(A, B) = similarity * (pos_B - pos_A) * k_semantic
-```
-
-The engine does not know UDC codes, prefix distances, or registry logic.
-Similarity scores arrive as pre-computed `f32` values. This is the correct split:
-ontology in the host, force application in the engine.
-
----
-
-## 4. Petgraph Algorithm Surface in Core
-
-All accessors specified in `petgraph_algorithm_utilization_spec.md §4.1` live on `Graph` in
-`graphshell-core`. Summary:
+All algorithm accessors on `Graph` (specified in `petgraph_algorithm_utilization_spec.md §4.1`)
+live in core. petgraph itself is WASM-clean. Summary:
 
 ```rust
 impl Graph {
@@ -275,64 +177,257 @@ impl Graph {
     pub fn weakly_connected_components(&self) -> Vec<Vec<NodeKey>>;
     pub fn strongly_connected_components(&self) -> Vec<Vec<NodeKey>>;
     pub fn condensation_dag(&self) -> petgraph::Graph<Vec<NodeKey>, ()>;
-    pub fn toposort(&self) -> Result<Vec<NodeKey>, NodeKey>;   // Err = cycle node
+    pub fn toposort(&self) -> Result<Vec<NodeKey>, NodeKey>;
     pub fn min_spanning_tree_positions(&self) -> Vec<(NodeKey, GraphPos2)>;
     pub fn classify_topology(&self) -> LayoutHint;
 }
 ```
 
-`hop_distance_cache` and `component_membership_cache` live on `GraphWorkspace` (also in core),
-with invalidation on structural change exactly as specified in the petgraph spec §4.2–§4.3 — but
-using `GraphPos2` instead of `egui::Pos2` for locus positions.
+`hop_distance_cache` and `component_membership_cache` (with `GraphPos2` loci) live on
+`GraphWorkspace` in core, invalidated on structural graph changes.
 
 ---
 
-## 5. UDC / Semantic Tagging Boundary
+## 3. What Does Not Belong in Core
 
-### 5.1 What moves into core now
-
-- `TagNode` / `UntagNode` as `GraphIntent` variants — already graph mutations, already in core scope.
-- `semantic_tags: HashMap<NodeKey, HashSet<String>>` — graph state; moves onto `GraphWorkspace`.
-- `semantic_index_dirty: bool` — graph state; moves onto `GraphWorkspace`.
-
-### 5.2 What stays in the host crate (permanently)
-
-- `KnowledgeRegistry` — provider/router/parser, `nucleo` fuzzy search, UDC dataset.
-- `reconcile_semantics` — application-layer reconciliation loop; reads `semantic_index_dirty`,
-  calls registry, writes `semantic_index`, prunes stale keys.
-- `SemanticIndex` (the parsed index) — produced by the registry, not owned by core.
-
-### 5.3 Migration note
-
-`semantic_tags` is currently held on `GraphBrowserApp`, not on `GraphWorkspace`, as a deliberate
-temporary decision during registry stabilization (UDC plan §1). When `graphshell-core` is
-extracted, `semantic_tags` and `semantic_index_dirty` move to `GraphWorkspace`. The host crate
-holds a reference to the workspace and passes it to `reconcile_semantics` as before.
+| Component | Reason |
+| --- | --- |
+| Any `egui::*` type | Breaks WASM gate |
+| `egui_graphs` physics state/layout types | Not WASM-clean |
+| `PhysicsProfile.apply_to_state()` | Depends on egui_graphs |
+| `ContentRenderer`, `ProtocolResolver` traits | Reference `egui::Ui`, OS filesystem, platform I/O |
+| `TileRenderMode`, `CompositorAdapter` | Render-pipeline concerns; egui/GL specific |
+| Tile compositor, workbench layout | egui-specific; each platform has its own layout system |
+| `KnowledgeRegistry`, `reconcile_semantics` | `nucleo` uses threads; heavy; host-only |
+| iroh, libp2p, Nostr transport crates | Network I/O; each platform uses its own transport stack |
+| Nostr signing (`nsec`/`npub` operations) | Platform-specific (NIP-46, browser extension, Secure Enclave) |
+| fjall storage | OS filesystem |
+| Servo / webview lifecycle | Host crate; not present on mobile or extension |
+| `GraphBrowserApp` application state | UI state, webview maps — host only |
 
 ---
 
-## 6. `Address` Enum and Node Identity
+## 4. Crate Boundary Summary
 
-The UNC model (`2026-02-18_universal_node_content_model.md`) specifies:
-
-- `NodeId` (UUID) as stable identity, decoupled from address.
-- `Address` enum: `Http(Url)`, `File(PathBuf)`, `Onion`, `Ipfs(Cid)`, `Gemini`, `Custom`.
-- `address_history: Vec<HistoryEntry>` — append-only navigation log per node.
-
-All of these are pure data types, WASM-clean, and belong in `graphshell-core`.
-
-**Critical prerequisite**: The UNC model §8 notes that migrating from URL-based node identity
-to UUID-based identity is "the highest-friction migration in the whole vision." This migration must
-happen before `graphshell-core` is extracted. Extracting the crate before the identity migration
-means doing both refactors simultaneously on the same types — high merge complexity.
-
-See §8 (Sequencing) for the ordered dependency chain.
+| Category | In core | In host |
+| --- | --- | --- |
+| Graph topology + identity | `Graph`, `NodeKey`, `Node`, `EdgePayload` | — |
+| Mutations | `GraphIntent`, `apply_intents()` | — |
+| Events | `GraphSemanticEvent` | — |
+| State container | `GraphWorkspace` | `GraphBrowserApp` |
+| Address / history | `Address`, `HistoryEntry`, `RendererKind` hint | `ContentRenderer`, `ProtocolResolver` |
+| Node identity | `NodeId` (UUID), URL normalization | — |
+| Session authority | `CoopSessionId`, role enum, approval state machine, snapshot contract | Cursor rendering, presence UX, command filtering |
+| Publication schema | NIP-84 event struct, clip node type, `nostr_event_id` | Nostr signing, relay pool, network I/O |
+| Persistence schema | WAL log entry types, snapshot serialization | fjall storage, iroh-docs transport |
+| UDC | `CompactCode`, `semantic_tags`, `semantic_index_dirty`, `TagNode`/`UntagNode` | `KnowledgeRegistry`, `reconcile_semantics`, dataset |
+| Layout | `GraphPos2`, `LayoutHint`, topology classifier, MST seed, physics `step()` | `PhysicsProfile.apply_to_state()`, egui_graphs |
+| Algorithms | All petgraph accessors on `Graph` | — |
 
 ---
 
-## 7. WASM Compilation Gate
+## 5. WASM Portability: Known Constraints
 
-The WASM constraint is enforced by CI, not convention:
+### 5.1 `Uuid::new_v4()` — never called inside core
+
+UUID generation requires an RNG. On browser WASM this works via `crypto.getRandomValues()` (the
+`"js"` feature on `getrandom`). On `wasm32-unknown-unknown` without a JS runtime (server-side
+WASM, test harnesses), there is no RNG.
+
+**Rule**: Core never calls `Uuid::new_v4()`. All `NodeId` and `CoopSessionId` values are
+generated by the host and passed into `apply_intents()` as parameters. Core only stores and
+compares UUIDs — never generates them.
+
+### 5.2 `Address::File` — compiles, not resolved
+
+`std::path::PathBuf` is available on `wasm32-unknown-unknown`. The variant compiles and is valid
+data in snapshots and WAL entries. Resolving a `File` address (reading filesystem bytes) is a
+host-only concern. Core never opens files.
+
+### 5.3 Thread safety
+
+`wasm32-unknown-unknown` is single-threaded by default. Core must not use `std::thread`,
+`std::sync::Mutex` (prefer `RefCell` where interior mutability is needed in WASM contexts),
+or any type that requires `Send + Sync` across threads. The physics `step()` function is
+single-threaded and pure; no atomics or locks required.
+
+### 5.4 Dependencies — WASM status
+
+| Crate | WASM-clean? | Notes |
+| --- | --- | --- |
+| `petgraph` | Yes | No platform deps; confirmed |
+| `uuid` | Yes with `"js"` feature | `"js"` for browser; `"getrandom"` with WASI for server |
+| `url` | Yes | IDNA normalization is pure Rust |
+| `serde` + `serde_json` | Yes | Used for snapshot/event serialization |
+| `indexmap` | Yes | If used in graph internals |
+
+---
+
+## 6. Headless Physics Engine
+
+### 6.1 Design Principles
+
+- Pure math: no I/O, no platform callbacks, no egui dependency.
+- Deterministic: same inputs → same outputs. No thread-local RNG inside `step()`.
+- Topology-aware: `LayoutHint` from the classifier pre-pass drives cold-start positioning.
+- Decoupled from petgraph: topology analysis is a pre-pass in the `Graph` layer; the physics
+  engine receives positions and force params, outputs positions.
+
+### 6.2 Core Interface
+
+```rust
+/// One node as seen by the physics engine.
+/// The engine does not know about NodeKey, URLs, or graph semantics.
+pub struct PhysicsNode {
+    pub pos: GraphPos2,
+    pub mass: f32,    // default 1.0; heavier nodes displace less
+    pub pinned: bool, // displacement suppressed; forces still computed (for neighbors)
+}
+
+pub struct PhysicsParams {
+    pub k: f32,                              // optimal edge-length constant (FR)
+    pub temperature: f32,                    // annealing temperature (decreases each step)
+    pub gravity: GravityMode,
+    pub semantic_forces: Vec<SemanticForce>, // pre-computed UDC similarity pairs
+}
+
+pub enum GravityMode {
+    Center { strength: f32 },
+    ComponentLoci { loci: Vec<(usize, GraphPos2)>, strength: f32 },
+    None,
+}
+
+/// UDC semantic attraction between two node indices (pre-computed by host KnowledgeRegistry).
+pub struct SemanticForce {
+    pub a: usize,
+    pub b: usize,
+    pub similarity: f32,  // [0.0, 1.0]
+}
+
+/// Step the simulation forward by `dt`.
+/// Updates `nodes[*].pos` in place.
+/// `edges` are index pairs into `nodes`.
+/// Returns maximum node displacement (convergence signal for the host).
+pub fn step(
+    nodes: &mut [PhysicsNode],
+    edges: &[(usize, usize)],
+    params: &PhysicsParams,
+    dt: f32,
+) -> f32;
+
+/// Compute topology-aware initial positions before the first step().
+/// Only call when all nodes have pos == GraphPos2::ZERO (cold start or imported graph).
+pub fn cold_start_positions(
+    node_count: usize,
+    edges: &[(usize, usize)],
+    hint: LayoutHint,
+    area: f32,
+) -> Vec<GraphPos2>;
+```
+
+### 6.3 Algorithm Selection by `LayoutHint`
+
+| `LayoutHint` | `cold_start_positions` | `step` force profile |
+| --- | --- | --- |
+| `ForceGeneral` | Random scatter in area circle | Standard FR: repulsion + attraction + gravity |
+| `ForceTree` | BFS-level radial (root = highest-degree node) | FR with reduced repulsion, stronger edge attraction |
+| `ForceBus` | Horizontal line; branches above/below | Spine-constraint force |
+| `ForceRing` | Equally spaced on a circle | Circular constraint force |
+| `ForceClique` | Small random cluster | Charge repulsion dominant; edge attraction suppressed |
+| `ExplicitSeed` | No-op (caller sets positions) | Standard FR relaxation |
+
+### 6.4 Topology Classifier
+
+Lives on `Graph` in core (has petgraph access). Returns `LayoutHint` before the first physics
+tick for a workspace.
+
+```rust
+impl Graph {
+    pub fn classify_topology(&self) -> LayoutHint {
+        let n = self.node_count();
+        if n == 0 { return LayoutHint::ForceGeneral; }
+
+        let max_degree = self.inner.node_indices()
+            .map(|v| self.inner.edges(v).count()
+                   + self.inner.edges_directed(v, Direction::Incoming).count())
+            .max().unwrap_or(0);
+
+        match petgraph::algo::toposort(&self.inner, None) {
+            Ok(_) if max_degree <= 2 => LayoutHint::ForceBus,
+            Ok(_)                    => LayoutHint::ForceTree,
+            Err(_) => {
+                let e = self.inner.edge_count();
+                let clique_threshold = n * (n - 1) / 2;
+                if e >= clique_threshold * 3 / 4 { LayoutHint::ForceClique }
+                else if max_degree == 2           { LayoutHint::ForceRing   }
+                else                              { LayoutHint::ForceGeneral }
+            }
+        }
+    }
+}
+```
+
+### 6.5 MST Warm Seed
+
+When all node positions are zero (first load or imported graph with no committed positions),
+the host calls `graph.min_spanning_tree_positions()` before the first `step()`:
+
+1. petgraph Kruskal MST (edge weights = `1 / (1 + navigations)` — frequently co-visited nodes
+   start close).
+2. Radial tree layout on the MST: root = highest-degree node, children at equal angular intervals
+   per depth level. Orphan nodes placed on an outer ring.
+3. Positions written to `PhysicsNode::pos`.
+4. `step()` called with `LayoutHint::ExplicitSeed` — relaxes from the MST seed, not random.
+
+Guard: if any node has a non-zero committed position (user's spatial memory from a previous
+session), skip the MST seed entirely.
+
+### 6.6 Semantic Forces
+
+`KnowledgeRegistry` (host) computes UDC prefix similarity after each `reconcile_semantics` call
+and produces `Vec<SemanticForce>`. This is passed into `PhysicsParams` each frame. The engine
+applies `F = similarity * (pos_B - pos_A) * k_semantic`. No UDC knowledge inside the engine —
+similarity scores arrive as pre-computed `f32` values.
+
+---
+
+## 7. Module Layout in `graphshell-core`
+
+```text
+graphshell-core/
+  src/
+    lib.rs
+    graph/
+      mod.rs          — Graph, NodeKey, EdgeKey, Node, EdgePayload
+      algorithms.rs   — petgraph accessor impls (hop_distances_from, shortest_path, etc.)
+      topology.rs     — classify_topology(), LayoutHint
+    intent.rs         — GraphIntent enum, apply_intents()
+    event.rs          — GraphSemanticEvent
+    workspace.rs      — GraphWorkspace (semantic_tags, caches, component_loci)
+    address.rs        — Address, HistoryEntry, RendererKind, NodeId
+    pos.rs            — GraphPos2
+    url_normalize.rs  — canonical URL normalization (shared: NIP-84, deduplication)
+    coop/
+      mod.rs          — CoopSessionId, role enum, CoopContribution
+      authority.rs    — approval state machine, policy enforcement
+      snapshot.rs     — CoopSnapshot serialization contract
+    publication/
+      nip84.rs        — kind 9802 event struct, clip node type, nostr_event_id field
+    persistence/
+      wal.rs          — WAL log entry types
+      snapshot.rs     — GraphSnapshot serialization
+      delta.rs        — GraphDelta / batch mutation type
+    udc/
+      mod.rs          — CompactCode, semantic_tags types
+    physics/
+      mod.rs
+      step.rs         — step(), cold_start_positions()
+      node.rs         — PhysicsNode, PhysicsParams, GravityMode, SemanticForce
+```
+
+---
+
+## 8. `Cargo.toml` and CI Gate
 
 ```toml
 # graphshell-core/Cargo.toml
@@ -341,150 +436,171 @@ name = "graphshell-core"
 edition = "2021"
 
 [dependencies]
-petgraph = { version = "0.8", features = ["serde-1"] }
-uuid = { version = "1", features = ["v4", "serde", "js"] }   # "js" for wasm32 RNG
-serde = { version = "1", features = ["derive"] }
-url = "2"           # Url type; WASM-clean
+petgraph  = { version = "0.8", features = ["serde-1"] }
+uuid      = { version = "1",   features = ["v4", "serde"] }
+serde     = { version = "1",   features = ["derive"] }
+serde_json = "1"
+url       = "2"
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# host-only deps if any (none expected)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }   # browser WASM RNG
 ```
 
-CI addition:
+CI gate (required on every PR touching `graphshell-core`):
 
 ```yaml
 - name: WASM compilation gate
   run: cargo build -p graphshell-core --target wasm32-unknown-unknown
 ```
 
-This job must pass on every PR that touches `graphshell-core`. Any egui/wgpu/Servo import causes
-a compile error. The gate is self-enforcing.
-
-**`uuid` RNG on WASM**: `uuid` v1 with the `"js"` feature uses `getrandom` with the `"js"` backend
-on WASM, which calls `crypto.getRandomValues()`. This is correct for browser WASM. For
-`wasm32-unknown-unknown` in non-browser environments (Verse node WASM), a deterministic seed may
-be needed — tracked as an open question.
+Any import of egui, wgpu, Servo, iroh, libp2p, or any OS-dependent crate causes a compile error.
+The gate is self-enforcing.
 
 ---
 
-## 8. Sequencing and Prerequisites
+## 9. Sequencing and Prerequisites
 
-The following dependency chain must be respected. Each step is a prerequisite for the next.
+Steps must be completed in order. Each is a prerequisite for the next.
 
-### Step 0 — Petgraph algorithm replacements (active: petgraph spec PRs 1–5)
+### Step 0 — Petgraph algorithm PR sequence (active)
 
-Finish the petgraph spec PR sequence (hop-distance cache, neighbors_undirected, component
-membership cache, ComponentGravityLoci). This cleans the `Graph` API boundary before extraction.
+Complete petgraph spec PRs 1–5: hop-distance cache, `neighbors_undirected`, depth-2 connected
+candidates, `Graph` accessor foundation, component membership cache + `ComponentGravityLoci`.
+This cleans the `Graph` API boundary before extraction.
 
-**Status**: PR-1 through PR-5 are the active work from the petgraph spec.
+**Status**: Active. **Effort**: Medium total across 5 PRs.
 
-### Step 1 — Introduce `GraphPos2` position type in the host crate
+### Step 1 — Introduce `GraphPos2`
 
-Add `GraphPos2` as a newtype in the current codebase. Replace `egui::Pos2` in
-`ComponentGravityParams` and any locus-position fields with `GraphPos2`. Add `From<>` conversions
-at the render boundary. This is a preparatory refactor with no behavior change.
+Add `GraphPos2` as a newtype in the host crate. Replace `egui::Pos2` in `ComponentGravityParams`
+and all locus-position fields. Add `From<>` conversions at the render boundary in the host.
+No behavior change.
 
 **Effort**: Small. **Risk**: Low.
 
 ### Step 2 — UUID node identity migration
 
 Migrate `Node` identity from URL-based to UUID-based (`NodeId: Uuid`). Extend the fjall log with
-`NavigateNode` replacing `UpdateNodeUrl`. This is the UNC model §8 prerequisite.
+`NavigateNode` replacing `UpdateNodeUrl`. Persistence migration required.
 
-**Effort**: Large. **Risk**: High (persistence migration). **Gate**: Must not start until Step 0
-is complete (avoids simultaneous refactors on the same types).
+**Effort**: Large. **Risk**: High. **Gate**: After Step 0.
 
 ### Step 3 — `Address` enum introduction
 
-Add `Address` enum to the codebase (in the host crate initially). Wire `Node::address: Address`
-replacing the current URL field. Renderer selection by `ContentRenderer::can_render()` hook is
-not required at this step — the enum just needs to exist and be persisted.
+Add `Address` enum in the host crate. Wire `Node::address: Address` replacing the current URL
+field. `ContentRenderer::can_render()` hook is not required at this step.
 
 **Effort**: Medium. **Gate**: After Step 2.
 
 ### Step 4 — Extract `graphshell-core` crate
 
-Create the crate. Move:
-- `model/graph/mod.rs` → `graphshell-core/src/graph/mod.rs`
-- `GraphIntent` + `apply_intents()` → `graphshell-core/src/intent.rs`
-- `GraphSemanticEvent` → `graphshell-core/src/event.rs`
-- `GraphPos2` → `graphshell-core/src/pos.rs`
-- `Address`, `HistoryEntry` → `graphshell-core/src/address.rs`
-- `GraphWorkspace` (with `semantic_tags`, `hop_distance_cache`, `component_membership_cache`) →
-  `graphshell-core/src/workspace.rs`
-- Petgraph algorithm accessors → `graphshell-core/src/graph/algorithms.rs`
-- `classify_topology()` → `graphshell-core/src/graph/topology.rs`
+Create the crate. Move all components from §2 into the module layout defined in §7. Host crate
+depends on `graphshell-core` as a path dependency initially.
 
 **Effort**: Large. **Gate**: After Steps 1–3.
 
-### Step 5 — Headless physics engine in core
+### Step 5 — Coop authority and snapshot in core
 
-Add `graphshell-core/src/physics/` module:
-- `physics/step.rs` — `step()` and `cold_start_positions()`
-- `physics/hint.rs` — `LayoutHint` enum
-- `physics/node.rs` — `PhysicsNode`, `PhysicsParams`, `GravityMode`, `SemanticForce`
-
-Wire host crate: replace `egui_graphs` FR step with a call to `core::physics::step()` for the
-pure-math engine path. `egui_graphs` remains as the rendering adapter (it draws nodes/edges);
-only the physics computation moves.
+Move `CoopSessionId`, role enum, approval state machine, and `CoopSnapshot` serialization into
+`graphshell-core/src/coop/`. Verify that no host-side UI types leak into these modules.
 
 **Effort**: Medium. **Gate**: After Step 4.
 
-### Step 6 — Semantic forces wiring
+### Step 6 — Publication schema in core
+
+Move NIP-84 event struct, clip node type, `nostr_event_id` field, and URL normalization into
+`graphshell-core/src/publication/`. Signing and relay I/O remain in the host.
+
+**Effort**: Small. **Gate**: After Step 4.
+
+### Step 7 — Persistence schema in core
+
+Move WAL log entry types, `GraphSnapshot`, and `GraphDelta` into
+`graphshell-core/src/persistence/`. fjall storage and iroh-docs transport remain in the host.
+
+**Effort**: Medium. **Gate**: After Step 4.
+
+### Step 8 — Headless physics engine in core
+
+Add `graphshell-core/src/physics/`. Wire host: replace `egui_graphs` FR computation with
+`core::physics::step()`. `egui_graphs` remains as the rendering adapter; only the math moves.
+
+**Effort**: Medium. **Gate**: After Step 4.
+
+### Step 9 — Semantic forces wiring
 
 After UDC Phase 2 (`SemanticGravity` force), replace the O(N²) pair loop with the pre-computed
-`Vec<SemanticForce>` from `KnowledgeRegistry`, passed into the physics engine via `PhysicsParams`.
+`Vec<SemanticForce>` from `KnowledgeRegistry`, passed into `PhysicsParams` each frame.
 
-**Effort**: Small (integration; the engine interface already supports it after Step 5). **Gate**:
-After UDC Phase 2 lands.
+**Effort**: Small. **Gate**: After Step 8 and UDC Phase 2.
 
 ---
 
-## 9. Acceptance Criteria
+## 10. Acceptance Criteria
 
-### For `graphshell-core` (Steps 4–5)
+### Core compilation (Steps 4+)
 
 1. `cargo build -p graphshell-core --target wasm32-unknown-unknown` passes with zero errors.
-2. No import of `egui`, `wgpu`, `servo`, `iroh`, `libp2p`, or `nostr` in `graphshell-core`.
-3. All `Graph` algorithm accessors from petgraph spec §4.1 are present and tested.
-4. `apply_intents()` is in core; all `GraphIntent` variants are handled.
-5. `GraphSemanticEvent` is the only boundary type crossing from core to host.
-6. `step()` is deterministic given the same inputs (no thread-local RNG in physics step).
-7. `classify_topology()` correctly identifies tree, ring, bus, clique, and general topologies
-   against a suite of synthetic graphs.
-8. `graphshell` (host crate) still compiles and all existing tests pass.
+2. No import of `egui`, `wgpu`, `servo`, `iroh`, `libp2p`, or any OS-dependent crate in core.
+3. `apply_intents()` is in core; every `GraphIntent` variant is handled.
+4. `GraphSemanticEvent` is the only type crossing from core to host at the domain event boundary.
+5. `Uuid::new_v4()` is never called inside core — all IDs are passed in by the host.
+6. `graphshell` (host crate) compiles and all existing tests pass after extraction.
 
-### For WASM gate (Step 7 — CI enforcement)
+### Physics engine (Step 8)
 
-9. A CI job `cargo build -p graphshell-core --target wasm32-unknown-unknown` is present and
+1. `step()` is deterministic: same inputs → same outputs; no thread-local RNG.
+2. `classify_topology()` correctly identifies tree, ring, bus, clique, and general topologies
+   against a suite of synthetic test graphs.
+3. MST warm seed produces non-overlapping initial positions for a 20-node disconnected graph.
+
+### Coop authority (Step 5)
+
+1. `coop_workbench_intents_are_intercepted_before_reducer` — existing invariant test passes with
+   authority types now in core.
+2. `coop_contributor_mutation_requires_host_approval` — passes with approval state machine in core.
+3. `coop_cursor_stream_does_not_touch_undo_or_wal` — ephemeral signal types defined in core
+   have no WAL entry variant.
+
+### Publication schema (Step 6)
+
+1. A NIP-84 `kind 9802` event constructed from a clip node in core serializes to valid JSON
+   matching the expected wire format.
+2. URL normalization strips UTM parameters and normalizes trailing slashes consistently.
+
+### CI gate
+
+1. A CI job `cargo build -p graphshell-core --target wasm32-unknown-unknown` is present and
    required to pass on every PR touching `graphshell-core`.
 
 ---
 
-## 10. Open Questions
+## 11. Open Questions
 
-1. **`wasm32-unknown-unknown` vs. `wasm32-wasi`**: The gate target should be
-   `wasm32-unknown-unknown` (most restrictive — no OS, no file I/O, no threads by default).
-   `wasm32-wasi` allows more. Confirm with the Verse server-side WASM deployment target.
+1. **WASM target variant for Verse server-side**: `wasm32-unknown-unknown` (most restrictive) vs.
+   `wasm32-wasi` (allows OS-like syscalls). The CI gate uses `wasm32-unknown-unknown`; Verse
+   server nodes may target WASI for access to clocks and file I/O. Consider a second gate for
+   `wasm32-wasi` once the Verse deployment target is confirmed.
 
-2. **`petgraph` on WASM**: petgraph has no platform dependencies. Confirm no feature flags
-   are needed for `wasm32-unknown-unknown` (expected: none required).
+2. **UniFFI / `cdylib` for iOS/Android**: iOS and Android apps will consume `graphshell-core`
+   via a C ABI (`cdylib`) or UniFFI bindings. The module layout in §7 should be designed with
+   UniFFI attribute placement in mind (`#[uniffi::export]` on public API surfaces). No action
+   required before Step 4; track as a pre-mobile design review.
 
-3. **`uuid` RNG on non-browser WASM**: The `"js"` feature requires a browser JS runtime.
-   For Verse server-side WASM (non-browser), a different RNG strategy is needed. Options:
-   - `uuid` with deterministic seed passed in from the host.
-   - `"getrandom"` with WASI backend when targeting `wasm32-wasi`.
-   Track per deployment target.
+3. **`GraphWorkspace` split**: `GraphBrowserApp` currently holds both graph state and UI state.
+   The extraction must cleanly separate them: `GraphWorkspace` in core owns pure graph state;
+   `GraphBrowserApp` in the host owns everything else and holds a `GraphWorkspace`. Circular
+   dependency risk must be reviewed at Step 4.
 
-4. **`GraphWorkspace` vs. `GraphBrowserApp`**: Currently `GraphBrowserApp` holds both graph
-   state and application state (UI state, webview maps, etc.). The extraction must not create
-   a circular dependency. The correct split: `GraphWorkspace` in core owns pure graph state;
-   `GraphBrowserApp` in the host owns everything else and holds a `GraphWorkspace`.
+4. **Snapshot versioning**: WAL log entry types in core must be versioned for forward/backward
+   compatibility between app versions and across platforms. A schema version field on
+   `GraphSnapshot` is the minimum requirement. Design deferred to Step 7.
 
-5. **`url` crate WASM compatibility**: `url` 2.x is WASM-clean. Confirm that `Url` parsing
-   does not invoke any platform-specific path normalization on WASM targets.
+5. **`serde_json` vs. `postcard` for snapshot serialization**: `serde_json` is human-readable and
+   debuggable but larger over the wire. `postcard` is compact and fast but not human-readable.
+   For iroh-docs sync, compactness matters. Decision deferred to Step 7.
 
 ---
 
 *This document is the authoritative design reference for `graphshell-core` extraction.
-Update it as steps complete or prerequisites change.*
+Update it as steps complete, prerequisites change, or deployment targets are confirmed.*

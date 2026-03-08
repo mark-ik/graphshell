@@ -5,6 +5,7 @@
 **Priority**: Pre-networking feature expansion (not a pre-renderer/WGPU blocker)
 
 **Related**:
+
 - `../2026-03-01_complete_feature_inventory.md`
 - `../../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
@@ -35,7 +36,15 @@ Required viewer readiness baseline:
 1. `viewer:plaintext` and `viewer:markdown` are fully active.
 2. `viewer:pdf` and `viewer:csv` are active in node-pane paths (not selection-only placeholders).
 3. A baseline non-web binary fallback path exists (`viewer:metadata` or equivalent explicit fallback behavior).
-4. File access safety contract is enforced (`FilePermissionGuard` and address-kind mapping remain authoritative).
+4. File access safety contract is enforced (`FilePermissionGuard` and address-kind mapping remain
+   authoritative). `FilePermissionGuard` is defined in UCM Step 9
+   (`2026-02-24_universal_content_model_plan.md`); that step must reach its done gate before
+   filesystem ingest Phase 1 can close.
+
+**Browse-in-place vs ingest**: The `DirectoryViewer` (UCM Step 6) provides in-tile local
+navigation (`GraphIntent::NavigateNode`) — this is browse-in-place, not ingest. Dragging a file
+from `DirectoryViewer` to the graph canvas creates a new node (`GraphIntent::CreateNode`). Bulk
+directory import is this plan's responsibility, not the `DirectoryViewer`'s.
 
 If these gates are not met, ingest actions must remain unavailable and explicitly report blocked-state diagnostics.
 

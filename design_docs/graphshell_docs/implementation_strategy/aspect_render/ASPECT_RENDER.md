@@ -25,7 +25,7 @@ It exists to keep one boundary explicit:
 
 - what content is visible is owned by Canvas, Workbench, and Viewer,
 - how each frame is assembled, composited, and committed to the GPU is owned by the Render aspect,
-- and the GUI shell (`gui.rs`, `gui_frame.rs`) is a host — not a semantic owner of rendering policy.
+- and the GUI shell (`shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`) is a host — not a semantic owner of rendering policy.
 
 ---
 
@@ -50,7 +50,7 @@ The Render aspect does not own what is rendered — it owns the pipeline that co
 - **Canvas** and **Workbench** own what surfaces exist and which are active.
 - **Render** owns when and how those surfaces are assembled into a committed frame.
 
-The planned GUI decomposition will make this boundary explicit in code: `gui.rs` is currently a monolith hosting both frame orchestration (Render) and workbench layout driving (Workbench). The decomposition extracts Render aspect concerns into their own module boundary.
+The GUI decomposition is complete: `shell/desktop/ui/gui.rs` (681 lines) focuses on `Gui` struct/lifecycle entrypoints. Frame orchestration is in `shell/desktop/ui/gui/gui_update_coordinator.rs`. Workbench layout driving is in `shell/desktop/ui/gui_orchestration.rs`.
 
 ---
 
@@ -86,7 +86,7 @@ If a behavior answers "how is a frame assembled and committed to the GPU?" it be
 **Status**: Deferred — not yet written.
 
 A `window_surface_lifecycle_spec.md` should be created once the GPU surface and
-window management path is stabilized and the `gui.rs` decomposition (§5) has
+window management path is stabilized and the `shell/desktop/ui/gui.rs` decomposition (§5) has
 extracted the GPU surface lifecycle into its own Render aspect module.
 
 ### What the deferred spec must cover
@@ -110,7 +110,7 @@ for:
 
 ### Prerequisite
 
-This spec is blocked on the `gui.rs` decomposition completing enough that GPU surface
+This spec is blocked on the `shell/desktop/ui/gui.rs` decomposition completing enough that GPU surface
 lifecycle is owned by a discrete module (not the gui monolith). Until then, the
 surface lifecycle is co-located with frame orchestration and cannot be separately
 specified without creating a misleading boundary.

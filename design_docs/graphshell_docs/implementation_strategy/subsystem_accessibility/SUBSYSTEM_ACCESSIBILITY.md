@@ -193,7 +193,7 @@ Accessibility invariant failures follow the diagnostics pattern: explicit invari
 ### 6.2 CI Gates
 
 Dedicated accessibility test lane with required checks for PRs touching:
-- `shell/desktop/ui/**`, `shell/desktop/workbench/**`, `render/**`, `app.rs`
+- `shell/desktop/ui/**`, `shell/desktop/workbench/**`, `render/**`, `graph_app.rs`
 - Viewer integration / webview lifecycle code
 - Accessibility/diagnostics registries and adapters
 

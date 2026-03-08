@@ -74,7 +74,7 @@ fields) — it is serializable state only.
 ### Intent Boundary
 
 - `render/*` captures UI events only; it must not directly mutate overlay semantics.
-- `app.rs` is the authority for semantic decisions (restore/collapse intents, repair policy, warning creation).
+- `graph_app.rs` is the authority for semantic decisions (restore/collapse intents, repair policy, warning creation).
 - `desktop/*` applies workbench tree mutations and runtime effects in response to app-level intents.
 - Restore/collapse actions are explicit `GraphIntent` variants, not ad hoc tree rewrites at UI callsites.
 

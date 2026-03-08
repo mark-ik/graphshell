@@ -40,7 +40,7 @@ It serves three goals:
 
 ## Design Docs Index
 
-Last updated: March 7, 2026
+Last updated: March 8, 2026
 Project status source: [../README.md](../README.md)
 
 ## Root Documents
@@ -92,6 +92,9 @@ Project status source: [../README.md](../README.md)
 - [graphshell_docs/implementation_strategy/2026-03-01_complete_feature_inventory.md](graphshell_docs/implementation_strategy/2026-03-01_complete_feature_inventory.md) - Complete cross-doc feature inventory with implemented/planned/speculative status and WGPU migration issue categorization.
 - [graphshell_docs/implementation_strategy/2026-03-02_scaffold_registry.md](graphshell_docs/implementation_strategy/2026-03-02_scaffold_registry.md) - Canonical machine-readable scaffold inventory (`[SCAFFOLD:<id>]`) and closure criteria.
 - [graphshell_docs/implementation_strategy/viewer/2026-03-02_filesystem_ingest_graph_mapping_plan.md](graphshell_docs/implementation_strategy/viewer/2026-03-02_filesystem_ingest_graph_mapping_plan.md) - Filesystem ingest feature plan with viewer-readiness gate, files→nodes / folders→frames mapping, and phased acceptance criteria.
+- [graphshell_docs/implementation_strategy/viewer/2026-03-08_servo_text_editor_architecture_plan.md](graphshell_docs/implementation_strategy/viewer/2026-03-08_servo_text_editor_architecture_plan.md) - Servo-backed text editor architecture: `editor-core` (WASM-clean) + Servo surface split, IME composition contract, crate layout, phases, and acceptance criteria.
+- [graphshell_docs/implementation_strategy/viewer/2026-03-08_simple_document_engine_target_spec.md](graphshell_docs/implementation_strategy/viewer/2026-03-08_simple_document_engine_target_spec.md) - Canonical `SimpleDocument` / `EngineTarget` / `RenderPolicy` spec for the Servo-first content adaptation pipeline (UCM Steps 11–12). Prerequisite for Gemini resolver, Reader Mode, and markdown pipeline.
+- [graphshell_docs/implementation_strategy/viewer/universal_content_model_spec.md](graphshell_docs/implementation_strategy/viewer/universal_content_model_spec.md) - Canonical UCM interaction contract: viewer trait, selection policy, MIME detection, non-web viewer types, FilePermissionGuard, core/host split.
 - [graphshell_docs/implementation_strategy/viewer/2026-03-02_unified_source_directory_mapping_plan.md](graphshell_docs/implementation_strategy/viewer/2026-03-02_unified_source_directory_mapping_plan.md) - Unified local/network/web directory-domain auto-mapping plan, gated by filesystem-ingest readiness.
 - [graphshell_docs/implementation_strategy/aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md](graphshell_docs/implementation_strategy/aspect_render/2026-03-01_webrender_wgpu_renderer_implementation_plan.md) - WebRender wgpu renderer implementation plan (P0–P12): phased execution from dependency audit through production cutover, with per-phase validation, rollback posture, and readiness gate mapping.
 - [graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md](graphshell_docs/implementation_strategy/subsystem_ux_semantics/ux_event_dispatch_spec.md) - Canonical UxTree event dispatch contract (capture/target/bubble/default, modal isolation, authority routing, diagnostics/test gates).

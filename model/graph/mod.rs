@@ -201,17 +201,12 @@ pub(crate) fn cached_host_from_url(url: &str) -> Option<String> {
 /// Detect MIME type from URL + optional content bytes.
 ///
 /// Detection order:
-/// 1) Content-byte sniffing via `infer` (when `content_bytes` are provided)
-/// 2) Extension fallback via `mime_guess`
+/// 1) Extension lookup via `mime_guess` (cheap, synchronous)
+/// 2) Content-byte sniffing via `infer` only when extension lookup is
+///    missing or ambiguous
 ///
 /// Returns `None` when neither source yields a known MIME type.
 pub(crate) fn detect_mime(url: &str, content_bytes: Option<&[u8]>) -> Option<String> {
-    if let Some(bytes) = content_bytes {
-        if let Some(kind) = infer::get(bytes) {
-            return Some(kind.mime_type().to_string());
-        }
-    }
-
     let no_fragment = url.split('#').next().unwrap_or(url);
     let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
     // Strip file:// scheme so mime_guess sees a plain path.
@@ -221,9 +216,28 @@ pub(crate) fn detect_mime(url: &str, content_bytes: Option<&[u8]>) -> Option<Str
         .trim_start_matches('/');
     // Reconstruct a rooted path string for mime_guess.
     let guess_path = format!("/{path}");
-    mime_guess::from_path(&guess_path)
-        .first()
+    let guessed: Vec<String> = mime_guess::from_path(&guess_path)
+        .into_iter()
         .map(|m| m.to_string())
+        .collect();
+
+    let is_ambiguous = guessed.len() > 1
+        || guessed
+            .first()
+            .map(|m| m == "application/octet-stream")
+            .unwrap_or(false);
+
+    if !guessed.is_empty() && !is_ambiguous {
+        return guessed.first().cloned();
+    }
+
+    if let Some(bytes) = content_bytes {
+        if let Some(kind) = infer::get(bytes) {
+            return Some(kind.mime_type().to_string());
+        }
+    }
+
+    guessed.first().cloned()
 }
 
 /// Stable edge handle (petgraph EdgeIndex)
@@ -2323,11 +2337,20 @@ mod tests {
     }
 
     #[test]
-    fn detect_mime_prefers_magic_bytes_when_available() {
+    fn detect_mime_uses_magic_bytes_when_extension_is_missing() {
         let pdf_header = b"%PDF-1.7\n1 0 obj\n";
         assert_eq!(
             detect_mime("https://example.com/no-extension", Some(pdf_header)),
             Some("application/pdf".to_string())
+        );
+    }
+
+    #[test]
+    fn detect_mime_prefers_extension_when_unambiguous() {
+        let pdf_header = b"%PDF-1.7\n1 0 obj\n";
+        assert_eq!(
+            detect_mime("file:///home/user/readme.txt", Some(pdf_header)),
+            Some("text/plain".to_string())
         );
     }
 

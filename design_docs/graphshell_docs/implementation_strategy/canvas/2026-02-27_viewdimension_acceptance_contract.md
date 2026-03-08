@@ -24,7 +24,7 @@ This document is **contract/spec only**. It does not authorize runtime hotspot e
 
 Terminology aligns with:
 - `design_docs/TERMINOLOGY.md` (`Graph View`, `Camera`, `Degradation Mode`, `TileRenderMode`)
-- Existing `ViewDimension`/`ZSource` code comments in `app.rs`.
+- Existing `ViewDimension`/`ZSource` code comments in `graph_app.rs`.
 
 ---
 
@@ -90,7 +90,7 @@ R2 is considered complete when all evidence classes are linked:
 
 - Implementing 3D rendering details.
 - Altering compositor pass contract definitions.
-- Runtime hotspot refactors in `app.rs`, `render/mod.rs`, `gui.rs`, or `shell/desktop/workbench/*` as part of this docs slice.
+- Runtime hotspot refactors in `graph_app.rs`, `render/mod.rs`, `shell/desktop/ui/gui.rs`, or `shell/desktop/workbench/*` as part of this docs slice.
 
 ---
 

@@ -212,6 +212,12 @@ Gate rule:
 3. **Pane smoke tests** — Violations view renders violations, health summary computes from channel data, channel config editor persists changes.
 4. **Regression probes** — Live-state checks for known bug conditions (e.g., compositor tile count diverges from graph node count). Ship ungated for field debugging.
 
+Diagnostics test infrastructure baseline (Graphshell-wide, not feature-specific):
+
+- `proptest` is the default mechanism for invariant/property checks over diagnostics streams and aggregate counters.
+- `insta` is the default mechanism for stable snapshot assertions over diagnostics JSON shape and deterministic event traces.
+- Any subsystem adding new diagnostics channels should add at least one deterministic assertion in one of these two forms (property invariant or snapshot regression).
+
 ### 6.2 CI Gates
 
 Required checks for PRs touching:

@@ -8,8 +8,11 @@
 
 - `VIEWER.md`
 - `viewer_presentation_and_fallback_spec.md`
-- `viewer/2026-02-24_universal_content_model_plan.md`
+- `viewer/2026-02-24_universal_content_model_plan.md` — implementation plan with done gates
+- `viewer/2026-03-08_servo_text_editor_architecture_plan.md` — `viewer:text-editor` selection rule and edit-intent policy
+- `viewer/2026-03-08_simple_document_engine_target_spec.md` — `SimpleDocument` / `EngineTarget` / `RenderPolicy` canonical contract (UCM Steps 11–12)
 - `../system/register/canvas_registry_spec.md`
+- `../../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md` — core/host split for node fields (§ below)
 - `../../TERMINOLOGY.md` — `Viewer`, `ViewerRegistry`, `TileRenderMode`, `AddressKind`
 
 ---
@@ -22,9 +25,10 @@ This spec defines the canonical contracts for:
 2. **Viewer trait** — the shared interface all viewer backends must satisfy.
 3. **ViewerRegistry selection policy** — how the correct viewer is resolved for a node.
 4. **MIME detection pipeline** — the ordered detection strategy for unknown content types.
-5. **Non-web viewer types** — PlaintextViewer, ImageViewer, PdfViewer, DirectoryViewer, AudioViewer.
+5. **Non-web viewer types** — PlaintextViewer, ImageViewer, PdfViewer, DirectoryViewer, AudioViewer, TextEditorViewer.
 6. **Feature flags** — optional viewer capabilities and their activation model.
 7. **Security and sandboxing** — file permissions and network isolation for non-Servo viewers.
+8. **Core/host split** — which types belong in `graphshell-core` vs. the desktop host.
 
 ---
 
@@ -61,6 +65,8 @@ AddressKind =
 `AddressKind` is the primary dispatch axis for viewer selection (§4, Step 1). It is resolved at node creation time from the address string and does not change unless the node's address changes.
 
 **Invariant**: `AddressKind` must be set for every node that has an address. A node with `address = None` has `address_kind = Unknown`.
+
+**Long-term migration note**: `AddressKind` is the current runtime hint used for viewer dispatch. The `graphshell-core` extraction plan (`2026-03-08_graphshell_core_extraction_plan.md §2.2`) introduces a typed `Address` enum (`Http(Url)`, `File(PathBuf)`, `Onion`, `Ipfs(Cid)`, `Gemini`, `Custom`) as the long-term cross-platform address type. Migration to the typed enum is a separate schema change; `AddressKind` is authoritative until that plan reaches implementation.
 
 ---
 
@@ -120,9 +126,10 @@ The `ViewerRegistry` resolves which `Viewer` backend handles a given node. Selec
 |------|-----------|--------|
 | 1 | `address_kind == Http` or `address_kind == Data` | Select `ServoViewer` |
 | 2 | `address_kind == GraphshellClip` | Select `ClipViewer` (renders the legacy clip-address family; exact canonical namespace remains pending clip-authority resolution) |
-| 3 | `mime_hint` is set and a registered viewer claims it | Select that viewer |
-| 4 | MIME detection pipeline (§5) produces a MIME type with a registered viewer | Select that viewer |
-| 5 | No viewer matched | Select `FallbackViewer` (placeholder surface) |
+| 3 | `mime_hint` is in the `text/*` family **and** node is opened with edit intent | Select `TextEditorViewer` (see §4.2) |
+| 4 | `mime_hint` is set and a registered viewer claims it | Select that viewer |
+| 5 | MIME detection pipeline (§5) produces a MIME type with a registered viewer | Select that viewer |
+| 6 | No viewer matched | Select `FallbackViewer` (placeholder surface) |
 
 **Invariant**: The selection result is stored on `NodePaneState.tile_render_mode` at attachment time. The registry does not re-run selection per frame.
 
@@ -130,9 +137,21 @@ The `ViewerRegistry` resolves which `Viewer` backend handles a given node. Selec
 
 ### 4.1 Viewer Priority Override
 
-A node may carry a `viewer_override: Option<ViewerId>` field to force a specific viewer regardless of address or MIME type. This is user-set and takes precedence over all five steps.
+A node may carry a `viewer_override: Option<ViewerId>` field to force a specific viewer regardless of address or MIME type. This is user-set and takes precedence over all six steps.
 
-**Invariant**: `viewer_override` is stored in graph data, not in registry state. The registry reads it before executing the five-step policy.
+**Invariant**: `viewer_override` is stored in graph data, not in registry state. The registry reads it before executing the six-step policy.
+
+### 4.2 Edit-Intent Open Policy
+
+**Edit intent** is defined as one of:
+
+- The node was created as a new local text file (address `File`, `mime_hint` in `text/*`) with no prior content.
+- The user explicitly invoked an edit action (`action:node.edit`, available in the command palette and node context menu) on a node whose active viewer is `PlaintextViewer` or `FallbackViewer`.
+- `viewer_override` is explicitly set to `viewer:text-editor` by the user.
+
+Read-intent open (the default for all other cases, including clicking a link to a local text file from the `DirectoryViewer`) selects `PlaintextViewer`. Edit intent is never inferred automatically from MIME type alone; it requires an explicit user gesture or node-creation-as-new-file context.
+
+**Invariant**: `TextEditorViewer` is only selected at node-open time via edit intent. The registry does not switch from `PlaintextViewer` to `TextEditorViewer` mid-session without a new explicit edit-intent open. See `2026-03-08_servo_text_editor_architecture_plan.md §9` for the full selection and fallback chain.
 
 ---
 
@@ -143,9 +162,11 @@ When `mime_hint` is `None` and no registered viewer claims the address kind dire
 | Stage | Method | When used |
 |-------|--------|-----------|
 | 1 | HTTP `Content-Type` header | `address_kind == Http`; available after first response |
-| 2 | Magic byte inspection | `address_kind == File` or `Data`; read first 512 bytes |
-| 3 | File extension | `address_kind == File`; path extension lookup |
+| 2 | File extension lookup (`mime_guess`) | `address_kind == File`; cheap, synchronous; runs first |
+| 3 | Magic byte inspection (`infer`, first 512 bytes) | `address_kind == File` or `Data`; only when extension is absent or ambiguous |
 | 4 | None | Detection failed; selection falls through to Step 5 of §4 |
+
+Rationale for extension-before-magic order: extension lookup is synchronous and covers the vast majority of correctly-named files without I/O. Magic byte inspection is an async fallback for extension-missing or extension-ambiguous cases only. This minimizes I/O task pool pressure for normal use.
 
 **Invariant**: Detection is performed once and the result is written back to the node's `mime_hint` field via a `SetMimeHint` graph intent. The detection pipeline must not re-run on every frame.
 
@@ -159,19 +180,22 @@ The following viewer backends are defined for non-HTTP content. Each is an `Embe
 
 | Viewer | MIME types handled | Feature flag | Notes |
 |--------|--------------------|--------------|-------|
-| `PlaintextViewer` | `text/plain`, `text/markdown`, `text/csv` | none (always on) | Syntax highlighting via `syntect`; renders as scrollable egui widget |
+| `PlaintextViewer` | `text/plain`, `text/markdown`, `text/csv`, `text/*` | none (always on) | Read-only display. Syntax highlighting via `syntect` with `fancy-regex` feature (WASM-portable). See §6.1. |
+| `TextEditorViewer` | `text/*`, selected code/doc formats | none (always on) | Edit-intent open only (see §4.2). Servo surface + `editor-core` Rust crate. See `2026-03-08_servo_text_editor_architecture_plan.md`. |
 | `ImageViewer` | `image/*` (PNG, JPEG, GIF, SVG, WebP) | none (always on) | SVG via `resvg`; animated GIF via frame sequence |
 | `PdfViewer` | `application/pdf` | `pdf` | Uses `pdfium-render`; disabled if feature flag off → falls back to FallbackViewer |
-| `DirectoryViewer` | `AddressKind::Directory` | none (always on) | File browser widget; emits `NavigateTo` intent on file selection |
+| `DirectoryViewer` | `AddressKind::Directory` | none (always on) | Browse-in-place file listing; emits `NavigateTo` on file click, `CreateNode` on drag-to-graph |
 | `AudioViewer` | `audio/*` (MP3, OGG, FLAC, WAV) | `audio` | Uses `symphonia` + `rodio`; minimal transport controls; disabled if feature flag off |
-| `ClipViewer` | `AddressKind::GraphshellClip` | none (always on) | Renders clipped content stored in the clip-address family defined by the clipping spec; legacy docs use `graphshell://clip/`, but canonical clip authority is still pending |
+| `ClipViewer` | `AddressKind::GraphshellClip` | none (always on) | Renders clipped content stored in the clip-address family defined by the clipping spec; canonical clip namespace pending resolution |
 | `FallbackViewer` | anything unmatched | n/a | Placeholder surface; shows address, detected MIME, and "No viewer available" message |
 
 **Invariant**: All non-web viewers use `TileRenderMode::EmbeddedEgui`. No non-web viewer may use `NativeOverlay` or `CompositedTexture`.
 
 ### 6.1 PlaintextViewer
 
+- Read-only display. `TextEditorViewer` takes priority for edit-intent opens of the same MIME types (§4.2).
 - Markdown is rendered with `pulldown-cmark`; links in markdown emit `NavigateTo` on click.
+- Syntax highlighting uses `syntect` with `default-features = false, features = ["default-fancy"]` — the `fancy-regex` pure-Rust backend is required for WASM portability (the default oniguruma backend is not WASM-safe). `tree-sitter` is used in `editor-core` for incremental highlight in edit mode; `syntect` is the read-only display path only.
 - Syntax highlighting language is inferred from file extension or explicit `mime_hint` subtype.
 - Large files (> 1 MB) are rendered in virtual scroll mode; only visible lines are laid out.
 
@@ -208,13 +232,67 @@ Optional viewer capabilities are gated by Cargo feature flags.
 
 ### 8.1 FilePermissionGuard
 
-All non-web viewer access to the local filesystem goes through `FilePermissionGuard`.
+All non-web viewer access to the local filesystem goes through `FilePermissionGuard`. This section is the canonical specification; UCM Step 9 (`2026-02-24_universal_content_model_plan.md`) and the filesystem ingest plan (`2026-03-02_filesystem_ingest_graph_mapping_plan.md`) both defer to this section.
 
-- `FilePermissionGuard` checks the node's address against the workspace's permitted path set.
-- Access outside the permitted path set is denied; the viewer falls back to `FallbackViewer` with an explicit "Access denied" message.
-- The permitted path set is configured per-workspace in `AppPreferences`.
+#### What constitutes the "home directory"
 
-**Invariant**: No viewer backend may call filesystem APIs directly. All file access goes through `FilePermissionGuard`.
+The home directory boundary is defined as:
+
+- **Linux/macOS**: the value of the `HOME` environment variable, resolved to an absolute path. If `HOME` is unset, fall back to the `passwd` entry for the current UID. If both are unavailable, no path is auto-allowed.
+- **Windows**: the value of `USERPROFILE` environment variable resolved to an absolute path. If unset, fall back to `FOLDERID_Profile` via the Windows Shell API. If unavailable, no path is auto-allowed.
+- The home directory boundary is evaluated at `FilePermissionGuard` construction time and cached. It is not re-evaluated per request.
+- Symlinks in the home path are resolved to their canonical target before comparison. A file whose resolved path is inside the resolved home directory is considered home-relative regardless of how it was addressed.
+
+#### Allow-list structure in `AppPreferences`
+
+```rust
+// In AppPreferences (host crate)
+pub struct FileAccessPolicy {
+    /// Paths explicitly allowed by the user (persisted per workspace).
+    /// Each entry is a canonicalized absolute directory path.
+    pub allowed_directories: Vec<PathBuf>,
+    /// If true, the home directory is auto-allowed without a prompt.
+    /// Default: true.
+    pub home_directory_auto_allow: bool,
+    /// If Some(Deny), all file access outside the allow-list is silently denied.
+    /// If None (default), out-of-scope access triggers a prompt.
+    pub out_of_scope_policy: Option<OutOfScopePolicy>,
+}
+
+pub enum OutOfScopePolicy {
+    Deny,
+    // (future: Allow, for trusted workspaces)
+}
+```
+
+`allowed_directories` contains **directory** paths, not file paths. A file is permitted if any allowed directory is a prefix of the file's canonicalized path. Prefix matching is done on path components, not string prefixes (to avoid `/home/user` matching `/home/username`).
+
+`FileAccessPolicy` is stored in `AppPreferences` and persisted in the WAL as a `UpdatePreferences` log entry. It survives app restarts.
+
+#### Prompt UX
+
+When a `file://` address is outside the home directory and the allow-list, and `out_of_scope_policy` is `None` (default), `FilePermissionGuard` triggers a one-time permission prompt:
+
+- The prompt is modal and blocks the viewer from loading until resolved.
+- Prompt text: **"Allow access to \<directory\>?"** — showing the parent directory of the requested file, not the full path.
+- Options: **Allow this directory** (adds to `allowed_directories`), **Deny** (denies this request; does not persist), **Always deny** (sets `out_of_scope_policy = Deny`).
+- The prompt is shown once per unique directory per workspace session. If the user selects "Allow this directory", subsequent accesses to the same directory within the session (and across restarts) are auto-allowed.
+- The prompt is emitted as a `GraphSemanticEvent::RequestFilePermission` from `FilePermissionGuard`; the host UI layer renders it. `FilePermissionGuard` does not render UI directly.
+
+#### Denial propagation
+
+When access is denied (either by `out_of_scope_policy = Deny` or user selecting "Deny"):
+
+- The requesting viewer receives `Err(FilePermissionDenied)` from `FilePermissionGuard::check()`.
+- The viewer falls back to `FallbackViewer` with message: **"Access denied — \<address\>"**. It does not show partial content or a loading state.
+- The denial is emitted as a diagnostic event on the `viewer.permission.denied` channel (severity: `Warn`).
+- Denied addresses are not cached or persisted (each new viewer attachment re-runs the check).
+
+**Invariant**: No viewer backend may call filesystem APIs directly. All file access goes through `FilePermissionGuard::check()` before any read is attempted.
+
+**Invariant**: `FilePermissionGuard` is a host-only type. It must not appear in `graphshell-core`. Its construction requires access to `AppPreferences` and the host filesystem for path canonicalization.
+
+**Hard prerequisite**: `FilePermissionGuard` must reach its done gate (UCM Step 9) before the filesystem ingest feature (Phase 1) can close. See `2026-03-02_filesystem_ingest_graph_mapping_plan.md §Feature Gate`.
 
 ### 8.2 No-Network Invariant for Non-Servo Viewers
 
@@ -230,7 +308,25 @@ Third-party viewers loaded via the Mods subsystem (WASM tier) are sandboxed by t
 
 ---
 
-## 9. Acceptance Criteria
+## 9. Core/Host Split
+
+The `graphshell-core` extraction plan (`2026-03-08_graphshell_core_extraction_plan.md`) requires that types shared across all deployment targets (desktop, mobile, WASM, browser extension) live in a WASM-clean core crate. This has direct implications for the UCM:
+
+| Type | Layer | Rationale |
+| --- | --- | --- |
+| `mime_hint: Option<String>` | **Core** — lives on `Node` in graph domain state | Must be identical across platforms for sync correctness |
+| `AddressKind` enum | **Core** — graph data field | Dispatch hint must be cross-platform |
+| `address_kind: AddressKind` field | **Core** | Same as above |
+| `viewer_override: Option<ViewerId>` | **Core** | User preference stored in WAL; must survive sync |
+| `Viewer` trait | **Host only** — references `egui::Ui`, `AppPreferences` | egui is a desktop dep; WASM builds have no viewer runtime |
+| `ViewerRegistry` | **Host only** | Registry manages live viewer instances; desktop-only |
+| `FilePermissionGuard` | **Host only** | Filesystem access is a host capability |
+| `PlaintextViewer`, `ImageViewer`, etc. | **Host only** | egui widget code; desktop-only |
+| `TextEditorViewer` / `editor-core` | `editor-core` = **WASM-clean**; surface module = **Host only** | See text editor plan §3 |
+
+The `Viewer` trait and all viewer implementations stay in the host crate. Only the node data fields (`mime_hint`, `address_kind`, `viewer_override`) migrate to core.
+
+## 10. Acceptance Criteria
 
 | Criterion | Verification |
 |-----------|-------------|

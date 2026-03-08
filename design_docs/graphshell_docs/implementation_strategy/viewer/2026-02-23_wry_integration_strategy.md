@@ -80,32 +80,21 @@ node-level defaults/overrides to `viewer:wry`.
 
 ## Viewer Trait Contract Extension
 
-The existing `Viewer` trait in `ViewerRegistry` needs a second rendering path for overlay backends.
-Extend it with one additional method:
+**Canonical trait definition**: `universal_content_model_spec.md §3`. The trait sketched in this
+plan's original draft is superseded by the spec. Key changes from the draft:
 
-```rust
-pub trait Viewer {
-    /// Render content into an egui Ui region (texture mode).
-    /// Returns true if the viewer handled rendering, false if it requires overlay mode.
-    fn render_embedded(&mut self, ui: &mut egui::Ui, node: &Node) -> bool;
+- `render_embedded` has no return value and no `node: &Node` parameter. Node state is received
+  at `on_attach` time; per-frame rendering works from cached state only.
+- `sync_overlay` signature is `fn sync_overlay(&self, overlay_ctx: &mut OverlayContext)` —
+  not `(rect, visible)` directly; rect and visibility are in `OverlayContext`.
+- Lifecycle hooks `on_attach`, `on_detach`, `on_navigate` are required methods.
 
-    /// Synchronize overlay position and visibility (overlay mode).
-    /// Called by TileCompositor after layout is computed for overlay-backed tiles.
-    /// `rect` is in physical screen coordinates. `visible` is false when the tile is
-    /// occluded, minimized, or in a tab that is not the active tab.
-    fn sync_overlay(&mut self, rect: egui::Rect, visible: bool);
+`ServoViewer` implements `render_embedded` (renders into the tile rect), `sync_overlay` is a
+no-op, and `is_overlay_mode` returns false.
 
-    /// Returns true if this viewer requires overlay mode (cannot render embedded).
-    fn is_overlay_mode(&self) -> bool { false }
-}
-```
-
-`ServoViewer` implements `render_embedded` (returns true), `sync_overlay` is a no-op, and
-`is_overlay_mode` returns false.
-
-`WryViewer` implements `render_embedded` returning false (or rendering the thumbnail fallback),
-`sync_overlay` calling `wry::WebView::set_bounds()` and `set_visible()`, and `is_overlay_mode`
-returning true.
+`WryViewer` implements `render_embedded` (renders thumbnail fallback or placeholder),
+`sync_overlay` calling `wry::WebView::set_bounds()` and `set_visible()` via `OverlayContext`,
+and `is_overlay_mode` returning true.
 
 ---
 

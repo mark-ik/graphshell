@@ -160,7 +160,7 @@ This section maps the servoshell-inherited code that the Surface Composition Con
 | `make_current` / `prepare_for_rendering` / `paint` / `present` sequence | `tile_compositor.rs` lines 142–161 | **Reuse** inside `CompositorAdapter` | The sequence is correct Servo API usage; adapter wraps it with state isolation |
 | Focus ring as hard-coded fade-in stroke at `Order::Middle` | `tile_compositor.rs` lines 185–196 | **Replace** with overlay affordance policy | Ring rendering becomes render-mode-aware |
 | Monolithic `composite_active_node_pane_webviews` function | `tile_compositor.rs` | **Decompose** into pass-model dispatch | Function remains as top-level orchestrator but delegates to per-mode composition paths |
-| Fork-shaped host/UI/frame orchestration | `gui.rs`, `gui_frame.rs`, `window.rs`, `running_app_state.rs` | **Continue `lane:embedder-debt` decomposition** | Embedder decomposition plan (Stage 4) already targets this; Surface Composition Contract is complementary, not overlapping |
+| Fork-shaped host/UI/frame orchestration | `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `shell/desktop/host/window.rs`, `shell/desktop/host/running_app_state.rs` | **Continue `lane:embedder-debt` decomposition** | Embedder decomposition plan (Stage 4) already targets this; Surface Composition Contract is complementary, not overlapping |
 | Servoshell-era naming/comments in composition paths | `tile_compositor.rs` comments referencing servoshell patterns | **Retire** | Replace with Graphshell-canonical terminology as composition paths are touched |
 
 ### 0.5 Relationship to Existing Plans and Lanes
@@ -496,7 +496,7 @@ This section is the canonical sequencing reference for conflict-aware execution 
 
 ### Lane sequencing rules
 
-- Use one active mergeable PR per lane for hotspot files (`app.rs`, `render/mod.rs`, workbench/gui integration paths).
+- Use one active mergeable PR per lane for hotspot files (`graph_app.rs`, `render/mod.rs`, workbench/gui integration paths).
 - Use stacked PRs for dependent issue chains; merge bottom → top.
 - Avoid cross-lane overlap on the same hotspot files within the same merge window.
 - Treat this section as **active control-plane state**; treat detailed ticket stubs below as reference material.
@@ -516,7 +516,7 @@ Snapshot note (2026-02-26 queue execution audit + tracker reconciliation):
 1. **lane:stabilization (ad hoc bugfix lane, active if user-reported regressions exist)**
   - Zoom-to-fit / unresponsive controls investigation (create/label issue before code work if no tracker exists)
   - Hub: `#88` (Controls/camera/focus correctness stabilization tracker)
-  - Hotspots likely: `render/mod.rs`, `app.rs`, `gui.rs`, input/camera command paths
+  - Hotspots likely: `render/mod.rs`, `graph_app.rs`, `shell/desktop/ui/gui.rs`, input/camera command paths
   - Rule: run as a single focused PR, do not overlap with quick refactors in the same hotspots
 2. **lane:roadmap (docs/planning, merge-safe default lane)**
   - Queue reconciled (2026-02-26): `#11`, `#12`, `#13`, `#14`, `#18` closed as completed adoption/planning slices.
@@ -565,10 +565,10 @@ Track active regressions here before they get folded into broader refactors. The
 
 | Bug / Gap | Symptom | Likely Hotspots | Notes / Architectural Context | Done Gate |
 | --- | --- | --- | --- | --- |
-| Graph canvas camera controls fail globally *(closed 2026-03-05)* | `pan drag`, `wheel zoom`, `zoom in/out/reset`, and `zoom-to-fit` failed in the default graph pane (not just multi-pane) | `render/mod.rs`, `app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs` | Closed with canonical postmortem evidence: `archive_docs/checkpoint_2026-03-05/2026-03-05_camera_navigation_fix_postmortem.md` (dead metadata slot + per-frame fit override root causes, final fix, verification). | Closed: default graph pane supports pan + wheel zoom + zoom commands again; closure evidence includes targeted camera-lock tests and postmortem verification. |
+| Graph canvas camera controls fail globally *(closed 2026-03-05)* | `pan drag`, `wheel zoom`, `zoom in/out/reset`, and `zoom-to-fit` failed in the default graph pane (not just multi-pane) | `render/mod.rs`, `graph_app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs` | Closed with canonical postmortem evidence: `archive_docs/checkpoint_2026-03-05/2026-03-05_camera_navigation_fix_postmortem.md` (dead metadata slot + per-frame fit override root causes, final fix, verification). | Closed: default graph pane supports pan + wheel zoom + zoom commands again; closure evidence includes targeted camera-lock tests and postmortem verification. |
 | Lasso metadata ID mismatch after multi-view | Selection/lasso behavior breaks or targets wrong graph metadata in multi-pane scenarios | `render/mod.rs` | Known hardcoded `egui_graphs_metadata_` path needs per-view metadata keying. | Lasso works across split graph panes; test covers second pane / non-default `GraphViewId`. |
 | Tab/pane spawn focus activation race (blank viewport) | Newly opened tab/pane sometimes spawns visually blank until extra clicks/tab switches; graph pane can remain unfocused after pane deletion | `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `shell/desktop/workbench/*`, `shell/desktop/lifecycle/webview_controller.rs` | Looks like focus ownership + render activation ordering debt (likely overlaps `lane:embedder-debt` servoshell-era host/frame assumptions). | New focused panes render on first activation consistently; pane-deletion focus handoff is deterministic and renders immediately. |
-| Selection deselect click-away inconsistency | Node selection works, but clicking background to deselect is "funky" and may hide state-transition edge cases | `render/mod.rs`, `input/mod.rs`, selection state in `app.rs` | Deterministic plain-click deselect guard landed in `936073e`; keep monitoring for pane-focus interaction edge cases. | Deselect-on-background-click behavior is deterministic and covered by targeted selection tests. |
+| Selection deselect click-away inconsistency | Node selection works, but clicking background to deselect is "funky" and may hide state-transition edge cases | `render/mod.rs`, `input/mod.rs`, selection state in `graph_app.rs` | Deterministic plain-click deselect guard landed in `936073e`; keep monitoring for pane-focus interaction edge cases. | Deselect-on-background-click behavior is deterministic and covered by targeted selection tests. |
 | Lasso boundary miss at selection edge | Lasso sometimes misses nodes at the edge of the box despite user expectation that center-in-box should count | `render/mod.rs`, `render/spatial_index.rs` | Correctness issue first; live lasso preview UX should be tracked separately under `lane:control-ui-settings`. | Lasso inclusion semantics are documented (center-inclusive minimum) and covered by edge-boundary tests. |
 | Tile rearrange focus indicator hidden under document view | Blue focus ring does not render over document/web content while rearranging tile | `shell/desktop/workbench/tile_compositor.rs`, new `compositor_adapter.rs` | **Root cause identified in §0.3**: focus ring and web content both paint at `egui::Order::Middle` without guaranteed ordering; `render_to_parent` GL callback requires explicit post-content overlay sequencing and state restoration. Recent hardening (`b6b931b`) made pass-order violations render-mode-aware (composited-only), added native-overlay chrome diagnostics regressions, and fixed framebuffer binding restoration to use captured state. | Servo focus affordance visible during tile rearrange (Pass 3 over Pass 2 for `CompositedTexture` mode); Wry path has explicit chrome-region affordance and documented limitation; `CompositorAdapter` GL state isolation test passes; diagnostics prove pass ordering in compositor frame samples. |
 | Legacy web content context menu / new-tab path bypasses node semantics | Right-click or ctrl-click link in webpage can use short legacy menu/path and may open tile/tab without creating mapped graph node | `shell/desktop/ui/gui.rs`, `shell/desktop/host/*`, `shell/desktop/lifecycle/webview_controller.rs`, `shell/desktop/workbench/tile_runtime.rs` | Graphshell command/pane semantics are bypassed by legacy webview path; cross-lane with `lane:embedder-debt` + `lane:control-ui-settings`. | Web content open-in-new-view flows route through Graphshell node/pane semantics or are explicitly bridged/deferred with limitations documented. |
@@ -603,10 +603,10 @@ Issue-ready intake stubs from the latest user report:
 
 - `lane:embedder-debt` (servoshell inheritance retirement)
   - Hub: `#90` (Servoshell inheritance retirement tracker)
-  - Scope: `gui.rs`/`gui_frame.rs` decomposition, `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
+  - Scope: `shell/desktop/ui/gui.rs`/`gui_frame.rs` decomposition ✅ largely complete; next targets are `graph_app.rs` (14.7k lines) and `render/mod.rs` (5.6k lines); `RunningAppState` coupling reduction, host/UI boundary cleanup, misleading servoshell-era naming/comments removal
   - Important child slice: composited webview callback pass contract + GL state isolation (`tile_compositor.rs`) to fix Servo-path overlay affordance failures that are not Wry/native-overlay limitations
   - Primary guide: `design_docs/graphshell_docs/implementation_strategy/aspect_render/2026-02-20_embedder_decomposition_plan.md`
-  - Coordinator policy: treat `gui.rs` / `gui_frame.rs` / `gui_orchestration.rs` as orchestration façades with explicit authority boundaries; enforce via `CONTRIBUTING.md` coordinator checklist when these files are touched
+  - Coordinator policy: treat `shell/desktop/ui/gui.rs` / `shell/desktop/ui/gui_frame.rs` / `shell/desktop/ui/gui_orchestration.rs` as orchestration façades with explicit authority boundaries; enforce via `CONTRIBUTING.md` coordinator checklist when these files are touched
   - Rule: pair mechanical moves with invariants/tests; avoid mixing with feature work in the same PR
 
 ### Incubation Lanes (Parallel / Non-blocking)
@@ -685,10 +685,10 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 
 | Lane | Scope | Status | Primary Docs / Hotspots | Notes |
 | --- | --- | --- | --- | --- |
-| `lane:stabilization` (`#88`) | User-visible regressions, control responsiveness, focus affordances, camera/lasso correctness | Active when regressions exist | `render/mod.rs`, `app.rs`, `gui.rs`, `input/mod.rs`, `tile_compositor.rs` | Preempts other lanes while an active repro exists. |
+| `lane:stabilization` (`#88`) | User-visible regressions, control responsiveness, focus affordances, camera/lasso correctness | Active when regressions exist | `render/mod.rs`, `graph_app.rs`, `shell/desktop/ui/gui.rs`, `input/mod.rs`, `tile_compositor.rs` | Preempts other lanes while an active repro exists. |
 | `lane:roadmap` | Merge-safe docs/planning follow-on: `#19` (`TwoD↔ThreeD` `ViewDimension` hotswitch, blocked) plus pre-wgpu spec conflict closure slices | Active merge-safe default (docs-only execution) | `PLANNING_REGISTER.md`, `2026-03-03_spec_conflict_resolution_register.md`, `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md` | Use this lane for merge-safe canonical doc work, including P1–P4 spec conflict closure, without touching runtime hotspots. |
 | `lane:control-ui-settings` (`#89`) | Command surfaces + settings IA/surface execution | Active planning / queued (high priority) | `2026-02-24_control_ui_ux_plan.md`, `2026-02-20_settings_architecture_plan.md`, `render/command_palette.rs` | User report now provides concrete issue-ready slices (palette/context unification, theme toggle, omnibar/radial polish). |
-| `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority, active child slices) | `aspect_render/aspect_render/2026-02-20_embedder_decomposition_plan.md`, `gui.rs`, `gui_frame.rs`, `host/*` | Includes compositor callback pass contract and legacy webview context-menu/new-tab path retirement/bridging. |
+| `lane:embedder-debt` (`#90`) | Servoshell inheritance retirement / host-UI decomposition | Prospective (high priority, active child slices) | `aspect_render/aspect_render/2026-02-20_embedder_decomposition_plan.md`, `shell/desktop/ui/gui.rs`, `shell/desktop/ui/gui_frame.rs`, `host/*` | Includes compositor callback pass contract and legacy webview context-menu/new-tab path retirement/bridging. |
 | `lane:runtime-followon` (`#91`) | SR2/SR3 signal routing contract/fabric + observability | Prospective (ticket first) | `SYSTEM_REGISTER.md`, `TERMINOLOGY.md` | Requires fresh child issues; do not reuse queue-cleanup issues. |
 
 ### B. Core Platform / Architecture Completion Lanes
@@ -699,7 +699,7 @@ This is the complete lane catalog for near/mid-term planning. `§1C` is the prio
 | `lane:diagnostics` (`#94`) | AnalyzerRegistry, in-pane TestHarness, invariant/health surfacing | Prospective | `SUBSYSTEM_DIAGNOSTICS.md`, diagnostics runtime/pane code | Leverage multiplier for all other lanes. |
 | `lane:subsystem-hardening` (`#96`) | Storage/history/security closure slices | Prospective | `SUBSYSTEM_STORAGE.md`, `SUBSYSTEM_HISTORY.md`, `SUBSYSTEM_SECURITY.md` | Can be split into sublanes once issue volume grows. |
 | `lane:test-infra` (`#97`) | T1/T2 scaling, `test-utils`, scenario binary, CI split | Prospective | `2026-02-26_test_infrastructure_improvement_plan.md`, `mod_loader.rs`, `Cargo.toml` | Prefer infra-only PRs to reduce merge risk. |
-| `lane:accessibility` (`#95`) | WebView bridge closure + Graph Reader + inspector + focus/nav contracts | Prospective | `SUBSYSTEM_ACCESSIBILITY.md`, `tile_behavior.rs`, `gui.rs` | Includes placeholder inspector replacement. |
+| `lane:accessibility` (`#95`) | WebView bridge closure + Graph Reader + inspector + focus/nav contracts | Prospective | `SUBSYSTEM_ACCESSIBILITY.md`, `tile_behavior.rs`, `shell/desktop/ui/gui.rs` | Includes placeholder inspector replacement. |
 
 ### C. UX / Interaction / Graph Capability Lanes
 

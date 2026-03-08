@@ -203,7 +203,7 @@ Forty-seven `servoshell` / `ServoShell` references remain across the codebase:
 | `running_app_state.rs` | 4 | Includes `ServoShellServoDelegate` struct name and documented preference comment. Highest-impact rename target (developer-facing). |
 | `headed_window.rs` | 3 | "servoshell key bindings" comments. Easy doc-only fix. |
 | `prefs.rs` | 3 | Preference loading comments. |
-| `gui.rs` | 2 | Doc comments referencing servoshell composition model. |
+| `shell/desktop/ui/gui.rs` | 2 | Doc comments referencing servoshell composition model. |
 | Others | 9 | Scattered across `event_loop.rs`, `window.rs`, `webxr.rs`, `shell/desktop/mod.rs`. |
 
 **Risk**: The `tracing.rs` references are the only *functional* debt — everything else is cosmetic. The tracing rename needs a migration path (accept both `servoshell::` and `graphshell::` filter prefix temporarily).
@@ -229,7 +229,7 @@ The `render_to_parent` → `PaintCallback` → `CallbackFn` pipeline in `tile_co
 
 | File | Lines | Issue |
 | --- | --- | --- |
-| `gui.rs` | 1845 | Still the primary decomposition target (Stage 4b). Mixes frame orchestration, state ownership, and render delegation. |
+| `shell/desktop/ui/gui.rs` | 681 | Decomposition complete (Stage 4b/4e). Focused on `Gui` struct/lifecycle entrypoints and owner-scoped adapters. |
 | `registries/mod.rs` | 1802 | Registry composition root. Size is partially justified by breadth of concerns. |
 | `diagnostics.rs` | 1649 | Channel schema + inspector pane rendering. Should split schema from pane. |
 | `headed_window.rs` | 1481 | Servo window host. Contains servoshell key binding comments. |
@@ -241,17 +241,17 @@ The `render_to_parent` → `PaintCallback` → `CallbackFn` pipeline in `tile_co
 | `window.rs` | 719 | Embedder window. |
 | `dialog.rs` | 695 | Dialog system. |
 
-The embedder decomposition plan (Stage 4b) targets `gui.rs` and `gui_frame.rs` specifically. The 600-line guideline from that plan is aspirational — current trajectory suggests ~800–1000 is more realistic for coordinator modules.
+The embedder decomposition plan (Stage 4b/4e) targeted `shell/desktop/ui/gui.rs` and `gui_frame.rs`. Both are now complete: `gui.rs` is 681 lines, `gui_frame.rs` is 426 lines with 9 submodules under `shell/desktop/ui/gui_frame/`.
 
 ### A.0.5 Frame Loop Debt (paint/present/make_current patterns) (approved)
 
 The `make_current` → `prepare_for_rendering` → `paint` → `present` sequence appears in:
 - `tile_compositor.rs` (compositor callback path)
-- `gui.rs` (4× `make_current` calls, paint/present orchestration)
+- `shell/desktop/ui/gui.rs` (paint/present orchestration)
 - `headed_window.rs` (window-level present)
 - `window.rs` (GL context management)
 
-This sequence is Servo-specific. When Wry is added, the frame loop must accommodate both "invoke GL callback + present" (Servo) and "sync overlay position" (Wry) paths without interleaving. The `TileRenderMode` dispatch in `tile_compositor.rs` is the correct branch point, but the `gui.rs` orchestration still assumes a single compositor pipeline.
+This sequence is Servo-specific. When Wry is added, the frame loop must accommodate both "invoke GL callback + present" (Servo) and "sync overlay position" (Wry) paths without interleaving. The `TileRenderMode` dispatch in `tile_compositor.rs` is the correct branch point, but the `shell/desktop/ui/gui.rs` orchestration still assumes a single compositor pipeline.
 
 ---
 

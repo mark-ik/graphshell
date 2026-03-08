@@ -141,6 +141,16 @@ encryption: AES-256-GCM (OS keychain key)
 
 These are not runtime-configurable but are documented for diagnostics and capability introspection.
 
+#### Why fjall for the WAL
+
+`fjall` was selected as the WAL journal backend for the following reasons:
+
+- **Append-only log semantics**: fjall is a log-structured storage engine with explicit keyspace isolation. It makes the three-domain separation (`mutations`, `traversal_archive`, `dissolved_archive`) a first-class storage concept, not an application-level convention.
+- **Failure guarantees**: fjall uses a crash-safe log-structured merge tree (LSM); partial writes are recoverable. This matches the WAL requirement that a sequence gap is detectable corruption, not a silent silent data loss.
+- **Pure Rust**: no C FFI, no system library dependency, no WASM concern (fjall is host-only by design — it links against the OS filesystem, which is appropriate for a desktop WAL backend).
+- **Upgrade story**: fjall exposes a versioned keyspace API. Schema migration is additive keyspace extension; old keyspaces remain readable during migration windows.
+- **WASM-clean boundary**: fjall stays entirely in the host crate (`graphshell-desktop` or equivalent). `graphshell-core` never imports fjall; the WAL log entry types are WASM-clean structs that the host serializes into fjall. This matches the core/host split in `../../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md §2.5`.
+
 ---
 
 ## 5. Diagnostics Integration
