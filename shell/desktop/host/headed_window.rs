@@ -1084,7 +1084,9 @@ impl HeadedWindow {
 
     pub(crate) fn handle_winit_app_event(&self, _window: &EmbedderWindow, app_event: AppEvent) {
         if let AppEvent::Accessibility(ref event) = app_event {
-            // TODO(#41930): Forward accesskit_winit::WindowEvent events to Servo where appropriate
+            // Deferred (Stage 4f audit, 2026-03-07): accesskit_winit::WindowEvent forwarding
+            // into Servo remains gated on upstream integration shape; keep handled at GUI layer
+            // until Servo-side routing contract is finalized (tracking: #41930).
 
             if self
                 .gui
@@ -1126,9 +1128,9 @@ impl PlatformWindow for HeadedWindow {
         let toolbar_size = Size2D::new(0.0, (self.toolbar_height() * self.hidpi_scale_factor()).0);
         let screen_size = self.screen_size.to_f32() * hidpi_factor;
 
-        // FIXME: In reality, this should subtract screen space used by the system interface
-        // elements, but it is difficult to get this value with `winit` currently. See:
-        // See https://github.com/rust-windowing/winit/issues/2494
+        // Deferred (Stage 4f audit, 2026-03-07): this currently subtracts toolbar-only space.
+        // Accurate subtraction of OS-reserved UI areas depends on winit capabilities tracked in
+        // https://github.com/rust-windowing/winit/issues/2494.
         let available_screen_size = screen_size - toolbar_size;
 
         let window_rect = DeviceIntRect::from_origin_and_size(
