@@ -80,6 +80,8 @@ mod accesskit_input;
 mod pane_queries;
 #[path = "gui/input_routing.rs"]
 mod input_routing;
+#[path = "gui/accesskit_events.rs"]
+mod accesskit_events;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -727,36 +729,7 @@ impl Gui {
         &mut self,
         event: &egui_winit::accesskit_winit::WindowEvent,
     ) -> bool {
-        Self::dispatch_accesskit_window_event(self, event)
-    }
-
-    fn dispatch_accesskit_window_event(
-        gui: &mut Self,
-        event: &egui_winit::accesskit_winit::WindowEvent,
-    ) -> bool {
-        match event {
-            egui_winit::accesskit_winit::WindowEvent::InitialTreeRequested => {
-                gui.handle_accesskit_initial_tree_requested()
-            }
-            egui_winit::accesskit_winit::WindowEvent::ActionRequested(req) => {
-                gui.handle_accesskit_action_requested(req)
-            }
-            egui_winit::accesskit_winit::WindowEvent::AccessibilityDeactivated => {
-                gui.handle_accesskit_deactivated()
-            }
-        }
-    }
-
-    fn handle_accesskit_initial_tree_requested(&mut self) -> bool {
-        accesskit_input::handle_accesskit_initial_tree_requested(self.context.egui_context())
-    }
-
-    fn handle_accesskit_action_requested(&mut self, req: &egui::accesskit::ActionRequest) -> bool {
-        accesskit_input::handle_accesskit_action_requested(self.context.egui_winit_state_mut(), req)
-    }
-
-    fn handle_accesskit_deactivated(&mut self) -> bool {
-        accesskit_input::handle_accesskit_deactivated(self.context.egui_context())
+        accesskit_events::handle_accesskit_event(self, event)
     }
 
     pub(crate) fn set_zoom_factor(&self, factor: f32) {
