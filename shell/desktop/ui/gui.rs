@@ -88,6 +88,8 @@ mod paint_pass;
 mod interaction_queries;
 #[path = "gui/window_input.rs"]
 mod window_input;
+#[path = "gui/tree_bootstrap.rs"]
+mod tree_bootstrap;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -487,7 +489,7 @@ impl Gui {
         self.rendering_context
             .make_current()
             .expect("Could not make RenderingContext current");
-        self.ensure_tiles_tree_root();
+        tree_bootstrap::ensure_tiles_tree_root(&mut self.tiles_tree);
         debug_assert!(
             self.tiles_tree.root().is_some(),
             "tile tree root must exist before rendering"
@@ -581,23 +583,6 @@ impl Gui {
         });
 
         GuiUpdateOutput
-    }
-
-    fn ensure_tiles_tree_root(&mut self) {
-        if self.tiles_tree.root().is_none() {
-            let graph_tile_id = Self::insert_default_graph_tile(&mut self.tiles_tree);
-            Self::set_tiles_tree_root(&mut self.tiles_tree, graph_tile_id);
-        }
-    }
-
-    fn insert_default_graph_tile(tiles_tree: &mut Tree<TileKind>) -> TileId {
-        tiles_tree
-            .tiles
-            .insert_pane(TileKind::Graph(GraphViewId::default()))
-    }
-
-    fn set_tiles_tree_root(tiles_tree: &mut Tree<TileKind>, root_tile_id: TileId) {
-        tiles_tree.root = Some(root_tile_id);
     }
 
     #[cfg(feature = "diagnostics")]
