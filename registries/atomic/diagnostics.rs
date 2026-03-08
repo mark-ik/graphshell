@@ -57,6 +57,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_VERSE_INIT_FAILED, CHANNEL_STARTUP_VERSE_INIT_MODE,
     CHANNEL_STARTUP_VERSE_INIT_SUCCEEDED, CHANNEL_SURFACE_CONFORMANCE_NONE,
     CHANNEL_SURFACE_CONFORMANCE_PARTIAL, CHANNEL_UI_CLIPBOARD_COPY_FAILED,
+    CHANNEL_RUNTIME_CACHE_EVICTION, CHANNEL_RUNTIME_CACHE_HIT, CHANNEL_RUNTIME_CACHE_INSERT,
+    CHANNEL_RUNTIME_CACHE_MISS,
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION, CHANNEL_UX_PROBE_DISABLED,
     CHANNEL_UX_PROBE_REGISTERED, CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
@@ -379,7 +381,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 9] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 94] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 98] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -569,6 +571,26 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 94] = [
         channel_id: CHANNEL_UI_CLIPBOARD_COPY_FAILED,
         schema_version: 1,
         severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_RUNTIME_CACHE_HIT,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_RUNTIME_CACHE_MISS,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_RUNTIME_CACHE_INSERT,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_RUNTIME_CACHE_EVICTION,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,

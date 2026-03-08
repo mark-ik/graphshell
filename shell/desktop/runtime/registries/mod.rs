@@ -152,6 +152,10 @@ pub(crate) const CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR: &str =
     "runtime.ui.graph.wheel_zoom_blocked_invalid_factor";
 pub(crate) const CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW: &str =
     "runtime.ui.graph.camera_command_blocked_missing_target_view";
+pub(crate) const CHANNEL_RUNTIME_CACHE_HIT: &str = "runtime.cache.hit";
+pub(crate) const CHANNEL_RUNTIME_CACHE_MISS: &str = "runtime.cache.miss";
+pub(crate) const CHANNEL_RUNTIME_CACHE_INSERT: &str = "runtime.cache.insert";
+pub(crate) const CHANNEL_RUNTIME_CACHE_EVICTION: &str = "runtime.cache.eviction";
 pub(crate) const CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_FIT_LOCK: &str =
     "runtime.ui.graph.keyboard_pan_blocked_fit_lock";
 pub(crate) const CHANNEL_UI_GRAPH_KEYBOARD_PAN_BLOCKED_INACTIVE_VIEW: &str =

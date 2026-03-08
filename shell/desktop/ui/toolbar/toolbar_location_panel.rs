@@ -247,7 +247,11 @@ pub(super) fn render_location_search_panel(
                 fetched_outcome = Some(outcome_from_cached_suggestions(provider, &cached_suggestions));
             } else {
                 session.provider_rx =
-                    Some(spawn_provider_suggestion_request(provider, &provider_query));
+                    Some(spawn_provider_suggestion_request(
+                        provider,
+                        &provider_query,
+                        graph_app.workspace.runtime_caches.clone(),
+                    ));
             }
         }
 

@@ -17,6 +17,11 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::graph::NodeKey;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_RUNTIME_CACHE_EVICTION, CHANNEL_RUNTIME_CACHE_HIT, CHANNEL_RUNTIME_CACHE_INSERT,
+    CHANNEL_RUNTIME_CACHE_MISS,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CacheKey {
@@ -62,6 +67,7 @@ impl Default for CachePolicy {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct RuntimeCaches {
     thumbnail_cache: Cache<NodeKey, Arc<Vec<u8>>>,
     metadata_cache: Cache<String, Arc<Value>>,
@@ -149,6 +155,10 @@ impl RuntimeCaches {
 
     pub(crate) fn insert_thumbnail(&self, key: NodeKey, bytes: Vec<u8>) {
         self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_RUNTIME_CACHE_INSERT,
+            byte_len: 1,
+        });
         self.thumbnail_cache.insert(key, Arc::new(bytes));
     }
 
@@ -160,6 +170,10 @@ impl RuntimeCaches {
 
     pub(crate) fn insert_parsed_metadata(&self, key: String, value: Value) {
         self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_RUNTIME_CACHE_INSERT,
+            byte_len: 1,
+        });
         self.metadata_cache.insert(key, Arc::new(value));
     }
 
@@ -171,6 +185,10 @@ impl RuntimeCaches {
 
     pub(crate) fn insert_suggestions(&self, key: String, suggestions: Vec<String>) {
         self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_RUNTIME_CACHE_INSERT,
+            byte_len: 1,
+        });
         self.suggestion_cache.insert(key, Arc::new(suggestions));
     }
 
@@ -182,6 +200,10 @@ impl RuntimeCaches {
 
     pub(crate) fn insert_snapshot_artifact(&self, key: String, bytes: Vec<u8>) {
         self.metrics.inserts.fetch_add(1, Ordering::Relaxed);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_RUNTIME_CACHE_INSERT,
+            byte_len: 1,
+        });
         self.snapshot_cache.insert(key, Arc::new(bytes));
     }
 
@@ -203,8 +225,16 @@ impl RuntimeCaches {
     fn record_get(&self, hit: bool) {
         if hit {
             self.metrics.hits.fetch_add(1, Ordering::Relaxed);
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_RUNTIME_CACHE_HIT,
+                byte_len: 1,
+            });
         } else {
             self.metrics.misses.fetch_add(1, Ordering::Relaxed);
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_RUNTIME_CACHE_MISS,
+                byte_len: 1,
+            });
         }
     }
 
@@ -230,6 +260,10 @@ where
 {
     move |key, _value, cause| {
         metrics.evictions.fetch_add(1, Ordering::Relaxed);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_RUNTIME_CACHE_EVICTION,
+            byte_len: 1,
+        });
         if let Some(tx) = &rewarm_tx {
             let _ = tx.send(RewarmHint {
                 kind,

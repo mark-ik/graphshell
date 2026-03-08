@@ -396,6 +396,8 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 6 integration slice landed for omnibar provider suggestions: provider query normalization + cache-keyed read-through/write-through path in `toolbar_location_panel.rs`, with focused helper tests.
 - Stage 6 measurability slice landed: runtime cache metrics snapshot (`hits`/`misses`/`inserts`/`evictions`) added and covered by focused cache-module tests.
 - Stage 6 thumbnail pipeline integration landed: capture path now performs URL-validated thumbnail cache short-circuit and writes through thumbnail + URL marker metadata on successful capture intents.
+- Stage 6 diagnostics slice landed: runtime cache operations now emit registered diagnostics channels (`runtime.cache.hit|miss|insert|eviction`) for live visibility in diagnostics aggregation.
+- Stage 6 parsed-metadata slice landed: provider suggestion JSON parse path now checks/writes `parsed_metadata` cache entries before/after network parse in `toolbar_omnibar.rs`.
 
 **2026-03-01 Revision:**
 - Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.

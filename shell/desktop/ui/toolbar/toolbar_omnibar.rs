@@ -77,11 +77,12 @@ pub(super) fn searchpage_template_for_provider(provider: SearchProviderKind) -> 
 pub(super) fn spawn_provider_suggestion_request(
     provider: SearchProviderKind,
     query: &str,
+    runtime_caches: crate::shell::desktop::runtime::caches::RuntimeCaches,
 ) -> Receiver<ProviderSuggestionFetchOutcome> {
     let (tx, rx) = crossbeam_channel::bounded(1);
     let query = query.to_string();
     thread::spawn(move || {
-        let outcome = match fetch_provider_search_suggestions(provider, &query) {
+        let outcome = match fetch_provider_search_suggestions(provider, &query, &runtime_caches) {
             Ok(suggestions) => ProviderSuggestionFetchOutcome {
                 matches: suggestions
                     .into_iter()
@@ -102,7 +103,15 @@ pub(super) fn spawn_provider_suggestion_request(
 fn fetch_provider_search_suggestions(
     provider: SearchProviderKind,
     query: &str,
+    runtime_caches: &crate::shell::desktop::runtime::caches::RuntimeCaches,
 ) -> Result<Vec<String>, ProviderSuggestionError> {
+    let parsed_cache_key = provider_parsed_metadata_cache_key(provider, query);
+    if let Some(cached_value) = runtime_caches.get_parsed_metadata(&parsed_cache_key)
+        && let Some(suggestions) = parse_provider_suggestion_value(cached_value.as_ref(), query)
+    {
+        return Ok(suggestions);
+    }
+
     let suggest_url = provider_suggest_url(provider, query);
     let body = match router::fetch_text(&suggest_url) {
         Ok(body) => body,
@@ -116,7 +125,18 @@ fn fetch_provider_search_suggestions(
         ) => return Err(ProviderSuggestionError::Network),
         Err(OutboundFetchError::Body) => return Err(ProviderSuggestionError::Parse),
     };
-    parse_provider_suggestion_body(&body, query).ok_or(ProviderSuggestionError::Parse)
+    let parsed_value = serde_json::from_str::<Value>(&body).map_err(|_| ProviderSuggestionError::Parse)?;
+    runtime_caches.insert_parsed_metadata(parsed_cache_key, parsed_value.clone());
+    parse_provider_suggestion_value(&parsed_value, query).ok_or(ProviderSuggestionError::Parse)
+}
+
+fn provider_parsed_metadata_cache_key(provider: SearchProviderKind, query: &str) -> String {
+    let provider_key = match provider {
+        SearchProviderKind::DuckDuckGo => "duckduckgo",
+        SearchProviderKind::Bing => "bing",
+        SearchProviderKind::Google => "google",
+    };
+    format!("provider:parsed_suggestions:{provider_key}:{}", query.trim())
 }
 
 fn provider_suggest_url(provider: SearchProviderKind, query: &str) -> String {
@@ -136,6 +156,10 @@ fn parse_provider_suggestion_body(body: &str, fallback_query: &str) -> Option<Ve
     let Ok(value) = serde_json::from_str::<Value>(body) else {
         return None;
     };
+    parse_provider_suggestion_value(&value, fallback_query)
+}
+
+fn parse_provider_suggestion_value(value: &Value, fallback_query: &str) -> Option<Vec<String>> {
     let mut suggestions = Vec::new();
 
     if let Some(items) = value.as_array() {
@@ -930,6 +954,26 @@ mod tests {
         assert_eq!(suggestions.first().map(String::as_str), Some("rust"));
         assert!(suggestions.iter().any(|s| s == "rust book"));
         assert!(suggestions.iter().any(|s| s == "rust language"));
+    }
+
+    #[test]
+    fn test_provider_parsed_metadata_cache_key_is_namespaced() {
+        assert_eq!(
+            provider_parsed_metadata_cache_key(SearchProviderKind::Google, "rust"),
+            "provider:parsed_suggestions:google:rust"
+        );
+    }
+
+    #[test]
+    fn test_parse_provider_suggestion_value_dedupes_and_keeps_fallback_first() {
+        let value = serde_json::json!(["rust", ["rust", "rust book", "rust book"], [], []]);
+        let suggestions = parse_provider_suggestion_value(&value, "rust")
+            .expect("parsed suggestion value should produce output");
+        assert_eq!(suggestions.first().map(String::as_str), Some("rust"));
+        assert_eq!(
+            suggestions.iter().filter(|entry| entry.as_str() == "rust book").count(),
+            1
+        );
     }
 
     #[test]
