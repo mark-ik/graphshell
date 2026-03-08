@@ -86,6 +86,8 @@ mod accesskit_events;
 mod paint_pass;
 #[path = "gui/interaction_queries.rs"]
 mod interaction_queries;
+#[path = "gui/window_input.rs"]
+mod window_input;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -378,27 +380,7 @@ impl Gui {
         winit_window: &Window,
         event: &WindowEvent,
     ) -> EventResponse {
-        let mut response = self.context.handle_window_event(winit_window, event);
-
-        // When no node-viewer tile is active, consume user input events so they
-        // never reach an inactive/hidden runtime viewer.
-        if !self.has_active_node_pane() {
-            match event {
-                WindowEvent::KeyboardInput { .. }
-                | WindowEvent::ModifiersChanged(_)
-                | WindowEvent::MouseInput { .. }
-                | WindowEvent::CursorMoved { .. }
-                | WindowEvent::CursorLeft { .. }
-                | WindowEvent::MouseWheel { .. }
-                | WindowEvent::Touch(_)
-                | WindowEvent::PinchGesture { .. } => {
-                    response.consumed = true;
-                }
-                _ => {}
-            }
-        }
-
-        response
+        window_input::on_window_event(self, winit_window, event)
     }
 
     /// The height of the top toolbar, i.e. distance from the top of the window
