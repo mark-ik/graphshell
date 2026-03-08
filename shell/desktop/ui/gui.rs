@@ -84,6 +84,8 @@ mod input_routing;
 mod accesskit_events;
 #[path = "gui/paint_pass.rs"]
 mod paint_pass;
+#[path = "gui/interaction_queries.rs"]
+mod interaction_queries;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -417,28 +419,20 @@ impl Gui {
     }
 
     pub(crate) fn focused_node_key(&self) -> Option<NodeKey> {
-        if self.runtime_state.graph_surface_focused {
-            return None;
-        }
-        tile_compositor::focused_node_key_for_node_panes(
-            &self.tiles_tree,
-            &self.graph_app,
-            self.runtime_state.focused_node_hint,
-        )
+        interaction_queries::focused_node_key(self)
     }
 
     pub(crate) fn has_focused_node(&self) -> bool {
-        self.focused_node_key().is_some()
+        interaction_queries::has_focused_node(self)
     }
 
     pub(crate) fn webview_id_for_node_key(&self, node_key: NodeKey) -> Option<WebViewId> {
-        self.graph_app.get_webview_for_node(node_key)
+        interaction_queries::webview_id_for_node_key(self, node_key)
     }
 
     #[allow(dead_code)]
     pub(crate) fn active_tile_webview_id(&self) -> Option<WebViewId> {
-        tile_compositor::focused_node_key_for_node_panes(&self.tiles_tree, &self.graph_app, None)
-            .and_then(|node_key| self.graph_app.get_webview_for_node(node_key))
+        interaction_queries::active_tile_webview_id(self)
     }
 
     pub(crate) fn set_focused_node_key(&mut self, node_key: Option<NodeKey>) {
@@ -446,7 +440,7 @@ impl Gui {
     }
 
     pub(crate) fn node_key_for_webview_id(&self, webview_id: WebViewId) -> Option<NodeKey> {
-        self.graph_app.get_node_for_webview(webview_id)
+        interaction_queries::node_key_for_webview_id(self, webview_id)
     }
 
     pub(crate) fn focus_graph_surface(&mut self) {
@@ -458,42 +452,31 @@ impl Gui {
     }
 
     pub(crate) fn location_has_focus(&self) -> bool {
-        self.context.egui_context().memory(|m| {
-            m.focused()
-                .is_some_and(|focused| focused == egui::Id::new("location_input"))
-        })
+        interaction_queries::location_has_focus(self)
     }
 
     pub(crate) fn request_location_submit(&mut self) {
-        self.toolbar_state.location_submitted = true;
+        interaction_queries::request_location_submit(self)
     }
 
     pub(crate) fn request_command_palette_toggle(&mut self) {
-        self.runtime_state.command_palette_toggle_requested = true;
+        interaction_queries::request_command_palette_toggle(self)
     }
 
     pub(crate) fn egui_wants_keyboard_input(&self) -> bool {
-        self.context.egui_context().wants_keyboard_input()
+        interaction_queries::egui_wants_keyboard_input(self)
     }
 
     pub(crate) fn egui_wants_pointer_input(&self) -> bool {
-        self.context.egui_context().wants_pointer_input()
+        interaction_queries::egui_wants_pointer_input(self)
     }
 
     pub(crate) fn pointer_hover_position(&self) -> Option<Point2D<f32, DeviceIndependentPixel>> {
-        self.context
-            .egui_context()
-            .input(|i| i.pointer.hover_pos())
-            .map(|p| p.to_point2d())
+        interaction_queries::pointer_hover_position(self)
     }
 
     pub(crate) fn ui_overlay_active(&self) -> bool {
-        ui_overlay_active_from_flags(
-            self.graph_app.workspace.show_command_palette,
-            self.graph_app.workspace.show_help_panel,
-            self.graph_app.workspace.show_radial_menu,
-            self.toolbar_state.show_clear_data_confirm,
-        )
+        interaction_queries::ui_overlay_active(self)
     }
 
     /// Update the user interface, but do not paint the updated state.
