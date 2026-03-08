@@ -201,8 +201,8 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 **4a. toolbar_ui.rs:**
 1. [x] Extract `ToolbarState` struct (persistent toolbar location/status/navigation state moved out of top-level `Gui` fields).
 2. [x] Move rendering into free functions: decomposed into submodules (toolbar_controls, toolbar_settings_menu, toolbar_right_controls, toolbar_location_panel/submit/dropdown, toolbar_omnibar) as of 2026-02-23. Main module is now ~357 lines.
-3. [ ] Define `toolbar_ui::Input` (state mutations) and `toolbar_ui::Output` (render results) boundary.
-4. [~] Add unit tests for at least one stateful flow: scenario tests exist for pin/tag sync, settings routing, omnibar workflows; focused unit tests still pending.
+3. [x] Define `toolbar_ui::Input` (state mutations) and `toolbar_ui::Output` (render results) boundary; canonical boundary types now exist in `toolbar_ui.rs` (with compatibility aliases for existing call sites).
+4. [x] Add unit tests for at least one stateful flow: focused tests now cover omnibar settings-driven ordering behavior (`ContextualThenProviderThenGlobal` vs `ProviderThenContextualThenGlobal`) in `toolbar_omnibar.rs`.
 
 **4b. gui.rs:**
 1. [x] Extract `GuiRuntimeState` struct (texture caches, frame flags, backpressure state).
@@ -390,6 +390,7 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 4f task 2 progressed: keyboard new-tab shortcut now emits `GraphSemanticEvent::CreateNewWebView` (matching delegate/link-click pipeline); per-entrypoint integration harness remains open.
 - Stage 4f task 2 completed: added entrypoint-spec semantic-pipeline tests (delegate/link-click/keyboard-shortcut) validating `CreateNewWebView` emits `RuntimeEvent::WebViewCreated` with expected responsive/created sets.
 - Stage 4f task 3 completed: context-menu actions currently execute via Servo `ContextMenu::select(action)` callback path rather than GraphIntent reducer routing; recorded as explicit deferred boundary.
+- Stage 4a closure: introduced canonical `toolbar_ui::Input`/`Output` boundary types and added focused omnibar settings-order unit tests for stateful toolbar behavior.
 
 **2026-03-01 Revision:**
 - Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.

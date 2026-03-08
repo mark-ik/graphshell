@@ -875,6 +875,46 @@ mod tests {
     }
 
     #[test]
+    fn test_non_at_matches_for_settings_contextual_order_uses_primary_matches_first() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.omnibar_preferred_scope = OmnibarPreferredScope::LocalTabs;
+        app.workspace.omnibar_non_at_order =
+            OmnibarNonAtOrderPreset::ContextualThenProviderThenGlobal;
+
+        let tab_key = app.add_node_and_sync("https://alpha-tab.example".into(), Point2D::zero());
+        let mut tiles = egui_tiles::Tiles::default();
+        let tab_tile = tiles.insert_pane(TileKind::Node(tab_key.into()));
+        let tabs = tiles.insert_tab_tile(vec![tab_tile]);
+        let tree = Tree::new("settings_order_contextual", tabs, tiles);
+
+        let (matches, should_load_provider) =
+            non_at_matches_for_settings(&mut app, &tree, "alpha", true);
+
+        assert!(!should_load_provider);
+        assert_eq!(matches.first().cloned(), Some(OmnibarMatch::Node(tab_key)));
+    }
+
+    #[test]
+    fn test_non_at_matches_for_settings_provider_first_defers_to_provider_loading() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.omnibar_preferred_scope = OmnibarPreferredScope::LocalTabs;
+        app.workspace.omnibar_non_at_order =
+            OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal;
+
+        let tab_key = app.add_node_and_sync("https://alpha-tab.example".into(), Point2D::zero());
+        let mut tiles = egui_tiles::Tiles::default();
+        let tab_tile = tiles.insert_pane(TileKind::Node(tab_key.into()));
+        let tabs = tiles.insert_tab_tile(vec![tab_tile]);
+        let tree = Tree::new("settings_order_provider", tabs, tiles);
+
+        let (matches, should_load_provider) =
+            non_at_matches_for_settings(&mut app, &tree, "alpha", true);
+
+        assert!(matches.is_empty());
+        assert!(should_load_provider);
+    }
+
+    #[test]
     fn test_parse_provider_suggestion_body_ddg_shape() {
         let body = r#"[{"phrase":"rust book"},{"phrase":"rust language"}]"#;
         let suggestions = parse_provider_suggestion_body(body, "rust").expect("parse suggestions");

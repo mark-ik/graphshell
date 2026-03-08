@@ -144,7 +144,7 @@ struct ProviderSuggestionFetchOutcome {
     status: ProviderSuggestionStatus,
 }
 
-pub(crate) struct ToolbarUiInput<'a> {
+pub(crate) struct Input<'a> {
     pub ctx: &'a egui::Context,
     pub winit_window: &'a Window,
     pub state: &'a RunningAppState,
@@ -166,11 +166,14 @@ pub(crate) struct ToolbarUiInput<'a> {
     pub diagnostics_state: &'a mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 }
 
-pub(crate) struct ToolbarUiOutput {
+pub(crate) struct Output {
     pub toggle_tile_view_requested: bool,
     pub open_selected_mode_after_submit: Option<ToolbarOpenMode>,
     pub toolbar_visible: bool,
 }
+
+pub(crate) type ToolbarUiInput<'a> = Input<'a>;
+pub(crate) type ToolbarUiOutput = Output;
 
 fn toolbar_button(text: &str) -> egui::Button<'_> {
     egui::Button::new(text)
@@ -302,8 +305,8 @@ fn render_fullscreen_origin_strip(
         });
 }
 
-pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
-    let ToolbarUiInput {
+pub(crate) fn render_toolbar_ui(args: Input<'_>) -> Output {
+    let Input {
         ctx,
         winit_window,
         state,
@@ -327,7 +330,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
 
     if winit_window.fullscreen().is_some() {
         render_fullscreen_origin_strip(ctx, graph_app, focused_toolbar_node);
-        return ToolbarUiOutput {
+        return Output {
             toggle_tile_view_requested: false,
             open_selected_mode_after_submit: None,
             toolbar_visible: false,
@@ -397,7 +400,7 @@ pub(crate) fn render_toolbar_ui(args: ToolbarUiInput<'_>) -> ToolbarUiOutput {
         );
     });
 
-    ToolbarUiOutput {
+    Output {
         toggle_tile_view_requested,
         open_selected_mode_after_submit,
         toolbar_visible: true,
