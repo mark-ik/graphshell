@@ -277,10 +277,10 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 
 **Outline (full spec in separate control-plane design doc):**
 
-1. [ ] `tokio::sync::mpsc` lifecycle event queue (single consumer, multiple producers).
-2. [ ] `watch` channel for policy snapshot fan-out (memory limits, retention policies).
-3. [ ] `tokio-util::CancellationToken` for background worker supervision and cancellation.
-4. [ ] Concurrency tests validating deterministic transition ordering under concurrent producers.
+1. [x] `tokio::sync::mpsc` lifecycle event queue (single consumer, multiple producers) via `ControlPanel` queued-intent channel.
+2. [x] `watch` channel for policy snapshot fan-out (memory limits, retention policies) via `LifecyclePolicy` updates consumed by CP3 scheduler workers.
+3. [x] `tokio-util::CancellationToken` for background worker supervision and cancellation in `ControlPanel::shutdown()`.
+4. [x] Concurrency tests validating deterministic transition ordering under concurrent producers (control-panel drain ordering + concurrent producer harness).
 
 **Acceptance gates:**
 
@@ -391,6 +391,7 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 4f task 2 completed: added entrypoint-spec semantic-pipeline tests (delegate/link-click/keyboard-shortcut) validating `CreateNewWebView` emits `RuntimeEvent::WebViewCreated` with expected responsive/created sets.
 - Stage 4f task 3 completed: context-menu actions currently execute via Servo `ContextMenu::select(action)` callback path rather than GraphIntent reducer routing; recorded as explicit deferred boundary.
 - Stage 4a closure: introduced canonical `toolbar_ui::Input`/`Output` boundary types and added focused omnibar settings-order unit tests for stateful toolbar behavior.
+- Stage 5 core primitives landed in runtime `ControlPanel`: mpsc lifecycle queue, watch-driven policy fan-out, cancellation-token worker shutdown, and deterministic concurrent-producer drain-order tests.
 
 **2026-03-01 Revision:**
 - Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.

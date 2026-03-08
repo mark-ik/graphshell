@@ -92,6 +92,18 @@ pub(crate) enum IntentSource {
     Restore,
 }
 
+fn intent_source_priority(source: IntentSource) -> u8 {
+    match source {
+        IntentSource::LocalUI => 0,
+        IntentSource::ServoDelegate => 1,
+        IntentSource::MemoryMonitor => 2,
+        IntentSource::ModLoader => 3,
+        IntentSource::PrefetchScheduler => 4,
+        IntentSource::P2pSync => 5,
+        IntentSource::Restore => 6,
+    }
+}
+
 /// The Control Panel: async adapter layer that bridges concurrent background
 /// producers to the synchronous two-phase reducer.
 ///
@@ -140,11 +152,12 @@ impl ControlPanel {
     /// Call once per frame before `apply_intents`. Returns all intents
     /// currently buffered in the channel; returns an empty `Vec` if none.
     pub(crate) fn drain_pending(&mut self) -> Vec<GraphIntent> {
-        let mut intents = Vec::new();
-        while let Ok(queued) = self.intent_rx.try_recv() {
-            intents.push(queued.intent);
+        let mut queued = Vec::new();
+        while let Ok(item) = self.intent_rx.try_recv() {
+            queued.push(item);
         }
-        intents
+        queued.sort_by_key(|item| (intent_source_priority(item.source), item.queued_at));
+        queued.into_iter().map(|item| item.intent).collect()
     }
 
     /// Clone the sync command sender, when the sync worker is available.
@@ -688,6 +701,86 @@ mod tests {
             command,
             SyncCommand::DiscoverNearby { timeout_secs: 2 }
         ));
+    }
+
+    #[tokio::test]
+    async fn drain_pending_sorts_by_causality_priority_then_time() {
+        let mut panel = ControlPanel::new();
+        let now = Instant::now();
+
+        panel
+            .enqueue_intent_for_tests(QueuedIntent {
+                intent: GraphIntent::Noop,
+                queued_at: now + Duration::from_millis(30),
+                source: IntentSource::ModLoader,
+            })
+            .expect("channel should accept first queued intent");
+        panel
+            .enqueue_intent_for_tests(QueuedIntent {
+                intent: GraphIntent::Undo,
+                queued_at: now + Duration::from_millis(10),
+                source: IntentSource::LocalUI,
+            })
+            .expect("channel should accept second queued intent");
+        panel
+            .enqueue_intent_for_tests(QueuedIntent {
+                intent: GraphIntent::Redo,
+                queued_at: now + Duration::from_millis(20),
+                source: IntentSource::ServoDelegate,
+            })
+            .expect("channel should accept third queued intent");
+
+        let drained = panel.drain_pending();
+        assert_eq!(drained.len(), 3);
+        assert!(matches!(drained[0], GraphIntent::Undo));
+        assert!(matches!(drained[1], GraphIntent::Redo));
+        assert!(matches!(drained[2], GraphIntent::Noop));
+    }
+
+    #[tokio::test]
+    async fn drain_pending_is_deterministic_under_concurrent_producers() {
+        let mut panel = ControlPanel::new();
+        let base = Instant::now();
+
+        let tx_a = panel.intent_tx.clone();
+        let tx_b = panel.intent_tx.clone();
+        let tx_c = panel.intent_tx.clone();
+
+        let a = tokio::spawn(async move {
+            let _ = tx_a
+                .send(QueuedIntent {
+                    intent: GraphIntent::Noop,
+                    queued_at: base + Duration::from_millis(3),
+                    source: IntentSource::PrefetchScheduler,
+                })
+                .await;
+        });
+        let b = tokio::spawn(async move {
+            let _ = tx_b
+                .send(QueuedIntent {
+                    intent: GraphIntent::Undo,
+                    queued_at: base + Duration::from_millis(1),
+                    source: IntentSource::LocalUI,
+                })
+                .await;
+        });
+        let c = tokio::spawn(async move {
+            let _ = tx_c
+                .send(QueuedIntent {
+                    intent: GraphIntent::Redo,
+                    queued_at: base + Duration::from_millis(2),
+                    source: IntentSource::ServoDelegate,
+                })
+                .await;
+        });
+
+        let _ = tokio::join!(a, b, c);
+
+        let drained = panel.drain_pending();
+        assert_eq!(drained.len(), 3);
+        assert!(matches!(drained[0], GraphIntent::Undo));
+        assert!(matches!(drained[1], GraphIntent::Redo));
+        assert!(matches!(drained[2], GraphIntent::Noop));
     }
 
     async fn mod_loader_worker_with_manifests(
