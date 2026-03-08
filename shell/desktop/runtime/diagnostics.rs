@@ -550,6 +550,7 @@ pub(crate) struct DiagnosticsState {
     bottleneck_latency_us: u64,
     export_feedback: Option<String>,
     history_health_snapshot: Value,
+    runtime_cache_snapshot: Value,
     analyzer_registry: AnalyzerRegistry,
     startup_selfcheck_emitted: bool,
     #[cfg(feature = "diagnostics_tests")]
@@ -1016,6 +1017,7 @@ impl DiagnosticsState {
             bottleneck_latency_us: DEFAULT_BOTTLENECK_LATENCY_US,
             export_feedback: None,
             history_health_snapshot: json!({}),
+            runtime_cache_snapshot: json!({}),
             analyzer_registry: AnalyzerRegistry::default(),
             startup_selfcheck_emitted: false,
             #[cfg(feature = "diagnostics_tests")]
@@ -1359,6 +1361,7 @@ impl DiagnosticsState {
             "generated_at_unix_secs": Self::export_timestamp_secs(),
             "event_ring_len": self.event_ring.len(),
             "history_health": self.history_health_snapshot.clone(),
+            "runtime_cache": self.runtime_cache_snapshot.clone(),
             "channels": {
                 "message_counts": self.diagnostic_graph.message_counts,
                 "message_bytes_sent": self.diagnostic_graph.message_bytes_sent,
@@ -1405,6 +1408,16 @@ impl DiagnosticsState {
             "replay_total_steps": health.replay_total_steps,
             "last_return_to_present_result": health.last_return_to_present_result,
             "last_event_unix_ms": health.last_event_unix_ms,
+        });
+    }
+
+    pub(crate) fn sync_runtime_cache_snapshot_from_app(&mut self, graph_app: &GraphBrowserApp) {
+        let metrics = graph_app.workspace.runtime_caches.metrics_snapshot();
+        self.runtime_cache_snapshot = json!({
+            "hits": metrics.hits,
+            "misses": metrics.misses,
+            "inserts": metrics.inserts,
+            "evictions": metrics.evictions,
         });
     }
 
@@ -1691,6 +1704,7 @@ impl DiagnosticsState {
 
     pub(crate) fn render_in_pane(&mut self, ui: &mut egui::Ui, graph_app: &mut GraphBrowserApp) {
         self.sync_history_health_snapshot_from_app(graph_app);
+        self.sync_runtime_cache_snapshot_from_app(graph_app);
         self.tick_drain();
         self.hovered_node_key = None;
 
@@ -1778,6 +1792,15 @@ impl DiagnosticsState {
                 ui.small(format!(
                     "history_health: preview_active={} failures={}",
                     history_preview, history_failures
+                ));
+                let cache_hits = self.runtime_cache_snapshot["hits"].as_u64().unwrap_or(0);
+                let cache_misses = self.runtime_cache_snapshot["misses"].as_u64().unwrap_or(0);
+                let cache_inserts = self.runtime_cache_snapshot["inserts"].as_u64().unwrap_or(0);
+                let cache_evictions =
+                    self.runtime_cache_snapshot["evictions"].as_u64().unwrap_or(0);
+                ui.small(format!(
+                    "runtime_cache: hits={} misses={} inserts={} evictions={}",
+                    cache_hits, cache_misses, cache_inserts, cache_evictions
                 ));
                 let analyzer_snapshots = self.analyzer_snapshots();
                 if !analyzer_snapshots.is_empty() {
@@ -3189,6 +3212,26 @@ Object {
             snapshot["compositor_replay"]["avg_bridge_presentation_us"].as_u64(),
             Some(90)
         );
+    }
+
+    #[test]
+    fn snapshot_json_includes_runtime_cache_metrics() {
+        let mut state = DiagnosticsState::new();
+        let app = GraphBrowserApp::new_for_testing();
+
+        app.workspace
+            .runtime_caches
+            .insert_suggestions("diag:key".to_string(), vec!["rust".to_string()]);
+        let _ = app.workspace.runtime_caches.get_suggestions("diag:key");
+        let _ = app.workspace.runtime_caches.get_suggestions("diag:missing");
+
+        state.sync_runtime_cache_snapshot_from_app(&app);
+        let snapshot = state.snapshot_json_value();
+
+        assert_eq!(snapshot["runtime_cache"]["inserts"].as_u64(), Some(1));
+        assert_eq!(snapshot["runtime_cache"]["hits"].as_u64(), Some(1));
+        assert_eq!(snapshot["runtime_cache"]["misses"].as_u64(), Some(1));
+        assert_eq!(snapshot["runtime_cache"]["evictions"].as_u64(), Some(0));
     }
 
     #[test]

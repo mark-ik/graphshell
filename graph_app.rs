@@ -12885,6 +12885,70 @@ mod tests {
     }
 
     #[test]
+    fn test_cache_churn_during_lifecycle_transitions_preserves_lifecycle_contract() {
+        use crate::graph::NodeLifecycle;
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://cache-lifecycle.example".to_string(), Point2D::new(0.0, 0.0));
+
+        for idx in 0..32 {
+            app.workspace.runtime_caches.insert_parsed_metadata(
+                format!("lifecycle:meta:{idx}"),
+                serde_json::json!({"i": idx}),
+            );
+            app.workspace
+                .runtime_caches
+                .insert_suggestions(format!("lifecycle:suggest:{idx}"), vec![format!("q{idx}")]);
+        }
+        let _ = app.workspace.runtime_caches.get_parsed_metadata("lifecycle:meta:0");
+        let _ = app
+            .workspace
+            .runtime_caches
+            .get_parsed_metadata("lifecycle:meta:missing");
+
+        app.apply_reducer_intents([GraphIntent::PromoteNodeToActive {
+            key,
+            cause: LifecycleCause::Restore,
+        }]);
+        assert_eq!(
+            app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
+            NodeLifecycle::Active
+        );
+        assert_eq!(app.lifecycle_counts(), (1, 0, 0, 0));
+
+        for idx in 32..64 {
+            app.workspace
+                .runtime_caches
+                .insert_thumbnail(key, vec![idx as u8; 4]);
+        }
+
+        app.apply_reducer_intents([GraphIntent::DemoteNodeToWarm {
+            key,
+            cause: LifecycleCause::WorkspaceRetention,
+        }]);
+        assert_eq!(
+            app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
+            NodeLifecycle::Warm
+        );
+        assert_eq!(app.lifecycle_counts(), (0, 1, 0, 0));
+
+        app.apply_reducer_intents([GraphIntent::DemoteNodeToCold {
+            key,
+            cause: LifecycleCause::MemoryPressureCritical,
+        }]);
+        assert_eq!(
+            app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
+            NodeLifecycle::Cold
+        );
+        assert_eq!(app.lifecycle_counts(), (0, 0, 1, 0));
+        assert!(app.runtime_block_state_for_node(key).is_none());
+    }
+
+    #[test]
     fn test_unmap_webview_removes_warm_cache_membership() {
         let mut app = GraphBrowserApp::new_for_testing();
         let key = app
