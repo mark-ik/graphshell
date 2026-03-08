@@ -82,6 +82,8 @@ mod pane_queries;
 mod input_routing;
 #[path = "gui/accesskit_events.rs"]
 mod accesskit_events;
+#[path = "gui/paint_pass.rs"]
+mod paint_pass;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -674,22 +676,7 @@ impl Gui {
 
     /// Paint the GUI, as of the last update.
     pub(crate) fn paint(&mut self, window: &Window) {
-        self.begin_paint_pass();
-        self.context.submit_frame(window);
-        self.end_paint_pass();
-    }
-
-    fn begin_paint_pass(&self) {
-        self.rendering_context
-            .make_current()
-            .expect("Could not make RenderingContext current");
-        self.rendering_context
-            .parent_context()
-            .prepare_for_rendering();
-    }
-
-    fn end_paint_pass(&self) {
-        self.rendering_context.parent_context().present();
+        paint_pass::paint(self, window);
     }
 
     /// Updates the location field from the given [`RunningAppState`], unless the user has started
