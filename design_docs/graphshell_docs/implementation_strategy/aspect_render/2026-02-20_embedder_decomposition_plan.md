@@ -305,10 +305,10 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 
 **Outline (full spec in separate caching design doc):**
 
-1. [ ] `moka` caches for: thumbnails, parsed metadata, suggestion results, snapshot artifacts.
-2. [ ] Cache policy (TTL, max size, cost weights, eviction listeners).
-3. [ ] Eviction listener hooks for optional async rewarm (do not block lifecycle).
-4. [ ] Verify cache eviction does not trigger lifecycle changes.
+1. [x] `moka` caches for: thumbnails, parsed metadata, suggestion results, snapshot artifacts (`shell/desktop/runtime/caches.rs`).
+2. [x] Cache policy (TTL, max size, cost weights, eviction listeners) via `CachePolicy` and per-cache capacities.
+3. [x] Eviction listener hooks for optional async rewarm (do not block lifecycle) via `RewarmHint` + optional unbounded channel.
+4. [x] Verify cache eviction does not trigger lifecycle changes: cache layer emits rewarm hints only (no reducer/runtime-intent emission APIs), and cache tests remain isolated to data-plane behavior.
 
 **Acceptance gates:**
 
@@ -392,6 +392,7 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 4f task 3 completed: context-menu actions currently execute via Servo `ContextMenu::select(action)` callback path rather than GraphIntent reducer routing; recorded as explicit deferred boundary.
 - Stage 4a closure: introduced canonical `toolbar_ui::Input`/`Output` boundary types and added focused omnibar settings-order unit tests for stateful toolbar behavior.
 - Stage 5 core primitives landed in runtime `ControlPanel`: mpsc lifecycle queue, watch-driven policy fan-out, cancellation-token worker shutdown, and deterministic concurrent-producer drain-order tests.
+- Stage 6 cache plane landed: added `runtime/caches.rs` with `moka`-backed thumbnail/metadata/suggestion/snapshot caches, policy-driven capacities/TTL, and non-blocking eviction rewarm hints.
 
 **2026-03-01 Revision:**
 - Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.

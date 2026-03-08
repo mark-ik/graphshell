@@ -89,6 +89,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
 tokio-util = "0.7"
+moka = { version = "0.12", features = ["sync"] }
 toml = "0.8"
 tower = "0.5"
 http = "1.4"

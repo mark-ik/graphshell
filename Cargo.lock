@@ -4303,6 +4303,7 @@ dependencies = [
  "log",
  "mdns-sd",
  "mime_guess",
+ "moka",
  "napi-derive-ohos",
  "napi-ohos",
  "nix 0.30.1",

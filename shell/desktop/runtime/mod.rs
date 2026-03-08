@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 pub(crate) mod cli;
+pub(crate) mod caches;
 pub(crate) mod control_panel;
 pub(crate) mod diagnostics;
 pub(crate) mod protocols;
