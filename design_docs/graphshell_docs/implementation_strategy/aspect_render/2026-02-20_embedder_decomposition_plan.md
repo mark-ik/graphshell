@@ -1,7 +1,7 @@
 # Embedder Decomposition Plan (Revised)
 
 **Date:** 2026-02-21 (revision of 2026-02-20 plan)
-**Status:** Prospective — Stage 1 in progress, Stages 2+ planned
+**Status:** Active — Stages 1-3 complete; Stage 4 in progress
 **Relates to:** Architectural Concerns doc §8 (Monolithic UI)
 
 **Coordination note (2026-02-26):** Stage 4 decomposition should follow the foundation-first sequencing in `2026-02-26_composited_viewer_pass_contract.md` Appendix A and `PLANNING_REGISTER.md` §0.10. Specifically, compositor pass-order correctness + GL-state diagnostics hardening should land before UX-expansion slices that increase render-path complexity.
@@ -219,11 +219,11 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 **4d. gui_frame.rs:**
 1. [x] Extract post-render pending-action coordinator pipeline to dedicated module (`ui/gui_frame/pending_actions.rs`) while keeping frame helper semantics unchanged.
 2. [x] Add in-module ownership map comments clarifying `gui_frame.rs` facade role vs extracted coordinator role.
-3. [ ] Extract graph-query helpers (`connected_hop_distances_for_context`, `connected_candidates_with_depth`, `connected_frame_import_nodes`, `undirected_neighbors_sorted`) into `Graph` API accessors (`graph/mod.rs` or `graph/traversal.rs`). These are petgraph traversal operations, not frame logic. See `canvas/petgraph_algorithm_utilization_spec.md` §1 for the replacement contracts (dijkstra + AsUndirected, two-round expansion). Add `hop_distance_cache` to `GraphWorkspace` (§4.2 of that spec) to eliminate the O(matches) per-frame BFS.
-4. [ ] Extract the connected-open orchestration cluster (`execute_pending_open_connected_from`, `ordered_connected_open_nodes`, `build_connected_open_selection_intents`, `open_connected_nodes_by_mode`, `open_connected_nodes_as_tabs`, ~6 helpers, ~120 lines) into `ui/gui_frame/connected_open.rs`.
-5. [ ] Extract snapshot/frame persistence cluster (`handle_pending_frame_snapshot_actions` and its ~15 sub-handlers covering save/prune/import/restore, ~400 lines) into `ui/gui_frame/frame_persistence.rs`.
-6. [ ] Extract graph snapshot cluster (`handle_pending_graph_snapshot_actions` and its ~8 sub-handlers, ~150 lines) into `ui/gui_frame/graph_snapshot.rs`.
-7. [ ] After extractions, `gui_frame.rs` should be the frame-phase sequencer only: `ingest_pre_frame`, `apply_intents_if_any`, `handle_keyboard_phase`, `run_lifecycle_reconcile_and_apply`, `run_post_render_phase` — targeting < 400 lines.
+3. [x] Extract graph-query helpers into graph/model APIs: `neighbors_undirected_sorted`, `connected_frame_import_nodes`, `connected_candidates_with_depth` now live on `model::graph::Graph`, and `GraphWorkspace` carries `hop_distance_cache` via `cached_hop_distances_for_context(...)`.
+4. [x] Extract connected-open orchestration cluster into `ui/gui_frame/connected_open.rs` (`execute_pending_open_connected_from`, ordering/selection/open-mode helpers).
+5. [x] Extract snapshot/frame persistence cluster into `ui/gui_frame/frame_persistence.rs` (`handle_pending_frame_snapshot_actions` and save/prune/import/restore handlers).
+6. [x] Extract graph snapshot cluster into `ui/gui_frame/graph_snapshot.rs` (`handle_pending_graph_snapshot_actions` and restore/reset helpers).
+7. [x] `gui_frame.rs` is now a frame-phase sequencer facade (`ingest_pre_frame`, `apply_intents_if_any`, lifecycle/keyboard/post-render routing) and is below target at 364 lines.
 
 **4e. gui.rs:**
 
@@ -242,7 +242,7 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 1. [ ] Audit all `TODO`/`FIXME` comments in `gui.rs`, `gui_frame.rs`, `headed_window.rs`, `running_app_state.rs` — resolve, document as explicit deferred items, or convert to diagnostics channels.
 2. [ ] Verify `CreateNewWebView` path: confirm all entry points (Servo delegate `request_create_new`, link-click, keyboard shortcut) route through `GraphSemanticEvent::CreateNewWebView` with no direct graph mutation bypass. Add a test asserting the event appears in the semantic pipeline for each entry point.
 3. [ ] Audit context-menu actions in `Dialog::new_context_menu` (`headed_window.rs:1373`): confirm each action resolves to a `GraphIntent` via `apply_intents`, not a direct mutation. Document any that do not as explicit deferred items.
-4. [ ] Grep for any remaining `servoshell`/`servo_shell` identifiers or comments in `shell/desktop/` that were not caught in the Phase E1 rename; retire or rename.
+4. [x] Grep for any remaining `servoshell`/`servo_shell` identifiers or comments in `shell/desktop/`; retired remaining legacy identifier references in runtime tracing docs.
 5. [ ] Review `headed_window.rs:1129` FIXME (screen space / system UI subtraction) — either fix, add a diagnostics channel with `ChannelSeverity::Warn`, or document as a known deferred limitation with an issue reference.
 
 **Acceptance gates:**
@@ -384,7 +384,8 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 4f: new section — servoshell behavioral legacy audit covering TODO/FIXME resolution, `CreateNewWebView` path verification, context-menu action routing audit, legacy identifier grep, and `headed_window.rs` FIXME disposition.
 - Updated acceptance gates to reflect 4d–4f targets.
 - Stage 4e extraction tasks 1–4 are now complete (`ui/gui/accessibility.rs`, `ui/gui/update_frame_phases.rs`, `ui/gui/intent_translation.rs`, `ui/gui/startup.rs`).
-- `gui.rs` is now reduced to 784 lines (from the prior 2411-line baseline), with remaining work focused on reaching the final < 600 gate.
+- `gui.rs` is now reduced to 599 lines (from the prior 2411-line baseline), satisfying the Stage 4e < 600 gate.
+- Stage 4d extractions 3-7 are now landed (`ui/gui_frame/connected_open.rs`, `ui/gui_frame/frame_persistence.rs`, `ui/gui_frame/graph_snapshot.rs`), and `gui_frame.rs` is now 364 lines.
 
 **2026-03-01 Revision:**
 - Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.
