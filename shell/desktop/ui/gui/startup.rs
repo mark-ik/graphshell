@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+use crate::app::SearchDisplayMode;
 
 pub(super) fn restore_startup_session_frame_if_available(
     graph_app: &mut GraphBrowserApp,
@@ -49,4 +50,44 @@ pub(super) fn restore_startup_session_frame_if_available(
     }
 
     false
+}
+
+pub(super) fn initialize_startup_graph_and_tiles(
+    graph_data_dir: Option<PathBuf>,
+    initial_url: &Url,
+    graph_snapshot_interval_secs: Option<u64>,
+) -> (GraphBrowserApp, Tree<TileKind>, bool) {
+    let initial_data_dir =
+        graph_data_dir.unwrap_or_else(crate::services::persistence::GraphStore::default_data_dir);
+    let mut graph_app = GraphBrowserApp::new_from_dir(initial_data_dir);
+    if let Some(snapshot_secs) = graph_snapshot_interval_secs
+        && let Err(e) = graph_app.set_snapshot_interval_secs(snapshot_secs)
+    {
+        warn!("Failed to apply snapshot interval from startup preferences: {e}");
+    }
+
+    let mut tiles = Tiles::default();
+    let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+    let mut tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
+    let _ = restore_startup_session_frame_if_available(&mut graph_app, &mut tiles_tree);
+
+    // Only create initial node if graph wasn't recovered from persistence.
+    if !graph_app.has_recovered_graph() {
+        use euclid::default::Point2D;
+        graph_app.apply_reducer_intents([GraphIntent::CreateNodeAtUrl {
+            url: initial_url.to_string(),
+            position: Point2D::new(400.0, 300.0),
+        }]);
+    }
+
+    let membership_index = persistence_ops::build_membership_index_from_frame_manifests(&graph_app);
+    graph_app.init_membership_index(membership_index);
+    let (workspace_recency, workspace_activation_seq) =
+        persistence_ops::build_frame_activation_recency_from_frame_manifests(&graph_app);
+    graph_app.init_frame_activation_recency(workspace_recency, workspace_activation_seq);
+
+    let initial_search_filter_mode =
+        matches!(graph_app.workspace.search_display_mode, SearchDisplayMode::Filter);
+
+    (graph_app, tiles_tree, initial_search_filter_mode)
 }

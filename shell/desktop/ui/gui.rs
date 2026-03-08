@@ -30,7 +30,7 @@ use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
 use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphViewId, SearchDisplayMode, ToastAnchorPreference,
+    GraphBrowserApp, GraphIntent, GraphViewId, ToastAnchorPreference,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -249,39 +249,13 @@ impl Gui {
             options.fallback_theme = egui::Theme::Light;
         });
 
-        let initial_data_dir = graph_data_dir
-            .unwrap_or_else(crate::services::persistence::GraphStore::default_data_dir);
-        let mut graph_app = GraphBrowserApp::new_from_dir(initial_data_dir.clone());
-        if let Some(snapshot_secs) = graph_snapshot_interval_secs
-            && let Err(e) = graph_app.set_snapshot_interval_secs(snapshot_secs)
-        {
-            warn!("Failed to apply snapshot interval from startup preferences: {e}");
-        }
-        let mut tiles = Tiles::default();
-        let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
-        let mut tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
-
-        let _ = startup::restore_startup_session_frame_if_available(&mut graph_app, &mut tiles_tree);
-
-        // Only create initial node if graph wasn't recovered from persistence
-        if !graph_app.has_recovered_graph() {
-            use euclid::default::Point2D;
-            graph_app.apply_reducer_intents([GraphIntent::CreateNodeAtUrl {
-                url: initial_url.to_string(),
-                position: Point2D::new(400.0, 300.0),
-            }]);
-        }
-        let membership_index =
-            persistence_ops::build_membership_index_from_frame_manifests(&graph_app);
-        graph_app.init_membership_index(membership_index);
-        let (workspace_recency, workspace_activation_seq) =
-            persistence_ops::build_frame_activation_recency_from_frame_manifests(&graph_app);
-        graph_app.init_frame_activation_recency(workspace_recency, workspace_activation_seq);
+        let (mut graph_app, tiles_tree, initial_search_filter_mode) =
+            startup::initialize_startup_graph_and_tiles(
+                graph_data_dir,
+                &initial_url,
+                graph_snapshot_interval_secs,
+            );
         let (thumbnail_capture_tx, thumbnail_capture_rx) = channel();
-        let initial_search_filter_mode = matches!(
-            graph_app.workspace.search_display_mode,
-            SearchDisplayMode::Filter
-        );
 
         // Create tokio runtime for background workers
         let tokio_runtime = tokio::runtime::Runtime::new()
