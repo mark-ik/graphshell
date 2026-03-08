@@ -78,6 +78,8 @@ mod hit_testing;
 mod accesskit_input;
 #[path = "gui/pane_queries.rs"]
 mod pane_queries;
+#[path = "gui/input_routing.rs"]
+mod input_routing;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -695,12 +697,12 @@ impl Gui {
         window: &EmbedderWindow,
         focused_node_key: Option<NodeKey>,
     ) -> bool {
-        if self.should_skip_toolbar_location_sync() {
+        if input_routing::should_skip_toolbar_location_sync(&self.toolbar_state) {
             // Preserve active omnibar node-search query text while cycling matches.
             return false;
         }
 
-        let has_node_panes = self.has_any_node_panes();
+        let has_node_panes = input_routing::has_any_node_panes(&self.tiles_tree);
         toolbar_status_sync::update_location_in_toolbar(
             &self.graph_app,
             &mut self.toolbar_state,
@@ -717,33 +719,7 @@ impl Gui {
         //       because logical OR would short-circuit if any of the functions return true.
         //       We want to ensure that all functions are called. The "bitwise OR" operator
         //       does not short-circuit.
-        self.collect_webview_update_flags(window)
-    }
-
-    fn collect_webview_update_flags(&mut self, window: &EmbedderWindow) -> bool {
-        let focused_node_key = self.focused_node_key();
-        toolbar_status_sync::sync_toolbar_webview_status_fields(
-            &mut self.toolbar_state,
-            focused_node_key,
-            &self.graph_app,
-            window,
-        ) | self.update_location_in_toolbar(window, focused_node_key)
-    }
-
-    fn is_omnibar_node_search_query_active(&self) -> bool {
-        self.toolbar_state.location.trim_start().starts_with('@')
-    }
-
-    fn should_skip_toolbar_location_sync(&self) -> bool {
-        self.is_omnibar_node_search_query_active()
-    }
-
-    fn has_any_node_panes(&self) -> bool {
-        pane_queries::tree_has_any_node_panes(&self.tiles_tree)
-    }
-
-    fn tree_has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
-        pane_queries::tree_has_any_node_panes(tiles_tree)
+        input_routing::collect_webview_update_flags(self, window)
     }
 
     /// Returns true if a redraw is required after handling the provided event.
