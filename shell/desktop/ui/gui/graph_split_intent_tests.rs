@@ -373,7 +373,7 @@ fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus
         |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == live_view),
     );
 
-    super::Gui::reconcile_workspace_graph_views_from_tiles(&mut app, &tree);
+    super::pane_queries::reconcile_workspace_graph_views_from_tiles(&mut app, &tree);
 
     assert!(app.workspace.views.contains_key(&live_view));
     assert!(!app.workspace.views.contains_key(&stale_view));

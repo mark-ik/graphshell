@@ -94,7 +94,6 @@ mod tree_bootstrap;
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
 
-use accessibility::WebViewA11yGraftPlan;
 use update_frame_phases::ExecuteUpdateFrameArgs;
 
 #[cfg(test)]
@@ -335,7 +334,7 @@ impl Gui {
     }
 
     pub(crate) fn is_graph_view(&self) -> bool {
-        !self.has_active_node_pane()
+        !pane_queries::tree_has_active_node_pane(&self.tiles_tree)
     }
 
     /// Set the RunningAppState reference for runtime viewer creation.
@@ -559,45 +558,6 @@ impl Gui {
         GuiUpdateOutput
     }
 
-    #[cfg(feature = "diagnostics")]
-    fn open_or_focus_tool_pane(
-        tiles_tree: &mut Tree<TileKind>,
-        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
-    ) {
-        tile_view_ops::open_or_focus_tool_pane(tiles_tree, kind);
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    fn open_or_focus_tool_pane(
-        _tiles_tree: &mut Tree<TileKind>,
-        _kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
-    ) {
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn open_or_focus_diagnostics_tool_pane(tiles_tree: &mut Tree<TileKind>) {
-        use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-        Self::open_or_focus_tool_pane(tiles_tree, ToolPaneState::Diagnostics);
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    fn open_or_focus_diagnostics_tool_pane(_tiles_tree: &mut Tree<TileKind>) {}
-
-    fn has_active_node_pane(&self) -> bool {
-        pane_queries::tree_has_active_node_pane(&self.tiles_tree)
-    }
-
-    fn tree_has_active_node_pane(tiles_tree: &Tree<TileKind>) -> bool {
-        pane_queries::tree_has_active_node_pane(tiles_tree)
-    }
-
-    fn reconcile_workspace_graph_views_from_tiles(
-        graph_app: &mut GraphBrowserApp,
-        tiles_tree: &Tree<TileKind>,
-    ) {
-        pane_queries::reconcile_workspace_graph_views_from_tiles(graph_app, tiles_tree);
-    }
-
     /// Paint the GUI, as of the last update.
     pub(crate) fn paint(&mut self, window: &Window) {
         paint_pass::paint(self, window);
@@ -665,41 +625,7 @@ impl Gui {
             .insert(webview_id, tree_update);
     }
 
-    fn webview_accessibility_anchor_id(webview_id: WebViewId) -> egui::Id {
-        accessibility::webview_accessibility_anchor_id(webview_id)
-    }
-
-    fn webview_accessibility_label(
-        webview_id: WebViewId,
-        tree_update: &accesskit::TreeUpdate,
-    ) -> String {
-        accessibility::webview_accessibility_label(webview_id, tree_update)
-    }
-
-    fn build_webview_a11y_graft_plan(
-        webview_id: WebViewId,
-        tree_update: &accesskit::TreeUpdate,
-    ) -> WebViewA11yGraftPlan {
-        accessibility::build_webview_a11y_graft_plan(webview_id, tree_update)
-    }
-
-    /// Inject pending runtime viewer accessibility tree updates into egui's
-    /// accessibility tree.
-    ///
-    /// For each node in a Servo-provided `accesskit::TreeUpdate`, this bridge
-    /// synthesizes a deterministic egui `Id` and applies a compatibility
-    /// conversion for role/label fields between AccessKit versions.
-    ///
-    /// Nodes whose `NodeId` is zero or `u64::MAX` (egui's root sentinel) are
-    /// skipped to avoid collisions with egui's own accessibility tree.
-    fn inject_webview_a11y_updates(
-        ctx: &egui::Context,
-        pending: &mut HashMap<WebViewId, accesskit::TreeUpdate>,
-    ) {
-        accessibility::inject_webview_a11y_updates(ctx, pending);
-    }
 }
-
 fn ui_overlay_active_from_flags(
     show_command_palette: bool,
     show_help_panel: bool,

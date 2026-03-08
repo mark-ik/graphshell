@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use super::Gui;
 use accesskit::{Node, NodeId, Role, Tree, TreeUpdate};
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use servo::WebViewId;
@@ -17,8 +16,8 @@ fn test_webview_id() -> WebViewId {
 #[test]
 fn webview_a11y_anchor_id_is_stable_per_webview() {
     let id = test_webview_id();
-    let a = Gui::webview_accessibility_anchor_id(id);
-    let b = Gui::webview_accessibility_anchor_id(id);
+    let a = super::accessibility::webview_accessibility_anchor_id(id);
+    let b = super::accessibility::webview_accessibility_anchor_id(id);
     assert_eq!(a, b);
 }
 
@@ -36,7 +35,7 @@ fn webview_accessibility_label_prefers_focused_node_label() {
         focus: NodeId(2),
     };
 
-    let label = Gui::webview_accessibility_label(webview_id, &update);
+    let label = super::accessibility::webview_accessibility_label(webview_id, &update);
     assert!(label.contains("Focused title"));
 }
 
@@ -49,7 +48,7 @@ fn webview_accessibility_label_falls_back_when_no_labels_exist() {
         focus: NodeId(5),
     };
 
-    let label = Gui::webview_accessibility_label(webview_id, &update);
+    let label = super::accessibility::webview_accessibility_label(webview_id, &update);
     assert!(label.contains("Embedded web content"));
     assert!(label.contains("1 accessibility node update"));
 }
@@ -69,7 +68,7 @@ fn inject_webview_a11y_updates_drains_pending_map() {
     let ctx = egui::Context::default();
 
     let _ = ctx.run(egui::RawInput::default(), |ctx| {
-        Gui::inject_webview_a11y_updates(ctx, &mut pending);
+        super::accessibility::inject_webview_a11y_updates(ctx, &mut pending);
     });
 
     assert!(
@@ -93,7 +92,7 @@ fn webview_a11y_graft_plan_includes_injectable_nodes_and_root() {
         focus: NodeId(11),
     };
 
-    let plan = Gui::build_webview_a11y_graft_plan(webview_id, &update);
+    let plan = super::accessibility::build_webview_a11y_graft_plan(webview_id, &update);
     assert_eq!(plan.nodes.len(), 2);
     assert_eq!(plan.root_node_id, Some(NodeId(11)));
     assert_eq!(plan.dropped_node_count, 0);
@@ -112,7 +111,7 @@ fn webview_a11y_graft_plan_marks_reserved_ids_as_degraded() {
         focus: NodeId(0),
     };
 
-    let plan = Gui::build_webview_a11y_graft_plan(webview_id, &update);
+    let plan = super::accessibility::build_webview_a11y_graft_plan(webview_id, &update);
     assert!(plan.nodes.is_empty());
     assert_eq!(plan.root_node_id, None);
     assert_eq!(plan.dropped_node_count, 1);
@@ -130,7 +129,7 @@ fn webview_a11y_graft_plan_tracks_role_conversion_fallbacks() {
         focus: NodeId(44),
     };
 
-    let plan = Gui::build_webview_a11y_graft_plan(webview_id, &update);
+    let plan = super::accessibility::build_webview_a11y_graft_plan(webview_id, &update);
     assert_eq!(plan.nodes.len(), 1);
     assert_eq!(plan.conversion_fallback_count, 1);
 }

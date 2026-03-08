@@ -1,6 +1,6 @@
-use super::Gui;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
+use crate::shell::desktop::workbench::tile_view_ops;
 use egui_tiles::{Tile, Tiles, Tree};
 
 fn diagnostics_active(tree: &Tree<TileKind>) -> bool {
@@ -25,7 +25,7 @@ fn diagnostics_shortcut_focuses_existing_diagnostics_tool_pane() {
     });
     assert!(!diagnostics_active(&tree));
 
-    Gui::open_or_focus_diagnostics_tool_pane(&mut tree);
+    tile_view_ops::open_or_focus_tool_pane(&mut tree, ToolPaneState::Diagnostics);
     assert!(diagnostics_active(&tree));
 }
 
@@ -35,7 +35,7 @@ fn diagnostics_shortcut_inserts_diagnostics_tool_pane_when_missing() {
     let settings_id = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
     let mut tree = Tree::new("tool_tabs", settings_id, tiles);
 
-    Gui::open_or_focus_diagnostics_tool_pane(&mut tree);
+    tile_view_ops::open_or_focus_tool_pane(&mut tree, ToolPaneState::Diagnostics);
 
     let diagnostics_count = tree
         .tiles
@@ -54,9 +54,9 @@ fn multiple_tool_panes_coexist_with_expected_titles() {
     let root = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
     let mut tree = Tree::new("tool_tabs", root, tiles);
 
-    Gui::open_or_focus_tool_pane(&mut tree, ToolPaneState::HistoryManager);
-    Gui::open_or_focus_tool_pane(&mut tree, ToolPaneState::AccessibilityInspector);
-    Gui::open_or_focus_tool_pane(&mut tree, ToolPaneState::Settings);
+    tile_view_ops::open_or_focus_tool_pane(&mut tree, ToolPaneState::HistoryManager);
+    tile_view_ops::open_or_focus_tool_pane(&mut tree, ToolPaneState::AccessibilityInspector);
+    tile_view_ops::open_or_focus_tool_pane(&mut tree, ToolPaneState::Settings);
 
     let mut tool_titles: Vec<&'static str> = tree
         .tiles
@@ -89,7 +89,7 @@ fn diagnostics_shortcut_focuses_diagnostics_not_other_tool_pane() {
         )
     });
 
-    Gui::open_or_focus_diagnostics_tool_pane(&mut tree);
+    tile_view_ops::open_or_focus_tool_pane(&mut tree, ToolPaneState::Diagnostics);
 
     assert!(tree.active_tiles().into_iter().any(|tile_id| {
         matches!(

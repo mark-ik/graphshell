@@ -195,9 +195,9 @@ impl Gui {
         tiles_tree: &mut Tree<TileKind>,
     ) {
         graph_app.tick_frame();
-        Self::reconcile_workspace_graph_views_from_tiles(graph_app, tiles_tree);
+        pane_queries::reconcile_workspace_graph_views_from_tiles(graph_app, tiles_tree);
 
-        Self::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
+        accessibility::inject_webview_a11y_updates(ctx, pending_webview_a11y_updates);
         Self::maybe_toggle_diagnostics_tool_pane(ctx, tiles_tree);
     }
 
@@ -310,7 +310,7 @@ impl Gui {
             graph_search_active_match_index,
             toolbar_state,
             frame_intents,
-            Self::tree_has_active_node_pane(tiles_tree),
+            pane_queries::tree_has_active_node_pane(tiles_tree),
         );
 
         gui_orchestration::run_keyboard_phase(
@@ -424,7 +424,10 @@ impl Gui {
                 || (i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::D))
         });
         if toggle_diagnostics {
-            Self::open_or_focus_diagnostics_tool_pane(tiles_tree);
+            tile_view_ops::open_or_focus_tool_pane(
+                tiles_tree,
+                crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
+            );
         }
     }
 

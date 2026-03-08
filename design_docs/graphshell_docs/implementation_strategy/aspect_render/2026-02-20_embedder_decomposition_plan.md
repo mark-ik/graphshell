@@ -227,13 +227,13 @@ Target: no single file > ~600 lines after decomposition; each file has one state
 
 **4e. gui.rs:**
 
-*Current state: 784 lines. The final < 600 acceptance gate still requires further extraction.*
+*Current state: 599 lines (2026-03-07). Stage 4e line-count gate is now satisfied.*
 
 1. [x] Extract accessibility graft/plan logic (`WebViewA11yNodePlan`, `WebViewA11yGraftPlan`, ~80 lines of struct + handler code) into `ui/gui/accessibility.rs`.
 2. [x] Extract the `UpdateFrameStage` coordinator dispatch and all `*PhaseArgs` structs (`GraphSearchAndKeyboardPhaseArgs`, `ToolbarAndGraphSearchWindowPhaseArgs`, `SemanticLifecyclePhaseArgs`, etc.) into `ui/gui/update_frame_phases.rs` — these are already logically grouped; this is a file boundary move.
 3. [x] Extract graph intent translation helpers (`graph_intents_from_semantic_events`, `graph_intents_and_responsive_from_events`, `graph_intent_for_thumbnail_result`) into `ui/gui/intent_translation.rs`.
 4. [x] Extract startup session frame restore logic (`restore_startup_session_frame_if_available`) into `ui/gui/startup.rs`.
-5. [ ] After extractions, `gui.rs` should own: `Gui` struct definition, `impl Gui` lifecycle (`new`, `drop`, `update`), `GuiRuntimeState`, focus-state helpers — targeting < 600 lines.
+5. [x] After extractions, `gui.rs` now focuses on `Gui` struct/lifecycle entrypoints and owner-scoped adapters while extracted child modules own coordinator, accessibility, routing, and query helpers; file size is < 600 lines.
 
 **4f. Servoshell behavioral legacy audit (bounded):**
 
