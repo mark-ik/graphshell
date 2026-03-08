@@ -9,6 +9,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat};
 use log::warn;
+use serde_json::Value;
 use servo::{Image, PixelFormat, WebViewId};
 
 use crate::app::{GraphBrowserApp, GraphIntent};
@@ -17,6 +18,40 @@ use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token
 
 const NODE_THUMBNAIL_WIDTH: u32 = 256;
 const NODE_THUMBNAIL_HEIGHT: u32 = 192;
+
+fn thumbnail_url_cache_key(node_key: crate::graph::NodeKey) -> String {
+    format!("thumbnail:url:{}", node_key.index())
+}
+
+fn cached_thumbnail_result_for_request(
+    graph_app: &GraphBrowserApp,
+    webview_id: WebViewId,
+    node_key: crate::graph::NodeKey,
+    requested_url: &str,
+) -> Option<ThumbnailCaptureResult> {
+    let url_key = thumbnail_url_cache_key(node_key);
+    let cached_url_value = graph_app
+        .workspace
+        .runtime_caches
+        .get_parsed_metadata(&url_key);
+    let cached_url = cached_url_value.as_deref().and_then(Value::as_str)?;
+    if cached_url != requested_url {
+        return None;
+    }
+    let png_bytes = graph_app
+        .workspace
+        .runtime_caches
+        .get_thumbnail(node_key)
+        .as_deref()
+        .cloned()?;
+    Some(ThumbnailCaptureResult {
+        webview_id,
+        requested_url: requested_url.to_string(),
+        png_bytes: Some(png_bytes),
+        width: NODE_THUMBNAIL_WIDTH,
+        height: NODE_THUMBNAIL_HEIGHT,
+    })
+}
 
 pub(crate) struct ThumbnailCaptureResult {
     pub(crate) webview_id: WebViewId,
@@ -39,9 +74,6 @@ pub(crate) fn request_pending_thumbnail_captures(
             continue;
         }
 
-        let Some(webview) = window.webview_by_id(id) else {
-            continue;
-        };
         let Some(node_key) = graph_app.get_node_for_webview(id) else {
             continue;
         };
@@ -53,6 +85,18 @@ pub(crate) fn request_pending_thumbnail_captures(
         if requested_url.starts_with("about:blank") {
             continue;
         }
+
+        if let Some(cached_result) =
+            cached_thumbnail_result_for_request(graph_app, id, node_key, &requested_url)
+        {
+            let _ = result_tx.send(cached_result);
+            continue;
+        }
+
+        let Some(webview) = window.webview_by_id(id) else {
+            continue;
+        };
+
         let sender = result_tx.clone();
         in_flight.insert(id);
         webview.take_screenshot(None, move |result| {
@@ -122,6 +166,14 @@ pub(crate) fn graph_intent_for_thumbnail_result(
         return None;
     }
     let png_bytes = result.png_bytes.clone()?;
+    graph_app
+        .workspace
+        .runtime_caches
+        .insert_thumbnail(node_key, png_bytes.clone());
+    graph_app.workspace.runtime_caches.insert_parsed_metadata(
+        thumbnail_url_cache_key(node_key),
+        Value::String(result.requested_url.clone()),
+    );
     Some(GraphIntent::SetNodeThumbnail {
         key: node_key,
         png_bytes,
@@ -192,4 +244,111 @@ pub(crate) fn load_pending_favicons(
         }
     }
     intents
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
+
+    fn test_webview_id() -> WebViewId {
+        PIPELINE_NAMESPACE.with(|tls| {
+            if tls.get().is_none() {
+                PipelineNamespace::install(TEST_NAMESPACE);
+            }
+        });
+        WebViewId::new(PainterId::next())
+    }
+
+    #[test]
+    fn graph_intent_for_thumbnail_result_writes_cache_with_url_marker() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://cache.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, node_key);
+
+        let result = ThumbnailCaptureResult {
+            webview_id,
+            requested_url: "https://cache.example".to_string(),
+            png_bytes: Some(vec![1, 2, 3]),
+            width: NODE_THUMBNAIL_WIDTH,
+            height: NODE_THUMBNAIL_HEIGHT,
+        };
+
+        let intent = graph_intent_for_thumbnail_result(&app, &result);
+        assert!(matches!(
+            intent,
+            Some(GraphIntent::SetNodeThumbnail {
+                key,
+                width: NODE_THUMBNAIL_WIDTH,
+                height: NODE_THUMBNAIL_HEIGHT,
+                ..
+            }) if key == node_key
+        ));
+
+        assert_eq!(
+            app.workspace
+                .runtime_caches
+                .get_thumbnail(node_key)
+                .as_deref()
+                .map(|bytes| bytes.as_slice()),
+            Some(&[1, 2, 3][..])
+        );
+        let marker_key = thumbnail_url_cache_key(node_key);
+        assert_eq!(
+            app.workspace
+                .runtime_caches
+                .get_parsed_metadata(&marker_key)
+                .as_deref()
+                .and_then(Value::as_str),
+            Some("https://cache.example")
+        );
+    }
+
+    #[test]
+    fn cached_thumbnail_result_requires_matching_url_marker() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app.add_node_and_sync(
+            "https://current.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, node_key);
+
+        app.workspace
+            .runtime_caches
+            .insert_thumbnail(node_key, vec![9, 9, 9]);
+        app.workspace.runtime_caches.insert_parsed_metadata(
+            thumbnail_url_cache_key(node_key),
+            Value::String("https://stale.example".to_string()),
+        );
+
+        assert!(
+            cached_thumbnail_result_for_request(
+                &app,
+                webview_id,
+                node_key,
+                "https://current.example"
+            )
+            .is_none()
+        );
+
+        app.workspace.runtime_caches.insert_parsed_metadata(
+            thumbnail_url_cache_key(node_key),
+            Value::String("https://current.example".to_string()),
+        );
+        let cached = cached_thumbnail_result_for_request(
+            &app,
+            webview_id,
+            node_key,
+            "https://current.example",
+        )
+        .expect("cached thumbnail should be returned when URL marker matches");
+        assert_eq!(cached.width, NODE_THUMBNAIL_WIDTH);
+        assert_eq!(cached.height, NODE_THUMBNAIL_HEIGHT);
+        assert_eq!(cached.png_bytes.as_deref(), Some(&[9, 9, 9][..]));
+    }
 }

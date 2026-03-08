@@ -395,6 +395,7 @@ These are aligned with project goals and can be incorporated where useful:
 - Stage 6 cache plane landed: added `runtime/caches.rs` with `moka`-backed thumbnail/metadata/suggestion/snapshot caches, policy-driven capacities/TTL, and non-blocking eviction rewarm hints.
 - Stage 6 integration slice landed for omnibar provider suggestions: provider query normalization + cache-keyed read-through/write-through path in `toolbar_location_panel.rs`, with focused helper tests.
 - Stage 6 measurability slice landed: runtime cache metrics snapshot (`hits`/`misses`/`inserts`/`evictions`) added and covered by focused cache-module tests.
+- Stage 6 thumbnail pipeline integration landed: capture path now performs URL-validated thumbnail cache short-circuit and writes through thumbnail + URL marker metadata on successful capture intents.
 
 **2026-03-01 Revision:**
 - Stage 4b boundary tightening slice landed: GUI runtime state/helper visibility narrowed and mutating focus-state helpers are now owner-scoped to `gui.rs` with compile-time guardrails.
