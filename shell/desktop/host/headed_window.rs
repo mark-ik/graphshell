@@ -492,11 +492,12 @@ impl HeadedWindow {
                 }
             })
             .shortcut(CMD_OR_CONTROL, 'T', || {
-                window.create_and_activate_toplevel_webview(
+                let child_webview = window.create_and_activate_toplevel_webview(
                     state.clone(),
                     Url::parse("servo:newtab")
                         .expect("Should be able to unconditionally parse 'servo:newtab' as URL"),
                 );
+                window.notify_create_new_webview(active_webview.clone(), child_webview);
             })
             .shortcut(CMD_OR_CONTROL, 'Q', || state.schedule_exit())
             .otherwise(|| handled = false);
