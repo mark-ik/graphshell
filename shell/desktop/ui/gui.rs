@@ -76,6 +76,8 @@ mod toolbar_status_sync;
 mod hit_testing;
 #[path = "gui/accesskit_input.rs"]
 mod accesskit_input;
+#[path = "gui/pane_queries.rs"]
+mod pane_queries;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
@@ -652,57 +654,18 @@ impl Gui {
     fn open_or_focus_diagnostics_tool_pane(_tiles_tree: &mut Tree<TileKind>) {}
 
     fn has_active_node_pane(&self) -> bool {
-        Self::tree_has_active_node_pane(&self.tiles_tree)
-    }
-
-    fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<crate::graph::NodeKey> {
-        tiles_tree
-            .active_tiles()
-            .into_iter()
-            .find_map(|tile_id| Self::active_node_key_for_tile_id(tiles_tree, tile_id))
-    }
-
-    fn active_node_key_for_tile_id(
-        tiles_tree: &Tree<TileKind>,
-        tile_id: TileId,
-    ) -> Option<crate::graph::NodeKey> {
-        let tile = tiles_tree.tiles.get(tile_id);
-        Self::node_key_from_node_pane_tile(tile)
-    }
-
-    fn node_key_from_node_pane_tile(
-        tile: Option<&Tile<TileKind>>,
-    ) -> Option<crate::graph::NodeKey> {
-        match tile {
-            Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
-            _ => None,
-        }
+        pane_queries::tree_has_active_node_pane(&self.tiles_tree)
     }
 
     fn tree_has_active_node_pane(tiles_tree: &Tree<TileKind>) -> bool {
-        Self::active_node_pane_node(tiles_tree).is_some()
-    }
-
-    fn graph_view_ids_from_tiles(tiles_tree: &Tree<TileKind>) -> HashSet<GraphViewId> {
-        tiles_tree
-            .tiles
-            .iter()
-            .filter_map(|(_, tile)| match tile {
-                Tile::Pane(TileKind::Graph(view_id)) => Some(*view_id),
-                _ => None,
-            })
-            .collect()
+        pane_queries::tree_has_active_node_pane(tiles_tree)
     }
 
     fn reconcile_workspace_graph_views_from_tiles(
         graph_app: &mut GraphBrowserApp,
         tiles_tree: &Tree<TileKind>,
     ) {
-        let live_graph_views = Self::graph_view_ids_from_tiles(tiles_tree);
-        graph_app.reconcile_workspace_graph_views(
-            &live_graph_views,
-            tile_view_ops::active_graph_view_id(tiles_tree),
-        );
+        pane_queries::reconcile_workspace_graph_views_from_tiles(graph_app, tiles_tree);
     }
 
     /// Paint the GUI, as of the last update.
@@ -776,11 +739,11 @@ impl Gui {
     }
 
     fn has_any_node_panes(&self) -> bool {
-        Self::tree_has_any_node_panes(&self.tiles_tree)
+        pane_queries::tree_has_any_node_panes(&self.tiles_tree)
     }
 
     fn tree_has_any_node_panes(tiles_tree: &Tree<TileKind>) -> bool {
-        tile_runtime::has_any_node_panes(tiles_tree)
+        pane_queries::tree_has_any_node_panes(tiles_tree)
     }
 
     /// Returns true if a redraw is required after handling the provided event.
