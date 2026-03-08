@@ -2,11 +2,12 @@
      License, v. 2.0. If a copy of the MPL was not distributed with this
      file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
 
-# Network Architecture — iroh / Nostr / libp2p Layer Assignment
+# Network Architecture — iroh / libp2p / Nostr / WebRTC Layer Assignment
 
 **Date**: 2026-03-05
+**Updated**: 2026-03-07 — added WebRTC layer (§2.4, §3.7, §8)
 **Status**: Draft / canonical direction
-**Scope**: Protocol layer assignments for Coop, Device Sync, Verse, and identity features.
+**Scope**: Protocol layer assignments for Coop, Device Sync, Verse, identity, and real-time media features.
 
 **Related docs**:
 
@@ -18,15 +19,22 @@
 
 ## 1. Layer Assignment Summary
 
-Graphshell uses three network protocol families with distinct, non-overlapping roles:
+Graphshell uses four network protocol families with distinct, non-overlapping roles:
 
 | Layer | Protocol | Role | Features |
 | --- | --- | --- | --- |
-| **Transport** | iroh (QUIC) | Direct peer connections, real-time data | Device Sync, Coop cursor/presence, blob transfer |
+| **Transport** | iroh (QUIC) | Direct peer connections, reliable data | Device Sync, Coop cursor/presence, blob transfer |
 | **Transport (swarm)** | libp2p | Multi-peer swarm topology, DHT routing | Verse (rotating hosts, large-n spaces) |
 | **Application bus** | Nostr | Identity, event publication, social graph | User profiles, follows, DMs, relay-persisted events |
+| **Media transport** | WebRTC | Real-time audio/video/screen share | Coop screen share, synchronized video playback |
 
-These are complementary, not competing. iroh even ships a `libp2p-iroh` crate that bridges the two transport layers. Nostr sits above both — it is an application-layer messaging bus, not a transport.
+These are complementary, not competing. No two protocols in this table overlap in function:
+
+- iroh and libp2p both use QUIC but serve different scales: iroh is session-scoped (2–5 named peers, low latency), libp2p is swarm-scoped (open mesh, DHT, content routing).
+- Nostr is not a transport — it carries small signed events only, never bulk data or streams.
+- WebRTC is media-only — its SCTP data channels have worse ordering guarantees than QUIC streams for document sync; it is used only where native media handling is required.
+
+iroh ships a `libp2p-iroh` crate that bridges the two transport layers. Nostr sits above both.
 
 ---
 
@@ -52,6 +60,18 @@ libp2p adds:
 - **Multiple transports**: TCP, QUIC, WebRTC, WebSocket with protocol negotiation.
 
 libp2p is the right transport for **Verse** (see §4), where sessions involve larger peer sets, rotating hosts, and swarm replication semantics.
+
+### 2.4 WebRTC
+
+WebRTC is the browser-native real-time communication stack (ICE/STUN/TURN for NAT traversal, DTLS for encryption, SRTP for media, SCTP for data channels). Its role in Graphshell is strictly **real-time media** inside Coop sessions:
+
+- **Screen share**: host captures a Servo webview tile as a `MediaStream` and sends it to guests via WebRTC media tracks. Latency: 100–300ms typical. No iroh involvement — media is point-to-point via WebRTC.
+- **Synchronized video playback**: when the active node is a video URL, each peer plays their own local copy; playback state (`play`, `pause`, `seek`) is synchronized over a WebRTC data channel or (simpler) the existing iroh Coop event stream. WebRTC is not strictly required for sync messages — iroh handles them — but is required if the host is streaming video directly rather than each peer loading independently.
+- **WASM / browser fallback transport** (Tier 2+): if Graphshell ever runs in a browser tab, iroh's native QUIC is unavailable. WebRTC data channels (via `str0m`, a pure-Rust WebRTC stack) become the fallback P2P transport for Coop. Not in scope for any current phase.
+
+**NAT traversal**: WebRTC uses ICE (STUN + TURN). iroh uses DERP relays. Both solve the same NAT problem independently. When WebRTC is added to Coop for media, iroh handles document sync and WebRTC handles media — each uses its own hole-punching stack. The iroh connection established for the Coop session can supply the signalling channel for WebRTC SDP exchange, avoiding a separate signalling server.
+
+**Rust implementation**: `str0m` (pure Rust, no C deps) is the preferred WebRTC stack. `webrtc-rs` is an alternative but heavier. Neither is in the codebase today.
 
 ### 2.3 Nostr
 
@@ -116,6 +136,10 @@ Blossom is content-addressed file storage (SHA-256) over HTTP. Graphshell-native
 ### 3.5 Wallet export / encrypted relay blobs (NIP-44)
 
 Covered in `coop_session_spec.md §16.3`. Encrypted workspace snapshots published as Nostr addressable events (kind 30000+), NIP-44 encrypted. Key = passport, relay = storage. No infrastructure to run if using public relays.
+
+### 3.7 NIP-84 Highlights (kind 9802) — clip publication
+
+Covered in `viewer/2026-02-11_clipping_dom_extraction_plan.md §5`. When a user clips a DOM element and chooses to publish it, Graphshell signs a kind 9802 highlight event with the canonical source URL (`r` tag) and publishes to the user's relay set. This is an explicit user action — never automatic. The `nostr` mod (`mods/native/nostr`) handles signing and publication without a Lantern dependency.
 
 ### 3.6 Data Vending Machines (NIP-90) — future
 
@@ -232,6 +256,43 @@ These cannot be unified into a single keypair without a protocol change. The two
 
 The `libp2p-iroh` crate allows iroh's QUIC transport and NAT traversal to be used by a libp2p host. This means Verse's libp2p swarm can use iroh's superior hole-punching without reimplementing it. Use this bridge when implementing Verse — do not run iroh and libp2p as completely separate stacks.
 
+### WebRTC signalling over iroh
+
+WebRTC requires a signalling channel to exchange SDP offer/answer before the peer connection is established. In Graphshell, the existing iroh Coop session stream serves as the signalling channel — no separate signalling server needed. Flow:
+
+1. Host sends SDP offer as a Coop session event over iroh.
+2. Guest responds with SDP answer over the same iroh stream.
+3. ICE candidates are exchanged over iroh.
+4. WebRTC peer connection is established; media flows directly peer-to-peer (or via TURN if ICE fails).
+
+This means WebRTC in Coop requires iroh to already be connected — WebRTC is an add-on for media, not a replacement for the session transport.
+
 ### Nostr and AT Protocol coexistence
 
 `UserIdentity::DidPlc` (see `coop_session_spec.md §15.6`) is the hook for AT Protocol integration. If Graphshell ever adds public graph view sharing with Bluesky-style global discovery, `did:plc` identity enables federation with the AT Protocol AppView layer. The two identity systems do not conflict — a user can have both an `npub` and a `did:plc`, with Graphshell preferring whichever the user has configured.
+
+---
+
+## 8. WebRTC in Coop Sessions (Future / Tier 2)
+
+WebRTC media features are not in scope for any current roadmap phase. This section documents the intended design when they are added.
+
+### 8.1 Screen share
+
+The host captures one or more Servo webview tiles as a `MediaStream` (platform screen-capture API or Servo offscreen render) and transmits it to guests via WebRTC video tracks. Guests see a live render of the host's view without needing a local Servo instance for that tile. Useful for: demos, pair browsing where the guest is on low-bandwidth, presenting a node to the group.
+
+### 8.2 Synchronized video playback
+
+When the active Coop node is a video URL (YouTube, direct MP4, etc.), each peer loads the URL independently in their own local Servo webview. Playback state is synchronized over the iroh Coop event stream — not via WebRTC data channels — because iroh is already present and reliable. `CoopContribution` variants `SeekVideo { position_secs }`, `PlayVideo`, `PauseVideo` carry the playback cursor. The host's webview is the authoritative playback cursor; guests follow.
+
+WebRTC is only needed here if the host is directly streaming video frames to guests (e.g. DRM content the guest cannot load independently). In the common case (same public URL), iroh sync messages are sufficient and WebRTC is not required.
+
+### 8.3 Rust implementation path
+
+- `str0m` (pure Rust, no C deps): preferred. Handles ICE, DTLS, SRTP, SCTP. Maintained and production-tested.
+- Signalling: iroh Coop session stream (see §7 above — no separate signalling server).
+- TURN fallback: public TURN servers (Cloudflare, Twilio) or self-hosted `coturn`. Required only when ICE direct punch-through fails (~15% of connections on restricted networks).
+
+### 8.4 Scope boundary
+
+WebRTC in Graphshell is **Coop-only and media-only**. It does not replace iroh for document sync, does not replace libp2p for Verse swarm topology, and does not replace Nostr for signalling/identity. Adding WebRTC for media does not change any other layer assignment in this document.
