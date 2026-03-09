@@ -45,7 +45,9 @@ pub(crate) fn run_nav_action(
         return false;
     }
 
-    let Some(webview_id) = nav_targeting::nav_target_webview_id(graph_app, focused_toolbar_node)
+    let Some(webview_id) = window
+        .explicit_input_webview_id()
+        .or_else(|| nav_targeting::nav_target_webview_id(graph_app, focused_toolbar_node))
     else {
         return false;
     };

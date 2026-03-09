@@ -54,6 +54,7 @@ use crate::shell::desktop::host::geometry::{
 };
 use crate::shell::desktop::host::keyutils::CMD_OR_CONTROL;
 use crate::shell::desktop::host::keyutils::{CMD_OR_ALT, keyboard_event_from_winit};
+use crate::app::OpenSurfaceSource;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE,
@@ -233,8 +234,9 @@ impl HeadedWindow {
         &self.winit_window
     }
 
-    fn preferred_input_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
-        self.preferred_input_webview_id(window)
+    fn explicit_input_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
+        window
+            .explicit_input_webview_id()
             .and_then(|id| window.webview_by_id(id))
     }
 
@@ -281,7 +283,7 @@ impl HeadedWindow {
         }
 
         // Then we deliver character and keyboard events to the focused webview tile target.
-        let Some(webview) = self.preferred_input_webview(window) else {
+        let Some(webview) = self.explicit_input_webview(window) else {
             return;
         };
 
@@ -387,7 +389,7 @@ impl HeadedWindow {
         window: &EmbedderWindow,
         key_event: &KeyboardEvent,
     ) -> bool {
-        let Some(active_webview) = self.preferred_input_webview(window) else {
+        let Some(active_webview) = self.explicit_input_webview(window) else {
             return false;
         };
 
@@ -464,40 +466,13 @@ impl HeadedWindow {
                 Key::Named(NamedKey::Escape),
                 || active_webview.exit_fullscreen(),
             )
-            // Select the first 8 tabs via shortcuts
-            .shortcut(CMD_OR_CONTROL, '1', || window.activate_webview_by_index(0))
-            .shortcut(CMD_OR_CONTROL, '2', || window.activate_webview_by_index(1))
-            .shortcut(CMD_OR_CONTROL, '3', || window.activate_webview_by_index(2))
-            .shortcut(CMD_OR_CONTROL, '4', || window.activate_webview_by_index(3))
-            .shortcut(CMD_OR_CONTROL, '5', || window.activate_webview_by_index(4))
-            .shortcut(CMD_OR_CONTROL, '6', || window.activate_webview_by_index(5))
-            .shortcut(CMD_OR_CONTROL, '7', || window.activate_webview_by_index(6))
-            .shortcut(CMD_OR_CONTROL, '8', || window.activate_webview_by_index(7))
-            // Cmd/Ctrl 9 is a bit different in that it focuses the last tab instead of the 9th
-            .shortcut(CMD_OR_CONTROL, '9', || {
-                let len = window.webviews().len();
-                if len > 0 {
-                    window.activate_webview_by_index(len - 1)
-                }
-            })
-            .shortcut(Modifiers::CONTROL, Key::Named(NamedKey::PageDown), || {
-                if let Some(index) = window.get_active_webview_index() {
-                    window.activate_webview_by_index((index + 1) % window.webviews().len())
-                }
-            })
-            .shortcut(Modifiers::CONTROL, Key::Named(NamedKey::PageUp), || {
-                if let Some(index) = window.get_active_webview_index() {
-                    let len = window.webviews().len();
-                    window.activate_webview_by_index((index + len - 1) % len);
-                }
-            })
             .shortcut(CMD_OR_CONTROL, 'T', || {
-                let child_webview = window.create_and_activate_toplevel_webview(
-                    state.clone(),
-                    Url::parse("servo:newtab")
-                        .expect("Should be able to unconditionally parse 'servo:newtab' as URL"),
+                window.notify_host_open_request(
+                    "servo:newtab".to_string(),
+                    OpenSurfaceSource::KeyboardShortcut,
+                    Some(active_webview.id()),
+                    None,
                 );
-                window.notify_create_new_webview(active_webview.clone(), child_webview);
             })
             .shortcut(CMD_OR_CONTROL, 'Q', || state.schedule_exit())
             .otherwise(|| handled = false);
@@ -544,12 +519,12 @@ impl HeadedWindow {
     ) {
         // Important: this path must not borrow `self.gui`. It can be called while
         // `Gui::update` holds a mutable borrow of the same RefCell during redraw.
-        let Some(active_webview_id) = focused_input_webview_id else {
+        let Some(dialog_webview_id) = focused_input_webview_id else {
             return;
         };
         let mut all_dialogs = self.dialogs.borrow_mut();
         let had_any_active_dialog = all_dialogs.values().any(|entries| !entries.is_empty());
-        let Some(active_dialogs) = all_dialogs.get_mut(&active_webview_id) else {
+        let Some(active_dialogs) = all_dialogs.get_mut(&dialog_webview_id) else {
             return;
         };
         if active_dialogs.is_empty() {
@@ -735,10 +710,10 @@ impl HeadedWindow {
                 button: MouseButton::Forward,
                 ..
             } => {
-                if let Some(webview_id) = self.preferred_input_webview_id(&window)
+                if let Some(webview_id) = window.explicit_input_webview_id()
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
-                    window.activate_webview(webview_id);
+                    window.retarget_input_to_webview(webview_id);
                     webview.go_forward(1);
                     window.set_needs_update();
                 }
@@ -749,10 +724,10 @@ impl HeadedWindow {
                 button: MouseButton::Back,
                 ..
             } => {
-                if let Some(webview_id) = self.preferred_input_webview_id(&window)
+                if let Some(webview_id) = window.explicit_input_webview_id()
                     && let Some(webview) = window.webview_by_id(webview_id)
                 {
-                    window.activate_webview(webview_id);
+                    window.retarget_input_to_webview(webview_id);
                     webview.go_back(1);
                     window.set_needs_update();
                 }
@@ -835,7 +810,7 @@ impl HeadedWindow {
                             let mut gui = self.gui.borrow_mut();
                             let focused_node_key = gui.node_key_for_webview_id(webview_id);
                             gui.set_focused_node_key(focused_node_key);
-                            window.activate_webview(webview_id);
+                            window.retarget_input_to_webview(webview_id);
                         } else if self.gui.borrow().graph_at_point(point) {
                             self.gui.borrow_mut().focus_graph_surface();
                         }
@@ -888,8 +863,8 @@ impl HeadedWindow {
             match event {
                 WindowEvent::KeyboardInput { event, .. } => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = self.preferred_input_webview_id(&window) {
-                            window.activate_webview(webview_id);
+                        if let Some(webview_id) = window.explicit_input_webview_id() {
+                            window.retarget_input_to_webview(webview_id);
                         }
                         self.handle_keyboard_input(state.clone(), &window, event)
                     }
@@ -912,7 +887,7 @@ impl HeadedWindow {
                                 let mut gui = self.gui.borrow_mut();
                                 let focused_node_key = gui.node_key_for_webview_id(webview_id);
                                 gui.set_focused_node_key(focused_node_key);
-                                window.activate_webview(webview_id);
+                                window.retarget_input_to_webview(webview_id);
                             } else if let Some(point) = pointer_position
                                 && self.gui.borrow().graph_at_point(point)
                             {
@@ -1005,10 +980,10 @@ impl HeadedWindow {
                 }
                 WindowEvent::Touch(touch) => {
                     if !self.ui_or_dialog_capture_active() {
-                        if let Some(webview_id) = self.preferred_input_webview_id(&window)
+                        if let Some(webview_id) = window.explicit_input_webview_id()
                             && let Some(webview) = window.webview_by_id(webview_id)
                         {
-                            window.activate_webview(webview_id);
+                            window.retarget_input_to_webview(webview_id);
                             webview.notify_input_event(InputEvent::Touch(TouchEvent::new(
                                 winit_phase_to_touch_event_type(touch.phase),
                                 TouchId(touch.id as i32),
@@ -1038,7 +1013,7 @@ impl HeadedWindow {
                     window.schedule_close();
                 }
                 WindowEvent::ThemeChanged(theme) => {
-                    if let Some(webview) = self.preferred_input_webview(&window) {
+                    if let Some(webview) = self.explicit_input_webview(&window) {
                         webview.notify_theme_change(match theme {
                             winit::window::Theme::Light => Theme::Light,
                             winit::window::Theme::Dark => Theme::Dark,
@@ -1046,7 +1021,7 @@ impl HeadedWindow {
                     }
                 }
                 WindowEvent::Ime(ime) => {
-                    if let Some(webview) = self.preferred_input_webview(&window) {
+                    if let Some(webview) = self.explicit_input_webview(&window) {
                         match ime {
                             Ime::Enabled => {
                                 webview.notify_input_event(InputEvent::Ime(ImeEvent::Composition(
@@ -1112,18 +1087,6 @@ impl PlatformWindow for HeadedWindow {
         Some(self)
     }
 
-    fn preferred_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
-        if let Ok(gui) = self.gui.try_borrow() {
-            return gui
-                .focused_node_key()
-                .and_then(|node_key| gui.webview_id_for_node_key(node_key));
-        }
-
-        // Avoid nested RefCell borrows when this is queried during gui.update().
-        // Fallback to Servo's active webview in that narrow re-entrant path.
-        window.webview_collection.borrow().active_id()
-    }
-
     fn screen_geometry(&self) -> ScreenGeometry {
         let hidpi_factor = self.hidpi_scale_factor();
         let toolbar_size = Size2D::new(0.0, (self.toolbar_height() * self.hidpi_scale_factor()).0);
@@ -1162,7 +1125,7 @@ impl PlatformWindow for HeadedWindow {
 
     fn update_user_interface_state(&self, _: &RunningAppState, window: &EmbedderWindow) -> bool {
         let title = self
-            .preferred_input_webview(window)
+            .explicit_input_webview(window)
             .and_then(|webview| {
                 webview
                     .page_title()

@@ -33,7 +33,7 @@ use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
     OverlayStrokePass,
 };
-use crate::shell::desktop::workbench::pane_model::TileRenderMode;
+use crate::shell::desktop::workbench::pane_model::{PaneId, TileRenderMode};
 use crate::shell::desktop::workbench::{
     interaction_policy::{InteractionUiState, OverlaySuppressionReason},
     tile_kind::TileKind,
@@ -59,6 +59,12 @@ struct ScheduledPanePass {
 struct DegradedReceipt {
     tile_rect: egui::Rect,
     message: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FocusedNodePane {
+    pub(crate) pane_id: PaneId,
+    pub(crate) node_key: NodeKey,
 }
 
 #[derive(Default)]
@@ -372,28 +378,49 @@ pub(crate) fn focused_node_key_for_node_panes(
     _graph_app: &GraphBrowserApp,
     focused_hint: Option<NodeKey>,
 ) -> Option<NodeKey> {
+    focused_node_pane_for_node_panes(tiles_tree, _graph_app, focused_hint).map(|pane| pane.node_key)
+}
+
+fn hinted_node_pane_for_frame_activation(
+    tiles_tree: &Tree<TileKind>,
+    focused_hint: Option<NodeKey>,
+) -> Option<FocusedNodePane> {
     if let Some(node_key) = focused_hint {
-        let hint_present_in_tree = tiles_tree.tiles.iter().any(
-            |(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
-        );
-        if hint_present_in_tree {
-            return Some(node_key);
+        let hint_present_in_tree = tiles_tree.tiles.iter().find_map(|(_, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(FocusedNodePane {
+                pane_id: state.pane_id,
+                node_key,
+            }),
+            _ => None,
+        });
+        if hint_present_in_tree.is_some() {
+            return hint_present_in_tree;
         }
     }
 
-    active_node_pane_key(tiles_tree)
+    active_node_pane(tiles_tree)
+}
+
+pub(crate) fn focused_node_pane_for_node_panes(
+    tiles_tree: &Tree<TileKind>,
+    _graph_app: &GraphBrowserApp,
+    _focused_hint: Option<NodeKey>,
+) -> Option<FocusedNodePane> {
+    active_node_pane(tiles_tree)
 }
 
 pub(crate) fn node_for_frame_activation(
     tiles_tree: &Tree<TileKind>,
-    graph_app: &GraphBrowserApp,
+    _graph_app: &GraphBrowserApp,
     focused_hint: Option<NodeKey>,
 ) -> Option<NodeKey> {
-    focused_node_key_for_node_panes(tiles_tree, graph_app, focused_hint).or_else(|| {
+    hinted_node_pane_for_frame_activation(tiles_tree, focused_hint)
+        .map(|pane| pane.node_key)
+        .or_else(|| {
         active_node_pane_rects(tiles_tree)
             .first()
             .map(|(node_key, _)| *node_key)
-    })
+        })
 }
 
 fn mapped_active_node_for_activation_fallback(
@@ -439,7 +466,7 @@ pub(crate) fn activate_focused_node_for_frame(
     if let Some(node_key) = primary {
         *focused_node_hint = Some(node_key);
         if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
-            window.activate_webview(wv_id);
+            window.retarget_input_to_webview(wv_id);
         } else if let Some(fallback_node) = fallback
             && let Some(fallback_wv_id) = graph_app.get_webview_for_node(fallback_node)
         {
@@ -452,7 +479,7 @@ pub(crate) fn activate_focused_node_for_frame(
                 channel_id: CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
                 byte_len: 1,
             });
-            window.activate_webview(fallback_wv_id);
+            window.retarget_input_to_webview(fallback_wv_id);
         }
     }
 }
@@ -622,12 +649,15 @@ fn render_degraded_receipts(ctx: &egui::Context, receipts: &[DegradedReceipt]) {
     }
 }
 
-fn active_node_pane_key(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
+pub(crate) fn active_node_pane(tiles_tree: &Tree<TileKind>) -> Option<FocusedNodePane> {
     tiles_tree
         .active_tiles()
         .into_iter()
         .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Node(state))) => Some(state.node),
+            Some(Tile::Pane(TileKind::Node(state))) => Some(FocusedNodePane {
+                pane_id: state.pane_id,
+                node_key: state.node,
+            }),
             _ => None,
         })
 }
@@ -792,6 +822,32 @@ mod tests {
 
         assert_eq!(primary, Some(a));
         assert_eq!(fallback, None);
+    }
+
+    #[test]
+    fn focused_node_pane_returns_stable_pane_identity() {
+        let focused = NodeKey::new(30);
+        let other = NodeKey::new(31);
+        let tree = tree_with_two_active_nodes(focused, other);
+
+        let pane = focused_node_pane_for_node_panes(&tree, &GraphBrowserApp::new_for_testing(), Some(focused))
+            .expect("expected focused node pane");
+
+        assert_eq!(pane.node_key, other);
+        assert_ne!(pane.pane_id, PaneId::default());
+    }
+
+    #[test]
+    fn hinted_frame_activation_pane_prefers_present_hint() {
+        let focused = NodeKey::new(40);
+        let other = NodeKey::new(41);
+        let tree = tree_with_two_active_nodes(focused, other);
+
+        let pane = hinted_node_pane_for_frame_activation(&tree, Some(focused))
+            .expect("expected hinted node pane");
+
+        assert_eq!(pane.node_key, focused);
+        assert_ne!(pane.pane_id, PaneId::default());
     }
 
     #[test]

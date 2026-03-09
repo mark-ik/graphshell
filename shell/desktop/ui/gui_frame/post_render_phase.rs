@@ -95,8 +95,10 @@ pub(crate) fn run_post_render_phase<FActive>(
     let focused_dialog_webview = if graph_surface_focused {
         None
     } else {
-        tile_compositor::focused_node_key_for_node_panes(tiles_tree, graph_app, *focused_node_hint)
-            .and_then(|node_key| graph_app.get_webview_for_node(node_key))
+        window.explicit_dialog_webview_id().or_else(|| {
+            nav_targeting::active_node_pane_node(tiles_tree)
+                .and_then(|node_key| graph_app.get_webview_for_node(node_key))
+        })
     };
     headed_window.for_each_active_dialog(
         window,
@@ -140,8 +142,8 @@ pub(crate) fn run_post_render_phase<FActive>(
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
     render::render_help_panel(ctx, graph_app);
-    let focused_pane_node = focused_dialog_webview
-        .and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
+    let focused_pane_node = nav_targeting::chrome_projection_node(graph_app, window)
+        .or_else(|| focused_dialog_webview.and_then(|webview_id| graph_app.get_node_for_webview(webview_id)))
         .or_else(|| nav_targeting::active_node_pane_node(tiles_tree));
     render::render_command_palette_panel(
         ctx,

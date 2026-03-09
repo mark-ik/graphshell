@@ -163,16 +163,8 @@ impl RunningAppState {
                             Some(create_platform_window),
                         ) => {
                             let window = self.open_window(create_platform_window(url.clone()), url);
-                            let preferred_webview_id =
-                                window.platform_window().preferred_input_webview_id(&window);
-                            let webview_id = preferred_webview_id.or_else(|| {
-                                window
-                                    .webview_collection
-                                    .borrow()
-                                    .newest()
-                                    .map(|wv| wv.id())
-                            });
-                            webview_id
+                            window
+                                .explicit_input_webview_id()
                                 .and_then(|id| window.webview_by_id(id))
                                 .expect("Should have at last one WebView in new window")
                         }
@@ -200,7 +192,7 @@ impl RunningAppState {
                 }
                 WebDriverCommandMsg::FocusWebView(webview_id) => {
                     let window = self.window_for_webview_id(webview_id);
-                    window.activate_webview(webview_id);
+                    window.retarget_input_to_webview(webview_id);
                     self.focus_window(window);
                 }
                 WebDriverCommandMsg::FocusBrowsingContext(..) => {
@@ -264,9 +256,7 @@ impl RunningAppState {
                 // This is only received when start new session.
                 WebDriverCommandMsg::GetFocusedWebView(sender) => {
                     let preferred_input_webview = self.focused_window().and_then(|window| {
-                        let webview_id = window
-                            .platform_window()
-                            .preferred_input_webview_id(&window)?;
+                        let webview_id = window.explicit_input_webview_id()?;
                         window.webview_by_id(webview_id).map(|webview| webview.id())
                     });
                     if let Err(error) = sender.send(preferred_input_webview) {

@@ -18,7 +18,6 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
-use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
@@ -65,7 +64,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         graph_app,
         window,
         tiles_tree,
-        focused_node_hint,
+        focused_node_hint: _,
         graph_surface_focused,
         can_go_back,
         can_go_forward,
@@ -87,7 +86,8 @@ pub(crate) fn handle_toolbar_dialog_phase(
     let focused_toolbar_node_key = if graph_surface_focused {
         None
     } else {
-        tile_compositor::focused_node_key_for_node_panes(tiles_tree, graph_app, focused_node_hint)
+        nav_targeting::chrome_projection_node(graph_app, window)
+            .or(active_webview_node)
     };
     let focused_toolbar_node = nav_targeting::focused_toolbar_node(
         active_webview_node,

@@ -7,17 +7,26 @@ use servo::WebViewId;
 
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
+use crate::shell::desktop::host::window::{ChromeProjectionSource, EmbedderWindow};
+use crate::shell::desktop::runtime::registries;
+use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 
 /// Resolve the currently active node-pane tile, if any.
 pub(crate) fn active_node_pane_node(tiles_tree: &Tree<TileKind>) -> Option<NodeKey> {
-    tiles_tree
-        .active_tiles()
-        .into_iter()
-        .find_map(|tile_id| match tiles_tree.tiles.get(tile_id) {
-            Some(egui_tiles::Tile::Pane(TileKind::Node(state))) => Some(state.node),
-            _ => None,
-        })
+    tile_compositor::active_node_pane(tiles_tree).map(|pane| pane.node_key)
+}
+
+pub(crate) fn chrome_projection_node(
+    graph_app: &GraphBrowserApp,
+    window: &EmbedderWindow,
+) -> Option<NodeKey> {
+    match window.chrome_projection_source() {
+        Some(ChromeProjectionSource::Renderer(renderer_id)) => graph_app.get_node_for_webview(renderer_id),
+        Some(ChromeProjectionSource::Pane(pane_id)) => registries::phase1_renderer_attachment_for_pane(pane_id)
+            .and_then(|attachment| attachment.node_key),
+        None => None,
+    }
 }
 
 /// Resolve which node the toolbar/omnibar should target.
@@ -114,5 +123,21 @@ mod tests {
         let node = app.add_node_and_sync("https://unmapped.example".into(), Point2D::new(0.0, 0.0));
         assert_eq!(nav_target_webview_id(&app, Some(node)), None);
         assert_eq!(nav_target_webview_id(&app, None), None);
+    }
+
+    #[test]
+    fn test_active_node_pane_node_uses_canonical_pane_helper() {
+        let a = NodeKey::new(100);
+        let b = NodeKey::new(101);
+        let mut tiles = egui_tiles::Tiles::default();
+        let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
+        let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
+        let root = tiles.insert_tab_tile(vec![a_tile, b_tile]);
+        let mut tree = Tree::new("nav_targeting_active_node", root, tiles);
+        let _ = tree.make_active(
+            |_, tile| matches!(tile, egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == b),
+        );
+
+        assert_eq!(active_node_pane_node(&tree), Some(b));
     }
 }

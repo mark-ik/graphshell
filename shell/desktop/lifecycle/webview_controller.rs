@@ -150,7 +150,7 @@ pub(crate) fn sync_to_graph_intents(
     for (wv_id, _) in window.webviews().into_iter() {
         seen_webviews.insert(wv_id);
     }
-    let active = window.platform_window().preferred_input_webview_id(window);
+    let active = window.explicit_input_webview_id();
     reconcile_mappings_and_selection(app, &seen_webviews, active)
 }
 
@@ -388,14 +388,14 @@ pub(crate) fn handle_address_bar_submit_intents(
             };
         }
 
-        let preferred_input_webview = window.platform_window().preferred_input_webview_id(window);
+        let preferred_input_webview = window.explicit_input_webview_id();
         let (target_node, target_webview) =
             resolve_detail_submit_target(app, focused_node, preferred_input_webview);
 
         if let Some(webview_id) = target_webview
             && let Some(webview) = window.webview_by_id(webview_id)
         {
-            window.activate_webview(webview_id);
+            window.retarget_input_to_webview(webview_id);
             webview.load(parsed_url.into_url());
             window.set_needs_update();
             return AddressBarIntentOutcome {

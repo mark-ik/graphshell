@@ -9,11 +9,12 @@ pub(super) fn focused_node_key(gui: &Gui) -> Option<NodeKey> {
     if gui.runtime_state.graph_surface_focused {
         return None;
     }
-    tile_compositor::focused_node_key_for_node_panes(
+    tile_compositor::focused_node_pane_for_node_panes(
         &gui.tiles_tree,
         &gui.graph_app,
         gui.runtime_state.focused_node_hint,
     )
+    .map(|pane| pane.node_key)
 }
 
 pub(super) fn has_focused_node(gui: &Gui) -> bool {
@@ -25,8 +26,8 @@ pub(super) fn webview_id_for_node_key(gui: &Gui, node_key: NodeKey) -> Option<We
 }
 
 pub(super) fn active_tile_webview_id(gui: &Gui) -> Option<WebViewId> {
-    tile_compositor::focused_node_key_for_node_panes(&gui.tiles_tree, &gui.graph_app, None)
-        .and_then(|node_key| gui.graph_app.get_webview_for_node(node_key))
+    tile_compositor::focused_node_pane_for_node_panes(&gui.tiles_tree, &gui.graph_app, None)
+        .and_then(|pane| gui.graph_app.get_webview_for_node(pane.node_key))
 }
 
 pub(super) fn node_key_for_webview_id(gui: &Gui, webview_id: WebViewId) -> Option<NodeKey> {
