@@ -111,6 +111,8 @@ pub(crate) enum TileRenderMode {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(from = "NodePaneStateCompat")]
 pub(crate) struct NodePaneState {
+    /// Stable pane identity for this node-hosting workbench pane.
+    pub pane_id: PaneId,
     /// The node to render in this pane.
     pub node: NodeKey,
     /// Optional explicit viewer backend override. `None` delegates to `ViewerRegistry`.
@@ -123,6 +125,7 @@ pub(crate) struct NodePaneState {
 impl NodePaneState {
     pub(crate) fn for_node(node: NodeKey) -> Self {
         Self {
+            pane_id: PaneId::new(),
             node,
             viewer_id_override: None,
             render_mode: TileRenderMode::Placeholder,
@@ -131,6 +134,7 @@ impl NodePaneState {
 
     pub(crate) fn with_viewer(node: NodeKey, viewer_id: ViewerId) -> Self {
         Self {
+            pane_id: PaneId::new(),
             node,
             viewer_id_override: Some(viewer_id),
             render_mode: TileRenderMode::Placeholder,
@@ -153,6 +157,8 @@ enum NodePaneStateCompat {
     Legacy(NodeKey),
     /// Current: full `NodePaneState` struct.
     Current {
+        #[serde(default)]
+        pane_id: Option<PaneId>,
         node: NodeKey,
         viewer_id_override: Option<ViewerId>,
         #[serde(default)]
@@ -164,15 +170,18 @@ impl From<NodePaneStateCompat> for NodePaneState {
     fn from(compat: NodePaneStateCompat) -> Self {
         match compat {
             NodePaneStateCompat::Legacy(node) => Self {
+                pane_id: PaneId::new(),
                 node,
                 viewer_id_override: None,
                 render_mode: TileRenderMode::Placeholder,
             },
             NodePaneStateCompat::Current {
+                pane_id,
                 node,
                 viewer_id_override,
                 render_mode,
             } => Self {
+                pane_id: pane_id.unwrap_or_default(),
                 node,
                 viewer_id_override,
                 render_mode,
@@ -301,6 +310,7 @@ mod tests {
         let key = NodeIndex::new(0);
         let state = NodePaneState::for_node(key);
         assert_eq!(state.node, key);
+        assert_ne!(state.pane_id, PaneId::default());
         assert!(state.viewer_id_override.is_none());
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
     }
@@ -360,6 +370,16 @@ mod tests {
             state.viewer_id_override,
             Some(ViewerId::new("viewer:webview"))
         );
+        assert_eq!(state.render_mode, TileRenderMode::Placeholder);
+    }
+
+    #[test]
+    fn node_pane_state_deserializes_without_pane_id_field() {
+        let json = r#"{"node":6,"viewer_id_override":null,"render_mode":"Placeholder"}"#;
+        let state: NodePaneState = serde_json::from_str(json).unwrap();
+        use petgraph::stable_graph::NodeIndex;
+        assert_eq!(state.node, NodeIndex::new(6));
+        assert!(state.viewer_id_override.is_none());
         assert_eq!(state.render_mode, TileRenderMode::Placeholder);
     }
 

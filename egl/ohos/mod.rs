@@ -425,8 +425,7 @@ impl ServoAction {
                     NATIVE_WEBVIEWS.lock().unwrap().get(*arkts_id as usize)
                 {
                     let window = servo.window();
-                    let previous_webview_id =
-                        window.platform_window().preferred_input_webview_id(&window);
+                    let previous_webview_id = window.explicit_input_webview_id();
                     if previous_webview_id != Some(native_webview_components.id) {
                         let previous_url = previous_webview_id
                             .and_then(|id| window.webview_by_id(id))

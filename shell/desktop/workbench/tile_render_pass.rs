@@ -21,7 +21,9 @@ use super::tile_view_ops::{self, TileOpenMode};
 use crate::app::{GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
-use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::host::window::{
+    ChromeProjectionSource, DialogOwner, EmbedderWindow, InputTarget,
+};
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
@@ -29,6 +31,7 @@ use crate::shell::desktop::lifecycle::webview_backpressure::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
+use crate::shell::desktop::runtime::registries;
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,
@@ -402,13 +405,18 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         let mut runtime_viewer_creation_intents = Vec::new();
         let composited_runtime_nodes =
             tile_runtime::all_node_pane_keys_using_composited_runtime(tiles_tree, graph_app);
-        for (node_key, _) in active_tile_rects.iter().copied() {
-            if !composited_runtime_nodes.contains(&node_key) {
+        for tile_id in active_tiles.iter().copied() {
+            let Some(egui_tiles::Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
+            else {
+                continue;
+            };
+            if !composited_runtime_nodes.contains(&state.node) {
                 continue;
             }
             log::debug!(
-                "tile_render_pass: ensuring runtime viewer for active node {:?}",
-                node_key
+                "tile_render_pass: ensuring runtime viewer for active pane {:?} node {:?}",
+                state.pane_id,
+                state.node
             );
             webview_backpressure::ensure_webview_for_node(
                 graph_app,
@@ -417,7 +425,8 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 rendering_context,
                 window_rendering_context,
                 tile_rendering_contexts,
-                node_key,
+                Some(state.pane_id),
+                state.node,
                 responsive_webviews,
                 webview_creation_backpressure,
                 &mut runtime_viewer_creation_intents,
@@ -448,7 +457,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             }
         }
     }
-    let focused_node_key = if graph_surface_focused {
+    let focused_node_pane = if graph_surface_focused {
         *focused_node_hint = None;
         None
     } else {
@@ -476,14 +485,41 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 },
             );
         }
-        let focused_node_key = tile_compositor::focused_node_key_for_node_panes(
+        let focused_node_pane = tile_compositor::focused_node_pane_for_node_panes(
             tiles_tree,
             graph_app,
             *focused_node_hint,
         );
-        *focused_node_hint = focused_node_key;
-        focused_node_key
+        *focused_node_hint = focused_node_pane.map(|pane| pane.node_key);
+        focused_node_pane
     };
+
+    let focused_node_key = focused_node_pane.map(|pane| pane.node_key);
+
+    if let Some(focused_node_pane) = focused_node_pane {
+        window.set_focused_pane(Some(focused_node_pane.pane_id));
+        if let Some(attachment) =
+            registries::phase1_renderer_attachment_for_pane(focused_node_pane.pane_id)
+        {
+            window.set_input_target(Some(InputTarget::Renderer(attachment.renderer_id)));
+            window.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(
+                attachment.renderer_id,
+            )));
+            window.set_dialog_owner(Some(DialogOwner::Renderer(attachment.renderer_id)));
+        } else {
+            window.set_input_target(Some(InputTarget::Pane(focused_node_pane.pane_id)));
+            window.set_chrome_projection_source(Some(ChromeProjectionSource::Pane(
+                focused_node_pane.pane_id,
+            )));
+            window.set_dialog_owner(Some(DialogOwner::Pane(focused_node_pane.pane_id)));
+        }
+    } else {
+        window.set_focused_pane(None);
+        window.set_input_target(None);
+        window.set_chrome_projection_source(None);
+        window.set_dialog_owner(None);
+    }
+
     #[cfg(feature = "diagnostics")]
     emit_navigation_transition_when_focus_hint_changes(
         focused_node_hint_before,

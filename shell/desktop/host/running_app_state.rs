@@ -36,6 +36,7 @@ use servo::{
 use url::Url;
 
 use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
+use crate::app::PendingCreateToken;
 use crate::shell::desktop::host::embedder::EmbedderCore;
 #[cfg(all(
     feature = "gamepad",
@@ -70,10 +71,6 @@ pub struct WebViewCollection {
 
     /// The order in which the webviews were created.
     pub(crate) creation_order: Vec<WebViewId>,
-
-    /// The [`WebView`] that is currently active. This is the [`WebView`] that is shown and has
-    /// input focus.
-    active_webview_id: Option<WebViewId>,
 }
 
 impl WebViewCollection {
@@ -84,20 +81,10 @@ impl WebViewCollection {
         self.webviews.insert(id, webview);
     }
 
-    /// Removes a webview from the collection by [`WebViewId`]. If the removed [`WebView`] was the active
-    /// [`WebView`] then the next newest [`WebView`] will be activated.
+    /// Removes a webview from the collection by [`WebViewId`].
     pub fn remove(&mut self, id: WebViewId) -> Option<WebView> {
         self.creation_order.retain(|&webview_id| webview_id != id);
-        let removed_webview = self.webviews.remove(&id);
-
-        if self.active_webview_id == Some(id) {
-            self.active_webview_id = None;
-            if let Some(newest) = self.creation_order.last() {
-                self.activate_webview(*newest);
-            }
-        }
-
-        removed_webview
+        self.webviews.remove(&id)
     }
 
     pub fn get(&self, id: WebViewId) -> Option<&WebView> {
@@ -106,10 +93,6 @@ impl WebViewCollection {
 
     pub fn contains(&self, id: WebViewId) -> bool {
         self.webviews.contains_key(&id)
-    }
-
-    pub fn active_id(&self) -> Option<WebViewId> {
-        self.active_webview_id
     }
 
     /// Gets a reference to the most recently created webview, if any.
@@ -129,31 +112,16 @@ impl WebViewCollection {
     pub fn values(&self) -> impl Iterator<Item = &WebView> {
         self.webviews.values()
     }
-
-    pub(crate) fn activate_webview(&mut self, id_to_activate: WebViewId) {
-        assert!(self.creation_order.contains(&id_to_activate));
-
-        self.active_webview_id = Some(id_to_activate);
-        if let Some(webview) = self.webviews.get(&id_to_activate) {
-            webview.show();
-            webview.focus();
-        }
-    }
-
-    pub(crate) fn activate_webview_by_index(&mut self, index: usize) {
-        self.activate_webview(
-            *self
-                .creation_order
-                .get(index)
-                .expect("Tried to activate an unknown WebView"),
-        );
-    }
 }
 
 /// A command received via the user interacting with the user interface.
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
 pub(crate) enum UserInterfaceCommand {
     ReloadAll,
+}
+
+struct PendingCreateRequest {
+    request: CreateNewWebViewRequest,
 }
 
 pub(crate) struct RunningAppState {
@@ -191,6 +159,12 @@ pub(crate) struct RunningAppState {
 
     /// The [`UserContentManager`] for all `WebView`s created.
     pub(crate) user_content_manager: Rc<UserContentManager>,
+
+    /// Owned Servo child-create requests waiting for reconcile-time acceptance.
+    pending_create_requests: RefCell<HashMap<PendingCreateToken, PendingCreateRequest>>,
+
+    /// Monotonic token source for accepted child-create requests.
+    next_pending_create_token: Cell<u64>,
 
     /// Whether or not program exit has been triggered. This means that all windows
     /// will be destroyed and shutdown will start at the end of the current event loop.
@@ -290,6 +264,8 @@ impl RunningAppState {
             webdriver_receiver,
             app_preferences,
             achieved_stable_image: Default::default(),
+            pending_create_requests: Default::default(),
+            next_pending_create_token: Cell::new(1),
             exit_scheduled: Default::default(),
             user_content_manager,
             experimental_preferences_enabled,
@@ -306,8 +282,13 @@ impl RunningAppState {
             platform_window.clone(),
             self.embedder_core.graph_event_sequence_source(),
         ));
-        window.create_and_activate_toplevel_webview(self.clone(), initial_url);
         self.embedder_core.insert_window(window.clone());
+        window.notify_host_open_request(
+            initial_url.to_string(),
+            crate::app::OpenSurfaceSource::WindowBootstrap,
+            None,
+            None,
+        );
 
         // If the window already has platform focus, mark it as focused in our application state.
         if platform_window.has_platform_focus() {
@@ -386,6 +367,29 @@ impl RunningAppState {
                 __llvm_profile_write_file()
             }
         }
+    }
+
+    pub(crate) fn store_pending_create_request(
+        &self,
+        request: CreateNewWebViewRequest,
+    ) -> PendingCreateToken {
+        let token = PendingCreateToken::new(self.next_pending_create_token.get());
+        self.next_pending_create_token
+            .set(self.next_pending_create_token.get().saturating_add(1));
+        self.pending_create_requests
+            .borrow_mut()
+            .insert(token, PendingCreateRequest { request });
+        token
+    }
+
+    pub(crate) fn take_pending_create_request(
+        &self,
+        token: PendingCreateToken,
+    ) -> Option<CreateNewWebViewRequest> {
+        self.pending_create_requests
+            .borrow_mut()
+            .remove(&token)
+            .map(|entry| entry.request)
     }
 
     #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
@@ -692,9 +696,7 @@ impl RunningAppState {
             return;
         };
         let Some(active_webview) = self.focused_window().and_then(|window| {
-            let webview_id = window
-                .platform_window()
-                .preferred_input_webview_id(&window)?;
+            let webview_id = window.explicit_input_webview_id()?;
             window.webview_by_id(webview_id)
         }) else {
             return;
@@ -812,25 +814,13 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
 
     fn request_create_new(&self, parent_webview: WebView, request: CreateNewWebViewRequest) {
         let window = self.window_for_webview_id(parent_webview.id());
-        let platform_window = window.platform_window();
-        let webview = request
-            .builder(platform_window.rendering_context())
-            .hidpi_scale_factor(platform_window.hidpi_scale_factor())
-            .delegate(parent_webview.delegate())
-            .build();
-
-        webview.notify_theme_change(platform_window.theme());
-        window.add_webview(webview.clone());
-        window.notify_create_new_webview(parent_webview, webview.clone());
-
-        // When WebDriver is enabled, do not focus and raise the WebView to the top,
-        // as that is what the specification expects. Otherwise, we would like `window.open()`
-        // to create a new foreground tab
-        if self.app_preferences.webdriver_port.get().is_none() {
-            window.activate_webview(webview.id());
-        } else {
-            webview.hide();
-        }
+        let token = self.store_pending_create_request(request);
+        window.notify_host_open_request(
+            "about:blank".into(),
+            crate::app::OpenSurfaceSource::ChildWebview,
+            Some(parent_webview.id()),
+            Some(token),
+        );
     }
 
     fn notify_closed(&self, webview: WebView) {

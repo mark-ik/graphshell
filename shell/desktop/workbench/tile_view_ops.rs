@@ -480,6 +480,7 @@ pub(crate) fn toggle_tile_view(args: ToggleTileViewArgs<'_>) {
                 args.base_rendering_context,
                 args.window_rendering_context,
                 args.tile_rendering_contexts,
+                None,
                 node_key,
                 args.responsive_webviews,
                 args.webview_creation_backpressure,

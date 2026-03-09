@@ -99,7 +99,10 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         state: &RunningAppState,
         window: &EmbedderWindow,
     ) -> bool {
-        let Some(webview_id) = self.preferred_input_webview_id(window) else {
+        let newest = window.webview_collection.borrow().newest().map(|wv| wv.id());
+        let (Some(webview_id), _) =
+            resolve_input_target_webview_id(window.explicit_input_webview_id(), newest)
+        else {
             return false;
         };
         let Some(active_webview) = window.webview_by_id(webview_id) else {
@@ -395,7 +398,7 @@ impl App {
 
     fn input_target_webview_id(&self) -> Option<WebViewId> {
         let window = self.window();
-        let preferred = window.platform_window().preferred_input_webview_id(&window);
+        let preferred = window.explicit_input_webview_id();
         let newest = window
             .webview_collection
             .borrow()

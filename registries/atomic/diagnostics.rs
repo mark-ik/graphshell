@@ -46,10 +46,11 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
     CHANNEL_PROTOCOL_RESOLVE_FAILED, CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
+    CHANNEL_RENDERER_ATTACH, CHANNEL_RENDERER_DETACH,
     CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED,
     CHANNEL_REGISTER_SIGNAL_ROUTING_OBSERVER_FAILED, CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
     CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED,
-    CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED, CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED,
     CHANNEL_STARTUP_CONFIG_SNAPSHOT, CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED, CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
     CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
@@ -270,7 +271,7 @@ struct PendingInvariantToken {
     deadline_unix_ms: u64,
 }
 
-const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 12] = [
+const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 14] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED,
         schema_version: 1,
@@ -331,6 +332,16 @@ const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 12] = [
         schema_version: 1,
         severity: ChannelSeverity::Error,
     },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_RENDERER_ATTACH,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_RENDERER_DETACH,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
 ];
 
 const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 9] = [
@@ -381,7 +392,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 9] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 98] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 97] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -749,11 +760,6 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 98] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED,
-        schema_version: 1,
-        severity: ChannelSeverity::Warn,
-    },
-    DiagnosticChannelDescriptor {
-        channel_id: CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
     },

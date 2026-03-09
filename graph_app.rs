@@ -171,6 +171,30 @@ impl Default for NoteId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenSurfaceSource {
+    KeyboardShortcut,
+    ChildWebview,
+    WindowBootstrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PendingCreateToken(u64);
+
+impl PendingCreateToken {
+    pub fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostOpenRequest {
+    pub url: String,
+    pub source: OpenSurfaceSource,
+    pub parent_webview_id: Option<RendererId>,
+    pub pending_create_token: Option<PendingCreateToken>,
+}
+
 #[path = "app/selection.rs"]
 mod selection;
 pub use selection::{
@@ -189,7 +213,9 @@ mod history_runtime;
 
 #[path = "app/intents.rs"]
 mod intents;
-pub use intents::{AppCommand, GraphIntent, GraphMutation, RuntimeEvent, ViewAction};
+pub use intents::{
+    AppCommand, GraphIntent, GraphMutation, RuntimeEvent, ViewAction,
+};
 
 #[path = "app/workspace_commands.rs"]
 mod workspace_commands;
@@ -904,6 +930,9 @@ pub struct GraphWorkspace {
     /// Ordered app-command queue replacing a subset of hand-managed pending snapshot fields.
     pending_app_commands: VecDeque<AppCommand>,
 
+    /// Accepted child-webview create requests awaiting reconcile-time renderer creation.
+    pending_host_create_tokens: HashMap<NodeKey, PendingCreateToken>,
+
     /// Active graph views, keyed by ID.
     pub views: HashMap<GraphViewId, GraphViewState>,
     /// Graph-view layout manager state (slot grid + manager overlay toggle).
@@ -1174,6 +1203,7 @@ impl GraphBrowserApp {
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
                 pending_app_commands: VecDeque::new(),
+                pending_host_create_tokens: HashMap::new(),
                 camera: Camera::new(),
                 views: HashMap::new(),
                 graph_view_layout_manager: GraphViewLayoutManagerState::default(),
@@ -1277,6 +1307,7 @@ impl GraphBrowserApp {
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
                 pending_app_commands: VecDeque::new(),
+                pending_host_create_tokens: HashMap::new(),
                 camera: Camera::new(),
                 views: HashMap::new(),
                 graph_view_layout_manager: GraphViewLayoutManagerState::default(),
@@ -1884,6 +1915,9 @@ impl GraphBrowserApp {
     }
 
     fn should_capture_undo_checkpoint_for_intent(&self, intent: &GraphIntent) -> bool {
+        if matches!(intent, GraphIntent::AcceptHostOpenRequest { .. }) {
+            return true;
+        }
         let Some(mutation) = intent.as_graph_mutation() else {
             return false;
         };
@@ -2015,6 +2049,7 @@ impl GraphBrowserApp {
                 | GraphIntent::CreateNodeNearCenterAndOpen { .. }
                 | GraphIntent::CreateNodeAtUrl { .. }
                 | GraphIntent::CreateNodeAtUrlAndOpen { .. }
+                | GraphIntent::AcceptHostOpenRequest { .. }
                 | GraphIntent::RemoveSelectedNodes
                 | GraphIntent::ClearGraph
                 | GraphIntent::CreateUserGroupedEdge { .. }
@@ -2130,6 +2165,9 @@ impl GraphBrowserApp {
                 let key = self.add_node_and_sync(url, position);
                 self.select_node(key, false);
                 self.request_open_node_tile_mode(key, mode);
+            }
+            GraphIntent::AcceptHostOpenRequest { request } => {
+                self.handle_host_open_request(request);
             }
             GraphIntent::CreateNoteForNode { key, title } => {
                 let _ = self.create_note_for_node(key, title);
@@ -3205,6 +3243,7 @@ impl GraphBrowserApp {
         self.workspace.runtime_block_state.clear();
         self.workspace.active_webview_nodes.clear();
         self.workspace.pending_app_commands.clear();
+        self.workspace.pending_host_create_tokens.clear();
         self.clear_choose_frame_picker();
         self.set_pending_camera_command(None, Some(CameraCommand::Fit));
         self.clear_pending_wheel_zoom_delta();

@@ -5,11 +5,15 @@ pub(crate) mod knowledge;
 pub(crate) mod lens;
 pub(crate) mod nostr_core;
 pub(crate) mod protocol;
+pub(crate) mod renderer;
 pub(crate) mod signal_routing;
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
-use crate::app::{GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RuntimeEvent};
+use crate::app::{
+    GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RendererId, RuntimeEvent,
+};
+use crate::graph::NodeKey;
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::atomic::diagnostics;
@@ -23,6 +27,7 @@ use crate::registries::domain::layout::viewer_surface::{
 };
 use crate::registries::infrastructure::ModRegistry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use action::{
     ACTION_DETAIL_VIEW_SUBMIT, ACTION_GRAPH_VIEW_SUBMIT, ACTION_OMNIBOX_NODE_SEARCH,
     ACTION_VERSE_FORGET_DEVICE, ACTION_VERSE_PAIR_DEVICE, ACTION_VERSE_SHARE_WORKSPACE,
@@ -39,6 +44,7 @@ use nostr_core::{
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
 };
+use renderer::{PaneAttachment, RendererRegistry, RendererRegistryError};
 use servo::ServoUrl;
 use signal_routing::{
     ObserverId, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource, SignalTopic,
@@ -67,6 +73,8 @@ pub(crate) const CHANNEL_ACTION_EXECUTE_FAILED: &str = "registry.action.execute_
 pub(crate) const CHANNEL_INPUT_BINDING_RESOLVED: &str = "registry.input.binding_resolved";
 pub(crate) const CHANNEL_INPUT_BINDING_MISSING: &str = "registry.input.binding_missing";
 pub(crate) const CHANNEL_INPUT_BINDING_CONFLICT: &str = "registry.input.binding_conflict";
+pub(crate) const CHANNEL_RENDERER_ATTACH: &str = "registry.renderer.attach";
+pub(crate) const CHANNEL_RENDERER_DETACH: &str = "registry.renderer.detach";
 pub(crate) const CHANNEL_LENS_RESOLVE_SUCCEEDED: &str = "registry.lens.resolve_succeeded";
 pub(crate) const CHANNEL_LENS_RESOLVE_FAILED: &str = "registry.lens.resolve_failed";
 pub(crate) const CHANNEL_LENS_FALLBACK_USED: &str = "registry.lens.fallback_used";
@@ -199,8 +207,6 @@ pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE: &
     "diagnostics.compositor_bridge_probe.presentation_us_sample";
 pub(crate) const CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED: &str =
     "compositor.focus_activation.deferred";
-pub(crate) const CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED: &str =
-    "semantic.intent.create_new_webview_unmapped";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE: &str =
     "compositor.overlay.style.rect_stroke";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY: &str =
@@ -301,6 +307,8 @@ pub(crate) struct RegistryRuntime {
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
     protocol: ProtocolRegistry,
+    #[allow(dead_code)]
+    renderer: Mutex<RendererRegistry>,
     viewer: ViewerRegistry,
     pub(crate) knowledge: KnowledgeRegistry,
 }
@@ -410,6 +418,26 @@ pub(crate) fn phase3_nostr_report_intent_rejected(byte_len: usize) {
     runtime().nostr_core.report_intent_rejected(byte_len);
 }
 
+pub(crate) fn phase1_renderer_attachment_for_pane(pane_id: PaneId) -> Option<PaneAttachment> {
+    runtime().renderer_attachment_for_pane(pane_id)
+}
+
+pub(crate) fn phase1_pane_for_renderer(renderer_id: RendererId) -> Option<PaneId> {
+    runtime().pane_for_renderer(renderer_id)
+}
+
+pub(crate) fn phase1_attach_renderer(
+    pane_id: PaneId,
+    renderer_id: RendererId,
+    node_key: Option<NodeKey>,
+) -> Result<(), RendererRegistryError> {
+    runtime().accept_renderer_attachment(pane_id, renderer_id, node_key)
+}
+
+pub(crate) fn phase1_detach_renderer(renderer_id: RendererId) -> Option<PaneAttachment> {
+    runtime().detach_renderer_attachment(renderer_id)
+}
+
 impl RegistryRuntime {
     fn build_provider_wired_registries(
         protocol_providers: &ProtocolHandlerProviders,
@@ -444,6 +472,7 @@ impl RegistryRuntime {
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
+            renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
             knowledge: KnowledgeRegistry::default(),
         }
@@ -497,9 +526,60 @@ impl RegistryRuntime {
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
+            renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
             knowledge: KnowledgeRegistry::default(),
         }
+    }
+
+    fn accept_renderer_attachment(
+        &self,
+        pane_id: PaneId,
+        renderer_id: RendererId,
+        node_key: Option<NodeKey>,
+    ) -> Result<(), RendererRegistryError> {
+        let result = self
+            .renderer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .accept(pane_id, renderer_id, node_key);
+        if result.is_ok() {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_RENDERER_ATTACH,
+                byte_len: 1,
+            });
+        }
+        result
+    }
+
+    fn detach_renderer_attachment(&self, renderer_id: RendererId) -> Option<PaneAttachment> {
+        let result = self
+            .renderer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .detach(renderer_id);
+        if result.is_some() {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_RENDERER_DETACH,
+                byte_len: 1,
+            });
+        }
+        result
+    }
+
+    fn renderer_attachment_for_pane(&self, pane_id: PaneId) -> Option<PaneAttachment> {
+        self.renderer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .renderer_for_pane(&pane_id)
+            .cloned()
+    }
+
+    fn pane_for_renderer(&self, renderer_id: RendererId) -> Option<PaneId> {
+        self.renderer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pane_for_renderer(&renderer_id)
     }
 
     pub(crate) fn observe_navigation_url_with_control(
@@ -1966,11 +2046,6 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED)
-        );
-        assert!(
-            channels
-                .iter()
-                .any(|entry| entry.channel_id == CHANNEL_SEMANTIC_CREATE_NEW_WEBVIEW_UNMAPPED)
         );
         assert!(
             channels

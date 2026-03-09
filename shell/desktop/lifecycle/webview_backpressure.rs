@@ -15,10 +15,11 @@ use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeBlockReaso
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::infrastructure::mod_loader;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
-use crate::shell::desktop::host::window::EmbedderWindow;
+use crate::shell::desktop::host::window::{EmbedderWindow, WebViewCreationContext};
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_MOD_LOAD_FAILED;
+use crate::shell::desktop::runtime::registries::{self, CHANNEL_MOD_LOAD_FAILED};
+use crate::shell::desktop::workbench::pane_model::PaneId;
 
 // Pragmatic Phase A backpressure:
 // Servo webview creation is not fallible in the embedder API, so we infer failure
@@ -107,6 +108,7 @@ pub(crate) fn ensure_webview_for_node(
     base_rendering_context: &Rc<OffscreenRenderingContext>,
     window_rendering_context: &Rc<WindowRenderingContext>,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
+    pane_id: Option<PaneId>,
     node_key: NodeKey,
     responsive_webviews: &HashSet<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
@@ -220,9 +222,43 @@ pub(crate) fn ensure_webview_for_node(
             Rc::new(window_rendering_context.offscreen_context(base_rendering_context.size()))
         })
         .clone();
-    let url = Url::parse(&node_url).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
-    let webview =
-        window.create_toplevel_webview_with_context(running_state.clone(), url, render_context);
+    let pending_create_token = graph_app.take_pending_host_create_token(node_key);
+    let webview = if let Some(token) = pending_create_token {
+        let Some(request) = running_state.take_pending_create_request(token) else {
+            warn!(
+                "accepted child create token {:?} for node {:?} was missing at reconcile time",
+                token,
+                node_key
+            );
+            return;
+        };
+
+        let webview = request
+            .builder(render_context)
+            .hidpi_scale_factor(window.platform_window().hidpi_scale_factor())
+            .delegate(running_state.clone().webview_delegate())
+            .build();
+        webview.notify_theme_change(window.platform_window().theme());
+        window.add_webview(webview.clone());
+        webview
+    } else {
+        let url = Url::parse(&node_url).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
+        window.create_toplevel_webview_with_context(running_state.clone(), url, render_context)
+    };
+    if let Some(pane_id) = pane_id
+        && let Err(error) =
+            registries::phase1_attach_renderer(pane_id, webview.id(), Some(node_key))
+    {
+        warn!(
+            "renderer registry rejected pane {:?} -> webview {:?} attachment for node {:?}: {:?}",
+            pane_id,
+            webview.id(),
+            node_key,
+            error
+        );
+        window.close_webview(webview.id());
+        return;
+    }
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_event(
         crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {

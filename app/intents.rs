@@ -8,7 +8,8 @@ use crate::graph::{EdgeType, NodeKey};
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand,
     FileTreeContainmentRelationSource, FileTreeSortMode, GraphViewId, GraphViewLayoutDirection,
-    KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel, NoteId,
+    HostOpenRequest, KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel,
+    NoteId,
     PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode, RendererId,
     SelectionUpdateMode, ToolSurfaceReturnTarget,
     UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
@@ -290,6 +291,9 @@ pub enum RuntimeEvent {
         reason: String,
         has_backtrace: bool,
     },
+    HostOpenRequest {
+        request: HostOpenRequest,
+    },
     ClearHistoryTimeline,
     ClearHistoryDissolved,
     ExportHistoryTimeline,
@@ -373,6 +377,9 @@ pub enum GraphIntent {
         url: String,
         position: Point2D<f32>,
         mode: PendingTileOpenMode,
+    },
+    AcceptHostOpenRequest {
+        request: HostOpenRequest,
     },
     RemoveSelectedNodes,
     ClearGraph,
@@ -798,6 +805,7 @@ impl From<RuntimeEvent> for GraphIntent {
                 reason,
                 has_backtrace,
             },
+            RuntimeEvent::HostOpenRequest { request } => Self::AcceptHostOpenRequest { request },
             RuntimeEvent::ClearHistoryTimeline => Self::ClearHistoryTimeline,
             RuntimeEvent::ClearHistoryDissolved => Self::ClearHistoryDissolved,
             RuntimeEvent::ExportHistoryTimeline => Self::ExportHistoryTimeline,
@@ -916,6 +924,7 @@ impl GraphIntent {
                 position: *position,
                 mode: *mode,
             }),
+            Self::AcceptHostOpenRequest { .. } => None,
             Self::RemoveSelectedNodes => Some(GraphMutation::RemoveSelectedNodes),
             Self::ClearGraph => Some(GraphMutation::ClearGraph),
             Self::SetNodeUrl { key, new_url } => Some(GraphMutation::SetNodeUrl {

@@ -1,6 +1,33 @@
 use super::*;
 
 impl GraphBrowserApp {
+    pub(crate) fn handle_host_open_request(&mut self, request: HostOpenRequest) {
+        let parent_node = request
+            .parent_webview_id
+            .and_then(|webview_id| self.get_node_for_webview(webview_id));
+        let position = self.position_for_host_open(parent_node, request.source);
+        let node_url = match request.source {
+            OpenSurfaceSource::ChildWebview
+                if request.url.is_empty() || request.url == "about:blank" =>
+            {
+                self.next_placeholder_url()
+            }
+            _ if request.url.is_empty() => self.next_placeholder_url(),
+            _ => request.url,
+        };
+
+        let child_node = self.add_node_and_sync(node_url, position);
+        self.select_node(child_node, false);
+        self.request_open_node_tile_mode(child_node, PendingTileOpenMode::Tab);
+
+        if let Some(token) = request.pending_create_token {
+            self.workspace.pending_host_create_tokens.insert(child_node, token);
+        }
+        if let Some(parent_key) = parent_node {
+            let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
+        }
+    }
+
     pub(crate) fn handle_webview_created(
         &mut self,
         parent_webview_id: RendererId,
@@ -45,6 +72,36 @@ impl GraphBrowserApp {
         if let Some(parent_key) = parent_node {
             let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
         }
+    }
+
+    fn position_for_host_open(
+        &self,
+        parent_node: Option<NodeKey>,
+        source: OpenSurfaceSource,
+    ) -> Point2D<f32> {
+        if source == OpenSurfaceSource::ChildWebview {
+            if let Some(parent_key) = parent_node {
+                use rand::Rng;
+
+                let mut rng = rand::thread_rng();
+                let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
+                let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
+                return self
+                    .workspace
+                    .domain
+                    .graph
+                    .node_projected_position(parent_key)
+                    .map(|position| {
+                        Point2D::new(
+                            position.x + 140.0 + jitter_x,
+                            position.y + 80.0 + jitter_y,
+                        )
+                    })
+                    .unwrap_or_else(|| Point2D::new(400.0, 300.0));
+            }
+        }
+
+        Point2D::new(400.0, 300.0)
     }
 
     pub(crate) fn handle_webview_url_changed(&mut self, webview_id: RendererId, new_url: String) {
@@ -206,6 +263,20 @@ impl GraphBrowserApp {
 
     pub fn get_node_for_webview(&self, webview_id: RendererId) -> Option<NodeKey> {
         self.workspace.webview_to_node.get(&webview_id).copied()
+    }
+
+    pub(crate) fn take_pending_host_create_token(
+        &mut self,
+        node_key: NodeKey,
+    ) -> Option<PendingCreateToken> {
+        self.workspace.pending_host_create_tokens.remove(&node_key)
+    }
+
+    pub(crate) fn pending_host_create_token(
+        &self,
+        node_key: NodeKey,
+    ) -> Option<PendingCreateToken> {
+        self.workspace.pending_host_create_tokens.get(&node_key).copied()
     }
 
     pub fn runtime_block_state_for_node(&self, node_key: NodeKey) -> Option<&RuntimeBlockState> {
@@ -503,5 +574,67 @@ impl GraphBrowserApp {
             evicted.push(key);
         }
         evicted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_webview_id() -> RendererId {
+        #[cfg(not(target_os = "ios"))]
+        {
+            thread_local! {
+                static NS_INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+            }
+            NS_INSTALLED.with(|cell| {
+                if !cell.get() {
+                    base::id::PipelineNamespace::install(base::id::PipelineNamespaceId(42));
+                    cell.set(true);
+                }
+            });
+            servo::WebViewId::new(base::id::PainterId::next())
+        }
+        #[cfg(target_os = "ios")]
+        {
+            Default::default()
+        }
+    }
+
+    #[test]
+    fn child_host_open_request_links_parent_and_queues_pending_create() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let parent = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://parent.example".into(), Point2D::new(10.0, 20.0));
+        let parent_webview = test_webview_id();
+        let token = PendingCreateToken::new(7);
+        app.map_webview_to_node(parent_webview, parent);
+
+        let edges_before = app.workspace.domain.graph.edge_count();
+        app.handle_host_open_request(HostOpenRequest {
+            url: "about:blank".into(),
+            source: OpenSurfaceSource::ChildWebview,
+            parent_webview_id: Some(parent_webview),
+            pending_create_token: Some(token),
+        });
+
+        let pending_open = app
+            .take_pending_open_node_request()
+            .expect("child host open should queue an open request");
+        assert_eq!(pending_open.mode, PendingTileOpenMode::Tab);
+        assert_eq!(app.workspace.domain.graph.edge_count(), edges_before + 1);
+        assert_eq!(app.pending_host_create_token(pending_open.key), Some(token));
+        assert!(
+            app.workspace
+                .domain
+                .graph
+                .get_node(pending_open.key)
+                .unwrap()
+                .url
+                .starts_with("about:blank#")
+        );
     }
 }

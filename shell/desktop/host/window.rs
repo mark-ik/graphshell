@@ -19,10 +19,12 @@ use servo::{
 };
 use url::Url;
 
-use crate::app::RendererId;
+use crate::app::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId};
 use crate::shell::desktop::host::running_app_state::{
     RunningAppState, UserInterfaceCommand, WebViewCollection,
 };
+use crate::shell::desktop::runtime::registries;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 #[cfg(all(
     feature = "diagnostics",
     not(any(target_os = "android", target_env = "ohos"))
@@ -77,16 +79,32 @@ pub(crate) enum GraphSemanticEventKind {
         webview_id: RendererId,
         title: Option<String>,
     },
-    CreateNewWebView {
-        parent_webview_id: RendererId,
-        child_webview_id: RendererId,
-        initial_url: Option<String>,
+    HostOpenRequest {
+        request: HostOpenRequest,
     },
     WebViewCrashed {
         webview_id: RendererId,
         reason: String,
         has_backtrace: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InputTarget {
+    Pane(PaneId),
+    Renderer(RendererId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChromeProjectionSource {
+    Pane(PaneId),
+    Renderer(RendererId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DialogOwner {
+    Pane(PaneId),
+    Renderer(RendererId),
 }
 
 pub(crate) struct EmbedderWindow {
@@ -109,6 +127,14 @@ pub(crate) struct EmbedderWindow {
     pending_thumbnail_capture_requests: RefCell<Vec<WebViewId>>,
     /// Pending graph semantic events emitted from delegate callbacks.
     pending_graph_events: RefCell<Vec<GraphSemanticEvent>>,
+    /// Explicit focused pane placeholder for servoshell debt-clear.
+    focused_pane: Cell<Option<PaneId>>,
+    /// Explicit input-target placeholder for servoshell debt-clear.
+    input_target: Cell<Option<InputTarget>>,
+    /// Explicit chrome-projection placeholder for servoshell debt-clear.
+    chrome_projection_source: Cell<Option<ChromeProjectionSource>>,
+    /// Explicit dialog-owner placeholder for servoshell debt-clear.
+    dialog_owner: Cell<Option<DialogOwner>>,
     /// Global sequence source so graph semantic event order is deterministic across windows.
     graph_event_sequence: Arc<AtomicU64>,
     /// Optional runtime tracing for delegate/event ordering diagnostics.
@@ -135,6 +161,10 @@ impl EmbedderWindow {
             pending_favicon_loads: Default::default(),
             pending_thumbnail_capture_requests: Default::default(),
             pending_graph_events: Default::default(),
+            focused_pane: Cell::new(None),
+            input_target: Cell::new(None),
+            chrome_projection_source: Cell::new(None),
+            dialog_owner: Cell::new(None),
             graph_event_sequence,
             trace_graph_events: std::env::var_os("GRAPHSHELL_TRACE_DELEGATE_EVENTS").is_some(),
             trace_graph_events_started_at: Instant::now(),
@@ -145,15 +175,6 @@ impl EmbedderWindow {
 
     pub(crate) fn id(&self) -> EmbedderWindowId {
         self.platform_window().id()
-    }
-
-    pub(crate) fn create_and_activate_toplevel_webview<T>(&self, state: Rc<T>, url: Url) -> WebView
-    where
-        T: WebViewCreationContext + 'static,
-    {
-        let webview = self.create_toplevel_webview(state, url);
-        self.activate_webview(webview.id());
-        webview
     }
 
     pub(crate) fn create_toplevel_webview<T>(&self, state: Rc<T>, url: Url) -> WebView
@@ -190,7 +211,7 @@ impl EmbedderWindow {
 
     /// Repaint the focused [`WebView`].
     pub(crate) fn repaint_webviews(&self) {
-        let Some(webview_id) = self.platform_window().preferred_input_webview_id(self) else {
+        let Some(webview_id) = self.explicit_input_webview_id() else {
             return;
         };
         let Some(webview) = self.webview_by_id(webview_id) else {
@@ -239,6 +260,119 @@ impl EmbedderWindow {
         self.platform_window.focus()
     }
 
+    pub(crate) fn focused_pane(&self) -> Option<PaneId> {
+        self.focused_pane.get()
+    }
+
+    pub(crate) fn set_focused_pane(&self, pane_id: Option<PaneId>) {
+        self.focused_pane.set(pane_id);
+    }
+
+    pub(crate) fn input_target(&self) -> Option<InputTarget> {
+        self.input_target.get()
+    }
+
+    pub(crate) fn set_input_target(&self, target: Option<InputTarget>) {
+        self.input_target.set(target);
+    }
+
+    pub(crate) fn chrome_projection_source(&self) -> Option<ChromeProjectionSource> {
+        self.chrome_projection_source.get()
+    }
+
+    pub(crate) fn set_chrome_projection_source(
+        &self,
+        source: Option<ChromeProjectionSource>,
+    ) {
+        self.chrome_projection_source.set(source);
+    }
+
+    pub(crate) fn dialog_owner(&self) -> Option<DialogOwner> {
+        self.dialog_owner.get()
+    }
+
+    pub(crate) fn set_dialog_owner(&self, owner: Option<DialogOwner>) {
+        self.dialog_owner.set(owner);
+    }
+
+    pub(crate) fn explicit_input_webview_id(&self) -> Option<WebViewId> {
+        match self.input_target() {
+            Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
+            Some(InputTarget::Pane(pane_id)) => {
+                registries::phase1_renderer_attachment_for_pane(pane_id)
+                    .map(|attachment| attachment.renderer_id)
+            }
+            None => self.focused_pane().and_then(|pane_id| {
+                registries::phase1_renderer_attachment_for_pane(pane_id)
+                    .map(|attachment| attachment.renderer_id)
+            }),
+        }
+    }
+
+    pub(crate) fn explicit_dialog_webview_id(&self) -> Option<WebViewId> {
+        match self.dialog_owner() {
+            Some(DialogOwner::Renderer(renderer_id)) => Some(renderer_id),
+            Some(DialogOwner::Pane(pane_id)) => {
+                registries::phase1_renderer_attachment_for_pane(pane_id)
+                    .map(|attachment| attachment.renderer_id)
+            }
+            None => self.explicit_input_webview_id(),
+        }
+    }
+
+    fn sync_explicit_targets_for_webview(&self, webview_id: WebViewId) {
+        let pane_id = registries::phase1_pane_for_renderer(webview_id);
+        self.set_focused_pane(pane_id);
+        self.set_input_target(Some(InputTarget::Renderer(webview_id)));
+        self.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(webview_id)));
+        self.set_dialog_owner(Some(DialogOwner::Renderer(webview_id)));
+    }
+
+    pub(crate) fn retarget_input_to_webview(&self, webview_id: WebViewId) {
+        self.sync_explicit_targets_for_webview(webview_id);
+        self.set_needs_update();
+    }
+
+    fn clear_explicit_targets_for_closed_webview(
+        &self,
+        webview_id: WebViewId,
+        detached_pane_id: Option<PaneId>,
+    ) {
+        if self.focused_pane() == detached_pane_id {
+            self.set_focused_pane(None);
+        }
+
+        if matches!(
+            self.input_target(),
+            Some(InputTarget::Renderer(renderer_id)) if renderer_id == webview_id
+        ) || matches!(
+            (self.input_target(), detached_pane_id),
+            (Some(InputTarget::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
+        ) {
+            self.set_input_target(None);
+        }
+
+        if matches!(
+            self.chrome_projection_source(),
+            Some(ChromeProjectionSource::Renderer(renderer_id)) if renderer_id == webview_id
+        ) || matches!(
+            (self.chrome_projection_source(), detached_pane_id),
+            (Some(ChromeProjectionSource::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
+        ) {
+            self.set_chrome_projection_source(None);
+        }
+
+        if matches!(
+            self.dialog_owner(),
+            Some(DialogOwner::Renderer(renderer_id)) if renderer_id == webview_id
+        ) || matches!(
+            (self.dialog_owner(), detached_pane_id),
+            (Some(DialogOwner::Pane(pane_id)), Some(detached_pane_id)) if pane_id == detached_pane_id
+        ) {
+            self.set_dialog_owner(None);
+        }
+    }
+
     pub(crate) fn add_webview(&self, webview: WebView) {
         self.webview_collection.borrow_mut().add(webview);
         self.set_needs_update();
@@ -256,29 +390,6 @@ impl EmbedderWindow {
             .all_in_creation_order()
             .map(|(id, webview)| (id, webview.clone()))
             .collect()
-    }
-
-    pub(crate) fn activate_webview(&self, webview_id: WebViewId) {
-        self.webview_collection
-            .borrow_mut()
-            .activate_webview(webview_id);
-        self.set_needs_update();
-    }
-
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
-    pub(crate) fn activate_webview_by_index(&self, index_to_activate: usize) {
-        self.webview_collection
-            .borrow_mut()
-            .activate_webview_by_index(index_to_activate);
-        self.set_needs_update();
-    }
-
-    #[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
-    pub(crate) fn get_active_webview_index(&self) -> Option<usize> {
-        let active_id = self.webview_collection.borrow().active_id()?;
-        self.webviews()
-            .iter()
-            .position(|webview| webview.0 == active_id)
     }
 
     pub(crate) fn update_and_request_repaint_if_necessary(&self, state: &RunningAppState) {
@@ -304,6 +415,11 @@ impl EmbedderWindow {
         if webview_collection.remove(webview_id).is_none() {
             return;
         }
+        let detached_attachment = registries::phase1_detach_renderer(webview_id);
+        self.clear_explicit_targets_for_closed_webview(
+            webview_id,
+            detached_attachment.map(|attachment| attachment.pane_id),
+        );
         self.platform_window
             .dismiss_embedder_controls_for_webview(webview_id);
 
@@ -407,31 +523,20 @@ impl EmbedderWindow {
         self.set_needs_update();
     }
 
-    pub(crate) fn notify_create_new_webview(
+    pub(crate) fn notify_host_open_request(
         &self,
-        parent_webview: WebView,
-        child_webview: WebView,
+        url: String,
+        source: OpenSurfaceSource,
+        parent_webview_id: Option<RendererId>,
+        pending_create_token: Option<PendingCreateToken>,
     ) {
-        let event = self.new_graph_semantic_event(GraphSemanticEventKind::CreateNewWebView {
-            parent_webview_id: parent_webview.id(),
-            child_webview_id: child_webview.id(),
-            initial_url: child_webview.url().map(|u| u.to_string()),
-        });
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        diagnostics::emit_event(DiagnosticEvent::MessageSent {
-            channel_id: "window.graph_event.create_new_webview",
-            byte_len: 1,
-        });
-        #[cfg(all(
-            feature = "diagnostics",
-            not(any(target_os = "android", target_env = "ohos"))
-        ))]
-        diagnostics::emit_event(DiagnosticEvent::MessageSent {
-            channel_id: "servo.delegate.create_new_webview",
-            byte_len: 1,
+        let event = self.new_graph_semantic_event(GraphSemanticEventKind::HostOpenRequest {
+            request: HostOpenRequest {
+                url,
+                source,
+                parent_webview_id,
+                pending_create_token,
+            },
         });
         self.trace_graph_semantic_event(&event);
         self.pending_graph_events.borrow_mut().push(event);
@@ -572,18 +677,14 @@ impl EmbedderWindow {
                     title.as_deref().is_some_and(|t| !t.is_empty())
                 );
             }
-            GraphSemanticEventKind::CreateNewWebView {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            } => {
+            GraphSemanticEventKind::HostOpenRequest { request } => {
                 debug!(
-                    "graph_event_trace seq={} t_ms={} kind=create_new parent={:?} child={:?} initial_url_present={}",
+                    "graph_event_trace seq={} t_ms={} kind=host_open_request url={} source={:?} parent={:?}",
                     event.seq,
                     elapsed_ms,
-                    parent_webview_id,
-                    child_webview_id,
-                    initial_url.as_deref().is_some_and(|u| !u.is_empty())
+                    request.url,
+                    request.source,
+                    request.parent_webview_id
                 );
             }
             GraphSemanticEventKind::WebViewCrashed {
@@ -740,10 +841,10 @@ pub(crate) trait PlatformWindow {
     fn notify_crashed(&self, _: WebView, _reason: String, _backtrace: Option<String>) {}
     fn show_console_message(&self, _level: ConsoleLogLevel, _message: &str) {}
     /// Preferred webview target for user-input-like routing on this platform window.
-    /// Defaults to the window-global active id; headed graphshell overrides this to use
-    /// tile-focused targeting.
+    /// Defaults to explicit host ownership; headed graphshell overrides this to use
+    /// GUI focus as a secondary compatibility bridge.
     fn preferred_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
-        window.webview_collection.borrow().active_id()
+        window.explicit_input_webview_id()
     }
 
     #[cfg(not(any(target_os = "android", target_env = "ohos")))]

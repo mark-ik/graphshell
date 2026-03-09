@@ -144,6 +144,7 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
                 rendering_context,
                 window_rendering_context,
                 tile_rendering_contexts,
+                None,
                 selected_key,
                 responsive_webviews,
                 webview_creation_backpressure,
