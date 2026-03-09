@@ -73,6 +73,7 @@ impl TestRegistry {
             pane_id: format!("pane:{key:?}"),
             node_key: key,
             render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture,
+            estimated_content_bytes: 0,
             rect,
             mapped_webview,
             has_context,

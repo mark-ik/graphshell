@@ -78,6 +78,10 @@ struct CompositedPassCounters {
 
 const DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME: usize = 32 * 1024 * 1024;
 
+pub(crate) fn composited_content_budget_bytes_per_frame() -> usize {
+    DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CompositedContentSignature {
     webview_id: servo::WebViewId,
@@ -170,6 +174,13 @@ fn estimated_tile_content_bytes(tile_rect: egui::Rect, pixels_per_point: f32) ->
     let width_px = (tile_rect.width().max(0.0) * pixels_per_point).ceil() as usize;
     let height_px = (tile_rect.height().max(0.0) * pixels_per_point).ceil() as usize;
     width_px.saturating_mul(height_px).saturating_mul(4)
+}
+
+pub(crate) fn estimated_composited_tile_content_bytes(
+    tile_rect: egui::Rect,
+    pixels_per_point: f32,
+) -> usize {
+    estimated_tile_content_bytes(tile_rect, pixels_per_point)
 }
 
 fn format_gpu_pressure_degraded_receipt(

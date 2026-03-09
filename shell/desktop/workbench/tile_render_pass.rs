@@ -593,10 +593,19 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                         mapped_webview,
                         has_context,
                     );
+                let estimated_content_bytes = if render_mode == crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture {
+                    crate::shell::desktop::workbench::tile_compositor::estimated_composited_tile_content_bytes(
+                        *rect,
+                        ctx.pixels_per_point(),
+                    )
+                } else {
+                    0
+                };
                 crate::shell::desktop::runtime::diagnostics::CompositorTileSample {
                     pane_id: pane_id.to_string(),
                     node_key: *node_key,
                     render_mode,
+                    estimated_content_bytes,
                     rect: *rect,
                     mapped_webview,
                     has_context,

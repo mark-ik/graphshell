@@ -199,6 +199,7 @@ pub(crate) struct CompositorTileSample {
     pub(crate) pane_id: String,
     pub(crate) node_key: NodeKey,
     pub(crate) render_mode: TileRenderMode,
+    pub(crate) estimated_content_bytes: usize,
     pub(crate) rect: egui::Rect,
     pub(crate) mapped_webview: bool,
     pub(crate) has_context: bool,
@@ -987,6 +988,17 @@ impl DiagnosticsState {
             self.channel_count(CHANNEL_COMPOSITOR_CONTENT_CULLED_OFFVIEWPORT);
         let degradation_gpu_pressure_count =
             self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE);
+        let degradation_gpu_pressure_bytes_total = self
+            .diagnostic_graph
+            .message_bytes_sent
+            .get(CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE)
+            .copied()
+            .unwrap_or(0);
+        let avg_degradation_gpu_pressure_bytes = if degradation_gpu_pressure_count == 0 {
+            0
+        } else {
+            degradation_gpu_pressure_bytes_total / degradation_gpu_pressure_count
+        };
         let degradation_placeholder_mode_count =
             self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE);
         let resource_reuse_context_hit_count =
@@ -1024,6 +1036,8 @@ impl DiagnosticsState {
             "skip_rate_sample_count": skip_rate_sample_count,
             "content_culled_offviewport_count": content_culled_offviewport_count,
             "degradation_gpu_pressure_count": degradation_gpu_pressure_count,
+            "degradation_gpu_pressure_bytes_total": degradation_gpu_pressure_bytes_total,
+            "avg_degradation_gpu_pressure_bytes": avg_degradation_gpu_pressure_bytes,
             "degradation_placeholder_mode_count": degradation_placeholder_mode_count,
             "resource_reuse_context_hit_count": resource_reuse_context_hit_count,
             "resource_reuse_context_miss_count": resource_reuse_context_miss_count,
@@ -1040,6 +1054,10 @@ impl DiagnosticsState {
         let mut render_mode_counts: HashMap<&'static str, u64> = HashMap::new();
         let mut mapped_webview_count = 0_u64;
         let mut missing_context_count = 0_u64;
+        let mut latest_estimated_visible_content_bytes = 0_u64;
+        let mut latest_estimated_composited_content_bytes = 0_u64;
+        let mut latest_max_estimated_tile_bytes = 0_u64;
+        let mut latest_composited_tile_count = 0_u64;
 
         if let Some(frame) = latest_frame {
             for tile in &frame.tiles {
@@ -1057,8 +1075,26 @@ impl DiagnosticsState {
                 if !tile.has_context {
                     missing_context_count += 1;
                 }
+                latest_estimated_visible_content_bytes = latest_estimated_visible_content_bytes
+                    .saturating_add(tile.estimated_content_bytes as u64);
+                latest_max_estimated_tile_bytes = latest_max_estimated_tile_bytes
+                    .max(tile.estimated_content_bytes as u64);
+                if tile.render_mode == TileRenderMode::CompositedTexture {
+                    latest_composited_tile_count += 1;
+                    latest_estimated_composited_content_bytes = latest_estimated_composited_content_bytes
+                        .saturating_add(tile.estimated_content_bytes as u64);
+                }
             }
         }
+
+        let budget_bytes_per_frame = crate::shell::desktop::workbench::tile_compositor::composited_content_budget_bytes_per_frame() as u64;
+        let latest_budget_utilization_basis_points = if budget_bytes_per_frame == 0 {
+            0
+        } else {
+            ((latest_estimated_composited_content_bytes.saturating_mul(10_000))
+                / budget_bytes_per_frame)
+                .min(10_000)
+        };
 
         json!({
             "latest_frame_sequence": latest_frame.map(|frame| frame.sequence),
@@ -1067,6 +1103,12 @@ impl DiagnosticsState {
             "latest_render_mode_counts": render_mode_counts,
             "latest_mapped_webview_count": mapped_webview_count,
             "latest_missing_context_count": missing_context_count,
+            "budget_bytes_per_frame": budget_bytes_per_frame,
+            "latest_estimated_visible_content_bytes": latest_estimated_visible_content_bytes,
+            "latest_estimated_composited_content_bytes": latest_estimated_composited_content_bytes,
+            "latest_budget_utilization_basis_points": latest_budget_utilization_basis_points,
+            "latest_max_estimated_tile_bytes": latest_max_estimated_tile_bytes,
+            "latest_composited_tile_count": latest_composited_tile_count,
             "viewer_select_started_count": self.channel_count(CHANNEL_VIEWER_SELECT_STARTED),
             "viewer_select_succeeded_count": self.channel_count(CHANNEL_VIEWER_SELECT_SUCCEEDED),
             "viewer_fallback_used_count": self.channel_count(CHANNEL_VIEWER_FALLBACK_USED),
@@ -1456,6 +1498,7 @@ impl DiagnosticsState {
                             "pane_id": tile.pane_id,
                             "node_key": format!("{:?}", tile.node_key),
                             "render_mode": format!("{:?}", tile.render_mode),
+                            "estimated_content_bytes": tile.estimated_content_bytes,
                             "rect": {
                                 "min": {"x": tile.rect.min.x, "y": tile.rect.min.y},
                                 "max": {"x": tile.rect.max.x, "y": tile.rect.max.y},
@@ -2861,6 +2904,7 @@ mod tests {
                 pane_id: "pane:test-1".to_string(),
                 node_key,
                 render_mode: TileRenderMode::CompositedTexture,
+                estimated_content_bytes: 8_000,
                 rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(50.0, 40.0)),
                 mapped_webview: true,
                 has_context: true,
@@ -2991,6 +3035,7 @@ mod tests {
                 pane_id: "pane:test-2".to_string(),
                 node_key,
                 render_mode: TileRenderMode::CompositedTexture,
+                estimated_content_bytes: 16_000,
                 rect: egui::Rect::from_min_max(egui::pos2(4.0, 6.0), egui::pos2(80.0, 70.0)),
                 mapped_webview: true,
                 has_context: true,
@@ -3277,7 +3322,7 @@ Object {
         });
         let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
-            byte_len: 1,
+            byte_len: 4_096,
         });
         let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
@@ -3323,6 +3368,14 @@ Object {
             Some(1)
         );
         assert_eq!(
+            snapshot["compositor_differential"]["degradation_gpu_pressure_bytes_total"].as_u64(),
+            Some(4_096)
+        );
+        assert_eq!(
+            snapshot["compositor_differential"]["avg_degradation_gpu_pressure_bytes"].as_u64(),
+            Some(4_096)
+        );
+        assert_eq!(
             snapshot["compositor_differential"]["degradation_placeholder_mode_count"].as_u64(),
             Some(1)
         );
@@ -3358,6 +3411,7 @@ Object {
                 pane_id: "pane:test-9".to_string(),
                 node_key,
                 render_mode: TileRenderMode::CompositedTexture,
+                estimated_content_bytes: 2_048,
                 rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(5.0, 5.0)),
                 mapped_webview: true,
                 has_context: true,
@@ -3394,6 +3448,7 @@ Object {
                 pane_id: "pane:test-12".to_string(),
                 node_key,
                 render_mode: TileRenderMode::NativeOverlay,
+                estimated_content_bytes: 0,
                 rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(6.0, 6.0)),
                 mapped_webview: true,
                 has_context: false,
@@ -3417,8 +3472,59 @@ Object {
             Some(1)
         );
         assert_eq!(
+            snapshot["backend_telemetry"]["budget_bytes_per_frame"].as_u64(),
+            Some(crate::shell::desktop::workbench::tile_compositor::composited_content_budget_bytes_per_frame() as u64)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry"]["latest_estimated_composited_content_bytes"].as_u64(),
+            Some(0)
+        );
+        assert_eq!(
             snapshot["backend_telemetry"]["viewer_select_succeeded_count"].as_u64(),
             Some(1)
+        );
+    }
+
+    #[test]
+    fn snapshot_json_includes_gpu_budget_utilization_and_tile_byte_estimates() {
+        let mut state = DiagnosticsState::new();
+        let node_key = NodeKey::new(17);
+        state.push_frame(CompositorFrameSample {
+            sequence: 3,
+            active_tile_count: 1,
+            focused_node_present: true,
+            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(24.0, 24.0)),
+            hierarchy: vec![],
+            tiles: vec![CompositorTileSample {
+                pane_id: "pane:test-17".to_string(),
+                node_key,
+                render_mode: TileRenderMode::CompositedTexture,
+                estimated_content_bytes: 4_096,
+                rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(8.0, 8.0)),
+                mapped_webview: true,
+                has_context: true,
+                paint_callback_registered: true,
+                render_path_hint: "composited",
+            }],
+        });
+
+        state.force_drain_for_tests();
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["backend_telemetry"]["latest_estimated_visible_content_bytes"].as_u64(),
+            Some(4_096)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry"]["latest_estimated_composited_content_bytes"].as_u64(),
+            Some(4_096)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry"]["latest_max_estimated_tile_bytes"].as_u64(),
+            Some(4_096)
+        );
+        assert_eq!(
+            snapshot["compositor_frames"][0]["tiles"][0]["estimated_content_bytes"].as_u64(),
+            Some(4_096)
         );
     }
 

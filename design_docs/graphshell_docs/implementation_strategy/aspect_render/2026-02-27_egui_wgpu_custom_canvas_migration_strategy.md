@@ -295,7 +295,7 @@ Rule:
 
 Execution note (2026-03-09):
 
-- `#168` now has a first-pass landing in the current glow/composited path: degradation uses estimated tile byte accounting and emits explicit GPU-pressure diagnostics.
+- `#168` is now effectively closed in the current glow/composited path: degradation uses estimated tile byte accounting, diagnostics export budget utilization and degraded-byte totals, and compositor frame samples expose per-tile estimated content bytes.
 - `#169` now has a first-pass landing: viewer backend changes preserve pane identity through command dispatch/orchestration instead of treating backend choice as node-global.
 - `#170` now has a first local-only landing: diagnostics snapshot export includes `backend_telemetry`, but persistence and Verse publication remain follow-on work.
 - These issues therefore remain active migration-adjacent concerns, but no longer as untouched backlog; future work should extend the landed control-plane rather than restart the design.

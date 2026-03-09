@@ -351,7 +351,7 @@ Foundation child issues opened (2026-02-26):
 Duplicate cleanup note: `#172` was created in parallel and closed as a duplicate of `#170`.
 
 Execution note (2026-03-09):
-- `#168` first-pass implementation is landed: compositor GPU degradation now uses estimated per-tile byte accounting instead of a coarse pass-count cap, and degradation receipts/diagnostics expose the budgeted failure mode explicitly.
+- `#168` is closed in code: compositor GPU degradation now uses estimated per-tile byte accounting instead of a coarse pass-count cap, degradation receipts/diagnostics expose the budgeted failure mode explicitly, diagnostics snapshots export budget utilization and degraded-byte aggregates, and compositor frame samples carry per-tile estimated content bytes.
 - `#169` first-pass implementation is landed: command surfaces now preserve focused `PaneId` when issuing viewer backend changes, `SetPaneView` updates the exact target node pane when present, and compositor/render-mode lookup no longer collapses duplicate node panes by `NodeKey` alone.
 - `#170` first-pass implementation is landed: diagnostics snapshots now export a local `backend_telemetry` summary derived from compositor frame samples and viewer-selection/degradation channel counts.
 - Remaining follow-through is intentionally narrower: a dedicated backend-swap intent may still replace the current `SetPaneView` path, and backend telemetry remains local-first rather than persisted or Verse-published.
