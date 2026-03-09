@@ -38,7 +38,6 @@ use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_invariants;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
@@ -59,12 +58,9 @@ mod workspace_layout;
 mod toolbar_dialog;
 #[path = "gui_frame/keyboard_phase.rs"]
 mod keyboard_phase;
-#[path = "gui_frame/child_webviews.rs"]
-mod child_webviews;
 #[path = "gui_frame/post_render_phase.rs"]
 mod post_render_phase;
 
-pub(crate) use child_webviews::open_pending_child_webviews_for_tiles;
 pub(crate) use keyboard_phase::{KeyboardPhaseArgs, handle_keyboard_phase};
 pub(crate) use post_render_phase::{PostRenderPhaseArgs, run_post_render_phase};
 pub(crate) use toolbar_dialog::{ToolbarDialogPhaseArgs, handle_toolbar_dialog_phase};
@@ -91,7 +87,6 @@ pub(crate) struct PreFrameIngestArgs<'a> {
 }
 
 pub(crate) struct PreFrameIngestOutput {
-    pub(crate) pending_open_child_webviews: Vec<WebViewId>,
     pub(crate) responsive_webviews: HashSet<WebViewId>,
 }
 
@@ -116,7 +111,7 @@ pub(crate) fn ingest_pre_frame(
         thumbnail_capture_rx,
         thumbnail_capture_in_flight,
     ));
-    let (semantic_events, pending_open_child_webviews, responsive_webviews) =
+    let (semantic_events, responsive_webviews) =
         semantic_event_pipeline::runtime_events_and_responsive_from_events(
             app_state.take_pending_graph_events(),
         );
@@ -134,10 +129,7 @@ pub(crate) fn ingest_pre_frame(
         thumbnail_capture_in_flight,
     );
 
-    PreFrameIngestOutput {
-        pending_open_child_webviews,
-        responsive_webviews,
-    }
+    PreFrameIngestOutput { responsive_webviews }
 }
 
 pub(crate) fn apply_intents_if_any(

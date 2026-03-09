@@ -6,8 +6,6 @@ use std::collections::HashSet;
 #[cfg(feature = "diagnostics")]
 use std::time::Instant;
 
-use servo::WebViewId;
-
 use crate::app::RuntimeEvent;
 use crate::shell::desktop::host::window::{GraphSemanticEvent, GraphSemanticEventKind};
 
@@ -61,24 +59,6 @@ pub(crate) fn runtime_events_from_semantic_events(
                 );
                 events_out.push(RuntimeEvent::WebViewTitleChanged { webview_id, title });
             }
-            GraphSemanticEventKind::CreateNewWebView {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            } => {
-                #[cfg(feature = "diagnostics")]
-                crate::shell::desktop::runtime::diagnostics::emit_event(
-                    crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
-                        channel_id: "semantic.intent.create_new_webview",
-                        byte_len: 1,
-                    },
-                );
-                events_out.push(RuntimeEvent::WebViewCreated {
-                    parent_webview_id,
-                    child_webview_id,
-                    initial_url,
-                });
-            }
             GraphSemanticEventKind::WebViewCrashed {
                 webview_id,
                 reason,
@@ -97,6 +77,16 @@ pub(crate) fn runtime_events_from_semantic_events(
                     has_backtrace,
                 });
             }
+            GraphSemanticEventKind::HostOpenRequest { request } => {
+                #[cfg(feature = "diagnostics")]
+                crate::shell::desktop::runtime::diagnostics::emit_event(
+                    crate::shell::desktop::runtime::diagnostics::DiagnosticEvent::MessageSent {
+                        channel_id: "semantic.intent.host_open_request",
+                        byte_len: 1,
+                    },
+                );
+                events_out.push(RuntimeEvent::HostOpenRequest { request });
+            }
         }
     }
     events_out
@@ -104,7 +94,7 @@ pub(crate) fn runtime_events_from_semantic_events(
 
 pub(crate) fn runtime_events_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
-) -> (Vec<RuntimeEvent>, Vec<WebViewId>, HashSet<WebViewId>) {
+) -> (Vec<RuntimeEvent>, HashSet<servo::WebViewId>) {
     #[cfg(feature = "diagnostics")]
     let ingest_started = Instant::now();
     #[cfg(feature = "diagnostics")]
@@ -117,37 +107,21 @@ pub(crate) fn runtime_events_and_responsive_from_events(
         },
     );
 
-    let mut create_events = Vec::new();
-    let mut other_events = Vec::new();
-    let mut created_child_webviews = Vec::new();
     let mut responsive_webviews = HashSet::new();
 
-    for event in events {
+    for event in &events {
         match &event.kind {
-            GraphSemanticEventKind::CreateNewWebView {
-                parent_webview_id,
-                child_webview_id,
-                ..
-            } => {
-                responsive_webviews.insert(*parent_webview_id);
-                responsive_webviews.insert(*child_webview_id);
-                created_child_webviews.push(*child_webview_id);
-                create_events.push(event);
-            }
             GraphSemanticEventKind::UrlChanged { webview_id, .. }
             | GraphSemanticEventKind::HistoryChanged { webview_id, .. }
             | GraphSemanticEventKind::PageTitleChanged { webview_id, .. } => {
                 responsive_webviews.insert(*webview_id);
-                other_events.push(event);
             }
-            GraphSemanticEventKind::WebViewCrashed { .. } => {
-                other_events.push(event);
-            }
+            GraphSemanticEventKind::WebViewCrashed { .. }
+            | GraphSemanticEventKind::HostOpenRequest { .. } => {}
         }
     }
 
-    let mut runtime_events = runtime_events_from_semantic_events(create_events);
-    runtime_events.extend(runtime_events_from_semantic_events(other_events));
+    let runtime_events = runtime_events_from_semantic_events(events);
 
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_event(
@@ -159,10 +133,9 @@ pub(crate) fn runtime_events_and_responsive_from_events(
 
     #[cfg(feature = "diagnostics")]
     log::trace!(
-        "semantic_pipeline ingest_events={} emitted_intents={} created_children={} responsive_webviews={}",
+        "semantic_pipeline ingest_events={} emitted_intents={} responsive_webviews={}",
         event_count,
         runtime_events.len(),
-        created_child_webviews.len(),
         responsive_webviews.len()
     );
 
@@ -180,7 +153,7 @@ pub(crate) fn runtime_events_and_responsive_from_events(
             elapsed,
         );
     }
-    (runtime_events, created_child_webviews, responsive_webviews)
+    (runtime_events, responsive_webviews)
 }
 
 #[cfg(test)]
@@ -218,10 +191,6 @@ mod tests {
         });
     }
 
-    fn is_create_intent(intent: &RuntimeEvent) -> bool {
-        matches!(intent, RuntimeEvent::WebViewCreated { .. })
-    }
-
     #[rstest]
     #[case(
         event(GraphSemanticEventKind::UrlChanged {
@@ -246,20 +215,23 @@ mod tests {
         "title"
     )]
     #[case(
-        event(GraphSemanticEventKind::CreateNewWebView {
-            parent_webview_id: make_webview_id(),
-            child_webview_id: make_webview_id(),
-            initial_url: Some("https://child".to_string()),
-        }),
-        "create"
-    )]
-    #[case(
         event(GraphSemanticEventKind::WebViewCrashed {
             webview_id: make_webview_id(),
             reason: "boom".to_string(),
             has_backtrace: true,
         }),
         "crash"
+    )]
+    #[case(
+        event(GraphSemanticEventKind::HostOpenRequest {
+            request: crate::app::HostOpenRequest {
+                url: "servo:newtab".to_string(),
+                source: crate::app::OpenSurfaceSource::KeyboardShortcut,
+                parent_webview_id: None,
+                pending_create_token: None,
+            },
+        }),
+        "host_open"
     )]
     fn test_runtime_events_from_semantic_events_maps_variants(
         #[case] event: GraphSemanticEvent,
@@ -271,8 +243,8 @@ mod tests {
             RuntimeEvent::WebViewUrlChanged { .. } => "url",
             RuntimeEvent::WebViewHistoryChanged { .. } => "history",
             RuntimeEvent::WebViewTitleChanged { .. } => "title",
-            RuntimeEvent::WebViewCreated { .. } => "create",
             RuntimeEvent::WebViewCrashed { .. } => "crash",
+            RuntimeEvent::HostOpenRequest { .. } => "host_open",
             _ => "other",
         };
         assert_eq!(kind, expected_kind);
@@ -283,7 +255,7 @@ mod tests {
         UrlChanged,
         HistoryChanged,
         PageTitleChanged,
-        CreateNewWebView,
+        HostOpenRequest,
         WebViewCrashed,
     }
 
@@ -292,7 +264,7 @@ mod tests {
             Just(EventSpec::UrlChanged),
             Just(EventSpec::HistoryChanged),
             Just(EventSpec::PageTitleChanged),
-            Just(EventSpec::CreateNewWebView),
+            Just(EventSpec::HostOpenRequest),
             Just(EventSpec::WebViewCrashed),
         ]
     }
@@ -312,10 +284,13 @@ mod tests {
                 webview_id: make_webview_id(),
                 title: Some("title".to_string()),
             }),
-            EventSpec::CreateNewWebView => event(GraphSemanticEventKind::CreateNewWebView {
-                parent_webview_id: make_webview_id(),
-                child_webview_id: make_webview_id(),
-                initial_url: Some("https://child.example".to_string()),
+            EventSpec::HostOpenRequest => event(GraphSemanticEventKind::HostOpenRequest {
+                request: crate::app::HostOpenRequest {
+                    url: "https://child.example".to_string(),
+                    source: crate::app::OpenSurfaceSource::KeyboardShortcut,
+                    parent_webview_id: Some(make_webview_id()),
+                    pending_create_token: None,
+                },
             }),
             EventSpec::WebViewCrashed => event(GraphSemanticEventKind::WebViewCrashed {
                 webview_id: make_webview_id(),
@@ -323,40 +298,6 @@ mod tests {
                 has_backtrace: false,
             }),
         }
-    }
-
-    #[rstest]
-    #[case("delegate")]
-    #[case("link-click")]
-    #[case("keyboard-shortcut")]
-    fn create_new_webview_entrypoint_specs_map_to_webview_created_runtime_event(
-        #[case] entrypoint: &str,
-    ) {
-        let parent = make_webview_id();
-        let child = make_webview_id();
-        let events = vec![event(GraphSemanticEventKind::CreateNewWebView {
-            parent_webview_id: parent,
-            child_webview_id: child,
-            initial_url: Some(format!("https://{entrypoint}.example/new")),
-        })];
-
-        let (runtime_events, created_children, responsive) =
-            runtime_events_and_responsive_from_events(events);
-
-        assert_eq!(created_children, vec![child]);
-        assert!(responsive.contains(&parent));
-        assert!(responsive.contains(&child));
-        assert_eq!(runtime_events.len(), 1);
-        assert!(matches!(
-            &runtime_events[0],
-            RuntimeEvent::WebViewCreated {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            } if *parent_webview_id == parent
-                && *child_webview_id == child
-                && initial_url.as_deref() == Some(format!("https://{entrypoint}.example/new").as_str())
-        ));
     }
 
     proptest! {
@@ -367,42 +308,23 @@ mod tests {
             let events = specs.into_iter().map(event_from_spec).collect::<Vec<_>>();
 
             let expected_event_count = events.len();
-            let expected_created_children = events.iter().filter_map(|event| {
-                match event {
-                    GraphSemanticEvent { kind: GraphSemanticEventKind::CreateNewWebView { child_webview_id, .. }, .. } => Some(*child_webview_id),
-                    _ => None,
-                }
-            }).collect::<Vec<_>>();
             let expected_responsive = events.iter().fold(HashSet::new(), |mut set, event| {
                 match event {
-                    GraphSemanticEvent { kind: GraphSemanticEventKind::CreateNewWebView { parent_webview_id, child_webview_id, .. }, .. } => {
-                        set.insert(*parent_webview_id);
-                        set.insert(*child_webview_id);
-                    },
                     GraphSemanticEvent { kind: GraphSemanticEventKind::UrlChanged { webview_id, .. }, .. }
                     | GraphSemanticEvent { kind: GraphSemanticEventKind::HistoryChanged { webview_id, .. }, .. }
                     | GraphSemanticEvent { kind: GraphSemanticEventKind::PageTitleChanged { webview_id, .. }, .. } => {
                         set.insert(*webview_id);
                     },
+                    GraphSemanticEvent { kind: GraphSemanticEventKind::HostOpenRequest { .. }, .. } => {},
                     GraphSemanticEvent { kind: GraphSemanticEventKind::WebViewCrashed { .. }, .. } => {},
                 }
                 set
             });
 
-            let (runtime_events, created_children, responsive) = runtime_events_and_responsive_from_events(events);
+            let (runtime_events, responsive) = runtime_events_and_responsive_from_events(events);
 
             prop_assert_eq!(runtime_events.len(), expected_event_count);
-            prop_assert_eq!(created_children, expected_created_children);
             prop_assert_eq!(responsive, expected_responsive);
-
-            let mut seen_non_create = false;
-            for intent in &runtime_events {
-                if !is_create_intent(intent) {
-                    seen_non_create = true;
-                } else {
-                    prop_assert!(!seen_non_create, "create intents must be emitted before non-create intents");
-                }
-            }
         }
     }
 
@@ -413,10 +335,13 @@ mod tests {
                 webview_id: make_webview_id(),
                 new_url: "https://pre-existing".to_string(),
             }),
-            event(GraphSemanticEventKind::CreateNewWebView {
-                parent_webview_id: make_webview_id(),
-                child_webview_id: make_webview_id(),
-                initial_url: Some("https://child".to_string()),
+            event(GraphSemanticEventKind::HostOpenRequest {
+                request: crate::app::HostOpenRequest {
+                    url: "https://child".to_string(),
+                    source: crate::app::OpenSurfaceSource::KeyboardShortcut,
+                    parent_webview_id: Some(make_webview_id()),
+                    pending_create_token: None,
+                },
             }),
             event(GraphSemanticEventKind::WebViewCrashed {
                 webview_id: make_webview_id(),
@@ -425,20 +350,20 @@ mod tests {
             }),
         ];
 
-        let (runtime_events, created_children, responsive) =
+        let (runtime_events, responsive) =
             runtime_events_and_responsive_from_events(events);
         let intent_kinds = runtime_events
             .iter()
             .map(|intent| match intent {
-                RuntimeEvent::WebViewCreated { .. } => "create",
                 RuntimeEvent::WebViewUrlChanged { .. } => "url",
                 RuntimeEvent::WebViewHistoryChanged { .. } => "history",
                 RuntimeEvent::WebViewTitleChanged { .. } => "title",
                 RuntimeEvent::WebViewCrashed { .. } => "crash",
+                RuntimeEvent::HostOpenRequest { .. } => "host_open",
                 _ => "other",
             })
             .collect::<Vec<_>>();
-        let trace = (intent_kinds, created_children.len(), responsive.len());
+        let trace = (intent_kinds, responsive.len());
 
         insta::assert_debug_snapshot!(trace);
     }
@@ -451,13 +376,12 @@ mod tests {
             new_url: "https://trace.example".to_string(),
         })];
 
-        let (runtime_events, created_children, responsive) =
+        let (runtime_events, responsive) =
             runtime_events_and_responsive_from_events(events);
         tracing::info!(
-            "semantic_pipeline ingest_events={} emitted_intents={} created_children={} responsive_webviews={}",
+            "semantic_pipeline ingest_events={} emitted_intents={} responsive_webviews={}",
             1,
             runtime_events.len(),
-            created_children.len(),
             responsive.len()
         );
 

@@ -652,7 +652,7 @@ fn graph_intents_from_semantic_events(events: Vec<GraphSemanticEvent>) -> Vec<Gr
 #[cfg(test)]
 fn graph_intents_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
-) -> (Vec<GraphIntent>, Vec<WebViewId>, HashSet<WebViewId>) {
+) -> (Vec<GraphIntent>, HashSet<WebViewId>) {
     intent_translation::graph_intents_and_responsive_from_events(events)
 }
 

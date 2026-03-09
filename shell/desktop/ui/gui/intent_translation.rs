@@ -17,12 +17,11 @@ pub(super) fn graph_intents_from_semantic_events(
 #[cfg(test)]
 pub(super) fn graph_intents_and_responsive_from_events(
     events: Vec<GraphSemanticEvent>,
-) -> (Vec<GraphIntent>, Vec<WebViewId>, HashSet<WebViewId>) {
-    let (runtime_events, pending_open_child_webviews, responsive_webviews) =
+) -> (Vec<GraphIntent>, HashSet<WebViewId>) {
+    let (runtime_events, responsive_webviews) =
         semantic_event_pipeline::runtime_events_and_responsive_from_events(events);
     (
         runtime_events.into_iter().map(Into::into).collect(),
-        pending_open_child_webviews,
         responsive_webviews,
     )
 }

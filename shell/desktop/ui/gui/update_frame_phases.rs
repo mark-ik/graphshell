@@ -75,8 +75,6 @@ pub(super) struct SemanticLifecyclePhaseArgs<'a> {
     pub(super) favicon_textures:
         &'a mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(super) pending_open_child_webviews: Vec<WebViewId>,
-    pub(super) deferred_open_child_webviews: &'a mut Vec<WebViewId>,
     pub(super) webview_creation_backpressure:
         &'a mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     pub(super) open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
@@ -115,8 +113,6 @@ pub(super) struct SemanticAndPostRenderPhaseArgs<'a> {
     #[cfg(feature = "diagnostics")]
     pub(super) diagnostics_state: &'a mut diagnostics::DiagnosticsState,
     pub(super) responsive_webviews: &'a HashSet<WebViewId>,
-    pub(super) pending_open_child_webviews: Vec<WebViewId>,
-    pub(super) deferred_open_child_webviews: &'a mut Vec<WebViewId>,
     pub(super) open_node_tile_after_intents: &'a mut Option<TileOpenMode>,
     pub(super) frame_intents: &'a mut Vec<GraphIntent>,
 }

@@ -49,7 +49,7 @@ impl Gui {
             focus_ring_duration,
             omnibar_search_session,
             command_palette_toggle_requested,
-            deferred_open_child_webviews,
+            deferred_open_child_webviews: _,
             rendering_context,
             window_rendering_context,
             registry_runtime,
@@ -167,12 +167,6 @@ impl Gui {
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             responsive_webviews: &pre_frame.responsive_webviews,
-            pending_open_child_webviews: {
-                let mut pending = std::mem::take(deferred_open_child_webviews);
-                pending.extend(pre_frame.pending_open_child_webviews);
-                pending
-            },
-            deferred_open_child_webviews,
             open_node_tile_after_intents: &mut open_node_tile_after_intents,
             frame_intents: &mut frame_intents,
         });
@@ -465,8 +459,6 @@ impl Gui {
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
             responsive_webviews,
-            pending_open_child_webviews,
-            deferred_open_child_webviews,
             open_node_tile_after_intents,
             frame_intents,
         } = args;
@@ -483,8 +475,6 @@ impl Gui {
             tile_favicon_textures,
             favicon_textures,
             responsive_webviews,
-            pending_open_child_webviews,
-            deferred_open_child_webviews,
             webview_creation_backpressure,
             open_node_tile_after_intents,
             frame_intents,
@@ -546,14 +536,12 @@ impl Gui {
             tile_favicon_textures,
             favicon_textures,
             responsive_webviews,
-            pending_open_child_webviews,
-            deferred_open_child_webviews,
             webview_creation_backpressure,
             open_node_tile_after_intents,
             frame_intents,
         } = args;
 
-        *deferred_open_child_webviews = gui_orchestration::run_semantic_lifecycle_phase(
+        gui_orchestration::run_semantic_lifecycle_phase(
             graph_app,
             tiles_tree,
             modal_surface_active,
@@ -565,7 +553,6 @@ impl Gui {
             tile_favicon_textures,
             favicon_textures,
             responsive_webviews,
-            pending_open_child_webviews,
             webview_creation_backpressure,
             open_node_tile_after_intents,
             frame_intents,

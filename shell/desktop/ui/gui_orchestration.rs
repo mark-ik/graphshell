@@ -126,7 +126,6 @@ const UX_DISPATCH_NODE_GRAPH_SURFACE: u64 = 4;
 
 pub(crate) struct PreFramePhaseOutput {
     pub(crate) frame_intents: Vec<GraphIntent>,
-    pub(crate) pending_open_child_webviews: Vec<WebViewId>,
     pub(crate) responsive_webviews: HashSet<WebViewId>,
 }
 
@@ -163,7 +162,6 @@ pub(crate) fn run_pre_frame_phase(
     );
     PreFramePhaseOutput {
         frame_intents,
-        pending_open_child_webviews: pre_frame.pending_open_child_webviews,
         responsive_webviews: pre_frame.responsive_webviews,
     }
 }
@@ -1674,22 +1672,10 @@ pub(crate) fn run_semantic_lifecycle_phase(
     tile_favicon_textures: &mut HashMap<NodeKey, (u64, egui::TextureHandle)>,
     favicon_textures: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
     responsive_webviews: &HashSet<WebViewId>,
-    pending_open_child_webviews: Vec<WebViewId>,
     webview_creation_backpressure: &mut HashMap<NodeKey, WebviewCreationBackpressureState>,
     open_node_tile_after_intents: &mut Option<TileOpenMode>,
     frame_intents: &mut Vec<GraphIntent>,
-) -> Vec<WebViewId> {
-    apply_semantic_intents_and_pending_open(
-        graph_app,
-        tiles_tree,
-        modal_surface_active,
-        open_node_tile_after_intents,
-        frame_intents,
-    );
-
-    let deferred_open_child_webviews =
-        open_pending_child_webview_nodes(graph_app, frame_intents, pending_open_child_webviews);
-
+) {
     apply_semantic_intents_and_pending_open(
         graph_app,
         tiles_tree,
@@ -1712,8 +1698,6 @@ pub(crate) fn run_semantic_lifecycle_phase(
         webview_creation_backpressure,
         frame_intents,
     );
-
-    deferred_open_child_webviews
 }
 
 fn apply_semantic_intents_and_pending_open(
@@ -1764,36 +1748,6 @@ fn assert_workbench_intents_drained_before_reducer_apply(intents: &[WorkbenchInt
             byte_len: intents.len(),
         });
     }
-}
-
-fn open_pending_child_webview_nodes(
-    graph_app: &GraphBrowserApp,
-    frame_intents: &mut Vec<GraphIntent>,
-    pending_open_child_webviews: Vec<WebViewId>,
-) -> Vec<WebViewId> {
-    let deferred = gui_frame::open_pending_child_webviews_for_tiles(
-        graph_app,
-        pending_open_child_webviews,
-        |node_key| {
-            emit_open_decision(
-                UxOpenDecisionPath::ChildWebview,
-                UxOpenDecisionReason::Routed,
-            );
-            frame_intents.push(GraphIntent::OpenNodeFrameRouted {
-                key: node_key,
-                prefer_frame: None,
-            });
-        },
-    );
-
-    for _ in &deferred {
-        emit_open_decision(
-            UxOpenDecisionPath::ChildWebview,
-            UxOpenDecisionReason::TargetMissing,
-        );
-    }
-
-    deferred
 }
 
 #[allow(clippy::too_many_arguments)]
