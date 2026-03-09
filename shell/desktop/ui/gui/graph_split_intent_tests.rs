@@ -302,6 +302,8 @@ fn node_focus_state_clears_graph_surface_focus() {
         focus_ring_started_at: None,
         focus_ring_duration: Duration::from_millis(500),
         omnibar_search_session: None,
+        active_toolbar_pane: None,
+        toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
         deferred_open_child_webviews: Vec::new(),
     };
@@ -327,6 +329,8 @@ fn graph_surface_focus_state_clears_node_hint_and_syncs_focused_view() {
         focus_ring_started_at: None,
         focus_ring_duration: Duration::from_millis(500),
         omnibar_search_session: None,
+        active_toolbar_pane: None,
+        toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
         deferred_open_child_webviews: Vec::new(),
     };

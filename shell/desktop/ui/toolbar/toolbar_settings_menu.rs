@@ -4,7 +4,7 @@ use crate::app::{
     WorkbenchIntent,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::shell::desktop::host::running_app_state::{RunningAppState, UserInterfaceCommand};
+use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
@@ -15,7 +15,7 @@ pub(super) fn render_settings_menu(
     state: &RunningAppState,
     frame_intents: &mut Vec<GraphIntent>,
     location_dirty: &mut bool,
-    window: &EmbedderWindow,
+    _window: &EmbedderWindow,
     #[cfg(feature = "diagnostics")]
     diagnostics_state: &mut crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) {
@@ -211,7 +211,7 @@ pub(super) fn render_settings_menu(
             if prefs_toggle.clicked() {
                 state.set_experimental_preferences_enabled(experimental_preferences_enabled);
                 *location_dirty = false;
-                window.queue_user_interface_command(UserInterfaceCommand::ReloadAll);
+                graph_app.request_reload_all();
             }
 
             ui.separator();

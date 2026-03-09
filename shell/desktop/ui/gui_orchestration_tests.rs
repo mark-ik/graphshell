@@ -6,7 +6,9 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
 };
 use crate::shell::desktop::ui::gui_orchestration;
-use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
+use crate::shell::desktop::workbench::pane_model::{
+    NodePaneState, PaneViewState, ToolPaneState, ViewerId,
+};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
 use egui_tiles::{Tile, Tiles, Tree};
@@ -269,6 +271,53 @@ fn open_graph_view_pane_intent_routes_to_workbench_pane_open() {
         crate::shell::desktop::workbench::tile_view_ops::active_graph_view_id(&tree),
         Some(new_view)
     );
+}
+
+#[test]
+fn set_pane_view_updates_exact_node_pane_by_pane_id() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let first_node = app.add_node_and_sync(
+        "https://first.example".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let second_node = app.add_node_and_sync(
+        "https://second.example".to_string(),
+        euclid::default::Point2D::new(10.0, 0.0),
+    );
+
+    let first_state = NodePaneState::for_node(first_node);
+    let first_pane = first_state.pane_id;
+    let second_state = NodePaneState::for_node(first_node);
+
+    let mut tiles = Tiles::default();
+    let first_tile = tiles.insert_pane(TileKind::Node(first_state));
+    let second_tile = tiles.insert_pane(TileKind::Node(second_state));
+    let root = tiles.insert_tab_tile(vec![first_tile, second_tile]);
+    let mut tree = Tree::new("set_pane_view_exact_target", root, tiles);
+
+    let mut intents = vec![WorkbenchIntent::SetPaneView {
+        pane: first_pane,
+        view: PaneViewState::Node(NodePaneState {
+            pane_id: first_pane,
+            node: second_node,
+            viewer_id_override: Some(ViewerId::new("viewer:wry")),
+            render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder,
+        }),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(node_pane_count(&tree), 2);
+    assert!(tree.tiles.iter().any(|(_, tile)| {
+        matches!(
+            tile,
+            Tile::Pane(TileKind::Node(state))
+                if state.pane_id == first_pane
+                    && state.node == second_node
+                    && state.viewer_id_override.as_ref().map(|id| id.as_str()) == Some("viewer:wry")
+        )
+    }));
 }
 
 #[test]

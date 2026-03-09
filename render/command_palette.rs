@@ -204,6 +204,7 @@ fn render_action_entry_button(
     source_context: Option<NodeKey>,
     intents: &mut Vec<GraphIntent>,
     focused_pane_node: Option<NodeKey>,
+    focused_pane_id: Option<PaneId>,
     should_close: &mut bool,
 ) {
     let mut response = ui.add_enabled(entry.enabled, egui::Button::new(entry.id.label()));
@@ -221,6 +222,7 @@ fn render_action_entry_button(
             source_context,
             intents,
             focused_pane_node,
+            focused_pane_id,
         );
         *should_close = true;
     }
@@ -235,6 +237,7 @@ pub fn render_command_palette_panel(
     app: &mut GraphBrowserApp,
     hovered_node: Option<NodeKey>,
     focused_pane_node: Option<NodeKey>,
+    focused_pane_id: Option<PaneId>,
 ) {
     let was_open = app.workspace.show_command_palette;
     if !was_open {
@@ -385,6 +388,7 @@ pub fn render_command_palette_panel(
                                     source_context,
                                     &mut intents,
                                     focused_pane_node,
+                                    focused_pane_id,
                                     &mut should_close,
                                 );
                             }
@@ -455,6 +459,7 @@ pub fn render_command_palette_panel(
                                     source_context,
                                     &mut intents,
                                     focused_pane_node,
+                                    focused_pane_id,
                                     &mut should_close,
                                 );
                             }
@@ -489,13 +494,14 @@ pub fn render_command_palette_panel(
 /// This is the single dispatch function shared by both the interaction menu
 /// and the radial menu, eliminating the duplicate execution paths that
 /// existed when each surface had its own hardcoded `match` arm set.
-pub(super) fn execute_action(
+pub(crate) fn execute_action(
     app: &mut GraphBrowserApp,
     action_id: ActionId,
     pair_context: Option<(NodeKey, NodeKey)>,
     source_context: Option<NodeKey>,
     intents: &mut Vec<GraphIntent>,
     focused_pane_node: Option<NodeKey>,
+    focused_pane_id: Option<PaneId>,
 ) {
     let focused_selection = app.focused_selection().clone();
     let open_target = source_context.or_else(|| focused_selection.primary());
@@ -626,7 +632,9 @@ pub(super) fn execute_action(
                 let mut state = NodePaneState::for_node(key);
                 state.viewer_id_override = viewer_id_override;
                 app.enqueue_workbench_intent(WorkbenchIntent::SetPaneView {
-                    pane: PaneId::new(),
+                    pane: focused_pane_id
+                        .filter(|_| focused_pane_node == Some(key))
+                        .unwrap_or_else(PaneId::new),
                     view: PaneViewState::Node(state),
                 });
             }
@@ -662,6 +670,9 @@ pub(super) fn execute_action(
             }
         }
         ActionId::GraphFit => intents.push(ViewAction::RequestFitToScreen.into()),
+        ActionId::GraphCycleFocusRegion => {
+            app.enqueue_workbench_intent(WorkbenchIntent::CycleFocusRegion);
+        }
         ActionId::GraphTogglePhysics => intents.push(GraphIntent::TogglePhysics),
         ActionId::GraphPhysicsConfig => {
             app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
@@ -669,6 +680,7 @@ pub(super) fn execute_action(
             });
         }
         ActionId::GraphCommandPalette => intents.push(GraphIntent::ToggleCommandPalette),
+        ActionId::GraphRadialMenu => intents.push(GraphIntent::ToggleRadialMenu),
         ActionId::PersistUndo => intents.push(GraphIntent::Undo),
         ActionId::PersistRedo => intents.push(GraphIntent::Redo),
         ActionId::PersistSaveSnapshot => app.request_save_frame_snapshot(),
@@ -741,6 +753,36 @@ mod tests {
                 entry.id
             );
         }
+    }
+
+    #[test]
+    fn node_render_action_targets_focused_pane_when_node_matches() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://focused-pane.example".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let pane_id = PaneId::new();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::NodeRenderWry,
+            None,
+            Some(node),
+            &mut intents,
+            Some(node),
+            Some(pane_id),
+        );
+
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::SetPaneView { pane, view: PaneViewState::Node(state) }]
+                if *pane == pane_id
+                    && state.node == node
+                    && state.viewer_id_override.as_ref().map(|id| id.as_str()) == Some("viewer:wry")
+        ));
     }
 
     #[test]

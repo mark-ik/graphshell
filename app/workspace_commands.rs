@@ -5,6 +5,32 @@ pub(crate) fn enqueue_app_command(&mut self, command: AppCommand) {
     self.workspace.pending_app_commands.push_back(command);
 }
 
+pub(crate) fn request_browser_command(
+    &mut self,
+    target: BrowserCommandTarget,
+    command: BrowserCommand,
+) {
+    self.enqueue_app_command(AppCommand::BrowserCommand { command, target });
+}
+
+pub(crate) fn request_reload_all(&mut self) {
+    self.enqueue_app_command(AppCommand::ReloadAll);
+}
+
+pub(crate) fn take_pending_browser_command(
+    &mut self,
+) -> Option<(BrowserCommandTarget, BrowserCommand)> {
+    match self.take_pending_app_command(|command| matches!(command, AppCommand::BrowserCommand { .. }))? {
+        AppCommand::BrowserCommand { command, target } => Some((target, command)),
+        _ => None,
+    }
+}
+
+pub(crate) fn take_pending_reload_all(&mut self) -> bool {
+    self.take_pending_app_command(|command| matches!(command, AppCommand::ReloadAll))
+        .is_some()
+}
+
 pub(crate) fn set_pending_camera_command(
     &mut self,
     target_view: Option<GraphViewId>,

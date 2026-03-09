@@ -18,6 +18,7 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::{
     self, OmnibarSearchSession, ToolbarUiInput, ToolbarUiOutput,
 };
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
@@ -28,6 +29,7 @@ pub(crate) struct ToolbarDialogPhaseArgs<'a> {
     pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) tiles_tree: &'a mut Tree<TileKind>,
+    pub(crate) active_toolbar_pane: Option<PaneId>,
     pub(crate) focused_node_hint: Option<NodeKey>,
     pub(crate) graph_surface_focused: bool,
     pub(crate) can_go_back: bool,
@@ -64,6 +66,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         graph_app,
         window,
         tiles_tree,
+        active_toolbar_pane,
         focused_node_hint: _,
         graph_surface_focused,
         can_go_back,
@@ -108,6 +111,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
         window,
         tiles_tree,
         focused_toolbar_node,
+        active_toolbar_pane,
         has_node_panes,
         can_go_back,
         can_go_forward,

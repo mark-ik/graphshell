@@ -43,6 +43,11 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops;
+#[cfg(all(
+    feature = "gamepad",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+use crate::shell::desktop::host::gamepad::GamepadUiCommand;
 
 #[path = "gui_frame/pending_actions.rs"]
 mod pending_actions;
@@ -76,7 +81,7 @@ const MAX_CONNECTED_OPEN_NODES: usize = 12;
 
 pub(crate) struct PreFrameIngestArgs<'a> {
     pub(crate) ctx: &'a egui::Context,
-    pub(crate) graph_app: &'a GraphBrowserApp,
+    pub(crate) graph_app: &'a mut GraphBrowserApp,
     pub(crate) app_state: &'a RunningAppState,
     pub(crate) window: &'a EmbedderWindow,
     pub(crate) favicon_textures:
@@ -104,6 +109,30 @@ pub(crate) fn ingest_pre_frame(
         thumbnail_capture_rx,
         thumbnail_capture_in_flight,
     } = args;
+
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    {
+        let focused_node = window
+            .explicit_input_webview_id()
+            .and_then(|webview_id| graph_app.get_node_for_webview(webview_id));
+        for command in app_state.take_pending_gamepad_ui_commands() {
+            let action_id = match command {
+                GamepadUiCommand::CycleFocusRegion => {
+                    render::action_registry::ActionId::GraphCycleFocusRegion
+                }
+                GamepadUiCommand::ToggleCommandPalette => {
+                    render::action_registry::ActionId::GraphCommandPalette
+                }
+                GamepadUiCommand::ToggleRadialMenu => {
+                    render::action_registry::ActionId::GraphRadialMenu
+                }
+            };
+            render::dispatch_action_id(graph_app, action_id, None, focused_node, focused_node, None);
+        }
+    }
 
     frame_intents.extend(thumbnail_pipeline::load_pending_thumbnail_results(
         graph_app,
@@ -258,6 +287,17 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
     if history_preview_mode_active(graph_app) {
         frame_intents.clear();
         return;
+    }
+
+    if let Some(state) = app_state {
+        while graph_app.take_pending_reload_all() {
+            for window in state.windows().values() {
+                window.set_needs_update();
+                for (_, webview) in window.webviews() {
+                    webview.reload();
+                }
+            }
+        }
     }
 
     let reconcile_start_index = frame_intents.len();

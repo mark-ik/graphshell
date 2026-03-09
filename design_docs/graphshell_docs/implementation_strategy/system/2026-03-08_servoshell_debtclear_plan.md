@@ -1,7 +1,7 @@
 # Servoshell Debt Clearance Plan
 
 **Date**: 2026-03-08
-**Status**: Active — Phases 1-2 complete; Phase 3 in progress
+**Status**: Active — Phases 1-4 complete
 **Scope**: `shell/desktop/` host, platform, and UI layers
 **Prerequisite reading**:
 - `2026-03-08_servoshell_residue_audit.md` — the findings this plan addresses
@@ -12,9 +12,18 @@
 - Phase 2 host-open inversion is now live for Ctrl+T, child `request_create_new(...)`, and bootstrap `open_window(...)`.
 - Stage 2E desktop cleanup is complete: the dead `notify_create_new_webview` / `GraphSemanticEvent::CreateNewWebView` path and the remaining desktop `create_and_activate_toplevel_webview` helper have been removed.
 - Stage 3A desktop call-site conversion is complete: headed-window input routing, detail/address submit, compositor focus nomination, and WebDriver focus handoff now retarget explicit pane/input/chrome ownership instead of mutating a global active renderer.
+- Stage 3B desktop repaint rebasing is complete: `repaint_webviews()` now iterates the Pass 1 visible pane set and resolves attached renderers through `RendererRegistry` instead of consulting input focus.
 - Stage 3C desktop wrapper/state removal is complete: the desktop `active_webview_id` state, `active_id()`, `activate_webview()`, `activate_webview_by_index()`, `get_active_webview_index()`, and the headed-window tab-cycling shortcuts that depended on them have been removed.
+- Stage 3D desktop chrome/dialog projection cleanup is complete: window title, toolbar state/actions, and dialog anchoring now read explicit chrome/dialog ownership instead of falling back to input focus or active-node heuristics.
+- Stage 4B browser-verb routing is complete: headed-window keyboard shortcuts and toolbar nav buttons now enqueue routed browser commands, and reconcile applies the actual Servo reload/back/forward/close effects after command acceptance.
+- Stage 4C gamepad routing is complete: `AppGamepadProvider` no longer targets a global active renderer, D-pad / Start / South host-surface actions are queued and dispatched through shared `ActionRegistry` `ActionId` execution, and raw `InputEvent::Gamepad` delivery is now limited to the focused pane renderer.
+- Stage 4D toolbar projection cleanup is complete: editable location drafts are now stored per focused `PaneId`, the location field focus/submit path is pane-scoped, and toolbar projection now clears stale node URLs when the focused pane has no chrome-projected node surface.
+- Stage 4E favicon durability cleanup is complete: durable favicon projection remains node-keyed through `GraphIntent::SetNodeFavicon`, and the remaining `WebViewId` favicon texture map is now explicitly marked as a renderer-local egui cache rather than UI source-of-truth state.
+- Stage 4F `ReloadAll` migration is complete: the last `UserInterfaceCommand` caller now queues `AppCommand::ReloadAll`, and the dead host-side UI command queue/enum have been deleted.
+- Stage 4G dialog anchoring is complete: focused-pane projection now stamps dialog ownership as `DialogOwner::Pane(...)`, host dialog entry points resolve pane-owned dialog targets before falling back to a renderer, and dialog lookup no longer depends on a global focused-input renderer fallback.
 - Validation: `scripts/dev/smoke-matrix.ps1 quick` passed after the Stage 2E cleanup, after the Stage 3A conversions, and after the desktop wrapper/state removal.
-- Current execution target: Stage 3B visible-renderer repaint rebasing, followed by Stage 3D chrome/title/dialog projection cleanup.
+- Validation: `scripts/dev/smoke-matrix.ps1 quick` also passed after the Stage 4B/4F routed-command cleanup and again after the Stage 4C gamepad routing changes.
+- Current execution target: validate and close Phase 4 follow-through work as new debt-clear residue appears.
 
 ---
 
@@ -392,6 +401,11 @@ It must not be:
 - multi-pane: all visible panes repaint
 - `preferred_input_webview_id` is no longer consulted for repaint
 
+**Execution note (2026-03-09)**:
+- Desktop Stage 3B is complete.
+- `tile_render_pass` now snapshots the Pass 1 visible node-pane set onto `EmbedderWindow`, and `repaint_webviews()` resolves the corresponding renderer attachments through `RendererRegistry`.
+- Desktop repaint no longer consults `preferred_input_webview_id` / input focus as its source of truth.
+
 ### Stage 3C — Remove `active_webview_id` from `WebViewCollection`
 
 Once `activate_webview` call sites are replaced (Stage 3A) and repaint is
@@ -418,7 +432,7 @@ rebased (Stage 3B), remove:
 - Desktop `EmbedderWindow` no longer exposes `activate_webview()`, `activate_webview_by_index()`, or `get_active_webview_index()`.
 - The headed desktop shortcuts that depended on those APIs were removed as part of the same landing.
 - `preferred_input_webview_id` already resolves from explicit host ownership (`InputTarget` / `focused_pane`), not from the removed `active_id()` fallback.
-- Stage 3B remains pending, so Phase 3 as a whole is not yet complete.
+- Stage 3D remains pending, so Phase 3 as a whole is not yet complete.
 
 ### Stage 3D — Rebase chrome/title projection on `PaneId` and `ChromeProjectionSource`
 
@@ -446,6 +460,13 @@ input-routing helper with no title/toolbar/dialog authority.
 - toolbar state source is explicit
 - dialog ownership is pane-derived
 - `preferred_input_webview_id` no longer acts as a chrome fallback
+
+**Execution note (2026-03-09)**:
+- Desktop Stage 3D is complete.
+- Headed-window title projection reads `ChromeProjectionSource` through explicit chrome ownership.
+- Toolbar status and toolbar nav actions read explicit chrome projection before any node-target fallback.
+- Dialog ownership is set when embedder controls or direct permission/auth/device dialogs open, and post-render dialog anchoring no longer falls back to the active node pane.
+- The dead `preferred_input_webview_id` platform fallback hook has been removed.
 
 ---
 

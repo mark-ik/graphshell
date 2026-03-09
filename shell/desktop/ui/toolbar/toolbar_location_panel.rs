@@ -1,5 +1,7 @@
 use super::toolbar_location_dropdown;
 use super::*;
+use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 
 const LOCATION_INPUT_HINT_TEXT: &str = "Search or enter address";
 
@@ -55,6 +57,7 @@ pub(super) fn render_location_search_panel(
     window: &EmbedderWindow,
     tiles_tree: &Tree<TileKind>,
     focused_toolbar_node: Option<NodeKey>,
+    active_toolbar_pane: Option<PaneId>,
     has_node_panes: bool,
     is_graph_view: bool,
     location: &mut String,
@@ -65,7 +68,7 @@ pub(super) fn render_location_search_panel(
     frame_intents: &mut Vec<GraphIntent>,
     open_selected_mode_after_submit: &mut Option<ToolbarOpenMode>,
 ) {
-    let location_id = egui::Id::new("location_input");
+    let location_id = toolbar_location_input_id(active_toolbar_pane);
     let location_field = ui.add_sized(
         ui.available_size(),
         egui::TextEdit::singleline(location)

@@ -25,12 +25,13 @@ use winit::window::Window;
 use super::graph_search_flow;
 use super::gui_frame;
 use super::gui_orchestration;
-use super::gui_state::{GuiRuntimeState, ToolbarState};
+use super::gui_state::{GuiRuntimeState, ToolbarDraft, ToolbarState};
 use super::persistence_ops;
 #[cfg(test)]
 use super::thumbnail_pipeline;
 use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphViewId, ToastAnchorPreference,
+    BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
+    ToastAnchorPreference,
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::event_loop::AppEvent;
@@ -52,7 +53,9 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, knowledge,
 };
-use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
+use crate::shell::desktop::ui::thumbnail_pipeline::{
+    RendererFaviconTextureCache, ThumbnailCaptureResult,
+};
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
 use crate::shell::desktop::workbench::tile_compositor;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
@@ -127,10 +130,11 @@ pub struct Gui {
     /// System clipboard handle.
     clipboard: Option<Clipboard>,
 
-    /// Handle to the GPU texture of the favicon.
+    /// Renderer-local favicon texture cache keyed by ephemeral WebViewId.
     ///
-    /// These need to be cached across egui draw calls.
-    favicon_textures: HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    /// Durable favicon ownership remains on the node model; this cache only keeps
+    /// uploaded egui textures alive across draw calls until node-keyed consumers refresh.
+    renderer_favicon_textures: RendererFaviconTextureCache,
 
     /// Graph browser application state
     graph_app: GraphBrowserApp,
@@ -295,7 +299,7 @@ impl Gui {
                 ))
                 .with_margin(egui::vec2(12.0, 12.0)),
             clipboard: Clipboard::new().ok(),
-            favicon_textures: Default::default(),
+            renderer_favicon_textures: Default::default(),
             graph_app,
             tile_rendering_contexts: HashMap::new(),
             tile_favicon_textures: HashMap::new(),
@@ -317,6 +321,8 @@ impl Gui {
                 focus_ring_started_at: None,
                 focus_ring_duration: Duration::from_millis(500),
                 omnibar_search_session: None,
+                active_toolbar_pane: None,
+                toolbar_drafts: HashMap::new(),
                 command_palette_toggle_requested: false,
                 deferred_open_child_webviews: Vec::new(),
             },
@@ -416,6 +422,45 @@ impl Gui {
         interaction_queries::request_location_submit(self)
     }
 
+    fn persist_active_toolbar_draft(&mut self) {
+        let Some(active_pane) = self.runtime_state.active_toolbar_pane else {
+            return;
+        };
+        self.runtime_state
+            .toolbar_drafts
+            .insert(active_pane, ToolbarDraft::from_toolbar_state(&self.toolbar_state));
+    }
+
+    fn sync_active_toolbar_draft(&mut self, window: &EmbedderWindow) {
+        let next_active_pane = window.focused_pane();
+        if self.runtime_state.active_toolbar_pane == next_active_pane {
+            return;
+        }
+
+        self.persist_active_toolbar_draft();
+        self.runtime_state.active_toolbar_pane = next_active_pane;
+
+        let Some(active_pane) = next_active_pane else {
+            return;
+        };
+
+        let draft = self
+            .runtime_state
+            .toolbar_drafts
+            .entry(active_pane)
+            .or_insert_with(|| ToolbarDraft::from_toolbar_state(&self.toolbar_state))
+            .clone();
+        draft.apply_to_toolbar_state(&mut self.toolbar_state);
+    }
+
+    pub(crate) fn request_browser_command(
+        &mut self,
+        target: BrowserCommandTarget,
+        command: BrowserCommand,
+    ) {
+        self.graph_app.request_browser_command(target, command);
+    }
+
     pub(crate) fn request_command_palette_toggle(&mut self) {
         interaction_queries::request_command_palette_toggle(self)
     }
@@ -456,6 +501,7 @@ impl Gui {
             window,
             headed_window,
         } = input;
+        self.sync_active_toolbar_draft(window);
         // Note: We need Rc<RunningAppState> for runtime viewer creation, but this method
         // is called from trait methods that only provide &RunningAppState.
         // The caller should have Rc available at the call site.
@@ -476,7 +522,7 @@ impl Gui {
             toolbar_state,
             toasts,
             clipboard,
-            favicon_textures,
+            renderer_favicon_textures,
             graph_app,
             tile_rendering_contexts,
             tile_favicon_textures,
@@ -505,6 +551,8 @@ impl Gui {
             focus_ring_started_at,
             focus_ring_duration,
             omnibar_search_session,
+            active_toolbar_pane: _,
+            toolbar_drafts: _,
             command_palette_toggle_requested,
             deferred_open_child_webviews,
         } = runtime_state;
@@ -525,7 +573,7 @@ impl Gui {
                 toolbar_state,
                 toasts,
                 clipboard,
-                favicon_textures,
+                favicon_textures: renderer_favicon_textures,
                 tile_rendering_contexts,
                 tile_favicon_textures,
                 thumbnail_capture_tx,
@@ -554,6 +602,8 @@ impl Gui {
                 diagnostics_state,
             });
         });
+
+        self.persist_active_toolbar_draft();
 
         GuiUpdateOutput
     }
@@ -588,11 +638,14 @@ impl Gui {
     /// Updates all fields taken from the given [`EmbedderWindow`], such as the location field.
     /// Returns true iff the egui needs an update.
     pub(crate) fn update_webview_data(&mut self, window: &EmbedderWindow) -> bool {
+        self.sync_active_toolbar_draft(window);
         // Note: We must use the "bitwise OR" (|) operator here instead of "logical OR" (||)
         //       because logical OR would short-circuit if any of the functions return true.
         //       We want to ensure that all functions are called. The "bitwise OR" operator
         //       does not short-circuit.
-        input_routing::collect_webview_update_flags(self, window)
+        let changed = input_routing::collect_webview_update_flags(self, window);
+        self.persist_active_toolbar_draft();
+        changed
     }
 
     /// Returns true if a redraw is required after handling the provided event.

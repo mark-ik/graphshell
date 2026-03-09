@@ -95,10 +95,7 @@ pub(crate) fn run_post_render_phase<FActive>(
     let focused_dialog_webview = if graph_surface_focused {
         None
     } else {
-        window.explicit_dialog_webview_id().or_else(|| {
-            nav_targeting::active_node_pane_node(tiles_tree)
-                .and_then(|node_key| graph_app.get_webview_for_node(node_key))
-        })
+        window.explicit_dialog_webview_id()
     };
     headed_window.for_each_active_dialog(
         window,
@@ -142,20 +139,23 @@ pub(crate) fn run_post_render_phase<FActive>(
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
     render::render_help_panel(ctx, graph_app);
+    let active_node_pane = crate::shell::desktop::workbench::tile_compositor::active_node_pane(tiles_tree);
     let focused_pane_node = nav_targeting::chrome_projection_node(graph_app, window)
         .or_else(|| focused_dialog_webview.and_then(|webview_id| graph_app.get_node_for_webview(webview_id)))
-        .or_else(|| nav_targeting::active_node_pane_node(tiles_tree));
+        .or_else(|| active_node_pane.map(|pane| pane.node_key));
     render::render_command_palette_panel(
         ctx,
         graph_app,
         graph_app.workspace.hovered_graph_node,
         focused_pane_node,
+        active_node_pane.map(|pane| pane.pane_id),
     );
     render::render_radial_command_menu(
         ctx,
         graph_app,
         graph_app.workspace.hovered_graph_node,
         focused_pane_node,
+        active_node_pane.map(|pane| pane.pane_id),
     );
     if !preview_mode_active && let Some(target_dir) = graph_app.take_pending_switch_data_dir() {
         match persistence_ops::switch_persistence_store(

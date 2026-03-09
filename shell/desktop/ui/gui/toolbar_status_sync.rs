@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::shell::desktop::lifecycle::webview_status_sync;
+use crate::shell::desktop::ui::nav_targeting;
 
 pub(super) fn update_location_in_toolbar(
     graph_app: &GraphBrowserApp,
@@ -12,12 +13,14 @@ pub(super) fn update_location_in_toolbar(
     focused_node_key: Option<NodeKey>,
     window: &EmbedderWindow,
 ) -> bool {
+    let chrome_projection_node = nav_targeting::chrome_projection_node(graph_app, window)
+        .or(focused_node_key);
     webview_status_sync::update_location_in_toolbar(
         toolbar_state.location_dirty,
         &mut toolbar_state.location,
         has_node_panes,
         selected_node_url_for_toolbar(graph_app),
-        focused_node_key,
+        chrome_projection_node,
         graph_app,
         window,
     )
@@ -29,10 +32,14 @@ pub(super) fn sync_toolbar_webview_status_fields(
     graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> bool {
-    let load_status_changed = sync_toolbar_load_status(toolbar_state, focused_node_key, graph_app, window);
-    let status_text_changed = sync_toolbar_status_text(toolbar_state, focused_node_key, graph_app, window);
+    let chrome_projection_node = nav_targeting::chrome_projection_node(graph_app, window)
+        .or(focused_node_key);
+    let load_status_changed =
+        sync_toolbar_load_status(toolbar_state, chrome_projection_node, graph_app, window);
+    let status_text_changed =
+        sync_toolbar_status_text(toolbar_state, chrome_projection_node, graph_app, window);
     let nav_state_changed =
-        sync_toolbar_navigation_state(toolbar_state, focused_node_key, graph_app, window);
+        sync_toolbar_navigation_state(toolbar_state, chrome_projection_node, graph_app, window);
 
     load_status_changed | status_text_changed | nav_state_changed
 }

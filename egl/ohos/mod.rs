@@ -432,7 +432,7 @@ impl ServoAction {
                             .and_then(|webview| webview.url())
                             .map(|u| u.to_string())
                             .unwrap_or(String::from("about:blank"));
-                        servo.activate_webview(native_webview_components.id);
+                        servo.retarget_input_to_webview(native_webview_components.id);
                         servo.pause_painting();
                         let (window_handle, viewport_rect) = get_raw_window_handle(
                             native_webview_components.xcomponent.0,
@@ -461,8 +461,8 @@ impl ServoAction {
                     viewport_rect,
                     hidpi_factor,
                 );
-                // TODO: creating the window and creating the webview should be separate.
-                let webview = servo.create_and_activate_toplevel_webview(servo.initial_url());
+                let webview = servo.create_toplevel_webview(servo.initial_url());
+                servo.retarget_input_to_webview(webview.id());
                 let id = webview.id();
                 NATIVE_WEBVIEWS
                     .lock()
@@ -475,8 +475,8 @@ impl ServoAction {
             }
             NewWebview(xcomponent, window) => {
                 servo.pause_painting();
-                let webview =
-                    servo.create_and_activate_toplevel_webview("about:blank".parse().unwrap());
+                let webview = servo.create_toplevel_webview("about:blank".parse().unwrap());
+                servo.retarget_input_to_webview(webview.id());
                 let (window_handle, viewport_rect) = get_raw_window_handle(xcomponent.0, window.0);
 
                 servo.resume_painting(window_handle, viewport_rect);

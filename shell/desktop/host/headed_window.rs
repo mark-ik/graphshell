@@ -47,6 +47,7 @@ use {
 };
 
 use crate::prefs::AppPreferences;
+use crate::app::{BrowserCommand, BrowserCommandTarget};
 use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::geometry::{
@@ -240,6 +241,12 @@ impl HeadedWindow {
             .and_then(|id| window.webview_by_id(id))
     }
 
+    fn explicit_chrome_webview(&self, window: &EmbedderWindow) -> Option<WebView> {
+        window
+            .explicit_chrome_webview_id()
+            .and_then(|id| window.webview_by_id(id))
+    }
+
     fn should_retarget_webview_focus(state: ElementState) -> bool {
         state == ElementState::Pressed
     }
@@ -395,9 +402,17 @@ impl HeadedWindow {
 
         let mut handled = true;
         ShortcutMatcher::from_event(key_event.event.clone())
-            .shortcut(CMD_OR_CONTROL, 'R', || active_webview.reload())
+            .shortcut(CMD_OR_CONTROL, 'R', || {
+                self.gui.borrow_mut().request_browser_command(
+                    BrowserCommandTarget::FocusedInput,
+                    BrowserCommand::Reload,
+                );
+            })
             .shortcut(CMD_OR_CONTROL, 'W', || {
-                window.close_webview(active_webview.id());
+                self.gui.borrow_mut().request_browser_command(
+                    BrowserCommandTarget::FocusedInput,
+                    BrowserCommand::Close,
+                );
             })
             .shortcut(CMD_OR_CONTROL, 'P', || {
                 let rate = env::var("SAMPLING_RATE")
@@ -439,25 +454,37 @@ impl HeadedWindow {
                 active_webview.toggle_webrender_debugging(WebRenderDebugOption::Profiler);
             })
             .shortcut(CMD_OR_ALT, Key::Named(NamedKey::ArrowRight), || {
-                active_webview.go_forward(1);
+                self.gui.borrow_mut().request_browser_command(
+                    BrowserCommandTarget::FocusedInput,
+                    BrowserCommand::Forward,
+                );
             })
             .optional_shortcut(
                 cfg!(not(target_os = "windows")),
                 CMD_OR_CONTROL,
                 ']',
                 || {
-                    active_webview.go_forward(1);
+                    self.gui.borrow_mut().request_browser_command(
+                        BrowserCommandTarget::FocusedInput,
+                        BrowserCommand::Forward,
+                    );
                 },
             )
             .shortcut(CMD_OR_ALT, Key::Named(NamedKey::ArrowLeft), || {
-                active_webview.go_back(1);
+                self.gui.borrow_mut().request_browser_command(
+                    BrowserCommandTarget::FocusedInput,
+                    BrowserCommand::Back,
+                );
             })
             .optional_shortcut(
                 cfg!(not(target_os = "windows")),
                 CMD_OR_CONTROL,
                 '[',
                 || {
-                    active_webview.go_back(1);
+                    self.gui.borrow_mut().request_browser_command(
+                        BrowserCommandTarget::FocusedInput,
+                        BrowserCommand::Back,
+                    );
                 },
             )
             .optional_shortcut(
@@ -513,13 +540,13 @@ impl HeadedWindow {
     pub(crate) fn for_each_active_dialog(
         &self,
         window: &EmbedderWindow,
-        focused_input_webview_id: Option<WebViewId>,
+        dialog_target_webview_id: Option<WebViewId>,
         toolbar_offset: Length<f32, DeviceIndependentPixel>,
         callback: impl Fn(&mut Dialog) -> bool,
     ) {
         // Important: this path must not borrow `self.gui`. It can be called while
         // `Gui::update` holds a mutable borrow of the same RefCell during redraw.
-        let Some(dialog_webview_id) = focused_input_webview_id else {
+        let Some(dialog_webview_id) = dialog_target_webview_id else {
             return;
         };
         let mut all_dialogs = self.dialogs.borrow_mut();
@@ -1125,7 +1152,7 @@ impl PlatformWindow for HeadedWindow {
 
     fn update_user_interface_state(&self, _: &RunningAppState, window: &EmbedderWindow) -> bool {
         let title = self
-            .explicit_input_webview(window)
+            .explicit_chrome_webview(window)
             .and_then(|webview| {
                 webview
                     .page_title()

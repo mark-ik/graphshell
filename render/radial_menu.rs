@@ -283,6 +283,7 @@ pub fn render_radial_command_menu(
     app: &mut GraphBrowserApp,
     hovered_node: Option<NodeKey>,
     focused_pane_node: Option<NodeKey>,
+    focused_pane_id: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
 ) {
     let was_open = app.workspace.show_radial_menu;
     if !was_open {
@@ -369,6 +370,7 @@ pub fn render_radial_command_menu(
                     source_context,
                     &mut intents,
                     focused_pane_node,
+                    focused_pane_id,
                 );
                 should_close = true;
             }
@@ -406,6 +408,7 @@ pub fn render_radial_command_menu(
                                         source_context,
                                         &mut intents,
                                         focused_pane_node,
+                                        focused_pane_id,
                                     );
                                     should_close = true;
                                     ui.close();
@@ -445,6 +448,7 @@ pub fn render_radial_command_menu(
                             source_context,
                             &mut intents,
                             focused_pane_node,
+                            focused_pane_id,
                         );
                         should_close = true;
                     }
@@ -885,6 +889,7 @@ pub fn render_radial_command_menu(
                     source_context,
                     &mut intents,
                     focused_pane_node,
+                    focused_pane_id,
                 );
             }
         }

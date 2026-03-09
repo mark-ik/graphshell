@@ -15,8 +15,29 @@ use super::{
     UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserCommand {
+    Back,
+    Forward,
+    Reload,
+    Close,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserCommandTarget {
+    FocusedInput,
+    ChromeProjection {
+        fallback_node: Option<NodeKey>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppCommand {
+    BrowserCommand {
+        command: BrowserCommand,
+        target: BrowserCommandTarget,
+    },
+    ReloadAll,
     CameraCommand {
         command: CameraCommand,
         target_view: Option<GraphViewId>,

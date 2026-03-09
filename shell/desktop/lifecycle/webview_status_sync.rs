@@ -22,10 +22,22 @@ pub(crate) fn update_location_in_toolbar(
     }
 
     if !has_node_panes {
-        if let Some(url) = selected_node_url
-            && url != *location
+        if let Some(url) = selected_node_url.as_ref()
+            && *url != *location
         {
-            *location = url;
+            *location = url.clone();
+            return true;
+        }
+        if selected_node_url.is_none() && !location.is_empty() {
+            location.clear();
+            return true;
+        }
+        return false;
+    }
+
+    if focused_node_key.is_none() {
+        if !location.is_empty() {
+            location.clear();
             return true;
         }
         return false;

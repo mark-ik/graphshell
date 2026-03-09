@@ -10,8 +10,21 @@ use gilrs::{EventType, Gilrs};
 use log::{debug, warn};
 use servo::{
     GamepadEvent, GamepadHapticEffectType, GamepadIndex, GamepadInputBounds,
-    GamepadSupportedHapticEffects, GamepadUpdateType, InputEvent, WebView,
+    GamepadSupportedHapticEffects, GamepadUpdateType,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GamepadUiCommand {
+    CycleFocusRegion,
+    ToggleCommandPalette,
+    ToggleRadialMenu,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum GamepadDispatch {
+    Ui(GamepadUiCommand),
+    Content(GamepadEvent),
+}
 
 pub struct HapticEffect {
     pub effect: Effect,
@@ -38,21 +51,28 @@ impl AppGamepadProvider {
         })
     }
 
-    /// Handle updates to connected gamepads from GilRs
-    pub(crate) fn handle_gamepad_events(&self, active_webview: WebView) {
+    /// Handle updates to connected gamepads from GilRs.
+    pub(crate) fn handle_gamepad_events(&self) -> Vec<GamepadDispatch> {
+        let mut dispatches = Vec::new();
         let mut handle = self.handle.borrow_mut();
         while let Some(event) = handle.next_event() {
             let gamepad = handle.gamepad(event.id);
             let name = gamepad.name();
             let index = GamepadIndex(event.id.into());
-            let mut gamepad_event: Option<GamepadEvent> = None;
+            let mut dispatch: Option<GamepadDispatch> = None;
             match event.event {
                 EventType::ButtonPressed(button, _) => {
+                    if let Some(command) = Self::map_gamepad_ui_command(button) {
+                        dispatch = Some(GamepadDispatch::Ui(command));
+                    }
                     let mapped_index = Self::map_gamepad_button(button);
                     // We only want to send this for a valid digital button, aka on/off only
-                    if !matches!(mapped_index, 6 | 7 | 17) {
+                    if dispatch.is_none() && !matches!(mapped_index, 6 | 7 | 17) {
                         let update_type = GamepadUpdateType::Button(mapped_index, 1.0);
-                        gamepad_event = Some(GamepadEvent::Updated(index, update_type));
+                        dispatch = Some(GamepadDispatch::Content(GamepadEvent::Updated(
+                            index,
+                            update_type,
+                        )));
                     }
                 }
                 EventType::ButtonReleased(button, _) => {
@@ -60,7 +80,10 @@ impl AppGamepadProvider {
                     // We only want to send this for a valid digital button, aka on/off only
                     if !matches!(mapped_index, 6 | 7 | 17) {
                         let update_type = GamepadUpdateType::Button(mapped_index, 0.0);
-                        gamepad_event = Some(GamepadEvent::Updated(index, update_type));
+                        dispatch = Some(GamepadDispatch::Content(GamepadEvent::Updated(
+                            index,
+                            update_type,
+                        )));
                     }
                 }
                 EventType::ButtonChanged(button, value, _) => {
@@ -68,7 +91,10 @@ impl AppGamepadProvider {
                     // We only want to send this for a valid non-digital button, aka the triggers
                     if matches!(mapped_index, 6 | 7) {
                         let update_type = GamepadUpdateType::Button(mapped_index, value as f64);
-                        gamepad_event = Some(GamepadEvent::Updated(index, update_type));
+                        dispatch = Some(GamepadDispatch::Content(GamepadEvent::Updated(
+                            index,
+                            update_type,
+                        )));
                     }
                 }
                 EventType::AxisChanged(axis, value, _) => {
@@ -90,7 +116,10 @@ impl AppGamepadProvider {
                             _ => 0., // Should not reach here
                         };
                         let update_type = GamepadUpdateType::Axis(mapped_axis, axis_value as f64);
-                        gamepad_event = Some(GamepadEvent::Updated(index, update_type));
+                        dispatch = Some(GamepadDispatch::Content(GamepadEvent::Updated(
+                            index,
+                            update_type,
+                        )));
                     }
                 }
                 EventType::Connected => {
@@ -104,15 +133,15 @@ impl AppGamepadProvider {
                         supports_dual_rumble: true,
                         supports_trigger_rumble: false,
                     };
-                    gamepad_event = Some(GamepadEvent::Connected(
+                    dispatch = Some(GamepadDispatch::Content(GamepadEvent::Connected(
                         index,
                         name,
                         bounds,
                         supported_haptic_effects,
-                    ));
+                    )));
                 }
                 EventType::Disconnected => {
-                    gamepad_event = Some(GamepadEvent::Disconnected(index));
+                    dispatch = Some(GamepadDispatch::Content(GamepadEvent::Disconnected(index)));
                 }
                 EventType::ForceFeedbackEffectCompleted => {
                     if let Some(haptic_effect) =
@@ -128,10 +157,12 @@ impl AppGamepadProvider {
                 _ => {}
             }
 
-            if let Some(event) = gamepad_event {
-                active_webview.notify_input_event(InputEvent::Gamepad(event));
+            if let Some(dispatch) = dispatch {
+                dispatches.push(dispatch);
             }
         }
+
+        dispatches
     }
 
     // Map button index and value to represent Standard Gamepad button
@@ -156,6 +187,18 @@ impl AppGamepadProvider {
             gilrs::Button::DPadRight => 15,
             gilrs::Button::Mode => 16,
             _ => 17, // Other buttons do not map to "standard" gamepad mapping and are ignored
+        }
+    }
+
+    fn map_gamepad_ui_command(button: gilrs::Button) -> Option<GamepadUiCommand> {
+        match button {
+            gilrs::Button::Start => Some(GamepadUiCommand::ToggleCommandPalette),
+            gilrs::Button::South => Some(GamepadUiCommand::ToggleRadialMenu),
+            gilrs::Button::DPadUp
+            | gilrs::Button::DPadDown
+            | gilrs::Button::DPadLeft
+            | gilrs::Button::DPadRight => Some(GamepadUiCommand::CycleFocusRegion),
+            _ => None,
         }
     }
 
@@ -238,5 +281,34 @@ impl AppGamepadProvider {
         };
         haptic_effects.remove(&index);
         stopped_successfully
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppGamepadProvider, GamepadUiCommand};
+
+    #[test]
+    fn dpad_maps_to_focus_cycle() {
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::DPadLeft),
+            Some(GamepadUiCommand::CycleFocusRegion)
+        );
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::DPadUp),
+            Some(GamepadUiCommand::CycleFocusRegion)
+        );
+    }
+
+    #[test]
+    fn start_and_south_map_to_host_surface_actions() {
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::Start),
+            Some(GamepadUiCommand::ToggleCommandPalette)
+        );
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::South),
+            Some(GamepadUiCommand::ToggleRadialMenu)
+        );
     }
 }

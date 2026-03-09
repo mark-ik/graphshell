@@ -214,7 +214,8 @@ mod history_runtime;
 #[path = "app/intents.rs"]
 mod intents;
 pub use intents::{
-    AppCommand, GraphIntent, GraphMutation, RuntimeEvent, ViewAction,
+    AppCommand, BrowserCommand, BrowserCommandTarget, GraphIntent, GraphMutation, RuntimeEvent,
+    ViewAction,
 };
 
 #[path = "app/workspace_commands.rs"]

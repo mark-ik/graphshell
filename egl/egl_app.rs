@@ -49,15 +49,15 @@ pub(crate) struct EmbeddedPlatformWindow {
     hidpi_scale_factor: Scale<f32, DeviceIndependentPixel, DevicePixel>,
     /// A list of showing [`InputMethod`] interfaces.
     visible_input_methods: RefCell<Vec<EmbedderControlId>>,
-    /// The current title of the active WebView in this window.
+    /// The current title of the input-target WebView in this window.
     current_title: RefCell<Option<String>>,
-    /// The current URL of the active WebView in this window.
+    /// The current URL of the input-target WebView in this window.
     current_url: RefCell<Option<Url>>,
-    /// Whether or not the active WebView is currently able to go back.
+    /// Whether or not the input-target WebView is currently able to go back.
     current_can_go_back: Cell<bool>,
-    /// Whether or not the active WebView is currently able to go forward.
+    /// Whether or not the input-target WebView is currently able to go forward.
     current_can_go_forward: Cell<bool>,
-    /// The current load status of the active WebView.
+    /// The current load status of the input-target WebView.
     current_load_status: Cell<Option<LoadStatus>>,
 }
 
@@ -105,18 +105,18 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         else {
             return false;
         };
-        let Some(active_webview) = window.webview_by_id(webview_id) else {
+        let Some(target_webview) = window.webview_by_id(webview_id) else {
             return false;
         };
 
-        let new_title = active_webview.page_title();
+        let new_title = target_webview.page_title();
         let title_changed = new_title != *self.current_title.borrow();
         if title_changed {
             *self.current_title.borrow_mut() = new_title.clone();
             self.host.on_title_changed(new_title);
         }
 
-        let new_url = active_webview.url();
+        let new_url = target_webview.url();
         let url_changed = new_url != *self.current_url.borrow();
         if url_changed {
             let new_url_string = new_url.as_ref().map(Url::to_string).unwrap_or_default();
@@ -125,8 +125,8 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         }
 
         let new_back_forward = (
-            active_webview.can_go_back(),
-            active_webview.can_go_forward(),
+            target_webview.can_go_back(),
+            target_webview.can_go_forward(),
         );
         let old_back_forward = (
             self.current_can_go_back.get(),
@@ -140,7 +140,7 @@ impl PlatformWindow for EmbeddedPlatformWindow {
                 .on_history_changed(new_back_forward.0, new_back_forward.1);
         }
 
-        let new_load_status = active_webview.load_status();
+        let new_load_status = target_webview.load_status();
         let load_status_changed = Some(new_load_status) != self.current_load_status.get();
         if load_status_changed {
             self.host.notify_load_status_changed(new_load_status);
@@ -384,7 +384,7 @@ impl App {
         if should_warn {
             let suppressed = self.input_target_fallback_suppressed.replace(0);
             warn!(
-                "input_target_webview: preferred_input returned None, falling back to newest() (suppressed_repeats={suppressed})"
+                "input_target_webview: explicit_input_webview_id returned None, falling back to newest() (suppressed_repeats={suppressed})"
             );
             self.input_target_fallback_last_warned_at.set(Some(now));
         } else {
@@ -420,14 +420,14 @@ impl App {
         self.initial_url.clone()
     }
 
-    pub(crate) fn create_and_activate_toplevel_webview(self: &Rc<Self>, url: Url) -> WebView {
-        self.window()
-            .create_and_activate_toplevel_webview(self.state.clone(), url)
+    pub(crate) fn create_toplevel_webview(self: &Rc<Self>, url: Url) -> WebView {
+        self.window().create_toplevel_webview(self.state.clone(), url)
     }
 
-    /// The active webview will be immediately valid via `input_target_webview()`
-    pub(crate) fn activate_webview(&self, id: WebViewId) {
-        self.state.window_for_webview_id(id).activate_webview(id);
+    pub(crate) fn retarget_input_to_webview(&self, webview_id: WebViewId) {
+        self.state
+            .window_for_webview_id(webview_id)
+            .retarget_input_to_webview(webview_id);
     }
 
     /// This is the Servo heartbeat. This needs to be called

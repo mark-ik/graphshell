@@ -424,6 +424,7 @@ pub(super) fn run_toolbar_phase(
             graph_app,
             window,
             tiles_tree,
+            active_toolbar_pane: window.focused_pane(),
             focused_node_hint,
             graph_surface_focused,
             can_go_back: toolbar_state.can_go_back,
@@ -1604,25 +1605,41 @@ fn handle_set_pane_view_intent(
     pane: crate::shell::desktop::workbench::pane_model::PaneId,
     view: crate::shell::desktop::workbench::pane_model::PaneViewState,
 ) {
-    log::debug!(
-        "workbench intent SetPaneView ignored pane target {}; applying view payload",
-        pane
-    );
     match view {
         crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(kind) => {
             open_or_focus_tool_pane_if_available(tiles_tree, kind);
         }
         crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state) => {
-            crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
-                tiles_tree, graph_app, state.node,
-            );
-
-            if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
-                tiles_tree.tiles.iter_mut().find(|(_, tile)| {
-                    matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.node == state.node)
+            let exact_pane_updated = if let Some((_, Tile::Pane(TileKind::Node(node_state)))) = tiles_tree
+                .tiles
+                .iter_mut()
+                .find(|(_, tile)| {
+                    matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.pane_id == pane)
                 })
             {
+                node_state.node = state.node;
                 node_state.viewer_id_override = state.viewer_id_override.clone();
+                true
+            } else {
+                false
+            };
+
+            if exact_pane_updated {
+                let _ = tiles_tree.make_active(
+                    |_, tile| matches!(tile, Tile::Pane(TileKind::Node(candidate)) if candidate.pane_id == pane),
+                );
+            } else {
+                crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+                    tiles_tree, graph_app, state.node,
+                );
+
+                if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
+                    tiles_tree.tiles.iter_mut().find(|(_, tile)| {
+                        matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.node == state.node)
+                    })
+                {
+                    node_state.viewer_id_override = state.viewer_id_override.clone();
+                }
             }
             crate::shell::desktop::workbench::tile_runtime::refresh_node_pane_render_modes(
                 tiles_tree, graph_app,

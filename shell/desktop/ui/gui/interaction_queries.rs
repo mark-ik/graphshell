@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use super::*;
+use crate::shell::desktop::ui::gui_state::toolbar_location_input_id;
 use crate::util::CoordBridge;
 
 pub(super) fn focused_node_key(gui: &Gui) -> Option<NodeKey> {
@@ -35,9 +36,9 @@ pub(super) fn node_key_for_webview_id(gui: &Gui, webview_id: WebViewId) -> Optio
 }
 
 pub(super) fn location_has_focus(gui: &Gui) -> bool {
+    let location_id = toolbar_location_input_id(gui.runtime_state.active_toolbar_pane);
     gui.context.egui_context().memory(|m| {
-        m.focused()
-            .is_some_and(|focused| focused == egui::Id::new("location_input"))
+        m.focused().is_some_and(|focused| focused == location_id)
     })
 }
 

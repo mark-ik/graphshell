@@ -3,6 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,9 +21,7 @@ use servo::{
 use url::Url;
 
 use crate::app::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId};
-use crate::shell::desktop::host::running_app_state::{
-    RunningAppState, UserInterfaceCommand, WebViewCollection,
-};
+use crate::shell::desktop::host::running_app_state::{RunningAppState, WebViewCollection};
 use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::workbench::pane_model::PaneId;
 #[cfg(all(
@@ -135,6 +134,8 @@ pub(crate) struct EmbedderWindow {
     chrome_projection_source: Cell<Option<ChromeProjectionSource>>,
     /// Explicit dialog-owner placeholder for servoshell debt-clear.
     dialog_owner: Cell<Option<DialogOwner>>,
+    /// Pass 1 visibility snapshot for node-hosting panes in this window.
+    visible_node_panes: RefCell<Vec<PaneId>>,
     /// Global sequence source so graph semantic event order is deterministic across windows.
     graph_event_sequence: Arc<AtomicU64>,
     /// Optional runtime tracing for delegate/event ordering diagnostics.
@@ -143,8 +144,6 @@ pub(crate) struct EmbedderWindow {
     trace_graph_events_started_at: Instant,
     /// Sequence number for graph event queue drains.
     trace_graph_event_drains: Cell<u64>,
-    /// Pending [`UserInterfaceCommand`] that have yet to be processed by the main loop.
-    pending_commands: RefCell<Vec<UserInterfaceCommand>>,
 }
 
 impl EmbedderWindow {
@@ -165,11 +164,11 @@ impl EmbedderWindow {
             input_target: Cell::new(None),
             chrome_projection_source: Cell::new(None),
             dialog_owner: Cell::new(None),
+            visible_node_panes: RefCell::new(Vec::new()),
             graph_event_sequence,
             trace_graph_events: std::env::var_os("GRAPHSHELL_TRACE_DELEGATE_EVENTS").is_some(),
             trace_graph_events_started_at: Instant::now(),
             trace_graph_event_drains: Cell::new(0),
-            pending_commands: Default::default(),
         }
     }
 
@@ -209,20 +208,23 @@ impl EmbedderWindow {
         webview
     }
 
-    /// Repaint the focused [`WebView`].
+    /// Repaint the currently visible node-pane renderers.
     pub(crate) fn repaint_webviews(&self) {
-        let Some(webview_id) = self.explicit_input_webview_id() else {
+        let visible_renderers = self.visible_renderer_ids();
+        if visible_renderers.is_empty() {
             return;
-        };
-        let Some(webview) = self.webview_by_id(webview_id) else {
-            return;
-        };
+        }
 
         self.platform_window()
             .rendering_context()
             .make_current()
             .expect("Could not make PlatformWindow RenderingContext current");
-        webview.paint();
+        for webview_id in visible_renderers {
+            let Some(webview) = self.webview_by_id(webview_id) else {
+                continue;
+            };
+            webview.paint();
+        }
         self.platform_window().rendering_context().present();
     }
 
@@ -295,6 +297,23 @@ impl EmbedderWindow {
         self.dialog_owner.set(owner);
     }
 
+    pub(crate) fn set_visible_node_panes(&self, pane_ids: Vec<PaneId>) {
+        *self.visible_node_panes.borrow_mut() = pane_ids;
+    }
+
+    fn visible_renderer_ids(&self) -> Vec<WebViewId> {
+        let mut seen = HashSet::new();
+        self.visible_node_panes
+            .borrow()
+            .iter()
+            .filter_map(|pane_id| registries::phase1_renderer_attachment_for_pane(*pane_id))
+            .filter_map(|attachment| {
+                seen.insert(attachment.renderer_id)
+                    .then_some(attachment.renderer_id)
+            })
+            .collect()
+    }
+
     pub(crate) fn explicit_input_webview_id(&self) -> Option<WebViewId> {
         match self.input_target() {
             Some(InputTarget::Renderer(renderer_id)) => Some(renderer_id),
@@ -316,8 +335,25 @@ impl EmbedderWindow {
                 registries::phase1_renderer_attachment_for_pane(pane_id)
                     .map(|attachment| attachment.renderer_id)
             }
-            None => self.explicit_input_webview_id(),
+            None => None,
         }
+    }
+
+    pub(crate) fn explicit_chrome_webview_id(&self) -> Option<WebViewId> {
+        match self.chrome_projection_source() {
+            Some(ChromeProjectionSource::Renderer(renderer_id)) => Some(renderer_id),
+            Some(ChromeProjectionSource::Pane(pane_id)) => {
+                registries::phase1_renderer_attachment_for_pane(pane_id)
+                    .map(|attachment| attachment.renderer_id)
+            }
+            None => None,
+        }
+    }
+
+    fn dialog_owner_for_webview(&self, webview_id: WebViewId) -> DialogOwner {
+        registries::phase1_pane_for_renderer(webview_id)
+            .map(DialogOwner::Pane)
+            .unwrap_or(DialogOwner::Renderer(webview_id))
     }
 
     fn sync_explicit_targets_for_webview(&self, webview_id: WebViewId) {
@@ -325,7 +361,7 @@ impl EmbedderWindow {
         self.set_focused_pane(pane_id);
         self.set_input_target(Some(InputTarget::Renderer(webview_id)));
         self.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(webview_id)));
-        self.set_dialog_owner(Some(DialogOwner::Renderer(webview_id)));
+        self.set_dialog_owner(Some(self.dialog_owner_for_webview(webview_id)));
     }
 
     pub(crate) fn retarget_input_to_webview(&self, webview_id: WebViewId) {
@@ -720,8 +756,46 @@ impl EmbedderWindow {
         webview: WebView,
         embedder_control: EmbedderControl,
     ) {
+        self.set_dialog_owner(Some(self.dialog_owner_for_webview(webview.id())));
         self.platform_window
             .show_embedder_control(webview.id(), embedder_control);
+        self.set_needs_update();
+        self.set_needs_repaint();
+    }
+
+    pub(crate) fn show_bluetooth_device_dialog(
+        &self,
+        webview_id: WebViewId,
+        devices: Vec<String>,
+        response_sender: GenericSender<Option<String>>,
+    ) {
+        self.set_dialog_owner(Some(self.dialog_owner_for_webview(webview_id)));
+        self.platform_window
+            .show_bluetooth_device_dialog(webview_id, devices, response_sender);
+        self.set_needs_update();
+        self.set_needs_repaint();
+    }
+
+    pub(crate) fn show_permission_dialog(
+        &self,
+        webview_id: WebViewId,
+        permission_request: PermissionRequest,
+    ) {
+        self.set_dialog_owner(Some(self.dialog_owner_for_webview(webview_id)));
+        self.platform_window
+            .show_permission_dialog(webview_id, permission_request);
+        self.set_needs_update();
+        self.set_needs_repaint();
+    }
+
+    pub(crate) fn show_http_authentication_dialog(
+        &self,
+        webview_id: WebViewId,
+        authentication_request: AuthenticationRequest,
+    ) {
+        self.set_dialog_owner(Some(self.dialog_owner_for_webview(webview_id)));
+        self.platform_window
+            .show_http_authentication_dialog(webview_id, authentication_request);
         self.set_needs_update();
         self.set_needs_repaint();
     }
@@ -737,30 +811,6 @@ impl EmbedderWindow {
         self.set_needs_repaint();
     }
 
-    pub(crate) fn queue_user_interface_command(&self, command: UserInterfaceCommand) {
-        self.pending_commands.borrow_mut().push(command)
-    }
-
-    /// Takes any events generated during UI updates and performs their actions.
-    pub(crate) fn handle_interface_commands(
-        &self,
-        state: &Rc<RunningAppState>,
-        _create_platform_window: Option<&dyn Fn(Url) -> Rc<dyn PlatformWindow>>,
-    ) {
-        let commands = std::mem::take(&mut *self.pending_commands.borrow_mut());
-        for event in commands {
-            match event {
-                UserInterfaceCommand::ReloadAll => {
-                    for window in state.windows().values() {
-                        window.set_needs_update();
-                        for (_, webview) in window.webviews() {
-                            webview.reload();
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// A `PlatformWindow` abstracts away the differents kinds of platform windows that might
@@ -840,13 +890,6 @@ pub(crate) trait PlatformWindow {
     fn notify_media_session_event(&self, _: MediaSessionEvent) {}
     fn notify_crashed(&self, _: WebView, _reason: String, _backtrace: Option<String>) {}
     fn show_console_message(&self, _level: ConsoleLogLevel, _message: &str) {}
-    /// Preferred webview target for user-input-like routing on this platform window.
-    /// Defaults to explicit host ownership; headed graphshell overrides this to use
-    /// GUI focus as a secondary compatibility bridge.
-    fn preferred_input_webview_id(&self, window: &EmbedderWindow) -> Option<WebViewId> {
-        window.explicit_input_webview_id()
-    }
-
     #[cfg(not(any(target_os = "android", target_env = "ohos")))]
     /// If this window is a headed window, access the concrete type.
     fn as_headed_window(

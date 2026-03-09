@@ -186,9 +186,11 @@ pub enum ActionId {
     EdgeRemoveUser,
     // Graph actions
     GraphFit,
+    GraphCycleFocusRegion,
     GraphTogglePhysics,
     GraphPhysicsConfig,
     GraphCommandPalette,
+    GraphRadialMenu,
     // Persistence actions
     PersistUndo,
     PersistRedo,
@@ -227,9 +229,11 @@ impl ActionId {
             Self::EdgeConnectBoth => "Both",
             Self::EdgeRemoveUser => "Remove",
             Self::GraphFit => "Fit",
+            Self::GraphCycleFocusRegion => "Focus",
             Self::GraphTogglePhysics => "Physics",
             Self::GraphPhysicsConfig => "Config",
             Self::GraphCommandPalette => "Cmd",
+            Self::GraphRadialMenu => "Radial",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
             Self::PersistSaveSnapshot => "Save W",
@@ -267,9 +271,11 @@ impl ActionId {
             Self::EdgeConnectBoth => "Connect Both Directions",
             Self::EdgeRemoveUser => "Remove User Edge",
             Self::GraphFit => "Fit Graph to Screen",
+            Self::GraphCycleFocusRegion => "Cycle Focus Region",
             Self::GraphTogglePhysics => "Toggle Physics Simulation",
             Self::GraphPhysicsConfig => "Open Physics Settings",
             Self::GraphCommandPalette => "Open Interaction Menu",
+            Self::GraphRadialMenu => "Open Radial Menu",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
             Self::PersistSaveSnapshot => "Save Frame Snapshot",
@@ -307,9 +313,11 @@ impl ActionId {
                 ActionCategory::Edge
             }
             Self::GraphFit
+            | Self::GraphCycleFocusRegion
             | Self::GraphTogglePhysics
             | Self::GraphPhysicsConfig
-            | Self::GraphCommandPalette => ActionCategory::Graph,
+            | Self::GraphCommandPalette
+            | Self::GraphRadialMenu => ActionCategory::Graph,
             Self::PersistUndo
             | Self::PersistRedo
             | Self::PersistSaveSnapshot

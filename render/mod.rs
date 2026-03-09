@@ -64,6 +64,28 @@ pub(crate) mod action_registry;
 mod command_palette;
 mod command_profile;
 pub(crate) mod radial_menu;
+
+pub(crate) fn dispatch_action_id(
+    app: &mut GraphBrowserApp,
+    action_id: action_registry::ActionId,
+    pair_context: Option<(NodeKey, NodeKey)>,
+    source_context: Option<NodeKey>,
+    focused_pane_node: Option<NodeKey>,
+    focused_pane_id: Option<crate::shell::desktop::workbench::pane_model::PaneId>,
+) {
+    let mut intents = Vec::new();
+    command_palette::execute_action(
+        app,
+        action_id,
+        pair_context,
+        source_context,
+        &mut intents,
+        focused_pane_node,
+        focused_pane_id,
+    );
+    apply_ui_intents_with_checkpoint(app, intents);
+}
+
 pub use command_palette::render_command_palette_panel;
 pub use radial_menu::render_radial_command_menu;
 

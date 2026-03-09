@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
@@ -31,8 +31,8 @@ pub(crate) struct ToolbarSubmitResult {
 }
 
 pub(crate) fn run_nav_action(
-    graph_app: &GraphBrowserApp,
-    window: &EmbedderWindow,
+    graph_app: &mut GraphBrowserApp,
+    _window: &EmbedderWindow,
     focused_toolbar_node: Option<NodeKey>,
     action: ToolbarNavAction,
 ) -> bool {
@@ -45,25 +45,16 @@ pub(crate) fn run_nav_action(
         return false;
     }
 
-    let Some(webview_id) = window
-        .explicit_input_webview_id()
-        .or_else(|| nav_targeting::nav_target_webview_id(graph_app, focused_toolbar_node))
-    else {
-        return false;
+    let command = match action {
+        ToolbarNavAction::Back => BrowserCommand::Back,
+        ToolbarNavAction::Forward => BrowserCommand::Forward,
+        ToolbarNavAction::Reload => BrowserCommand::Reload,
     };
-    let Some(webview) = window.webview_by_id(webview_id) else {
-        return false;
+    let target = BrowserCommandTarget::ChromeProjection {
+        fallback_node: nav_targeting::chrome_projection_node(graph_app, _window)
+            .or(focused_toolbar_node),
     };
-    match action {
-        ToolbarNavAction::Back => {
-            let _ = webview.go_back(1);
-        }
-        ToolbarNavAction::Forward => {
-            let _ = webview.go_forward(1);
-        }
-        ToolbarNavAction::Reload => webview.reload(),
-    }
-    window.set_needs_update();
+    graph_app.request_browser_command(target, command);
     true
 }
 

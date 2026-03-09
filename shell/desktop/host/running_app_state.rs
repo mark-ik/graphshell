@@ -43,6 +43,11 @@ use crate::shell::desktop::host::embedder::EmbedderCore;
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 pub(crate) use crate::shell::desktop::host::gamepad::AppGamepadProvider;
+#[cfg(all(
+    feature = "gamepad",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+use crate::shell::desktop::host::gamepad::{GamepadDispatch, GamepadUiCommand};
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, GraphSemanticEvent, PlatformWindow, WebViewCreationContext,
 };
@@ -114,12 +119,6 @@ impl WebViewCollection {
     }
 }
 
-/// A command received via the user interacting with the user interface.
-#[cfg_attr(any(target_os = "android", target_env = "ohos"), expect(dead_code))]
-pub(crate) enum UserInterfaceCommand {
-    ReloadAll,
-}
-
 struct PendingCreateRequest {
     request: CreateNewWebViewRequest,
 }
@@ -162,6 +161,12 @@ pub(crate) struct RunningAppState {
 
     /// Owned Servo child-create requests waiting for reconcile-time acceptance.
     pending_create_requests: RefCell<HashMap<PendingCreateToken, PendingCreateRequest>>,
+
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    pending_gamepad_ui_commands: RefCell<Vec<GamepadUiCommand>>,
 
     /// Monotonic token source for accepted child-create requests.
     next_pending_create_token: Cell<u64>,
@@ -265,6 +270,11 @@ impl RunningAppState {
             app_preferences,
             achieved_stable_image: Default::default(),
             pending_create_requests: Default::default(),
+            #[cfg(all(
+                feature = "gamepad",
+                not(any(target_os = "android", target_env = "ohos"))
+            ))]
+            pending_gamepad_ui_commands: Default::default(),
             next_pending_create_token: Cell::new(1),
             exit_scheduled: Default::default(),
             user_content_manager,
@@ -445,12 +455,6 @@ impl RunningAppState {
         self: &Rc<Self>,
         create_platform_window: Option<&dyn Fn(Url) -> Rc<dyn PlatformWindow>>,
     ) -> bool {
-        // We clone here to avoid a double borrow. User interface commands can update the list of windows.
-        let windows: Vec<_> = self.embedder_core.windows().values().cloned().collect();
-        for window in windows {
-            window.handle_interface_commands(self, create_platform_window);
-        }
-
         self.handle_webdriver_messages(create_platform_window);
 
         #[cfg(all(
@@ -695,13 +699,30 @@ impl RunningAppState {
         let Some(gamepad_provider) = self.gamepad_provider.as_ref() else {
             return;
         };
-        let Some(active_webview) = self.focused_window().and_then(|window| {
+        let focused_webview = self.focused_window().and_then(|window| {
             let webview_id = window.explicit_input_webview_id()?;
             window.webview_by_id(webview_id)
-        }) else {
-            return;
-        };
-        gamepad_provider.handle_gamepad_events(active_webview);
+        });
+        for dispatch in gamepad_provider.handle_gamepad_events() {
+            match dispatch {
+                GamepadDispatch::Ui(command) => {
+                    self.pending_gamepad_ui_commands.borrow_mut().push(command);
+                }
+                GamepadDispatch::Content(event) => {
+                    if let Some(webview) = focused_webview.as_ref() {
+                        webview.notify_input_event(InputEvent::Gamepad(event));
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(all(
+        feature = "gamepad",
+        not(any(target_os = "android", target_env = "ohos"))
+    ))]
+    pub(crate) fn take_pending_gamepad_ui_commands(&self) -> Vec<GamepadUiCommand> {
+        std::mem::take(&mut *self.pending_gamepad_ui_commands.borrow_mut())
     }
 
     pub(crate) fn handle_focused(&self, window: Rc<EmbedderWindow>) {
@@ -808,7 +829,7 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
         webview: WebView,
         authentication_request: AuthenticationRequest,
     ) {
-        self.platform_window_for_webview_id(webview.id())
+        self.window_for_webview_id(webview.id())
             .show_http_authentication_dialog(webview.id(), authentication_request);
     }
 
@@ -875,12 +896,12 @@ impl WebViewDelegate for RunningAppStateWebViewDelegate {
         devices: Vec<String>,
         response_sender: GenericSender<Option<String>>,
     ) {
-        self.platform_window_for_webview_id(webview.id())
+        self.window_for_webview_id(webview.id())
             .show_bluetooth_device_dialog(webview.id(), devices, response_sender);
     }
 
     fn request_permission(&self, webview: WebView, permission_request: PermissionRequest) {
-        self.platform_window_for_webview_id(webview.id())
+        self.window_for_webview_id(webview.id())
             .show_permission_dialog(webview.id(), permission_request);
     }
 

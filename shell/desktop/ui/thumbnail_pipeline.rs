@@ -19,6 +19,9 @@ use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token
 const NODE_THUMBNAIL_WIDTH: u32 = 256;
 const NODE_THUMBNAIL_HEIGHT: u32 = 192;
 
+pub(crate) type RendererFaviconTextureCache =
+    HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>;
+
 fn thumbnail_url_cache_key(node_key: crate::graph::NodeKey) -> String {
     format!("thumbnail:url:{}", node_key.index())
 }
@@ -213,7 +216,7 @@ pub(crate) fn load_pending_favicons(
     ctx: &egui::Context,
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
-    texture_cache: &mut HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+    renderer_favicon_textures: &mut RendererFaviconTextureCache,
 ) -> Vec<GraphIntent> {
     let mut intents = Vec::new();
     for id in window.take_pending_favicon_loads() {
@@ -232,7 +235,7 @@ pub(crate) fn load_pending_favicons(
             texture_id_from_token(texture_token),
             egui::vec2(favicon.width as f32, favicon.height as f32),
         );
-        texture_cache.insert(id, (handle, texture));
+        renderer_favicon_textures.insert(id, (handle, texture));
 
         if let Some(node_key) = graph_app.get_node_for_webview(id) {
             intents.push(GraphIntent::SetNodeFavicon {

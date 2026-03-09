@@ -14,6 +14,8 @@ fn graph_surface_focus_state_emits_ux_navigation_transition_on_change() {
         focus_ring_started_at: None,
         focus_ring_duration: Duration::from_millis(500),
         omnibar_search_session: None,
+        active_toolbar_pane: None,
+        toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
         deferred_open_child_webviews: Vec::new(),
     };
@@ -45,6 +47,8 @@ fn node_focus_state_emits_ux_navigation_transition_on_change() {
         focus_ring_started_at: None,
         focus_ring_duration: Duration::from_millis(500),
         omnibar_search_session: None,
+        active_toolbar_pane: None,
+        toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
         deferred_open_child_webviews: Vec::new(),
     };
@@ -75,6 +79,8 @@ fn node_focus_state_noop_does_not_emit_ux_navigation_transition() {
         focus_ring_started_at: None,
         focus_ring_duration: Duration::from_millis(500),
         omnibar_search_session: None,
+        active_toolbar_pane: None,
+        toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
         deferred_open_child_webviews: Vec::new(),
     };
@@ -105,6 +111,8 @@ fn graph_surface_focus_state_noop_does_not_emit_ux_navigation_transition() {
         focus_ring_started_at: None,
         focus_ring_duration: Duration::from_millis(500),
         omnibar_search_session: None,
+        active_toolbar_pane: None,
+        toolbar_drafts: std::collections::HashMap::new(),
         command_palette_toggle_requested: false,
         deferred_open_child_webviews: Vec::new(),
     };
