@@ -24,16 +24,21 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
+    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
+    CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
+    CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
     CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
     CHANNEL_INVARIANT_TIMEOUT, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
     CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
     CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
@@ -736,6 +741,14 @@ impl DiagnosticsState {
         let samples = replay_samples_snapshot();
         let sample_count = samples.len() as u64;
         let violation_count = samples.iter().filter(|sample| sample.violation).count() as u64;
+        let restore_verification_fail_count = samples
+            .iter()
+            .filter(|sample| !sample.restore_verified)
+            .count() as u64;
+        let chaos_enabled_sample_count = samples
+            .iter()
+            .filter(|sample| sample.chaos_enabled)
+            .count() as u64;
         let latest_sequence = samples.last().map(|sample| sample.sequence);
         let latest_violation_node = samples
             .iter()
@@ -743,9 +756,19 @@ impl DiagnosticsState {
             .find(|sample| sample.violation)
             .map(|sample| format!("{:?}", sample.node_key));
         let latest_duration_us = samples.last().map(|sample| sample.duration_us);
+        let latest_bridge_mode = samples.last().map(|sample| sample.bridge_mode);
         let bridge_probe_count = self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE);
         let bridge_failed_frame_count =
             self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME);
+        let gl_state_violation_count = self.channel_count(CHANNEL_COMPOSITOR_GL_STATE_VIOLATION);
+        let pass_order_violation_count = self.channel_count(CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION);
+        let replay_sample_recorded_count =
+            self.channel_count(CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED);
+        let replay_artifact_recorded_count =
+            self.channel_count(CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED);
+        let chaos_probe_count = self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS);
+        let chaos_pass_count = self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS);
+        let chaos_fail_count = self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL);
         let bridge_callback_sample_count =
             self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE);
         let bridge_callback_total_us = self
@@ -776,11 +799,21 @@ impl DiagnosticsState {
         json!({
             "sample_count": sample_count,
             "violation_count": violation_count,
+            "restore_verification_fail_count": restore_verification_fail_count,
+            "chaos_enabled_sample_count": chaos_enabled_sample_count,
             "latest_sequence": latest_sequence,
             "latest_violation_node": latest_violation_node,
             "latest_duration_us": latest_duration_us,
+            "latest_bridge_mode": latest_bridge_mode,
             "bridge_probe_count": bridge_probe_count,
             "bridge_failed_frame_count": bridge_failed_frame_count,
+            "gl_state_violation_count": gl_state_violation_count,
+            "pass_order_violation_count": pass_order_violation_count,
+            "replay_sample_recorded_count": replay_sample_recorded_count,
+            "replay_artifact_recorded_count": replay_artifact_recorded_count,
+            "chaos_probe_count": chaos_probe_count,
+            "chaos_pass_count": chaos_pass_count,
+            "chaos_fail_count": chaos_fail_count,
             "avg_bridge_callback_us": avg_bridge_callback_us,
             "avg_bridge_presentation_us": avg_bridge_presentation_us,
         })
@@ -3434,6 +3467,70 @@ Object {
         assert_eq!(
             snapshot["compositor_replay"]["avg_bridge_presentation_us"].as_u64(),
             Some(90)
+        );
+    }
+
+    #[test]
+    fn snapshot_json_includes_compositor_contract_health_metrics() {
+        let mut state = DiagnosticsState::new();
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
+            byte_len: 1,
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
+            byte_len: 1,
+        });
+
+        state.force_drain_for_tests();
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["compositor_replay"]["gl_state_violation_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["pass_order_violation_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["replay_sample_recorded_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["replay_artifact_recorded_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["chaos_probe_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["chaos_fail_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["compositor_replay"]["chaos_pass_count"].as_u64(),
+            Some(1)
         );
     }
 
