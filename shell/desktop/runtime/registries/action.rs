@@ -394,7 +394,7 @@ mod tests {
             .domain
             .graph
             .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
-        app.workspace.selected_nodes.select(key, false);
+        app.select_node(key, false);
 
         let registry = ActionRegistry::default();
         let execution = registry.execute(

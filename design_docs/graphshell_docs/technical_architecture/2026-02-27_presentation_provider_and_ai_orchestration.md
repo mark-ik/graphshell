@@ -74,11 +74,16 @@ This aligns with the folded capability declaration model in `TERMINOLOGY.md` and
 
 ---
 
-## 4. Node Facet Taxonomy
+## 4. Presentation Facet Taxonomy
 
-Each node may expose multiple facet projections over the same underlying semantic identity.
+Each node may expose multiple presentation facets over the same underlying
+semantic identity.
 
-### 4.1 Canonical Facets
+This is intentionally distinct from the PMEST node facet projection used for
+filtering and facet-rail routing. Here, "facet" means runtime presentation
+mode, not a filterable metadata axis.
+
+### 4.1 Canonical Presentation Facets
 
 - **Document Facet**: Primary content fidelity view (web page, PDF page stream, image, text body).
 - **Schematic Facet**: Graph-native abstraction of the node's internal or local-neighborhood structure.
@@ -86,13 +91,13 @@ Each node may expose multiple facet projections over the same underlying semanti
 - **Dependency Facet**: Linked references/citations/imports/relations projection.
 - **Metadata Facet**: Properties, tags, MIME/address info, lifecycle and provenance.
 
-### 4.2 Facet Presentation Rule
+### 4.2 Presentation Rule
 
 Facet selection is independent from node identity and lifecycle. A node stays the same node while facet/provider changes.
 
-`Node + Facet + Provider` is the runtime presentation tuple.
+`Node + PresentationFacet + Provider` is the runtime presentation tuple.
 
-### 4.3 Why Facets Matter
+### 4.3 Why Presentation Facets Matter
 
 Some content classes are better represented as graph schematics than literal document rendering. Facets make this first-class without replacing high-fidelity providers.
 
@@ -110,7 +115,7 @@ Selection policy should support explicit and automatic modes:
 
 Scoring dimensions:
 
-- content compatibility (MIME/address/facet),
+- content compatibility (MIME/address/presentation facet),
 - fidelity target,
 - interaction requirements,
 - subsystem conformance,

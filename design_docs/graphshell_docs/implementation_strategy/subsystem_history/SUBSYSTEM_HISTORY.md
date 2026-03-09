@@ -10,6 +10,7 @@
 **Sources consolidated**:
 - `2026-02-20_edge_traversal_impl_plan.md` (Stages A-F, especially Stage E/F)
 - `2026-02-20_edge_traversal_model_research.md` (temporal model assumptions)
+- `2026-03-08_unified_history_architecture_plan.md` (top-level history taxonomy and sequencing)
 - `PLANNING_REGISTER.md` (temporal navigation adoption + Stage F append notes)
 **Related**: `SUBSYSTEM_STORAGE.md` (archive/WAL correctness), `SUBSYSTEM_DIAGNOSTICS.md` (timeline observability)
 
@@ -213,9 +214,13 @@ Required checks for PRs touching:
 - History subsystem contracts (capture/archive/replay isolation) are now explicitly defined in this guide.
 
 **What's missing / open**:
-- Runtime wiring for the documented `history.*` diagnostics channels and subsystem health summary.
-- Replay/preview controller and isolation enforcement implementation.
-- CI coverage for traversal correctness and preview non-side-effect guarantees.
+- Unified architecture closure across traversal history, node navigation history,
+  node audit history, temporal replay, and undo/redo.
+- Canonical temporal-navigation interaction spec
+  (`history_timeline_and_temporal_navigation_spec.md`).
+- Node navigation history and node audit history implementation/spec closure.
+- Final UI closure for Stage F replay controls, preview affordances, and
+  user-facing return-to-present semantics.
 
 ## 10. Dependencies / Blockers
 
@@ -233,11 +238,15 @@ Required checks for PRs touching:
 ## 12. Implementation Roadmap (Subsystem-Local)
 
 1. **Traversal correctness audit + tests** — especially URL prior/current ordering and edge association.
-2. **History diagnostic channel wiring** — emit the documented `history.*` channels for traversal/archive/preview operations.
-3. **History health summary wiring** — expose capture/archive/preview status in diagnostics and the history subsystem pane.
+2. **History doc taxonomy cleanup** — align subsystem docs with
+   `2026-03-08_unified_history_architecture_plan.md`.
+3. **Stage F canonical spec** — write
+   `history_timeline_and_temporal_navigation_spec.md` from the current runtime
+   preview/replay shape.
 4. **Archive integrity tests** — dissolved/traversal archive completeness + export checks.
-5. **Stage F replay scaffold** — preview state model + isolation gates in `gui_frame.rs`.
-6. **Replay isolation tests** — lock in no-WAL/no-live-mutation guarantees before UI polish.
+5. **Node navigation history design** — canonical per-node address-history
+   track and WAL shape.
+6. **Node audit history design** — replace deferred stub with a concrete plan.
 
 ---
 

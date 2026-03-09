@@ -1680,7 +1680,7 @@ mod tests {
         use euclid::default::Point2D;
         let mut app = crate::app::GraphBrowserApp::new_for_testing();
         let key = app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
-        app.workspace.selected_nodes.select(key, false);
+        app.select_node(key, false);
 
         let snapshot = GraphshellTileBehavior::accessibility_inspector_snapshot(&app);
         assert_eq!(snapshot.total_nodes, 1);
@@ -1726,7 +1726,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://uxtree.example");
         harness.open_node_tab(node);
-        harness.app.workspace.selected_nodes.select(node, false);
+        harness.app.select_node(node, false);
 
         let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 10);
         let graph_surface_count = snapshot
@@ -1755,7 +1755,7 @@ mod tests {
         let mut harness = TestRegistry::new();
         let node = harness.add_node("https://uxtree-probe.example");
         harness.open_node_tab(node);
-        harness.app.workspace.selected_nodes.select(node, false);
+        harness.app.select_node(node, false);
 
         let snapshot = ux_tree::build_snapshot(&harness.tiles_tree, &harness.app, 8);
         let violation = ux_tree::presentation_id_consistency_violation(&snapshot);

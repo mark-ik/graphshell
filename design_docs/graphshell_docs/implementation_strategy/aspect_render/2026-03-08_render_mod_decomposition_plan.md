@@ -1,7 +1,7 @@
 # `render/mod.rs` Decomposition Plan
 
 **Date**: 2026-03-08  
-**Status**: Active; Stage 1 landed  
+**Status**: Active; Stages 1-2 landed  
 **Primary hotspot**: `render/mod.rs`  
 **Related**:
 - `../technical_architecture/ARCHITECTURAL_CONCERNS.md`
@@ -81,6 +81,8 @@ Candidates:
 
 - `render/mod.rs` no longer hosts long stretches of form/panel UI unrelated to graph drawing
 
+**Status**: Landed on 2026-03-08.
+
 ### Stage 3. Isolate graph interaction helpers by concern
 
 Within the remaining canvas file, group helpers by stable concern:
@@ -123,19 +125,19 @@ Final desired owner file contents:
 
 ## 5. 2026-03-08 Implementation Receipt
 
-Landed first extraction slice:
+Landed extraction slices:
 
 - `render/panels.rs` now owns panel/UI clusters that were already natural seams
+- `render/panels.rs` now also owns the file-tree, settings, and sync tool-pane flows that had still been hosted in the owner file
 - `render/reducer_bridge.rs` now owns render-side reducer dispatch helpers
 - `render/mod.rs` remains the graph canvas owner
 
 Measured result after landing:
 
-- `render/mod.rs`: 5,617 -> 5,146 lines
+- `render/mod.rs`: 5,617 -> 3,764 lines
 
 Remaining highest-value follow-on:
 
-- file-tree/settings/sync pane extraction
 - graph helper clustering by camera/selection/search/culling
 - per-view metadata/keying helper extraction for lasso/selection multi-pane correctness
 - command-surface invocation/context cleanup so `render/mod.rs` only requests a palette/menu render, not assembles command-surface policy inline

@@ -59,9 +59,22 @@ tile arrangement ownership, or command meaning ownership.
 
 ---
 
-## 3. Canonical Facet Schema
+## 3. Canonical Facet Projection Schema
 
-Every graph node has a logical facet projection composed from graph/runtime state.
+Every graph node has a logical PMEST facet projection composed from durable node
+data plus graph/workbench/runtime state.
+
+This spec does not define the canonical node datastructure. It defines the
+queryable projection used for filtering. The expected layering is:
+
+- node data fields = durable source of truth
+- facet projection = reducer-evaluated PMEST query surface
+- presentation facet/view mode = runtime rendering/presentation choice
+
+Several canonical facet keys are intentionally derived projections rather than
+stored node fields, including `domain`, `viewer_binding`, `edge_kinds`,
+`in_degree`, `out_degree`, `frame_memberships`, `udc_classes`, and
+`spatial_cluster`.
 
 | PMEST facet | Canonical facet keys | Source authority |
 | --- | --- | --- |
@@ -75,6 +88,8 @@ Extension rule:
 
 - Additional facets must use namespaced keys: `namespace:name`.
 - Non-namespaced extension keys are invalid and must emit validation diagnostics.
+- New durable node fields do not automatically become canonical facet keys; add
+  them here only when they support filter/group/route semantics.
 
 ---
 

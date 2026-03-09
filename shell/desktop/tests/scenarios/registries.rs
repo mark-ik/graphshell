@@ -243,7 +243,7 @@ fn phase2_action_registry_graph_submit_emits_action_channels() {
         .domain
         .graph
         .add_node("https://start.com".into(), Point2D::new(0.0, 0.0));
-    app.workspace.selected_nodes.select(key, false);
+    app.select_node(key, false);
 
     let result = registries::phase2_execute_graph_view_submit_action_for_tests(
         &harness.diagnostics,

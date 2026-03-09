@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, HistoryCaptureStatus, HistoryManagerTab, KeyboardPanInputMode,
-    WorkbenchIntent,
+    ViewAction, WorkbenchIntent,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -15,6 +15,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UX_NAVIGATION_TRANSITION,
 };
 use crate::util::{GraphshellSettingsPath, VersoAddress};
+
+use super::reducer_bridge::apply_reducer_graph_intents_hardened;
 
 fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::GraphViewId> {
     if let Some(view_id) = app.workspace.focused_view {
@@ -710,4 +712,686 @@ fn render_history_manager_rows(
             ui.add_space(2.0);
         }
     });
+}
+
+pub fn render_file_tree_tool_pane_in_ui(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+) -> Vec<GraphIntent> {
+    fn file_tree_row_label(row_key: &str) -> String {
+        if let Some(rest) = row_key.strip_prefix("fs:") {
+            let path = rest.split('#').next().unwrap_or(rest);
+            let name = path.rsplit('/').next().unwrap_or(path);
+            if !name.is_empty() && name != path {
+                return format!("{name} ({path})");
+            }
+            return path.to_string();
+        }
+
+        if let Some(rest) = row_key.strip_prefix("node:") {
+            return format!("Node {}", &rest.chars().take(8).collect::<String>());
+        }
+
+        if let Some(rest) = row_key.strip_prefix("view:") {
+            return format!("Saved View {}", &rest.chars().take(8).collect::<String>());
+        }
+
+        row_key.to_string()
+    }
+
+    let mut intents = Vec::new();
+    ui.heading("File Tree");
+    ui.separator();
+
+    ui.horizontal(|ui| {
+        if ui.button("Done").clicked() {
+            app.enqueue_workbench_intent(WorkbenchIntent::CloseToolPane {
+                kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::FileTree,
+                restore_previous_focus: true,
+            });
+        }
+        if ui.button("Refresh").clicked() {
+            intents.push(ViewAction::RebuildFileTreeProjection.into());
+        }
+    });
+    ui.add_space(4.0);
+
+    ui.label("Graph-owned hierarchical projection (pane-hosted surface).");
+
+    let mut relation_source = app.file_tree_projection_state().containment_relation_source;
+    ui.horizontal(|ui| {
+        ui.label("Containment source:");
+        ui.selectable_value(
+            &mut relation_source,
+            crate::app::FileTreeContainmentRelationSource::GraphContainment,
+            "Graph",
+        );
+        ui.selectable_value(
+            &mut relation_source,
+            crate::app::FileTreeContainmentRelationSource::SavedViewCollections,
+            "Saved Views",
+        );
+        ui.selectable_value(
+            &mut relation_source,
+            crate::app::FileTreeContainmentRelationSource::ImportedFilesystemProjection,
+            "Imported FS",
+        );
+    });
+    if relation_source != app.file_tree_projection_state().containment_relation_source {
+        intents.push(
+            ViewAction::SetFileTreeContainmentRelationSource {
+                source: relation_source,
+            }
+            .into(),
+        );
+        intents.push(ViewAction::RebuildFileTreeProjection.into());
+    }
+
+    let mut sort_mode = app.file_tree_projection_state().sort_mode;
+    ui.horizontal(|ui| {
+        ui.label("Sort:");
+        ui.selectable_value(
+            &mut sort_mode,
+            crate::app::FileTreeSortMode::Manual,
+            "Manual",
+        );
+        ui.selectable_value(
+            &mut sort_mode,
+            crate::app::FileTreeSortMode::NameAscending,
+            "Name ↑",
+        );
+        ui.selectable_value(
+            &mut sort_mode,
+            crate::app::FileTreeSortMode::NameDescending,
+            "Name ↓",
+        );
+    });
+    if sort_mode != app.file_tree_projection_state().sort_mode {
+        intents.push(ViewAction::SetFileTreeSortMode { sort_mode }.into());
+    }
+
+    ui.horizontal(|ui| {
+        ui.label("Root filter:");
+        let mut root_filter = app
+            .file_tree_projection_state()
+            .root_filter
+            .clone()
+            .unwrap_or_default();
+        if ui
+            .add(
+                egui::TextEdit::singleline(&mut root_filter)
+                    .desired_width(240.0)
+                    .hint_text("optional projection root"),
+            )
+            .changed()
+        {
+            let trimmed = root_filter.trim().to_string();
+            if trimmed.is_empty() {
+                intents.push(ViewAction::SetFileTreeRootFilter { root_filter: None }.into());
+            } else {
+                intents.push(
+                    ViewAction::SetFileTreeRootFilter {
+                        root_filter: Some(trimmed),
+                    }
+                    .into(),
+                );
+            }
+        }
+    });
+
+    ui.separator();
+    ui.label(format!(
+        "Rows: {} mapped, {} selected, {} expanded",
+        app.file_tree_projection_state().row_targets.len(),
+        app.file_tree_projection_state().selected_rows.len(),
+        app.file_tree_projection_state().expanded_rows.len(),
+    ));
+
+    let mut row_targets: Vec<(String, crate::app::FileTreeProjectionTarget)> = app
+        .file_tree_projection_state()
+        .row_targets
+        .iter()
+        .map(|(row_key, target)| (row_key.clone(), *target))
+        .collect();
+    row_targets.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+    if row_targets.is_empty() {
+        ui.small("No mapped rows yet.");
+    } else {
+        let selected_rows_current = app.file_tree_projection_state().selected_rows.clone();
+        let mut expanded_rows_next = app.file_tree_projection_state().expanded_rows.clone();
+
+        egui::ScrollArea::vertical()
+            .max_height(180.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (row_key, _) in &row_targets {
+                    ui.horizontal(|ui| {
+                        let is_expanded = expanded_rows_next.contains(row_key);
+                        if ui
+                            .small_button(if is_expanded { "▾" } else { "▸" })
+                            .clicked()
+                        {
+                            if is_expanded {
+                                expanded_rows_next.remove(row_key);
+                            } else {
+                                expanded_rows_next.insert(row_key.clone());
+                            }
+                        }
+
+                        let is_selected = selected_rows_current.contains(row_key);
+                        let response = ui.selectable_label(is_selected, file_tree_row_label(row_key));
+                        if response.clicked() {
+                            intents.push(
+                                ViewAction::SetFileTreeSelectedRows {
+                                    rows: vec![row_key.clone()],
+                                }
+                                .into(),
+                            );
+                        }
+                        response.on_hover_text(row_key);
+                    });
+                }
+            });
+
+        if expanded_rows_next != app.file_tree_projection_state().expanded_rows {
+            let mut expanded_rows: Vec<String> = expanded_rows_next.into_iter().collect();
+            expanded_rows.sort();
+            intents.push(ViewAction::SetFileTreeExpandedRows { rows: expanded_rows }.into());
+        }
+
+        let selected_row = app
+            .file_tree_projection_state()
+            .selected_rows
+            .iter()
+            .next()
+            .cloned();
+        let selected_target = selected_row.as_ref().and_then(|row| {
+            app.file_tree_projection_state()
+                .row_targets
+                .get(row)
+                .copied()
+        });
+        if let Some(selected_row) = selected_row
+            && let Some(target) = selected_target
+        {
+            ui.horizontal(|ui| {
+                ui.label(format!("Selected: {selected_row}"));
+                if ui.button("Open Target").clicked() {
+                    match target {
+                        crate::app::FileTreeProjectionTarget::Node(node_key) => {
+                            intents.push(GraphIntent::OpenNodeFrameRouted {
+                                key: node_key,
+                                prefer_frame: None,
+                            });
+                        }
+                        crate::app::FileTreeProjectionTarget::SavedView(view_id) => {
+                            app.enqueue_workbench_intent(WorkbenchIntent::OpenViewUrl {
+                                url: VersoAddress::view(view_id.as_uuid().to_string()).to_string(),
+                            });
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    intents
+}
+
+pub fn render_settings_tool_pane_in_ui_with_control_panel(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    mut control_panel: Option<&mut crate::shell::desktop::runtime::control_panel::ControlPanel>,
+) -> Vec<GraphIntent> {
+    let intents: Vec<GraphIntent> = Vec::new();
+    ui.heading("Settings");
+    ui.separator();
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("History").clicked() {
+                    app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+                        url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
+                    });
+                }
+                if ui.button("Done").clicked() {
+                    app.enqueue_workbench_intent(WorkbenchIntent::CloseToolPane {
+                        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::Settings,
+                        restore_previous_focus: true,
+                    });
+                }
+            });
+            ui.add_space(4.0);
+
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Category:");
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::General,
+                    "General",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Persistence,
+                    "Persistence",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Physics,
+                    "Physics",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Sync,
+                    "Sync",
+                );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Appearance,
+                    "Appearance",
+                );
+            });
+            ui.separator();
+
+            match app.workspace.settings_tool_page {
+                crate::app::SettingsToolPage::General => {
+                    ui.label("Settings are page-backed app surfaces in this pane.");
+                    ui.label(
+                        "Use categories to edit persistence, physics, sync, and appearance.",
+                    );
+                    ui.add_space(8.0);
+                    if ui.button("Open History Surface").clicked() {
+                        app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+                            url: VersoAddress::settings(GraphshellSettingsPath::History).to_string(),
+                        });
+                    }
+                }
+                crate::app::SettingsToolPage::Persistence => {
+                    ui.label("Storage");
+                    ui.horizontal(|ui| {
+                        ui.label("Data directory:");
+                        let data_dir_input_id = ui.make_persistent_id("settings_tool_data_dir_input");
+                        let mut data_dir_input = ui
+                            .data_mut(|d| d.get_persisted::<String>(data_dir_input_id))
+                            .unwrap_or_default();
+                        if ui
+                            .add(
+                                egui::TextEdit::singleline(&mut data_dir_input)
+                                    .desired_width(220.0)
+                                    .hint_text("C:\\path\\to\\graph_data"),
+                            )
+                            .changed()
+                        {
+                            ui.data_mut(|d| {
+                                d.insert_persisted(data_dir_input_id, data_dir_input.clone())
+                            });
+                        }
+                        if ui.button("Switch").clicked() {
+                            let trimmed = data_dir_input.trim();
+                            if !trimmed.is_empty() {
+                                app.request_switch_data_dir(trimmed);
+                            }
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Snapshot interval (sec):");
+                        let interval_input_id =
+                            ui.make_persistent_id("settings_tool_snapshot_interval_input");
+                        let mut interval_input = ui
+                            .data_mut(|d| d.get_persisted::<String>(interval_input_id))
+                            .unwrap_or_else(|| {
+                                app.snapshot_interval_secs()
+                                    .unwrap_or(
+                                        crate::services::persistence::DEFAULT_SNAPSHOT_INTERVAL_SECS,
+                                    )
+                                    .to_string()
+                            });
+                        if ui
+                            .add(egui::TextEdit::singleline(&mut interval_input).desired_width(80.0))
+                            .changed()
+                        {
+                            ui.data_mut(|d| {
+                                d.insert_persisted(interval_input_id, interval_input.clone())
+                            });
+                        }
+                        if ui.button("Apply").clicked()
+                            && let Ok(secs) = interval_input.trim().parse::<u64>()
+                        {
+                            let _ = app.set_snapshot_interval_secs(secs);
+                        }
+                    });
+
+                    ui.separator();
+                    ui.label("Frames");
+                    if ui.button("Save Current Frame").clicked() {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        app.request_save_frame_snapshot_named(format!("workspace:toolpane-{now}"));
+                    }
+                    if ui.button("Prune Empty Named Frames").clicked() {
+                        app.request_prune_empty_frames();
+                    }
+
+                    ui.separator();
+                    ui.label("Graphs");
+                    if ui.button("Save Graph Snapshot").clicked() {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        app.request_save_graph_snapshot_named(format!("toolpane-graph-{now}"));
+                    }
+                    if ui.button("Restore Latest Graph").clicked() {
+                        app.request_restore_graph_snapshot_latest();
+                    }
+                }
+                crate::app::SettingsToolPage::Physics => {
+                    ui.label("Physics");
+                    render_physics_settings_in_ui(ui, app);
+                }
+                crate::app::SettingsToolPage::Sync => {
+                    ui.label("Sync");
+                    if let Some(control_panel) = control_panel.as_mut() {
+                        render_sync_settings_in_ui(ui, app, control_panel);
+                    } else {
+                        ui.small("Sync controls unavailable in this surface.");
+                    }
+                }
+                crate::app::SettingsToolPage::Appearance => {
+                    ui.label("Theme Mode");
+                    let current_dark = matches!(
+                        app.default_registry_theme_id(),
+                        Some(crate::registries::atomic::lens::THEME_ID_DARK)
+                    );
+                    let mut dark_mode = current_dark;
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut dark_mode, false, "Light");
+                        ui.radio_value(&mut dark_mode, true, "Dark");
+                    });
+                    if dark_mode != current_dark {
+                        if dark_mode {
+                            app.set_default_registry_theme_id(Some(
+                                crate::registries::atomic::lens::THEME_ID_DARK,
+                            ));
+                        } else {
+                            app.set_default_registry_theme_id(Some(
+                                crate::registries::atomic::lens::THEME_ID_DEFAULT,
+                            ));
+                        }
+                    }
+                    ui.small("Theme mode is persisted through the workspace settings model.");
+
+                    ui.separator();
+                    ui.label("Graph Input");
+                    ui.horizontal(|ui| {
+                        ui.label("Lasso binding");
+                        let mut binding = app.lasso_binding_preference();
+                        ui.radio_value(&mut binding, CanvasLassoBinding::RightDrag, "Right Drag");
+                        ui.radio_value(
+                            &mut binding,
+                            CanvasLassoBinding::ShiftLeftDrag,
+                            "Shift + Left Drag",
+                        );
+                        if binding != app.lasso_binding_preference() {
+                            app.set_lasso_binding_preference(binding);
+                        }
+                    });
+                    ui.small("Press F9 to jump directly to Camera Controls in Physics settings.");
+                }
+            }
+        });
+
+    intents
+}
+
+pub fn render_sync_settings_in_ui(
+    ui: &mut Ui,
+    app: &mut GraphBrowserApp,
+    control_panel: &mut crate::shell::desktop::runtime::control_panel::ControlPanel,
+) {
+    let ctx = ui.ctx().clone();
+    let pairing_code_id = egui::Id::new("verse_pairing_code");
+    let pairing_code_input_id = egui::Id::new("verse_pairing_code_input");
+    let discovery_results_id = egui::Id::new("verse_discovery_results");
+    let sync_status_id = egui::Id::new("verse_sync_status");
+
+    if let Some(discovery_result) = control_panel.take_discovery_results() {
+        match discovery_result {
+            Ok(peers) => {
+                let discovered_count = peers.len();
+                ctx.data_mut(|d| {
+                    d.insert_temp(discovery_results_id, peers);
+                    d.insert_temp(
+                        sync_status_id,
+                        format!("Discovery complete: {discovered_count} peer(s) found"),
+                    );
+                });
+            }
+            Err(error) => {
+                ctx.data_mut(|d| {
+                    d.insert_temp(sync_status_id, format!("Discovery failed: {error}"))
+                });
+            }
+        }
+    }
+
+    let verse_initialized = crate::mods::native::verse::is_initialized();
+    ui.label(egui::RichText::new("Trusted Devices").strong());
+    ui.separator();
+
+    if !verse_initialized {
+        ui.label("Verse is initializing. Device list will appear shortly.");
+    } else {
+        ui.horizontal(|ui| {
+            if ui.button("Show Pairing Code").clicked() {
+                match crate::mods::native::verse::generate_pairing_code() {
+                    Ok(code) => {
+                        ctx.data_mut(|d| d.insert_temp(pairing_code_id, code));
+                    }
+                    Err(error) => {
+                        ctx.data_mut(|d| {
+                            d.insert_temp(
+                                sync_status_id,
+                                format!("Pairing code unavailable: {error}"),
+                            )
+                        });
+                    }
+                }
+            }
+            if ui.button("Discover Nearby").clicked() {
+                match control_panel.request_discover_nearby_peers(2) {
+                    Ok(()) => {
+                        ctx.data_mut(|d| {
+                            d.insert_temp(sync_status_id, "Discovering nearby peers...".to_string())
+                        });
+                    }
+                    Err(error) => {
+                        ctx.data_mut(|d| {
+                            d.insert_temp(sync_status_id, format!("Discovery unavailable: {error}"))
+                        });
+                    }
+                }
+            }
+            if ui.button("Sync Now").clicked() {
+                let intents =
+                    crate::shell::desktop::runtime::registries::phase5_execute_verse_sync_now_action(
+                        app,
+                    );
+                if intents.is_empty() {
+                    apply_reducer_graph_intents_hardened(
+                        app,
+                        [crate::app::RuntimeEvent::SyncNow.into()],
+                    );
+                } else {
+                    apply_reducer_graph_intents_hardened(app, intents);
+                }
+                ctx.data_mut(|d| d.insert_temp(sync_status_id, "Manual sync requested".to_string()));
+            }
+            if ui.button("Share Session Workspace").clicked() {
+                let intents = crate::shell::desktop::runtime::registries::phase5_execute_verse_share_workspace_action(
+                    app,
+                    crate::app::GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME,
+                );
+                if !intents.is_empty() {
+                    apply_reducer_graph_intents_hardened(app, intents);
+                }
+                ctx.data_mut(|d| {
+                    d.insert_temp(
+                        sync_status_id,
+                        "Shared session workspace with paired peers".to_string(),
+                    )
+                });
+            }
+        });
+
+        if let Some(code) = ctx
+            .data_mut(|d| d.get_temp::<crate::mods::native::verse::PairingCode>(pairing_code_id))
+        {
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("Pairing Code").strong());
+                ui.monospace(code.phrase);
+            });
+        }
+
+        let mut pairing_code_input = ctx
+            .data_mut(|d| d.get_temp::<String>(pairing_code_input_id))
+            .unwrap_or_default();
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("Pair by Code").strong());
+            ui.small("Format: word-word-word-word-word-word:<node-id>");
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut pairing_code_input)
+                        .desired_width(340.0)
+                        .hint_text("word-word-word-word-word-word:<node-id>"),
+                );
+                if ui.button("Pair").clicked() {
+                    let code = pairing_code_input.trim().to_string();
+                    if code.is_empty() {
+                        ctx.data_mut(|d| {
+                            d.insert_temp(sync_status_id, "Enter a pairing code first".to_string())
+                        });
+                    } else {
+                        let before = crate::mods::native::verse::get_trusted_peers().len();
+                        let intents = crate::shell::desktop::runtime::registries::phase5_execute_verse_pair_code_action(
+                            app,
+                            &code,
+                        );
+                        if !intents.is_empty() {
+                            apply_reducer_graph_intents_hardened(app, intents);
+                        }
+                        let after = crate::mods::native::verse::get_trusted_peers().len();
+                        let status = if after > before {
+                            "Pairing succeeded".to_string()
+                        } else {
+                            "Pairing not completed (verify code and try again)".to_string()
+                        };
+                        ctx.data_mut(|d| d.insert_temp(sync_status_id, status));
+                    }
+                }
+            });
+        });
+        ctx.data_mut(|d| d.insert_temp(pairing_code_input_id, pairing_code_input));
+
+        if let Some(peers) = ctx
+            .data_mut(|d| d.get_temp::<Vec<crate::mods::native::verse::DiscoveredPeer>>(discovery_results_id))
+            && !peers.is_empty()
+        {
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("Nearby Devices").strong());
+                for peer in peers {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{} ({})", peer.device_name, peer.node_id.to_string()));
+                        if ui.button("Pair").clicked() {
+                            let intents = crate::shell::desktop::runtime::registries::phase5_execute_verse_pair_local_peer_action(
+                                app,
+                                &peer.node_id.to_string(),
+                            );
+                            if !intents.is_empty() {
+                                apply_reducer_graph_intents_hardened(app, intents);
+                            }
+                            ctx.data_mut(|d| {
+                                d.insert_temp(
+                                    sync_status_id,
+                                    format!("Paired with {}", peer.node_id.to_string()),
+                                )
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        let peers = crate::mods::native::verse::get_trusted_peers();
+        if peers.is_empty() {
+            ui.label("No paired devices yet.");
+        } else {
+            for peer in &peers {
+                ui.group(|ui| {
+                    let peer_display = format!(
+                        "{} ({})",
+                        peer.display_name,
+                        peer.node_id.to_string()[..8].to_uppercase()
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(peer_display).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Forget").clicked() {
+                                let intents = crate::shell::desktop::runtime::registries::phase5_execute_verse_forget_device_action(
+                                    app,
+                                    &peer.node_id.to_string(),
+                                );
+                                apply_reducer_graph_intents_hardened(app, intents);
+                            }
+                        });
+                    });
+
+                    if peer.workspace_grants.is_empty() {
+                        ui.small("No workspace grants");
+                    } else {
+                        for grant in &peer.workspace_grants {
+                            ui.horizontal(|ui| {
+                                let access_str = match grant.access {
+                                    crate::mods::native::verse::AccessLevel::ReadOnly => {
+                                        "read-only"
+                                    }
+                                    crate::mods::native::verse::AccessLevel::ReadWrite => {
+                                        "read-write"
+                                    }
+                                };
+                                ui.small(format!("{}: {}", grant.workspace_id, access_str));
+                                if ui.small_button("Revoke").clicked() {
+                                    let intent = crate::app::GraphIntent::RevokeWorkspaceAccess {
+                                        peer_id: peer.node_id.to_string(),
+                                        workspace_id: grant.workspace_id.clone(),
+                                    };
+                                    apply_reducer_graph_intents_hardened(app, vec![intent]);
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    ui.separator();
+    ui.label(egui::RichText::new("Sync Status").strong());
+    if !verse_initialized {
+        ui.label("Initializing Verse networking...");
+    } else {
+        let peers = crate::mods::native::verse::get_trusted_peers();
+        ui.label(format!("Connected peers: {}", peers.len()));
+    }
+
+    if let Some(message) = ctx.data_mut(|d| d.get_temp::<String>(sync_status_id)) {
+        ui.separator();
+        ui.small(message);
+    }
 }

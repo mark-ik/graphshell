@@ -10,6 +10,7 @@
 - `system/register/action_registry_spec.md`
 - `system/registry_runtime_spec.md`
 - `../subsystem_security/SUBSYSTEM_SECURITY.md`
+ - `2026-03-08_unified_mods_architecture_plan.md`
 
 **Policy authority**: This file is the single canonical policy authority for the Mods subsystem.
 Supporting mods docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -54,11 +55,11 @@ The Mods subsystem does not own registry semantics. It guarantees that the mecha
 ## 3. What The Mods Subsystem Owns
 
 - mod manifest validation (`ModManifest`: `provides`, `requires` declarations)
-- mod loading pipeline (`mod_loader.rs`: native `inventory::submit!` + WASM `extism`)
+- mod loading pipeline (`mod_loader.rs`: native `inventory::submit!`; WASM runtime remains planned)
 - mod activation sequencing (`mod_activation.rs`: dependency ordering, conflict detection)
-- WASM sandbox enforcement (capability-restricted host interface via `extism`)
+- WASM sandbox enforcement (planned capability-restricted host interface via `extism`)
 - mod health and activation diagnostics (which mods are loaded, which failed, which are deferred)
-- core seed definition (the minimal registry population that makes the app functional without any mods)
+- core built-in definition (the minimal system-owned capability floor that keeps the app functional offline)
 - mod unload / reload lifecycle (hot-reload path, if/when implemented)
 
 ---
@@ -86,15 +87,27 @@ The Mods subsystem does not define what any specific mod does — that belongs t
 | Tier | Mechanism | Sandboxed | Registered at |
 |------|-----------|-----------|---------------|
 | Native Mod | `inventory::submit!` | No | Startup |
-| WASM Mod | `extism` dynamic load | Yes | Runtime |
+| WASM Mod | `extism` dynamic load | Yes | Runtime (planned) |
 
-Both tiers use the same `ModManifest` format and activate through the same sequencing pipeline. The subsystem treats sandboxing as a capability enforcement boundary, not a trust boundary — native mods are trusted by virtue of compilation, not by bypassing validation.
+Both tiers are intended to use the same `ModManifest` shape. However, the current runtime primarily implements the native tier; the WASM tier remains a planned track, not a landed runtime path. See `2026-03-08_unified_mods_architecture_plan.md` for the canonical split between built-ins, native mods, and future WASM plugins.
 
 ---
 
 ## 7. Core Seed Invariant
 
-The core seed (graph manipulation, local files, plaintext/metadata viewers, search, persistence) must remain functional with zero mods loaded. The Mods subsystem is responsible for ensuring the core seed is never broken by a mod activation failure.
+The core floor (graph manipulation, local files, plaintext/metadata viewers, search, persistence) must remain functional with only core built-ins active. Optional feature mods must be disableable or fail without breaking the offline organizer floor.
+
+During the current transition, some core built-ins are represented with manifest-like native entries. That implementation detail must not be mistaken for a claim that the runtime already has one uniform mod model.
+
+### 7.1 Runtime Reality Gap
+
+The current runtime is split across:
+
+- system-owned core built-ins / composition seeds
+- native inventory mods (`verso`, `verse`, `nostrcore`, etc.)
+- planned but not yet implemented WASM plugins
+
+The subsystem should be read through that three-part split. `2026-03-08_unified_mods_architecture_plan.md` is the canonical cleanup plan for closing the gap between the current runtime and the long-term two-tier extension architecture.
 
 ---
 
@@ -107,6 +120,8 @@ If a behavior answers "can this mod be loaded, activated, or unloaded without si
 ## 9. Deferred Spec: `mod_lifecycle_integrity_spec.md`
 
 **Status**: Deferred — not yet written.
+
+This deferred spec is now the primary architectural gap in the Mods subsystem. The unified architecture plan above should be treated as the staging document for that spec.
 
 A `mod_lifecycle_integrity_spec.md` should be created once the registry specs that mods
 actively populate are stable. Specifically, this spec is blocked on:

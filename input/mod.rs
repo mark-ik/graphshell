@@ -373,7 +373,7 @@ mod tests {
         let mut app = test_app();
         use euclid::default::Point2D;
         app.add_node_and_sync("https://example.com".into(), Point2D::new(0.0, 0.0));
-        let selected_before = app.workspace.selected_nodes.clone();
+        let selected_before = app.focused_selection().clone();
         let count_before = app.workspace.domain.graph.node_count();
 
         let intents = intents_from_actions(&KeyboardActions {
@@ -382,7 +382,7 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert_eq!(app.workspace.selected_nodes, selected_before);
+        assert_eq!(app.focused_selection(), &selected_before);
         assert_eq!(app.workspace.domain.graph.node_count(), count_before);
     }
 
@@ -749,10 +749,10 @@ mod tests {
         });
         app.apply_reducer_intents(intents);
 
-        assert!(app.workspace.selected_nodes.contains(&a));
-        assert!(app.workspace.selected_nodes.contains(&b));
-        assert!(app.workspace.selected_nodes.contains(&c));
-        assert_eq!(app.workspace.selected_nodes.len(), 3);
+        assert!(app.focused_selection().contains(&a));
+        assert!(app.focused_selection().contains(&b));
+        assert!(app.focused_selection().contains(&c));
+        assert_eq!(app.focused_selection().len(), 3);
     }
 
     #[test]

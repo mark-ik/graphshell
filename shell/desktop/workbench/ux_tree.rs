@@ -729,7 +729,7 @@ fn push_nodes(
             for (node_key, node) in graph_app.domain_graph().nodes() {
                 let graph_node_ux_id =
                     format!("uxnode://workbench/graph/{view_id:?}/node/{}", node.id);
-                let selected = graph_app.workspace.selected_nodes.contains(&node_key);
+                let selected = focused_selection.contains(&node_key);
                 let focused_graph_node = focused_selection.primary() == Some(node_key);
                 let blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
                 let degraded = graph_app.runtime_crash_state_for_node(node_key).is_some();
@@ -768,9 +768,10 @@ fn push_nodes(
             }
         }
         Tile::Pane(TileKind::Node(state)) => {
+            let focused_selection = graph_app.focused_selection();
             let blocked = graph_app.runtime_block_state_for_node(state.node).is_some();
             let degraded = matches!(state.render_mode, TileRenderMode::Placeholder);
-            let selected = graph_app.workspace.selected_nodes.contains(&state.node);
+            let selected = focused_selection.contains(&state.node);
 
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
@@ -1172,7 +1173,7 @@ mod tests {
         let node_a = harness.add_node("https://ux-tree-graph-a.example");
         let node_b = harness.add_node("https://ux-tree-graph-b.example");
         harness.open_node_tab(node_a);
-        harness.app.workspace.selected_nodes.select(node_b, false);
+        harness.app.select_node(node_b, false);
 
         let snapshot = build_snapshot(&harness.tiles_tree, &harness.app, 14);
         let graph_nodes = snapshot

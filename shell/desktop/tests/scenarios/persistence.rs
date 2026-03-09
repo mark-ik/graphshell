@@ -285,7 +285,7 @@ fn switch_persistence_dir_reloads_graph_state() {
             .get_node_by_url("https://from-b.com")
             .is_some()
     );
-    assert!(app.workspace.selected_nodes.is_empty());
+    assert!(app.focused_selection().is_empty());
 
     let new_placeholder = app.create_new_node_near_center();
     assert_eq!(

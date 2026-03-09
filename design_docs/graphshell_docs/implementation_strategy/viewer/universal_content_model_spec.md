@@ -34,6 +34,12 @@ This spec defines the canonical contracts for:
 
 ## 2. Node Content Fields Contract
 
+These node content fields are durable node-data inputs. They are not the same
+thing as the PMEST facet projection used by faceted filtering. Facet values such
+as `address_kind`, `mime_hint`, `domain`, or `viewer_binding` may be projected
+from these fields plus runtime/workbench state, but the node content fields
+remain the source of truth.
+
 ### 2.1 mime_hint
 
 Every graph node carries an optional `mime_hint: Option<MimeType>` field.

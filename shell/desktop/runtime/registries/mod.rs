@@ -2183,7 +2183,7 @@ mod tests {
             "https://start.com".into(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
-        app.workspace.selected_nodes.select(key, false);
+        app.select_node(key, false);
 
         let result = phase2_execute_graph_view_submit_action(&app, "https://next.com");
         assert!(result.open_selected_tile);

@@ -429,34 +429,48 @@ invariants.
 
 ### 4.1 Facet Schema
 
-Every graph node carries a **facet record** — a set of independent
-classification axes queryable for filtering, grouping, and Lens composition:
+Every graph node exposes a **facet projection** — a set of independent
+classification axes derived from durable node truth plus graph/workbench/runtime
+state, queryable for filtering, grouping, and Lens composition.
+
+This projection is not the canonical node datastructure. The source-of-truth
+split is:
+
+- `NodeRecord` / node data fields: durable graph truth (`NodeId`/`NodeKey`,
+  address, title, `mime_hint`, history, provenance, semantic tags, user
+  overrides)
+- `NodeFacetProjection`: PMEST-aligned query/group/route projection derived
+  from node truth and other authorities
+- `PresentationFacet`: document/schematic/timeline/dependency/metadata view
+  mode chosen at runtime without changing node identity
+
+Representative shape:
 
 ```rust
-/// Faceted classification record for a graph node.
+/// PMEST-aligned facet projection for a graph node.
 /// Each facet is independently filterable and combinable.
-struct NodeFacets {
+struct NodeFacetProjection {
     // ── Personality (core identity) ──
-    address_kind: AddressKind,          // Http, File, Data, Clip, Directory, Unknown
+    address_kind: AddressKind,          // derived from node address
     title: String,
-    domain: Option<String>,             // extracted from URL
+    domain: Option<String>,             // derived from address
 
     // ── Matter (content properties) ──
     mime_hint: Option<MimeType>,
-    viewer_binding: ViewerKind,         // resolved from ViewerRegistry
-    content_length: Option<u64>,
+    viewer_binding: ViewerKind,         // derived from ViewerRegistry / pane attachment
+    content_length: Option<u64>,        // derived or cached content metadata
 
     // ── Energy (activity/process) ──
-    edge_kinds: HashSet<EdgeKind>,      // {UserGrouped, TraversalDerived}
-    traversal_count: u32,               // total traversals across all edges
-    in_degree: u32,
-    out_degree: u32,
+    edge_kinds: HashSet<EdgeKind>,      // graph projection
+    traversal_count: u32,               // graph/history projection
+    in_degree: u32,                     // graph projection
+    out_degree: u32,                    // graph projection
 
     // ── Space (position/grouping) ──
-    frame_memberships: Vec<FrameId>,
-    frame_affinity_region: Option<FrameId>,
-    spatial_cluster: Option<ClusterId>, // auto-detected community
-    udc_classes: Vec<UdcTag>,           // from KnowledgeRegistry
+    frame_memberships: Vec<FrameId>,    // workbench projection
+    frame_affinity_region: Option<FrameId>, // workbench projection
+    spatial_cluster: Option<ClusterId>, // layout/knowledge projection
+    udc_classes: Vec<UdcTag>,           // projected from canonical semantic tags
 
     // ── Time (temporal context) ──
     created_at: Timestamp,
@@ -464,6 +478,11 @@ struct NodeFacets {
     lifecycle: NodeLifecycle,           // Active, Warm, Cold, Tombstone
 }
 ```
+
+`NodeFacetProjection` exists to support PMEST filtering/routing. It should not
+accumulate every possible node field. New durable node fields belong on the
+node record first; they become facet keys only when they are meaningful as a
+query/group/route axis.
 
 ### 4.2 Faceted Filter UI
 

@@ -12,6 +12,7 @@
 - `../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md` §§2, 7, 9.5 (identity, trust, encryption, access control)
 - `archive_docs/checkpoint_2026-02-24/2026-02-24_step5_5_workspace_access_control.md` (archived Phase 1 implementation status)
 **Related**: `PLANNING_REGISTER.md` (P1/P2 priority tasks reference Phase 5.4/5.5 done gates)
+**Architecture cleanup**: `2026-03-08_unified_security_architecture_plan.md`
 
 **Policy authority**: This file is the single canonical policy authority for the Security subsystem.
 Supporting security docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -245,8 +246,30 @@ Security-relevant events should be reviewable in a dedicated Diagnostic Inspecto
 - Full grant-matrix coverage and CI gating for new `GraphIntent` variants.
 - Deterministic denial-path diagnostics validation across all sync branches.
 - Trust-store integrity checks/recovery and comprehensive `security.identity.*` channel coverage.
+- A unified authority model across identity, trust/grants, persistence crypto, mod capabilities, and host/content boundary security. See `2026-03-08_unified_security_architecture_plan.md`.
 
-### 10.1 Immediate Next Actions
+### 10.1 Architecture Gap
+
+The subsystem contract is broader than the current runtime implementation model.
+
+Today, security behavior is split across:
+
+- Verse identity/trust/sync code
+- persistence encryption
+- mod loader capability surfaces
+- protocol and host boundary enforcement
+- emerging provider-specific capability layers such as Nostr
+
+That split is acceptable, but the authority boundaries are not yet unified. In particular:
+
+- `IdentityRegistry` is not yet the single real identity authority surface
+- trust/grant acceptance is still transport-centric in practice
+- diagnostics namespaces reflect implementation history more than subsystem taxonomy
+- host/content boundary security is underrepresented relative to sync/grant policy
+
+The architecture plan above is the canonical cleanup path for those gaps.
+
+### 10.2 Immediate Next Actions
 
 Based on the Phase 5.4/5.5 done-gate closures and current code:
 
@@ -254,6 +277,7 @@ Based on the Phase 5.4/5.5 done-gate closures and current code:
 2. Add trust store round-trip integrity test (serialize → corrupt → deserialize → detect → recover).
 3. Audit all `GraphIntent` variants for grant classification coverage.
 4. Add `security.identity.*` channel family to diagnostics channel phase contracts.
+5. Use `2026-03-08_unified_security_architecture_plan.md` to normalize identity authority, trust/grant boundaries, and host/content security coverage.
 
 ---
 
@@ -270,6 +294,7 @@ Based on the Phase 5.4/5.5 done-gate closures and current code:
 - `PLANNING_REGISTER.md` (P1/P2 and subsystem sequencing)
 - `SUBSYSTEM_STORAGE.md` (at-rest encryption and keychain overlap)
 - `SUBSYSTEM_DIAGNOSTICS.md` (security diagnostic channels/health summaries)
+- `2026-03-08_unified_security_architecture_plan.md` (top-level security taxonomy and authority cleanup)
 
 ## 13. Done Definition
 

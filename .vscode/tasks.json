@@ -74,6 +74,87 @@
 			],
 			"group": "test",
 			"problemMatcher": []
+		},
+		{
+			"label": "Graph App View Extraction Check",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"-q"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph App View Extraction Tests",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q test_request_camera_command_for_view_rejects_stale_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q test_request_camera_command_for_view_accepts_valid_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_view_layout_manager_round_trip_and_restore_archived_slot -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph App View Extraction Check",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"-q"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph App View Extraction Tests",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q test_request_camera_command_for_view_rejects_stale_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q test_request_camera_command_for_view_accepts_valid_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_view_layout_manager_round_trip_and_restore_archived_slot -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph App View Extraction Check 2",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"-q"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph App View Extraction Tests 2",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q test_request_camera_command_for_view_rejects_stale_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q test_request_camera_command_for_view_accepts_valid_target -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q graph_view_slot_lifecycle_create_rename_move_archive_restore -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Graph App Line Count",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Get-Content graph_app.rs | Measure-Object -Line).Lines"
+			],
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }

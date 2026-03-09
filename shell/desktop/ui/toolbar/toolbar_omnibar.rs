@@ -476,8 +476,7 @@ pub(super) fn omnibar_match_signifier(
             let is_local_tab = local_tabs.contains(key);
             let is_saved_tab = saved_tabs.contains(key);
             let is_connected = graph_app
-                .workspace
-                .selected_nodes
+                .focused_selection()
                 .primary()
                 .map(|context| graph_app.cached_hop_distances_for_context(context))
                 .and_then(|hops| hops.get(key).copied())
@@ -770,8 +769,7 @@ pub(super) fn omnibar_matches_for_query(
                 return ranked_matches(all_graph_node_candidates, query);
             }
             let hop_distances = graph_app
-                .workspace
-                .selected_nodes
+                .focused_selection()
                 .primary()
                 .map(|context| graph_app.cached_hop_distances_for_context(context))
                 .unwrap_or_default();
@@ -1336,8 +1334,8 @@ mod tests {
         app.apply_reducer_intents(intents);
 
         assert_eq!(app.workspace.highlighted_graph_edge, Some((from, to)));
-        assert!(app.workspace.selected_nodes.contains(&from));
-        assert!(app.workspace.selected_nodes.contains(&to));
+        assert!(app.focused_selection().contains(&from));
+        assert!(app.focused_selection().contains(&to));
     }
 
     #[test]

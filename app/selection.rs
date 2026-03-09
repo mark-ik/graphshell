@@ -4,6 +4,12 @@ use std::ops::Deref;
 use crate::app::GraphViewId;
 use crate::graph::NodeKey;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SelectionScope {
+    Unfocused,
+    View(GraphViewId),
+}
+
 /// Canonical node-selection state.
 ///
 /// This wraps the selected-node set with explicit metadata so consumers can
@@ -38,8 +44,8 @@ pub struct ClipboardCopyRequest {
 #[derive(Clone)]
 pub(crate) struct UndoRedoSnapshot {
     pub(crate) graph_bytes: Vec<u8>,
-    pub(crate) selected_nodes: SelectionState,
-    pub(crate) selected_nodes_by_view: HashMap<GraphViewId, SelectionState>,
+    pub(crate) active_selection: SelectionState,
+    pub(crate) selection_by_scope: HashMap<SelectionScope, SelectionState>,
     pub(crate) highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
     pub(crate) workspace_layout_json: Option<String>,
 }

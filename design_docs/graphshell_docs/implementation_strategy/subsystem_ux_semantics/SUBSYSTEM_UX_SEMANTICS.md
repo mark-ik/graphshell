@@ -13,6 +13,7 @@
 - `../subsystem_diagnostics/SUBSYSTEM_DIAGNOSTICS.md` (UxViolation events routed through diagnostics channels)
 - `../subsystem_diagnostics/2026-02-26_test_infrastructure_improvement_plan.md` (T1/T2 infrastructure — Phase 0 prerequisite)
 - `PLANNING_REGISTER.md`
+- `2026-03-08_unified_ux_semantics_architecture_plan.md`
 
 **Policy authority**: This file is the single canonical policy authority for the UX Semantics subsystem.
 Supporting UX-semantics docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -37,6 +38,20 @@ Policy in this file should be distilled from canonical specs and accepted resear
 - UxTree runtime snapshot build/publish, probe contracts, and diagnostics emission are active in the workbench render pipeline.
 - The UxTree -> AccessKit path is not fully closed yet as a single source-of-truth path across all surfaces.
 - Remaining closure gap is the end-to-end mapping path for WebView bridge injection + Graph Reader virtual-tree output under the same canonical UxTree ownership model.
+
+## 0C. Runtime Reality Split
+
+The subsystem is no longer pre-implementation, but it is also not yet fully closed end-to-end.
+
+Current reality is better described as:
+
+- `UxProjection`: active
+- `UxDispatch`: partially active
+- `UxContracts`: partially active
+- `UxBridge`: partial / not yet general-purpose
+- `UxScenarioHarness`: partial
+
+`2026-03-08_unified_ux_semantics_architecture_plan.md` is the canonical cleanup plan for this split.
 
 ---
 
@@ -514,65 +529,44 @@ than walking the graph model directly.
 
 ## 13. Current Status
 
-**What exists** (as of 2026-03-01):
-- Research report defining the system: `2026-03-01_automated_ux_testing_research.md`.
-- The two infrastructure prerequisites (T1 OnceLock fix, T2 test binary split) are
-  planned but not yet merged.
-- No `UxTree`, `UxProbe`, `UxBridge`, or `UxHarness` code exists yet.
+**What exists**:
+- `UxTree` snapshot build/publish exists in the workbench render pipeline.
+- Snapshot diff-gate logic exists for semantic versus presentation changes.
+- Some UX dispatch and violation diagnostics are active in orchestration/runtime code.
+- Rust scenario-style tests exist for UxTree snapshot health and diff-gate policy.
+- A limited set of YAML UX scenarios exists under `tests/scenarios/ux/`.
 
 **What's missing / open**:
-- All implementation (Phases 1–7 from the research report).
-- Feature flags `ux-semantics`, `ux-probes`, `ux-bridge` do not exist in `Cargo.toml`.
-- No `UxNodeId` path schema has been validated against the live tile tree structure.
-- `UxBridgeCommand` handlers are not wired to the WebDriver command loop.
+- Full generic `UxProbeSet` / invariant-engine closure.
+- Full `UxBridge` command surface (`GetUxSnapshot`, `FindUxNode`, `InvokeUxAction`, `GetFocusPath`, etc.) as documented.
+- YAML-driven `UxScenario` runner and typed `UxDriver` closure.
+- Full AccessKit consumption from the canonical UxTree path.
+- Feature flags `ux-semantics`, `ux-probes`, `ux-bridge` do not exist as the subsystem docs originally proposed.
 
 ---
 
 ## 14. Implementation Roadmap
 
-### Phase 0: Prerequisites
-- Land T1 (OnceLock test-safety) from `2026-02-26_test_infrastructure_improvement_plan.md`.
-- Land T2 step 1 (`[[test]]` binary + `test-utils` feature flag).
+Use `2026-03-08_unified_ux_semantics_architecture_plan.md` as the canonical roadmap overlay.
 
-### Phase 1: UxTree Scaffold
-- Add `ux-semantics` feature flag.
-- Implement `UxNode`, `UxNodeId`, `UxRole`, `UxState`, `UxAction`, `UxSnapshot` types.
-- Implement minimal builder: workbench landmarks + omnibar + open dialogs.
-- Add `GetUxSnapshot` WebDriver command returning YAML stub.
-- Contract: `GetUxSnapshot` returns valid YAML with at least the omnibar node.
+### Phase 1: Projection Closure
+- Continue extending the landed `UxTree` projection to additional native surfaces.
+- Validate `UxNodeId` stability and snapshot semantics against the live tile tree.
 
-### Phase 2: UxBridge Commands
-- Implement `FindUxNode`, `InvokeUxAction`, `GetFocusPath`.
-- Implement `StepPhysics`, `SeedRng`, `SetClock` for deterministic setup.
-- Add `tests/harness/` crate with `UxDriver` Rust client.
+### Phase 2: Contract Engine Closure
+- Normalize implemented checks versus specified S/N/M invariant families.
+- Add the real generic probe registration/evaluation model where needed.
 
-### Phase 3: Structural Invariants (UxProbes)
-- Implement `ux-probes` feature: S1, S2, S3, S7 probes.
-- Wire `ux:structural_violation` channel to diagnostics event ring.
-- Unit tests: each probe fires on synthetic violation, does not fire on valid input.
-- Add S4 (dialog dismiss) and S5 (blocked node recovery action) probes.
+### Phase 3: Bridge Surface Closure
+- Implement the real `UxBridge` command surface incrementally.
+- Keep command transport separate from scenario logic.
 
-### Phase 4: Full UxTree Coverage
-- Extend builder to emit `GraphNode` children for visible graph nodes.
-- Extend builder to emit `NodePane` subtrees (nav bar, viewer area, overlay affordances).
-- Extend builder to emit `RadialMenu` subtree when open.
-- Add S8, S9, N1–N4, M1–M4 probes.
+### Phase 4: Scenario/Harness Closure
+- Decide and implement the canonical scenario runner shape (YAML-first, Rust-first, or mixed).
+- Align the actual YAML scenario inventory and CI gating with the subsystem docs.
 
-### Phase 5: UxScenarios and Snapshot CI
-- Write `open_node_flow.yaml`, `focus_cycle.yaml`, `modal_dismiss.yaml` scenarios.
-- Store baselines in `tests/scenarios/snapshots/`.
-- Wire snapshot diff CI gate (block on structural change).
-
-### Phase 6: AccessKit Bridge Consumption
-- Map `UxTree` output to AccessKit node builder in `shell/desktop/host/window.rs`.
-- Feed `GraphAccessKitAdapter` (Accessibility Phase 2) from `UxTree` rather than
-  walking the graph model directly.
-- Verify OS screen reader sees Graphshell's native UI.
-
-### Phase 7: Advanced Contracts and Chaos
-- Implement `UxChaosMode` (fault injection: RuntimeBlocked, viewer failure).
-- Latency contracts in UxScenario runner.
-- `SemanticGravity` layout contract scenario.
+### Phase 5: AccessKit Closure
+- Feed intended accessibility consumers from the canonical UxTree projection path.
 
 ---
 
@@ -580,17 +574,8 @@ than walking the graph model directly.
 
 The UX Semantics subsystem is fully operational when:
 
-- `UxTree` is built every frame (in test/probe mode) with correct stable `UxNodeId`s
-  for all workbench surfaces, graph views, node panes, tool panes, and dialogs.
-- S1–S9, N1–N4, M1–M4 invariants are implemented as UxProbes and are green under
-  normal operation.
-- `GetUxSnapshot`, `FindUxNode`, `InvokeUxAction`, `GetFocusPath` are operational
-  via the UxBridge.
-- Core UxScenario suite (open_node, focus_cycle, modal_dismiss) runs in CI and
-  blocks on structural UxDiff.
-- `UxTree` output feeds the AccessKit bridge (replacing direct graph model walking).
-- New `TileKind` variants and viewer backends are required to declare
-  `ux_semantics_capabilities` in their registry entries.
-
-Until then, UX Semantics is an implementation effort. After that, it is a maintained
-system property: every UI change is automatically verified against the UX contract set.
+- `UxProjection`, `UxContracts`, `UxDispatch`, `UxBridge`, and `UxScenarioHarness` are all explicitly closed and aligned.
+- `UxTree` is built and consumed through a coherent authority path for the intended runtime/test/accessibility consumers.
+- The documented bridge command surface matches the runtime command surface.
+- The documented scenario/harness model matches the actual CI-tested scenario platform.
+- Structural UX contract verification is a maintained system property rather than a partially-landed architecture slice.

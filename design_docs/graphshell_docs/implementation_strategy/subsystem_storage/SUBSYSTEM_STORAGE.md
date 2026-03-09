@@ -10,6 +10,7 @@
 **Sources consolidated**:
 - `2026-02-22_registry_layer_plan.md` Phase 6 (three-authority-domain boundary, single-write-path enforcement, `pub(crate)` boundary lock)
 - `services/persistence/mod.rs` (GraphStore: fjall WAL + redb snapshots + rkyv serialization + zstd compression + AES-256-GCM encryption)
+- `2026-03-08_unified_storage_architecture_plan.md` (storage track split and durability-boundary clarification)
 - `archive_docs/` — historical persistence plans (superseded by this document)
 **Related**: `SUBSYSTEM_SECURITY.md` §3.4 (cryptographic correctness invariants overlap)
 
@@ -42,11 +43,11 @@ Policy in this file should be distilled from canonical specs and accepted resear
 
 ## 1. Why This Exists
 
-The persistence layer is the single point where **all graph state transitions become durable**. Every graph mutation flows through `GraphStore.log_mutation()`, and every cold start depends on `GraphStore.recover()`. A silent corruption in either path is an unrecoverable data loss event.
+The persistence layer is the single point where **durable graph state transitions become durable**. Every cold start depends on `GraphStore.recover()`, and every durable graph mutation depends on the canonical journal/snapshot path. A silent corruption in either path is an unrecoverable data loss event.
 
-The dominant failure mode is **silent contract erosion**: a new serialization type is added without a round-trip test, a snapshot path writes unencrypted data, a new keyspace bypasses the WAL journal, a code path outside `apply_reducer_intents()` mutates the graph and the journal falls behind reality. None of these produce immediate errors. All produce data loss or integrity failure on the next recovery.
+The dominant failure mode is **silent contract erosion**: a new serialization type is added without a round-trip test, a snapshot path writes unencrypted data, a new keyspace bypasses the WAL journal, a durable mutation path escapes the approved reducer/persistence boundary, or recovery silently skips corrupted entries without surfacing degraded state. None of these produce immediate errors. All produce data loss or integrity failure on the next recovery.
 
-Without subsystem-level treatment, every change to `Graph`, every new `LogEntry` variant, every new persistence keyspace, and every new named-snapshot path is an unaudited integrity boundary crossing.
+Without subsystem-level treatment, every change to `Graph`, every new `LogEntry` variant, every new persistence keyspace, every new named-snapshot path, and every new persisted workspace/settings payload becomes an unaudited integrity boundary crossing.
 
 ---
 
@@ -61,13 +62,26 @@ Without subsystem-level treatment, every change to `Graph`, every new `LogEntry`
 
 ---
 
+## 2A. Canonical Storage Tracks
+
+The subsystem is not just "graph WAL + snapshots." It currently spans four related storage tracks:
+
+1. **GraphDurability** — durable graph WAL, latest snapshot, named graph snapshots, graph recovery
+2. **WorkspaceLayoutPersistence** — workspace layouts, session autosave rotation, persisted settings payloads currently stored through layout keys
+3. **ArchivePersistence** — traversal archive, dissolved archive, export/clear/curation, replay support inputs
+4. **PersistenceRecoveryAndHealth** — startup open/recover supervision, timeout fallback, degradation/health observability
+
+The unified storage plan is the canonical staging document for closing the gaps between those tracks and the current guide language.
+
+---
+
 ## 3. Required Invariants / Contracts
 
 ### 3.1 WAL Journal Integrity
 
-1. **Complete journaling** — Every graph mutation that enters `apply_reducer_intents()` is journaled to fjall via `log_mutation()`. No mutation path bypasses the journal.
+1. **Complete journaling of durable graph mutations** — Every durable graph mutation that enters the approved reducer/app persistence path is journaled to fjall via `log_mutation()`. No durable mutation path bypasses the journal.
 2. **Sequence monotonicity** — `log_sequence` is monotonically increasing. No gaps, no reuse, no reset. A gap indicates corruption or truncation.
-3. **Serialization fidelity** — `rkyv::to_bytes(entry)` → fjall → `rkyv::from_bytes(stored)` produces a bitwise-identical `LogEntry`. Deserialization failure on any stored entry is a corruption event, not a skip.
+3. **Serialization fidelity** — `rkyv::to_bytes(entry)` → fjall → `rkyv::from_bytes(stored)` produces a bitwise-identical `LogEntry`. Deserialization failure on any stored entry is a corruption/degradation event, not an invisible contract success.
 4. **Keyspace isolation** — The three fjall keyspaces (`mutations`, `traversal_archive`, `dissolved_archive`) are independent. A corruption in one does not affect the others.
 5. **Archive append-only** — `archive_append_traversal()` and `archive_dissolved_traversal()` are append-only. Entries are never modified after write.
 
@@ -89,12 +103,17 @@ Without subsystem-level treatment, every change to `Graph`, every new `LogEntry`
 ### 3.4 Single-Write-Path Enforcement
 
 1. **`pub(crate)` boundary** — Graph topology mutators in `graph/mod.rs` are `pub(crate)`. No external crate can call `graph.add_node()` directly.
-2. **`apply_reducer_intents()` exclusivity** — All graph mutations flow through the reducer intent boundary. No code path outside `apply_reducer_intents()` modifies graph state.
+2. **Durable-boundary exclusivity** — All durable graph mutations flow through the approved reducer/app persistence boundary. The subsystem does not require every ephemeral or view-local in-memory graph-adjacent mutation to be journaled.
 3. **Three-authority domains** — As defined in the registry layer plan Phase 6:
    - Semantic graph: owned by `GraphWorkspace`, mutated only via `apply_reducer_intents()`
    - Spatial layout: owned by `Tree<TileKind>` inside `GraphWorkspace`, driven by intents
    - Runtime instances: owned by `AppServices`, reconciled via `lifecycle_reconcile.rs`
 4. **Compiler enforcement** — The `pub(crate)` visibility restriction is a compile-time guarantee. Violation requires explicit `pub` escalation, which is reviewable.
+
+Clarification:
+
+- durable graph truth and graph citizenship are inside the storage contract,
+- ephemeral graph-adjacent state such as transient view/layout/form-runtime state is not automatically part of WAL guarantees unless explicitly declared durable.
 
 ### 3.5 Encryption Completeness
 
@@ -182,6 +201,12 @@ These are not runtime-configurable but are documented for diagnostics and capabi
 | `persistence.archive.traversal_appended` | Info | Entry added to traversal archive |
 | `persistence.archive.dissolved_appended` | Info | Entry added to dissolved archive |
 
+Current implementation note:
+
+- startup/open/recover coverage already exists in runtime diagnostics under `startup.persistence.*` and `persistence.recover.*`,
+- the remaining work is steady-state integrity telemetry and a unified persistence health surface,
+- this guide no longer treats the diagnostics story as entirely missing.
+
 ### 5.2 Persistence Health Summary (Diagnostic Inspector)
 
 - Store status: `active` / `degraded (key unavailable)` / `failed`
@@ -236,6 +261,11 @@ New serialization types or intent variants that lack round-trip tests are blocke
 - **Degraded (no encryption)**: If keychain is unavailable but legacy data exists, data is accessible but new writes are blocked until key is available. No silent fallback to plaintext writes.
 - **Recovery mode**: On startup, if snapshot is corrupted, attempt journal-only recovery. If journal is also corrupted, start with empty graph and emit critical diagnostic.
 
+Current implementation note:
+
+- startup timeout fallback and open/recover failure handling exist today,
+- the explicit degraded-state model and health summary remain partial and are tracked by the unified storage plan.
+
 ### 7.2 Required Signals
 
 - Degradation states emit to `persistence.*` channels.
@@ -258,6 +288,13 @@ New serialization types or intent variants that lack round-trip tests are blocke
 ---
 
 ## 9. Implementation Roadmap (Subsystem-Local)
+
+Current priority order:
+
+1. close the storage taxonomy gap (`GraphDurability`, `WorkspaceLayoutPersistence`, `ArchivePersistence`, `PersistenceRecoveryAndHealth`)
+2. add missing integrity telemetry and persistence health summary
+3. formalize degraded persistence states
+4. audit durable mutation boundaries against actual app logging paths and document intentional non-durable exceptions
 
 1. **Wire diagnostic channels** — Add `persistence.*` channel family to `DiagnosticsRegistry`. Emit from all `GraphStore` methods (open, journal, snapshot, recover, encrypt/decrypt).
 2. **Add round-trip test coverage** — Verify every serializable type has an explicit round-trip test. Audit all `GraphIntent` variants for `LogEntry` coverage.

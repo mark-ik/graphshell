@@ -1,7 +1,7 @@
 # `graph_app.rs` Decomposition Plan
 
 **Date**: 2026-03-08  
-**Status**: Active; Stages 1-3 landed  
+**Status**: Active; Stages 1-4 landed and wired  
 **Primary hotspot**: `graph_app.rs`  
 **Related**:
 - `../technical_architecture/ARCHITECTURAL_CONCERNS.md`
@@ -36,6 +36,9 @@ app/selection.rs             canonical selection model + undo snapshot carrier
 app/intents.rs               bridge-carrier enums + conversion helpers
 app/history.rs               history-only support types/helpers
 app/workspace_commands.rs    pending app-command queue support
+app/workspace_routing.rs     workspace/frame routing, picker, and membership support
+app/workbench_commands.rs    pending workbench-intent queue support
+app/focus_selection.rs       focused-view selection and transition support
 app/persistence.rs           persistence/open/save/autosave helpers
 ```
 
@@ -132,6 +135,15 @@ Candidate surface:
 - app-command queue behavior is inspectable in one module
 - manual `pending_*` cleanup work becomes easier to replace with stricter queue semantics
 
+**Status**: Landed on 2026-03-08.
+
+Implemented file:
+
+- `app/workspace_commands.rs`
+- `app/workspace_routing.rs`
+- `app/workbench_commands.rs`
+- `app/focus_selection.rs`
+
 ### Stage 5. Reduce remaining owner file to authority logic
 
 After support surfaces are extracted, `graph_app.rs` should primarily hold:
@@ -144,7 +156,7 @@ After support surfaces are extracted, `graph_app.rs` should primarily hold:
 Selection-specific correction required in this stage:
 
 - remove or fully demote `workspace.selected_nodes` as a compatibility mirror once remaining runtime call sites are migrated
-- keep `workspace.selected_nodes_by_view` as the sole authoritative graph-selection owner
+- keep canonical graph-selection ownership in the scoped selection store rather than in ad hoc runtime mirrors
 - ensure undo/redo, focused-view helpers, and persistence snapshot carriers do not reintroduce dual-authority semantics
 
 **Exit target**:
@@ -171,14 +183,32 @@ Landed extraction slices:
 - `app/intents.rs` now owns the bridge-carrier intent family and conversions
 - `app/history.rs` now owns the history support vocabulary (`HistoryManagerTab`, `HistoryCaptureStatus`, `HistoryTraversalFailureReason`, `HistoryHealthSummary`)
 - `app/persistence.rs` now owns startup persistence open, workspace layout save/load, autosave retention/throttling, and persisted UI settings helpers via an `include!`-backed implementation shard
-- `graph_app.rs` re-exports those surfaces and remains the owner/orchestrator
+- `app/workspace_commands.rs` now owns the pending app-command queue primitives, coalescing/sanitization helpers, snapshot/clipboard/data-dir command accessors, note/clip-open accessors, and tool-surface return-target staging helpers as an initial Stage 4 slice
+- `app/workspace_routing.rs` now owns unsaved-prompt request resolution, workspace/frame membership and recency helpers, frame-open routing, node-context staging, chooser flows, and pending node-open/import routing helpers as a second Stage 4 slice
+- `app/workbench_commands.rs` now owns the pending workbench-intent queue helpers (`enqueue`, `extend`, `take`, and test-only count inspection)
+- `app/focus_selection.rs` now owns focused-view selection mirroring, focused-selection readers, and focus-transition synchronization helpers
+- first Stage 5 cleanup slice landed: live selection mutation now routes through `app/focus_selection.rs`, the UX tree reads focused selection rather than the compatibility mirror, and external test helpers prefer app selection APIs over direct `workspace.selected_nodes` access
+- second Stage 5 cleanup slice landed: undo/redo snapshots now capture canonical focused selection rather than the raw compatibility mirror, snapshot restore/reset flows route through focused-selection helpers, and graph-load/reset paths use centralized selection reset semantics
+- third Stage 5 cleanup slice landed: internal `graph_app.rs` behavior tests now assert through focused-selection helpers rather than the compatibility mirror, leaving only the intentional stale-mirror regression as a direct test touchpoint
+- fourth Stage 5 cleanup slice landed: remaining runtime `graph_app.rs` selection consumers now read through focused-selection helpers, including pin/unpin edge commands and hop-distance primary tracking, so direct compatibility-mirror access is gone from owner-file runtime code
+- fifth Stage 5 cleanup slice landed: shell-side omnibar ranking/signifier logic now also reads focused selection through helper APIs, so direct `selected_nodes` field access is confined to `app/focus_selection.rs` and the intentional stale-mirror regression test
+- sixth Stage 5 cleanup slice landed: the workspace-level compatibility field was demoted and renamed to `active_selection`, making its cache/projection role explicit while keeping canonical ownership in `selected_nodes_by_view`
+- seventh Stage 5 cleanup slice landed: the `active_selection` cache is now private to the app owner/focus-selection seam, so external code can only observe selection through helper APIs rather than by reading the cache field directly
+- eighth Stage 5 cleanup slice landed: `active_selection` was removed from `GraphWorkspace` entirely and replaced by a canonical scope-based selection store, with `SelectionScope::Unfocused` covering no-view selection semantics without a separate runtime projection field
+- ninth Stage 5 extraction slice landed: `app/history_runtime.rs` now owns history preview gating, replay cursor reconstruction, failure recording, archive export/clear/curation operations, and the full timeline preview/replay reducer cluster, leaving the owner match with a single delegated history-runtime branch
+- tenth Stage 5 extraction slice landed: `app/graph_views.rs` now owns graph-view slot/layout persistence, graph-view registration and reconciliation, camera-target resolution, fit-lock handling, and queued camera/zoom command routing, removing another contiguous owner-file subsystem without changing reducer call sites
+- eleventh Stage 5 extraction slice landed: `app/runtime_lifecycle.rs` now owns renderer-node mapping, runtime block/crash state, active and warm lifecycle LRU policy, and the webview-created/url/history/scroll/title/crash reducer handlers, removing the remaining lifecycle and renderer-mapping cluster from the owner without changing public app APIs
+- twelfth Stage 5 extraction slice landed: `app/graph_mutations.rs` now owns graph add/remove/update helpers, edge mutation logging, traversal append logging, grouped-edge command expansion, node pinning, and destructive graph reset flows, removing the main graph-mutation orchestration cluster from the owner while preserving existing reducer entry points
+- thirteenth Stage 5 cleanup slice landed: `app/focus_selection.rs` now also owns hop-distance invalidation tied to primary selection, direct node selection entry, and scoped-selection pruning helpers used by graph-view reconciliation and graph mutation flows, while `app/ux_navigation.rs` now owns tool-surface toggle transitions plus shared UX navigation transition emission so the remaining focus-surface diagnostics are not scattered across the owner
+- fourteenth Stage 5 cleanup slice landed: `app/startup_persistence.rs` now owns startup persistence open timeout handling, recovery/open diagnostics emission, and constructor-time graph recovery fallback so the owner constructor keeps the app-assembly path while the persistence-open instrumentation is isolated ahead of servoshell debt-clear work
+- fifteenth Stage 5 cleanup slice landed: `app/workspace_routing.rs` now also owns the reducer-side routed node-open acceptance helpers for frame/workspace opens, so frame/workspace resolution and the queued restore/open effects live behind one seam instead of splitting phase-2 host-open semantics between the owner reducer and the routing module
+- `graph_app.rs` now declares and re-exports those child modules from the owner façade, removing the prior duplicate/comment-wrapped legacy blocks while keeping the owner/orchestrator boundary intact
 
 Measured result after landing:
 
-- `graph_app.rs`: 14,714 -> 11,269 lines
+- `graph_app.rs`: 14,714 -> 8,526 lines
 
 Remaining highest-value follow-on:
 
-- command-queue helper extraction
-- selection compatibility-mirror removal (`selected_nodes` -> per-view-only authority)
-- cross-cutting instrumentation helper extraction where reducer methods have started to accumulate tracing/diagnostics clusters
+- remaining reducer clusters that still combine orchestration with dense event-specific side effects if another cohesive seam is desired after the runtime lifecycle, graph-mutation, and selection-boundary cleanups
+- follow-on cleanup around the scope-based selection naming/documentation if further explicitness would help the servoshell debt-clear focus/input boundary work

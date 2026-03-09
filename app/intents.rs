@@ -6,179 +6,13 @@ use euclid::default::Point2D;
 use crate::graph::{EdgeType, NodeKey};
 
 use super::{
-    ClipboardCopyRequest, FileTreeContainmentRelationSource, FileTreeSortMode, GraphViewId,
-    GraphViewLayoutDirection, LensConfig, NoteId, RendererId, SelectionUpdateMode,
-    ToolSurfaceReturnTarget, ViewDimension,
+    CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand,
+    FileTreeContainmentRelationSource, FileTreeSortMode, GraphViewId, GraphViewLayoutDirection,
+    KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel, NoteId,
+    PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode, RendererId,
+    SelectionUpdateMode, ToolSurfaceReturnTarget,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
 };
-
-/// Deterministic mutation intent boundary for graph state updates.
-#[derive(Debug, Clone)]
-pub enum EdgeCommand {
-    ConnectSelectedPair,
-    ConnectPair { from: NodeKey, to: NodeKey },
-    ConnectBothDirections,
-    ConnectBothDirectionsPair { a: NodeKey, b: NodeKey },
-    RemoveUserEdge,
-    RemoveUserEdgePair { a: NodeKey, b: NodeKey },
-    PinSelected,
-    UnpinSelected,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PendingTileOpenMode {
-    Tab,
-    SplitHorizontal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PendingNodeOpenRequest {
-    pub key: NodeKey,
-    pub mode: PendingTileOpenMode,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PendingConnectedOpenScope {
-    Neighbors,
-    Connected,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KeyboardZoomRequest {
-    In,
-    Out,
-    Reset,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CameraCommand {
-    Fit,
-    FitSelection,
-    SetZoom(f32),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryPressureLevel {
-    Unknown,
-    Normal,
-    Warning,
-    Critical,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LifecycleCause {
-    UserSelect,
-    ActiveTileVisible,
-    SelectedPrewarm,
-    WorkspaceRetention,
-    ActiveLruEviction,
-    WarmLruEviction,
-    MemoryPressureWarning,
-    MemoryPressureCritical,
-    Crash,
-    CreateRetryExhausted,
-    ExplicitClose,
-    NodeRemoval,
-    Restore,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FrameOpenAction {
-    RestoreFrame { name: String, node: NodeKey },
-    OpenInCurrentFrame { node: NodeKey },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameOpenReason {
-    MissingNode,
-    PreferredFrame,
-    RecentMembership,
-    DeterministicMembershipFallback,
-    NoMembership,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UnsavedFramePromptRequest {
-    FrameSwitch {
-        name: String,
-        focus_node: Option<NodeKey>,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnsavedFramePromptAction {
-    ProceedWithoutSaving,
-    Cancel,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChooseFramePickerMode {
-    OpenNodeInFrame,
-    AddNodeToFrame,
-    AddConnectedSelectionToFrame,
-    AddExactSelectionToFrame,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ChooseFramePickerRequest {
-    pub node: NodeKey,
-    pub mode: ChooseFramePickerMode,
-}
-
-#[derive(Debug, Clone)]
-pub enum WorkbenchIntent {
-    CycleFocusRegion,
-    OpenToolPane {
-        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
-    },
-    CloseToolPane {
-        kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
-        restore_previous_focus: bool,
-    },
-    OpenSettingsUrl {
-        url: String,
-    },
-    OpenFrameUrl {
-        url: String,
-    },
-    OpenToolUrl {
-        url: String,
-    },
-    OpenViewUrl {
-        url: String,
-    },
-    OpenGraphUrl {
-        url: String,
-    },
-    OpenNodeUrl {
-        url: String,
-    },
-    OpenClipUrl {
-        url: String,
-    },
-    OpenGraphViewPane {
-        view_id: GraphViewId,
-        mode: PendingTileOpenMode,
-    },
-    OpenNoteUrl {
-        url: String,
-    },
-    OpenNodeInPane {
-        node: NodeKey,
-        pane: crate::shell::desktop::workbench::pane_model::PaneId,
-    },
-    SetPaneView {
-        pane: crate::shell::desktop::workbench::pane_model::PaneId,
-        view: crate::shell::desktop::workbench::pane_model::PaneViewState,
-    },
-    SplitPane {
-        source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
-        direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
-    },
-    DetachNodeToSplit {
-        key: NodeKey,
-    },
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppCommand {
@@ -978,9 +812,7 @@ impl From<RuntimeEvent> for GraphIntent {
                 total_mib,
             },
             RuntimeEvent::ModActivated { mod_id } => Self::ModActivated { mod_id },
-            RuntimeEvent::ModLoadFailed { mod_id, reason } => {
-                Self::ModLoadFailed { mod_id, reason }
-            }
+            RuntimeEvent::ModLoadFailed { mod_id, reason } => Self::ModLoadFailed { mod_id, reason },
             RuntimeEvent::ApplyRemoteDelta { entries } => Self::ApplyRemoteDelta { entries },
             RuntimeEvent::SyncNow => Self::SyncNow,
         }

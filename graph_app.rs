@@ -8,7 +8,6 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::env;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::OnceLock;
@@ -172,83 +171,52 @@ impl Default for NoteId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum HistoryManagerTab {
-    #[default]
-    Timeline,
-    Dissolved,
-}
+#[path = "app/selection.rs"]
+mod selection;
+pub use selection::{
+    ClipboardCopyKind, ClipboardCopyRequest, SelectionState, SelectionUpdateMode,
+};
+pub(crate) use selection::{SelectionScope, UndoRedoSnapshot};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HistoryCaptureStatus {
-    Full,
-    DegradedCaptureOnly,
-}
+#[path = "app/history.rs"]
+mod history;
+pub use history::{
+    HistoryCaptureStatus, HistoryHealthSummary, HistoryManagerTab, HistoryTraversalFailureReason,
+};
 
-impl HistoryCaptureStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Full => "full",
-            Self::DegradedCaptureOnly => "degraded-capture-only",
-        }
-    }
-}
+#[path = "app/history_runtime.rs"]
+mod history_runtime;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HistoryTraversalFailureReason {
-    MissingOldUrl,
-    MissingNewUrl,
-    SameUrl,
-    NonHistoryTransition,
-    MissingEndpoint,
-    SelfLoop,
-    GraphRejected,
-    PersistenceUnavailable,
-    ExportWriteFailed,
-    ExportReadFailed,
-    HomeDirectoryUnavailable,
-    PreviewIsolationViolation,
-    ReplayFailed,
-    ReturnToPresentFailed,
-}
+#[path = "app/intents.rs"]
+mod intents;
+pub use intents::{AppCommand, GraphIntent, GraphMutation, RuntimeEvent, ViewAction};
 
-impl HistoryTraversalFailureReason {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::MissingOldUrl => "missing_old_url",
-            Self::MissingNewUrl => "missing_new_url",
-            Self::SameUrl => "same_url",
-            Self::NonHistoryTransition => "non_history_transition",
-            Self::MissingEndpoint => "missing_endpoint",
-            Self::SelfLoop => "self_loop",
-            Self::GraphRejected => "graph_rejected",
-            Self::PersistenceUnavailable => "persistence_unavailable",
-            Self::ExportWriteFailed => "export_write_failed",
-            Self::ExportReadFailed => "export_read_failed",
-            Self::HomeDirectoryUnavailable => "home_directory_unavailable",
-            Self::PreviewIsolationViolation => "preview_isolation_violation",
-            Self::ReplayFailed => "replay_failed",
-            Self::ReturnToPresentFailed => "return_to_present_failed",
-        }
-    }
-}
+#[path = "app/workspace_commands.rs"]
+mod workspace_commands;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HistoryHealthSummary {
-    pub capture_status: HistoryCaptureStatus,
-    pub recent_traversal_append_failures: u64,
-    pub recent_failure_reason_bucket: Option<String>,
-    pub last_error: Option<String>,
-    pub traversal_archive_count: usize,
-    pub dissolved_archive_count: usize,
-    pub preview_mode_active: bool,
-    pub last_preview_isolation_violation: bool,
-    pub replay_in_progress: bool,
-    pub replay_cursor: Option<usize>,
-    pub replay_total_steps: Option<usize>,
-    pub last_return_to_present_result: Option<String>,
-    pub last_event_unix_ms: Option<u64>,
-}
+#[path = "app/workspace_routing.rs"]
+mod workspace_routing;
+
+#[path = "app/workbench_commands.rs"]
+mod workbench_commands;
+
+#[path = "app/focus_selection.rs"]
+mod focus_selection;
+
+#[path = "app/graph_views.rs"]
+mod graph_views;
+
+#[path = "app/runtime_lifecycle.rs"]
+mod runtime_lifecycle;
+
+#[path = "app/graph_mutations.rs"]
+mod graph_mutations;
+
+#[path = "app/ux_navigation.rs"]
+mod ux_navigation;
+
+#[path = "app/startup_persistence.rs"]
+mod startup_persistence;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsToolPage {
@@ -518,18 +486,6 @@ pub struct FileTreeProjectionState {
     pub row_targets: HashMap<String, FileTreeProjectionTarget>,
 }
 
-/// Canonical node-selection state.
-///
-/// This wraps the selected-node set with explicit metadata so consumers can
-/// reason about selection changes deterministically.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SelectionState {
-    nodes: HashSet<NodeKey>,
-    order: Vec<NodeKey>,
-    primary: Option<NodeKey>,
-    revision: u64,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeBlockReason {
     CreateRetryExhausted,
@@ -549,176 +505,6 @@ pub struct RuntimeBlockState {
 pub enum SearchDisplayMode {
     Highlight,
     Filter,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SelectionUpdateMode {
-    Replace,
-    Add,
-    Toggle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClipboardCopyKind {
-    Url,
-    Title,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ClipboardCopyRequest {
-    pub key: NodeKey,
-    pub kind: ClipboardCopyKind,
-}
-
-#[derive(Clone)]
-struct UndoRedoSnapshot {
-    graph_bytes: Vec<u8>,
-    selected_nodes: SelectionState,
-    selected_nodes_by_view: HashMap<GraphViewId, SelectionState>,
-    highlighted_graph_edge: Option<(NodeKey, NodeKey)>,
-    workspace_layout_json: Option<String>,
-}
-
-impl SelectionState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Monotonic revision incremented whenever the selection changes.
-    pub fn revision(&self) -> u64 {
-        self.revision
-    }
-
-    /// Primary selected node (most recently selected).
-    pub fn primary(&self) -> Option<NodeKey> {
-        self.primary
-    }
-
-    pub fn select(&mut self, key: NodeKey, multi_select: bool) {
-        if multi_select {
-            if self.nodes.contains(&key) {
-                self.nodes.remove(&key);
-                self.order.retain(|existing| *existing != key);
-                self.primary = self.order.last().copied();
-                self.revision = self.revision.saturating_add(1);
-            } else if self.nodes.insert(key) {
-                self.order.push(key);
-                self.primary = Some(key);
-                self.revision = self.revision.saturating_add(1);
-            }
-            return;
-        }
-
-        if self.nodes.len() == 1 && self.nodes.contains(&key) && self.primary == Some(key) {
-            self.nodes.clear();
-            self.order.clear();
-            self.primary = None;
-            self.revision = self.revision.saturating_add(1);
-            return;
-        }
-
-        self.nodes.clear();
-        self.order.clear();
-        self.nodes.insert(key);
-        self.order.push(key);
-        self.primary = Some(key);
-        self.revision = self.revision.saturating_add(1);
-    }
-
-    pub fn clear(&mut self) {
-        if self.nodes.is_empty() && self.primary.is_none() {
-            return;
-        }
-        self.nodes.clear();
-        self.order.clear();
-        self.primary = None;
-        self.revision = self.revision.saturating_add(1);
-    }
-
-    pub fn update_many(&mut self, keys: Vec<NodeKey>, mode: SelectionUpdateMode) {
-        match mode {
-            SelectionUpdateMode::Replace => {
-                self.nodes.clear();
-                self.order.clear();
-                for key in keys {
-                    if self.nodes.insert(key) {
-                        self.order.push(key);
-                    }
-                }
-                self.primary = self.order.last().copied();
-                self.revision = self.revision.saturating_add(1);
-            }
-            SelectionUpdateMode::Add => {
-                let mut changed = false;
-                for key in keys {
-                    if self.nodes.insert(key) {
-                        self.order.push(key);
-                        self.primary = Some(key);
-                        changed = true;
-                    }
-                }
-                if changed {
-                    self.revision = self.revision.saturating_add(1);
-                }
-            }
-            SelectionUpdateMode::Toggle => {
-                let mut changed = false;
-                for key in keys {
-                    if self.nodes.remove(&key) {
-                        self.order.retain(|existing| *existing != key);
-                        changed = true;
-                    } else if self.nodes.insert(key) {
-                        self.order.push(key);
-                        self.primary = Some(key);
-                        changed = true;
-                    }
-                }
-                self.primary = self.order.last().copied();
-                if changed {
-                    self.revision = self.revision.saturating_add(1);
-                }
-            }
-        }
-    }
-
-    pub fn retain_nodes<F>(&mut self, mut keep: F)
-    where
-        F: FnMut(NodeKey) -> bool,
-    {
-        let had_primary = self.primary;
-        let previous_len = self.nodes.len();
-
-        self.nodes.retain(|key| keep(*key));
-        self.order.retain(|key| self.nodes.contains(key));
-        self.primary = self.order.last().copied();
-
-        if previous_len != self.nodes.len() || had_primary != self.primary {
-            self.revision = self.revision.saturating_add(1);
-        }
-    }
-
-    /// Ordered pair of selected nodes when exactly two nodes are selected.
-    pub fn ordered_pair(&self) -> Option<(NodeKey, NodeKey)> {
-        if self.nodes.len() != 2 {
-            return None;
-        }
-        let mut iter = self
-            .order
-            .iter()
-            .copied()
-            .filter(|key| self.nodes.contains(key));
-        let first = iter.next()?;
-        let second = iter.next()?;
-        Some((first, second))
-    }
-}
-
-impl Deref for SelectionState {
-    type Target = HashSet<NodeKey>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.nodes
-    }
 }
 
 /// Deterministic mutation intent boundary for graph state updates.
@@ -794,9 +580,7 @@ pub enum LifecycleCause {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrameOpenAction {
-    /// Restore an existing frame snapshot and focus the target node.
     RestoreFrame { name: String, node: NodeKey },
-    /// No frame membership exists: open in the current frame context.
     OpenInCurrentFrame { node: NodeKey },
 }
 
@@ -926,11 +710,6 @@ impl_display_from_str!(OmnibarNonAtOrderPreset {
     OmnibarNonAtOrderPreset::ProviderThenContextualThenGlobal => "provider-contextual-global",
 });
 
-/// Workbench-authority actions.
-///
-/// These either mutate the tile-tree directly or enter the workbench routing
-/// layer, which may then emit follow-on `AppCommand`s for deferred frame/app
-/// operations after routing is resolved.
 #[derive(Debug, Clone)]
 pub enum WorkbenchIntent {
     CycleFocusRegion,
@@ -986,1115 +765,6 @@ pub enum WorkbenchIntent {
     },
 }
 
-/// Deferred app/frame operations that run after routing has already decided the
-/// target workspace/frame action.
-///
-/// `AppCommand` is not the home for direct tile-tree mutations; those belong in
-/// `WorkbenchIntent`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum AppCommand {
-    CameraCommand {
-        command: CameraCommand,
-        target_view: Option<GraphViewId>,
-    },
-    WheelZoom {
-        target_view: GraphViewId,
-        delta: f32,
-        anchor_screen: Option<(f32, f32)>,
-    },
-    KeyboardZoom {
-        request: KeyboardZoomRequest,
-        target_view: GraphViewId,
-    },
-    UnsavedWorkspacePrompt {
-        request: UnsavedFramePromptRequest,
-        action: Option<UnsavedFramePromptAction>,
-    },
-    ChooseWorkspacePicker {
-        request: ChooseFramePickerRequest,
-        exact_nodes: Option<Vec<NodeKey>>,
-    },
-    NodeContextTarget {
-        target: NodeKey,
-    },
-    ToolSurfaceReturnTarget {
-        target: ToolSurfaceReturnTarget,
-    },
-    SaveWorkspaceSnapshot,
-    SaveWorkspaceSnapshotNamed {
-        name: String,
-    },
-    RestoreWorkspaceSnapshotNamed {
-        name: String,
-    },
-    RestoreHistoryWorkspaceLayout {
-        layout_json: String,
-    },
-    RestoreWorkspaceOpen {
-        request: PendingNodeOpenRequest,
-    },
-    AddNodeToWorkspace {
-        node: NodeKey,
-        workspace_name: String,
-    },
-    AddConnectedToWorkspace {
-        seed_nodes: Vec<NodeKey>,
-        workspace_name: String,
-    },
-    AddExactToWorkspace {
-        nodes: Vec<NodeKey>,
-        workspace_name: String,
-    },
-    OpenConnected {
-        source: NodeKey,
-        mode: PendingTileOpenMode,
-        scope: PendingConnectedOpenScope,
-    },
-    OpenNode {
-        request: PendingNodeOpenRequest,
-    },
-    SaveGraphSnapshotNamed {
-        name: String,
-    },
-    RestoreGraphSnapshotNamed {
-        name: String,
-    },
-    RestoreGraphSnapshotLatest,
-    DeleteGraphSnapshotNamed {
-        name: String,
-    },
-    OpenNote {
-        note_id: NoteId,
-    },
-    OpenClip {
-        clip_id: String,
-    },
-    PruneEmptyWorkspaces,
-    KeepLatestNamedWorkspaces {
-        keep: usize,
-    },
-    ClipboardCopy {
-        request: ClipboardCopyRequest,
-    },
-    SwitchDataDir {
-        path: PathBuf,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub enum ViewAction {
-    ToggleCameraPositionFitLock,
-    ToggleCameraZoomFitLock,
-    RequestFitToScreen,
-    RequestZoomIn,
-    RequestZoomOut,
-    RequestZoomReset,
-    RequestZoomToSelected,
-    ReheatPhysics,
-    UpdateSelection {
-        keys: Vec<NodeKey>,
-        mode: SelectionUpdateMode,
-    },
-    SelectAll,
-    SetNodePosition {
-        key: NodeKey,
-        position: Point2D<f32>,
-    },
-    SetZoom {
-        zoom: f32,
-    },
-    SetHighlightedEdge {
-        from: NodeKey,
-        to: NodeKey,
-    },
-    ClearHighlightedEdge,
-    SetNodeFormDraft {
-        key: NodeKey,
-        form_draft: Option<String>,
-    },
-    SetNodeThumbnail {
-        key: NodeKey,
-        png_bytes: Vec<u8>,
-        width: u32,
-        height: u32,
-    },
-    SetNodeFavicon {
-        key: NodeKey,
-        rgba: Vec<u8>,
-        width: u32,
-        height: u32,
-    },
-    SetFileTreeContainmentRelationSource {
-        source: FileTreeContainmentRelationSource,
-    },
-    SetFileTreeSortMode {
-        sort_mode: FileTreeSortMode,
-    },
-    SetFileTreeRootFilter {
-        root_filter: Option<String>,
-    },
-    SetFileTreeSelectedRows {
-        rows: Vec<String>,
-    },
-    SetFileTreeExpandedRows {
-        rows: Vec<String>,
-    },
-    RebuildFileTreeProjection,
-}
-
-#[derive(Debug, Clone)]
-pub enum GraphMutation {
-    CreateNoteForNode {
-        key: NodeKey,
-        title: Option<String>,
-    },
-    CreateNodeNearCenter,
-    CreateNodeNearCenterAndOpen {
-        mode: PendingTileOpenMode,
-    },
-    CreateNodeAtUrl {
-        url: String,
-        position: Point2D<f32>,
-    },
-    CreateNodeAtUrlAndOpen {
-        url: String,
-        position: Point2D<f32>,
-        mode: PendingTileOpenMode,
-    },
-    RemoveSelectedNodes,
-    ClearGraph,
-    SetNodeUrl {
-        key: NodeKey,
-        new_url: String,
-    },
-    TagNode {
-        key: NodeKey,
-        tag: String,
-    },
-    UntagNode {
-        key: NodeKey,
-        tag: String,
-    },
-    CreateUserGroupedEdge {
-        from: NodeKey,
-        to: NodeKey,
-    },
-    RemoveEdge {
-        from: NodeKey,
-        to: NodeKey,
-        edge_type: EdgeType,
-    },
-    CreateUserGroupedEdgeFromPrimarySelection,
-    ExecuteEdgeCommand {
-        command: EdgeCommand,
-    },
-    SetNodePinned {
-        key: NodeKey,
-        is_pinned: bool,
-    },
-    ForgetDevice {
-        peer_id: String,
-    },
-    RevokeWorkspaceAccess {
-        peer_id: String,
-        workspace_id: String,
-    },
-    UpdateNodeMimeHint {
-        key: NodeKey,
-        mime_hint: Option<String>,
-    },
-    UpdateNodeAddressKind {
-        key: NodeKey,
-        kind: crate::graph::AddressKind,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub enum RuntimeEvent {
-    PromoteNodeToActive {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    DemoteNodeToCold {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    DemoteNodeToWarm {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    MarkRuntimeBlocked {
-        key: NodeKey,
-        reason: RuntimeBlockReason,
-        retry_at: Option<Instant>,
-    },
-    ClearRuntimeBlocked {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    MapWebviewToNode {
-        webview_id: RendererId,
-        key: NodeKey,
-    },
-    UnmapWebview {
-        webview_id: RendererId,
-    },
-    WebViewCreated {
-        parent_webview_id: RendererId,
-        child_webview_id: RendererId,
-        initial_url: Option<String>,
-    },
-    WebViewUrlChanged {
-        webview_id: RendererId,
-        new_url: String,
-    },
-    WebViewHistoryChanged {
-        webview_id: RendererId,
-        entries: Vec<String>,
-        current: usize,
-    },
-    WebViewScrollChanged {
-        webview_id: RendererId,
-        scroll_x: f32,
-        scroll_y: f32,
-    },
-    WebViewTitleChanged {
-        webview_id: RendererId,
-        title: Option<String>,
-    },
-    WebViewCrashed {
-        webview_id: RendererId,
-        reason: String,
-        has_backtrace: bool,
-    },
-    ClearHistoryTimeline,
-    ClearHistoryDissolved,
-    ExportHistoryTimeline,
-    ExportHistoryDissolved,
-    SetMemoryPressureStatus {
-        level: MemoryPressureLevel,
-        available_mib: u64,
-        total_mib: u64,
-    },
-    ModActivated {
-        mod_id: String,
-    },
-    ModLoadFailed {
-        mod_id: String,
-        reason: String,
-    },
-    ApplyRemoteDelta {
-        entries: Vec<u8>,
-    },
-    SyncNow,
-}
-
-#[derive(Debug, Clone)]
-pub enum GraphIntent {
-    TogglePhysics,
-    ToggleCameraPositionFitLock,
-    ToggleCameraZoomFitLock,
-    RequestFitToScreen,
-    RequestZoomIn,
-    RequestZoomOut,
-    RequestZoomReset,
-    RequestZoomToSelected,
-    ReheatPhysics,
-    ToggleHelpPanel,
-    ToggleCommandPalette,
-    ToggleRadialMenu,
-    EnterGraphViewLayoutManager,
-    ExitGraphViewLayoutManager,
-    ToggleGraphViewLayoutManager,
-    CreateGraphViewSlot {
-        anchor_view: Option<GraphViewId>,
-        direction: GraphViewLayoutDirection,
-        open_mode: Option<PendingTileOpenMode>,
-    },
-    RenameGraphViewSlot {
-        view_id: GraphViewId,
-        name: String,
-    },
-    MoveGraphViewSlot {
-        view_id: GraphViewId,
-        row: i32,
-        col: i32,
-    },
-    ArchiveGraphViewSlot {
-        view_id: GraphViewId,
-    },
-    RestoreGraphViewSlot {
-        view_id: GraphViewId,
-        row: i32,
-        col: i32,
-    },
-    RouteGraphViewToWorkbench {
-        view_id: GraphViewId,
-        mode: PendingTileOpenMode,
-    },
-    CreateNoteForNode {
-        key: NodeKey,
-        title: Option<String>,
-    },
-    Undo,
-    Redo,
-    CreateNodeNearCenter,
-    CreateNodeNearCenterAndOpen {
-        mode: PendingTileOpenMode,
-    },
-    CreateNodeAtUrl {
-        url: String,
-        position: Point2D<f32>,
-    },
-    CreateNodeAtUrlAndOpen {
-        url: String,
-        position: Point2D<f32>,
-        mode: PendingTileOpenMode,
-    },
-    RemoveSelectedNodes,
-    ClearGraph,
-    SelectNode {
-        key: NodeKey,
-        multi_select: bool,
-    },
-    UpdateSelection {
-        keys: Vec<NodeKey>,
-        mode: SelectionUpdateMode,
-    },
-    SelectAll,
-    SetInteracting {
-        interacting: bool,
-    },
-    SetNodePosition {
-        key: NodeKey,
-        position: Point2D<f32>,
-    },
-    SetZoom {
-        zoom: f32,
-    },
-    SetViewLens {
-        view_id: GraphViewId,
-        lens: LensConfig,
-    },
-    /// Switch the rendering dimension for a graph view (2D ↔ 3D hotswitch).
-    ///
-    /// Introduced in F9 (concept adoption). Blocked on P5 + P6 completion.
-    /// The reducer must recompute ephemeral z-positions from `ViewDimension`'s
-    /// `ZSource` when switching to 3D, and discard them when switching back to 2D.
-    /// (x, y) positions are preserved unchanged in both directions.
-    #[allow(dead_code)]
-    SetViewDimension {
-        view_id: GraphViewId,
-        dimension: ViewDimension,
-    },
-    SetNodeUrl {
-        key: NodeKey,
-        new_url: String,
-    },
-    TagNode {
-        key: NodeKey,
-        tag: String,
-    },
-    UntagNode {
-        key: NodeKey,
-        tag: String,
-    },
-    OpenNodeFrameRouted {
-        key: NodeKey,
-        prefer_frame: Option<String>,
-    },
-    OpenNodeWorkspaceRouted {
-        key: NodeKey,
-        prefer_workspace: Option<String>,
-    },
-    CreateUserGroupedEdge {
-        from: NodeKey,
-        to: NodeKey,
-    },
-    RemoveEdge {
-        from: NodeKey,
-        to: NodeKey,
-        edge_type: EdgeType,
-    },
-    CreateUserGroupedEdgeFromPrimarySelection,
-    GroupNodesBySemanticTags,
-    ExecuteEdgeCommand {
-        command: EdgeCommand,
-    },
-    SetHighlightedEdge {
-        from: NodeKey,
-        to: NodeKey,
-    },
-    ClearHighlightedEdge,
-    SetNodePinned {
-        key: NodeKey,
-        is_pinned: bool,
-    },
-    TogglePrimaryNodePin,
-    PromoteNodeToActive {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    DemoteNodeToCold {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    DemoteNodeToWarm {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    MarkRuntimeBlocked {
-        key: NodeKey,
-        reason: RuntimeBlockReason,
-        retry_at: Option<Instant>,
-    },
-    ClearRuntimeBlocked {
-        key: NodeKey,
-        cause: LifecycleCause,
-    },
-    MapWebviewToNode {
-        webview_id: RendererId,
-        key: NodeKey,
-    },
-    UnmapWebview {
-        webview_id: RendererId,
-    },
-    WebViewCreated {
-        parent_webview_id: RendererId,
-        child_webview_id: RendererId,
-        initial_url: Option<String>,
-    },
-    WebViewUrlChanged {
-        webview_id: RendererId,
-        new_url: String,
-    },
-    WebViewHistoryChanged {
-        webview_id: RendererId,
-        entries: Vec<String>,
-        current: usize,
-    },
-    WebViewScrollChanged {
-        webview_id: RendererId,
-        scroll_x: f32,
-        scroll_y: f32,
-    },
-    SetNodeFormDraft {
-        key: NodeKey,
-        form_draft: Option<String>,
-    },
-    WebViewTitleChanged {
-        webview_id: RendererId,
-        title: Option<String>,
-    },
-    WebViewCrashed {
-        webview_id: RendererId,
-        reason: String,
-        has_backtrace: bool,
-    },
-    SetNodeThumbnail {
-        key: NodeKey,
-        png_bytes: Vec<u8>,
-        width: u32,
-        height: u32,
-    },
-    SetNodeFavicon {
-        key: NodeKey,
-        rgba: Vec<u8>,
-        width: u32,
-        height: u32,
-    },
-    ClearHistoryTimeline,
-    ClearHistoryDissolved,
-    AutoCurateHistoryTimeline {
-        keep_latest: usize,
-    },
-    AutoCurateHistoryDissolved {
-        keep_latest: usize,
-    },
-    ExportHistoryTimeline,
-    ExportHistoryDissolved,
-    EnterHistoryTimelinePreview,
-    ExitHistoryTimelinePreview,
-    HistoryTimelinePreviewIsolationViolation {
-        detail: String,
-    },
-    HistoryTimelineReplayStarted,
-    HistoryTimelineReplaySetTotal {
-        total_steps: usize,
-    },
-    HistoryTimelineReplayAdvance {
-        steps: usize,
-    },
-    HistoryTimelineReplayReset,
-    HistoryTimelineReplayProgress {
-        cursor: usize,
-        total_steps: usize,
-    },
-    HistoryTimelineReplayFinished {
-        succeeded: bool,
-        error: Option<String>,
-    },
-    HistoryTimelineReturnToPresentFailed {
-        detail: String,
-    },
-    /// No-op intent; used in tests and as a placeholder in async producers.
-    Noop,
-    /// Update the app's memory pressure status from an async background worker.
-    SetMemoryPressureStatus {
-        level: MemoryPressureLevel,
-        available_mib: u64,
-        total_mib: u64,
-    },
-    /// Emitted by the Control Panel mod loader when a mod activates.
-    ModActivated {
-        mod_id: String,
-    },
-    /// Emitted by the Control Panel mod loader when a mod fails to load.
-    ModLoadFailed {
-        mod_id: String,
-        reason: String,
-    },
-    /// Apply remote sync delta entries from peers (Verse sync).
-    ApplyRemoteDelta {
-        entries: Vec<u8>,
-    },
-    /// Trigger a manual Verse sync pass for the current frame.
-    SyncNow,
-    /// Forget a trusted peer device.
-    ForgetDevice {
-        peer_id: String,
-    },
-    /// Revoke workspace access for a peer.
-    RevokeWorkspaceAccess {
-        peer_id: String,
-        workspace_id: String,
-    },
-    /// Set (or clear) the MIME type hint on a node.
-    ///
-    /// Emitted after extension sniffing at node creation time, or after content-byte
-    /// detection when the resolver receives response bytes for the node.
-    /// A `None` value clears the hint (used when URL changes).
-    UpdateNodeMimeHint {
-        key: NodeKey,
-        mime_hint: Option<String>,
-    },
-    /// Update the address-kind classification of a node.
-    ///
-    /// Normally inferred from the URL scheme at creation time; can be re-emitted
-    /// when a redirect or URL change results in a different scheme.
-    UpdateNodeAddressKind {
-        key: NodeKey,
-        kind: crate::graph::AddressKind,
-    },
-    SetFileTreeContainmentRelationSource {
-        source: FileTreeContainmentRelationSource,
-    },
-    SetFileTreeSortMode {
-        sort_mode: FileTreeSortMode,
-    },
-    SetFileTreeRootFilter {
-        root_filter: Option<String>,
-    },
-    SetFileTreeSelectedRows {
-        rows: Vec<String>,
-    },
-    SetFileTreeExpandedRows {
-        rows: Vec<String>,
-    },
-    RebuildFileTreeProjection,
-}
-
-impl From<ViewAction> for GraphIntent {
-    fn from(value: ViewAction) -> Self {
-        match value {
-            ViewAction::ToggleCameraPositionFitLock => Self::ToggleCameraPositionFitLock,
-            ViewAction::ToggleCameraZoomFitLock => Self::ToggleCameraZoomFitLock,
-            ViewAction::RequestFitToScreen => Self::RequestFitToScreen,
-            ViewAction::RequestZoomIn => Self::RequestZoomIn,
-            ViewAction::RequestZoomOut => Self::RequestZoomOut,
-            ViewAction::RequestZoomReset => Self::RequestZoomReset,
-            ViewAction::RequestZoomToSelected => Self::RequestZoomToSelected,
-            ViewAction::ReheatPhysics => Self::ReheatPhysics,
-            ViewAction::UpdateSelection { keys, mode } => Self::UpdateSelection { keys, mode },
-            ViewAction::SelectAll => Self::SelectAll,
-            ViewAction::SetNodePosition { key, position } => {
-                Self::SetNodePosition { key, position }
-            }
-            ViewAction::SetZoom { zoom } => Self::SetZoom { zoom },
-            ViewAction::SetHighlightedEdge { from, to } => Self::SetHighlightedEdge { from, to },
-            ViewAction::ClearHighlightedEdge => Self::ClearHighlightedEdge,
-            ViewAction::SetNodeFormDraft { key, form_draft } => {
-                Self::SetNodeFormDraft { key, form_draft }
-            }
-            ViewAction::SetNodeThumbnail {
-                key,
-                png_bytes,
-                width,
-                height,
-            } => Self::SetNodeThumbnail {
-                key,
-                png_bytes,
-                width,
-                height,
-            },
-            ViewAction::SetNodeFavicon {
-                key,
-                rgba,
-                width,
-                height,
-            } => Self::SetNodeFavicon {
-                key,
-                rgba,
-                width,
-                height,
-            },
-            ViewAction::SetFileTreeContainmentRelationSource { source } => {
-                Self::SetFileTreeContainmentRelationSource { source }
-            }
-            ViewAction::SetFileTreeSortMode { sort_mode } => {
-                Self::SetFileTreeSortMode { sort_mode }
-            }
-            ViewAction::SetFileTreeRootFilter { root_filter } => {
-                Self::SetFileTreeRootFilter { root_filter }
-            }
-            ViewAction::SetFileTreeSelectedRows { rows } => Self::SetFileTreeSelectedRows { rows },
-            ViewAction::SetFileTreeExpandedRows { rows } => Self::SetFileTreeExpandedRows { rows },
-            ViewAction::RebuildFileTreeProjection => Self::RebuildFileTreeProjection,
-        }
-    }
-}
-
-impl From<GraphMutation> for GraphIntent {
-    fn from(value: GraphMutation) -> Self {
-        match value {
-            GraphMutation::CreateNoteForNode { key, title } => {
-                Self::CreateNoteForNode { key, title }
-            }
-            GraphMutation::CreateNodeNearCenter => Self::CreateNodeNearCenter,
-            GraphMutation::CreateNodeNearCenterAndOpen { mode } => {
-                Self::CreateNodeNearCenterAndOpen { mode }
-            }
-            GraphMutation::CreateNodeAtUrl { url, position } => {
-                Self::CreateNodeAtUrl { url, position }
-            }
-            GraphMutation::CreateNodeAtUrlAndOpen {
-                url,
-                position,
-                mode,
-            } => Self::CreateNodeAtUrlAndOpen {
-                url,
-                position,
-                mode,
-            },
-            GraphMutation::RemoveSelectedNodes => Self::RemoveSelectedNodes,
-            GraphMutation::ClearGraph => Self::ClearGraph,
-            GraphMutation::SetNodeUrl { key, new_url } => Self::SetNodeUrl { key, new_url },
-            GraphMutation::TagNode { key, tag } => Self::TagNode { key, tag },
-            GraphMutation::UntagNode { key, tag } => Self::UntagNode { key, tag },
-            GraphMutation::CreateUserGroupedEdge { from, to } => {
-                Self::CreateUserGroupedEdge { from, to }
-            }
-            GraphMutation::RemoveEdge {
-                from,
-                to,
-                edge_type,
-            } => Self::RemoveEdge {
-                from,
-                to,
-                edge_type,
-            },
-            GraphMutation::CreateUserGroupedEdgeFromPrimarySelection => {
-                Self::CreateUserGroupedEdgeFromPrimarySelection
-            }
-            GraphMutation::ExecuteEdgeCommand { command } => Self::ExecuteEdgeCommand { command },
-            GraphMutation::SetNodePinned { key, is_pinned } => {
-                Self::SetNodePinned { key, is_pinned }
-            }
-            GraphMutation::ForgetDevice { peer_id } => Self::ForgetDevice { peer_id },
-            GraphMutation::RevokeWorkspaceAccess {
-                peer_id,
-                workspace_id,
-            } => Self::RevokeWorkspaceAccess {
-                peer_id,
-                workspace_id,
-            },
-            GraphMutation::UpdateNodeMimeHint { key, mime_hint } => {
-                Self::UpdateNodeMimeHint { key, mime_hint }
-            }
-            GraphMutation::UpdateNodeAddressKind { key, kind } => {
-                Self::UpdateNodeAddressKind { key, kind }
-            }
-        }
-    }
-}
-
-impl From<RuntimeEvent> for GraphIntent {
-    fn from(value: RuntimeEvent) -> Self {
-        match value {
-            RuntimeEvent::PromoteNodeToActive { key, cause } => {
-                Self::PromoteNodeToActive { key, cause }
-            }
-            RuntimeEvent::DemoteNodeToCold { key, cause } => Self::DemoteNodeToCold { key, cause },
-            RuntimeEvent::DemoteNodeToWarm { key, cause } => Self::DemoteNodeToWarm { key, cause },
-            RuntimeEvent::MarkRuntimeBlocked {
-                key,
-                reason,
-                retry_at,
-            } => Self::MarkRuntimeBlocked {
-                key,
-                reason,
-                retry_at,
-            },
-            RuntimeEvent::ClearRuntimeBlocked { key, cause } => {
-                Self::ClearRuntimeBlocked { key, cause }
-            }
-            RuntimeEvent::MapWebviewToNode { webview_id, key } => {
-                Self::MapWebviewToNode { webview_id, key }
-            }
-            RuntimeEvent::UnmapWebview { webview_id } => Self::UnmapWebview { webview_id },
-            RuntimeEvent::WebViewCreated {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            } => Self::WebViewCreated {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            },
-            RuntimeEvent::WebViewUrlChanged {
-                webview_id,
-                new_url,
-            } => Self::WebViewUrlChanged {
-                webview_id,
-                new_url,
-            },
-            RuntimeEvent::WebViewHistoryChanged {
-                webview_id,
-                entries,
-                current,
-            } => Self::WebViewHistoryChanged {
-                webview_id,
-                entries,
-                current,
-            },
-            RuntimeEvent::WebViewScrollChanged {
-                webview_id,
-                scroll_x,
-                scroll_y,
-            } => Self::WebViewScrollChanged {
-                webview_id,
-                scroll_x,
-                scroll_y,
-            },
-            RuntimeEvent::WebViewTitleChanged { webview_id, title } => {
-                Self::WebViewTitleChanged { webview_id, title }
-            }
-            RuntimeEvent::WebViewCrashed {
-                webview_id,
-                reason,
-                has_backtrace,
-            } => Self::WebViewCrashed {
-                webview_id,
-                reason,
-                has_backtrace,
-            },
-            RuntimeEvent::ClearHistoryTimeline => Self::ClearHistoryTimeline,
-            RuntimeEvent::ClearHistoryDissolved => Self::ClearHistoryDissolved,
-            RuntimeEvent::ExportHistoryTimeline => Self::ExportHistoryTimeline,
-            RuntimeEvent::ExportHistoryDissolved => Self::ExportHistoryDissolved,
-            RuntimeEvent::SetMemoryPressureStatus {
-                level,
-                available_mib,
-                total_mib,
-            } => Self::SetMemoryPressureStatus {
-                level,
-                available_mib,
-                total_mib,
-            },
-            RuntimeEvent::ModActivated { mod_id } => Self::ModActivated { mod_id },
-            RuntimeEvent::ModLoadFailed { mod_id, reason } => {
-                Self::ModLoadFailed { mod_id, reason }
-            }
-            RuntimeEvent::ApplyRemoteDelta { entries } => Self::ApplyRemoteDelta { entries },
-            RuntimeEvent::SyncNow => Self::SyncNow,
-        }
-    }
-}
-
-impl GraphIntent {
-    pub(crate) fn as_view_action(&self) -> Option<ViewAction> {
-        match self {
-            Self::ToggleCameraPositionFitLock => Some(ViewAction::ToggleCameraPositionFitLock),
-            Self::ToggleCameraZoomFitLock => Some(ViewAction::ToggleCameraZoomFitLock),
-            Self::RequestFitToScreen => Some(ViewAction::RequestFitToScreen),
-            Self::RequestZoomIn => Some(ViewAction::RequestZoomIn),
-            Self::RequestZoomOut => Some(ViewAction::RequestZoomOut),
-            Self::RequestZoomReset => Some(ViewAction::RequestZoomReset),
-            Self::RequestZoomToSelected => Some(ViewAction::RequestZoomToSelected),
-            Self::ReheatPhysics => Some(ViewAction::ReheatPhysics),
-            Self::UpdateSelection { keys, mode } => Some(ViewAction::UpdateSelection {
-                keys: keys.clone(),
-                mode: *mode,
-            }),
-            Self::SelectAll => Some(ViewAction::SelectAll),
-            Self::SetNodePosition { key, position } => Some(ViewAction::SetNodePosition {
-                key: *key,
-                position: *position,
-            }),
-            Self::SetZoom { zoom } => Some(ViewAction::SetZoom { zoom: *zoom }),
-            Self::SetHighlightedEdge { from, to } => Some(ViewAction::SetHighlightedEdge {
-                from: *from,
-                to: *to,
-            }),
-            Self::ClearHighlightedEdge => Some(ViewAction::ClearHighlightedEdge),
-            Self::SetNodeFormDraft { key, form_draft } => Some(ViewAction::SetNodeFormDraft {
-                key: *key,
-                form_draft: form_draft.clone(),
-            }),
-            Self::SetNodeThumbnail {
-                key,
-                png_bytes,
-                width,
-                height,
-            } => Some(ViewAction::SetNodeThumbnail {
-                key: *key,
-                png_bytes: png_bytes.clone(),
-                width: *width,
-                height: *height,
-            }),
-            Self::SetNodeFavicon {
-                key,
-                rgba,
-                width,
-                height,
-            } => Some(ViewAction::SetNodeFavicon {
-                key: *key,
-                rgba: rgba.clone(),
-                width: *width,
-                height: *height,
-            }),
-            Self::SetFileTreeContainmentRelationSource { source } => {
-                Some(ViewAction::SetFileTreeContainmentRelationSource { source: *source })
-            }
-            Self::SetFileTreeSortMode { sort_mode } => Some(ViewAction::SetFileTreeSortMode {
-                sort_mode: *sort_mode,
-            }),
-            Self::SetFileTreeRootFilter { root_filter } => {
-                Some(ViewAction::SetFileTreeRootFilter {
-                    root_filter: root_filter.clone(),
-                })
-            }
-            Self::SetFileTreeSelectedRows { rows } => {
-                Some(ViewAction::SetFileTreeSelectedRows { rows: rows.clone() })
-            }
-            Self::SetFileTreeExpandedRows { rows } => {
-                Some(ViewAction::SetFileTreeExpandedRows { rows: rows.clone() })
-            }
-            Self::RebuildFileTreeProjection => Some(ViewAction::RebuildFileTreeProjection),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_graph_mutation(&self) -> Option<GraphMutation> {
-        match self {
-            Self::CreateNoteForNode { key, title } => Some(GraphMutation::CreateNoteForNode {
-                key: *key,
-                title: title.clone(),
-            }),
-            Self::CreateNodeNearCenter => Some(GraphMutation::CreateNodeNearCenter),
-            Self::CreateNodeNearCenterAndOpen { mode } => {
-                Some(GraphMutation::CreateNodeNearCenterAndOpen { mode: *mode })
-            }
-            Self::CreateNodeAtUrl { url, position } => Some(GraphMutation::CreateNodeAtUrl {
-                url: url.clone(),
-                position: *position,
-            }),
-            Self::CreateNodeAtUrlAndOpen {
-                url,
-                position,
-                mode,
-            } => Some(GraphMutation::CreateNodeAtUrlAndOpen {
-                url: url.clone(),
-                position: *position,
-                mode: *mode,
-            }),
-            Self::RemoveSelectedNodes => Some(GraphMutation::RemoveSelectedNodes),
-            Self::ClearGraph => Some(GraphMutation::ClearGraph),
-            Self::SetNodeUrl { key, new_url } => Some(GraphMutation::SetNodeUrl {
-                key: *key,
-                new_url: new_url.clone(),
-            }),
-            Self::TagNode { key, tag } => Some(GraphMutation::TagNode {
-                key: *key,
-                tag: tag.clone(),
-            }),
-            Self::UntagNode { key, tag } => Some(GraphMutation::UntagNode {
-                key: *key,
-                tag: tag.clone(),
-            }),
-            Self::CreateUserGroupedEdge { from, to } => {
-                Some(GraphMutation::CreateUserGroupedEdge {
-                    from: *from,
-                    to: *to,
-                })
-            }
-            Self::RemoveEdge {
-                from,
-                to,
-                edge_type,
-            } => Some(GraphMutation::RemoveEdge {
-                from: *from,
-                to: *to,
-                edge_type: *edge_type,
-            }),
-            Self::CreateUserGroupedEdgeFromPrimarySelection => {
-                Some(GraphMutation::CreateUserGroupedEdgeFromPrimarySelection)
-            }
-            Self::ExecuteEdgeCommand { command } => Some(GraphMutation::ExecuteEdgeCommand {
-                command: command.clone(),
-            }),
-            Self::SetNodePinned { key, is_pinned } => Some(GraphMutation::SetNodePinned {
-                key: *key,
-                is_pinned: *is_pinned,
-            }),
-            Self::ForgetDevice { peer_id } => Some(GraphMutation::ForgetDevice {
-                peer_id: peer_id.clone(),
-            }),
-            Self::RevokeWorkspaceAccess {
-                peer_id,
-                workspace_id,
-            } => Some(GraphMutation::RevokeWorkspaceAccess {
-                peer_id: peer_id.clone(),
-                workspace_id: workspace_id.clone(),
-            }),
-            Self::UpdateNodeMimeHint { key, mime_hint } => {
-                Some(GraphMutation::UpdateNodeMimeHint {
-                    key: *key,
-                    mime_hint: mime_hint.clone(),
-                })
-            }
-            Self::UpdateNodeAddressKind { key, kind } => {
-                Some(GraphMutation::UpdateNodeAddressKind {
-                    key: *key,
-                    kind: *kind,
-                })
-            }
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_runtime_event(&self) -> Option<RuntimeEvent> {
-        match self {
-            Self::PromoteNodeToActive { key, cause } => Some(RuntimeEvent::PromoteNodeToActive {
-                key: *key,
-                cause: *cause,
-            }),
-            Self::DemoteNodeToCold { key, cause } => Some(RuntimeEvent::DemoteNodeToCold {
-                key: *key,
-                cause: *cause,
-            }),
-            Self::DemoteNodeToWarm { key, cause } => Some(RuntimeEvent::DemoteNodeToWarm {
-                key: *key,
-                cause: *cause,
-            }),
-            Self::MarkRuntimeBlocked {
-                key,
-                reason,
-                retry_at,
-            } => Some(RuntimeEvent::MarkRuntimeBlocked {
-                key: *key,
-                reason: *reason,
-                retry_at: *retry_at,
-            }),
-            Self::ClearRuntimeBlocked { key, cause } => Some(RuntimeEvent::ClearRuntimeBlocked {
-                key: *key,
-                cause: *cause,
-            }),
-            Self::MapWebviewToNode { webview_id, key } => Some(RuntimeEvent::MapWebviewToNode {
-                webview_id: *webview_id,
-                key: *key,
-            }),
-            Self::UnmapWebview { webview_id } => Some(RuntimeEvent::UnmapWebview {
-                webview_id: *webview_id,
-            }),
-            Self::WebViewCreated {
-                parent_webview_id,
-                child_webview_id,
-                initial_url,
-            } => Some(RuntimeEvent::WebViewCreated {
-                parent_webview_id: *parent_webview_id,
-                child_webview_id: *child_webview_id,
-                initial_url: initial_url.clone(),
-            }),
-            Self::WebViewUrlChanged {
-                webview_id,
-                new_url,
-            } => Some(RuntimeEvent::WebViewUrlChanged {
-                webview_id: *webview_id,
-                new_url: new_url.clone(),
-            }),
-            Self::WebViewHistoryChanged {
-                webview_id,
-                entries,
-                current,
-            } => Some(RuntimeEvent::WebViewHistoryChanged {
-                webview_id: *webview_id,
-                entries: entries.clone(),
-                current: *current,
-            }),
-            Self::WebViewScrollChanged {
-                webview_id,
-                scroll_x,
-                scroll_y,
-            } => Some(RuntimeEvent::WebViewScrollChanged {
-                webview_id: *webview_id,
-                scroll_x: *scroll_x,
-                scroll_y: *scroll_y,
-            }),
-            Self::WebViewTitleChanged { webview_id, title } => {
-                Some(RuntimeEvent::WebViewTitleChanged {
-                    webview_id: *webview_id,
-                    title: title.clone(),
-                })
-            }
-            Self::WebViewCrashed {
-                webview_id,
-                reason,
-                has_backtrace,
-            } => Some(RuntimeEvent::WebViewCrashed {
-                webview_id: *webview_id,
-                reason: reason.clone(),
-                has_backtrace: *has_backtrace,
-            }),
-            Self::ClearHistoryTimeline => Some(RuntimeEvent::ClearHistoryTimeline),
-            Self::ClearHistoryDissolved => Some(RuntimeEvent::ClearHistoryDissolved),
-            Self::ExportHistoryTimeline => Some(RuntimeEvent::ExportHistoryTimeline),
-            Self::ExportHistoryDissolved => Some(RuntimeEvent::ExportHistoryDissolved),
-            Self::SetMemoryPressureStatus {
-                level,
-                available_mib,
-                total_mib,
-            } => Some(RuntimeEvent::SetMemoryPressureStatus {
-                level: *level,
-                available_mib: *available_mib,
-                total_mib: *total_mib,
-            }),
-            Self::ModActivated { mod_id } => Some(RuntimeEvent::ModActivated {
-                mod_id: mod_id.clone(),
-            }),
-            Self::ModLoadFailed { mod_id, reason } => Some(RuntimeEvent::ModLoadFailed {
-                mod_id: mod_id.clone(),
-                reason: reason.clone(),
-            }),
-            Self::ApplyRemoteDelta { entries } => Some(RuntimeEvent::ApplyRemoteDelta {
-                entries: entries.clone(),
-            }),
-            Self::SyncNow => Some(RuntimeEvent::SyncNow),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UndoBoundaryReason {
     #[default]
@@ -2139,14 +809,12 @@ pub struct GraphWorkspace {
     /// Physics running state before user drag/pan interaction began.
     physics_running_before_interaction: Option<bool>,
 
-    /// Compatibility mirror of selection for the currently focused graph view.
+    /// Canonical selection state keyed by runtime selection scope.
     ///
-    /// Canonical selection ownership is `selected_nodes_by_view`; this field is
-    /// kept to minimize churn while Phase 1 W2 migration is in progress.
-    pub selected_nodes: SelectionState,
-
-    /// Per-graph-view selection state keyed by `GraphViewId`.
-    pub selected_nodes_by_view: HashMap<GraphViewId, SelectionState>,
+    /// `SelectionScope::View` stores per-graph-view selection, while
+    /// `SelectionScope::Unfocused` carries the selection visible when no graph
+    /// view is focused.
+    selection_by_scope: HashMap<SelectionScope, SelectionState>,
 
     /// Bidirectional mapping between renderer instances and graph nodes
     webview_to_node: HashMap<RendererId, NodeKey>,
@@ -2378,8 +1046,8 @@ impl GraphBrowserApp {
         let graph_bytes = Self::encode_undo_graph_bytes(&self.workspace.domain.graph)?;
         Some(UndoRedoSnapshot {
             graph_bytes,
-            selected_nodes: self.workspace.selected_nodes.clone(),
-            selected_nodes_by_view: self.workspace.selected_nodes_by_view.clone(),
+            active_selection: self.focused_selection().clone(),
+            selection_by_scope: self.workspace.selection_by_scope.clone(),
             highlighted_graph_edge: self.workspace.highlighted_graph_edge,
             workspace_layout_json,
         })
@@ -2455,37 +1123,7 @@ impl GraphBrowserApp {
 
     /// Create a new graph browser application using a specific persistence directory.
     pub fn new_from_dir(data_dir: PathBuf) -> Self {
-        // Try to open persistence store and recover graph
-        let (graph, persistence) = match Self::open_store_for_startup(data_dir) {
-            Ok(store) => {
-                let graph = match store.recover() {
-                    Some(recovered) => {
-                        emit_event(DiagnosticEvent::MessageReceived {
-                            channel_id: CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
-                            latency_us: 1,
-                        });
-                        recovered
-                    }
-                    None => {
-                        emit_event(DiagnosticEvent::MessageReceived {
-                            channel_id: CHANNEL_PERSISTENCE_RECOVER_FAILED,
-                            latency_us: 1,
-                        });
-                        warn!("Failed to recover graph store");
-                        Graph::new()
-                    }
-                };
-                (graph, Some(store))
-            }
-            Err(e) => {
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
-                    latency_us: 1,
-                });
-                warn!("Failed to open graph store: {e}");
-                (Graph::new(), None)
-            }
-        };
+        let (graph, persistence) = Self::recover_graph_for_startup(data_dir);
 
         // Scan recovered graph for existing placeholder IDs to avoid collisions
         let next_placeholder_id = Self::scan_max_placeholder_id(&graph);
@@ -2499,8 +1137,7 @@ impl GraphBrowserApp {
                 },
                 physics: Self::default_physics_state(),
                 physics_running_before_interaction: None,
-                selected_nodes: SelectionState::new(),
-                selected_nodes_by_view: HashMap::new(),
+                selection_by_scope: HashMap::new(),
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
                 runtime_block_state: HashMap::new(),
@@ -2591,90 +1228,6 @@ impl GraphBrowserApp {
         app
     }
 
-    fn open_store_for_startup(data_dir: PathBuf) -> Result<GraphStore, String> {
-        #[cfg(test)]
-        {
-            return GraphStore::open(data_dir).map_err(|e| e.to_string());
-        }
-
-        #[cfg(not(test))]
-        {
-            let start = Instant::now();
-            emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_STARTED,
-                byte_len: data_dir.to_string_lossy().len(),
-            });
-            let timeout_ms = Self::startup_persistence_timeout_ms();
-            let (tx, rx) = mpsc::channel();
-
-            std::thread::Builder::new()
-                .name("graphstore-open".to_string())
-                .spawn(move || {
-                    let _ = tx.send(GraphStore::open(data_dir));
-                })
-                .map_err(|e| format!("failed to spawn persistence-open thread: {e}"))?;
-
-            if timeout_ms == 0 {
-                let result = rx.recv().map_err(|_| {
-                    "persistence-open worker disconnected before sending result".to_string()
-                })?;
-
-                match &result {
-                    Ok(_) => emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
-                        latency_us: start.elapsed().as_micros() as u64,
-                    }),
-                    Err(_) => emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
-                        latency_us: start.elapsed().as_micros() as u64,
-                    }),
-                }
-
-                return result.map_err(|e| e.to_string());
-            }
-
-            match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-                Ok(result) => {
-                    match &result {
-                        Ok(_) => emit_event(DiagnosticEvent::MessageReceived {
-                            channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_SUCCEEDED,
-                            latency_us: start.elapsed().as_micros() as u64,
-                        }),
-                        Err(_) => emit_event(DiagnosticEvent::MessageReceived {
-                            channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
-                            latency_us: start.elapsed().as_micros() as u64,
-                        }),
-                    }
-                    result.map_err(|e| e.to_string())
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_TIMEOUT,
-                        latency_us: start.elapsed().as_micros() as u64,
-                    });
-                    Err(format!(
-                        "startup persistence open timed out after {}ms; continuing without persistence",
-                        timeout_ms
-                    ))
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
-                        latency_us: start.elapsed().as_micros() as u64,
-                    });
-                    Err("persistence-open worker disconnected before sending result".to_string())
-                }
-            }
-        }
-    }
-
-    fn startup_persistence_timeout_ms() -> u64 {
-        env::var("GRAPHSHELL_PERSISTENCE_OPEN_TIMEOUT_MS")
-            .ok()
-            .and_then(|value| value.trim().parse::<u64>().ok())
-            .unwrap_or(Self::STARTUP_PERSISTENCE_OPEN_TIMEOUT_MS)
-    }
-
     /// Create a new graph browser application without persistence (for tests)
     #[cfg(test)]
     pub fn new_for_testing() -> Self {
@@ -2687,8 +1240,7 @@ impl GraphBrowserApp {
                 },
                 physics: Self::default_physics_state(),
                 physics_running_before_interaction: None,
-                selected_nodes: SelectionState::new(),
-                selected_nodes_by_view: HashMap::new(),
+                selection_by_scope: HashMap::new(),
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
                 runtime_block_state: HashMap::new(),
@@ -2787,97 +1339,6 @@ impl GraphBrowserApp {
 
     pub fn domain_graph_mut(&mut self) -> &mut Graph {
         &mut self.workspace.domain.graph
-    }
-
-    pub fn clear_hop_distance_cache(&mut self) {
-        self.workspace.hop_distance_cache = None;
-    }
-
-    pub fn cached_hop_distances_for_context(&mut self, context: NodeKey) -> HashMap<NodeKey, usize> {
-        if self.workspace.domain.graph.get_node(context).is_none() {
-            return HashMap::new();
-        }
-        if let Some((cached_context, cached)) = self.workspace.hop_distance_cache.as_ref()
-            && *cached_context == context
-        {
-            return cached.clone();
-        }
-        let distances = self.workspace.domain.graph.hop_distances_from(context);
-        self.workspace.hop_distance_cache = Some((context, distances.clone()));
-        distances
-    }
-
-    fn invalidate_hop_distance_cache_on_primary_change(
-        &mut self,
-        previous_primary: Option<NodeKey>,
-    ) {
-        if previous_primary != self.workspace.selected_nodes.primary() {
-            self.clear_hop_distance_cache();
-        }
-    }
-
-    /// Select a node
-    pub fn select_node(&mut self, key: NodeKey, multi_select: bool) {
-        // Ignore stale keys.
-        if self.workspace.domain.graph.get_node(key).is_none() {
-            return;
-        }
-
-        let previous_primary = self.workspace.selected_nodes.primary();
-        self.workspace.selected_nodes.select(key, multi_select);
-        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.sync_selection_into_focused_view();
-
-        // Selection changes require egui_graphs state refresh.
-        self.workspace.egui_state_dirty = true;
-    }
-
-    fn sync_selection_into_focused_view(&mut self) {
-        if let Some(view_id) = self.workspace.focused_view {
-            self.workspace
-                .selected_nodes_by_view
-                .insert(view_id, self.workspace.selected_nodes.clone());
-        }
-    }
-
-    fn load_selection_from_focused_view(&mut self) {
-        let previous_primary = self.workspace.selected_nodes.primary();
-        if let Some(view_id) = self.workspace.focused_view {
-            self.workspace.selected_nodes = self
-                .workspace
-                .selected_nodes_by_view
-                .get(&view_id)
-                .cloned()
-                .unwrap_or_default();
-            self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-            return;
-        }
-
-        self.workspace.selected_nodes.clear();
-        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-    }
-
-    pub fn selection_for_view(&self, view_id: GraphViewId) -> &SelectionState {
-        self.workspace
-            .selected_nodes_by_view
-            .get(&view_id)
-            .unwrap_or(&self.workspace.selected_nodes)
-    }
-
-    pub fn focused_selection(&self) -> &SelectionState {
-        self.workspace
-            .focused_view
-            .and_then(|view_id| self.workspace.selected_nodes_by_view.get(&view_id))
-            .unwrap_or(&self.workspace.selected_nodes)
-    }
-
-    pub fn get_single_selected_node_for_view(&self, view_id: GraphViewId) -> Option<NodeKey> {
-        let selected = self.selection_for_view(view_id);
-        if selected.len() == 1 {
-            selected.primary()
-        } else {
-            None
-        }
     }
 
     pub fn set_tab_selection_single(&mut self, key: NodeKey) {
@@ -3058,618 +1519,6 @@ impl GraphBrowserApp {
             .file_tree_projection_state
             .collapsed_rows
             .retain(|row| valid_rows.contains(row));
-    }
-
-    /// Request camera fit on next render frame.
-    pub fn request_fit_to_screen(&mut self) {
-        self.request_camera_command(CameraCommand::Fit);
-    }
-
-    fn camera_lock_target_view(&self) -> Option<GraphViewId> {
-        self.resolve_camera_target_view()
-    }
-
-    pub fn camera_position_fit_locked(&self) -> bool {
-        self.camera_lock_target_view()
-            .and_then(|view_id| self.workspace.views.get(&view_id))
-            .is_some_and(|view| view.position_fit_locked)
-    }
-
-    pub fn camera_zoom_fit_locked(&self) -> bool {
-        self.camera_lock_target_view()
-            .and_then(|view_id| self.workspace.views.get(&view_id))
-            .is_some_and(|view| view.zoom_fit_locked)
-    }
-
-    pub fn camera_fit_locked(&self) -> bool {
-        self.camera_position_fit_locked() && self.camera_zoom_fit_locked()
-    }
-
-    pub fn set_camera_position_fit_locked(&mut self, locked: bool) {
-        let Some(view_id) = self.camera_lock_target_view() else {
-            return;
-        };
-        let was_locked = self
-            .workspace
-            .views
-            .get(&view_id)
-            .is_some_and(|view| view.position_fit_locked);
-        if was_locked == locked {
-            return;
-        }
-        if let Some(view) = self.workspace.views.get_mut(&view_id) {
-            view.position_fit_locked = locked;
-        }
-        if locked {
-            self.workspace.drag_release_frames_remaining = 0;
-            self.request_fit_to_screen();
-        } else if matches!(
-            self.pending_app_command(|command| {
-                matches!(command, AppCommand::CameraCommand { .. })
-            }),
-            Some(AppCommand::CameraCommand {
-                command: CameraCommand::Fit,
-                ..
-            })
-        ) {
-            self.clear_pending_camera_command();
-        }
-        log::debug!(
-            "camera_position_fit_lock(view={:?}): {} -> {} (pending_camera={:?}, pending_target={:?}, physics_running={}, interacting={})",
-            view_id,
-            was_locked,
-            locked,
-            self.pending_camera_command(),
-            self.pending_camera_command_target_raw(),
-            self.workspace.physics.base.is_running,
-            self.workspace.is_interacting,
-        );
-    }
-
-    pub fn set_camera_zoom_fit_locked(&mut self, locked: bool) {
-        let Some(view_id) = self.camera_lock_target_view() else {
-            return;
-        };
-        let was_locked = self
-            .workspace
-            .views
-            .get(&view_id)
-            .is_some_and(|view| view.zoom_fit_locked);
-        if was_locked == locked {
-            return;
-        }
-        if let Some(view) = self.workspace.views.get_mut(&view_id) {
-            view.zoom_fit_locked = locked;
-        }
-        if locked {
-            self.request_fit_to_screen();
-        }
-        log::debug!(
-            "camera_zoom_fit_lock(view={:?}): {} -> {} (pending_camera={:?}, pending_target={:?}, physics_running={}, interacting={})",
-            view_id,
-            was_locked,
-            locked,
-            self.pending_camera_command(),
-            self.pending_camera_command_target_raw(),
-            self.workspace.physics.base.is_running,
-            self.workspace.is_interacting,
-        );
-    }
-
-    pub fn set_camera_fit_locked(&mut self, locked: bool) {
-        self.set_camera_position_fit_locked(locked);
-        self.set_camera_zoom_fit_locked(locked);
-    }
-
-    fn next_graph_view_slot_name(&self) -> String {
-        let count = self.workspace.graph_view_layout_manager.slots.len() + 1;
-        format!("Graph View {count}")
-    }
-
-    fn graph_view_slot_position_occupied(
-        &self,
-        row: i32,
-        col: i32,
-        except_view: Option<GraphViewId>,
-    ) -> bool {
-        self.workspace
-            .graph_view_layout_manager
-            .slots
-            .values()
-            .any(|slot| {
-                !slot.archived
-                    && Some(slot.view_id) != except_view
-                    && slot.row == row
-                    && slot.col == col
-            })
-    }
-
-    fn next_free_graph_view_slot_position(&self) -> (i32, i32) {
-        for row in 0..64 {
-            for col in 0..64 {
-                if !self.graph_view_slot_position_occupied(row, col, None) {
-                    return (row, col);
-                }
-            }
-        }
-        (0, 0)
-    }
-
-    fn ensure_graph_view_slot_exists(&mut self, view_id: GraphViewId) {
-        if self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .contains_key(&view_id)
-        {
-            return;
-        }
-
-        let name = self
-            .workspace
-            .views
-            .get(&view_id)
-            .map(|view| view.name.clone())
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| self.next_graph_view_slot_name());
-        let (row, col) = self.next_free_graph_view_slot_position();
-        self.workspace.graph_view_layout_manager.slots.insert(
-            view_id,
-            GraphViewSlot {
-                view_id,
-                name,
-                row,
-                col,
-                archived: false,
-            },
-        );
-    }
-
-    pub fn ensure_graph_view_registered(&mut self, view_id: GraphViewId) {
-        let had_view = self.workspace.views.contains_key(&view_id);
-        let had_slot = self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .contains_key(&view_id);
-        if !self.workspace.views.contains_key(&view_id) {
-            let name = self.next_graph_view_slot_name();
-            let mut state = GraphViewState::new_with_id(view_id, name);
-            state.local_simulation = Some(LocalSimulation {
-                positions: self
-                    .workspace
-                    .domain
-                    .graph
-                    .nodes()
-                    .map(|(k, n)| (k, n.projected_position()))
-                    .collect(),
-            });
-            self.workspace.views.insert(view_id, state);
-        } else if self.workspace.views[&view_id].local_simulation.is_none() {
-            let positions = self
-                .workspace
-                .domain
-                .graph
-                .nodes()
-                .map(|(k, n)| (k, n.projected_position()))
-                .collect();
-            if let Some(view) = self.workspace.views.get_mut(&view_id) {
-                view.local_simulation = Some(LocalSimulation { positions });
-            }
-        }
-
-        self.ensure_graph_view_slot_exists(view_id);
-        if !had_view || !had_slot {
-            self.persist_graph_view_layout_manager_state();
-        }
-    }
-
-    fn persist_graph_view_layout_manager_state(&mut self) {
-        let persisted = PersistedGraphViewLayoutManager {
-            version: PersistedGraphViewLayoutManager::VERSION,
-            active: self.workspace.graph_view_layout_manager.active,
-            slots: self
-                .workspace
-                .graph_view_layout_manager
-                .slots
-                .values()
-                .cloned()
-                .collect(),
-        };
-        if let Ok(json) = serde_json::to_string(&persisted) {
-            self.save_workspace_layout_json(Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME, &json);
-        }
-    }
-
-    fn load_graph_view_layout_manager_state(&mut self) {
-        let Some(raw) =
-            self.load_workspace_layout_json(Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME)
-        else {
-            return;
-        };
-        let Ok(persisted) = serde_json::from_str::<PersistedGraphViewLayoutManager>(&raw) else {
-            warn!("Ignoring invalid persisted graph-view layout manager state payload");
-            return;
-        };
-        if persisted.version != PersistedGraphViewLayoutManager::VERSION {
-            warn!(
-                "Ignoring unsupported graph-view layout manager state version: {}",
-                persisted.version
-            );
-            return;
-        }
-
-        let mut slots = HashMap::new();
-        for slot in persisted.slots {
-            slots.insert(slot.view_id, slot);
-        }
-        self.workspace.graph_view_layout_manager.active = persisted.active;
-        self.workspace.graph_view_layout_manager.slots = slots;
-    }
-
-    fn create_graph_view_slot(
-        &mut self,
-        anchor_view: Option<GraphViewId>,
-        direction: GraphViewLayoutDirection,
-        open_mode: Option<PendingTileOpenMode>,
-    ) {
-        let view_id = GraphViewId::new();
-        let mut state = GraphViewState::new_with_id(view_id, self.next_graph_view_slot_name());
-        state.local_simulation = Some(LocalSimulation {
-            positions: self
-                .workspace
-                .domain
-                .graph
-                .nodes()
-                .map(|(k, n)| (k, n.projected_position()))
-                .collect(),
-        });
-        self.workspace.views.insert(view_id, state.clone());
-
-        let (row, col) = if let Some(anchor_id) = anchor_view {
-            if let Some(anchor_slot) = self
-                .workspace
-                .graph_view_layout_manager
-                .slots
-                .get(&anchor_id)
-            {
-                let (target_row, target_col) = match direction {
-                    GraphViewLayoutDirection::Up => (anchor_slot.row - 1, anchor_slot.col),
-                    GraphViewLayoutDirection::Down => (anchor_slot.row + 1, anchor_slot.col),
-                    GraphViewLayoutDirection::Left => (anchor_slot.row, anchor_slot.col - 1),
-                    GraphViewLayoutDirection::Right => (anchor_slot.row, anchor_slot.col + 1),
-                };
-                if self.graph_view_slot_position_occupied(target_row, target_col, None) {
-                    self.next_free_graph_view_slot_position()
-                } else {
-                    (target_row, target_col)
-                }
-            } else {
-                self.next_free_graph_view_slot_position()
-            }
-        } else {
-            self.next_free_graph_view_slot_position()
-        };
-
-        self.workspace.graph_view_layout_manager.slots.insert(
-            view_id,
-            GraphViewSlot {
-                view_id,
-                name: state.name,
-                row,
-                col,
-                archived: false,
-            },
-        );
-
-        if let Some(mode) = open_mode {
-            self.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane { view_id, mode });
-        }
-        self.persist_graph_view_layout_manager_state();
-    }
-
-    fn rename_graph_view_slot(&mut self, view_id: GraphViewId, name: String) {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-        if let Some(slot) = self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .get_mut(&view_id)
-        {
-            slot.name = trimmed.to_string();
-            if let Some(view) = self.workspace.views.get_mut(&view_id) {
-                view.name = slot.name.clone();
-            }
-            self.persist_graph_view_layout_manager_state();
-        }
-    }
-
-    fn move_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
-        if self.graph_view_slot_position_occupied(row, col, Some(view_id)) {
-            return;
-        }
-        if let Some(slot) = self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .get_mut(&view_id)
-        {
-            slot.row = row;
-            slot.col = col;
-            self.persist_graph_view_layout_manager_state();
-        }
-    }
-
-    fn archive_graph_view_slot(&mut self, view_id: GraphViewId) {
-        if let Some(slot) = self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .get_mut(&view_id)
-        {
-            slot.archived = true;
-            if self.workspace.focused_view == Some(view_id) {
-                self.set_workspace_focused_view_with_transition(None);
-            }
-            self.persist_graph_view_layout_manager_state();
-        }
-    }
-
-    fn restore_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
-        self.ensure_graph_view_registered(view_id);
-        let (next_row, next_col) =
-            if self.graph_view_slot_position_occupied(row, col, Some(view_id)) {
-                self.next_free_graph_view_slot_position()
-            } else {
-                (row, col)
-            };
-        if let Some(slot) = self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .get_mut(&view_id)
-        {
-            slot.archived = false;
-            slot.row = next_row;
-            slot.col = next_col;
-            self.persist_graph_view_layout_manager_state();
-        }
-    }
-
-    fn route_graph_view_to_workbench(&mut self, view_id: GraphViewId, mode: PendingTileOpenMode) {
-        self.ensure_graph_view_registered(view_id);
-        if self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .get(&view_id)
-            .is_some_and(|slot| slot.archived)
-        {
-            return;
-        }
-        self.enqueue_workbench_intent(WorkbenchIntent::OpenGraphViewPane { view_id, mode });
-    }
-
-    pub fn reconcile_workspace_graph_views(
-        &mut self,
-        live_graph_views: &HashSet<GraphViewId>,
-        fallback_focused_view: Option<GraphViewId>,
-    ) {
-        let registered_views: HashSet<GraphViewId> = self
-            .workspace
-            .graph_view_layout_manager
-            .slots
-            .keys()
-            .copied()
-            .collect();
-        self.workspace.views.retain(|view_id, _| {
-            live_graph_views.contains(view_id) || registered_views.contains(view_id)
-        });
-        self.workspace
-            .graph_view_frames
-            .retain(|view_id, _| live_graph_views.contains(view_id));
-        self.workspace.selected_nodes_by_view.retain(|view_id, _| {
-            live_graph_views.contains(view_id) || registered_views.contains(view_id)
-        });
-
-        if self
-            .workspace
-            .focused_view
-            .is_some_and(|view_id| !live_graph_views.contains(&view_id))
-        {
-            self.set_workspace_focused_view_with_transition(
-                fallback_focused_view.filter(|view_id| live_graph_views.contains(view_id)),
-            );
-        }
-
-        let _ = self.take_pending_app_command(|command| {
-            matches!(
-                command,
-                AppCommand::CameraCommand {
-                    target_view: Some(target_view),
-                    ..
-                } if !live_graph_views.contains(target_view)
-            )
-        });
-
-        let _ = self.take_pending_app_command(|command| {
-            matches!(
-                command,
-                AppCommand::KeyboardZoom { target_view, .. }
-                    if !live_graph_views.contains(target_view)
-            )
-        });
-
-        let _ = self.take_pending_app_command(|command| {
-            matches!(
-                command,
-                AppCommand::WheelZoom { target_view, .. }
-                    if !live_graph_views.contains(target_view)
-            )
-        });
-    }
-
-    fn resolve_camera_target_view(&self) -> Option<GraphViewId> {
-        let focused = self
-            .workspace
-            .focused_view
-            .filter(|id| self.workspace.views.contains_key(id));
-        if focused.is_some() {
-            return focused;
-        }
-
-        let mut rendered_views = self
-            .workspace
-            .graph_view_frames
-            .keys()
-            .copied()
-            .filter(|id| self.workspace.views.contains_key(id));
-        let rendered_first = rendered_views.next();
-        if let Some(rendered_only) = rendered_first
-            && rendered_views.next().is_none()
-        {
-            return Some(rendered_only);
-        }
-
-        if self.workspace.views.len() == 1 {
-            return self.workspace.views.keys().next().copied();
-        }
-
-        None
-    }
-
-    pub fn request_camera_command(&mut self, command: CameraCommand) {
-        let target_view = self.resolve_camera_target_view();
-        if target_view.is_none() {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED,
-                latency_us: 0,
-            });
-            return;
-        }
-        self.request_camera_command_for_view(target_view, command);
-    }
-
-    pub fn request_camera_command_for_view(
-        &mut self,
-        target_view: Option<GraphViewId>,
-        command: CameraCommand,
-    ) {
-        if let Some(target_view) = target_view
-            && !self.workspace.views.contains_key(&target_view)
-        {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
-                latency_us: 0,
-            });
-            return;
-        }
-
-        self.set_pending_camera_command(target_view, Some(command));
-    }
-
-    /// Consume one pending keyboard zoom request.
-    pub fn take_pending_keyboard_zoom_request(
-        &mut self,
-        view_id: GraphViewId,
-    ) -> Option<KeyboardZoomRequest> {
-        match self.take_pending_app_command(|command| {
-            matches!(
-                command,
-                AppCommand::KeyboardZoom { target_view, .. } if *target_view == view_id
-            )
-        })? {
-            AppCommand::KeyboardZoom { request, .. } => Some(request),
-            _ => None,
-        }
-    }
-
-    /// Re-queue a keyboard zoom request for a specific view.
-    ///
-    /// Used by render-path deferral when per-view metadata is not yet available
-    /// in the current frame.
-    pub fn restore_pending_keyboard_zoom_request(
-        &mut self,
-        target_view: GraphViewId,
-        request: KeyboardZoomRequest,
-    ) {
-        self.set_pending_keyboard_zoom_request(Some(target_view), Some(request));
-    }
-
-    fn queue_keyboard_zoom_request(&mut self, request: KeyboardZoomRequest) {
-        let Some(target_view) = self.resolve_camera_target_view() else {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
-                latency_us: 0,
-            });
-            return;
-        };
-
-        self.set_pending_keyboard_zoom_request(Some(target_view), Some(request));
-    }
-
-    /// Read pending camera command without consuming it.
-    pub fn pending_camera_command(&self) -> Option<CameraCommand> {
-        match self
-            .pending_app_command(|command| matches!(command, AppCommand::CameraCommand { .. }))?
-        {
-            AppCommand::CameraCommand { command, .. } => Some(*command),
-            _ => None,
-        }
-    }
-
-    pub fn pending_camera_command_target_raw(&self) -> Option<GraphViewId> {
-        match self
-            .pending_app_command(|command| matches!(command, AppCommand::CameraCommand { .. }))?
-        {
-            AppCommand::CameraCommand { target_view, .. } => *target_view,
-            _ => None,
-        }
-    }
-
-    pub fn pending_camera_command_target(&self) -> Option<GraphViewId> {
-        self.pending_camera_command_target_raw()
-            .filter(|id| self.workspace.views.contains_key(id))
-    }
-
-    pub fn clear_pending_camera_command(&mut self) {
-        self.set_pending_camera_command(None, None);
-    }
-
-    pub fn queue_pending_wheel_zoom_delta(
-        &mut self,
-        target_view: GraphViewId,
-        delta: f32,
-        anchor_screen: Option<(f32, f32)>,
-    ) {
-        self.set_pending_wheel_zoom_delta(Some(target_view), Some(delta), anchor_screen);
-    }
-
-    pub fn pending_wheel_zoom_delta(&self, view_id: GraphViewId) -> f32 {
-        match self.pending_app_command(|command| matches!(command, AppCommand::WheelZoom { .. })) {
-            Some(AppCommand::WheelZoom {
-                target_view, delta, ..
-            }) if *target_view == view_id => *delta,
-            _ => 0.0,
-        }
-    }
-
-    pub fn pending_wheel_zoom_anchor_screen(&self, view_id: GraphViewId) -> Option<(f32, f32)> {
-        match self.pending_app_command(|command| matches!(command, AppCommand::WheelZoom { .. })) {
-            Some(AppCommand::WheelZoom {
-                target_view,
-                anchor_screen,
-                ..
-            }) if *target_view == view_id => *anchor_screen,
-            _ => None,
-        }
-    }
-
-    pub fn clear_pending_wheel_zoom_delta(&mut self) {
-        self.set_pending_wheel_zoom_delta(None, None, None);
     }
 
     /// Set whether the user is actively interacting with the graph
@@ -3865,9 +1714,7 @@ impl GraphBrowserApp {
                 true
             }
             ViewAction::UpdateSelection { keys, mode } => {
-                self.workspace.selected_nodes.update_many(keys, mode);
-                self.sync_selection_into_focused_view();
-                self.workspace.egui_state_dirty = true;
+                self.update_focused_selection(keys, mode);
                 true
             }
             ViewAction::SelectAll => {
@@ -3878,11 +1725,7 @@ impl GraphBrowserApp {
                     .nodes()
                     .map(|(k, _)| k)
                     .collect();
-                self.workspace
-                    .selected_nodes
-                    .update_many(all_keys, SelectionUpdateMode::Replace);
-                self.sync_selection_into_focused_view();
-                self.workspace.egui_state_dirty = true;
+                self.update_focused_selection(all_keys, SelectionUpdateMode::Replace);
                 true
             }
             ViewAction::SetNodePosition { key, position } => {
@@ -4138,17 +1981,7 @@ impl GraphBrowserApp {
     }
 
     fn intent_blocked_during_history_preview(intent: &GraphIntent) -> bool {
-        intent.as_graph_mutation().is_some()
-            || intent.as_runtime_event().is_some()
-            || matches!(
-                intent.as_view_action(),
-                Some(
-                    ViewAction::SetNodePosition { .. }
-                        | ViewAction::SetNodeFormDraft { .. }
-                        | ViewAction::SetNodeThumbnail { .. }
-                        | ViewAction::SetNodeFavicon { .. }
-                )
-            )
+        Self::history_preview_blocks_intent(intent)
     }
 
     fn replay_history_preview_cursor(
@@ -4156,44 +1989,7 @@ impl GraphBrowserApp {
         cursor: usize,
         total_steps: usize,
     ) -> Result<(), String> {
-        if !self.workspace.history_preview_mode_active {
-            return Err("history preview mode is not active".to_string());
-        }
-
-        if cursor == 0 {
-            if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref() {
-                self.workspace.history_preview_graph = Some(snapshot.clone());
-                return Ok(());
-            }
-            return Err("preview baseline graph is unavailable".to_string());
-        }
-
-        let Some(store) = self.services.persistence.as_ref() else {
-            // Counter-only fallback keeps tests and degraded mode behavior stable.
-            return Ok(());
-        };
-
-        let mut chronological = self.history_timeline_index_entries(total_steps.max(1));
-        if chronological.is_empty() {
-            return Err("timeline index is empty".to_string());
-        }
-
-        chronological.sort_by(|a, b| {
-            a.timestamp_ms
-                .cmp(&b.timestamp_ms)
-                .then_with(|| a.log_position.cmp(&b.log_position))
-        });
-
-        let bounded_cursor = cursor.min(chronological.len());
-        let target = chronological
-            .get(bounded_cursor.saturating_sub(1))
-            .ok_or_else(|| "replay cursor is out of bounds".to_string())?;
-
-        let replay_graph = store
-            .replay_to_timestamp(target.timestamp_ms)
-            .ok_or_else(|| "replay_to_timestamp returned no graph".to_string())?;
-        self.workspace.history_preview_graph = Some(replay_graph);
-        Ok(())
+        self.apply_history_preview_cursor(cursor, total_steps)
     }
 
     fn apply_reducer_intent_internal(&mut self, intent: GraphIntent, allow_undo_capture: bool) {
@@ -4383,47 +2179,13 @@ impl GraphBrowserApp {
                 let _ = self.update_node_url_and_log(key, new_url);
             }
             GraphIntent::OpenNodeFrameRouted { key, prefer_frame } => {
-                debug!("app: applying OpenNodeFrameRouted for {:?}", key);
-                self.select_node(key, false);
-                match self.resolve_frame_open(key, prefer_frame.as_deref()) {
-                    FrameOpenAction::RestoreFrame { name, .. } => {
-                        self.set_pending_workspace_restore_open_request(Some(
-                            PendingNodeOpenRequest {
-                                key,
-                                mode: PendingTileOpenMode::Tab,
-                            },
-                        ));
-                        self.request_restore_frame_snapshot_named(name);
-                    }
-                    FrameOpenAction::OpenInCurrentFrame { .. } => {
-                        self.workspace.current_workspace_is_synthesized = true;
-                        self.set_pending_workspace_restore_open_request(None);
-                        self.request_open_node_tile_mode(key, PendingTileOpenMode::Tab);
-                    }
-                }
+                self.apply_open_node_frame_routed(key, prefer_frame);
             }
             GraphIntent::OpenNodeWorkspaceRouted {
                 key,
                 prefer_workspace,
             } => {
-                debug!("app: applying OpenNodeFrameRouted for {:?}", key);
-                self.select_node(key, false);
-                match self.resolve_frame_open(key, prefer_workspace.as_deref()) {
-                    FrameOpenAction::RestoreFrame { name, .. } => {
-                        self.set_pending_workspace_restore_open_request(Some(
-                            PendingNodeOpenRequest {
-                                key,
-                                mode: PendingTileOpenMode::Tab,
-                            },
-                        ));
-                        self.request_restore_frame_snapshot_named(name);
-                    }
-                    FrameOpenAction::OpenInCurrentFrame { .. } => {
-                        self.workspace.current_workspace_is_synthesized = true;
-                        self.set_pending_workspace_restore_open_request(None);
-                        self.request_open_node_tile_mode(key, PendingTileOpenMode::Tab);
-                    }
-                }
+                self.apply_open_node_workspace_routed(key, prefer_workspace);
             }
             GraphIntent::CreateUserGroupedEdge { from, to } => {
                 self.add_user_grouped_edge_if_missing(from, to);
@@ -4489,176 +2251,37 @@ impl GraphBrowserApp {
                 child_webview_id,
                 initial_url,
             } => {
-                let parent_node = self.get_node_for_webview(parent_webview_id);
-                let position = if let Some(parent_key) = parent_node {
-                    use rand::Rng;
-                    let mut rng = rand::thread_rng();
-                    let jitter_x = rng.gen_range(-50.0_f32..50.0_f32);
-                    let jitter_y = rng.gen_range(-50.0_f32..50.0_f32);
-                    self.workspace
-                        .domain
-                        .graph
-                        .node_projected_position(parent_key)
-                        .map(|position| {
-                            Point2D::new(
-                                position.x + 140.0 + jitter_x,
-                                position.y + 80.0 + jitter_y,
-                            )
-                        })
-                        .unwrap_or_else(|| Point2D::new(400.0, 300.0))
-                } else {
-                    Point2D::new(400.0, 300.0)
-                };
-                let node_url = initial_url
-                    .filter(|url| !url.is_empty() && url != "about:blank")
-                    .unwrap_or_else(|| self.next_placeholder_url());
-                let child_node = self.add_node_and_sync(node_url, position);
-                self.apply_runtime_events([
-                    RuntimeEvent::MapWebviewToNode {
-                        webview_id: child_webview_id,
-                        key: child_node,
-                    },
-                    RuntimeEvent::PromoteNodeToActive {
-                        key: child_node,
-                        cause: LifecycleCause::Restore,
-                    },
-                ]);
-                if let Some(parent_key) = parent_node {
-                    let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
-                }
+                self.handle_webview_created(parent_webview_id, child_webview_id, initial_url);
             }
             GraphIntent::WebViewUrlChanged {
                 webview_id,
                 new_url,
             } => {
-                if new_url.is_empty() {
-                    return;
-                }
-                let Some(node_key) = self.get_node_for_webview(webview_id) else {
-                    // URL change should update an existing tab/node, not create a new node.
-                    return;
-                };
-                let _ = self
-                    .workspace
-                    .domain
-                    .graph
-                    .touch_node_last_visited_now(node_key);
-                if self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(node_key)
-                    .map(|n| n.url != new_url)
-                    .unwrap_or(false)
-                {
-                    // Resolve the destination node key BEFORE mutating the node URL so that the
-                    // prior URL is still present when push_history_traversal_and_sync records the
-                    // from_url. Capturing to_key after update_node_url_and_log would overwrite the
-                    // node URL and produce incorrect from_url/to_url in traversal records.
-                    let to_key = self
-                        .workspace
-                        .domain
-                        .graph
-                        .get_node_by_url(&new_url)
-                        .map(|(k, _)| k);
-                    if let Some(to_key) = to_key {
-                        self.push_history_traversal_and_sync(
-                            node_key,
-                            to_key,
-                            NavigationTrigger::Unknown,
-                        );
-                    }
-                    let _ = self.update_node_url_and_log(node_key, new_url);
-                }
+                self.handle_webview_url_changed(webview_id, new_url);
             }
             GraphIntent::WebViewHistoryChanged {
                 webview_id,
                 entries,
                 current,
             } => {
-                // Delegate traces show traversal can change history index even when URL callbacks
-                // remain on the latest route string. Treat history index/list as authoritative.
-                let Some(node_key) = self.get_node_for_webview(webview_id) else {
-                    return;
-                };
-                let (old_entries, old_index) =
-                    if let Some(node) = self.workspace.domain.graph.get_node(node_key) {
-                        (node.history_entries.clone(), node.history_index)
-                    } else {
-                        return;
-                    };
-                let new_index = if entries.is_empty() {
-                    0
-                } else {
-                    current.min(entries.len() - 1)
-                };
-                self.maybe_add_history_traversal_edge(
-                    node_key,
-                    &old_entries,
-                    old_index,
-                    &entries,
-                    new_index,
-                );
-                let _ = self
-                    .workspace
-                    .domain
-                    .graph
-                    .set_node_history_state(node_key, entries, new_index);
+                self.handle_webview_history_changed(webview_id, entries, current);
             }
             GraphIntent::WebViewScrollChanged {
                 webview_id,
                 scroll_x,
                 scroll_y,
             } => {
-                let Some(node_key) = self.get_node_for_webview(webview_id) else {
-                    return;
-                };
-                let _ = self
-                    .workspace
-                    .domain
-                    .graph
-                    .set_node_session_scroll(node_key, Some((scroll_x, scroll_y)));
+                self.handle_webview_scroll_changed(webview_id, scroll_x, scroll_y);
             }
             GraphIntent::WebViewTitleChanged { webview_id, title } => {
-                let Some(node_key) = self.get_node_for_webview(webview_id) else {
-                    return;
-                };
-                let Some(title) = title else {
-                    return;
-                };
-                if title.is_empty() {
-                    return;
-                }
-                let GraphDeltaResult::NodeMetadataUpdated(changed) = self
-                    .apply_graph_delta_and_sync(GraphDelta::SetNodeTitle {
-                        key: node_key,
-                        title,
-                    })
-                else {
-                    unreachable!("title delta must return NodeMetadataUpdated");
-                };
-                if changed {
-                    self.log_title_mutation(node_key);
-                }
+                self.handle_webview_title_changed(webview_id, title);
             }
             GraphIntent::WebViewCrashed {
                 webview_id,
                 reason,
                 has_backtrace,
             } => {
-                if let Some(node_key) = self.get_node_for_webview(webview_id) {
-                    self.mark_runtime_crash_blocked(node_key, reason.clone(), has_backtrace);
-                    self.apply_runtime_events([RuntimeEvent::DemoteNodeToCold {
-                        key: node_key,
-                        cause: LifecycleCause::Crash,
-                    }]);
-                } else {
-                    let _ = self.unmap_webview(webview_id);
-                }
-                warn!(
-                    "WebView {:?} crashed: reason={} has_backtrace={}",
-                    webview_id, reason, has_backtrace
-                );
+                self.handle_webview_crashed(webview_id, reason, has_backtrace);
             }
             GraphIntent::TagNode { key, tag } => {
                 if self.workspace.domain.graph.get_node(key).is_some() {
@@ -4686,376 +2309,23 @@ impl GraphBrowserApp {
                     self.workspace.semantic_index_dirty = true;
                 }
             }
-            GraphIntent::ClearHistoryTimeline => {
-                if let Some(store) = &mut self.services.persistence {
-                    store.clear_traversal_archive();
-                    log::info!("Cleared traversal archive (Timeline)");
-                } else {
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::PersistenceUnavailable,
-                        "clear timeline requested without persistence",
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::ClearHistoryDissolved => {
-                if let Some(store) = &mut self.services.persistence {
-                    store.clear_dissolved_archive();
-                    log::info!("Cleared dissolved archive (Dissolved)");
-                } else {
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::PersistenceUnavailable,
-                        "clear dissolved requested without persistence",
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::AutoCurateHistoryTimeline { keep_latest } => {
-                if let Some(store) = &mut self.services.persistence {
-                    let removed = store.auto_curate_traversal_archive(keep_latest);
-                    log::info!(
-                        "Auto-curated traversal archive: removed {} old entries (keep_latest={})",
-                        removed,
-                        keep_latest
-                    );
-                } else {
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::PersistenceUnavailable,
-                        "auto-curate timeline requested without persistence",
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::AutoCurateHistoryDissolved { keep_latest } => {
-                if let Some(store) = &mut self.services.persistence {
-                    let removed = store.auto_curate_dissolved_archive(keep_latest);
-                    log::info!(
-                        "Auto-curated dissolved archive: removed {} old entries (keep_latest={})",
-                        removed,
-                        keep_latest
-                    );
-                } else {
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::PersistenceUnavailable,
-                        "auto-curate dissolved requested without persistence",
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::ExportHistoryTimeline => {
-                if let Some(store) = &self.services.persistence {
-                    match store.export_traversal_archive() {
-                        Ok(content) => {
-                            // Save to user's home directory
-                            if let Some(home_dir) = dirs::home_dir() {
-                                let timestamp = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs();
-                                let filename =
-                                    format!("graphshell_traversal_archive_{}.txt", timestamp);
-                                let path = home_dir.join(filename);
-                                if let Err(e) = std::fs::write(&path, content) {
-                                    log::error!("Failed to export traversal archive: {e}");
-                                    self.record_history_failure(
-                                        HistoryTraversalFailureReason::ExportWriteFailed,
-                                        format!("timeline export write failed: {e}"),
-                                    );
-                                    emit_event(DiagnosticEvent::MessageReceived {
-                                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                                        latency_us: 0,
-                                    });
-                                } else {
-                                    log::info!("Exported traversal archive to {:?}", path);
-                                    // TODO: Show toast notification with path
-                                }
-                            } else {
-                                self.record_history_failure(
-                                    HistoryTraversalFailureReason::HomeDirectoryUnavailable,
-                                    "timeline export home directory unavailable",
-                                );
-                                emit_event(DiagnosticEvent::MessageReceived {
-                                    channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                                    latency_us: 0,
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Failed to export traversal archive: {e}");
-                            self.record_history_failure(
-                                HistoryTraversalFailureReason::ExportReadFailed,
-                                format!("timeline export read failed: {e}"),
-                            );
-                            emit_event(DiagnosticEvent::MessageReceived {
-                                channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                                latency_us: 0,
-                            });
-                        }
-                    }
-                } else {
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::PersistenceUnavailable,
-                        "export timeline requested without persistence",
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::ExportHistoryDissolved => {
-                if let Some(store) = &self.services.persistence {
-                    match store.export_dissolved_archive() {
-                        Ok(content) => {
-                            // Save to user's home directory
-                            if let Some(home_dir) = dirs::home_dir() {
-                                let timestamp = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs();
-                                let filename =
-                                    format!("graphshell_dissolved_archive_{}.txt", timestamp);
-                                let path = home_dir.join(filename);
-                                if let Err(e) = std::fs::write(&path, content) {
-                                    log::error!("Failed to export dissolved archive: {e}");
-                                    self.record_history_failure(
-                                        HistoryTraversalFailureReason::ExportWriteFailed,
-                                        format!("dissolved export write failed: {e}"),
-                                    );
-                                    emit_event(DiagnosticEvent::MessageReceived {
-                                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                                        latency_us: 0,
-                                    });
-                                } else {
-                                    log::info!("Exported dissolved archive to {:?}", path);
-                                    // TODO: Show toast notification with path
-                                }
-                            } else {
-                                self.record_history_failure(
-                                    HistoryTraversalFailureReason::HomeDirectoryUnavailable,
-                                    "dissolved export home directory unavailable",
-                                );
-                                emit_event(DiagnosticEvent::MessageReceived {
-                                    channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                                    latency_us: 0,
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Failed to export dissolved archive: {e}");
-                            self.record_history_failure(
-                                HistoryTraversalFailureReason::ExportReadFailed,
-                                format!("dissolved export read failed: {e}"),
-                            );
-                            emit_event(DiagnosticEvent::MessageReceived {
-                                channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                                latency_us: 0,
-                            });
-                        }
-                    }
-                } else {
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::PersistenceUnavailable,
-                        "export dissolved requested without persistence",
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::EnterHistoryTimelinePreview => {
-                self.workspace.history_preview_mode_active = true;
-                self.workspace.history_last_preview_isolation_violation = false;
-                self.workspace.history_replay_in_progress = false;
-                self.workspace.history_replay_cursor = None;
-                self.workspace.history_replay_total_steps = None;
-                self.workspace.history_preview_live_graph_snapshot =
-                    Some(self.workspace.domain.graph.clone());
-                self.workspace.history_preview_graph = Some(self.workspace.domain.graph.clone());
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
-                    latency_us: 0,
-                });
-            }
-            GraphIntent::ExitHistoryTimelinePreview => {
-                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.take() {
-                    self.workspace.domain.graph = snapshot;
-                    self.workspace.history_last_return_to_present_result =
-                        Some("restored".to_string());
-                }
-                self.workspace.history_preview_mode_active = false;
-                self.workspace.history_replay_in_progress = false;
-                self.workspace.history_preview_graph = None;
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_EXITED,
-                    latency_us: 0,
-                });
-            }
-            GraphIntent::HistoryTimelinePreviewIsolationViolation { detail } => {
-                self.workspace.history_last_preview_isolation_violation = true;
-                self.workspace.history_last_error = Some(format!(
-                    "{}: {}",
-                    HistoryTraversalFailureReason::PreviewIsolationViolation.as_str(),
-                    detail
-                ));
-                self.workspace.history_recent_failure_reason_bucket =
-                    Some(HistoryTraversalFailureReason::PreviewIsolationViolation);
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_HISTORY_TIMELINE_PREVIEW_ISOLATION_VIOLATION,
-                    latency_us: 0,
-                });
-            }
-            GraphIntent::HistoryTimelineReplayStarted => {
-                self.workspace.history_replay_in_progress = true;
-                self.workspace.history_replay_cursor = Some(0);
-                self.workspace.history_replay_total_steps = None;
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
-                    latency_us: 0,
-                });
-            }
-            GraphIntent::HistoryTimelineReplaySetTotal { total_steps } => {
-                self.workspace.history_replay_total_steps = Some(total_steps);
-                let next_cursor = self
-                    .workspace
-                    .history_replay_cursor
-                    .unwrap_or(0)
-                    .min(total_steps);
-                self.workspace.history_replay_cursor = Some(next_cursor);
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-            }
-            GraphIntent::HistoryTimelineReplayAdvance { steps } => {
-                let total_steps = self.workspace.history_replay_total_steps.unwrap_or(0);
-                if total_steps == 0 {
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::ReplayFailed,
-                        "replay advance requested without total steps",
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
-                        latency_us: 0,
-                    });
-                    return;
-                }
-
-                let was_running = self.workspace.history_replay_in_progress;
-                self.workspace.history_replay_in_progress = true;
-                if !was_running {
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_STARTED,
-                        latency_us: 0,
-                    });
-                }
-
-                let current_cursor = self.workspace.history_replay_cursor.unwrap_or(0);
-                let next_cursor = current_cursor.saturating_add(steps).min(total_steps);
-
-                if let Err(err) = self.replay_history_preview_cursor(next_cursor, total_steps) {
-                    self.workspace.history_replay_in_progress = false;
-                    self.record_history_failure(
-                        HistoryTraversalFailureReason::ReplayFailed,
-                        format!("replay advance failed: {err}"),
-                    );
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
-                        latency_us: 0,
-                    });
-                    return;
-                }
-
-                self.workspace.history_replay_cursor = Some(next_cursor);
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-
-                if next_cursor >= total_steps {
-                    self.workspace.history_replay_in_progress = false;
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::HistoryTimelineReplayReset => {
-                self.workspace.history_replay_in_progress = false;
-                if self.workspace.history_replay_total_steps.is_some() {
-                    self.workspace.history_replay_cursor = Some(0);
-                } else {
-                    self.workspace.history_replay_cursor = None;
-                }
-                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref()
-                {
-                    self.workspace.history_preview_graph = Some(snapshot.clone());
-                }
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-            }
-            GraphIntent::HistoryTimelineReplayProgress {
-                cursor,
-                total_steps,
-            } => {
-                self.workspace.history_replay_in_progress = true;
-                self.workspace.history_replay_total_steps = Some(total_steps);
-                self.workspace.history_replay_cursor = Some(cursor.min(total_steps));
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-            }
-            GraphIntent::HistoryTimelineReplayFinished { succeeded, error } => {
-                self.workspace.history_replay_in_progress = false;
-                if succeeded {
-                    if let Some(total_steps) = self.workspace.history_replay_total_steps {
-                        self.workspace.history_replay_cursor = Some(total_steps);
-                    }
-                }
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-                if succeeded {
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_SUCCEEDED,
-                        latency_us: 0,
-                    });
-                } else {
-                    let detail = error.unwrap_or_else(|| "unknown replay failure".to_string());
-                    self.workspace.history_last_error = Some(format!(
-                        "{}: {}",
-                        HistoryTraversalFailureReason::ReplayFailed.as_str(),
-                        detail
-                    ));
-                    self.workspace.history_recent_failure_reason_bucket =
-                        Some(HistoryTraversalFailureReason::ReplayFailed);
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_TIMELINE_REPLAY_FAILED,
-                        latency_us: 0,
-                    });
-                }
-            }
-            GraphIntent::HistoryTimelineReturnToPresentFailed { detail } => {
-                self.workspace.history_last_return_to_present_result =
-                    Some(format!("failed: {detail}"));
-                self.workspace.history_last_error = Some(format!(
-                    "{}: {}",
-                    HistoryTraversalFailureReason::ReturnToPresentFailed.as_str(),
-                    detail
-                ));
-                self.workspace.history_recent_failure_reason_bucket =
-                    Some(HistoryTraversalFailureReason::ReturnToPresentFailed);
-                self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-                emit_event(DiagnosticEvent::MessageReceived {
-                    channel_id: CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED,
-                    latency_us: 0,
-                });
+            GraphIntent::ClearHistoryTimeline
+            | GraphIntent::ClearHistoryDissolved
+            | GraphIntent::AutoCurateHistoryTimeline { .. }
+            | GraphIntent::AutoCurateHistoryDissolved { .. }
+            | GraphIntent::ExportHistoryTimeline
+            | GraphIntent::ExportHistoryDissolved
+            | GraphIntent::EnterHistoryTimelinePreview
+            | GraphIntent::ExitHistoryTimelinePreview
+            | GraphIntent::HistoryTimelinePreviewIsolationViolation { .. }
+            | GraphIntent::HistoryTimelineReplayStarted
+            | GraphIntent::HistoryTimelineReplaySetTotal { .. }
+            | GraphIntent::HistoryTimelineReplayAdvance { .. }
+            | GraphIntent::HistoryTimelineReplayReset
+            | GraphIntent::HistoryTimelineReplayProgress { .. }
+            | GraphIntent::HistoryTimelineReplayFinished { .. }
+            | GraphIntent::HistoryTimelineReturnToPresentFailed { .. } => {
+                self.apply_history_runtime_intent(intent)
             }
             GraphIntent::Noop => {}
             GraphIntent::SetMemoryPressureStatus {
@@ -5181,197 +2451,6 @@ impl GraphBrowserApp {
                         kind: persisted_kind,
                     });
                 }
-            }
-        }
-    }
-
-    /// Add a new node and mark render state as dirty.
-    pub fn add_node_and_sync(
-        &mut self,
-        url: String,
-        position: euclid::default::Point2D<f32>,
-    ) -> NodeKey {
-        let GraphDeltaResult::NodeAdded(key) =
-            self.apply_graph_delta_and_sync(GraphDelta::AddNode {
-                id: None,
-                url: url.clone(),
-                position,
-            })
-        else {
-            unreachable!("add node delta must return NodeAdded");
-        };
-        if let Some(store) = &mut self.services.persistence
-            && let Some(node) = self.workspace.domain.graph.get_node(key)
-        {
-            store.log_mutation(&LogEntry::AddNode {
-                node_id: node.id.to_string(),
-                url,
-                position_x: position.x,
-                position_y: position.y,
-            });
-        }
-        self.workspace.physics.base.is_running = true;
-        self.workspace.drag_release_frames_remaining = 0;
-        key
-    }
-
-    /// Add a new edge with persistence logging.
-    pub fn add_edge_and_sync(
-        &mut self,
-        from_key: NodeKey,
-        to_key: NodeKey,
-        edge_type: crate::graph::EdgeType,
-    ) -> Option<crate::graph::EdgeKey> {
-        let GraphDeltaResult::EdgeAdded(edge_key) =
-            self.apply_graph_delta_and_sync(GraphDelta::AddEdge {
-                from: from_key,
-                to: to_key,
-                edge_type,
-            })
-        else {
-            unreachable!("add edge delta must return EdgeAdded");
-        };
-        if edge_key.is_some() {
-            self.log_edge_mutation(from_key, to_key, edge_type);
-            self.workspace.physics.base.is_running = true;
-            self.workspace.drag_release_frames_remaining = 0;
-        }
-        edge_key
-    }
-
-    /// Remove directed edges of a specific type and log the mutation.
-    /// Returns number of removed edges.
-    pub fn remove_edges_and_log(
-        &mut self,
-        from_key: NodeKey,
-        to_key: NodeKey,
-        edge_type: crate::graph::EdgeType,
-    ) -> usize {
-        let mut emitted_dissolved_append = false;
-        // Use dissolution transfer if persistence is available
-        let removed = if let Some(store) = &mut self.services.persistence {
-            let dissolved_before = store.dissolved_archive_len();
-            let removed = store
-                .dissolve_and_remove_edges(
-                    &mut self.workspace.domain.graph,
-                    from_key,
-                    to_key,
-                    edge_type,
-                )
-                .unwrap_or_else(|e| {
-                    log::warn!("Dissolution transfer failed, falling back to direct removal: {e}");
-                    self.workspace
-                        .domain
-                        .graph
-                        .remove_edges(from_key, to_key, edge_type)
-                });
-            let dissolved_after = store.dissolved_archive_len();
-            emitted_dissolved_append = dissolved_after > dissolved_before;
-            removed
-        } else {
-            self.workspace
-                .domain
-                .graph
-                .remove_edges(from_key, to_key, edge_type)
-        };
-
-        if emitted_dissolved_append {
-            self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
-                latency_us: 0,
-            });
-        }
-
-        if removed > 0 {
-            self.log_edge_removal_mutation(from_key, to_key, edge_type);
-            self.workspace.egui_state_dirty = true;
-            self.workspace.physics.base.is_running = true;
-            self.workspace.drag_release_frames_remaining = 0;
-        }
-        removed
-    }
-
-    /// Log an edge addition to persistence
-    pub fn log_edge_mutation(
-        &mut self,
-        from_key: NodeKey,
-        to_key: NodeKey,
-        edge_type: crate::graph::EdgeType,
-    ) {
-        if let Some(store) = &mut self.services.persistence {
-            let from_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(from_key)
-                .map(|n| n.id.to_string());
-            let to_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(to_key)
-                .map(|n| n.id.to_string());
-            let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
-                return;
-            };
-            let persisted_type = match edge_type {
-                crate::graph::EdgeType::Hyperlink => PersistedEdgeType::Hyperlink,
-                crate::graph::EdgeType::History => PersistedEdgeType::History,
-                crate::graph::EdgeType::UserGrouped => PersistedEdgeType::UserGrouped,
-            };
-            store.log_mutation(&LogEntry::AddEdge {
-                from_node_id,
-                to_node_id,
-                edge_type: persisted_type,
-            });
-        }
-    }
-
-    /// Log an edge removal to persistence.
-    pub fn log_edge_removal_mutation(
-        &mut self,
-        from_key: NodeKey,
-        to_key: NodeKey,
-        edge_type: crate::graph::EdgeType,
-    ) {
-        if let Some(store) = &mut self.services.persistence {
-            let from_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(from_key)
-                .map(|n| n.id.to_string());
-            let to_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(to_key)
-                .map(|n| n.id.to_string());
-            let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
-                return;
-            };
-            let persisted_type = match edge_type {
-                crate::graph::EdgeType::Hyperlink => PersistedEdgeType::Hyperlink,
-                crate::graph::EdgeType::History => PersistedEdgeType::History,
-                crate::graph::EdgeType::UserGrouped => PersistedEdgeType::UserGrouped,
-            };
-            store.log_mutation(&LogEntry::RemoveEdge {
-                from_node_id,
-                to_node_id,
-                edge_type: persisted_type,
-            });
-        }
-    }
-
-    /// Log a title update to persistence
-    pub fn log_title_mutation(&mut self, node_key: NodeKey) {
-        if let Some(store) = &mut self.services.persistence {
-            if let Some(node) = self.workspace.domain.graph.get_node(node_key) {
-                store.log_mutation(&LogEntry::UpdateNodeTitle {
-                    node_id: node.id.to_string(),
-                    title: node.title.clone(),
-                });
             }
         }
     }
@@ -6053,346 +3132,6 @@ impl GraphBrowserApp {
         true
     }
 
-    /// Queue/replace an unsaved-frame prompt request.
-    pub fn request_unsaved_frame_prompt(&mut self, request: UnsavedFramePromptRequest) {
-        self.set_pending_unsaved_workspace_prompt(Some(request), None);
-    }
-
-    /// Queue/replace an unsaved-workspace prompt request.
-    pub fn request_unsaved_workspace_prompt(&mut self, request: UnsavedFramePromptRequest) {
-        self.request_unsaved_frame_prompt(request);
-    }
-
-    /// Inspect active unsaved-frame prompt request.
-    pub fn unsaved_frame_prompt_request(&self) -> Option<&UnsavedFramePromptRequest> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::UnsavedWorkspacePrompt { .. })
-        })? {
-            AppCommand::UnsavedWorkspacePrompt { request, .. } => Some(request),
-            _ => None,
-        }
-    }
-
-    /// Inspect active unsaved-workspace prompt request.
-    pub fn unsaved_workspace_prompt_request(&self) -> Option<&UnsavedFramePromptRequest> {
-        self.unsaved_frame_prompt_request()
-    }
-
-    /// Capture user action from unsaved-frame prompt UI.
-    pub fn set_unsaved_frame_prompt_action(&mut self, action: UnsavedFramePromptAction) {
-        let Some(request) = self.unsaved_frame_prompt_request().cloned() else {
-            return;
-        };
-        self.set_pending_unsaved_workspace_prompt(Some(request), Some(action));
-    }
-
-    /// Capture user action from unsaved-workspace prompt UI.
-    pub fn set_unsaved_workspace_prompt_action(&mut self, action: UnsavedFramePromptAction) {
-        self.set_unsaved_frame_prompt_action(action);
-    }
-
-    /// Resolve and clear active unsaved-frame prompt when an action was chosen.
-    pub fn take_unsaved_frame_prompt_resolution(
-        &mut self,
-    ) -> Option<(UnsavedFramePromptRequest, UnsavedFramePromptAction)> {
-        match self.take_pending_app_command(|command| {
-            matches!(
-                command,
-                AppCommand::UnsavedWorkspacePrompt {
-                    action: Some(_),
-                    ..
-                }
-            )
-        })? {
-            AppCommand::UnsavedWorkspacePrompt {
-                request,
-                action: Some(action),
-            } => Some((request, action)),
-            _ => None,
-        }
-    }
-
-    /// Resolve and clear active unsaved-workspace prompt when an action was chosen.
-    pub fn take_unsaved_workspace_prompt_resolution(
-        &mut self,
-    ) -> Option<(UnsavedFramePromptRequest, UnsavedFramePromptAction)> {
-        self.take_unsaved_frame_prompt_resolution()
-    }
-
-    /// Mark the current frame context as synthesized from runtime actions.
-    pub fn mark_current_workspace_synthesized(&mut self) {
-        self.workspace.current_workspace_is_synthesized = true;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-    }
-
-    /// Mark the current frame context as synthesized from runtime actions.
-    pub fn mark_current_frame_synthesized(&mut self) {
-        self.mark_current_workspace_synthesized();
-    }
-
-    /// Workspace-activation recency sequence for a node (higher = more recent).
-    pub fn workspace_recency_seq_for_node(&self, key: NodeKey) -> u64 {
-        let Some(node) = self.workspace.domain.graph.get_node(key) else {
-            return 0;
-        };
-        self.workspace
-            .node_last_active_workspace
-            .get(&node.id)
-            .map(|(seq, _)| *seq)
-            .unwrap_or(0)
-    }
-
-    /// Frame-activation recency sequence for a node (higher = more recent).
-    pub fn frame_recency_seq_for_node(&self, key: NodeKey) -> u64 {
-        self.workspace_recency_seq_for_node(key)
-    }
-
-    /// Frame memberships for a node sorted by recency (most recent first), then name.
-    pub fn sorted_frames_for_node_key(&self, key: NodeKey) -> Vec<String> {
-        let mut names: Vec<String> = self.frames_for_node_key(key).iter().cloned().collect();
-        let Some(node) = self.workspace.domain.graph.get_node(key) else {
-            return names;
-        };
-        if let Some((_, recent)) = self.workspace.node_last_active_workspace.get(&node.id)
-            && let Some(idx) = names.iter().position(|name| name == recent)
-        {
-            let recent = names.remove(idx);
-            names.insert(0, recent);
-        }
-        names
-    }
-
-    pub fn sorted_workspaces_for_node_key(&self, key: NodeKey) -> Vec<String> {
-        self.sorted_frames_for_node_key(key)
-    }
-
-    /// Last activation sequence associated with a workspace name.
-    pub fn workspace_recency_seq_for_name(&self, workspace_name: &str) -> u64 {
-        self.workspace
-            .node_last_active_workspace
-            .values()
-            .filter_map(|(seq, name)| (name == workspace_name).then_some(*seq))
-            .max()
-            .unwrap_or(0)
-    }
-
-    /// Last activation sequence associated with a frame snapshot name.
-    pub fn frame_recency_seq_for_name(&self, frame_name: &str) -> u64 {
-        self.workspace_recency_seq_for_name(frame_name)
-    }
-
-    /// Mark a named frame snapshot as activated, updating per-node recency.
-    pub fn note_workspace_activated(
-        &mut self,
-        workspace_name: &str,
-        nodes: impl IntoIterator<Item = NodeKey>,
-    ) {
-        self.workspace.workspace_activation_seq =
-            self.workspace.workspace_activation_seq.saturating_add(1);
-        let seq = self.workspace.workspace_activation_seq;
-        let workspace_name = workspace_name.to_string();
-        for key in nodes {
-            let Some(node) = self.workspace.domain.graph.get_node(key) else {
-                continue;
-            };
-            self.workspace
-                .node_last_active_workspace
-                .insert(node.id, (seq, workspace_name.clone()));
-            self.workspace
-                .node_workspace_membership
-                .entry(node.id)
-                .or_default()
-                .insert(workspace_name.clone());
-        }
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.egui_state_dirty = true;
-    }
-
-    /// Mark a named frame snapshot as activated, updating per-node recency.
-    pub fn note_frame_activated(
-        &mut self,
-        frame_name: &str,
-        nodes: impl IntoIterator<Item = NodeKey>,
-    ) {
-        self.note_workspace_activated(frame_name, nodes);
-    }
-
-    /// Initialize membership index from desktop-layer workspace scan.
-    pub fn init_membership_index(&mut self, index: HashMap<Uuid, BTreeSet<String>>) {
-        self.workspace.node_workspace_membership = index;
-        self.workspace.egui_state_dirty = true;
-    }
-
-    /// Initialize UUID-keyed workspace activation recency from desktop-layer manifest scan.
-    pub fn init_workspace_activation_recency(
-        &mut self,
-        recency: HashMap<Uuid, (u64, String)>,
-        activation_seq: u64,
-    ) {
-        self.workspace.node_last_active_workspace = recency;
-        self.workspace.workspace_activation_seq = activation_seq;
-    }
-
-    /// Initialize UUID-keyed frame activation recency from desktop-layer manifest scan.
-    pub fn init_frame_activation_recency(
-        &mut self,
-        recency: HashMap<Uuid, (u64, String)>,
-        activation_seq: u64,
-    ) {
-        self.init_workspace_activation_recency(recency, activation_seq);
-    }
-
-    fn empty_workspace_membership() -> &'static BTreeSet<String> {
-        static EMPTY: OnceLock<BTreeSet<String>> = OnceLock::new();
-        EMPTY.get_or_init(BTreeSet::new)
-    }
-
-    /// Frame membership set for a stable node UUID.
-    pub fn membership_for_node(&self, uuid: Uuid) -> &BTreeSet<String> {
-        self.workspace
-            .node_workspace_membership
-            .get(&uuid)
-            .unwrap_or_else(|| Self::empty_workspace_membership())
-    }
-
-    /// Frame membership set for a NodeKey in the current graph.
-    pub fn frames_for_node_key(&self, key: NodeKey) -> &BTreeSet<String> {
-        let Some(node) = self.workspace.domain.graph.get_node(key) else {
-            return Self::empty_workspace_membership();
-        };
-        self.membership_for_node(node.id)
-    }
-
-    /// Frame membership set for a NodeKey in the current graph.
-    pub fn workspaces_for_node_key(&self, key: NodeKey) -> &BTreeSet<String> {
-        self.frames_for_node_key(key)
-    }
-
-    /// Resolve workspace-aware node-open behavior with deterministic fallback.
-    fn resolve_frame_open_with_reason(
-        &self,
-        node: NodeKey,
-        prefer_frame: Option<&str>,
-    ) -> (FrameOpenAction, FrameOpenReason) {
-        if self.workspace.domain.graph.get_node(node).is_none() {
-            return (
-                FrameOpenAction::OpenInCurrentFrame { node },
-                FrameOpenReason::MissingNode,
-            );
-        }
-        let memberships = self.frames_for_node_key(node);
-        let node_uuid = self.workspace.domain.graph.get_node(node).map(|n| n.id);
-
-        if let Some(preferred_name) = prefer_frame
-            && memberships.contains(preferred_name)
-        {
-            return (
-                FrameOpenAction::RestoreFrame {
-                    name: preferred_name.to_string(),
-                    node,
-                },
-                FrameOpenReason::PreferredFrame,
-            );
-        }
-
-        if !memberships.is_empty() {
-            if let Some((_, recent_workspace)) =
-                node_uuid.and_then(|uuid| self.workspace.node_last_active_workspace.get(&uuid))
-                && memberships.contains(recent_workspace)
-            {
-                return (
-                    FrameOpenAction::RestoreFrame {
-                        name: recent_workspace.clone(),
-                        node,
-                    },
-                    FrameOpenReason::RecentMembership,
-                );
-            }
-            if let Some(name) = memberships.iter().next() {
-                return (
-                    FrameOpenAction::RestoreFrame {
-                        name: name.clone(),
-                        node,
-                    },
-                    FrameOpenReason::DeterministicMembershipFallback,
-                );
-            }
-        }
-
-        (
-            FrameOpenAction::OpenInCurrentFrame { node },
-            FrameOpenReason::NoMembership,
-        )
-    }
-
-    /// Resolve workspace-aware node-open behavior with deterministic fallback.
-    pub fn resolve_frame_open(&self, node: NodeKey, prefer_frame: Option<&str>) -> FrameOpenAction {
-        let node_uuid = self.workspace.domain.graph.get_node(node).map(|n| n.id);
-        let (action, reason) = self.resolve_frame_open_with_reason(node, prefer_frame);
-        match (&action, reason) {
-            // Note: These debug logs are crucial for diagnosing routing decisions.
-            (FrameOpenAction::OpenInCurrentFrame { .. }, FrameOpenReason::MissingNode) => {
-                debug!(
-                    "frame routing: node {:?} missing in graph; falling back to current frame",
-                    node
-                );
-            }
-            (FrameOpenAction::RestoreFrame { name, .. }, FrameOpenReason::PreferredFrame) => {
-                debug!(
-                    "frame routing: node {:?} ({:?}) using explicit preferred frame '{}'",
-                    node, node_uuid, name
-                );
-            }
-            (FrameOpenAction::RestoreFrame { name, .. }, FrameOpenReason::RecentMembership) => {
-                debug!(
-                    "frame routing: node {:?} ({:?}) selected recent frame '{}'",
-                    node, node_uuid, name
-                );
-            }
-            (
-                FrameOpenAction::RestoreFrame { name, .. },
-                FrameOpenReason::DeterministicMembershipFallback,
-            ) => {
-                debug!(
-                    "frame routing: node {:?} ({:?}) selected deterministic fallback frame '{}'",
-                    node, node_uuid, name
-                );
-            }
-            (FrameOpenAction::OpenInCurrentFrame { .. }, FrameOpenReason::NoMembership) => {
-                debug!(
-                    "frame routing: node {:?} ({:?}) has no memberships; opening in current frame",
-                    node, node_uuid
-                );
-            }
-            _ => {
-                debug!(
-                    "frame routing: node {:?} ({:?}) resolved {:?} via {:?}",
-                    node, node_uuid, action, reason
-                );
-            }
-        }
-        action
-    }
-
-    pub fn resolve_workspace_open(
-        &self,
-        node: NodeKey,
-        prefer_workspace: Option<&str>,
-    ) -> FrameOpenAction {
-        self.resolve_frame_open(node, prefer_workspace)
-    }
-
-    pub fn resolve_workspace_open_with_reason(
-        &self,
-        node: NodeKey,
-        prefer_workspace: Option<&str>,
-    ) -> (FrameOpenAction, FrameOpenReason) {
-        self.resolve_frame_open_with_reason(node, prefer_workspace)
-    }
-
     /// Persist a named full-graph snapshot.
     pub fn save_named_graph_snapshot(&mut self, name: &str) -> Result<(), String> {
         self.services
@@ -6456,23 +3195,9 @@ impl GraphBrowserApp {
             .is_some()
     }
 
-    fn set_workspace_focused_view_with_transition(&mut self, focused_view: Option<GraphViewId>) {
-        self.sync_selection_into_focused_view();
-        let previous_focused_view = self.workspace.focused_view;
-        self.workspace.focused_view = focused_view;
-        self.load_selection_from_focused_view();
-        if self.workspace.focused_view != previous_focused_view {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                latency_us: 0,
-            });
-        }
-    }
-
     fn apply_loaded_graph(&mut self, graph: Graph) {
         self.workspace.domain.graph = graph;
-        self.workspace.selected_nodes.clear();
-        self.workspace.selected_nodes_by_view.clear();
+        self.reset_selection_state();
         self.workspace.webview_to_node.clear();
         self.workspace.node_to_webview.clear();
         self.workspace.active_lru.clear();
@@ -6527,7 +3252,7 @@ impl GraphBrowserApp {
 
         self.workspace.domain.graph = graph;
         self.services.persistence = Some(store);
-        self.workspace.selected_nodes.clear();
+        self.reset_selection_state();
         self.workspace.webview_to_node.clear();
         self.workspace.node_to_webview.clear();
         self.workspace.active_lru.clear();
@@ -6571,135 +3296,6 @@ impl GraphBrowserApp {
         self.workspace.tab_selection_anchor = None;
         self.load_persisted_ui_settings();
         Ok(())
-    }
-
-    /// Add a bidirectional mapping between a renderer instance and a node
-    pub fn map_webview_to_node(&mut self, webview_id: RendererId, node_key: NodeKey) {
-        if let Some(previous_node) = self.workspace.webview_to_node.remove(&webview_id) {
-            self.workspace.node_to_webview.remove(&previous_node);
-            self.remove_active_node(previous_node);
-            self.remove_warm_cache_node(previous_node);
-        }
-        if let Some(previous_webview_id) = self.workspace.node_to_webview.remove(&node_key) {
-            self.workspace.webview_to_node.remove(&previous_webview_id);
-        }
-        self.workspace.webview_to_node.insert(webview_id, node_key);
-        self.workspace.node_to_webview.insert(node_key, webview_id);
-        self.touch_active_node(node_key);
-        self.remove_warm_cache_node(node_key);
-    }
-
-    /// Remove the mapping for a renderer instance and its corresponding node
-    pub fn unmap_webview(&mut self, webview_id: RendererId) -> Option<NodeKey> {
-        if let Some(node_key) = self.workspace.webview_to_node.remove(&webview_id) {
-            self.workspace.node_to_webview.remove(&node_key);
-            self.remove_active_node(node_key);
-            self.remove_warm_cache_node(node_key);
-            Some(node_key)
-        } else {
-            None
-        }
-    }
-
-    /// Get the node key for a given renderer instance
-    pub fn get_node_for_webview(&self, webview_id: RendererId) -> Option<NodeKey> {
-        self.workspace.webview_to_node.get(&webview_id).copied()
-    }
-
-    pub fn runtime_block_state_for_node(&self, node_key: NodeKey) -> Option<&RuntimeBlockState> {
-        self.workspace.runtime_block_state.get(&node_key)
-    }
-
-    pub fn mark_runtime_blocked(
-        &mut self,
-        node_key: NodeKey,
-        reason: RuntimeBlockReason,
-        retry_at: Option<Instant>,
-    ) {
-        if self.workspace.domain.graph.get_node(node_key).is_none() {
-            self.workspace.runtime_block_state.remove(&node_key);
-            return;
-        }
-        self.workspace.runtime_block_state.insert(
-            node_key,
-            RuntimeBlockState {
-                reason,
-                retry_at,
-                message: None,
-                has_backtrace: false,
-                blocked_at: SystemTime::now(),
-            },
-        );
-    }
-
-    pub fn clear_runtime_blocked(&mut self, node_key: NodeKey) {
-        self.workspace.runtime_block_state.remove(&node_key);
-    }
-
-    pub fn mark_runtime_crash_blocked(
-        &mut self,
-        node_key: NodeKey,
-        message: String,
-        has_backtrace: bool,
-    ) {
-        if self.workspace.domain.graph.get_node(node_key).is_none() {
-            self.workspace.runtime_block_state.remove(&node_key);
-            return;
-        }
-        self.workspace.runtime_block_state.insert(
-            node_key,
-            RuntimeBlockState {
-                reason: RuntimeBlockReason::Crash,
-                retry_at: None,
-                message: Some(message),
-                has_backtrace,
-                blocked_at: SystemTime::now(),
-            },
-        );
-    }
-
-    pub fn runtime_crash_state_for_node(&self, node_key: NodeKey) -> Option<&RuntimeBlockState> {
-        self.workspace
-            .runtime_block_state
-            .get(&node_key)
-            .filter(|state| state.reason == RuntimeBlockReason::Crash)
-    }
-
-    pub fn crash_blocked_node_keys(&self) -> impl Iterator<Item = NodeKey> + '_ {
-        self.workspace
-            .runtime_block_state
-            .iter()
-            .filter_map(|(key, state)| (state.reason == RuntimeBlockReason::Crash).then_some(*key))
-    }
-
-    pub fn is_crash_blocked(&self, node_key: NodeKey) -> bool {
-        self.runtime_crash_state_for_node(node_key).is_some()
-    }
-
-    pub fn is_runtime_blocked(&mut self, node_key: NodeKey, now: Instant) -> bool {
-        let Some(state) = self.workspace.runtime_block_state.get(&node_key) else {
-            return false;
-        };
-        if let Some(retry_at) = state.retry_at
-            && retry_at <= now
-        {
-            self.workspace.runtime_block_state.remove(&node_key);
-            return false;
-        }
-        true
-    }
-
-    /// Get the renderer ID for a given node
-    pub fn get_webview_for_node(&self, node_key: NodeKey) -> Option<RendererId> {
-        self.workspace.node_to_webview.get(&node_key).copied()
-    }
-
-    /// Get all renderer-node mappings as an iterator
-    pub fn webview_node_mappings(&self) -> impl Iterator<Item = (RendererId, NodeKey)> + '_ {
-        self.workspace
-            .webview_to_node
-            .iter()
-            .map(|(&wv, &nk)| (wv, nk))
     }
 
     /// Toggle force-directed layout simulation.
@@ -6746,49 +3342,6 @@ impl GraphBrowserApp {
             GraphDeltaResult::NodeMetadataUpdated(_) => false,
             GraphDeltaResult::NodeUrlUpdated(_) => false,
         }
-    }
-
-    /// Toggle keyboard shortcut help panel visibility
-    pub fn toggle_help_panel(&mut self) {
-        self.workspace.show_help_panel = !self.workspace.show_help_panel;
-        if self.workspace.show_help_panel {
-            self.workspace.show_command_palette = false;
-            self.workspace.show_radial_menu = false;
-            self.set_pending_node_context_target(None);
-        }
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
-
-    /// Toggle command palette visibility.
-    pub fn toggle_command_palette(&mut self) {
-        self.workspace.show_command_palette = !self.workspace.show_command_palette;
-        if self.workspace.show_command_palette {
-            self.workspace.show_help_panel = false;
-            self.workspace.show_radial_menu = false;
-            self.set_pending_node_context_target(None);
-        }
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
-    }
-
-    /// Toggle radial palette mode visibility.
-    pub fn toggle_radial_menu(&mut self) {
-        self.workspace.show_radial_menu = !self.workspace.show_radial_menu;
-        if self.workspace.show_radial_menu {
-            self.workspace.show_help_panel = false;
-            self.workspace.show_command_palette = false;
-        } else {
-            self.set_pending_node_context_target(None);
-        }
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
     }
 
     pub fn resolve_settings_route(url: &str) -> Option<SettingsRouteTarget> {
@@ -6903,12 +3456,6 @@ impl GraphBrowserApp {
         Some(NoteId(parsed))
     }
 
-    pub fn request_open_clip_by_id(&mut self, clip_id: impl Into<String>) {
-        self.enqueue_app_command(AppCommand::OpenClip {
-            clip_id: clip_id.into(),
-        });
-    }
-
     pub fn create_note_for_node(&mut self, key: NodeKey, title: Option<String>) -> Option<NoteId> {
         let node = self.workspace.domain.graph.get_node(key)?;
         let now = SystemTime::now();
@@ -6937,61 +3484,8 @@ impl GraphBrowserApp {
         Some(note_id)
     }
 
-    pub fn take_pending_open_note_request(&mut self) -> Option<NoteId> {
-        match self
-            .take_pending_app_command(|command| matches!(command, AppCommand::OpenNote { .. }))?
-        {
-            AppCommand::OpenNote { note_id } => Some(note_id),
-            _ => None,
-        }
-    }
-
-    pub fn request_open_note_by_id(&mut self, note_id: NoteId) {
-        self.enqueue_app_command(AppCommand::OpenNote { note_id });
-    }
-
-    pub fn take_pending_open_clip_request(&mut self) -> Option<String> {
-        match self
-            .take_pending_app_command(|command| matches!(command, AppCommand::OpenClip { .. }))?
-        {
-            AppCommand::OpenClip { clip_id } => Some(clip_id),
-            _ => None,
-        }
-    }
-
     pub fn note_record(&self, note_id: NoteId) -> Option<&NoteRecord> {
         self.workspace.domain.notes.get(&note_id)
-    }
-
-    pub fn set_pending_tool_surface_return_target(
-        &mut self,
-        target: Option<ToolSurfaceReturnTarget>,
-    ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::ToolSurfaceReturnTarget { .. })
-        });
-
-        if let Some(target) = target {
-            self.enqueue_app_command(AppCommand::ToolSurfaceReturnTarget { target });
-        }
-    }
-
-    pub fn take_pending_tool_surface_return_target(&mut self) -> Option<ToolSurfaceReturnTarget> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::ToolSurfaceReturnTarget { .. })
-        })? {
-            AppCommand::ToolSurfaceReturnTarget { target } => Some(target),
-            _ => None,
-        }
-    }
-
-    pub fn pending_tool_surface_return_target(&self) -> Option<ToolSurfaceReturnTarget> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::ToolSurfaceReturnTarget { .. })
-        })? {
-            AppCommand::ToolSurfaceReturnTarget { target } => Some(target.clone()),
-            _ => None,
-        }
     }
 
     pub fn graph_view_layout_manager_active(&self) -> bool {
@@ -7006,26 +3500,6 @@ impl GraphBrowserApp {
             .values()
             .cloned()
             .collect()
-    }
-
-    pub fn enqueue_workbench_intent(&mut self, intent: WorkbenchIntent) {
-        self.workspace.pending_workbench_intents.push(intent);
-    }
-
-    pub fn extend_workbench_intents<I>(&mut self, intents: I)
-    where
-        I: IntoIterator<Item = WorkbenchIntent>,
-    {
-        self.workspace.pending_workbench_intents.extend(intents);
-    }
-
-    pub fn take_pending_workbench_intents(&mut self) -> Vec<WorkbenchIntent> {
-        std::mem::take(&mut self.workspace.pending_workbench_intents)
-    }
-
-    #[cfg(test)]
-    pub fn pending_workbench_intent_count_for_tests(&self) -> usize {
-        self.workspace.pending_workbench_intents.len()
     }
 
     /// Return recent traversal archive entries (descending, newest first).
@@ -7154,10 +3628,7 @@ impl GraphBrowserApp {
         let _ = self.workspace.undo_stack.pop();
         self.workspace.redo_stack.push(redo_snapshot);
         self.apply_loaded_graph(prev_graph);
-        let previous_primary = self.workspace.selected_nodes.primary();
-        self.workspace.selected_nodes = prev.selected_nodes;
-        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.selected_nodes_by_view = prev.selected_nodes_by_view;
+        self.restore_selection_snapshot(prev.active_selection, prev.selection_by_scope);
         self.workspace.highlighted_graph_edge = prev.highlighted_graph_edge;
         self.set_pending_history_workspace_layout_json(prev.workspace_layout_json);
         true
@@ -7179,10 +3650,7 @@ impl GraphBrowserApp {
         let _ = self.workspace.redo_stack.pop();
         self.workspace.undo_stack.push(undo_snapshot);
         self.apply_loaded_graph(next_graph);
-        let previous_primary = self.workspace.selected_nodes.primary();
-        self.workspace.selected_nodes = next.selected_nodes;
-        self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
-        self.workspace.selected_nodes_by_view = next.selected_nodes_by_view;
+        self.restore_selection_snapshot(next.active_selection, next.selection_by_scope);
         self.workspace.highlighted_graph_edge = next.highlighted_graph_edge;
         self.set_pending_history_workspace_layout_json(next.workspace_layout_json);
         true
@@ -7211,997 +3679,6 @@ impl GraphBrowserApp {
     /// Take pending frame layout restore emitted by undo/redo.
     pub fn take_pending_history_frame_layout_json(&mut self) -> Option<String> {
         self.take_pending_history_workspace_layout_json()
-    }
-
-    /// Current explicit node context target for command-surface actions.
-    pub fn pending_node_context_target(&self) -> Option<NodeKey> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::NodeContextTarget { .. })
-        })? {
-            AppCommand::NodeContextTarget { target } => Some(*target),
-            _ => None,
-        }
-    }
-
-    /// Set/clear explicit node context target for command-surface actions.
-    pub fn set_pending_node_context_target(&mut self, target: Option<NodeKey>) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::NodeContextTarget { .. })
-        });
-
-        if let Some(target) = target {
-            self.enqueue_app_command(AppCommand::NodeContextTarget { target });
-        }
-    }
-
-    /// Request opening the frame picker for a node and mode.
-    pub fn request_choose_frame_picker_for_mode(
-        &mut self,
-        key: NodeKey,
-        mode: ChooseFramePickerMode,
-    ) {
-        self.set_pending_choose_workspace_picker(
-            Some(ChooseFramePickerRequest { node: key, mode }),
-            None,
-        );
-    }
-
-    /// Request opening the frame picker to open a node in a frame.
-    pub fn request_choose_frame_picker(&mut self, key: NodeKey) {
-        self.request_choose_frame_picker_for_mode(key, ChooseFramePickerMode::OpenNodeInFrame);
-    }
-
-    /// Request opening the "Choose Workspace..." picker to open a node in a workspace.
-    pub fn request_choose_workspace_picker(&mut self, key: NodeKey) {
-        self.request_choose_frame_picker(key);
-    }
-
-    /// Request opening the frame picker to add node tab membership.
-    pub fn request_add_node_to_frame_picker(&mut self, key: NodeKey) {
-        self.request_choose_frame_picker_for_mode(key, ChooseFramePickerMode::AddNodeToFrame);
-    }
-
-    pub fn request_add_node_to_workspace_picker(&mut self, key: NodeKey) {
-        self.request_add_node_to_frame_picker(key);
-    }
-
-    /// Request opening the frame picker to add connected nodes.
-    pub fn request_add_connected_to_frame_picker(&mut self, key: NodeKey) {
-        self.request_choose_frame_picker_for_mode(
-            key,
-            ChooseFramePickerMode::AddConnectedSelectionToFrame,
-        );
-    }
-
-    pub fn request_add_connected_to_workspace_picker(&mut self, key: NodeKey) {
-        self.request_add_connected_to_frame_picker(key);
-    }
-
-    /// Request opening the frame picker to add an exact node set.
-    pub fn request_add_exact_selection_to_frame_picker(&mut self, mut keys: Vec<NodeKey>) {
-        keys.retain(|key| self.workspace.domain.graph.get_node(*key).is_some());
-        keys.sort_by_key(|key| key.index());
-        keys.dedup();
-        let Some(anchor) = keys.first().copied() else {
-            return;
-        };
-        self.set_pending_choose_workspace_picker(
-            Some(ChooseFramePickerRequest {
-                node: anchor,
-                mode: ChooseFramePickerMode::AddExactSelectionToFrame,
-            }),
-            Some(keys),
-        );
-    }
-
-    /// Request opening the "Choose Workspace..." picker to add an exact node set.
-    pub fn request_add_exact_selection_to_workspace_picker(&mut self, keys: Vec<NodeKey>) {
-        self.request_add_exact_selection_to_frame_picker(keys);
-    }
-
-    /// Active request for frame picker.
-    pub fn choose_frame_picker_request(&self) -> Option<ChooseFramePickerRequest> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::ChooseWorkspacePicker { .. })
-        })? {
-            AppCommand::ChooseWorkspacePicker { request, .. } => Some(*request),
-            _ => None,
-        }
-    }
-
-    /// Active request for "Choose Workspace..." picker.
-    pub fn choose_workspace_picker_request(&self) -> Option<ChooseFramePickerRequest> {
-        self.choose_frame_picker_request()
-    }
-
-    /// Close frame picker.
-    pub fn clear_choose_frame_picker(&mut self) {
-        self.set_pending_choose_workspace_picker(None, None);
-    }
-
-    /// Close "Choose Workspace..." picker.
-    pub fn clear_choose_workspace_picker(&mut self) {
-        self.clear_choose_frame_picker();
-    }
-
-    /// Request adding `node` to named frame snapshot `frame_name`.
-    pub fn request_add_node_to_frame(&mut self, node: NodeKey, frame_name: impl Into<String>) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::AddNodeToWorkspace { .. })
-        });
-        self.enqueue_app_command(AppCommand::AddNodeToWorkspace {
-            node,
-            workspace_name: frame_name.into(),
-        });
-    }
-
-    /// Request adding `node` to named frame snapshot `workspace_name`.
-    pub fn request_add_node_to_workspace(
-        &mut self,
-        node: NodeKey,
-        workspace_name: impl Into<String>,
-    ) {
-        self.request_add_node_to_frame(node, workspace_name);
-    }
-
-    /// Take and clear pending add-node-to-frame request.
-    pub fn take_pending_add_node_to_frame(&mut self) -> Option<(NodeKey, String)> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::AddNodeToWorkspace { .. })
-        })? {
-            AppCommand::AddNodeToWorkspace {
-                node,
-                workspace_name,
-            } => Some((node, workspace_name)),
-            _ => None,
-        }
-    }
-
-    /// Take and clear pending add-node-to-workspace request.
-    pub fn take_pending_add_node_to_workspace(&mut self) -> Option<(NodeKey, String)> {
-        self.take_pending_add_node_to_frame()
-    }
-
-    /// Request adding nodes connected to `seed_nodes` into named frame snapshot `frame_name`.
-    pub fn request_add_connected_to_frame(
-        &mut self,
-        seed_nodes: Vec<NodeKey>,
-        frame_name: impl Into<String>,
-    ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::AddConnectedToWorkspace { .. })
-        });
-        self.enqueue_app_command(AppCommand::AddConnectedToWorkspace {
-            seed_nodes,
-            workspace_name: frame_name.into(),
-        });
-    }
-
-    /// Request adding nodes connected to `seed_nodes` into named frame snapshot `workspace_name`.
-    pub fn request_add_connected_to_workspace(
-        &mut self,
-        seed_nodes: Vec<NodeKey>,
-        workspace_name: impl Into<String>,
-    ) {
-        self.request_add_connected_to_frame(seed_nodes, workspace_name);
-    }
-
-    /// Take and clear pending add-connected-to-frame request.
-    pub fn take_pending_add_connected_to_frame(&mut self) -> Option<(Vec<NodeKey>, String)> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::AddConnectedToWorkspace { .. })
-        })? {
-            AppCommand::AddConnectedToWorkspace {
-                seed_nodes,
-                workspace_name,
-            } => Some((seed_nodes, workspace_name)),
-            _ => None,
-        }
-    }
-
-    /// Take and clear pending add-connected-to-workspace request.
-    pub fn take_pending_add_connected_to_workspace(&mut self) -> Option<(Vec<NodeKey>, String)> {
-        self.take_pending_add_connected_to_frame()
-    }
-
-    /// Current explicit node set associated with active frame-picker flow.
-    pub fn choose_frame_picker_exact_nodes(&self) -> Option<&[NodeKey]> {
-        match self.pending_app_command(|command| {
-            matches!(command, AppCommand::ChooseWorkspacePicker { .. })
-        })? {
-            AppCommand::ChooseWorkspacePicker { exact_nodes, .. } => exact_nodes.as_deref(),
-            _ => None,
-        }
-    }
-
-    /// Current explicit node set associated with active choose-workspace picker flow.
-    pub fn choose_workspace_picker_exact_nodes(&self) -> Option<&[NodeKey]> {
-        self.choose_frame_picker_exact_nodes()
-    }
-
-    /// Request adding an exact node set into named frame snapshot `frame_name`.
-    pub fn request_add_exact_nodes_to_frame(
-        &mut self,
-        nodes: Vec<NodeKey>,
-        frame_name: impl Into<String>,
-    ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::AddExactToWorkspace { .. })
-        });
-        self.enqueue_app_command(AppCommand::AddExactToWorkspace {
-            nodes,
-            workspace_name: frame_name.into(),
-        });
-    }
-
-    /// Request adding an exact node set into named frame snapshot `workspace_name`.
-    pub fn request_add_exact_nodes_to_workspace(
-        &mut self,
-        nodes: Vec<NodeKey>,
-        workspace_name: impl Into<String>,
-    ) {
-        self.request_add_exact_nodes_to_frame(nodes, workspace_name);
-    }
-
-    /// Take and clear pending exact-add-to-frame request.
-    pub fn take_pending_add_exact_to_frame(&mut self) -> Option<(Vec<NodeKey>, String)> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::AddExactToWorkspace { .. })
-        })? {
-            AppCommand::AddExactToWorkspace {
-                nodes,
-                workspace_name,
-            } => Some((nodes, workspace_name)),
-            _ => None,
-        }
-    }
-
-    /// Take and clear pending exact-add-to-workspace request.
-    pub fn take_pending_add_exact_to_workspace(&mut self) -> Option<(Vec<NodeKey>, String)> {
-        self.take_pending_add_exact_to_frame()
-    }
-
-    /// Request opening connected nodes for a given source node, tile mode, and scope.
-    pub fn request_open_connected_from(
-        &mut self,
-        source: NodeKey,
-        mode: PendingTileOpenMode,
-        scope: PendingConnectedOpenScope,
-    ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::OpenConnected { .. })
-        });
-        self.enqueue_app_command(AppCommand::OpenConnected {
-            source,
-            mode,
-            scope,
-        });
-    }
-
-    /// Take and clear pending connected-open request.
-    pub fn take_pending_open_connected_from(
-        &mut self,
-    ) -> Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::OpenConnected { .. })
-        })? {
-            AppCommand::OpenConnected {
-                source,
-                mode,
-                scope,
-            } => Some((source, mode, scope)),
-            _ => None,
-        }
-    }
-
-    /// Peek pending connected-open request without consuming it.
-    pub fn pending_open_connected_from(
-        &self,
-    ) -> Option<(NodeKey, PendingTileOpenMode, PendingConnectedOpenScope)> {
-        match self
-            .pending_app_command(|command| matches!(command, AppCommand::OpenConnected { .. }))?
-        {
-            AppCommand::OpenConnected {
-                source,
-                mode,
-                scope,
-            } => Some((*source, *mode, *scope)),
-            _ => None,
-        }
-    }
-
-    /// Request opening a specific node as a tile in the given mode.
-    pub fn request_open_node_tile_mode(&mut self, key: NodeKey, mode: PendingTileOpenMode) {
-        let _ =
-            self.take_pending_app_command(|command| matches!(command, AppCommand::OpenNode { .. }));
-        self.enqueue_app_command(AppCommand::OpenNode {
-            request: PendingNodeOpenRequest { key, mode },
-        });
-    }
-
-    /// Take and clear pending node-open request.
-    pub fn take_pending_open_node_request(&mut self) -> Option<PendingNodeOpenRequest> {
-        match self
-            .take_pending_app_command(|command| matches!(command, AppCommand::OpenNode { .. }))?
-        {
-            AppCommand::OpenNode { request } => Some(request),
-            _ => None,
-        }
-    }
-
-    /// Peek pending node-open request without consuming it.
-    pub fn pending_open_node_request(&self) -> Option<PendingNodeOpenRequest> {
-        match self.pending_app_command(|command| matches!(command, AppCommand::OpenNode { .. }))? {
-            AppCommand::OpenNode { request } => Some(*request),
-            _ => None,
-        }
-    }
-
-    fn enqueue_app_command(&mut self, command: AppCommand) {
-        self.workspace.pending_app_commands.push_back(command);
-    }
-
-    fn set_pending_camera_command(
-        &mut self,
-        target_view: Option<GraphViewId>,
-        command: Option<CameraCommand>,
-    ) {
-        let _ = self
-            .take_pending_app_command(|queued| matches!(queued, AppCommand::CameraCommand { .. }));
-
-        if let Some(command) = command {
-            self.enqueue_app_command(AppCommand::CameraCommand {
-                command,
-                target_view,
-            });
-        }
-    }
-
-    fn set_pending_keyboard_zoom_request(
-        &mut self,
-        target_view: Option<GraphViewId>,
-        request: Option<KeyboardZoomRequest>,
-    ) {
-        let _ = self
-            .take_pending_app_command(|command| matches!(command, AppCommand::KeyboardZoom { .. }));
-
-        if let (Some(target_view), Some(request)) = (target_view, request) {
-            self.enqueue_app_command(AppCommand::KeyboardZoom {
-                request,
-                target_view,
-            });
-        }
-    }
-
-    fn set_pending_wheel_zoom_delta(
-        &mut self,
-        target_view: Option<GraphViewId>,
-        delta: Option<f32>,
-        anchor_screen: Option<(f32, f32)>,
-    ) {
-        let existing = self
-            .take_pending_app_command(|command| matches!(command, AppCommand::WheelZoom { .. }));
-
-        let (Some(target_view), Some(mut delta)) = (target_view, delta) else {
-            return;
-        };
-
-        let mut anchor_screen = anchor_screen;
-        if let Some(AppCommand::WheelZoom {
-            target_view: existing_target,
-            delta: existing_delta,
-            anchor_screen: existing_anchor,
-        }) = existing
-            && existing_target == target_view
-        {
-            delta += existing_delta;
-            if anchor_screen.is_none() {
-                anchor_screen = existing_anchor;
-            }
-        }
-
-        self.enqueue_app_command(AppCommand::WheelZoom {
-            target_view,
-            delta,
-            anchor_screen,
-        });
-    }
-
-    fn set_pending_workspace_restore_open_request(
-        &mut self,
-        request: Option<PendingNodeOpenRequest>,
-    ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::RestoreWorkspaceOpen { .. })
-        });
-
-        if let Some(request) = request {
-            self.enqueue_app_command(AppCommand::RestoreWorkspaceOpen { request });
-        }
-    }
-
-    fn set_pending_unsaved_workspace_prompt(
-        &mut self,
-        request: Option<UnsavedFramePromptRequest>,
-        action: Option<UnsavedFramePromptAction>,
-    ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::UnsavedWorkspacePrompt { .. })
-        });
-
-        if let Some(request) = request {
-            self.enqueue_app_command(AppCommand::UnsavedWorkspacePrompt { request, action });
-        }
-    }
-
-    fn set_pending_choose_workspace_picker(
-        &mut self,
-        request: Option<ChooseFramePickerRequest>,
-        exact_nodes: Option<Vec<NodeKey>>,
-    ) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::ChooseWorkspacePicker { .. })
-        });
-
-        if let Some(request) = request {
-            self.enqueue_app_command(AppCommand::ChooseWorkspacePicker {
-                request,
-                exact_nodes,
-            });
-        }
-    }
-
-    fn set_pending_history_workspace_layout_json(&mut self, layout_json: Option<String>) {
-        let _ = self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::RestoreHistoryWorkspaceLayout { .. })
-        });
-
-        if let Some(layout_json) = layout_json {
-            self.enqueue_app_command(AppCommand::RestoreHistoryWorkspaceLayout { layout_json });
-        }
-    }
-
-    fn sanitize_pending_frame_import_commands(&mut self) {
-        let mut retained_commands =
-            VecDeque::with_capacity(self.workspace.pending_app_commands.len());
-
-        while let Some(command) = self.workspace.pending_app_commands.pop_front() {
-            let retained = match command {
-                AppCommand::AddNodeToWorkspace {
-                    node,
-                    workspace_name,
-                } => self.workspace.domain.graph.get_node(node).map(|_| {
-                    AppCommand::AddNodeToWorkspace {
-                        node,
-                        workspace_name,
-                    }
-                }),
-                AppCommand::AddConnectedToWorkspace {
-                    seed_nodes,
-                    workspace_name,
-                } => {
-                    let seed_nodes = seed_nodes
-                        .into_iter()
-                        .filter(|key| self.workspace.domain.graph.get_node(*key).is_some())
-                        .collect::<Vec<_>>();
-                    (!seed_nodes.is_empty()).then_some(AppCommand::AddConnectedToWorkspace {
-                        seed_nodes,
-                        workspace_name,
-                    })
-                }
-                AppCommand::AddExactToWorkspace {
-                    nodes,
-                    workspace_name,
-                } => {
-                    let nodes = nodes
-                        .into_iter()
-                        .filter(|key| self.workspace.domain.graph.get_node(*key).is_some())
-                        .collect::<Vec<_>>();
-                    (!nodes.is_empty()).then_some(AppCommand::AddExactToWorkspace {
-                        nodes,
-                        workspace_name,
-                    })
-                }
-                AppCommand::ChooseWorkspacePicker {
-                    request,
-                    exact_nodes,
-                } => self.workspace.domain.graph.get_node(request.node).map(|_| {
-                    let exact_nodes = exact_nodes
-                        .map(|nodes| {
-                            nodes
-                                .into_iter()
-                                .filter(|key| self.workspace.domain.graph.get_node(*key).is_some())
-                                .collect::<Vec<_>>()
-                        })
-                        .filter(|nodes| !nodes.is_empty());
-                    AppCommand::ChooseWorkspacePicker {
-                        request,
-                        exact_nodes,
-                    }
-                }),
-                other => Some(other),
-            };
-
-            if let Some(command) = retained {
-                retained_commands.push_back(command);
-            }
-        }
-
-        self.workspace.pending_app_commands = retained_commands;
-    }
-
-    fn pending_app_command<P>(&self, mut predicate: P) -> Option<&AppCommand>
-    where
-        P: FnMut(&AppCommand) -> bool,
-    {
-        self.workspace
-            .pending_app_commands
-            .iter()
-            .find(|command| predicate(command))
-    }
-
-    fn take_pending_app_command<P>(&mut self, predicate: P) -> Option<AppCommand>
-    where
-        P: FnMut(&AppCommand) -> bool,
-    {
-        let index = self
-            .workspace
-            .pending_app_commands
-            .iter()
-            .position(predicate)?;
-        self.workspace.pending_app_commands.remove(index)
-    }
-
-    /// Request saving current frame (tile layout) snapshot.
-    pub fn request_save_workspace_snapshot(&mut self) {
-        self.enqueue_app_command(AppCommand::SaveWorkspaceSnapshot);
-    }
-
-    /// Request saving current frame (tile layout) snapshot.
-    pub fn request_save_frame_snapshot(&mut self) {
-        self.request_save_workspace_snapshot();
-    }
-
-    /// Take and clear pending frame save request.
-    pub fn take_pending_save_workspace_snapshot(&mut self) -> bool {
-        self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::SaveWorkspaceSnapshot)
-        })
-        .is_some()
-    }
-
-    /// Take and clear pending frame save request.
-    pub fn take_pending_save_frame_snapshot(&mut self) -> bool {
-        self.take_pending_save_workspace_snapshot()
-    }
-
-    /// Request saving a named frame snapshot.
-    pub fn request_save_workspace_snapshot_named(&mut self, name: impl Into<String>) {
-        self.enqueue_app_command(AppCommand::SaveWorkspaceSnapshotNamed { name: name.into() });
-    }
-
-    /// Request saving a named frame snapshot.
-    pub fn request_save_frame_snapshot_named(&mut self, name: impl Into<String>) {
-        self.request_save_workspace_snapshot_named(name);
-    }
-
-    /// Take and clear pending named frame save request.
-    pub fn take_pending_save_workspace_snapshot_named(&mut self) -> Option<String> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::SaveWorkspaceSnapshotNamed { .. })
-        })? {
-            AppCommand::SaveWorkspaceSnapshotNamed { name } => Some(name),
-            _ => None,
-        }
-    }
-
-    /// Take and clear pending named frame save request.
-    pub fn take_pending_save_frame_snapshot_named(&mut self) -> Option<String> {
-        self.take_pending_save_workspace_snapshot_named()
-    }
-
-    /// Request restoring a named frame snapshot.
-    pub fn request_restore_workspace_snapshot_named(&mut self, name: impl Into<String>) {
-        self.enqueue_app_command(AppCommand::RestoreWorkspaceSnapshotNamed { name: name.into() });
-    }
-
-    /// Request restoring a named frame snapshot.
-    pub fn request_restore_frame_snapshot_named(&mut self, name: impl Into<String>) {
-        self.request_restore_workspace_snapshot_named(name);
-    }
-
-    /// Take and clear pending named frame restore request.
-    pub fn take_pending_restore_workspace_snapshot_named(&mut self) -> Option<String> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::RestoreWorkspaceSnapshotNamed { .. })
-        })? {
-            AppCommand::RestoreWorkspaceSnapshotNamed { name } => Some(name),
-            _ => None,
-        }
-    }
-
-    /// Take and clear pending named frame restore request.
-    pub fn take_pending_restore_frame_snapshot_named(&mut self) -> Option<String> {
-        self.take_pending_restore_workspace_snapshot_named()
-    }
-
-    /// Take and clear one-shot open request for routed frame restore.
-    pub fn take_pending_workspace_restore_open_request(
-        &mut self,
-    ) -> Option<PendingNodeOpenRequest> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::RestoreWorkspaceOpen { .. })
-        })? {
-            AppCommand::RestoreWorkspaceOpen { request } => Some(request),
-            _ => None,
-        }
-    }
-
-    /// Take and clear one-shot open request for routed frame restore.
-    pub fn take_pending_frame_restore_open_request(&mut self) -> Option<PendingNodeOpenRequest> {
-        self.take_pending_workspace_restore_open_request()
-    }
-
-    /// Request saving a named graph snapshot.
-    pub fn request_save_graph_snapshot_named(&mut self, name: impl Into<String>) {
-        self.enqueue_app_command(AppCommand::SaveGraphSnapshotNamed { name: name.into() });
-    }
-
-    /// Take and clear pending named graph save request.
-    pub fn take_pending_save_graph_snapshot_named(&mut self) -> Option<String> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::SaveGraphSnapshotNamed { .. })
-        })? {
-            AppCommand::SaveGraphSnapshotNamed { name } => Some(name),
-            _ => None,
-        }
-    }
-
-    /// Request restoring a named graph snapshot.
-    pub fn request_restore_graph_snapshot_named(&mut self, name: impl Into<String>) {
-        self.enqueue_app_command(AppCommand::RestoreGraphSnapshotNamed { name: name.into() });
-    }
-
-    /// Take and clear pending named graph restore request.
-    pub fn take_pending_restore_graph_snapshot_named(&mut self) -> Option<String> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::RestoreGraphSnapshotNamed { .. })
-        })? {
-            AppCommand::RestoreGraphSnapshotNamed { name } => Some(name),
-            _ => None,
-        }
-    }
-
-    /// Request restoring autosaved latest graph snapshot/replay state.
-    pub fn request_restore_graph_snapshot_latest(&mut self) {
-        self.enqueue_app_command(AppCommand::RestoreGraphSnapshotLatest);
-    }
-
-    /// Take and clear pending autosaved graph restore request.
-    pub fn take_pending_restore_graph_snapshot_latest(&mut self) -> bool {
-        self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::RestoreGraphSnapshotLatest)
-        })
-        .is_some()
-    }
-
-    /// Request deleting a named graph snapshot.
-    pub fn request_delete_graph_snapshot_named(&mut self, name: impl Into<String>) {
-        self.enqueue_app_command(AppCommand::DeleteGraphSnapshotNamed { name: name.into() });
-    }
-
-    /// Take and clear pending named graph delete request.
-    pub fn take_pending_delete_graph_snapshot_named(&mut self) -> Option<String> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::DeleteGraphSnapshotNamed { .. })
-        })? {
-            AppCommand::DeleteGraphSnapshotNamed { name } => Some(name),
-            _ => None,
-        }
-    }
-
-    /// Request detaching a node's pane into split layout.
-    pub fn request_detach_node_to_split(&mut self, key: NodeKey) {
-        self.enqueue_workbench_intent(WorkbenchIntent::DetachNodeToSplit { key });
-    }
-
-    /// Request batch prune of empty named frame snapshots.
-    pub fn request_prune_empty_workspaces(&mut self) {
-        self.enqueue_app_command(AppCommand::PruneEmptyWorkspaces);
-    }
-
-    /// Request batch prune of empty named frame snapshots.
-    pub fn request_prune_empty_frames(&mut self) {
-        self.request_prune_empty_workspaces();
-    }
-
-    /// Take pending empty-workspace prune request.
-    pub fn take_pending_prune_empty_workspaces(&mut self) -> bool {
-        self.take_pending_app_command(|command| matches!(command, AppCommand::PruneEmptyWorkspaces))
-            .is_some()
-    }
-
-    /// Take pending empty-frame prune request.
-    pub fn take_pending_prune_empty_frames(&mut self) -> bool {
-        self.take_pending_prune_empty_workspaces()
-    }
-
-    /// Request keeping latest N named frame snapshots.
-    pub fn request_keep_latest_named_workspaces(&mut self, keep: usize) {
-        self.enqueue_app_command(AppCommand::KeepLatestNamedWorkspaces { keep });
-    }
-
-    /// Request keeping latest N named frame snapshots.
-    pub fn request_keep_latest_named_frames(&mut self, keep: usize) {
-        self.request_keep_latest_named_workspaces(keep);
-    }
-
-    /// Take pending keep-latest-N named frame snapshots request.
-    pub fn take_pending_keep_latest_named_workspaces(&mut self) -> Option<usize> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::KeepLatestNamedWorkspaces { .. })
-        })? {
-            AppCommand::KeepLatestNamedWorkspaces { keep } => Some(keep),
-            _ => None,
-        }
-    }
-
-    /// Take pending keep-latest-N named frame snapshots request.
-    pub fn take_pending_keep_latest_named_frames(&mut self) -> Option<usize> {
-        self.take_pending_keep_latest_named_workspaces()
-    }
-
-    pub fn request_copy_node_url(&mut self, key: NodeKey) {
-        self.enqueue_app_command(AppCommand::ClipboardCopy {
-            request: ClipboardCopyRequest {
-                key,
-                kind: ClipboardCopyKind::Url,
-            },
-        });
-    }
-
-    pub fn request_copy_node_title(&mut self, key: NodeKey) {
-        self.enqueue_app_command(AppCommand::ClipboardCopy {
-            request: ClipboardCopyRequest {
-                key,
-                kind: ClipboardCopyKind::Title,
-            },
-        });
-    }
-
-    pub fn take_pending_clipboard_copy(&mut self) -> Option<ClipboardCopyRequest> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::ClipboardCopy { .. })
-        })? {
-            AppCommand::ClipboardCopy { request } => Some(request),
-            _ => None,
-        }
-    }
-
-    pub fn request_switch_data_dir(&mut self, path: impl AsRef<Path>) {
-        self.enqueue_app_command(AppCommand::SwitchDataDir {
-            path: path.as_ref().to_path_buf(),
-        });
-    }
-
-    pub fn take_pending_switch_data_dir(&mut self) -> Option<PathBuf> {
-        match self.take_pending_app_command(|command| {
-            matches!(command, AppCommand::SwitchDataDir { .. })
-        })? {
-            AppCommand::SwitchDataDir { path } => Some(path),
-            _ => None,
-        }
-    }
-
-    /// Promote a node to Active lifecycle (mark as needing webview)
-    #[allow(dead_code)]
-    pub fn promote_node_to_active(&mut self, node_key: NodeKey) {
-        self.promote_node_to_active_with_cause(node_key, LifecycleCause::Restore);
-    }
-
-    pub fn promote_node_to_active_with_cause(&mut self, node_key: NodeKey, cause: LifecycleCause) {
-        use crate::graph::NodeLifecycle;
-        if self.workspace.domain.graph.get_node(node_key).is_none() {
-            return;
-        }
-
-        // Guard against automatic crash loops: only explicit user/restore flows can
-        // clear crash state and reactivate immediately.
-        let is_crashed = self.is_crash_blocked(node_key);
-        if is_crashed && !matches!(cause, LifecycleCause::UserSelect | LifecycleCause::Restore) {
-            return;
-        }
-
-        let _ = self
-            .workspace
-            .domain
-            .graph
-            .set_node_lifecycle(node_key, NodeLifecycle::Active);
-        self.touch_active_node(node_key);
-        self.remove_warm_cache_node(node_key);
-        self.workspace.runtime_block_state.remove(&node_key);
-        if matches!(cause, LifecycleCause::UserSelect | LifecycleCause::Restore) {
-            self.workspace.runtime_block_state.remove(&node_key);
-        }
-    }
-
-    /// Demote a node to Warm lifecycle (keep mapped webview alive in cache).
-    #[allow(dead_code)]
-    pub fn demote_node_to_warm(&mut self, node_key: NodeKey) {
-        self.demote_node_to_warm_with_cause(node_key, LifecycleCause::WorkspaceRetention);
-    }
-
-    pub fn demote_node_to_warm_with_cause(&mut self, node_key: NodeKey, cause: LifecycleCause) {
-        use crate::graph::NodeLifecycle;
-        if self.workspace.domain.graph.get_node(node_key).is_none() {
-            return;
-        }
-
-        // Some causes are always hard-cold.
-        if matches!(
-            cause,
-            LifecycleCause::Crash
-                | LifecycleCause::ExplicitClose
-                | LifecycleCause::NodeRemoval
-                | LifecycleCause::MemoryPressureCritical
-        ) {
-            self.demote_node_to_cold_with_cause(node_key, cause);
-            return;
-        }
-
-        let has_mapped_webview = self.workspace.node_to_webview.contains_key(&node_key);
-        let _ = self
-            .workspace
-            .domain
-            .graph
-            .set_node_lifecycle(node_key, NodeLifecycle::Warm);
-        if has_mapped_webview {
-            self.touch_warm_cache_node(node_key);
-        } else {
-            self.remove_warm_cache_node(node_key);
-        }
-        self.remove_active_node(node_key);
-    }
-
-    /// Demote a node to Cold lifecycle (mark as not needing webview)
-    #[allow(dead_code)]
-    pub fn demote_node_to_cold(&mut self, node_key: NodeKey) {
-        self.demote_node_to_cold_with_cause(node_key, LifecycleCause::NodeRemoval);
-    }
-
-    pub fn demote_node_to_cold_with_cause(&mut self, node_key: NodeKey, cause: LifecycleCause) {
-        use crate::graph::NodeLifecycle;
-        if self.workspace.domain.graph.get_node(node_key).is_none() {
-            return;
-        }
-        let _ = self
-            .workspace
-            .domain
-            .graph
-            .set_node_lifecycle(node_key, NodeLifecycle::Cold);
-        self.remove_active_node(node_key);
-        self.remove_warm_cache_node(node_key);
-        if !matches!(cause, LifecycleCause::Crash) {
-            self.workspace.runtime_block_state.remove(&node_key);
-        }
-        // Also unmap webview association if it exists
-        if let Some(webview_id) = self.workspace.node_to_webview.get(&node_key).copied() {
-            self.workspace.webview_to_node.remove(&webview_id);
-            self.workspace.node_to_webview.remove(&node_key);
-        }
-        if !matches!(cause, LifecycleCause::Crash) {
-            self.workspace.runtime_block_state.remove(&node_key);
-        }
-    }
-
-    fn touch_active_node(&mut self, node_key: NodeKey) {
-        self.remove_active_node(node_key);
-        self.workspace.active_lru.push(node_key);
-    }
-
-    fn remove_active_node(&mut self, node_key: NodeKey) {
-        self.workspace.active_lru.retain(|key| *key != node_key);
-    }
-
-    fn touch_warm_cache_node(&mut self, node_key: NodeKey) {
-        self.remove_warm_cache_node(node_key);
-        self.workspace.warm_cache_lru.push(node_key);
-    }
-
-    fn remove_warm_cache_node(&mut self, node_key: NodeKey) {
-        self.workspace.warm_cache_lru.retain(|key| *key != node_key);
-    }
-
-    /// Return least-recently-used warm nodes that must be hard-evicted.
-    pub(crate) fn take_warm_cache_evictions(&mut self) -> Vec<NodeKey> {
-        let mut normalized = Vec::with_capacity(self.workspace.warm_cache_lru.len());
-        let drained: Vec<_> = self.workspace.warm_cache_lru.drain(..).collect();
-        for key in drained {
-            let keep = self
-                .workspace
-                .domain
-                .graph
-                .get_node(key)
-                .map(|node| node.lifecycle == crate::graph::NodeLifecycle::Warm)
-                .unwrap_or(false)
-                && self.workspace.node_to_webview.contains_key(&key)
-                && !normalized.contains(&key);
-            if keep {
-                normalized.push(key);
-            }
-        }
-        self.workspace.warm_cache_lru = normalized;
-
-        let mut evicted = Vec::new();
-        while self.workspace.warm_cache_lru.len() > self.workspace.warm_cache_limit {
-            evicted.push(self.workspace.warm_cache_lru.remove(0));
-        }
-        evicted
-    }
-
-    /// Return least-recently-used active nodes that should be demoted.
-    pub(crate) fn take_active_webview_evictions(
-        &mut self,
-        protected: &HashSet<NodeKey>,
-    ) -> Vec<NodeKey> {
-        self.take_active_webview_evictions_with_limit(
-            self.workspace.active_webview_limit,
-            protected,
-        )
-    }
-
-    /// Return least-recently-used active nodes that exceed `limit`.
-    pub(crate) fn take_active_webview_evictions_with_limit(
-        &mut self,
-        limit: usize,
-        protected: &HashSet<NodeKey>,
-    ) -> Vec<NodeKey> {
-        let mut normalized = Vec::with_capacity(self.workspace.active_lru.len());
-        let drained: Vec<_> = self.workspace.active_lru.drain(..).collect();
-        for key in drained {
-            let keep = self
-                .workspace
-                .domain
-                .graph
-                .get_node(key)
-                .map(|node| node.lifecycle == crate::graph::NodeLifecycle::Active)
-                .unwrap_or(false)
-                && self.workspace.node_to_webview.contains_key(&key)
-                && !normalized.contains(&key);
-            if keep {
-                normalized.push(key);
-            }
-        }
-
-        // Backfill any mapped-active nodes not seen in LRU (defensive against stale state).
-        for (&key, _) in &self.workspace.node_to_webview {
-            let is_active = self
-                .workspace
-                .domain
-                .graph
-                .get_node(key)
-                .map(|node| node.lifecycle == crate::graph::NodeLifecycle::Active)
-                .unwrap_or(false);
-            if is_active && !normalized.contains(&key) {
-                normalized.push(key);
-            }
-        }
-        self.workspace.active_lru = normalized;
-
-        let mut evicted = Vec::new();
-        while self.workspace.active_lru.len() > limit {
-            let candidate_idx = self
-                .workspace
-                .active_lru
-                .iter()
-                .position(|key| !protected.contains(key));
-            let Some(candidate_idx) = candidate_idx else {
-                break;
-            };
-            let key = self.workspace.active_lru.remove(candidate_idx);
-            evicted.push(key);
-        }
-        evicted
     }
 
     pub fn active_webview_limit(&self) -> usize {
@@ -8281,647 +3758,8 @@ impl GraphBrowserApp {
         url
     }
 
-    fn maybe_add_history_traversal_edge(
-        &mut self,
-        node_key: NodeKey,
-        old_entries: &[String],
-        old_index: usize,
-        new_entries: &[String],
-        new_index: usize,
-    ) {
-        let Some(old_url) = old_entries.get(old_index).filter(|url| !url.is_empty()) else {
-            self.record_history_failure(
-                HistoryTraversalFailureReason::MissingOldUrl,
-                "old history entry missing or empty",
-            );
-            return;
-        };
-        let Some(new_url) = new_entries.get(new_index).filter(|url| !url.is_empty()) else {
-            self.record_history_failure(
-                HistoryTraversalFailureReason::MissingNewUrl,
-                "new history entry missing or empty",
-            );
-            return;
-        };
-        if old_url == new_url {
-            self.record_history_failure(
-                HistoryTraversalFailureReason::SameUrl,
-                "history transition resolves to same URL",
-            );
-            return;
-        }
-
-        let is_back = new_index < old_index;
-        let is_forward_same_list = new_index > old_index && new_entries.len() == old_entries.len();
-        if !is_back && !is_forward_same_list {
-            self.record_history_failure(
-                HistoryTraversalFailureReason::NonHistoryTransition,
-                "transition is not a back/forward history move",
-            );
-            return;
-        }
-        let trigger = if is_back {
-            NavigationTrigger::Back
-        } else {
-            NavigationTrigger::Forward
-        };
-
-        let from_key = self
-            .workspace
-            .domain
-            .graph
-            .get_nodes_by_url(old_url)
-            .into_iter()
-            .find(|&key| key != node_key)
-            .or(Some(node_key));
-        let to_key = self
-            .workspace
-            .domain
-            .graph
-            .get_nodes_by_url(new_url)
-            .into_iter()
-            .find(|&key| key != node_key)
-            .or(Some(node_key));
-        let (Some(from_key), Some(to_key)) = (from_key, to_key) else {
-            self.record_history_failure(
-                HistoryTraversalFailureReason::MissingEndpoint,
-                "could not resolve traversal endpoints",
-            );
-            return;
-        };
-
-        let _ = self.push_history_traversal_and_sync(from_key, to_key, trigger);
-    }
-
-    fn push_history_traversal_and_sync(
-        &mut self,
-        from_key: NodeKey,
-        to_key: NodeKey,
-        trigger: NavigationTrigger,
-    ) -> bool {
-        if from_key == to_key {
-            self.record_history_failure(
-                HistoryTraversalFailureReason::SelfLoop,
-                "from_key equals to_key",
-            );
-            return false;
-        }
-        let existing_edge_key = self.workspace.domain.graph.find_edge_key(from_key, to_key);
-        let history_semantic_existed = existing_edge_key
-            .and_then(|edge_key| self.workspace.domain.graph.get_edge(edge_key))
-            .map(|payload| payload.has_kind(EdgeKind::TraversalDerived))
-            .unwrap_or(false);
-
-        let traversal = Traversal::now(trigger);
-        let GraphDeltaResult::TraversalAppended(appended) =
-            self.apply_graph_delta_and_sync(GraphDelta::AppendTraversal {
-                from: from_key,
-                to: to_key,
-                traversal,
-            })
-        else {
-            unreachable!("append traversal delta must return TraversalAppended");
-        };
-        if !appended {
-            self.record_history_failure(
-                HistoryTraversalFailureReason::GraphRejected,
-                "graph push_traversal rejected append",
-            );
-            return false;
-        }
-
-        self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORDED,
-            latency_us: 0,
-        });
-
-        if !history_semantic_existed {
-            self.log_edge_mutation(from_key, to_key, EdgeType::History);
-        }
-        self.log_traversal_mutation(from_key, to_key, traversal);
-        self.workspace.physics.base.is_running = true;
-        self.workspace.drag_release_frames_remaining = 0;
-        true
-    }
-
-    fn log_traversal_mutation(&mut self, from_key: NodeKey, to_key: NodeKey, traversal: Traversal) {
-        if let Some(store) = &mut self.services.persistence {
-            let from_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(from_key)
-                .map(|n| n.id.to_string());
-            let to_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(to_key)
-                .map(|n| n.id.to_string());
-            let (Some(from_node_id), Some(to_node_id)) = (from_id, to_id) else {
-                return;
-            };
-            let trigger = match traversal.trigger {
-                NavigationTrigger::Unknown => PersistedNavigationTrigger::Unknown,
-                NavigationTrigger::LinkClick => PersistedNavigationTrigger::LinkClick,
-                NavigationTrigger::Back => PersistedNavigationTrigger::Back,
-                NavigationTrigger::Forward => PersistedNavigationTrigger::Forward,
-                NavigationTrigger::AddressBarEntry => PersistedNavigationTrigger::AddressBarEntry,
-                NavigationTrigger::PanePromotion => PersistedNavigationTrigger::PanePromotion,
-                NavigationTrigger::Programmatic => PersistedNavigationTrigger::Programmatic,
-            };
-            store.log_mutation(&LogEntry::AppendTraversal {
-                from_node_id,
-                to_node_id,
-                timestamp_ms: traversal.timestamp_ms,
-                trigger,
-            });
-        }
-    }
-
-    fn unix_timestamp_ms_now() -> u64 {
-        SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0)
-    }
-
-    fn record_history_failure(
-        &mut self,
-        reason: HistoryTraversalFailureReason,
-        detail: impl Into<String>,
-    ) {
-        let detail = detail.into();
-        self.workspace.history_recent_traversal_append_failures = self
-            .workspace
-            .history_recent_traversal_append_failures
-            .saturating_add(1);
-        self.workspace.history_recent_failure_reason_bucket = Some(reason);
-        self.workspace.history_last_error = Some(format!("{}: {}", reason.as_str(), detail));
-        self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
-            latency_us: 0,
-        });
-        log::warn!(
-            "history traversal record failed: reason={} detail={}",
-            reason.as_str(),
-            detail
-        );
-    }
-
-    fn add_user_grouped_edge_if_missing(&mut self, from: NodeKey, to: NodeKey) {
-        if from == to {
-            return;
-        }
-        if self.workspace.domain.graph.get_node(from).is_none()
-            || self.workspace.domain.graph.get_node(to).is_none()
-        {
-            return;
-        }
-        let already_grouped = self.workspace.domain.graph.edges().any(|edge| {
-            edge.edge_type == EdgeType::UserGrouped && edge.from == from && edge.to == to
-        });
-        if !already_grouped {
-            let _ = self.add_edge_and_sync(from, to, EdgeType::UserGrouped);
-        }
-    }
-
-    fn create_user_grouped_edge_from_primary_selection(&mut self) {
-        let selection = self.focused_selection();
-        let Some(from) = selection.primary() else {
-            return;
-        };
-        let to = selection.iter().copied().find(|key| *key != from);
-        if let Some(to) = to {
-            self.add_user_grouped_edge_if_missing(from, to);
-        }
-    }
-
-    /// Group nodes by their UDC semantic tags (Phase 3: Auto-grouping).
-    /// Creates UserGrouped edges between nodes that share the same top-level subject.
-    fn group_nodes_by_semantic_tags(&mut self) {
-        use std::collections::{HashMap, HashSet};
-
-        // Group nodes by their top-level UDC code (first digit)
-        let mut clusters: HashMap<u8, HashSet<NodeKey>> = HashMap::new();
-
-        for (&node_key, vector) in &self.workspace.semantic_index {
-            for code in &vector.classes {
-                if let Some(&first_digit) = code.0.first() {
-                    clusters.entry(first_digit).or_default().insert(node_key);
-                }
-            }
-        }
-
-        // Create edges within each cluster (fully connected within subject)
-        // For MVP, we connect all pairs within a cluster. For large clusters,
-        // this could be optimized to star topology or hierarchical clustering.
-        let mut created_pairs = std::collections::HashSet::new();
-
-        for (_subject_code, nodes) in clusters {
-            let nodes: Vec<NodeKey> = nodes.into_iter().collect();
-            if nodes.len() < 2 {
-                continue; // Need at least 2 nodes to group
-            }
-
-            // Connect all pairs bidirectionally within the cluster
-            for i in 0..nodes.len() {
-                for j in (i + 1)..nodes.len() {
-                    let (a, b) = (nodes[i], nodes[j]);
-
-                    // Create canonical pair to avoid duplicates
-                    let pair = if a < b { (a, b) } else { (b, a) };
-                    if !created_pairs.contains(&pair) {
-                        created_pairs.insert(pair);
-                        self.add_user_grouped_edge_if_missing(a, b);
-                        self.add_user_grouped_edge_if_missing(b, a);
-                    }
-                }
-            }
-        }
-    }
-
-    fn selected_pair_in_order(&self) -> Option<(NodeKey, NodeKey)> {
-        self.focused_selection().ordered_pair()
-    }
-
-    fn intents_for_edge_command(&self, command: EdgeCommand) -> Vec<GraphIntent> {
-        match command {
-            EdgeCommand::ConnectSelectedPair => self
-                .selected_pair_in_order()
-                .map(|(from, to)| vec![GraphIntent::CreateUserGroupedEdge { from, to }])
-                .unwrap_or_default(),
-            EdgeCommand::ConnectPair { from, to } => {
-                vec![GraphIntent::CreateUserGroupedEdge { from, to }]
-            }
-            EdgeCommand::ConnectBothDirections => self
-                .selected_pair_in_order()
-                .map(|(from, to)| {
-                    vec![
-                        GraphIntent::CreateUserGroupedEdge { from, to },
-                        GraphIntent::CreateUserGroupedEdge { from: to, to: from },
-                    ]
-                })
-                .unwrap_or_default(),
-            EdgeCommand::ConnectBothDirectionsPair { a, b } => {
-                vec![
-                    GraphIntent::CreateUserGroupedEdge { from: a, to: b },
-                    GraphIntent::CreateUserGroupedEdge { from: b, to: a },
-                ]
-            }
-            EdgeCommand::RemoveUserEdge => self
-                .selected_pair_in_order()
-                .map(|(from, to)| {
-                    vec![
-                        GraphIntent::RemoveEdge {
-                            from,
-                            to,
-                            edge_type: EdgeType::UserGrouped,
-                        },
-                        GraphIntent::RemoveEdge {
-                            from: to,
-                            to: from,
-                            edge_type: EdgeType::UserGrouped,
-                        },
-                    ]
-                })
-                .unwrap_or_default(),
-            EdgeCommand::RemoveUserEdgePair { a, b } => {
-                vec![
-                    GraphIntent::RemoveEdge {
-                        from: a,
-                        to: b,
-                        edge_type: EdgeType::UserGrouped,
-                    },
-                    GraphIntent::RemoveEdge {
-                        from: b,
-                        to: a,
-                        edge_type: EdgeType::UserGrouped,
-                    },
-                ]
-            }
-            EdgeCommand::PinSelected => self
-                .workspace
-                .selected_nodes
-                .iter()
-                .copied()
-                .map(|key| GraphIntent::SetNodePinned {
-                    key,
-                    is_pinned: true,
-                })
-                .collect(),
-            EdgeCommand::UnpinSelected => self
-                .workspace
-                .selected_nodes
-                .iter()
-                .copied()
-                .map(|key| GraphIntent::SetNodePinned {
-                    key,
-                    is_pinned: false,
-                })
-                .collect(),
-        }
-    }
-
-    fn set_node_pinned_and_log(&mut self, key: NodeKey, is_pinned: bool) {
-        let Some(current_state) = self
-            .workspace
-            .domain
-            .graph
-            .get_node(key)
-            .map(|node| node.is_pinned)
-        else {
-            return;
-        };
-        let had_pin_tag = self
-            .workspace
-            .semantic_tags
-            .get(&key)
-            .is_some_and(|tags| tags.contains(Self::TAG_PIN));
-        if current_state == is_pinned && had_pin_tag == is_pinned {
-            return;
-        }
-
-        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodePinned { key, is_pinned });
-
-        let mut tags_changed = false;
-        if is_pinned {
-            let tags = self.workspace.semantic_tags.entry(key).or_default();
-            tags_changed = tags.insert(Self::TAG_PIN.to_string());
-        } else if let Some(tags) = self.workspace.semantic_tags.get_mut(&key) {
-            tags_changed = tags.remove(Self::TAG_PIN);
-            if tags.is_empty() {
-                self.workspace.semantic_tags.remove(&key);
-            }
-        }
-
-        if tags_changed {
-            self.workspace.semantic_index_dirty = true;
-        }
-
-        if let Some(store) = &mut self.services.persistence {
-            store.log_mutation(&LogEntry::PinNode {
-                node_id: self
-                    .workspace
-                    .domain
-                    .graph
-                    .get_node(key)
-                    .map(|node| node.id.to_string())
-                    .unwrap_or_default(),
-                is_pinned,
-            });
-        }
-    }
-
-    /// Create a new node near the center of the graph (or at origin if graph is empty)
-    pub fn create_new_node_near_center(&mut self) -> NodeKey {
-        use euclid::default::Point2D;
-        use rand::Rng;
-
-        // Calculate approximate center of existing nodes
-        let center = self
-            .workspace
-            .domain
-            .graph
-            .projected_centroid()
-            .unwrap_or_else(|| Point2D::new(400.0, 300.0));
-
-        // Add random offset to avoid stacking directly on center
-        let mut rng = rand::thread_rng();
-        let offset_x = rng.gen_range(-100.0..100.0);
-        let offset_y = rng.gen_range(-100.0..100.0);
-
-        let position = Point2D::new(center.x + offset_x, center.y + offset_y);
-        let placeholder_url = self.next_placeholder_url();
-
-        let key = self.add_node_and_sync(placeholder_url, position);
-
-        // Select the newly created node
-        self.select_node(key, false);
-
-        key
-    }
-
-    /// Remove selected nodes and their associated webviews.
-    /// Note: actual webview closure must be handled by the caller (gui.rs)
-    /// since we don't hold a window reference.
-    pub fn remove_selected_nodes(&mut self) {
-        let nodes_to_remove: Vec<NodeKey> = self.focused_selection().iter().copied().collect();
-
-        for node_key in nodes_to_remove {
-            let node_id = self
-                .workspace
-                .domain
-                .graph
-                .get_node(node_key)
-                .map(|node| node.id);
-
-            // Log removal to persistence before removing from graph
-            if let Some(store) = &mut self.services.persistence {
-                if let Some(node_id) = node_id {
-                    store.log_mutation(&LogEntry::RemoveNode {
-                        node_id: node_id.to_string(),
-                    });
-                }
-            }
-
-            // Unmap webview if it exists
-            if let Some(webview_id) = self.workspace.node_to_webview.get(&node_key).copied() {
-                let _ = self.unmap_webview(webview_id);
-            }
-            self.remove_active_node(node_key);
-            self.remove_warm_cache_node(node_key);
-            self.workspace.runtime_block_state.remove(&node_key);
-            self.workspace.runtime_block_state.remove(&node_key);
-            self.workspace.semantic_tags.remove(&node_key);
-            if let Some(node_id) = node_id {
-                self.workspace.node_last_active_workspace.remove(&node_id);
-                self.workspace.node_workspace_membership.remove(&node_id);
-            }
-
-            // Remove from graph with dissolution transfer if persistence is active
-            if let Some(store) = &mut self.services.persistence {
-                let dissolved_before = store.dissolved_archive_len();
-                let _ = store.dissolve_and_remove_node(&mut self.workspace.domain.graph, node_key);
-                let dissolved_after = store.dissolved_archive_len();
-                if dissolved_after > dissolved_before {
-                    self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
-                    emit_event(DiagnosticEvent::MessageReceived {
-                        channel_id: CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
-                        latency_us: 0,
-                    });
-                }
-            } else {
-                let _ = self.apply_graph_delta_and_sync(GraphDelta::RemoveNode { key: node_key });
-            }
-        }
-
-        // Clear selection
-        self.workspace.selected_nodes.clear();
-        if let Some(view_id) = self.workspace.focused_view
-            && let Some(selection) = self.workspace.selected_nodes_by_view.get_mut(&view_id)
-        {
-            selection.clear();
-        }
-        self.sync_selection_into_focused_view();
-        for selection in self.workspace.selected_nodes_by_view.values_mut() {
-            selection.retain_nodes(|key| self.workspace.domain.graph.get_node(key).is_some());
-        }
-        self.workspace.highlighted_graph_edge = None;
-        let pending_node_context_target = self
-            .pending_node_context_target()
-            .filter(|key| self.workspace.domain.graph.get_node(*key).is_some());
-        self.set_pending_node_context_target(pending_node_context_target);
-        self.sanitize_pending_frame_import_commands();
-    }
-
-    /// Get the currently selected node (if exactly one is selected)
-    pub fn get_single_selected_node(&self) -> Option<NodeKey> {
-        let selected = self.focused_selection();
-        if selected.len() == 1 {
-            selected.primary()
-        } else {
-            None
-        }
-    }
-
-    /// Clear the entire graph and all webview mappings.
-    /// Webview closure must be handled by the caller (gui.rs) since we don't
-    /// hold a reference to the window.
-    pub fn clear_graph(&mut self) {
-        if let Some(store) = &mut self.services.persistence {
-            store.log_mutation(&LogEntry::ClearGraph);
-        }
-        self.workspace.domain.graph = Graph::new();
-        self.workspace.selected_nodes.clear();
-        self.workspace.highlighted_graph_edge = None;
-        self.workspace.file_tree_projection_state = FileTreeProjectionState::default();
-        self.clear_choose_frame_picker();
-        self.workspace.pending_app_commands.clear();
-        self.clear_pending_camera_command();
-        self.clear_pending_wheel_zoom_delta();
-        self.workspace.domain.notes.clear();
-        self.workspace.views.clear();
-        self.workspace.graph_view_frames.clear();
-        self.set_workspace_focused_view_with_transition(None);
-        self.workspace.webview_to_node.clear();
-        self.workspace.node_to_webview.clear();
-        self.workspace.active_lru.clear();
-        self.workspace.warm_cache_lru.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.semantic_tags.clear();
-        self.workspace.semantic_index.clear();
-        self.workspace.semantic_index_dirty = true;
-        self.workspace.node_last_active_workspace.clear();
-        self.workspace.node_workspace_membership.clear();
-        self.workspace.last_session_workspace_layout_hash = None;
-        self.workspace.last_session_workspace_layout_json = None;
-        self.workspace.last_workspace_autosave_at = None;
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.egui_state_dirty = true;
-    }
-
-    /// Clear the graph in memory and wipe all persisted graph data.
-    pub fn clear_graph_and_persistence(&mut self) {
-        if let Some(store) = &mut self.services.persistence {
-            if let Err(e) = store.clear_all() {
-                warn!("Failed to clear persisted graph data: {e}");
-            }
-        }
-        self.workspace.domain.graph = Graph::new();
-        self.workspace.selected_nodes.clear();
-        self.workspace.highlighted_graph_edge = None;
-        self.workspace.file_tree_projection_state = FileTreeProjectionState::default();
-        self.clear_choose_frame_picker();
-        self.workspace.pending_app_commands.clear();
-        self.clear_pending_camera_command();
-        self.clear_pending_wheel_zoom_delta();
-        self.workspace.views.clear();
-        self.workspace.graph_view_frames.clear();
-        self.set_workspace_focused_view_with_transition(None);
-        self.workspace.webview_to_node.clear();
-        self.workspace.node_to_webview.clear();
-        self.workspace.active_lru.clear();
-        self.workspace.warm_cache_lru.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.runtime_block_state.clear();
-        self.workspace.semantic_tags.clear();
-        self.workspace.node_last_active_workspace.clear();
-        self.workspace.node_workspace_membership.clear();
-        self.workspace.current_workspace_is_synthesized = false;
-        self.workspace.workspace_has_unsaved_changes = false;
-        self.workspace.unsaved_workspace_prompt_warned = false;
-        self.workspace.active_webview_nodes.clear();
-        self.workspace.domain.next_placeholder_id = 0;
-        self.workspace.egui_state_dirty = true;
-        self.workspace.semantic_index.clear();
-        self.workspace.semantic_index_dirty = true;
-    }
-
-    /// Update a node's URL and log to persistence.
-    /// Returns the old URL, or None if the node doesn't exist.
-    pub fn update_node_url_and_log(&mut self, key: NodeKey, new_url: String) -> Option<String> {
-        // Recompute content metadata from the new URL before logging.
-        let new_mime_hint = crate::graph::detect_mime(&new_url, None);
-        let new_address_kind = crate::graph::address_kind_from_url(&new_url);
-
-        let GraphDeltaResult::NodeUrlUpdated(old_url) =
-            self.apply_graph_delta_and_sync(GraphDelta::SetNodeUrl {
-                key,
-                new_url: new_url.clone(),
-            })
-        else {
-            unreachable!("url delta must return NodeUrlUpdated");
-        };
-        let old_url = old_url?;
-
-        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodeMimeHint {
-            key,
-            mime_hint: new_mime_hint.clone(),
-        });
-        let _ = self.apply_graph_delta_and_sync(GraphDelta::SetNodeAddressKind {
-            key,
-            kind: new_address_kind,
-        });
-
-        if let Some(store) = &mut self.services.persistence {
-            if let Some(node) = self.workspace.domain.graph.get_node(key) {
-                let node_id = node.id.to_string();
-                store.log_mutation(&LogEntry::UpdateNodeUrl {
-                    node_id: node_id.clone(),
-                    new_url,
-                });
-                store.log_mutation(&LogEntry::UpdateNodeMimeHint {
-                    node_id: node_id.clone(),
-                    mime_hint: new_mime_hint,
-                });
-                let persisted_kind = match new_address_kind {
-                    crate::graph::AddressKind::Http => {
-                        crate::services::persistence::types::PersistedAddressKind::Http
-                    }
-                    crate::graph::AddressKind::File => {
-                        crate::services::persistence::types::PersistedAddressKind::File
-                    }
-                    crate::graph::AddressKind::Custom => {
-                        crate::services::persistence::types::PersistedAddressKind::Custom
-                    }
-                };
-                store.log_mutation(&LogEntry::UpdateNodeAddressKind {
-                    node_id,
-                    kind: persisted_kind,
-                });
-            }
-        }
-        self.workspace.egui_state_dirty = true;
-        Some(old_url)
-    }
 }
+
 
 fn parse_diagnostics_channel_config(raw: &str) -> Option<ChannelConfig> {
     let mut parts = raw.split('|');
@@ -9167,7 +4005,7 @@ mod tests {
         app.select_node(node_key, false);
 
         // Node should be selected
-        assert!(app.workspace.selected_nodes.contains(&node_key));
+        assert!(app.focused_selection().contains(&node_key));
     }
 
     #[test]
@@ -9207,6 +4045,42 @@ mod tests {
 
         app.set_workspace_focused_view_with_transition(Some(view_b));
         assert_eq!(app.get_single_selected_node(), Some(node_b));
+    }
+
+    #[test]
+    fn undo_snapshot_uses_focused_view_selection_as_active_selection() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
+
+        let canonical = app
+            .workspace
+            .domain
+            .graph
+            .add_node("canonical".to_string(), Point2D::new(0.0, 0.0));
+        let stale = app
+            .workspace
+            .domain
+            .graph
+            .add_node("stale".to_string(), Point2D::new(10.0, 0.0));
+
+        app.set_workspace_focused_view_with_transition(Some(view_id));
+        app.select_node(canonical, false);
+
+        app.workspace
+            .selection_by_scope
+            .insert(SelectionScope::Unfocused, {
+                let mut selection = SelectionState::new();
+                selection.select(stale, false);
+                selection
+            });
+
+        let snapshot = app.build_undo_redo_snapshot(None).expect("snapshot");
+        assert_eq!(snapshot.active_selection.primary(), Some(canonical));
+        assert!(snapshot.active_selection.contains(&canonical));
+        assert!(!snapshot.active_selection.contains(&stale));
     }
 
     #[test]
@@ -9593,7 +4467,7 @@ mod tests {
             .views
             .insert(view_id, GraphViewState::new_with_id(view_id, "Focused"));
         app.workspace.focused_view = Some(view_id);
-        assert!(app.workspace.selected_nodes.is_empty());
+        assert!(app.focused_selection().is_empty());
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
@@ -9646,7 +4520,7 @@ mod tests {
             .add_node("b".to_string(), Point2D::new(100.0, 50.0));
         app.select_node(key_a, false);
         app.select_node(key_b, true);
-        assert_eq!(app.workspace.selected_nodes.len(), 2);
+        assert_eq!(app.focused_selection().len(), 2);
         app.clear_pending_camera_command();
         assert!(app.pending_camera_command().is_none());
 
@@ -9777,8 +4651,8 @@ mod tests {
                 mode: SelectionUpdateMode::Replace,
             })
         );
-        assert_eq!(app.workspace.selected_nodes.len(), 2);
-        assert_eq!(app.workspace.selected_nodes.primary(), Some(key_b));
+        assert_eq!(app.focused_selection().len(), 2);
+        assert_eq!(app.focused_selection().primary(), Some(key_b));
     }
 
     #[test]
@@ -10408,8 +5282,8 @@ mod tests {
 
         app.select_node(key, false);
 
-        assert_eq!(app.workspace.selected_nodes.len(), 1);
-        assert!(app.workspace.selected_nodes.contains(&key));
+        assert_eq!(app.focused_selection().len(), 1);
+        assert!(app.focused_selection().contains(&key));
     }
 
     #[test]
@@ -10422,11 +5296,11 @@ mod tests {
             .add_node("test".to_string(), Point2D::new(0.0, 0.0));
 
         app.select_node(key, false);
-        assert_eq!(app.workspace.selected_nodes.primary(), Some(key));
+        assert_eq!(app.focused_selection().primary(), Some(key));
 
         app.select_node(key, false);
-        assert!(app.workspace.selected_nodes.is_empty());
-        assert_eq!(app.workspace.selected_nodes.primary(), None);
+        assert!(app.focused_selection().is_empty());
+        assert_eq!(app.focused_selection().primary(), None);
     }
 
     #[test]
@@ -10446,9 +5320,9 @@ mod tests {
         app.select_node(key1, false);
         app.select_node(key2, true);
 
-        assert_eq!(app.workspace.selected_nodes.len(), 2);
-        assert!(app.workspace.selected_nodes.contains(&key1));
-        assert!(app.workspace.selected_nodes.contains(&key2));
+        assert_eq!(app.focused_selection().len(), 2);
+        assert!(app.focused_selection().contains(&key1));
+        assert!(app.focused_selection().contains(&key2));
     }
 
     #[test]
@@ -10467,15 +5341,15 @@ mod tests {
 
         app.select_node(key1, false);
         app.select_node(key2, true);
-        assert_eq!(app.workspace.selected_nodes.len(), 2);
-        assert_eq!(app.workspace.selected_nodes.primary(), Some(key2));
+        assert_eq!(app.focused_selection().len(), 2);
+        assert_eq!(app.focused_selection().primary(), Some(key2));
 
         // Ctrl-click selected node toggles it off.
         app.select_node(key2, true);
-        assert_eq!(app.workspace.selected_nodes.len(), 1);
-        assert!(app.workspace.selected_nodes.contains(&key1));
-        assert!(!app.workspace.selected_nodes.contains(&key2));
-        assert_eq!(app.workspace.selected_nodes.primary(), Some(key1));
+        assert_eq!(app.focused_selection().len(), 1);
+        assert!(app.focused_selection().contains(&key1));
+        assert!(!app.focused_selection().contains(&key2));
+        assert_eq!(app.focused_selection().primary(), Some(key1));
     }
 
     #[test]
@@ -10488,12 +5362,12 @@ mod tests {
             .add_node("a".to_string(), Point2D::new(0.0, 0.0));
 
         app.select_node(key, false);
-        assert_eq!(app.workspace.selected_nodes.primary(), Some(key));
+        assert_eq!(app.focused_selection().primary(), Some(key));
 
         // Ctrl-click selected single node toggles it off, clearing selection.
         app.select_node(key, true);
-        assert!(app.workspace.selected_nodes.is_empty());
-        assert_eq!(app.workspace.selected_nodes.primary(), None);
+        assert!(app.focused_selection().is_empty());
+        assert_eq!(app.focused_selection().primary(), None);
     }
 
     #[test]
@@ -10549,7 +5423,7 @@ mod tests {
             multi_select: false,
         }]);
 
-        assert!(app.workspace.selected_nodes.is_empty());
+        assert!(app.focused_selection().is_empty());
         assert_eq!(
             app.workspace.domain.graph.get_node(key).unwrap().lifecycle,
             NodeLifecycle::Cold
@@ -10644,23 +5518,23 @@ mod tests {
             .domain
             .graph
             .add_node("b".to_string(), Point2D::new(1.0, 0.0));
-        let rev0 = app.workspace.selected_nodes.revision();
+        let rev0 = app.focused_selection().revision();
 
         app.select_node(key1, false);
-        let rev1 = app.workspace.selected_nodes.revision();
+        let rev1 = app.focused_selection().revision();
         assert!(rev1 > rev0);
 
         app.select_node(key1, false);
-        let rev2 = app.workspace.selected_nodes.revision();
+        let rev2 = app.focused_selection().revision();
         assert!(rev2 > rev1);
-        assert!(app.workspace.selected_nodes.is_empty());
+        assert!(app.focused_selection().is_empty());
 
         app.select_node(key2, true);
-        let rev3 = app.workspace.selected_nodes.revision();
+        let rev3 = app.focused_selection().revision();
         assert!(rev3 > rev2);
 
         app.select_node(key2, true);
-        let rev4 = app.workspace.selected_nodes.revision();
+        let rev4 = app.focused_selection().revision();
         assert!(rev4 > rev3);
     }
 
@@ -10677,11 +5551,11 @@ mod tests {
             mode: SelectionUpdateMode::Replace,
         }]);
 
-        assert_eq!(app.workspace.selected_nodes.len(), 2);
-        assert!(!app.workspace.selected_nodes.contains(&a));
-        assert!(app.workspace.selected_nodes.contains(&b));
-        assert!(app.workspace.selected_nodes.contains(&c));
-        assert_eq!(app.workspace.selected_nodes.primary(), Some(c));
+        assert_eq!(app.focused_selection().len(), 2);
+        assert!(!app.focused_selection().contains(&a));
+        assert!(app.focused_selection().contains(&b));
+        assert!(app.focused_selection().contains(&c));
+        assert_eq!(app.focused_selection().primary(), Some(c));
     }
 
     #[test]
@@ -10697,16 +5571,16 @@ mod tests {
             keys: vec![b],
             mode: SelectionUpdateMode::Add,
         }]);
-        assert!(app.workspace.selected_nodes.contains(&a));
-        assert!(app.workspace.selected_nodes.contains(&b));
-        assert_eq!(app.workspace.selected_nodes.primary(), Some(b));
+        assert!(app.focused_selection().contains(&a));
+        assert!(app.focused_selection().contains(&b));
+        assert_eq!(app.focused_selection().primary(), Some(b));
 
         app.apply_reducer_intents([GraphIntent::UpdateSelection {
             keys: vec![a],
             mode: SelectionUpdateMode::Toggle,
         }]);
-        assert!(!app.workspace.selected_nodes.contains(&a));
-        assert!(app.workspace.selected_nodes.contains(&b));
+        assert!(!app.focused_selection().contains(&a));
+        assert!(app.focused_selection().contains(&b));
     }
 
     #[test]
@@ -11721,10 +6595,7 @@ mod tests {
         app.select_node(first, false);
         app.select_node(second, true);
 
-        assert_eq!(
-            app.workspace.selected_nodes.ordered_pair(),
-            Some((first, second))
-        );
+        assert_eq!(app.focused_selection().ordered_pair(), Some((first, second)));
     }
 
     #[test]
@@ -12287,7 +7158,7 @@ mod tests {
 
         assert_eq!(app.workspace.domain.graph.node_count(), 1);
         assert!(app.workspace.domain.graph.get_node(k1).is_none());
-        assert!(app.workspace.selected_nodes.is_empty());
+        assert!(app.focused_selection().is_empty());
     }
 
     #[test]
@@ -12315,7 +7186,7 @@ mod tests {
 
         assert_eq!(app.workspace.domain.graph.node_count(), 1);
         assert!(app.workspace.domain.graph.get_node(k3).is_some());
-        assert!(app.workspace.selected_nodes.is_empty());
+        assert!(app.focused_selection().is_empty());
     }
 
     #[test]
@@ -12380,7 +7251,7 @@ mod tests {
         app.clear_graph();
 
         assert_eq!(app.workspace.domain.graph.node_count(), 0);
-        assert!(app.workspace.selected_nodes.is_empty());
+        assert!(app.focused_selection().is_empty());
         assert!(app.get_node_for_webview(fake_wv_id).is_none());
         assert!(app.workspace.warm_cache_lru.is_empty());
         assert!(!app.workspace.workspace_has_unsaved_changes);
@@ -12607,7 +7478,7 @@ mod tests {
         let key = app.create_new_node_near_center();
 
         assert_eq!(app.workspace.domain.graph.node_count(), 1);
-        assert!(app.workspace.selected_nodes.contains(&key));
+        assert!(app.focused_selection().contains(&key));
 
         let node = app.workspace.domain.graph.get_node(key).unwrap();
         assert!(node.url.starts_with("about:blank#"));
@@ -12626,8 +7497,8 @@ mod tests {
         let k2 = app.create_new_node_near_center();
 
         // New node should be selected, old one deselected
-        assert_eq!(app.workspace.selected_nodes.len(), 1);
-        assert!(app.workspace.selected_nodes.contains(&k2));
+        assert_eq!(app.focused_selection().len(), 1);
+        assert!(app.focused_selection().contains(&k2));
     }
 
     // --- TEST-1: demote/promote lifecycle ---
@@ -13398,7 +8269,7 @@ mod tests {
         app.clear_graph_and_persistence();
 
         assert_eq!(app.workspace.domain.graph.node_count(), 0);
-        assert!(app.workspace.selected_nodes.is_empty());
+        assert!(app.focused_selection().is_empty());
     }
 
     #[test]
