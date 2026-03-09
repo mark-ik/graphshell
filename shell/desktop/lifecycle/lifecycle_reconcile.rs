@@ -126,7 +126,7 @@ pub(crate) fn create_runtime_for_active_prewarm_nodes(
 
     let tile_nodes: HashSet<NodeKey> = tile_compositor::active_node_pane_rects(tiles_tree)
         .into_iter()
-        .map(|(node_key, _)| node_key)
+        .map(|(_, node_key, _)| node_key)
         .collect();
 
     let mut prewarm_intents = Vec::new();
@@ -167,6 +167,8 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             args.favicon_textures,
         );
     }
+
+    webview_controller::apply_pending_browser_commands(args.graph_app, args.window);
 
     tile_runtime::prune_stale_node_panes(
         args.tiles_tree,
@@ -213,7 +215,7 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
     let active_tile_nodes: HashSet<NodeKey> =
         tile_compositor::active_node_pane_rects(args.tiles_tree)
             .into_iter()
-            .map(|(node_key, _)| node_key)
+            .map(|(_, node_key, _)| node_key)
             .collect();
     let (native_overlay_nodes, active_native_overlay_nodes) =
         collect_native_overlay_nodes(args.tiles_tree);

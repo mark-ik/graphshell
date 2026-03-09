@@ -324,7 +324,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         "tile_render_pass: {} active tile rects",
         active_tile_rects.len()
     );
-    for (key, rect) in active_tile_rects.iter() {
+    for (_, key, rect) in active_tile_rects.iter() {
         let mapped = graph_app.get_webview_for_node(*key);
         let has_context = tile_rendering_contexts.contains_key(key);
         log::debug!(
@@ -399,6 +399,15 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
     }
 
+    let visible_node_panes = active_tiles
+        .iter()
+        .filter_map(|tile_id| match tiles_tree.tiles.get(*tile_id) {
+            Some(egui_tiles::Tile::Pane(TileKind::Node(state))) => Some(state.pane_id),
+            _ => None,
+        })
+        .collect();
+    window.set_visible_node_panes(visible_node_panes);
+
     // Ensure runtime viewers exist for active tiles, applying intents immediately
     // so compositing (below) can find mapped runtime viewers via get_webview_for_node.
     if !suppress_runtime_side_effects {
@@ -446,7 +455,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 apply_started.elapsed().as_micros() as u64,
             );
             log::debug!("tile_render_pass: applied runtime viewer creation intents");
-            for (node_key, _) in active_tile_rects.iter().copied() {
+            for (_, node_key, _) in active_tile_rects.iter().copied() {
                 if let Some(wv_id) = graph_app.get_webview_for_node(node_key) {
                     log::debug!(
                         "tile_render_pass: node {:?} NOW mapped to {:?}",
@@ -498,6 +507,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
 
     if let Some(focused_node_pane) = focused_node_pane {
         window.set_focused_pane(Some(focused_node_pane.pane_id));
+        window.set_dialog_owner(Some(DialogOwner::Pane(focused_node_pane.pane_id)));
         if let Some(attachment) =
             registries::phase1_renderer_attachment_for_pane(focused_node_pane.pane_id)
         {
@@ -505,13 +515,11 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             window.set_chrome_projection_source(Some(ChromeProjectionSource::Renderer(
                 attachment.renderer_id,
             )));
-            window.set_dialog_owner(Some(DialogOwner::Renderer(attachment.renderer_id)));
         } else {
             window.set_input_target(Some(InputTarget::Pane(focused_node_pane.pane_id)));
             window.set_chrome_projection_source(Some(ChromeProjectionSource::Pane(
                 focused_node_pane.pane_id,
             )));
-            window.set_dialog_owner(Some(DialogOwner::Pane(focused_node_pane.pane_id)));
         }
     } else {
         window.set_focused_pane(None);
@@ -570,11 +578,11 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         let focused_node_present = focused_node_key.is_some();
         let tiles = active_tiles_for_diag
             .iter()
-            .map(|(node_key, rect)| {
+            .map(|(pane_id, node_key, rect)| {
                 let render_mode =
-                    crate::shell::desktop::workbench::tile_runtime::render_mode_for_node_pane_in_tree(
+                    crate::shell::desktop::workbench::tile_runtime::render_mode_for_pane_in_tree(
                         tiles_tree,
-                        *node_key,
+                        *pane_id,
                     );
                 let mapped_webview = graph_app.get_webview_for_node(*node_key).is_some();
                 let has_context = tile_rendering_contexts.contains_key(node_key);
@@ -586,7 +594,9 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                         has_context,
                     );
                 crate::shell::desktop::runtime::diagnostics::CompositorTileSample {
+                    pane_id: pane_id.to_string(),
                     node_key: *node_key,
+                    render_mode,
                     rect: *rect,
                     mapped_webview,
                     has_context,
@@ -607,10 +617,10 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
         );
 
         if let Some(hovered_node) = diagnostics_state.highlighted_tile_node()
-            && let Some((_, hovered_rect)) = active_tiles_for_diag
+            && let Some((_, _, hovered_rect)) = active_tiles_for_diag
                 .iter()
                 .copied()
-                .find(|(node_key, _)| *node_key == hovered_node)
+                .find(|(_, node_key, _)| *node_key == hovered_node)
         {
             let overlay_layer = egui::LayerId::new(
                 egui::Order::Foreground,

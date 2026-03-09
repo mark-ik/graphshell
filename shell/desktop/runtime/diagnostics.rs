@@ -36,11 +36,13 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
     CHANNEL_INVARIANT_TIMEOUT, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
     CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
+    CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositorReplaySample, replay_samples_snapshot,
 };
+use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 
 static GLOBAL_DIAGNOSTICS_TX: OnceLock<Sender<DiagnosticEvent>> = OnceLock::new();
 
@@ -189,7 +191,9 @@ enum DiagnosticsTab {
 
 #[derive(Clone, Debug)]
 pub(crate) struct CompositorTileSample {
+    pub(crate) pane_id: String,
     pub(crate) node_key: NodeKey,
+    pub(crate) render_mode: TileRenderMode,
     pub(crate) rect: egui::Rect,
     pub(crate) mapped_webview: bool,
     pub(crate) has_context: bool,
@@ -997,6 +1001,49 @@ impl DiagnosticsState {
         })
     }
 
+    fn backend_telemetry_summary(&self) -> Value {
+        let latest_frame = self.compositor_state.frames.back();
+        let mut render_path_counts: HashMap<&'static str, u64> = HashMap::new();
+        let mut render_mode_counts: HashMap<&'static str, u64> = HashMap::new();
+        let mut mapped_webview_count = 0_u64;
+        let mut missing_context_count = 0_u64;
+
+        if let Some(frame) = latest_frame {
+            for tile in &frame.tiles {
+                *render_path_counts.entry(tile.render_path_hint).or_insert(0) += 1;
+                let render_mode_label = match tile.render_mode {
+                    TileRenderMode::CompositedTexture => "composited_texture",
+                    TileRenderMode::NativeOverlay => "native_overlay",
+                    TileRenderMode::EmbeddedEgui => "embedded_egui",
+                    TileRenderMode::Placeholder => "placeholder",
+                };
+                *render_mode_counts.entry(render_mode_label).or_insert(0) += 1;
+                if tile.mapped_webview {
+                    mapped_webview_count += 1;
+                }
+                if !tile.has_context {
+                    missing_context_count += 1;
+                }
+            }
+        }
+
+        json!({
+            "latest_frame_sequence": latest_frame.map(|frame| frame.sequence),
+            "latest_active_tile_count": latest_frame.map(|frame| frame.active_tile_count).unwrap_or(0),
+            "latest_render_path_counts": render_path_counts,
+            "latest_render_mode_counts": render_mode_counts,
+            "latest_mapped_webview_count": mapped_webview_count,
+            "latest_missing_context_count": missing_context_count,
+            "viewer_select_started_count": self.channel_count(CHANNEL_VIEWER_SELECT_STARTED),
+            "viewer_select_succeeded_count": self.channel_count(CHANNEL_VIEWER_SELECT_SUCCEEDED),
+            "viewer_fallback_used_count": self.channel_count(CHANNEL_VIEWER_FALLBACK_USED),
+            "degradation_gpu_pressure_count": self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE),
+            "degradation_placeholder_mode_count": self.channel_count(CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE),
+            "content_composed_count": self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_COMPOSED),
+            "content_skipped_count": self.channel_count(CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED),
+        })
+    }
+
     fn render_compositor_overlay_buckets(&self, ui: &mut egui::Ui) {
         ui.label("Compositor overlay buckets");
 
@@ -1373,7 +1420,9 @@ impl DiagnosticsState {
                     .iter()
                     .map(|tile| {
                         json!({
+                            "pane_id": tile.pane_id,
                             "node_key": format!("{:?}", tile.node_key),
+                            "render_mode": format!("{:?}", tile.render_mode),
                             "rect": {
                                 "min": {"x": tile.rect.min.x, "y": tile.rect.min.y},
                                 "max": {"x": tile.rect.max.x, "y": tile.rect.max.y},
@@ -1435,6 +1484,7 @@ impl DiagnosticsState {
                 "last_duration_us": self.diagnostic_graph.last_span_duration_us,
             },
             "compositor_differential": self.compositor_differential_summary(),
+            "backend_telemetry": self.backend_telemetry_summary(),
             "compositor_replay": self.compositor_replay_summary(),
             "compositor_frames": frames,
             "compositor_replay_samples": replay_samples,
@@ -2775,7 +2825,9 @@ mod tests {
                 node_key: Some(node_key),
             }],
             tiles: vec![CompositorTileSample {
+                pane_id: "pane:test-1".to_string(),
                 node_key,
+                render_mode: TileRenderMode::CompositedTexture,
                 rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(50.0, 40.0)),
                 mapped_webview: true,
                 has_context: true,
@@ -2802,6 +2854,7 @@ mod tests {
         assert!(snapshot["tracing_perf"].is_object());
         assert!(snapshot["channels"].is_object());
         assert!(snapshot["spans"].is_object());
+        assert!(snapshot["backend_telemetry"].is_object());
         assert!(snapshot["compositor_frames"].is_array());
         assert!(snapshot["recent_intents"].is_array());
         assert_eq!(
@@ -2902,7 +2955,9 @@ mod tests {
                 node_key: Some(node_key),
             }],
             tiles: vec![CompositorTileSample {
+                pane_id: "pane:test-2".to_string(),
                 node_key,
+                render_mode: TileRenderMode::CompositedTexture,
                 rect: egui::Rect::from_min_max(egui::pos2(4.0, 6.0), egui::pos2(80.0, 70.0)),
                 mapped_webview: true,
                 has_context: true,
@@ -2956,6 +3011,7 @@ Object {
     "generated_at_unix_secs": String("[unix-secs]"),
     "intent_count": Number(1),
     "top_level_keys": Array [
+        String("backend_telemetry"),
         String("channels"),
         String("compositor_differential"),
         String("compositor_frames"),
@@ -3266,7 +3322,9 @@ Object {
             viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
             hierarchy: vec![],
             tiles: vec![CompositorTileSample {
+                pane_id: "pane:test-9".to_string(),
                 node_key,
+                render_mode: TileRenderMode::CompositedTexture,
                 rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(5.0, 5.0)),
                 mapped_webview: true,
                 has_context: true,
@@ -3287,6 +3345,48 @@ Object {
         let state = DiagnosticsState::new();
         let snapshot = state.snapshot_json_value();
         assert!(snapshot["compositor_replay_samples"].is_array());
+    }
+
+    #[test]
+    fn snapshot_json_includes_backend_telemetry_summary() {
+        let mut state = DiagnosticsState::new();
+        let node_key = NodeKey::new(12);
+        state.push_frame(CompositorFrameSample {
+            sequence: 1,
+            active_tile_count: 1,
+            focused_node_present: true,
+            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
+            hierarchy: vec![],
+            tiles: vec![CompositorTileSample {
+                pane_id: "pane:test-12".to_string(),
+                node_key,
+                render_mode: TileRenderMode::NativeOverlay,
+                rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(6.0, 6.0)),
+                mapped_webview: true,
+                has_context: false,
+                paint_callback_registered: false,
+                render_path_hint: "native-overlay",
+            }],
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
+            byte_len: 1,
+        });
+        state.force_drain_for_tests();
+
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["backend_telemetry"]["latest_render_path_counts"]["native-overlay"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry"]["latest_render_mode_counts"]["native_overlay"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry"]["viewer_select_succeeded_count"].as_u64(),
+            Some(1)
+        );
     }
 
     #[test]

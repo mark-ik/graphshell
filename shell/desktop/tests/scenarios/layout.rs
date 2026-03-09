@@ -204,7 +204,9 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
     ];
     let tiles = vec![
         CompositorTileSample {
+            pane_id: format!("pane:{left:?}"),
             node_key: left,
+            render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture,
             rect: left_rect,
             mapped_webview: true,
             has_context: true,
@@ -212,7 +214,9 @@ fn compositor_multi_tile_layout_samples_have_non_overlapping_rects() {
             render_path_hint: "composited",
         },
         CompositorTileSample {
+            pane_id: format!("pane:{right:?}"),
             node_key: right,
+            render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture,
             rect: right_rect,
             mapped_webview: true,
             has_context: true,
@@ -289,7 +293,9 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
     ];
     let tiles = vec![
         CompositorTileSample {
+            pane_id: format!("pane:{left:?}"),
             node_key: left,
+            render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture,
             rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(330.0, 240.0)),
             mapped_webview: true,
             has_context: true,
@@ -297,7 +303,9 @@ fn compositor_hierarchy_samples_include_split_container_and_child_tiles() {
             render_path_hint: "composited",
         },
         CompositorTileSample {
+            pane_id: format!("pane:{right:?}"),
             node_key: right,
+            render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture,
             rect: egui::Rect::from_min_max(egui::pos2(350.0, 0.0), egui::pos2(680.0, 240.0)),
             mapped_webview: true,
             has_context: true,

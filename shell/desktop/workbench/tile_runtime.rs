@@ -383,6 +383,20 @@ pub(crate) fn render_mode_for_node_pane_in_tree(
         .unwrap_or(TileRenderMode::Placeholder)
 }
 
+pub(crate) fn render_mode_for_pane_in_tree(
+    tiles_tree: &Tree<TileKind>,
+    pane_id: crate::shell::desktop::workbench::pane_model::PaneId,
+) -> TileRenderMode {
+    tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(_, tile)| match tile {
+            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(state.render_mode),
+            _ => None,
+        })
+        .unwrap_or(TileRenderMode::Placeholder)
+}
+
 pub(crate) fn prune_stale_node_pane_keys_only(
     tiles_tree: &mut Tree<TileKind>,
     graph_app: &GraphBrowserApp,
@@ -676,6 +690,33 @@ mod tests {
         assert_eq!(
             super::render_mode_for_node_pane_in_tree(&tree, NodeKey::new(9999)),
             TileRenderMode::Placeholder
+        );
+    }
+
+    #[test]
+    fn render_mode_for_pane_in_tree_prefers_exact_pane_identity() {
+        let node_key = NodeKey::new(11);
+        let mut first = NodePaneState::for_node(node_key);
+        first.render_mode = TileRenderMode::CompositedTexture;
+        let first_pane = first.pane_id;
+
+        let mut second = NodePaneState::for_node(node_key);
+        second.render_mode = TileRenderMode::NativeOverlay;
+        let second_pane = second.pane_id;
+
+        let mut tiles = Tiles::default();
+        let a = tiles.insert_pane(TileKind::Node(first));
+        let b = tiles.insert_pane(TileKind::Node(second));
+        let root = tiles.insert_tab_tile(vec![a, b]);
+        let tree = Tree::new("tile_runtime_render_mode_lookup_by_pane", root, tiles);
+
+        assert_eq!(
+            super::render_mode_for_pane_in_tree(&tree, first_pane),
+            TileRenderMode::CompositedTexture
+        );
+        assert_eq!(
+            super::render_mode_for_pane_in_tree(&tree, second_pane),
+            TileRenderMode::NativeOverlay
         );
     }
 }

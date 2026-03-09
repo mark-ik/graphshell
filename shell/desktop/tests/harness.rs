@@ -70,7 +70,9 @@ impl TestRegistry {
             node_key: Some(key),
         }];
         let tiles = vec![CompositorTileSample {
+            pane_id: format!("pane:{key:?}"),
             node_key: key,
+            render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::CompositedTexture,
             rect,
             mapped_webview,
             has_context,

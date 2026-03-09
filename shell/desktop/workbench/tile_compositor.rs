@@ -49,16 +49,17 @@ enum ScheduledOverlay {
 
 #[derive(Clone, Copy)]
 struct ScheduledPanePass {
+    pane_id: PaneId,
     node_key: NodeKey,
     tile_rect: egui::Rect,
     render_mode: TileRenderMode,
     overlay: Option<ScheduledOverlay>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct DegradedReceipt {
     tile_rect: egui::Rect,
-    message: &'static str,
+    message: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,12 +73,10 @@ struct CompositedPassCounters {
     evaluated: usize,
     skipped: usize,
     composed: usize,
+    composed_estimated_bytes: usize,
 }
 
-const GPU_PRESSURE_DEGRADED_RECEIPT: &str =
-    "Degraded: content deferred due GPU pressure. Wait or reduce active viewers.";
-
-const DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME: usize = 6;
+const DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CompositedContentSignature {
@@ -160,10 +159,29 @@ fn should_cull_tile_content(tile_rect: egui::Rect, viewport_rect: egui::Rect) ->
 }
 
 fn should_degrade_for_gpu_pressure(
-    composed_content_passes: usize,
-    budget_per_frame: usize,
+    composed_content_bytes: usize,
+    next_tile_estimated_bytes: usize,
+    budget_per_frame_bytes: usize,
 ) -> bool {
-    composed_content_passes >= budget_per_frame
+    composed_content_bytes.saturating_add(next_tile_estimated_bytes) > budget_per_frame_bytes
+}
+
+fn estimated_tile_content_bytes(tile_rect: egui::Rect, pixels_per_point: f32) -> usize {
+    let width_px = (tile_rect.width().max(0.0) * pixels_per_point).ceil() as usize;
+    let height_px = (tile_rect.height().max(0.0) * pixels_per_point).ceil() as usize;
+    width_px.saturating_mul(height_px).saturating_mul(4)
+}
+
+fn format_gpu_pressure_degraded_receipt(
+    estimated_tile_bytes: usize,
+    budget_per_frame_bytes: usize,
+) -> String {
+    let estimated_mib = estimated_tile_bytes as f32 / (1024.0 * 1024.0);
+    let budget_mib = budget_per_frame_bytes as f32 / (1024.0 * 1024.0);
+    format!(
+        "Degraded: deferred {:.1} MiB tile after {:.1} MiB/frame GPU budget.",
+        estimated_mib, budget_mib
+    )
 }
 
 fn sync_native_overlay_for_tile(node_key: NodeKey, tile_rect: egui::Rect, visible: bool) {
@@ -223,16 +241,20 @@ fn run_composited_texture_content_pass(
     active_composited_nodes.insert(node_key);
 
     let signature = content_signature_for_tile(webview_id, tile_rect, ctx.pixels_per_point());
+    let estimated_tile_bytes = estimated_tile_content_bytes(tile_rect, ctx.pixels_per_point());
     counters.evaluated += 1;
     let differential_decision = differential_content_decision(node_key, signature);
 
-    if should_degrade_for_gpu_pressure(counters.composed, DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME)
-    {
+    if should_degrade_for_gpu_pressure(
+        counters.composed_estimated_bytes,
+        estimated_tile_bytes,
+        DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME,
+    ) {
         counters.skipped += 1;
         pass_tracker.record_content_pass(node_key);
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_COMPOSITOR_DEGRADATION_GPU_PRESSURE,
-            byte_len: DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+            byte_len: estimated_tile_bytes,
         });
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE,
@@ -240,7 +262,10 @@ fn run_composited_texture_content_pass(
         });
         degraded_receipts.push(DegradedReceipt {
             tile_rect,
-            message: GPU_PRESSURE_DEGRADED_RECEIPT,
+            message: format_gpu_pressure_degraded_receipt(
+                estimated_tile_bytes,
+                DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME,
+            ),
         });
         match overlay {
             Some(ScheduledOverlay::Focus) => pending_overlay_passes.push(focus_overlay_for_mode(
@@ -312,6 +337,9 @@ fn run_composited_texture_content_pass(
             );
             pass_tracker.record_content_pass(node_key);
             counters.composed += 1;
+            counters.composed_estimated_bytes = counters
+                .composed_estimated_bytes
+                .saturating_add(estimated_tile_bytes);
             true
         }
         CompositedContentPassOutcome::MissingContentCallback => {
@@ -336,14 +364,14 @@ fn clear_composited_signature_cache_for_tests() {
 
 fn schedule_active_node_pane_passes(
     tiles_tree: &Tree<TileKind>,
-    active_tile_rects: Vec<(NodeKey, egui::Rect)>,
+    active_tile_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
     focused_node_key: Option<NodeKey>,
     focus_ring_alpha: f32,
     hovered_node_key: Option<NodeKey>,
 ) -> Vec<ScheduledPanePass> {
     let mut out = Vec::with_capacity(active_tile_rects.len());
-    for (node_key, tile_rect) in active_tile_rects {
-        let render_mode = render_mode_for_node_pane(tiles_tree, node_key);
+    for (pane_id, node_key, tile_rect) in active_tile_rects {
+        let render_mode = render_mode_for_pane(tiles_tree, pane_id);
         let overlay = if focused_node_key == Some(node_key) && focus_ring_alpha > 0.0 {
             Some(ScheduledOverlay::Focus)
         } else if hovered_node_key == Some(node_key) {
@@ -352,6 +380,7 @@ fn schedule_active_node_pane_passes(
             None
         };
         out.push(ScheduledPanePass {
+            pane_id,
             node_key,
             tile_rect,
             render_mode,
@@ -361,13 +390,15 @@ fn schedule_active_node_pane_passes(
     out
 }
 
-pub(crate) fn active_node_pane_rects(tiles_tree: &Tree<TileKind>) -> Vec<(NodeKey, egui::Rect)> {
+pub(crate) fn active_node_pane_rects(
+    tiles_tree: &Tree<TileKind>,
+) -> Vec<(PaneId, NodeKey, egui::Rect)> {
     let mut tile_rects = Vec::new();
     for tile_id in tiles_tree.active_tiles() {
         if let Some(Tile::Pane(TileKind::Node(state))) = tiles_tree.tiles.get(tile_id)
             && let Some(rect) = tiles_tree.tiles.rect(tile_id)
         {
-            tile_rects.push((state.node, rect));
+            tile_rects.push((state.pane_id, state.node, rect));
         }
     }
     tile_rects
@@ -419,7 +450,7 @@ pub(crate) fn node_for_frame_activation(
         .or_else(|| {
         active_node_pane_rects(tiles_tree)
             .first()
-            .map(|(node_key, _)| *node_key)
+            .map(|(_, node_key, _)| *node_key)
         })
 }
 
@@ -490,7 +521,7 @@ pub(crate) fn composite_active_node_pane_webviews(
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
-    active_tile_rects: Vec<(NodeKey, egui::Rect)>,
+    active_tile_rects: Vec<(PaneId, NodeKey, egui::Rect)>,
     focused_node_key: Option<NodeKey>,
     focus_ring_alpha: f32,
 ) {
@@ -506,7 +537,7 @@ pub(crate) fn composite_active_node_pane_webviews(
     let hover_pos = ctx.input(|i| i.pointer.hover_pos());
     let mut hovered_node_key: Option<NodeKey> = None;
     if let Some(pos) = hover_pos {
-        for (node_key, tile_rect) in active_tile_rects.iter().copied() {
+        for (_, node_key, tile_rect) in active_tile_rects.iter().copied() {
             if !tile_rect.contains(pos) {
                 continue;
             }
@@ -642,7 +673,7 @@ fn render_degraded_receipts(ctx: &egui::Context, receipts: &[DegradedReceipt]) {
         painter.text(
             box_rect.left_center() + egui::vec2(8.0, 0.0),
             egui::Align2::LEFT_CENTER,
-            receipt.message,
+            &receipt.message,
             font.clone(),
             egui::Color32::from_rgb(255, 210, 120),
         );
@@ -662,15 +693,8 @@ pub(crate) fn active_node_pane(tiles_tree: &Tree<TileKind>) -> Option<FocusedNod
         })
 }
 
-fn render_mode_for_node_pane(tiles_tree: &Tree<TileKind>, node_key: NodeKey) -> TileRenderMode {
-    tiles_tree
-        .tiles
-        .iter()
-        .find_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(state.render_mode),
-            _ => None,
-        })
-        .unwrap_or(TileRenderMode::Placeholder)
+fn render_mode_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> TileRenderMode {
+    crate::shell::desktop::workbench::tile_runtime::render_mode_for_pane_in_tree(tiles_tree, pane_id)
 }
 
 #[derive(Clone, Copy)]
@@ -808,6 +832,16 @@ mod tests {
             |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == b),
         );
         tree
+    }
+
+    fn pane_id_for_node(tree: &Tree<TileKind>, node_key: NodeKey) -> PaneId {
+        tree.tiles
+            .iter()
+            .find_map(|(_, tile)| match tile {
+                Tile::Pane(TileKind::Node(state)) if state.node == node_key => Some(state.pane_id),
+                _ => None,
+            })
+            .expect("expected pane id for node")
     }
 
     #[test]
@@ -999,14 +1033,18 @@ mod tests {
             other,
             TileRenderMode::NativeOverlay,
         );
+        let focused_pane = pane_id_for_node(&tree, focused);
+        let other_pane = pane_id_for_node(&tree, other);
         let passes = schedule_active_node_pane_passes(
             &tree,
             vec![
                 (
+                    focused_pane,
                     focused,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
                 ),
                 (
+                    other_pane,
                     other,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
                 ),
@@ -1037,14 +1075,18 @@ mod tests {
             hovered,
             TileRenderMode::NativeOverlay,
         );
+        let focused_pane = pane_id_for_node(&tree, focused);
+        let hovered_pane = pane_id_for_node(&tree, hovered);
         let passes = schedule_active_node_pane_passes(
             &tree,
             vec![
                 (
+                    focused_pane,
                     focused,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
                 ),
                 (
+                    hovered_pane,
                     hovered,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
                 ),
@@ -1191,15 +1233,19 @@ mod tests {
             differential_content_decision(focused, signature),
             DifferentialContentDecision::SkipUnchanged
         ));
+        let focused_pane = pane_id_for_node(&tree, focused);
+        let other_pane = pane_id_for_node(&tree, other);
 
         let passes = schedule_active_node_pane_passes(
             &tree,
             vec![
                 (
+                    focused_pane,
                     focused,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
                 ),
                 (
+                    other_pane,
                     other,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
                 ),
@@ -1241,15 +1287,19 @@ mod tests {
             differential_content_decision(hovered, signature),
             DifferentialContentDecision::SkipUnchanged
         ));
+        let hovered_pane = pane_id_for_node(&tree, hovered);
+        let other_pane = pane_id_for_node(&tree, other);
 
         let passes = schedule_active_node_pane_passes(
             &tree,
             vec![
                 (
+                    hovered_pane,
                     hovered,
                     egui::Rect::from_min_max(egui::pos2(120.0, 0.0), egui::pos2(220.0, 60.0)),
                 ),
                 (
+                    other_pane,
                     other,
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 60.0)),
                 ),
@@ -1290,13 +1340,21 @@ mod tests {
 
     #[test]
     fn gpu_pressure_degradation_triggers_at_budget_boundary() {
-        assert!(!should_degrade_for_gpu_pressure(
-            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME - 1,
-            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
-        ));
         assert!(should_degrade_for_gpu_pressure(
-            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
-            DEFAULT_COMPOSITED_CONTENT_BUDGET_PER_FRAME,
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME,
+            1,
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME,
         ));
+        assert!(!should_degrade_for_gpu_pressure(
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME.saturating_sub(1024),
+            1024,
+            DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME,
+        ));
+    }
+
+    #[test]
+    fn estimated_tile_content_bytes_uses_rgba_pixel_footprint() {
+        let rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 50.0));
+        assert_eq!(estimated_tile_content_bytes(rect, 2.0), 200 * 100 * 4);
     }
 }
