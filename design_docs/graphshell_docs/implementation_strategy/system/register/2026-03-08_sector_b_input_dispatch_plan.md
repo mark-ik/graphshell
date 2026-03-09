@@ -10,7 +10,7 @@
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `InputRegistry`, `ActionRegistry`, `RendererRegistry` (new)
 **Specs:** [input_registry_spec.md](input_registry_spec.md), [action_registry_spec.md](action_registry_spec.md)
-**Execution note:** `RendererRegistry` Phase B1 is executed as part of [../2026-03-08_servoshell_debtclear_plan.md](../2026-03-08_servoshell_debtclear_plan.md) Phases 1–2. Sector B2/B3 remain follow-on registry work.
+**Execution note:** `RendererRegistry` Phase B1 is landed as part of [../2026-03-08_servoshell_debtclear_plan.md](../2026-03-08_servoshell_debtclear_plan.md) Phases 1–2. Sector B2/B3 remain follow-on registry work, with initial typed/context-aware keyboard resolution now landed for the current toolbar and graph-view enter path.
 
 ---
 
@@ -43,9 +43,9 @@ debt-clear plan itself.
 
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
-| `InputRegistry` | ✅ | Partial | Only 4 keyboard bindings; no gamepad; no context; no chords; no runtime rebind |
+| `InputRegistry` | ✅ | Partial | Typed key bindings and context-aware resolution are landed for the current keyboard path; missing gamepad, chords, runtime rebind, and wider surface coverage |
 | `ActionRegistry` | ✅ | Partial | Only 7 actions; no namespace enforcement; no capability guard; sync-only handlers |
-| `RendererRegistry` | ❌ | Not started | Required by debtclear Phase 1 |
+| `RendererRegistry` | ✅ | Phase B1 landed | Follow-through is mostly validation and broader authority-path cleanup under debtclear, not missing registry scaffolding |
 
 ---
 
@@ -140,6 +140,8 @@ When a pane is closed:
 
 ### B2.1 — Typed `InputBinding` and modifier representation
 
+Execution note (2026-03-09): the current keyboard path now uses typed `InputBinding` values plus `InputContext`-aware resolution for the existing toolbar submit/navigation bindings and a graph-view Enter mapping. Gamepad and chord variants remain scaffolded-but-unwired follow-on work.
+
 Replace the flat string key with a typed binding:
 
 ```rust
@@ -166,6 +168,8 @@ as `InputBinding::Key` values with appropriate modifier masks.
 - [ ] `register_binding(binding: InputBinding, action_id: ActionId, context: InputContext)`.
 
 ### B2.2 — Context-aware resolution
+
+Execution note (2026-03-09): deterministic context-aware resolution is now present in the registry for the landed keyboard bindings, including `Enter` resolving differently in `OmnibarOpen` and `GraphView`. Conflict diagnostics are emitted when the same `(binding, context)` pair is registered to multiple actions.
 
 The `input_registry_spec.md`'s `context-resolution` policy requires that the same physical input
 can resolve to different actions depending on active context.

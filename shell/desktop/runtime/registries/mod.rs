@@ -653,7 +653,15 @@ impl RegistryRuntime {
     }
 
     pub(crate) fn resolve_input_binding(&self, binding_id: &str) -> bool {
-        let resolution = self.input.resolve(binding_id);
+        let resolution = self.input.resolve_binding_id(binding_id);
+
+        if resolution.conflicted {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_INPUT_BINDING_CONFLICT,
+                byte_len: resolution.binding_label.len(),
+            });
+            return false;
+        }
 
         if resolution.matched {
             emit_event(DiagnosticEvent::MessageSent {
@@ -665,7 +673,7 @@ impl RegistryRuntime {
 
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_INPUT_BINDING_MISSING,
-            byte_len: resolution.binding_id.len(),
+            byte_len: resolution.binding_label.len(),
         });
         false
     }
@@ -1173,7 +1181,15 @@ pub(crate) fn phase2_resolve_input_binding_for_tests(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     binding_id: &str,
 ) -> bool {
-    let resolution = RegistryRuntime::default().input.resolve(binding_id);
+    let resolution = RegistryRuntime::default().input.resolve_binding_id(binding_id);
+
+    if resolution.conflicted {
+        diagnostics_state.emit_message_sent_for_tests(
+            CHANNEL_INPUT_BINDING_CONFLICT,
+            resolution.binding_label.len(),
+        );
+        return false;
+    }
 
     if resolution.matched {
         diagnostics_state.emit_message_sent_for_tests(
@@ -1184,7 +1200,7 @@ pub(crate) fn phase2_resolve_input_binding_for_tests(
     }
 
     diagnostics_state
-        .emit_message_sent_for_tests(CHANNEL_INPUT_BINDING_MISSING, resolution.binding_id.len());
+        .emit_message_sent_for_tests(CHANNEL_INPUT_BINDING_MISSING, resolution.binding_label.len());
     false
 }
 
