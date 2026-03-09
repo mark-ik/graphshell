@@ -352,9 +352,9 @@ Duplicate cleanup note: `#172` was created in parallel and closed as a duplicate
 
 Execution note (2026-03-09):
 - `#168` is closed in code: compositor GPU degradation now uses estimated per-tile byte accounting instead of a coarse pass-count cap, degradation receipts/diagnostics expose the budgeted failure mode explicitly, diagnostics snapshots export budget utilization and degraded-byte aggregates, and compositor frame samples carry per-tile estimated content bytes.
-- `#169` first-pass implementation is landed: command surfaces now preserve focused `PaneId` when issuing viewer backend changes, `SetPaneView` updates the exact target node pane when present, and compositor/render-mode lookup no longer collapses duplicate node panes by `NodeKey` alone.
+- `#169` is closed in code: command surfaces and tile chrome route backend changes through `SwapViewerBackend`, focused `PaneId` targeting is preserved when present, node-owned session state (`url/history`, `session_scroll`, `session_form_draft`) remains the swap contract, and lifecycle reconcile now tears down stale Servo/Wry runtime ownership before the alternate backend reattaches.
 - `#170` first-pass implementation is landed: diagnostics snapshots now export a local `backend_telemetry` summary derived from compositor frame samples and viewer-selection/degradation channel counts.
-- Remaining follow-through is intentionally narrower: a dedicated backend-swap intent may still replace the current `SetPaneView` path, and backend telemetry remains local-first rather than persisted or Verse-published.
+- Remaining follow-through is intentionally narrower: richer live backend replay hooks may still improve parity beyond the current node-owned session contract, and backend telemetry remains local-first rather than persisted or Verse-published.
 
 Each issue should explicitly reference Appendix subsection IDs (`A.1`, `A.3`, etc.) and include a **Foundation Done Gate**: "removes one concrete blocker for future capabilities without introducing new cross-lane hotspot conflicts."
 

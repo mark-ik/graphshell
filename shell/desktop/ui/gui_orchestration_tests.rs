@@ -7,7 +7,7 @@ use crate::shell::desktop::runtime::registries::{
 };
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::workbench::pane_model::{
-    NodePaneState, PaneViewState, ToolPaneState, ViewerId,
+    NodePaneState, PaneId, ToolPaneState, ViewerId,
 };
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
@@ -274,15 +274,11 @@ fn open_graph_view_pane_intent_routes_to_workbench_pane_open() {
 }
 
 #[test]
-fn set_pane_view_updates_exact_node_pane_by_pane_id() {
+fn swap_viewer_backend_updates_exact_node_pane_by_pane_id() {
     let mut app = GraphBrowserApp::new_for_testing();
     let first_node = app.add_node_and_sync(
         "https://first.example".to_string(),
         euclid::default::Point2D::new(0.0, 0.0),
-    );
-    let second_node = app.add_node_and_sync(
-        "https://second.example".to_string(),
-        euclid::default::Point2D::new(10.0, 0.0),
     );
 
     let first_state = NodePaneState::for_node(first_node);
@@ -293,16 +289,12 @@ fn set_pane_view_updates_exact_node_pane_by_pane_id() {
     let first_tile = tiles.insert_pane(TileKind::Node(first_state));
     let second_tile = tiles.insert_pane(TileKind::Node(second_state));
     let root = tiles.insert_tab_tile(vec![first_tile, second_tile]);
-    let mut tree = Tree::new("set_pane_view_exact_target", root, tiles);
+    let mut tree = Tree::new("swap_viewer_backend_exact_target", root, tiles);
 
-    let mut intents = vec![WorkbenchIntent::SetPaneView {
+    let mut intents = vec![WorkbenchIntent::SwapViewerBackend {
         pane: first_pane,
-        view: PaneViewState::Node(NodePaneState {
-            pane_id: first_pane,
-            node: second_node,
-            viewer_id_override: Some(ViewerId::new("viewer:wry")),
-            render_mode: crate::shell::desktop::workbench::pane_model::TileRenderMode::Placeholder,
-        }),
+        node: first_node,
+        viewer_id_override: Some(ViewerId::new("viewer:wry")),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -314,7 +306,41 @@ fn set_pane_view_updates_exact_node_pane_by_pane_id() {
             tile,
             Tile::Pane(TileKind::Node(state))
                 if state.pane_id == first_pane
-                    && state.node == second_node
+                    && state.node == first_node
+                    && state.viewer_id_override.as_ref().map(|id| id.as_str()) == Some("viewer:wry")
+        )
+    }));
+}
+
+#[test]
+fn swap_viewer_backend_falls_back_to_open_or_focus_when_exact_pane_is_missing() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let node = app.add_node_and_sync(
+        "https://fallback.example".to_string(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+
+    let state = NodePaneState::for_node(node);
+    let mut tiles = Tiles::default();
+    let tile = tiles.insert_pane(TileKind::Node(state));
+    let root = tiles.insert_tab_tile(vec![tile]);
+    let mut tree = Tree::new("swap_viewer_backend_fallback", root, tiles);
+
+    let mut intents = vec![WorkbenchIntent::SwapViewerBackend {
+        pane: PaneId::new(),
+        node,
+        viewer_id_override: Some(ViewerId::new("viewer:wry")),
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(node_pane_count(&tree), 1);
+    assert!(tree.tiles.iter().any(|(_, tile)| {
+        matches!(
+            tile,
+            Tile::Pane(TileKind::Node(state))
+                if state.node == node
                     && state.viewer_id_override.as_ref().map(|id| id.as_str()) == Some("viewer:wry")
         )
     }));

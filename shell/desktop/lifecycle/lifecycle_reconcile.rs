@@ -20,6 +20,8 @@ use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
 use crate::shell::desktop::lifecycle::webview_controller;
+#[cfg(feature = "wry")]
+use crate::mods::native::verso;
 use crate::shell::desktop::workbench::pane_model::NodePaneState;
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_compositor;
@@ -217,9 +219,26 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
             .into_iter()
             .map(|(_, node_key, _)| node_key)
             .collect();
+    let composited_runtime_nodes =
+        tile_runtime::all_node_pane_keys_using_composited_runtime(args.tiles_tree, args.graph_app);
     let (native_overlay_nodes, active_native_overlay_nodes) =
         collect_native_overlay_nodes(args.tiles_tree);
     let has_node_panes = !tile_nodes.is_empty();
+
+    for node_key in tile_nodes.difference(&composited_runtime_nodes).copied() {
+        if let Some(webview_id) = args.graph_app.get_webview_for_node(node_key) {
+            args.window.close_webview(webview_id);
+            args.frame_intents
+                .push(RuntimeEvent::UnmapWebview { webview_id }.into());
+        }
+        args.tile_rendering_contexts.remove(&node_key);
+    }
+
+    #[cfg(feature = "wry")]
+    for node_key in tile_nodes.difference(&native_overlay_nodes).copied() {
+        let _ = verso::destroy_wry_overlay_for_node(node_key);
+    }
+
     // Emit lifecycle promotion intents for active tiles (intents applied after reconcile).
     // Runtime viewer creation happens in tile_render_pass after these intents are applied.
     for node_key in active_tile_nodes.iter().copied() {
@@ -477,6 +496,34 @@ mod tests {
         assert!(
             production_source.contains("LifecycleCause::WorkspaceRetention"),
             "inactive NativeOverlay paths should demote to warm with WorkspaceRetention cause"
+        );
+    }
+
+    #[test]
+    fn test_lifecycle_reconcile_releases_stale_composited_runtime_on_backend_swap() {
+        let source = include_str!("lifecycle_reconcile.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("all_node_pane_keys_using_composited_runtime"),
+            "reconcile should compute composited-runtime ownership before runtime handoff"
+        );
+        assert!(
+            production_source.contains("close_webview(webview_id)"),
+            "reconcile should close stale Servo webviews when a pane swaps away from composited runtime"
+        );
+        assert!(
+            production_source.contains("RuntimeEvent::UnmapWebview { webview_id }"),
+            "reconcile should unmap stale Servo webviews during backend handoff"
+        );
+    }
+
+    #[test]
+    fn test_lifecycle_reconcile_releases_stale_native_overlay_on_backend_swap() {
+        let source = include_str!("lifecycle_reconcile.rs");
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_source.contains("destroy_wry_overlay_for_node"),
+            "reconcile should destroy stale Wry overlays when a pane swaps away from NativeOverlay"
         );
     }
 }

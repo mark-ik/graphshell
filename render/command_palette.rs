@@ -24,7 +24,7 @@ use crate::render::command_profile::{
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::workbench::pane_model::{
-    NodePaneState, PaneId, PaneViewState, ToolPaneState, ViewerId,
+    PaneId, ToolPaneState, ViewerId,
 };
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::{Key, Window};
@@ -629,13 +629,12 @@ pub(crate) fn execute_action(
                     ActionId::NodeRenderWry => Some(ViewerId::new("viewer:wry")),
                     _ => unreachable!("non-render action reached render action branch"),
                 };
-                let mut state = NodePaneState::for_node(key);
-                state.viewer_id_override = viewer_id_override;
-                app.enqueue_workbench_intent(WorkbenchIntent::SetPaneView {
+                app.enqueue_workbench_intent(WorkbenchIntent::SwapViewerBackend {
                     pane: focused_pane_id
                         .filter(|_| focused_pane_node == Some(key))
                         .unwrap_or_else(PaneId::new),
-                    view: PaneViewState::Node(state),
+                    node: key,
+                    viewer_id_override,
                 });
             }
         }
@@ -758,7 +757,7 @@ mod tests {
     #[test]
     fn node_render_action_targets_focused_pane_when_node_matches() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let node = app.add_node_and_sync(
+        let target_node = app.add_node_and_sync(
             "https://focused-pane.example".to_string(),
             euclid::default::Point2D::new(0.0, 0.0),
         );
@@ -769,19 +768,19 @@ mod tests {
             &mut app,
             ActionId::NodeRenderWry,
             None,
-            Some(node),
+            Some(target_node),
             &mut intents,
-            Some(node),
+            Some(target_node),
             Some(pane_id),
         );
 
         let drained = app.take_pending_workbench_intents();
         assert!(matches!(
             drained.as_slice(),
-            [WorkbenchIntent::SetPaneView { pane, view: PaneViewState::Node(state) }]
+            [WorkbenchIntent::SwapViewerBackend { pane, node, viewer_id_override }]
                 if *pane == pane_id
-                    && state.node == node
-                    && state.viewer_id_override.as_ref().map(|id| id.as_str()) == Some("viewer:wry")
+                    && *node == target_node
+                    && viewer_id_override.as_ref().map(|id| id.as_str()) == Some("viewer:wry")
         ));
     }
 

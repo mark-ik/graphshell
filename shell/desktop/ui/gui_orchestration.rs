@@ -857,7 +857,7 @@ fn focus_tool_surface_return_target(
 ///   not flow through the graph reducer or the WAL.
 ///
 /// Intents tagged as workbench-authority (`OpenToolPane`, `SplitPane`,
-/// `DetachNodeToSplit`, `SetPaneView`, `OpenNodeInPane`, tool-surface
+/// `DetachNodeToSplit`, `SwapViewerBackend`, `SetPaneView`, `OpenNodeInPane`, tool-surface
 /// toggles/settings URLs) must be drained here, before `apply_intents` is
 /// called. Any that leak through will trip reducer hardening (panic in
 /// debug/test, warning in release for non-layout authority leaks).
@@ -988,6 +988,7 @@ fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatch
         | WorkbenchIntent::OpenNoteUrl { .. }
         | WorkbenchIntent::OpenNodeUrl { .. }
         | WorkbenchIntent::OpenClipUrl { .. }
+        | WorkbenchIntent::SwapViewerBackend { .. }
         | WorkbenchIntent::SetPaneView { .. }
         | WorkbenchIntent::SplitPane { .. }
         | WorkbenchIntent::DetachNodeToSplit { .. }
@@ -1061,6 +1062,14 @@ fn dispatch_workbench_authority_intent(
         }
         WorkbenchIntent::OpenNodeInPane { node, pane } => {
             handle_open_node_in_pane_intent(graph_app, tiles_tree, node, pane);
+            None
+        }
+        WorkbenchIntent::SwapViewerBackend {
+            pane,
+            node,
+            viewer_id_override,
+        } => {
+            handle_swap_viewer_backend_intent(graph_app, tiles_tree, pane, node, viewer_id_override);
             None
         }
         WorkbenchIntent::SetPaneView { pane, view } => {
@@ -1652,6 +1661,49 @@ fn handle_set_pane_view_intent(
             );
         }
     }
+}
+
+fn handle_swap_viewer_backend_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    pane: crate::shell::desktop::workbench::pane_model::PaneId,
+    node: NodeKey,
+    viewer_id_override: Option<crate::shell::desktop::workbench::pane_model::ViewerId>,
+) {
+    let exact_pane_updated = if let Some((_, Tile::Pane(TileKind::Node(node_state)))) = tiles_tree
+        .tiles
+        .iter_mut()
+        .find(|(_, tile)| {
+            matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.pane_id == pane && node_state.node == node)
+        })
+    {
+        node_state.viewer_id_override = viewer_id_override.clone();
+        true
+    } else {
+        false
+    };
+
+    if exact_pane_updated {
+        let _ = tiles_tree.make_active(
+            |_, tile| matches!(tile, Tile::Pane(TileKind::Node(candidate)) if candidate.pane_id == pane),
+        );
+    } else {
+        crate::shell::desktop::workbench::tile_view_ops::open_or_focus_node_pane(
+            tiles_tree, graph_app, node,
+        );
+
+        if let Some((_, Tile::Pane(TileKind::Node(node_state)))) =
+            tiles_tree.tiles.iter_mut().find(|(_, tile)| {
+                matches!(tile, Tile::Pane(TileKind::Node(node_state)) if node_state.node == node)
+            })
+        {
+            node_state.viewer_id_override = viewer_id_override;
+        }
+    }
+
+    crate::shell::desktop::workbench::tile_runtime::refresh_node_pane_render_modes(
+        tiles_tree, graph_app,
+    );
 }
 
 fn handle_split_pane_intent(

@@ -132,9 +132,21 @@ fn wry_unavailable_reason(graph_app: &GraphBrowserApp) -> Option<WryUnavailableR
     None
 }
 
+fn request_viewer_backend_swap(
+    graph_app: &mut GraphBrowserApp,
+    state: &NodePaneState,
+    viewer_id_override: Option<ViewerId>,
+) {
+    graph_app.enqueue_workbench_intent(WorkbenchIntent::SwapViewerBackend {
+        pane: state.pane_id,
+        node: state.node,
+        viewer_id_override,
+    });
+}
+
 fn render_node_viewer_backend_selector(
     ui: &mut Ui,
-    graph_app: &GraphBrowserApp,
+    graph_app: &mut GraphBrowserApp,
     state: &mut NodePaneState,
 ) {
     ui.horizontal_wrapped(|ui| {
@@ -142,7 +154,7 @@ fn render_node_viewer_backend_selector(
 
         let auto_selected = state.viewer_id_override.is_none();
         if ui.selectable_label(auto_selected, "Auto").clicked() {
-            state.viewer_id_override = None;
+            request_viewer_backend_swap(graph_app, state, None);
         }
 
         let webview_selected = state
@@ -150,7 +162,7 @@ fn render_node_viewer_backend_selector(
             .as_ref()
             .is_some_and(|viewer| viewer.as_str() == "viewer:webview");
         if ui.selectable_label(webview_selected, "WebView").clicked() {
-            state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+            request_viewer_backend_swap(graph_app, state, Some(ViewerId::new("viewer:webview")));
         }
 
         let wry_selected = state
@@ -163,7 +175,7 @@ fn render_node_viewer_backend_selector(
             egui::Button::new("Wry").selected(wry_selected),
         );
         if wry_response.clicked() {
-            state.viewer_id_override = Some(ViewerId::new("viewer:wry"));
+            request_viewer_backend_swap(graph_app, state, Some(ViewerId::new("viewer:wry")));
         }
         if let Some(reason) = wry_disabled_reason {
             wry_response.on_hover_text(reason.message());
@@ -796,7 +808,19 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             }
             TileKind::Node(state) => {
                 let node_key = state.node;
-                let Some(node) = self.graph_app.domain_graph().get_node(node_key) else {
+                let Some((node_url, node_mime_hint, node_address_kind, node_lifecycle)) = self
+                    .graph_app
+                    .domain_graph()
+                    .get_node(node_key)
+                    .map(|node| {
+                        (
+                            node.url.clone(),
+                            node.mime_hint.clone(),
+                            node.address_kind.clone(),
+                            node.lifecycle,
+                        )
+                    })
+                else {
                     ui.label("Missing node for this tile.");
                     return UiResponse::None;
                 };
@@ -809,7 +833,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     .map(|viewer_id| viewer_id.as_str().to_string())
                     .unwrap_or_else(|| {
                         crate::registries::atomic::viewer::ViewerRegistry::default()
-                            .select_for(node.mime_hint.as_deref(), node.address_kind)
+                            .select_for(node_mime_hint.as_deref(), node_address_kind)
                             .to_string()
                     });
 
@@ -817,9 +841,9 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     effective_viewer_id.as_str(),
                     "viewer:plaintext" | "viewer:markdown"
                 ) {
-                    ui.label(format!("{}", node.url));
+                    ui.label(format!("{}", node_url));
                     ui.separator();
-                    match load_plaintext_content_for_node(&node.url) {
+                    match load_plaintext_content_for_node(&node_url) {
                         Ok(PlaintextContent::Text(content)) => {
                             egui::ScrollArea::vertical().show(ui, |ui| {
                                 if effective_viewer_id.as_str() == "viewer:markdown" {
@@ -871,10 +895,14 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                             ui.label(reason.message());
                             ui.horizontal(|ui| {
                                 if ui.button("Use WebView").clicked() {
-                                    state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+                                    request_viewer_backend_swap(
+                                        self.graph_app,
+                                        state,
+                                        Some(ViewerId::new("viewer:webview")),
+                                    );
                                 }
                                 if ui.button("Clear Viewer Override").clicked() {
-                                    state.viewer_id_override = None;
+                                    request_viewer_backend_swap(self.graph_app, state, None);
                                 }
                             });
                         } else {
@@ -886,7 +914,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 "This pane is rendered through native overlay sync (not composited texture).",
                             );
                         }
-                        ui.small(format!("URL: {}", node.url));
+                        ui.small(format!("URL: {}", node_url));
                         return UiResponse::None;
                     }
 
@@ -916,10 +944,14 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         );
                         ui.horizontal(|ui| {
                             if ui.button("Use WebView Fallback").clicked() {
-                                state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+                                request_viewer_backend_swap(
+                                    self.graph_app,
+                                    state,
+                                    Some(ViewerId::new("viewer:webview")),
+                                );
                             }
                             if ui.button("Clear Viewer Override").clicked() {
-                                state.viewer_id_override = None;
+                                request_viewer_backend_swap(self.graph_app, state, None);
                             }
                         });
                     } else {
@@ -934,14 +966,18 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         ui.small("Recovery: use a supported embedded viewer or switch to WebView.");
                         ui.horizontal(|ui| {
                             if ui.button("Use WebView").clicked() {
-                                state.viewer_id_override = Some(ViewerId::new("viewer:webview"));
+                                request_viewer_backend_swap(
+                                    self.graph_app,
+                                    state,
+                                    Some(ViewerId::new("viewer:webview")),
+                                );
                             }
                             if ui.button("Clear Viewer Override").clicked() {
-                                state.viewer_id_override = None;
+                                request_viewer_backend_swap(self.graph_app, state, None);
                             }
                         });
                     }
-                    ui.small(format!("URL: {}", node.url));
+                    ui.small(format!("URL: {}", node_url));
                     return UiResponse::None;
                 }
 
@@ -987,7 +1023,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         .graph_app
                         .runtime_block_state_for_node(node_key)
                         .cloned();
-                    let lifecycle_hint = match node.lifecycle {
+                    let lifecycle_hint = match node_lifecycle {
                         NodeLifecycle::Cold => {
                             "Node is cold. Reactivate to resume browsing in this pane."
                         }
@@ -1026,7 +1062,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         }
                     }
 
-                    ui.label(format!("No active runtime viewer for {}", node.url));
+                    ui.label(format!("No active runtime viewer for {}", node_url));
                     ui.small(lifecycle_hint);
                     ui.horizontal(|ui| {
                         if ui.button("Reactivate").clicked() {

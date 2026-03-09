@@ -779,6 +779,11 @@ pub enum WorkbenchIntent {
         node: NodeKey,
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
     },
+    SwapViewerBackend {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        node: NodeKey,
+        viewer_id_override: Option<crate::shell::desktop::workbench::pane_model::ViewerId>,
+    },
     SetPaneView {
         pane: crate::shell::desktop::workbench::pane_model::PaneId,
         view: crate::shell::desktop::workbench::pane_model::PaneViewState,
