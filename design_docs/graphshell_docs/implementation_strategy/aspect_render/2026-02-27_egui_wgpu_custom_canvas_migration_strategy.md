@@ -293,6 +293,13 @@ Rule:
 
 - Treat these as migration-adjacent work, not old-stack-only work.
 
+Execution note (2026-03-09):
+
+- `#168` now has a first-pass landing in the current glow/composited path: degradation uses estimated tile byte accounting and emits explicit GPU-pressure diagnostics.
+- `#169` now has a first-pass landing: viewer backend changes preserve pane identity through command dispatch/orchestration instead of treating backend choice as node-global.
+- `#170` now has a first local-only landing: diagnostics snapshot export includes `backend_telemetry`, but persistence and Verse publication remain follow-on work.
+- These issues therefore remain active migration-adjacent concerns, but no longer as untouched backlog; future work should extend the landed control-plane rather than restart the design.
+
 ### Runway Category D: Issues likely superseded or deprioritized once the relevant cut begins
 
 These mostly describe bugs or contracts tied to the current `egui_graphs` or GL-specific graph path and should not absorb major effort if the migration is genuinely underway:

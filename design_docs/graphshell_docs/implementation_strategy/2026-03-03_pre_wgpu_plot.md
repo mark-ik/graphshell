@@ -441,6 +441,12 @@ The `accessibility_baseline_checklist.md` does not reflect concrete test results
 
 **Lanes**: `lane:viewer-platform` (#92), `lane:embedder-debt` (#90)
 
+Execution note (2026-03-09):
+
+- `TileRenderMode` runtime authority is no longer just planned work: pane-aware render-mode lookup now drives compositor scheduling/diagnostics, and duplicate node panes no longer alias each other's render-mode state.
+- Foundation issue slices `#168`, `#169`, and `#170` have first-pass implementations in code: byte-budget GPU degradation, pane-targeted backend-swap scaffolding, and local diagnostics-backed backend telemetry.
+- AG6 remains open because compositor pass-contract closure and adapter-level GL invariants are still separate work; the current landing removes ambiguity in pane/render identity and makes backend/degradation state observable.
+
 1. Land `TileRenderMode` on `NodePaneState` with ViewerRegistry-driven resolution.
 2. Close compositor pass contract (Content Pass → Overlay Affordance Pass structurally enforced, not "accidentally correct").
 3. Validate viewer fallback/degraded-state clarity with diagnostics.
