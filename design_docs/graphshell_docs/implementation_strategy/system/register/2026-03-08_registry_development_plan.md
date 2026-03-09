@@ -82,8 +82,10 @@ Sectors are not fully independent. The following constraints govern sequencing:
 
 ```
 H (signal infrastructure) must stabilise before D, E cross-registry signals are live.
-F (diagnostics) must be complete before cross-sector test harness work.
-B (RendererRegistry) must be complete before servoshell debtclear Phase 1 is done.
+F (diagnostics) must be complete before cross-sector test harness work; debt-clear only
+needs the narrow renderer-boundary diagnostics slices it introduces.
+B1 (RendererRegistry) is folded into servoshell debtclear Phases 1-2 and must be complete
+before debtclear Phase 1 is done; B2-B3 are not debtclear blockers.
 A (content pipeline) depends on B (ViewerRegistry selection depends on RendererRegistry attachment).
 C can proceed in parallel with all other sectors.
 G (AgentRegistry) depends on H for supervised intent ingress.
@@ -128,7 +130,7 @@ NodeKey + PaneId → RendererRegistry (attachment map)
                  → reconcile_webview_lifecycle (creation only after registry accepts)
 ```
 
-Current state: Both `InputRegistry` and `ActionRegistry` have functional cores but are incomplete (no gamepad bindings, no cross-context resolution, no namespace enforcement, no capability guards). `RendererRegistry` does not exist and is the most urgent new registry.
+Current state: Both `InputRegistry` and `ActionRegistry` have functional cores but are incomplete (no gamepad bindings, no cross-context resolution, no namespace enforcement, no capability guards). `RendererRegistry` does not exist and is the most urgent new registry. Only that `RendererRegistry` slice is a servoshell debt-clear prerequisite.
 
 ---
 

@@ -24,6 +24,11 @@ places Diagnostics at #1). Knowledge second, because the `KnowledgeRegistry` cur
 as a reconcile shim and must be promoted to a real query surface. Index third, as it depends
 on `KnowledgeRegistry` for semantic augmentation.
 
+For servoshell debt-clear sequencing, only the narrow diagnostics slices that make
+the renderer boundary observable should be treated as in-flight companions to
+debt-clear changes. Full Sector F closure is not a blocker for starting or
+continuing debt-clear.
+
 ```
 DiagnosticsRegistry   ← channels, schemas, retention — test confidence floor
 KnowledgeRegistry     ← semantic taxonomy, tag validation, UDC seed floor

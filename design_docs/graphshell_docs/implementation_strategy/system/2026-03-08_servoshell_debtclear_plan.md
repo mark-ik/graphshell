@@ -1,12 +1,20 @@
 # Servoshell Debt Clearance Plan
 
 **Date**: 2026-03-08
-**Status**: Active — not yet in execution
+**Status**: Active — Phases 1-2 complete; Phase 3 in progress
 **Scope**: `shell/desktop/` host, platform, and UI layers
 **Prerequisite reading**:
 - `2026-03-08_servoshell_residue_audit.md` — the findings this plan addresses
 - `2026-02-26_composited_viewer_pass_contract.md` — render pipeline contract
 - `../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`
+
+**Execution update (2026-03-09)**:
+- Phase 2 host-open inversion is now live for Ctrl+T, child `request_create_new(...)`, and bootstrap `open_window(...)`.
+- Stage 2E desktop cleanup is complete: the dead `notify_create_new_webview` / `GraphSemanticEvent::CreateNewWebView` path and the remaining desktop `create_and_activate_toplevel_webview` helper have been removed.
+- Stage 3A desktop call-site conversion is complete: headed-window input routing, detail/address submit, compositor focus nomination, and WebDriver focus handoff now retarget explicit pane/input/chrome ownership instead of mutating a global active renderer.
+- Stage 3C desktop wrapper/state removal is complete: the desktop `active_webview_id` state, `active_id()`, `activate_webview()`, `activate_webview_by_index()`, `get_active_webview_index()`, and the headed-window tab-cycling shortcuts that depended on them have been removed.
+- Validation: `scripts/dev/smoke-matrix.ps1 quick` passed after the Stage 2E cleanup, after the Stage 3A conversions, and after the desktop wrapper/state removal.
+- Current execution target: Stage 3B visible-renderer repaint rebasing, followed by Stage 3D chrome/title/dialog projection cleanup.
 
 ---
 
@@ -43,6 +51,38 @@ This plan works in four phases:
 Phases 1–2 are blockers for phases 3–4. Within each phase, stages are ordered
 so that each stage is a compilable, testable landing.
 
+### Consolidated prerequisite policy
+
+This plan absorbs the minimum slices from adjacent plans that are required to
+execute servoshell debt-clear safely. They should be implemented as debt-clear
+stages, not treated as separate plan-completion blockers.
+
+Folded into this plan:
+
+- `RendererRegistry` from Sector B Phase B1, including pane attachment,
+  accept/detach flow, and the creation-boundary rule that keeps
+  `reconcile_webview_lifecycle()` as the only renderer-creation site
+- the minimal focus-taxonomy slice from
+  `subsystem_focus/2026-03-08_unified_focus_architecture_plan.md` needed to
+  make `focused_pane`, `InputTarget`, `EmbeddedContentFocus`, and
+  `ChromeProjectionSource` explicit instead of hidden `active_webview` /
+  `preferred_input_webview` heuristics
+- the visible-renderer and overlay-pass alignment required by
+  `viewer/2026-02-26_composited_viewer_pass_contract.md`
+- the narrow input/control-routing obligations from
+  `aspect_input/input_interaction_spec.md` and
+  `aspect_control/2026-02-24_control_ui_ux_plan.md`: browser verbs route
+  through graph/app/workbench command surfaces first, and embedded content must
+  retain a deterministic host escape path
+
+Not debt-clear blockers by themselves:
+
+- Sector B2/B3 (`InputRegistry` / `ActionRegistry` completion)
+- full Sector F closure (`DiagnosticsRegistry` schemas/config roundtrip,
+  `KnowledgeRegistry`, `IndexRegistry`)
+- full UX bridge/harness closure from
+  `subsystem_ux_semantics/2026-03-08_unified_ux_semantics_architecture_plan.md`
+
 ---
 
 ## 2. Phase 1 — Boundary Contract
@@ -69,6 +109,9 @@ that defines:
 - `InputTarget`, `DialogOwner`, `VisibleRendererSet`, and
   `ChromeProjectionSource` as separate concepts, not aliases for one selected
   webview
+- the minimal focus split needed by debt-clear: `PaneActivationFocus`,
+  `EmbeddedContentFocus`, and `ChromeProjectionSource`/input targeting stay
+  distinct even when they are derived from the same visible pane
 - `ChromeProjectionSource` explicitly replaces the current
   `preferred_input_webview_id` title/toolbar/dialog fallback and is a distinct
   type rather than "just a field on the focused pane" because focused pane,
@@ -111,6 +154,7 @@ through it.
 Add explicit placeholder state to `EmbedderWindow` (or equivalent host state):
 
 - `focused_pane: Option<PaneId>`
+- `input_target: Option<InputTarget>`
 - `chrome_projection_source: Option<ChromeProjectionSource>`
 
 This does not change behavior yet. It just makes the missing concepts
@@ -122,6 +166,8 @@ it is no longer load-bearing.
 **Done gate**:
 - Fields exist and compile
 - No behavior change
+- `focused_pane`, `input_target`, and `chrome_projection_source` are now the
+  only approved placeholder identities for later debt-clear stages
 - `active_webview_id` still present in `WebViewCollection`
 
 ---
@@ -279,6 +325,11 @@ Once 2B, 2C, and 2D are complete:
 - create-then-notify helpers deleted
 - compilation clean
 
+**Execution note (2026-03-09)**:
+- Desktop Stage 2E is complete.
+- Deleted paths include `notify_create_new_webview`, the desktop `GraphSemanticEvent::CreateNewWebView` ingestion/plumbing, obsolete deferred child-open frame plumbing, and the desktop `create_and_activate_toplevel_webview` helper.
+- Validation completed with `scripts/dev/smoke-matrix.ps1 quick` passing after cleanup.
+
 ---
 
 ## 4. Phase 3 — Single-Active Semantics Removal
@@ -298,7 +349,23 @@ After phase 2, grep all remaining call sites of `activate_webview` and
   toolbar source? dialog ownership?)
 - map it to the correct explicit mechanism from phase 1
 
+**Audit snapshot (2026-03-09)**:
+
+| Current residue | Actual responsibility | Replacement direction |
+|---|---|---|
+| `shell/desktop/host/headed_window.rs` input paths (`MouseButton::Back` / `MouseButton::Forward`, keyboard forwarding, mouse click retarget, touch forwarding) | Input retargeting and focused embedded-content handoff | Replace `window.activate_webview(...)` with a dedicated explicit-target sync helper that sets `focused_pane` and `InputTarget` from the hit-tested or selected renderer/pane, then forwards the input without touching `WebViewCollection::active_webview_id`. |
+| `shell/desktop/lifecycle/webview_controller.rs` detail/address submission load path | Align focused pane / input / chrome projection before loading a URL into an existing renderer | Replace activation with pane-derived explicit target sync (`focused_pane`, `InputTarget`, `ChromeProjectionSource`, `DialogOwner`) for the chosen renderer, then call `webview.load(...)`. |
+| `shell/desktop/workbench/tile_compositor.rs::activate_focused_node_for_frame` | Frame-level focus nomination and compatibility fallback for one selected renderer | Stop nominating a single active renderer. Rebase this path onto pane focus / chrome projection updates only; Stage 3B will move repaint authority to the visible renderer set instead of `activate_webview`. |
+| `webdriver.rs` `FocusWebView` handling | Automation focus handoff to a renderer's owning surface | Replace activation with explicit pane/input retargeting derived from `RendererRegistry`, then focus the native window. |
+| `shell/desktop/host/headed_window.rs` Ctrl/Cmd `1`-`9`, Ctrl+PageUp/PageDown plus `get_active_webview_index()` / `activate_webview_by_index()` | Legacy tab-cycling semantics | Delete in Stage 4A. These shortcuts do not receive a graphshell single-active replacement in debt-clear. |
+| `shell/desktop/host/running_app_state.rs` `active_webview_id`, `active_id()`, `activate_webview()`, `activate_webview_by_index()`, and removal-time newest fallback | Legacy global active-renderer registry behavior | Delete in Stage 3C after the routed call sites above are converted. Closing a renderer must stop implicitly activating the newest renderer; focus/input state should instead be recomputed from explicit pane ownership. |
+| `shell/desktop/host/window.rs` `activate_webview()`, `activate_webview_by_index()`, `get_active_webview_index()` compatibility wrappers | Thin compatibility facade over `WebViewCollection` single-active state | Delete in Stage 3C after callers move to explicit pane/input/chrome helpers or Stage 4A removals. |
+
 **Done gate**: Each call site has a documented replacement.
+
+**Execution note (2026-03-09)**:
+- Desktop Stage 3A is complete.
+- The routed desktop callers identified in the audit table have been converted to explicit retargeting, and the tab-cycling shortcuts identified there have been deleted alongside the wrapper/state removal.
 
 ### Stage 3B — Rebase repaint on the visible renderer set
 
@@ -345,6 +412,13 @@ rebased (Stage 3B), remove:
 - All deleted; compilation clean
 - `preferred_input_webview_id` fallback to `active_id()` removed or replaced
   with explicit pane-focus lookup
+
+**Execution note (2026-03-09)**:
+- Desktop `WebViewCollection` no longer stores `active_webview_id`.
+- Desktop `EmbedderWindow` no longer exposes `activate_webview()`, `activate_webview_by_index()`, or `get_active_webview_index()`.
+- The headed desktop shortcuts that depended on those APIs were removed as part of the same landing.
+- `preferred_input_webview_id` already resolves from explicit host ownership (`InputTarget` / `focused_pane`), not from the removed `active_id()` fallback.
+- Stage 3B remains pending, so Phase 3 as a whole is not yet complete.
 
 ### Stage 3D — Rebase chrome/title projection on `PaneId` and `ChromeProjectionSource`
 
@@ -562,6 +636,10 @@ The plan is complete when:
 | `2026-02-26_composited_viewer_pass_contract.md` | Stage 3B (repaint rebase) must stay consistent with the three-pass composition model. |
 | `../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md` | Phase 1A is prerequisite input for core extraction. Cleaner node/view/pane/renderer boundaries reduce what must remain host-only. |
 | `2026-03-06_reducer_only_mutation_enforcement_plan.md` | Strongly aligned. Phase 2 removes host-first mutation paths that currently escape reducer-only discipline. |
+| `register/2026-03-08_sector_b_input_dispatch_plan.md` | Only Sector B Phase B1 is a debt-clear prerequisite, and it is folded into debt-clear Phases 1–2. Sector B2/B3 remain follow-on registry work, not a reason to pause debt-clear execution. |
+| `subsystem_focus/2026-03-08_unified_focus_architecture_plan.md` | Supplies the minimal focus-identity split debt-clear needs. This plan only absorbs the `PaneId`/`InputTarget`/embedded-content/chrome-projection slice, not the entire focus cleanup roadmap. |
+| `subsystem_ux_semantics/2026-03-08_unified_ux_semantics_architecture_plan.md` | Adjacent but not blocking. Debt-clear needs current dispatch/focus diagnostics to stay honest, but it does not depend on full bridge/harness closure. |
+| `aspect_input/input_interaction_spec.md` | Stage 4 must obey the canonical host escape path for `EmbeddedContent` and must route hardware input through command surfaces instead of host-direct browser verbs. |
 | `2026-02-24_control_ui_ux_plan.md` | Stage 4C (gamepad) and Stage 4D (toolbar) implement the action-routing and pane-scoped projection requirements from that plan. |
 
 ---

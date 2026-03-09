@@ -10,7 +10,7 @@
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `InputRegistry`, `ActionRegistry`, `RendererRegistry` (new)
 **Specs:** [input_registry_spec.md](input_registry_spec.md), [action_registry_spec.md](action_registry_spec.md)
-**Also depends on:** [../2026-03-08_servoshell_debtclear_plan.md](../2026-03-08_servoshell_debtclear_plan.md) (RendererRegistry)
+**Execution note:** `RendererRegistry` Phase B1 is executed as part of [../2026-03-08_servoshell_debtclear_plan.md](../2026-03-08_servoshell_debtclear_plan.md) Phases 1–2. Sector B2/B3 remain follow-on registry work.
 
 ---
 
@@ -32,6 +32,11 @@ NodeKey + PaneId
 `RendererRegistry` is the most urgent new registry in the codebase: it is the boundary object
 required by debtclear Phase 1 and blocks servoshell structural inversion.
 
+For sequencing, treat only Phase B1 as a debt-clear prerequisite. Completing
+`InputRegistry` and `ActionRegistry` modernization is important, but it is not a
+reason to pause debt-clear once the renderer boundary is landing through the
+debt-clear plan itself.
+
 ---
 
 ## Current State
@@ -47,6 +52,11 @@ required by debtclear Phase 1 and blocks servoshell structural inversion.
 ## Phase B1 — RendererRegistry (most urgent)
 
 **Unlocks:** Servoshell debtclear Phase 1 done gate; creation inversion (Phase 2).
+
+**Sequencing note:** This phase is intentionally duplicated with the debt-clear
+plan's Phase 1B / Phase 2 work because it is the shared boundary slice. When in
+doubt, implement it under the debt-clear plan and treat this section as the
+registry-specific acceptance detail for the same work.
 
 ### B1.1 — Define `RendererRegistry` struct
 
