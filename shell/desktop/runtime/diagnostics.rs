@@ -1119,6 +1119,24 @@ impl DiagnosticsState {
         })
     }
 
+    fn backend_telemetry_report_value(&self) -> Value {
+        let summary = self.backend_telemetry_summary();
+        let differential = self.compositor_differential_summary();
+
+        json!({
+            "schema_name": "graphshell.backend_telemetry_report",
+            "schema_version": 1,
+            "generated_at_unix_secs": Self::export_timestamp_secs(),
+            "publication": {
+                "scope": "local-first",
+                "verse_ready": true,
+                "verse_blob_type": "graphshell.backend_telemetry.v1",
+            },
+            "summary": summary,
+            "compositor_differential": differential,
+        })
+    }
+
     fn render_compositor_overlay_buckets(&self, ui: &mut egui::Ui) {
         ui.label("Compositor overlay buckets");
 
@@ -1561,6 +1579,7 @@ impl DiagnosticsState {
             },
             "compositor_differential": self.compositor_differential_summary(),
             "backend_telemetry": self.backend_telemetry_summary(),
+            "backend_telemetry_report": self.backend_telemetry_report_value(),
             "compositor_replay": self.compositor_replay_summary(),
             "compositor_frames": frames,
             "compositor_replay_samples": replay_samples,
@@ -1805,6 +1824,23 @@ impl DiagnosticsState {
         Ok(path)
     }
 
+    pub(crate) fn export_backend_telemetry_report_json(&self) -> Result<PathBuf, String> {
+        let dir = Self::export_dir()?;
+        let path = dir.join(format!(
+            "backend-telemetry-{}.json",
+            Self::export_timestamp_secs()
+        ));
+        let payload = serde_json::to_string_pretty(&self.backend_telemetry_report_value())
+            .map_err(|e| format!("failed to serialize backend telemetry JSON: {e}"))?;
+        fs::write(&path, payload).map_err(|e| {
+            format!(
+                "failed to write backend telemetry JSON {}: {e}",
+                path.display()
+            )
+        })?;
+        Ok(path)
+    }
+
     fn render_engine_topology(&self, ui: &mut egui::Ui) {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(520.0, 260.0), egui::Sense::hover());
         let painter = ui.painter_at(rect);
@@ -1977,6 +2013,20 @@ impl DiagnosticsState {
                         log::warn!("Bridge spike JSON export failed: {err}");
                         self.export_feedback =
                             Some(format!("Bridge Spike JSON export failed: {err}"));
+                    }
+                }
+            }
+            if ui.button("Save Backend Telemetry JSON").clicked() {
+                match self.export_backend_telemetry_report_json() {
+                    Ok(path) => {
+                        log::info!("Backend telemetry JSON exported: {}", path.display());
+                        self.export_feedback =
+                            Some(format!("Saved Backend Telemetry JSON: {}", path.display()));
+                    }
+                    Err(err) => {
+                        log::warn!("Backend telemetry JSON export failed: {err}");
+                        self.export_feedback =
+                            Some(format!("Backend Telemetry JSON export failed: {err}"));
                     }
                 }
             }
@@ -3090,6 +3140,7 @@ Object {
     "intent_count": Number(1),
     "top_level_keys": Array [
         String("backend_telemetry"),
+        String("backend_telemetry_report"),
         String("channels"),
         String("compositor_differential"),
         String("compositor_frames"),
@@ -3482,6 +3533,65 @@ Object {
         assert_eq!(
             snapshot["backend_telemetry"]["viewer_select_succeeded_count"].as_u64(),
             Some(1)
+        );
+    }
+
+    #[test]
+    fn snapshot_json_includes_backend_telemetry_report_schema() {
+        let mut state = DiagnosticsState::new();
+        let node_key = NodeKey::new(21);
+        state.push_frame(CompositorFrameSample {
+            sequence: 8,
+            active_tile_count: 1,
+            focused_node_present: true,
+            viewport_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(12.0, 12.0)),
+            hierarchy: vec![],
+            tiles: vec![CompositorTileSample {
+                pane_id: "pane:test-21".to_string(),
+                node_key,
+                render_mode: TileRenderMode::CompositedTexture,
+                estimated_content_bytes: 2_048,
+                rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(6.0, 6.0)),
+                mapped_webview: true,
+                has_context: true,
+                paint_callback_registered: true,
+                render_path_hint: "composited",
+            }],
+        });
+        let _ = state.event_tx.send(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
+            byte_len: 1,
+        });
+        state.force_drain_for_tests();
+
+        let snapshot = state.snapshot_json_value();
+        assert_eq!(
+            snapshot["backend_telemetry_report"]["schema_name"].as_str(),
+            Some("graphshell.backend_telemetry_report")
+        );
+        assert_eq!(
+            snapshot["backend_telemetry_report"]["schema_version"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry_report"]["publication"]["scope"].as_str(),
+            Some("local-first")
+        );
+        assert_eq!(
+            snapshot["backend_telemetry_report"]["publication"]["verse_ready"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry_report"]["summary"]["latest_frame_sequence"].as_u64(),
+            snapshot["backend_telemetry"]["latest_frame_sequence"].as_u64()
+        );
+        assert_eq!(
+            snapshot["backend_telemetry_report"]["summary"]["viewer_select_succeeded_count"].as_u64(),
+            Some(1)
+        );
+        assert_eq!(
+            snapshot["backend_telemetry_report"]["compositor_differential"]["content_composed_count"].as_u64(),
+            Some(0)
         );
     }
 

@@ -297,7 +297,7 @@ Execution note (2026-03-09):
 
 - `#168` is now effectively closed in the current glow/composited path: degradation uses estimated tile byte accounting, diagnostics export budget utilization and degraded-byte totals, and compositor frame samples expose per-tile estimated content bytes.
 - `#169` is now effectively closed for the current backend surface: viewer backend changes preserve pane identity through `SwapViewerBackend` dispatch/orchestration, node-owned session state remains the restore contract, and reconcile-time handoff tears down stale backend runtime before reattachment.
-- `#170` now has a first local-only landing: diagnostics snapshot export includes `backend_telemetry`, but persistence and Verse publication remain follow-on work.
+- `#170` is now effectively closed for the current telemetry surface: diagnostics snapshot export includes both the internal `backend_telemetry` summary and a versioned `backend_telemetry_report` artifact with a dedicated local export path ready for future Verse publication.
 - These issues therefore remain active migration-adjacent concerns, but no longer as untouched backlog; future work should extend the landed control-plane rather than restart the design.
 
 ### Runway Category D: Issues likely superseded or deprioritized once the relevant cut begins
