@@ -454,7 +454,7 @@ impl Gui {
             graph_search_active_match_index,
             graph_search_filter_mode,
             toasts,
-            registry_runtime,
+            registry_runtime: _,
             control_panel,
             #[cfg(feature = "diagnostics")]
             diagnostics_state,
@@ -480,7 +480,7 @@ impl Gui {
             frame_intents,
         });
 
-        knowledge::reconcile_semantics(graph_app, &registry_runtime.knowledge);
+        crate::shell::desktop::runtime::registries::phase3_reconcile_semantics(graph_app);
         let search_query_active = Self::is_graph_search_query_active(graph_search_query);
 
         gui_frame::run_post_render_phase(

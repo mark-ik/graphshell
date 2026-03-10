@@ -2378,12 +2378,30 @@ impl GraphBrowserApp {
             }
             GraphIntent::TagNode { key, tag } => {
                 if self.workspace.domain.graph.get_node(key).is_some() {
-                    if tag == Self::TAG_PIN {
+                    let normalized_tag = if tag == Self::TAG_PIN || tag.starts_with('#') {
+                        tag
+                    } else {
+                        match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(
+                            &tag,
+                        ) {
+                            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                                canonical_code,
+                                ..
+                            } => format!("udc:{canonical_code}"),
+                            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
+                            | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {
+                                log::warn!("Rejected unknown knowledge tag '{tag}'");
+                                return;
+                            }
+                        }
+                    };
+
+                    if normalized_tag == Self::TAG_PIN {
                         self.set_node_pinned_and_log(key, true);
                     }
 
                     let tags = self.workspace.semantic_tags.entry(key).or_default();
-                    if tags.insert(tag) {
+                    if tags.insert(normalized_tag) {
                         self.workspace.semantic_index_dirty = true;
                     }
                 }
@@ -8937,6 +8955,60 @@ mod tests {
         assert_eq!(
             resolved.theme.as_ref().map(|theme| theme.background_rgb),
             Some((20, 20, 25))
+        );
+    }
+
+    #[test]
+    fn refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let registry_backed_view = GraphViewId::new();
+        let mut stale_registry_lens = GraphViewState::new_with_id(registry_backed_view, "Registry");
+        stale_registry_lens.lens = LensConfig {
+            name: "Stale".to_string(),
+            lens_id: Some("lens:default".to_string()),
+            physics: PhysicsProfile::gas(),
+            layout: LayoutMode::Grid { gap: 42.0 },
+            theme: None,
+            filters: vec!["stale".to_string()],
+        };
+        app.workspace
+            .views
+            .insert(registry_backed_view, stale_registry_lens);
+
+        let direct_view = GraphViewId::new();
+        let mut direct_lens_view = GraphViewState::new_with_id(direct_view, "Direct");
+        direct_lens_view.lens = LensConfig {
+            name: "Direct Lens".to_string(),
+            lens_id: None,
+            physics: PhysicsProfile::gas(),
+            layout: LayoutMode::Grid { gap: 24.0 },
+            theme: Some(ThemeData {
+                background_rgb: (9, 8, 7),
+                accent_rgb: (6, 5, 4),
+                font_scale: 1.1,
+                stroke_width: 3.0,
+            }),
+            filters: vec!["custom".to_string()],
+        };
+        app.workspace.views.insert(direct_view, direct_lens_view.clone());
+
+        let refreshed = app.refresh_registry_backed_view_lenses();
+        assert_eq!(refreshed, 1);
+
+        let registry_backed = &app.workspace.views.get(&registry_backed_view).unwrap().lens;
+        assert_eq!(registry_backed.lens_id.as_deref(), Some("lens:default"));
+        assert_eq!(registry_backed.name, "Default");
+        assert_eq!(registry_backed.physics.name, "Liquid");
+        assert!(matches!(registry_backed.layout, LayoutMode::Free));
+
+        let direct = &app.workspace.views.get(&direct_view).unwrap().lens;
+        assert_eq!(direct.name, "Direct Lens");
+        assert_eq!(direct.physics.name, direct_lens_view.lens.physics.name);
+        assert!(matches!(direct.layout, LayoutMode::Grid { gap: 24.0 }));
+        assert_eq!(
+            direct.theme.as_ref().map(|theme| theme.background_rgb),
+            Some((9, 8, 7))
         );
     }
 

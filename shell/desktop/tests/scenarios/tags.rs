@@ -70,3 +70,37 @@ fn tag_node_pin_updates_pinned_state() {
             .is_some_and(|n| !n.is_pinned)
     );
 }
+
+#[test]
+fn tag_node_canonicalizes_valid_knowledge_tags_and_rejects_unknown_ones() {
+    let mut harness = TestRegistry::new();
+    let node = harness.add_node("https://example.com");
+
+    harness.app.apply_reducer_intents([GraphIntent::TagNode {
+        key: node,
+        tag: "519.6".to_string(),
+    }]);
+
+    assert!(
+        harness
+            .app
+            .workspace
+            .semantic_tags
+            .get(&node)
+            .is_some_and(|tags| tags.contains("udc:519.6"))
+    );
+
+    harness.app.apply_reducer_intents([GraphIntent::TagNode {
+        key: node,
+        tag: "unknown-subject".to_string(),
+    }]);
+
+    assert!(
+        harness
+            .app
+            .workspace
+            .semantic_tags
+            .get(&node)
+            .is_some_and(|tags| !tags.contains("unknown-subject"))
+    );
+}

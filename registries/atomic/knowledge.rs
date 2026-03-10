@@ -6,12 +6,29 @@ use nucleo::{
     pattern::{CaseMatching, Normalization, Pattern},
 };
 use parking_lot::Mutex;
+use serde::Deserialize;
+
+const UDC_SEED_JSON: &str = include_str!("../../assets/knowledge/udc_seed.json");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KnowledgeProvider {
     Udc,
     Schema,
     Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagValidationResult {
+    Valid {
+        canonical_code: String,
+        display_label: String,
+    },
+    Unknown {
+        suggestions: Vec<String>,
+    },
+    Malformed {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -46,7 +63,6 @@ pub struct SemanticClassVector {
 
 impl SemanticClassVector {
     pub fn from_codes(mut codes: Vec<CompactCode>) -> Self {
-        // Deterministic canonical order: deeper codes first, then lexical bytes.
         codes.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.cmp(b)));
         codes.dedup();
 
@@ -71,6 +87,12 @@ impl AsRef<str> for UdcEntry {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct SeedEntry {
+    code: String,
+    label: String,
+}
+
 pub struct KnowledgeRegistry {
     definitions: HashMap<String, String>,
     matcher: Mutex<Matcher>,
@@ -92,19 +114,26 @@ impl Default for KnowledgeRegistry {
 impl KnowledgeRegistry {
     fn provider_for_tag(tag: &str) -> KnowledgeProvider {
         let trimmed = tag.trim();
-        if trimmed.starts_with("udc:") {
+        if trimmed.starts_with("udc:")
+            || trimmed
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '.' || c == ':' || c == '/')
+        {
             return KnowledgeProvider::Udc;
         }
         if trimmed.starts_with("schema:") {
             return KnowledgeProvider::Schema;
         }
-        if trimmed
-            .chars()
-            .all(|c| c.is_ascii_digit() || c == '.' || c == ':')
-        {
-            return KnowledgeProvider::Udc;
-        }
         KnowledgeProvider::Unknown
+    }
+
+    fn normalize_udc_code(raw: &str) -> Option<String> {
+        let normalized = raw
+            .trim()
+            .chars()
+            .filter(|c| c.is_ascii_digit() || *c == '.')
+            .collect::<String>();
+        (!normalized.is_empty()).then_some(normalized)
     }
 
     fn parse_udc_code(code_str: &str) -> Option<CompactCode> {
@@ -120,175 +149,17 @@ impl KnowledgeRegistry {
     }
 
     fn seed_defaults(&mut self) {
-        let defaults = [
-            ("0", "Generalities. Knowledge. Organization"),
-            ("00", "Prolegomena. Fundamentals"),
-            ("001", "Knowledge. Epistemology"),
-            ("002", "Documentation. Information science"),
-            ("003", "Systems theory. Cybernetics"),
-            ("004", "Computer science & technology"),
-            ("004.3", "Computer hardware"),
-            ("004.4", "Software"),
-            ("004.5", "Human-computer interaction"),
-            ("004.6", "Data processing"),
-            ("004.7", "Computer networks"),
-            ("004.8", "Artificial intelligence"),
-            ("005", "Management"),
-            ("01", "Bibliography"),
-            ("02", "Library science"),
-            ("03", "Reference works. Encyclopedias"),
-            ("06", "Organizations. Museums"),
-            ("07", "Journalism. Newspapers"),
-            ("08", "Polygraphies. Collected works"),
-            ("1", "Philosophy. Psychology"),
-            ("11", "Metaphysics"),
-            ("13", "Philosophy of mind. Philosophical anthropology"),
-            ("14", "Philosophical systems"),
-            ("159.9", "Psychology"),
-            ("16", "Logic. Epistemology. Theory of knowledge"),
-            ("17", "Ethics. Moral philosophy"),
-            ("2", "Religion. Theology"),
-            ("24", "Buddhism"),
-            ("26", "Judaism"),
-            ("27", "Christianity"),
-            ("28", "Islam"),
-            ("3", "Social sciences"),
-            ("30", "Theories & methods in social sciences"),
-            ("31", "Statistics. Demography"),
-            ("32", "Politics"),
-            ("33", "Economics"),
-            ("34", "Law. Jurisprudence"),
-            ("35", "Public administration"),
-            ("36", "Social problems & welfare"),
-            ("37", "Education"),
-            ("39", "Ethnology. Ethnography. Customs"),
-            ("5", "Mathematics & Natural Sciences"),
-            ("50", "Environmental sciences"),
-            ("51", "Mathematics"),
-            ("510", "Fundamental mathematics"),
-            ("511", "Number theory"),
-            ("512", "Algebra"),
-            ("514", "Geometry"),
-            ("515", "Mathematical analysis"),
-            ("517", "Calculus"),
-            ("519", "Computational mathematics. Numerical analysis"),
-            ("519.2", "Probability. Mathematical statistics"),
-            ("519.6", "Computational mathematics"),
-            ("519.7", "Mathematical cybernetics"),
-            ("519.8", "Operations research"),
-            ("52", "Astronomy. Astrophysics"),
-            ("53", "Physics"),
-            ("531", "Classical mechanics. Dynamics"),
-            ("534", "Acoustics"),
-            ("535", "Optics"),
-            ("536", "Heat. Thermodynamics"),
-            ("537", "Electricity. Electromagnetism"),
-            ("538", "Magnetism"),
-            ("539", "Modern physics. Quantum mechanics"),
-            ("54", "Chemistry"),
-            ("541", "Physical chemistry. Chemical physics"),
-            ("542", "Laboratory techniques"),
-            ("543", "Analytical chemistry"),
-            ("544", "Quantum chemistry"),
-            ("546", "Inorganic chemistry"),
-            ("547", "Organic chemistry"),
-            ("548", "Crystallography"),
-            ("549", "Mineralogy"),
-            ("55", "Earth sciences. Geology"),
-            ("551", "Geology"),
-            ("551.5", "Meteorology"),
-            ("56", "Paleontology"),
-            ("57", "Biological sciences"),
-            ("571", "Cell biology"),
-            ("572", "Biochemistry. Molecular biology"),
-            ("573", "General biology"),
-            ("575", "Genetics. Evolution"),
-            ("576", "Microbiology"),
-            ("577", "Ecology"),
-            ("58", "Botany"),
-            ("59", "Zoology"),
-            ("6", "Applied sciences. Technology"),
-            ("60", "Biotechnology"),
-            ("61", "Medicine. Health"),
-            ("611", "Anatomy"),
-            ("612", "Physiology"),
-            ("613", "Hygiene. Public health"),
-            ("615", "Pharmacology. Therapeutics"),
-            ("616", "Pathology. Clinical medicine"),
-            ("617", "Surgery. Orthopedics"),
-            ("62", "Engineering. Technology"),
-            ("621", "Mechanical engineering"),
-            ("621.3", "Electrical engineering. Electronics"),
-            ("621.38", "Electronics"),
-            ("621.39", "Telecommunications"),
-            ("622", "Mining engineering"),
-            ("624", "Civil engineering. Structural engineering"),
-            ("625", "Transport engineering"),
-            ("626", "Hydraulic engineering"),
-            ("627", "Water resources engineering"),
-            ("628", "Environmental engineering"),
-            ("629", "Aerospace & vehicle engineering"),
-            ("63", "Agriculture. Forestry"),
-            ("64", "Home economics. Domestic science"),
-            ("65", "Business. Management"),
-            ("656", "Transport services"),
-            ("657", "Accounting"),
-            ("658", "Business management"),
-            ("66", "Chemical technology"),
-            ("67", "Manufacturing industries"),
-            ("68", "Industries & trades"),
-            ("69", "Building construction"),
-            ("7", "The Arts. Recreation. Entertainment"),
-            ("71", "Physical planning. Architecture"),
-            ("72", "Architecture"),
-            ("73", "Sculpture. Plastic arts"),
-            ("74", "Drawing. Design"),
-            ("75", "Painting"),
-            ("76", "Graphic arts. Printmaking"),
-            ("77", "Photography"),
-            ("78", "Music"),
-            ("79", "Entertainment. Games. Sports"),
-            ("791", "Film. Cinema"),
-            ("792", "Theatre. Drama"),
-            ("793", "Social games. Dancing"),
-            ("794", "Board games. Chess"),
-            ("796", "Sports & games"),
-            ("797", "Water sports"),
-            ("8", "Language. Linguistics. Literature"),
-            ("80", "General linguistics"),
-            ("801", "Theory of language"),
-            ("802", "Practical linguistics"),
-            ("81", "Linguistics & languages"),
-            ("811", "Languages"),
-            ("82", "Literature"),
-            ("820", "English literature"),
-            ("830", "German literature"),
-            ("840", "French literature"),
-            ("850", "Italian literature"),
-            ("860", "Spanish literature"),
-            ("87", "Classical languages & literatures"),
-            ("88", "Classical Greek literature"),
-            ("89", "Other literatures"),
-            ("9", "Geography. Biography. History"),
-            ("90", "Archaeology"),
-            ("91", "Geography. Travel"),
-            ("92", "Biography"),
-            ("93", "History"),
-            ("930", "Ancient history"),
-            ("94", "General history of Europe"),
-            ("95", "General history of Asia"),
-            ("96", "General history of Africa"),
-            ("97", "General history of North America"),
-            ("98", "General history of South America"),
-            ("99", "General history of other regions"),
-        ];
+        let defaults: Vec<SeedEntry> =
+            serde_json::from_str(UDC_SEED_JSON).expect("udc seed json should parse");
+        self.definitions.clear();
+        self.search_items.clear();
 
-        for (code, label) in defaults {
-            self.definitions.insert(code.to_string(), label.to_string());
+        for SeedEntry { code, label } in defaults {
+            self.definitions.insert(code.clone(), label.clone());
             self.search_items.push(UdcEntry {
-                code: code.to_string(),
-                label: label.to_string(),
-                search_text: format!("{} udc:{} {}", label, code, code),
+                code: code.clone(),
+                label: label.clone(),
+                search_text: format!("{label} udc:{code} {code}"),
             });
         }
     }
@@ -298,29 +169,121 @@ impl KnowledgeRegistry {
         match Self::provider_for_tag(trimmed) {
             KnowledgeProvider::Udc => {
                 let code = trimmed.strip_prefix("udc:").unwrap_or(trimmed);
-                Self::parse_udc_code(code)
+                let normalized = Self::normalize_udc_code(code)?;
+                if !self.definitions.contains_key(&normalized) {
+                    return None;
+                }
+                Self::parse_udc_code(&normalized)
             }
             KnowledgeProvider::Schema | KnowledgeProvider::Unknown => None,
         }
     }
 
+    pub fn canonicalize_tag(&self, tag: &str) -> Option<String> {
+        let trimmed = tag.trim();
+        match self.validate_tag(trimmed) {
+            TagValidationResult::Valid { canonical_code, .. } => Some(format!("udc:{canonical_code}")),
+            TagValidationResult::Unknown { .. } | TagValidationResult::Malformed { .. } => None,
+        }
+    }
+
     pub fn get_label(&self, code: &str) -> Option<&str> {
-        self.definitions.get(code).map(|s| s.as_str())
+        let normalized = Self::normalize_udc_code(code.strip_prefix("udc:").unwrap_or(code))?;
+        self.definitions.get(&normalized).map(|s| s.as_str())
     }
 
     pub fn validate(&self, tag: &str) -> bool {
-        match Self::provider_for_tag(tag) {
-            KnowledgeProvider::Udc => self.parse(tag).is_some(),
-            KnowledgeProvider::Schema | KnowledgeProvider::Unknown => false,
+        matches!(self.validate_tag(tag), TagValidationResult::Valid { .. })
+    }
+
+    pub fn validate_tag(&self, tag: &str) -> TagValidationResult {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            return TagValidationResult::Malformed {
+                reason: "tag is empty".to_string(),
+            };
         }
+
+        match Self::provider_for_tag(trimmed) {
+            KnowledgeProvider::Udc => {
+                let code = trimmed.strip_prefix("udc:").unwrap_or(trimmed);
+                let Some(normalized) = Self::normalize_udc_code(code) else {
+                    return TagValidationResult::Malformed {
+                        reason: format!("'{trimmed}' is not a valid UDC code"),
+                    };
+                };
+                let Some(label) = self.get_label(&normalized) else {
+                    return TagValidationResult::Unknown {
+                        suggestions: self.suggest_codes(&normalized),
+                    };
+                };
+                TagValidationResult::Valid {
+                    canonical_code: normalized,
+                    display_label: label.to_string(),
+                }
+            }
+            KnowledgeProvider::Schema => TagValidationResult::Unknown {
+                suggestions: Vec::new(),
+            },
+            KnowledgeProvider::Unknown => TagValidationResult::Unknown {
+                suggestions: self.suggest_codes(trimmed),
+            },
+        }
+    }
+
+    fn suggest_codes(&self, query: &str) -> Vec<String> {
+        let mut suggestions = self
+            .search(query)
+            .into_iter()
+            .map(|entry| format!("udc:{}", entry.code))
+            .collect::<Vec<_>>();
+
+        if suggestions.len() >= 3 {
+            suggestions.truncate(3);
+            return suggestions;
+        }
+
+        if let Some(target) = Self::normalize_udc_code(query)
+            .and_then(|code| Self::parse_udc_code(&code))
+        {
+            let mut distance_ranked = self
+                .definitions
+                .keys()
+                .filter_map(|code| {
+                    let compact = Self::parse_udc_code(code)?;
+                    Some((target.distance(&compact), format!("udc:{code}")))
+                })
+                .collect::<Vec<_>>();
+            distance_ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            for (_, candidate) in distance_ranked {
+                if suggestions.iter().any(|entry| entry == &candidate) {
+                    continue;
+                }
+                suggestions.push(candidate);
+                if suggestions.len() == 3 {
+                    break;
+                }
+            }
+        }
+
+        suggestions.truncate(3);
+        suggestions
     }
 
     pub fn distance(&self, a: &CompactCode, b: &CompactCode) -> f32 {
         a.distance(b)
     }
 
-    pub fn get_color_hint(&self, code: &CompactCode) -> Option<Color32> {
-        code.0.first().map(|&class| match class {
+    pub fn semantic_distance(&self, a: &str, b: &str) -> Option<f32> {
+        let a = self.parse(a)?;
+        let b = self.parse(b)?;
+        Some(self.distance(&a, &b))
+    }
+
+    pub fn get_color_hint(&self, code: &str) -> Option<Color32> {
+        let normalized = Self::normalize_udc_code(code.strip_prefix("udc:").unwrap_or(code))?;
+        let compact = Self::parse_udc_code(&normalized)?;
+        Some(match compact.0.first().copied().unwrap_or_default() {
             0 => Color32::from_rgb(150, 150, 150),
             1 => Color32::from_rgb(180, 100, 200),
             2 => Color32::from_rgb(255, 140, 0),
@@ -444,5 +407,47 @@ mod tests {
         let math_to_physics = registry.distance(&math, &physics);
         let math_to_music = registry.distance(&math, &music);
         assert!(math_to_physics < math_to_music);
+    }
+
+    #[test]
+    fn validate_tag_reports_canonical_label_and_suggestions() {
+        let registry = KnowledgeRegistry::default();
+
+        assert!(matches!(
+            registry.validate_tag("519.6"),
+            TagValidationResult::Valid { canonical_code, display_label }
+                if canonical_code == "519.6" && display_label == "Computational mathematics"
+        ));
+
+        assert!(matches!(
+            registry.validate_tag("519.99"),
+            TagValidationResult::Unknown { suggestions } if suggestions.len() == 3
+        ));
+    }
+
+    #[test]
+    fn seed_floor_exposes_expected_labels_and_colors() {
+        let registry = KnowledgeRegistry::default();
+        assert_eq!(
+            registry.get_label("5"),
+            Some("Mathematics and natural sciences")
+        );
+        assert_eq!(
+            registry.get_color_hint("7"),
+            Some(Color32::from_rgb(250, 100, 100))
+        );
+    }
+
+    #[test]
+    fn semantic_distance_uses_canonical_tag_strings() {
+        let registry = KnowledgeRegistry::default();
+        let numerical_to_probability = registry
+            .semantic_distance("udc:519.6", "519.2")
+            .expect("semantic distance should resolve");
+        let numerical_to_music = registry
+            .semantic_distance("udc:519.6", "78")
+            .expect("semantic distance should resolve");
+
+        assert!(numerical_to_probability < numerical_to_music);
     }
 }

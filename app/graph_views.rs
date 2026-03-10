@@ -328,6 +328,40 @@ impl GraphBrowserApp {
         }
     }
 
+    pub(crate) fn refresh_registry_backed_view_lenses(&mut self) -> usize {
+        let refreshes: Vec<(GraphViewId, LensConfig)> = self
+            .workspace
+            .views
+            .iter()
+            .filter_map(|(&view_id, view)| {
+                let requested = view
+                    .lens
+                    .lens_id
+                    .as_deref()
+                    .filter(|lens_id| !lens_id.trim().is_empty())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        view.lens
+                            .name
+                            .starts_with("lens:")
+                            .then(|| view.lens.name.to_ascii_lowercase())
+                    })?;
+                Some((
+                    view_id,
+                    crate::shell::desktop::runtime::registries::phase2_resolve_lens(&requested),
+                ))
+            })
+            .collect();
+
+        for (view_id, lens) in &refreshes {
+            if let Some(view) = self.workspace.views.get_mut(view_id) {
+                view.lens = lens.clone();
+            }
+        }
+
+        refreshes.len()
+    }
+
     pub(crate) fn move_graph_view_slot(&mut self, view_id: GraphViewId, row: i32, col: i32) {
         if self.graph_view_slot_position_occupied(row, col, Some(view_id)) {
             return;

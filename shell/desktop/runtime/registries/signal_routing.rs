@@ -24,6 +24,9 @@ pub(crate) enum SignalKind {
     WorkflowChanged {
         workflow_id: String,
     },
+    SemanticIndexUpdated {
+        indexed_nodes: usize,
+    },
     LifecycleMemoryPressureChanged,
     SubsystemHealthMemoryPressure {
         level: String,
@@ -39,6 +42,7 @@ impl SignalKind {
             Self::NavigationResolved { .. } => SignalTopic::Navigation,
             Self::ModLifecycleChanged { .. } => SignalTopic::Lifecycle,
             Self::WorkflowChanged { .. } => SignalTopic::Lifecycle,
+            Self::SemanticIndexUpdated { .. } => SignalTopic::Lifecycle,
             Self::LifecycleMemoryPressureChanged => SignalTopic::Lifecycle,
             Self::SubsystemHealthMemoryPressure { .. } => SignalTopic::Lifecycle,
             Self::SyncRemoteEntriesQueued => SignalTopic::Sync,

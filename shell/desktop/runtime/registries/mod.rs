@@ -53,7 +53,7 @@ use input::{
     INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputBindingRemap,
     InputConflict as InputRemapConflict, InputContext, InputRegistry,
 };
-use knowledge::KnowledgeRegistry;
+use knowledge::{KnowledgeRegistry, SemanticReconcileReport, TagValidationResult};
 use layout::LayoutRegistry;
 use nostr_core::{
     NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
@@ -316,6 +316,9 @@ pub(crate) const CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED: &str =
 pub(crate) const CHANNEL_PRESENTATION_PROFILE_RESOLVED: &str =
     "registry.presentation.profile_resolved";
 pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated";
+pub(crate) const CHANNEL_KNOWLEDGE_INDEX_UPDATED: &str = "registry.knowledge.index_updated";
+pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
+    "registry.knowledge.tag_validation_warn";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -902,6 +905,66 @@ impl RegistryRuntime {
             None,
         ));
         Ok(activation)
+    }
+
+    fn reconcile_semantics(&self, graph_app: &mut GraphBrowserApp) -> SemanticReconcileReport {
+        let report = knowledge::reconcile_semantics(graph_app, &self.knowledge);
+        if report.changed {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_KNOWLEDGE_INDEX_UPDATED,
+                byte_len: report.indexed_nodes.max(1),
+            });
+            self.publish_signal(SignalEnvelope::new(
+                SignalKind::SemanticIndexUpdated {
+                    indexed_nodes: report.indexed_nodes,
+                },
+                SignalSource::RegistryRuntime,
+                None,
+            ));
+        }
+        report
+    }
+
+    pub(crate) fn query_knowledge_by_tag(&self, app: &GraphBrowserApp, tag: &str) -> Vec<NodeKey> {
+        knowledge::query_by_tag(app, &self.knowledge, tag)
+    }
+
+    pub(crate) fn knowledge_tags_for_node(&self, app: &GraphBrowserApp, key: &NodeKey) -> Vec<String> {
+        knowledge::tags_for_node(app, key)
+    }
+
+    pub(crate) fn validate_knowledge_tag(&self, tag: &str) -> TagValidationResult {
+        let result = self.knowledge.validate_tag(tag);
+        if matches!(
+            result,
+            TagValidationResult::Unknown { .. } | TagValidationResult::Malformed { .. }
+        ) {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN,
+                byte_len: tag.trim().len().max(1),
+            });
+        }
+        result
+    }
+
+    pub(crate) fn knowledge_label(&self, code: &str) -> Option<String> {
+        self.knowledge.get_label(code).map(str::to_string)
+    }
+
+    pub(crate) fn knowledge_color_hint(&self, code: &str) -> Option<egui::Color32> {
+        self.knowledge.get_color_hint(code)
+    }
+
+    pub(crate) fn semantic_distance(&self, a: &str, b: &str) -> Option<f32> {
+        self.knowledge.semantic_distance(a, b)
+    }
+
+    pub(crate) fn suggest_semantic_placement_anchor(
+        &self,
+        app: &GraphBrowserApp,
+        key: NodeKey,
+    ) -> Option<NodeKey> {
+        knowledge::suggest_placement_anchor(app, &self.knowledge, key)
     }
 
     fn dispatch_workbench_surface_intent(
@@ -1930,6 +1993,57 @@ pub(crate) fn phase3_activate_workflow(
     runtime().activate_workflow(graph_app, workflow_id)
 }
 
+pub(crate) fn phase3_reconcile_semantics(
+    graph_app: &mut GraphBrowserApp,
+) -> SemanticReconcileReport {
+    runtime().reconcile_semantics(graph_app)
+}
+
+pub(crate) fn phase3_validate_knowledge_tag(tag: &str) -> TagValidationResult {
+    runtime().validate_knowledge_tag(tag)
+}
+
+pub(crate) fn phase3_query_knowledge_by_tag(app: &GraphBrowserApp, tag: &str) -> Vec<NodeKey> {
+    runtime().query_knowledge_by_tag(app, tag)
+}
+
+pub(crate) fn phase3_knowledge_tags_for_node(
+    app: &GraphBrowserApp,
+    key: &NodeKey,
+) -> Vec<String> {
+    runtime().knowledge_tags_for_node(app, key)
+}
+
+pub(crate) fn phase3_knowledge_label(code: &str) -> Option<String> {
+    runtime().knowledge_label(code)
+}
+
+pub(crate) fn phase3_knowledge_color_hint(code: &str) -> Option<egui::Color32> {
+    runtime().knowledge_color_hint(code)
+}
+
+pub(crate) fn phase3_semantic_distance(a: &str, b: &str) -> Option<f32> {
+    runtime().semantic_distance(a, b)
+}
+
+pub(crate) fn phase3_suggest_semantic_placement_anchor(
+    app: &GraphBrowserApp,
+    key: NodeKey,
+) -> Option<NodeKey> {
+    runtime().suggest_semantic_placement_anchor(app, key)
+}
+
+pub(crate) fn phase3_subscribe_signal(
+    topic: SignalTopic,
+    callback: impl Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync + 'static,
+) -> ObserverId {
+    runtime().subscribe_signal(topic, callback)
+}
+
+pub(crate) fn phase3_unsubscribe_signal(topic: SignalTopic, observer_id: ObserverId) -> bool {
+    runtime().unsubscribe_signal(topic, observer_id)
+}
+
 pub(crate) fn dispatch_workbench_surface_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
@@ -2479,6 +2593,88 @@ mod tests {
         assert_eq!(
             runtime.resolve_active_workbench_surface_profile().resolved_id,
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
+        );
+    }
+
+    #[test]
+    fn phase3_semantic_reconcile_routes_through_lifecycle_signal_observers() {
+        let runtime = RegistryRuntime::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app.add_node_and_sync(
+            "https://example.com/math".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        app.workspace
+            .semantic_tags
+            .insert(node, ["udc:51".to_string()].into_iter().collect());
+        app.workspace.semantic_index_dirty = true;
+
+        let observer_count = Arc::new(AtomicUsize::new(0));
+        {
+            let observer_count = Arc::clone(&observer_count);
+            runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+                if let SignalKind::SemanticIndexUpdated { indexed_nodes } = &signal.kind
+                    && *indexed_nodes == 1
+                {
+                    observer_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            });
+        }
+
+        let report = runtime.reconcile_semantics(&mut app);
+        assert!(report.changed);
+        assert_eq!(report.indexed_nodes, 1);
+        assert_eq!(observer_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn phase3_knowledge_runtime_exposes_query_and_validation_surface() {
+        let runtime = RegistryRuntime::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let math = app.add_node_and_sync(
+            "https://example.com/math".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        let numerical = app.add_node_and_sync(
+            "https://example.com/numerical".to_string(),
+            euclid::default::Point2D::new(20.0, 0.0),
+        );
+
+        app.workspace
+            .semantic_tags
+            .insert(math, ["udc:51".to_string()].into_iter().collect());
+        app.workspace
+            .semantic_tags
+            .insert(numerical, ["udc:519.6".to_string()].into_iter().collect());
+        app.workspace.semantic_index_dirty = true;
+        let _ = runtime.reconcile_semantics(&mut app);
+
+        assert_eq!(runtime.query_knowledge_by_tag(&app, "51"), vec![math]);
+        assert_eq!(
+            runtime.knowledge_tags_for_node(&app, &numerical),
+            vec!["udc:519.6".to_string()]
+        );
+        assert!(matches!(
+            runtime.validate_knowledge_tag("519.6"),
+            TagValidationResult::Valid { canonical_code, .. } if canonical_code == "519.6"
+        ));
+        assert_eq!(
+            runtime.knowledge_label("5").as_deref(),
+            Some("Mathematics and natural sciences")
+        );
+        assert_eq!(
+            runtime.knowledge_color_hint("7"),
+            Some(egui::Color32::from_rgb(250, 100, 100))
+        );
+        assert!(
+            runtime
+                .semantic_distance("udc:519.6", "51")
+                .is_some_and(|distance| distance < 1.0)
+        );
+        assert_eq!(
+            runtime.suggest_semantic_placement_anchor(&app, numerical),
+            Some(math)
         );
     }
 

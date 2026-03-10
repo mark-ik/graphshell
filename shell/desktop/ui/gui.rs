@@ -51,7 +51,11 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, knowledge,
+    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, phase3_subscribe_signal,
+    phase3_unsubscribe_signal,
+};
+use crate::shell::desktop::runtime::registries::signal_routing::{
+    ObserverId, SignalKind, SignalTopic,
 };
 use crate::shell::desktop::ui::thumbnail_pipeline::{
     RendererFaviconTextureCache, ThumbnailCaptureResult,
@@ -174,6 +178,10 @@ pub struct Gui {
     /// Registry runtime for semantic services
     registry_runtime: RegistryRuntime,
 
+    /// Pending lifecycle notifications for semantic-index-driven lens refresh.
+    semantic_index_signal_rx: Receiver<usize>,
+    semantic_index_signal_observer: ObserverId,
+
     /// Tokio runtime for async background workers
     tokio_runtime: tokio::runtime::Runtime,
 
@@ -183,6 +191,10 @@ pub struct Gui {
 
 impl Drop for Gui {
     fn drop(&mut self) {
+        let _ = phase3_unsubscribe_signal(
+            SignalTopic::Lifecycle,
+            self.semantic_index_signal_observer,
+        );
         if let Ok(layout_json) = serde_json::to_string(&self.tiles_tree) {
             self.graph_app.save_tile_layout_json(&layout_json);
         } else {
@@ -276,6 +288,15 @@ impl Gui {
             panel
         };
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
+        let registry_runtime = RegistryRuntime::new_with_mods();
+        let (semantic_index_signal_tx, semantic_index_signal_rx) = channel();
+        let semantic_index_signal_observer =
+            phase3_subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+                if let SignalKind::SemanticIndexUpdated { indexed_nodes } = &signal.kind {
+                    let _ = semantic_index_signal_tx.send(*indexed_nodes);
+                }
+                Ok(())
+            });
 
         Self {
             rendering_context,
@@ -328,7 +349,9 @@ impl Gui {
             },
             #[cfg(feature = "diagnostics")]
             diagnostics_state: diagnostics::DiagnosticsState::new(),
-            registry_runtime: RegistryRuntime::new_with_mods(),
+            registry_runtime,
+            semantic_index_signal_rx,
+            semantic_index_signal_observer,
             tokio_runtime,
             control_panel,
         }
@@ -387,6 +410,16 @@ impl Gui {
 
     pub(crate) fn has_focused_node(&self) -> bool {
         interaction_queries::has_focused_node(self)
+    }
+
+    fn apply_pending_semantic_index_updates(&mut self) {
+        let mut saw_update = false;
+        while self.semantic_index_signal_rx.try_recv().is_ok() {
+            saw_update = true;
+        }
+        if saw_update {
+            self.graph_app.refresh_registry_backed_view_lenses();
+        }
     }
 
     pub(crate) fn webview_id_for_node_key(&self, node_key: NodeKey) -> Option<WebViewId> {
@@ -497,6 +530,8 @@ impl Gui {
     }
 
     fn run_update(&mut self, input: GuiUpdateInput<'_>) -> GuiUpdateOutput {
+        self.apply_pending_semantic_index_updates();
+
         let GuiUpdateInput {
             state,
             window,

@@ -40,6 +40,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED, CHANNEL_IDENTITY_SIGN_SUCCEEDED,
     CHANNEL_INPUT_BINDING_CONFLICT, CHANNEL_INPUT_BINDING_MISSING, CHANNEL_INPUT_BINDING_REBOUND,
     CHANNEL_INPUT_BINDING_RESOLVED, CHANNEL_INVARIANT_TIMEOUT, CHANNEL_LENS_FALLBACK_USED,
+    CHANNEL_KNOWLEDGE_INDEX_UPDATED, CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN,
     CHANNEL_LENS_RESOLVE_FAILED, CHANNEL_LENS_RESOLVE_SUCCEEDED, CHANNEL_MOD_DEPENDENCY_MISSING,
     CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED,
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
@@ -526,7 +527,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 107] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 109] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -811,6 +812,16 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 107] = [
         channel_id: CHANNEL_PRESENTATION_PROFILE_RESOLVED,
         schema_version: 1,
         severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_KNOWLEDGE_INDEX_UPDATED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_WORKFLOW_ACTIVATED,
