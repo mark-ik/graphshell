@@ -11,6 +11,9 @@
 
 use crate::app::GraphViewId;
 use crate::graph::NodeKey;
+use std::sync::Once;
+
+static ACTION_KEY_AUDIT_ONCE: Once = Once::new();
 
 /// Preferred input mode, used as a layout hint by control surfaces.
 ///
@@ -202,6 +205,47 @@ pub enum ActionId {
 }
 
 impl ActionId {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::NodeNew => "node:new",
+            Self::NodeNewAsTab => "node:new_as_tab",
+            Self::NodePinToggle => "node:pin_toggle",
+            Self::NodePinSelected => "node:pin_selected",
+            Self::NodeUnpinSelected => "node:unpin_selected",
+            Self::NodeDelete => "node:delete",
+            Self::NodeChooseFrame => "node:choose_frame",
+            Self::NodeAddToFrame => "node:add_to_frame",
+            Self::NodeAddConnectedToFrame => "node:add_connected_to_frame",
+            Self::NodeOpenFrame => "node:open_frame",
+            Self::NodeOpenNeighbors => "node:open_neighbors",
+            Self::NodeOpenConnected => "node:open_connected",
+            Self::NodeOpenSplit => "node:open_split",
+            Self::NodeDetachToSplit => "node:detach_to_split",
+            Self::NodeMoveToActivePane => "node:move_to_active_pane",
+            Self::NodeCopyUrl => "node:copy_url",
+            Self::NodeCopyTitle => "node:copy_title",
+            Self::NodeRenderAuto => "node:render_auto",
+            Self::NodeRenderWebView => "node:render_webview",
+            Self::NodeRenderWry => "node:render_wry",
+            Self::EdgeConnectPair => "edge:connect_pair",
+            Self::EdgeConnectBoth => "edge:connect_both",
+            Self::EdgeRemoveUser => "edge:remove_user",
+            Self::GraphFit => "graph:fit",
+            Self::GraphCycleFocusRegion => "graph:cycle_focus_region",
+            Self::GraphTogglePhysics => "graph:toggle_physics",
+            Self::GraphPhysicsConfig => "graph:physics_config",
+            Self::GraphCommandPalette => "workbench:command_palette_open",
+            Self::GraphRadialMenu => "workbench:radial_menu_open",
+            Self::PersistUndo => "persistence:undo",
+            Self::PersistRedo => "persistence:redo",
+            Self::PersistSaveSnapshot => "persistence:save_snapshot",
+            Self::PersistRestoreSession => "persistence:restore_session",
+            Self::PersistSaveGraph => "persistence:save_graph",
+            Self::PersistRestoreLatestGraph => "persistence:restore_latest_graph",
+            Self::PersistOpenHub => "persistence:open_hub",
+        }
+    }
+
     /// Short label suitable for a radial menu sector (≤ 12 chars).
     pub fn short_label(self) -> &'static str {
         match self {
@@ -329,6 +373,82 @@ impl ActionId {
     }
 }
 
+fn action_id_has_namespace_format(id: &str) -> bool {
+    let mut parts = id.split(':');
+    let Some(namespace) = parts.next() else {
+        return false;
+    };
+    let Some(name) = parts.next() else {
+        return false;
+    };
+    if parts.next().is_some() || namespace.is_empty() || name.is_empty() {
+        return false;
+    }
+    namespace
+        .chars()
+        .all(|ch| ch.is_ascii_lowercase() || ch == '_')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch == '_')
+}
+
+fn all_action_ids() -> &'static [ActionId] {
+    use ActionId::*;
+
+    &[
+        NodeNew,
+        NodeNewAsTab,
+        NodePinToggle,
+        NodePinSelected,
+        NodeUnpinSelected,
+        NodeDelete,
+        NodeChooseFrame,
+        NodeAddToFrame,
+        NodeAddConnectedToFrame,
+        NodeOpenFrame,
+        NodeOpenNeighbors,
+        NodeOpenConnected,
+        NodeOpenSplit,
+        NodeDetachToSplit,
+        NodeMoveToActivePane,
+        NodeCopyUrl,
+        NodeCopyTitle,
+        NodeRenderAuto,
+        NodeRenderWebView,
+        NodeRenderWry,
+        EdgeConnectPair,
+        EdgeConnectBoth,
+        EdgeRemoveUser,
+        GraphFit,
+        GraphCycleFocusRegion,
+        GraphTogglePhysics,
+        GraphPhysicsConfig,
+        GraphCommandPalette,
+        GraphRadialMenu,
+        PersistUndo,
+        PersistRedo,
+        PersistSaveSnapshot,
+        PersistRestoreSession,
+        PersistSaveGraph,
+        PersistRestoreLatestGraph,
+        PersistOpenHub,
+    ]
+}
+
+fn warn_on_nonconforming_action_keys() {
+    ACTION_KEY_AUDIT_ONCE.call_once(|| {
+        for action_id in all_action_ids() {
+            let key = action_id.key();
+            if !action_id_has_namespace_format(key) {
+                log::warn!(
+                    "action_registry: key {:?} does not follow namespace:name format",
+                    key
+                );
+            }
+        }
+    });
+}
+
 /// Context passed to [`list_actions_for_context`] to drive enabled/disabled
 /// state and scope filtering.
 #[derive(Clone, Debug, Default)]
@@ -370,6 +490,7 @@ pub struct ActionEntry {
 /// Persistence.  Disabled actions are included so surfaces can show them
 /// greyed out rather than hiding them (consistent palette behaviour).
 pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
+    warn_on_nonconforming_action_keys();
     use ActionId::*;
 
     let node_ops_enabled = context.any_selected || context.target_node.is_some();
@@ -611,46 +732,21 @@ mod tests {
 
     #[test]
     fn test_action_id_labels_are_nonempty() {
-        use ActionId::*;
-        let all = [
-            NodeNew,
-            NodeNewAsTab,
-            NodePinToggle,
-            NodePinSelected,
-            NodeUnpinSelected,
-            NodeDelete,
-            NodeChooseFrame,
-            NodeAddToFrame,
-            NodeAddConnectedToFrame,
-            NodeOpenFrame,
-            NodeOpenNeighbors,
-            NodeOpenConnected,
-            NodeOpenSplit,
-            NodeDetachToSplit,
-            NodeMoveToActivePane,
-            NodeCopyUrl,
-            NodeCopyTitle,
-            NodeRenderAuto,
-            NodeRenderWebView,
-            NodeRenderWry,
-            EdgeConnectPair,
-            EdgeConnectBoth,
-            EdgeRemoveUser,
-            GraphFit,
-            GraphTogglePhysics,
-            GraphPhysicsConfig,
-            GraphCommandPalette,
-            PersistUndo,
-            PersistRedo,
-            PersistSaveSnapshot,
-            PersistRestoreSession,
-            PersistSaveGraph,
-            PersistRestoreLatestGraph,
-            PersistOpenHub,
-        ];
-        for id in all {
+        for &id in all_action_ids() {
             assert!(!id.label().is_empty(), "{id:?} has empty label");
             assert!(!id.short_label().is_empty(), "{id:?} has empty short_label");
+        }
+    }
+
+    #[test]
+    fn test_action_ids_follow_namespace_name_format() {
+        for &id in all_action_ids() {
+            assert!(
+                action_id_has_namespace_format(id.key()),
+                "{:?} key should follow namespace:name, got {}",
+                id,
+                id.key()
+            );
         }
     }
 

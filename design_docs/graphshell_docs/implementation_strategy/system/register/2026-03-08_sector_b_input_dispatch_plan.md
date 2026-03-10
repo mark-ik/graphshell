@@ -263,6 +263,10 @@ pub fn register_action(&mut self, id: &str, handler: ActionHandler) {
 
 Existing action IDs are already `namespace:name` format but should be validated consistently.
 
+Current status (2026-03-09): the current enum-backed `ActionRegistry` now exposes canonical
+`namespace:name` keys for every `ActionId`, audits the catalog once at runtime with `log::warn!`
+for any non-conforming key, and has a test gate that fails if an action key drifts off-format.
+
 **Done gates:**
 - [ ] `register_action()` emits `log::warn!` for non-conforming keys.
 - [ ] All existing action ID constants conform (audit + fix).

@@ -962,7 +962,7 @@ pub fn render_radial_command_menu(
                         semantic_snapshot.sectors.push(RadialSectorSemanticMetadata {
                             tier: 2,
                             domain_label: radial_category_label(category).to_string(),
-                            action_id: format!("{:?}", entry.id),
+                            action_id: entry.id.key().to_string(),
                             enabled: entry.enabled,
                             page,
                             rail_position: command_offsets[domain.index()],
