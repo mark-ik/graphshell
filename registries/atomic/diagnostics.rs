@@ -89,6 +89,39 @@ pub(crate) enum ChannelSeverity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DiagnosticFieldType {
+    String,
+    Integer,
+    Float,
+    Boolean,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PayloadField {
+    pub(crate) name: &'static str,
+    pub(crate) field_type: DiagnosticFieldType,
+    pub(crate) required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DiagnosticPayloadSchema {
+    FreeText,
+    Structured(Vec<PayloadField>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetentionPolicy {
+    KeepRecent(usize),
+    Session,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum SamplingPolicy {
+    All,
+    SampleRate(f32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DiagnosticChannelDescriptor {
     pub(crate) channel_id: &'static str,
     pub(crate) schema_version: u16,
@@ -140,13 +173,16 @@ impl DiagnosticsChannelOwner {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RuntimeChannelDescriptor {
     pub(crate) channel_id: String,
     pub(crate) schema_version: u16,
     pub(crate) owner: DiagnosticsChannelOwner,
     pub(crate) description: Option<String>,
     pub(crate) severity: ChannelSeverity,
+    pub(crate) payload_schema: DiagnosticPayloadSchema,
+    pub(crate) retention: RetentionPolicy,
+    pub(crate) sampling: SamplingPolicy,
 }
 
 impl RuntimeChannelDescriptor {
@@ -156,6 +192,9 @@ impl RuntimeChannelDescriptor {
         owner: DiagnosticsChannelOwner,
         description: Option<String>,
         severity: ChannelSeverity,
+        payload_schema: DiagnosticPayloadSchema,
+        retention: RetentionPolicy,
+        sampling: SamplingPolicy,
     ) -> Self {
         Self {
             channel_id: channel_id.into(),
@@ -163,6 +202,9 @@ impl RuntimeChannelDescriptor {
             owner,
             description,
             severity,
+            payload_schema,
+            retention,
+            sampling,
         }
     }
 
@@ -172,12 +214,16 @@ impl RuntimeChannelDescriptor {
         owner: DiagnosticsChannelOwner,
         description: Option<String>,
     ) -> Self {
+        let channel_id = channel_id.into();
         Self::new(
-            channel_id,
+            channel_id.clone(),
             schema_version,
             owner,
             description,
             ChannelSeverity::Info,
+            channel_payload_schema(&channel_id),
+            channel_retention_policy(&channel_id),
+            channel_sampling_policy(&channel_id),
         )
     }
 
@@ -187,12 +233,16 @@ impl RuntimeChannelDescriptor {
         owner: DiagnosticsChannelOwner,
         description: Option<String>,
     ) -> Self {
+        let channel_id = channel_id.into();
         Self::new(
-            channel_id,
+            channel_id.clone(),
             schema_version,
             owner,
             description,
             ChannelSeverity::Warn,
+            channel_payload_schema(&channel_id),
+            channel_retention_policy(&channel_id),
+            channel_sampling_policy(&channel_id),
         )
     }
 
@@ -202,12 +252,16 @@ impl RuntimeChannelDescriptor {
         owner: DiagnosticsChannelOwner,
         description: Option<String>,
     ) -> Self {
+        let channel_id = channel_id.into();
         Self::new(
-            channel_id,
+            channel_id.clone(),
             schema_version,
             owner,
             description,
             ChannelSeverity::Error,
+            channel_payload_schema(&channel_id),
+            channel_retention_policy(&channel_id),
+            channel_sampling_policy(&channel_id),
         )
     }
 
@@ -218,6 +272,9 @@ impl RuntimeChannelDescriptor {
             DiagnosticsChannelOwner::core(),
             None,
             descriptor.severity,
+            channel_payload_schema(descriptor.channel_id),
+            channel_retention_policy(descriptor.channel_id),
+            channel_sampling_policy(descriptor.channel_id),
         )
     }
 }
@@ -232,6 +289,10 @@ pub(crate) enum ChannelRegistrationPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ChannelRegistrationError {
     InvalidChannelId,
+    InvalidSchema {
+        channel_id: String,
+        reason: String,
+    },
     Conflict {
         channel_id: String,
         existing_schema_version: u16,
@@ -273,6 +334,71 @@ struct PendingInvariantToken {
     start_channel: String,
     deadline_unix_ms: u64,
 }
+
+const PROTOCOL_RESOLVE_FIELDS: [PayloadField; 2] = [
+    PayloadField {
+        name: "uri",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "scheme",
+        field_type: DiagnosticFieldType::String,
+        required: false,
+    },
+];
+
+const VIEWER_SELECT_FIELDS: [PayloadField; 2] = [
+    PayloadField {
+        name: "uri",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "viewer_id",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+];
+
+const ACTION_EXECUTE_FIELDS: [PayloadField; 2] = [
+    PayloadField {
+        name: "action_id",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "latency_us",
+        field_type: DiagnosticFieldType::Integer,
+        required: false,
+    },
+];
+
+const IDENTITY_SIGN_FIELDS: [PayloadField; 2] = [
+    PayloadField {
+        name: "identity_id",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "payload_bytes",
+        field_type: DiagnosticFieldType::Integer,
+        required: false,
+    },
+];
+
+const RENDERER_ATTACH_FIELDS: [PayloadField; 2] = [
+    PayloadField {
+        name: "pane_id",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "renderer_id",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+];
 
 const PHASE0_CHANNELS: [DiagnosticChannelDescriptor; 14] = [
     DiagnosticChannelDescriptor {
@@ -1129,6 +1255,7 @@ impl DiagnosticsRegistry {
         normalized_descriptor.channel_id = normalized_id.clone();
 
         validate_runtime_channel_ownership(&normalized_descriptor)?;
+        validate_runtime_channel_schema(&normalized_descriptor)?;
 
         if let Some(existing) = self.channels.get(&normalized_id) {
             if existing.schema_version != normalized_descriptor.schema_version {
@@ -1213,6 +1340,7 @@ impl DiagnosticsRegistry {
     pub(crate) fn should_emit_channel(&mut self, channel_id: &str) -> bool {
         let normalized = normalize_channel_id(channel_id);
         if !self.channels.contains_key(&normalized) {
+            log::warn!("diagnostics: emit to unregistered channel '{normalized}'");
             let _ = self.register_runtime_channel(
                 RuntimeChannelDescriptor::info(
                     normalized.clone(),
@@ -1437,6 +1565,85 @@ fn validate_runtime_channel_ownership(
         _ => {}
     }
     Ok(())
+}
+
+fn validate_runtime_channel_schema(
+    descriptor: &RuntimeChannelDescriptor,
+) -> Result<(), ChannelRegistrationError> {
+    if descriptor.schema_version == 0 {
+        return Err(ChannelRegistrationError::InvalidSchema {
+            channel_id: descriptor.channel_id.clone(),
+            reason: "schema_version must be greater than zero".to_string(),
+        });
+    }
+
+    if let DiagnosticPayloadSchema::Structured(fields) = &descriptor.payload_schema
+        && fields.is_empty()
+    {
+        return Err(ChannelRegistrationError::InvalidSchema {
+            channel_id: descriptor.channel_id.clone(),
+            reason: "structured payload schema must declare at least one field".to_string(),
+        });
+    }
+
+    if let SamplingPolicy::SampleRate(rate) = descriptor.sampling
+        && !(0.0..=1.0).contains(&rate)
+    {
+        return Err(ChannelRegistrationError::InvalidSchema {
+            channel_id: descriptor.channel_id.clone(),
+            reason: "sampling rate must be within 0.0..=1.0".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
+fn channel_payload_schema(channel_id: &str) -> DiagnosticPayloadSchema {
+    match channel_id {
+        CHANNEL_PROTOCOL_RESOLVE_STARTED
+        | CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED
+        | CHANNEL_PROTOCOL_RESOLVE_FAILED
+        | CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED => {
+            DiagnosticPayloadSchema::Structured(PROTOCOL_RESOLVE_FIELDS.to_vec())
+        }
+        CHANNEL_VIEWER_SELECT_STARTED | CHANNEL_VIEWER_SELECT_SUCCEEDED => {
+            DiagnosticPayloadSchema::Structured(VIEWER_SELECT_FIELDS.to_vec())
+        }
+        CHANNEL_ACTION_EXECUTE_STARTED
+        | CHANNEL_ACTION_EXECUTE_SUCCEEDED
+        | CHANNEL_ACTION_EXECUTE_FAILED => {
+            DiagnosticPayloadSchema::Structured(ACTION_EXECUTE_FIELDS.to_vec())
+        }
+        CHANNEL_IDENTITY_SIGN_STARTED
+        | CHANNEL_IDENTITY_SIGN_SUCCEEDED
+        | CHANNEL_IDENTITY_SIGN_FAILED => {
+            DiagnosticPayloadSchema::Structured(IDENTITY_SIGN_FIELDS.to_vec())
+        }
+        CHANNEL_RENDERER_ATTACH | CHANNEL_RENDERER_DETACH => {
+            DiagnosticPayloadSchema::Structured(RENDERER_ATTACH_FIELDS.to_vec())
+        }
+        _ => DiagnosticPayloadSchema::FreeText,
+    }
+}
+
+fn channel_retention_policy(channel_id: &str) -> RetentionPolicy {
+    match channel_id {
+        CHANNEL_ACTION_EXECUTE_FAILED
+        | CHANNEL_IDENTITY_SIGN_FAILED
+        | CHANNEL_PROTOCOL_RESOLVE_FAILED
+        | CHANNEL_VIEWER_CAPABILITY_NONE => RetentionPolicy::KeepRecent(500),
+        _ => RetentionPolicy::Session,
+    }
+}
+
+fn channel_sampling_policy(channel_id: &str) -> SamplingPolicy {
+    match channel_id {
+        CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE
+        | CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE
+        | CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE
+        | CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE => SamplingPolicy::SampleRate(0.25),
+        _ => SamplingPolicy::All,
+    }
 }
 
 fn current_unix_ms() -> u64 {
@@ -1748,5 +1955,51 @@ mod tests {
                 .iter()
                 .any(|entry| entry.invariant_id == INVARIANT_VERSE_SYNC_SENT_COMPLETES)
         );
+    }
+
+    #[test]
+    fn diagnostics_registry_attaches_structured_schema_to_high_value_contract_channels() {
+        let registry = DiagnosticsRegistry::default();
+        let channels = registry.list_channel_configs();
+
+        for channel_id in [
+            CHANNEL_PROTOCOL_RESOLVE_STARTED,
+            CHANNEL_VIEWER_SELECT_SUCCEEDED,
+            CHANNEL_ACTION_EXECUTE_FAILED,
+            CHANNEL_IDENTITY_SIGN_FAILED,
+            CHANNEL_RENDERER_ATTACH,
+        ] {
+            let descriptor = channels
+                .iter()
+                .find_map(|(descriptor, _)| (descriptor.channel_id == channel_id).then_some(descriptor))
+                .expect("channel should be registered");
+            assert!(matches!(
+                descriptor.payload_schema,
+                DiagnosticPayloadSchema::Structured(ref fields) if !fields.is_empty()
+            ));
+        }
+    }
+
+    #[test]
+    fn diagnostics_registry_rejects_empty_structured_payload_schema() {
+        let mut registry = DiagnosticsRegistry::default();
+        let result = registry.register_runtime_channel(
+            RuntimeChannelDescriptor::new(
+                "runtime.invalid.schema",
+                1,
+                DiagnosticsChannelOwner::runtime(),
+                Some("invalid".to_string()),
+                ChannelSeverity::Info,
+                DiagnosticPayloadSchema::Structured(Vec::new()),
+                RetentionPolicy::Session,
+                SamplingPolicy::All,
+            ),
+            ChannelRegistrationPolicy::RejectConflict,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ChannelRegistrationError::InvalidSchema { .. })
+        ));
     }
 }
