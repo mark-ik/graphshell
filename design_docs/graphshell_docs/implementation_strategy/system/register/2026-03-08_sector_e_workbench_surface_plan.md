@@ -37,11 +37,11 @@ being real.
   `workflow:default`, `workflow:research`, `workflow:reading`, plus stub
   `workflow:history` and `workflow:presence`.
 - Workflow activation is real over the state that exists today:
-  workbench surface active profile, persisted canvas profile id, and persisted
-  lens/physics/theme defaults.
-- Full transactional rollback across stateful canvas/physics authorities is
-  still blocked on Sector D because those registries are not yet runtime-owned
-  active profile authorities in code.
+  workbench surface active profile plus runtime-owned canvas/physics/layout
+  authorities, with theme selection still resolved from persisted defaults.
+- Full transactional rollback is no longer blocked on missing Sector D runtime
+  authorities; the remaining gap is explicit transaction/rollback carrier
+  semantics across those authorities.
 
 **Implementation note (2026-03-10):**
 - B3.4 groundwork landed before Sector E: reducer ingress now has an explicit
@@ -63,7 +63,7 @@ being real.
 | Registry | Struct | Key gaps |
 |---|---|---|
 | `WorkbenchSurfaceRegistry` | ✅ | Remaining cleanup is policy migration/compression, not authority existence |
-| `WorkflowRegistry` | ✅ | Remaining gap is fully transactional activation across future Sector D runtime authorities |
+| `WorkflowRegistry` | ✅ | Remaining gap is explicit rollback/WAL-grade transaction semantics, not missing runtime authorities |
 
 Workbench layout decisions currently live as:
 - Magic constants in `tile_behavior.rs` (split ratios, pane size limits).
@@ -243,11 +243,10 @@ profiles update or none do (rollback on partial failure).
 
 **Implementation note (2026-03-10):**
 - The current code can apply workflow activation deterministically because the
-  active workbench profile and persisted defaults are infallible writes in the
-  current carrier model.
-- The original stronger rollback requirement still depends on Sector D making
-  canvas/physics active profiles runtime-stateful authorities rather than
-  persisted defaults.
+  active workbench profile and runtime-owned canvas/physics/layout authorities
+  are infallible writes in the current carrier model.
+- The remaining stronger rollback requirement is now explicit transaction
+  carrier design, not missing Sector D authority implementation.
 
 **Done gates:**
 - [x] `activate_workflow()` applies all profiles in sequence over the current runtime/persistence carriers.
@@ -290,7 +289,7 @@ namespace while the feature lanes develop.
 - [x] `DIAG_WORKBENCH_SURFACE` and `DIAG_WORKFLOW` emit with correct severity.
 
 Follow-on acceptance still pending outside Sector E proper:
-- [ ] Full rollback semantics across stateful canvas/physics authorities (Sector D dependency).
+- [ ] Full rollback semantics across stateful canvas/physics/layout authorities (explicit transaction carrier dependency).
 - [ ] Full WAL-carried workflow activation logging.
 - [ ] Final cleanup of any remaining policy/magic constants outside the active workbench registry path.
 

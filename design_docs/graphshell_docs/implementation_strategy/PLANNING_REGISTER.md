@@ -990,13 +990,12 @@ These are intentionally scoped to small slices that can ship independently witho
 
 ### Sector D Reality Note (2026-03-10)
 
-Sector D runtime-state work is no longer "missing registries":
-- `PhysicsProfileRegistry`, `CanvasRegistry`, `LayoutDomainRegistry`, and `PresentationDomainRegistry`
-  now exist in live runtime paths.
-- The remaining honest Sector D blocker is the dedicated `LayoutRegistry` /
-  `LayoutAlgorithm` abstraction. Layout execution is still the in-place `egui_graphs`
-  Fruchterman-Reingold path, so Sector D should not be marked fully complete until
-  that carrier is extracted.
+Sector D is now complete in the repo:
+- `PhysicsProfileRegistry`, `CanvasRegistry`, `LayoutRegistry`, `LayoutDomainRegistry`, and
+  `PresentationDomainRegistry` all exist in live runtime paths.
+- Layout execution still uses `egui_graphs` as the widget substrate, but layout authority is now
+  registry-owned through the extracted `app/graph_layout.rs` adapter layer and runtime
+  resolution/apply ordering.
 
 ---
 

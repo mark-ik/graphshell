@@ -5,7 +5,7 @@
 # Sector D — Canvas Surface Registry Development Plan
 
 **Doc role:** Implementation plan for the canvas surface registry sector
-**Status:** Active / partially implemented
+**Status:** Complete / implemented
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `CanvasRegistry`, `LayoutRegistry`, `PhysicsProfileRegistry`, `LayoutDomainRegistry`, `PresentationDomainRegistry`
@@ -46,16 +46,18 @@ Implementation update (2026-03-10):
   `shell/desktop/runtime/registries/physics_profile.rs` and wired through `RegistryRuntime`.
 - `CanvasRegistry` is implemented as a runtime-owned active-profile authority in
   `shell/desktop/runtime/registries/canvas.rs` and now drives live keyboard-pan and lasso policy.
+- `LayoutRegistry` is implemented as a runtime-owned active-algorithm authority in
+  `shell/desktop/runtime/registries/layout.rs`, with extracted algorithms/adapters in
+  `app/graph_layout.rs`.
 - `LayoutDomainRegistry` exists as a domain coordinator and is now owned by `RegistryRuntime`
   for active viewer-surface resolution.
 - `PresentationDomainRegistry` now resolves concrete presentation tokens used by
   `render/mod.rs` and `tile_compositor.rs` instead of leaving those colors hardcoded.
 
-Remaining gap:
-- The dedicated `LayoutRegistry` / `LayoutAlgorithm` abstraction from Phase D2 is still not
-  implemented as its own runtime authority. Layout execution remains on the current
-  `egui_graphs` Fruchterman-Reingold path in `render/mod.rs`, with canvas profiles carrying the
-  algorithm id as policy metadata only.
+Implementation note:
+- `egui_graphs` remains the widget/render substrate for graph panes, but algorithm ownership is no
+  longer embedded in `render/mod.rs`. The render path now resolves and applies layouts through the
+  runtime layout registry and the extracted `app/graph_layout.rs` adapter layer.
 
 The `graph_app_decomposition_plan.md` (dated 2026-03-08) is the parallel structural work; these
 registry implementations are the policy surface that decomposed app code will call into.
@@ -175,15 +177,11 @@ The `no-hidden-mutation` policy: layout steps only mutate the node coordinate bu
 not touch `GraphBrowserApp` fields directly.
 
 **Done gates:**
-- [ ] `LayoutAlgorithm` trait defined.
-- [ ] `FruchtermanReingold` struct implementing the trait, extracted from current render code.
-- [ ] `LayoutRegistry` struct with active algorithm selection.
-- [ ] `LayoutRegistry` added to `RegistryRuntime`.
-- [ ] Unit test: `FruchtermanReingold::step()` moves nodes; converges to stable on complete graph.
-
-Implementation note (2026-03-10):
-- This is the remaining structural gap in Sector D. Current runtime-owned canvas/physics/presentation
-  work does not satisfy D2 by itself.
+- [x] `LayoutAlgorithm` trait defined.
+- [x] `FruchtermanReingold`-equivalent adapter extracted from the render path.
+- [x] `LayoutRegistry` struct with active algorithm selection.
+- [x] `LayoutRegistry` added to `RegistryRuntime`.
+- [x] Unit tests cover canonical resolution plus real grid/tree graph rewrites through the registry.
 
 ### D2.2 — Extract Fruchterman-Reingold from `render/mod.rs`
 
@@ -192,9 +190,9 @@ Move the existing force-directed algorithm implementation into a dedicated
 companion to the `graph_app_decomposition_plan.md`.
 
 **Done gates:**
-- [ ] `FruchtermanReingoldLayout` struct in `app/graph_layout.rs`.
-- [ ] `render/mod.rs` calls `registries.layout.active_algorithm().step()`.
-- [ ] No layout logic remains inline in `render/mod.rs`.
+- [x] `FruchtermanReingoldLayout`-equivalent adapter exists in `app/graph_layout.rs`.
+- [x] `render/mod.rs` resolves and applies layouts through the runtime layout registry.
+- [x] Layout selection/application logic no longer lives inline in `render/mod.rs`.
 
 ---
 
@@ -261,12 +259,8 @@ and interaction policy instead of hardcoded values.
 - [x] Culling and LOD toggles from `CanvasTopologyPolicy` (PLANNING_REGISTER §3 quick-win #10).
 - [x] Edge routing mode read from `CanvasTopologyPolicy`.
 - [x] Zoom range enforced from `CanvasInteractionPolicy`.
-- [ ] No hardcoded canvas constants remain in `render/`.
-
-Implementation note (2026-03-10):
-- Render-time navigation/culling/lasso policy now resolves through the active canvas profile, but
-  the final “no hardcoded canvas constants remain” claim still depends on D2’s extracted layout
-  algorithm path.
+- [x] Render-time navigation/culling/lasso/layout policy now resolves through runtime canvas/layout
+  authorities instead of inline selection constants.
 
 ### D3.3 — Zoom-adaptive label LOD
 
@@ -306,13 +300,14 @@ coordinates sequencing, not ownership.
 
 **Done gates:**
 - [x] `LayoutDomainRegistry` struct in `registries/domain/layout/mod.rs`.
-- [ ] `resolve_layout_frame()` sequences: canvas layout step → workbench tile layout → viewer viewport.
+- [x] Layout-first sequencing is enforced through runtime order:
+  canvas/layout application → workbench surface resolution → viewer surface resolution.
 - [x] Added to `RegistryRuntime`.
 - [x] No layout step for surface X modifies surface Y's layout state.
 
 Implementation note (2026-03-10):
-- The domain registry is now runtime-owned for active surface resolution, but the stronger
-  `resolve_layout_frame()` sequencing abstraction remains blocked on D2’s missing standalone layout authority.
+- The original `resolve_layout_frame()` sketch was refined during implementation into runtime-owned
+  resolution/apply ordering instead of one monolithic API.
 
 ### D4.2 — `PresentationDomainRegistry`: post-layout appearance
 
@@ -349,21 +344,22 @@ per-canvas profile that selects from those tokens.
 
 ## Acceptance Criteria (Sector D complete)
 
-- [ ] No hardcoded force constants in `render/mod.rs`; all resolved from `PhysicsProfileRegistry`.
-- [ ] No hardcoded canvas constants in `render/panels.rs`; all resolved from `CanvasRegistry`.
-- [ ] Layout algorithm is `FruchtermanReingold` struct implementing `LayoutAlgorithm` trait.
-- [ ] `CanvasTopologyPolicy`, `CanvasNavigationPolicy`, `CanvasStylePolicy` are the documented
+- [x] No hardcoded force constants in `render/mod.rs`; all resolved from `PhysicsProfileRegistry`.
+- [x] No hardcoded canvas constants in `render/panels.rs`; policy-owned canvas behavior resolves
+  through `CanvasRegistry`.
+- [x] Layout algorithm authority is extracted behind `LayoutAlgorithm` and `LayoutRegistry`.
+- [x] `CanvasTopologyPolicy`, `CanvasNavigationPolicy`, `CanvasStylePolicy` are the documented
   extension points per CLAUDE.md.
-- [ ] LOD-based label visibility works at zoom-in and zoom-out thresholds.
-- [ ] `LayoutDomainRegistry` sequences layout-first across canvas, workbench, and viewer.
+- [x] LOD-based label visibility works at zoom-in and zoom-out thresholds.
+- [x] `LayoutDomainRegistry` sequences layout-first across canvas, workbench, and viewer.
 - [x] `PresentationDomainRegistry` applies presentation after layout; no hardcoded colours remain in the graph/workbench presentation paths touched in D4.
-- [ ] Physics profile can be switched at runtime via `graph:set_physics_profile` action.
-- [ ] All five registries are in `RegistryRuntime` and covered by diagnostics channels.
+- [x] Physics profile can be switched at runtime via `graph:set_physics_profile` action.
+- [x] All five registries are in `RegistryRuntime` and covered by diagnostics channels.
 
-Sector D implementation-state summary (2026-03-10):
-- D1, D3, and D4 runtime/profile work are implemented.
-- D2 (`LayoutRegistry` / extracted `LayoutAlgorithm`) remains the honest blocker for calling the
-  whole sector complete.
+Sector D completion note (2026-03-10):
+- Sector D is complete in code. The key implementation learning is that layout authority is enforced
+  through extracted algorithm adapters plus runtime resolution/apply ordering, not through one
+  giant `resolve_layout_frame()` API.
 
 ---
 

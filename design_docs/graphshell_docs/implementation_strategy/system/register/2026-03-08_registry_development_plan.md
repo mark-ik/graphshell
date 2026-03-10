@@ -44,13 +44,13 @@ All registries in the system spec family are listed here. Implementation state i
 | `RendererRegistry` | Atomic (new) | ❌ | ❌ | ❌ | ❌ | ❌ | [B](#sector-b) |
 | `IdentityRegistry` | Atomic | ✅ | ⚠️ stub crypto | ✅ | ✅ | ✅ | [C](#sector-c) |
 | `NostrCoreRegistry` | Native mod | ✅ | ✅ | ✅ | ✅ | ✅ | [C](#sector-c) |
-| `CanvasRegistry` | Surface | ❌ | ❌ | ❌ | ❌ | ❌ | [D](#sector-d) |
-| `LayoutRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [D](#sector-d) |
-| `PhysicsProfileRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [D](#sector-d) |
-| `LayoutDomainRegistry` | Domain | ❌ | ❌ | ❌ | ❌ | ❌ | [D](#sector-d) |
-| `PresentationDomainRegistry` | Domain | ❌ | ❌ | ❌ | ❌ | ❌ | [D](#sector-d) |
-| `WorkbenchSurfaceRegistry` | Surface | ❌ | ❌ | ❌ | ❌ | ❌ | [E](#sector-e) |
-| `WorkflowRegistry` | Domain | ❌ | ❌ | ❌ | ❌ | ❌ | [E](#sector-e) |
+| `CanvasRegistry` | Surface | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
+| `LayoutRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
+| `PhysicsProfileRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
+| `LayoutDomainRegistry` | Domain | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
+| `PresentationDomainRegistry` | Domain | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
+| `WorkbenchSurfaceRegistry` | Surface | ✅ | ✅ | ✅ | ✅ | ✅ | [E](#sector-e) |
+| `WorkflowRegistry` | Domain | ✅ | ✅ | ✅ | ✅ | ✅ | [E](#sector-e) |
 | `KnowledgeRegistry` | Atomic | ⚠️ shim | ⚠️ reconcile-only | ⚠️ | ✅ | ❌ | [F](#sector-f) |
 | `IndexRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [F](#sector-f) |
 | `DiagnosticsRegistry` | Atomic | ✅ (atomic) | ⚠️ | ✅ | ⚠️ | — | [F](#sector-f) |
@@ -150,7 +150,9 @@ Current state: `IdentityRegistry` is functional but uses SHA256 stub signing (no
 **Registries:** `CanvasRegistry`, `LayoutRegistry`, `PhysicsProfileRegistry`, `LayoutDomainRegistry`, `PresentationDomainRegistry`
 **Plan:** [2026-03-08_sector_d_canvas_surface_plan.md](2026-03-08_sector_d_canvas_surface_plan.md)
 
-The canvas surface registries govern everything about how the graph looks and moves. None of these registries have Rust implementations yet; the graph is driven by hardcoded constants in `render/mod.rs` and `graph_app.rs`.
+The canvas surface registries now exist as live runtime authorities. The sector work moved graph
+physics, canvas interaction policy, layout algorithm ownership, layout-domain coordination, and
+presentation tokens out of ad hoc render logic and into registry-owned runtime paths.
 
 These five registries are tightly coupled by the layout-first principle (layout resolves before presentation) and must be developed together.
 
@@ -163,7 +165,8 @@ These five registries are tightly coupled by the layout-first principle (layout 
 
 The workbench surface registries govern tile-tree layout policy and session modes. `WorkbenchSurfaceRegistry` owns the tile-tree policy authority that SYSTEM_REGISTER names as one of the two mutation authorities. `WorkflowRegistry` composes Lens × WorkbenchProfile into named session modes.
 
-Both registries are not yet implemented. Their development enables the complete two-authority model to be enforced.
+Both registries are implemented. Remaining work in this sector is rollback/stabilization depth, not
+authority existence.
 
 ---
 

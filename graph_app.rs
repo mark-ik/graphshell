@@ -237,6 +237,9 @@ mod focus_selection;
 #[path = "app/graph_views.rs"]
 mod graph_views;
 
+#[path = "app/graph_layout.rs"]
+pub(crate) mod graph_layout;
+
 #[path = "app/runtime_lifecycle.rs"]
 mod runtime_lifecycle;
 
@@ -374,6 +377,8 @@ pub struct GraphViewState {
     #[serde(default)]
     pub dimension: ViewDimension,
     #[serde(skip)]
+    pub last_layout_algorithm_id: Option<String>,
+    #[serde(skip)]
     pub egui_state: Option<EguiGraphState>,
 }
 
@@ -388,6 +393,7 @@ impl std::fmt::Debug for GraphViewState {
             .field("lens", &self.lens)
             .field("local_simulation", &self.local_simulation)
             .field("dimension", &self.dimension)
+            .field("last_layout_algorithm_id", &self.last_layout_algorithm_id)
             .finish_non_exhaustive()
     }
 }
@@ -403,6 +409,7 @@ impl Clone for GraphViewState {
             lens: self.lens.clone(),
             local_simulation: self.local_simulation.clone(),
             dimension: self.dimension.clone(),
+            last_layout_algorithm_id: self.last_layout_algorithm_id.clone(),
             egui_state: None,
         }
     }
@@ -419,6 +426,7 @@ impl GraphViewState {
             lens: LensConfig::default(),
             local_simulation: None,
             dimension: ViewDimension::default(),
+            last_layout_algorithm_id: None,
             egui_state: None,
         }
     }

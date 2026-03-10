@@ -88,7 +88,9 @@ Gaps / active architectural work:
 - Signal/event routing is still transitional (no dedicated `SignalBus` abstraction/API yet)
 - Canonical docs/terminology wording still needs tightening around `Signal` vs `Intent` vs direct calls (routing rules are defined here but not yet propagated everywhere)
 - Some authority-boundary misroutes are still too silent in fallback/no-op paths and should surface more explicitly during development
-- Sector D's dedicated `LayoutRegistry` / `LayoutAlgorithm` authority is still missing; current layout execution remains the `egui_graphs` Fruchterman-Reingold path even though canvas/physics/presentation profile authorities are now runtime-owned
+- Layout execution still uses `egui_graphs` as the widget substrate, but algorithm ownership is now
+  registry-owned through `LayoutRegistry` + `app/graph_layout.rs`; remaining work here is
+  stabilization, not missing authority structure
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 
@@ -153,8 +155,8 @@ consistent**.
   `RouteGraphViewToWorkbench` reaching reducer ingress before being forwarded to
   workbench authority.
 - Workflow lifecycle changes now publish through the Register signal-routing
-  layer, but full transactional workflow activation across canvas/physics still
-  depends on Sector D making those profile authorities runtime-stateful.
+  layer, and Sector D now provides runtime-stateful canvas/physics/layout
+  authorities for those activations.
 
 ### Routing anti-patterns to avoid
 

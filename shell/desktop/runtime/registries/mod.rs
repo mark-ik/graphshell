@@ -3,6 +3,7 @@ pub(crate) mod canvas;
 pub(crate) mod identity;
 pub(crate) mod input;
 pub(crate) mod knowledge;
+pub(crate) mod layout;
 pub(crate) mod lens;
 pub(crate) mod nostr_core;
 pub(crate) mod physics_profile;
@@ -53,6 +54,7 @@ use input::{
     InputConflict as InputRemapConflict, InputContext, InputRegistry,
 };
 use knowledge::KnowledgeRegistry;
+use layout::LayoutRegistry;
 use nostr_core::{
     NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
     NostrSubscriptionHandle, NostrUnsignedEvent,
@@ -305,6 +307,10 @@ pub(crate) const CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED: &str =
 pub(crate) const CHANNEL_CANVAS_PROFILE_ACTIVATED: &str = "registry.canvas.profile_activated";
 pub(crate) const CHANNEL_PHYSICS_PROFILE_ACTIVATED: &str =
     "registry.physics_profile.activated";
+pub(crate) const CHANNEL_LAYOUT_COMPUTE_STARTED: &str = "registry.layout.compute_started";
+pub(crate) const CHANNEL_LAYOUT_COMPUTE_SUCCEEDED: &str = "registry.layout.compute_succeeded";
+pub(crate) const CHANNEL_LAYOUT_COMPUTE_FAILED: &str = "registry.layout.compute_failed";
+pub(crate) const CHANNEL_LAYOUT_FALLBACK_USED: &str = "registry.layout.fallback_used";
 pub(crate) const CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED: &str =
     "registry.layout_domain.profile_resolved";
 pub(crate) const CHANNEL_PRESENTATION_PROFILE_RESOLVED: &str =
@@ -335,6 +341,7 @@ pub(crate) struct RegistryRuntime {
     identity: IdentityRegistry,
     input: Mutex<InputRegistry>,
     lens: LensRegistry,
+    layout: Mutex<LayoutRegistry>,
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
     canvas: Mutex<CanvasRegistry>,
@@ -511,6 +518,7 @@ impl RegistryRuntime {
             identity: IdentityRegistry::default(),
             input: Mutex::new(InputRegistry::default()),
             lens: LensRegistry::default(),
+            layout: Mutex::new(LayoutRegistry::default()),
             nostr_core: NostrCoreRegistry::default(),
             canvas: Mutex::new(CanvasRegistry::default()),
             layout_domain: LayoutDomainRegistry::default(),
@@ -571,6 +579,7 @@ impl RegistryRuntime {
             identity: IdentityRegistry::default(),
             input: Mutex::new(InputRegistry::default()),
             lens: LensRegistry::default(),
+            layout: Mutex::new(LayoutRegistry::default()),
             nostr_core: NostrCoreRegistry::default(),
             canvas: Mutex::new(CanvasRegistry::default()),
             layout_domain: LayoutDomainRegistry::default(),
@@ -590,6 +599,64 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .describe_workflow(workflow_id)
+    }
+
+    pub(crate) fn describe_layout_algorithm(
+        &self,
+        algorithm_id: Option<&str>,
+    ) -> crate::app::graph_layout::LayoutCapability {
+        self.layout
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .describe_algorithm(algorithm_id)
+    }
+
+    fn resolve_layout_algorithm(
+        &self,
+        algorithm_id: Option<&str>,
+    ) -> crate::app::graph_layout::LayoutResolution {
+        self.layout
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .resolve_algorithm(algorithm_id)
+    }
+
+    fn apply_layout_algorithm_to_graph(
+        &self,
+        graph: &mut crate::graph::Graph,
+        algorithm_id: Option<&str>,
+    ) -> Result<crate::app::graph_layout::LayoutExecution, String> {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_LAYOUT_COMPUTE_STARTED,
+            byte_len: algorithm_id.unwrap_or_default().len().max(1),
+        });
+        let mut layout = self
+            .layout
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let preview = layout.resolve_algorithm(algorithm_id);
+        if preview.fallback_used {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_LAYOUT_FALLBACK_USED,
+                byte_len: preview.requested_id.len().max(1),
+            });
+        }
+        match layout.apply_algorithm_to_graph(graph, algorithm_id) {
+            Ok(execution) => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_LAYOUT_COMPUTE_SUCCEEDED,
+                    byte_len: execution.changed_positions.max(1),
+                });
+                Ok(execution)
+            }
+            Err(error) => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_LAYOUT_COMPUTE_FAILED,
+                    byte_len: error.len().max(1),
+                });
+                Err(error)
+            }
+        }
     }
 
     fn resolve_active_canvas_profile(&self) -> CanvasSurfaceResolution {
@@ -1781,6 +1848,25 @@ pub(crate) fn phase3_resolve_viewer_surface_profile(_viewer_id: &str) -> ViewerS
     runtime().resolve_viewer_surface_profile(_viewer_id)
 }
 
+pub(crate) fn phase3_describe_layout_algorithm(
+    algorithm_id: Option<&str>,
+) -> crate::app::graph_layout::LayoutCapability {
+    runtime().describe_layout_algorithm(algorithm_id)
+}
+
+pub(crate) fn phase3_resolve_layout_algorithm(
+    algorithm_id: Option<&str>,
+) -> crate::app::graph_layout::LayoutResolution {
+    runtime().resolve_layout_algorithm(algorithm_id)
+}
+
+pub(crate) fn phase3_apply_layout_algorithm_to_graph(
+    graph: &mut crate::graph::Graph,
+    algorithm_id: Option<&str>,
+) -> Result<crate::app::graph_layout::LayoutExecution, String> {
+    runtime().apply_layout_algorithm_to_graph(graph, algorithm_id)
+}
+
 pub(crate) fn phase3_resolve_active_workbench_surface_profile() -> WorkbenchSurfaceResolution {
     runtime().resolve_active_workbench_surface_profile()
 }
@@ -2948,6 +3034,45 @@ mod tests {
         assert!(resolution.matched);
         assert!(!resolution.fallback_used);
         assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DEFAULT);
+    }
+
+    #[test]
+    fn phase3_layout_registry_resolves_and_falls_back() {
+        let grid = phase3_resolve_layout_algorithm(Some(
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID,
+        ));
+        assert_eq!(grid.resolved_id, crate::app::graph_layout::GRAPH_LAYOUT_GRID);
+        assert_eq!(grid.capability.display_name, "Grid");
+
+        let fallback = phase3_resolve_layout_algorithm(Some("graph_layout:missing"));
+        assert!(fallback.fallback_used);
+        assert_eq!(
+            fallback.resolved_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED
+        );
+    }
+
+    #[test]
+    fn phase3_layout_registry_applies_grid_positions_to_graph() {
+        let mut graph = crate::graph::Graph::new();
+        let a = graph.add_node("https://a.test".into(), euclid::default::Point2D::new(0.0, 0.0));
+        let b = graph.add_node("https://b.test".into(), euclid::default::Point2D::new(10.0, 0.0));
+        let before_a = graph.node_projected_position(a).unwrap();
+        let before_b = graph.node_projected_position(b).unwrap();
+
+        let execution = phase3_apply_layout_algorithm_to_graph(
+            &mut graph,
+            Some(crate::app::graph_layout::GRAPH_LAYOUT_GRID),
+        )
+        .expect("grid layout should apply");
+
+        assert_eq!(
+            execution.resolution.resolved_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID
+        );
+        assert!(execution.changed_positions > 0);
+        assert_ne!(graph.node_projected_position(a).unwrap(), before_a);
+        assert_ne!(graph.node_projected_position(b).unwrap(), before_b);
     }
 
     #[test]

@@ -8,6 +8,7 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
+    graph_layout::{GRAPH_LAYOUT_FORCE_DIRECTED, layout_algorithm_id_for_mode},
     CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, KeyboardPanInputMode,
     KeyboardZoomRequest, SearchDisplayMode, SelectionUpdateMode, UnsavedFramePromptAction,
     UnsavedFramePromptRequest, ViewAction,
@@ -28,7 +29,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE, CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
-    CHANNEL_UX_NAVIGATION_TRANSITION, phase3_resolve_active_canvas_profile,
+    CHANNEL_UX_NAVIGATION_TRANSITION, phase3_apply_layout_algorithm_to_graph,
+    phase3_resolve_active_canvas_profile, phase3_resolve_layout_algorithm,
     phase3_resolve_active_presentation_profile,
 };
 use crate::util::CoordBridge;
@@ -269,6 +271,21 @@ pub fn render_graph_in_ui_collect_actions(
 
     let active_canvas = phase3_resolve_active_canvas_profile();
     let canvas_profile = &active_canvas.profile;
+    let requested_layout_id = requested_layout_algorithm_id(app, view_id, canvas_profile);
+    let resolved_layout = phase3_resolve_layout_algorithm(Some(&requested_layout_id));
+    let dynamic_layout = resolved_layout.resolved_id == GRAPH_LAYOUT_FORCE_DIRECTED;
+    if should_apply_layout_algorithm(app, view_id, &resolved_layout.resolved_id) {
+        if let Ok(execution) =
+            phase3_apply_layout_algorithm_to_graph(app.domain_graph_mut(), Some(&requested_layout_id))
+        {
+            if execution.changed_positions > 0 {
+                app.workspace.egui_state_dirty = true;
+            }
+        }
+        if let Some(view) = app.workspace.views.get_mut(&view_id) {
+            view.last_layout_algorithm_id = Some(resolved_layout.resolved_id.clone());
+        }
+    }
 
     // Viewport culling: compute visible node set from previous-frame camera
     // metadata and exclude off-screen nodes before rebuilding egui_state.
@@ -356,8 +373,12 @@ pub fn render_graph_in_ui_collect_actions(
         (app.workspace.physics.clone(), None)
     };
 
-    if let Some(lens) = lens_config {
+    if dynamic_layout && let Some(lens) = lens_config {
         lens.physics.apply_to_state(&mut physics_state);
+    }
+
+    if !dynamic_layout {
+        physics_state.base.is_running = false;
     }
 
     // Keep egui_graphs layout cache aligned with app-owned FR state.
@@ -437,7 +458,9 @@ pub fn render_graph_in_ui_collect_actions(
 
     // Pull latest FR state from egui_graphs after this frame's layout step.
     let new_physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
-    app.workspace.physics = new_physics;
+    if dynamic_layout {
+        app.workspace.physics = new_physics;
+    }
 
     // Apply semantic clustering forces if enabled (UDC Phase 2)
     let semantic_config = app.workspace.views.get(&view_id).map(|v| {
@@ -2604,6 +2627,34 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     );
 }
 
+fn requested_layout_algorithm_id(
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    canvas_profile: &crate::registries::domain::layout::canvas::CanvasSurfaceProfile,
+) -> String {
+    app.workspace
+        .views
+        .get(&view_id)
+        .filter(|view| view.lens.lens_id.is_some())
+        .map(|view| layout_algorithm_id_for_mode(&view.lens.layout).to_string())
+        .unwrap_or_else(|| canvas_profile.layout_algorithm.algorithm_id.clone())
+}
+
+fn should_apply_layout_algorithm(
+    app: &GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    resolved_layout_id: &str,
+) -> bool {
+    let layout_changed = app
+        .workspace
+        .views
+        .get(&view_id)
+        .and_then(|view| view.last_layout_algorithm_id.as_deref())
+        != Some(resolved_layout_id);
+
+    app.workspace.egui_state.is_none() || app.workspace.egui_state_dirty || layout_changed
+}
+
 pub fn render_choose_frame_picker(ctx: &egui::Context, app: &mut GraphBrowserApp) -> bool {
     let mut open_settings_tool_pane = false;
     let Some(request) = app.choose_frame_picker_request() else {
@@ -2847,12 +2898,57 @@ fn resolve_source_node_context(
 mod tests {
     use super::*;
     use crate::app::SearchDisplayMode;
+    use crate::registries::atomic::lens::LayoutMode;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use std::hint::black_box;
     use std::time::Instant;
 
     fn test_app() -> GraphBrowserApp {
         GraphBrowserApp::new_for_testing()
+    }
+
+    #[test]
+    fn requested_layout_algorithm_prefers_lens_override_when_present() {
+        let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
+        view.lens.lens_id = Some("lens:default".to_string());
+        view.lens.layout = LayoutMode::Grid { gap: 24.0 };
+        app.workspace.views.insert(view_id, view);
+
+        let canvas_profile =
+            crate::registries::domain::layout::canvas::CanvasRegistry::default()
+                .resolve(crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT)
+                .profile;
+
+        let requested = requested_layout_algorithm_id(&app, view_id, &canvas_profile);
+
+        assert_eq!(requested, crate::app::graph_layout::GRAPH_LAYOUT_GRID);
+    }
+
+    #[test]
+    fn should_apply_layout_algorithm_detects_view_layout_change() {
+        let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
+        view.last_layout_algorithm_id = Some(crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED.to_string());
+        app.workspace.views.insert(view_id, view);
+        app.workspace.egui_state = Some(EguiGraphState::from_graph(
+            app.domain_graph(),
+            &HashSet::new(),
+        ));
+        app.workspace.egui_state_dirty = false;
+
+        assert!(should_apply_layout_algorithm(
+            &app,
+            view_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_GRID
+        ));
+        assert!(!should_apply_layout_algorithm(
+            &app,
+            view_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED
+        ));
     }
 
     #[test]
