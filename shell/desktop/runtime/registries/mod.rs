@@ -11,6 +11,7 @@ pub(crate) mod physics_profile;
 pub(crate) mod protocol;
 pub(crate) mod renderer;
 pub(crate) mod signal_routing;
+pub(crate) mod theme;
 pub(crate) mod workbench_surface;
 pub(crate) mod workflow;
 
@@ -27,7 +28,6 @@ use crate::graph::NodeKey;
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::atomic::diagnostics;
-use crate::registries::atomic::lens::THEME_ID_DEFAULT;
 use crate::registries::atomic::lens::LensRegistry;
 use crate::registries::atomic::protocol::ProtocolContractRegistry;
 use crate::registries::atomic::viewer::{
@@ -74,6 +74,7 @@ use signal_routing::{
     RegistryEventSignal, SignalBus, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource,
     SignalTopic,
 };
+use theme::{ThemeCapability, ThemeRegistry, ThemeResolution};
 use workbench_surface::{
     WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
 };
@@ -325,6 +326,7 @@ pub(crate) const CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED: &str =
     "registry.layout_domain.profile_resolved";
 pub(crate) const CHANNEL_PRESENTATION_PROFILE_RESOLVED: &str =
     "registry.presentation.profile_resolved";
+pub(crate) const CHANNEL_THEME_ACTIVATED: &str = "registry.theme.activated";
 pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated";
 pub(crate) const CHANNEL_KNOWLEDGE_INDEX_UPDATED: &str = "registry.knowledge.index_updated";
 pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
@@ -372,6 +374,7 @@ struct DynamicRegistrySurfaces {
     action: ActionRegistry,
     lens: LensRegistry,
     protocol: ProtocolRegistry,
+    theme: ThemeRegistry,
     viewer: ViewerRegistry,
     index: IndexRegistry,
 }
@@ -470,7 +473,9 @@ impl DynamicRegistrySurfaces {
             ModExtensionRecord::Lens { lens_id } => {
                 self.lens.unregister(&lens_id);
             }
-            ModExtensionRecord::Theme { theme_id: _ } => {}
+            ModExtensionRecord::Theme { theme_id } => {
+                self.theme.unregister_theme(&theme_id);
+            }
         }
         Ok(())
     }
@@ -704,12 +709,45 @@ impl RegistryRuntime {
         self.dynamic().viewer.describe_viewer(viewer_id)
     }
 
+    pub(crate) fn describe_theme(&self, theme_id: Option<&str>) -> ThemeCapability {
+        self.dynamic().theme.describe_theme(theme_id)
+    }
+
     pub(crate) fn select_viewer_for_content(
         &self,
         uri: &str,
         mime_hint: Option<&str>,
     ) -> ViewerSelection {
         self.dynamic().viewer.select_for_uri(uri, mime_hint)
+    }
+
+    fn resolve_active_theme(&self, theme_id: Option<&str>) -> ThemeResolution {
+        self.dynamic().theme.resolve_theme(theme_id)
+    }
+
+    fn set_active_theme(&self, theme_id: &str) -> ThemeResolution {
+        let resolution = self.dynamic().theme.set_active_theme(theme_id);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_THEME_ACTIVATED,
+            byte_len: resolution.resolved_id.len(),
+        });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::ThemeChanged {
+                new_theme_id: resolution.resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+        resolution
+    }
+
+    fn apply_system_theme_preference(&self, prefers_dark: bool) -> ThemeResolution {
+        let requested = if prefers_dark {
+            theme::THEME_ID_DARK
+        } else {
+            theme::THEME_ID_LIGHT
+        };
+        self.set_active_theme(requested)
     }
 
     fn build_provider_wired_registries(
@@ -737,6 +775,7 @@ impl RegistryRuntime {
             action: ActionRegistry::default(),
             lens: LensRegistry::default(),
             protocol: protocol_registry,
+            theme: ThemeRegistry::default(),
             viewer: viewer_registry,
             index: IndexRegistry::default(),
         }
@@ -1078,10 +1117,16 @@ impl RegistryRuntime {
         theme_id: Option<&str>,
     ) -> PresentationDomainProfileResolution {
         let physics = self.resolve_active_physics_profile();
-        let resolution = self.presentation.resolve_profile(
-            &physics.resolved_id,
-            theme_id.unwrap_or(THEME_ID_DEFAULT),
-        );
+        let theme = self.resolve_active_theme(theme_id);
+        let mut resolution = self
+            .presentation
+            .resolve_profile(&physics.resolved_id, &theme.resolved_id);
+        resolution.theme.requested_id = theme.requested_id;
+        resolution.theme.resolved_id = theme.resolved_id;
+        resolution.theme.matched = theme.matched;
+        resolution.theme.fallback_used = theme.fallback_used;
+        resolution.theme.theme_id = theme.tokens.theme_id.clone();
+        resolution.theme.theme = theme.tokens.theme_data.clone();
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_PRESENTATION_PROFILE_RESOLVED,
             byte_len: resolution.resolved_profile_id.len(),
@@ -2372,6 +2417,22 @@ pub(crate) fn phase3_set_active_physics_profile(
     runtime().set_active_physics_profile(profile_id)
 }
 
+pub(crate) fn phase3_set_active_theme(theme_id: &str) -> ThemeResolution {
+    runtime().set_active_theme(theme_id)
+}
+
+pub(crate) fn phase3_resolve_active_theme(theme_id: Option<&str>) -> ThemeResolution {
+    runtime().resolve_active_theme(theme_id)
+}
+
+pub(crate) fn phase3_apply_system_theme_preference(prefers_dark: bool) -> ThemeResolution {
+    runtime().apply_system_theme_preference(prefers_dark)
+}
+
+pub(crate) fn phase3_describe_theme(theme_id: Option<&str>) -> ThemeCapability {
+    runtime().describe_theme(theme_id)
+}
+
 pub(crate) fn phase3_resolve_active_presentation_profile(
     theme_id: Option<&str>,
 ) -> PresentationDomainProfileResolution {
@@ -3504,6 +3565,11 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_PHYSICS_PROFILE_ACTIVATED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_THEME_ACTIVATED)
         );
         assert!(
             channels

@@ -1,7 +1,9 @@
 use serde::Deserialize;
 
 pub(crate) const THEME_ID_DEFAULT: &str = "theme:default";
+pub(crate) const THEME_ID_LIGHT: &str = "theme:light";
 pub(crate) const THEME_ID_DARK: &str = "theme:dark";
+pub(crate) const THEME_ID_HIGH_CONTRAST: &str = "theme:high_contrast";
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ThemeData {
@@ -38,7 +40,9 @@ pub(crate) fn resolve_theme_data(theme_id: &str) -> ThemeResolution {
 
     let theme = match requested.as_str() {
         THEME_ID_DEFAULT => Some(default_theme()),
+        THEME_ID_LIGHT => Some(default_theme()),
         THEME_ID_DARK => Some(dark_theme()),
+        THEME_ID_HIGH_CONTRAST => Some(high_contrast_theme()),
         _ => None,
     };
 
@@ -86,6 +90,15 @@ fn dark_theme() -> ThemeData {
         accent_rgb: (110, 170, 255),
         font_scale: 1.0,
         stroke_width: 1.0,
+    }
+}
+
+fn high_contrast_theme() -> ThemeData {
+    ThemeData {
+        background_rgb: (0, 0, 0),
+        accent_rgb: (255, 230, 0),
+        font_scale: 1.1,
+        stroke_width: 1.5,
     }
 }
 

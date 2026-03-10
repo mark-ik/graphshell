@@ -1040,6 +1040,9 @@ impl HeadedWindow {
                     window.schedule_close();
                 }
                 WindowEvent::ThemeChanged(theme) => {
+                    crate::shell::desktop::runtime::registries::phase3_apply_system_theme_preference(
+                        matches!(theme, winit::window::Theme::Dark),
+                    );
                     if let Some(webview) = self.explicit_input_webview(&window) {
                         webview.notify_theme_change(match theme {
                             winit::window::Theme::Light => Theme::Light,

@@ -1088,7 +1088,7 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     ui.label("Theme Mode");
                     let current_dark = matches!(
                         app.default_registry_theme_id(),
-                        Some(crate::registries::atomic::lens::THEME_ID_DARK)
+                        Some(crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK)
                     );
                     let mut dark_mode = current_dark;
                     ui.horizontal(|ui| {
@@ -1098,11 +1098,11 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     if dark_mode != current_dark {
                         if dark_mode {
                             app.set_default_registry_theme_id(Some(
-                                crate::registries::atomic::lens::THEME_ID_DARK,
+                                crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK,
                             ));
                         } else {
                             app.set_default_registry_theme_id(Some(
-                                crate::registries::atomic::lens::THEME_ID_DEFAULT,
+                                crate::shell::desktop::runtime::registries::theme::THEME_ID_LIGHT,
                             ));
                         }
                     }

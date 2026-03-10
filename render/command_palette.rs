@@ -28,6 +28,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 
+fn active_theme_tokens(app: &GraphBrowserApp) -> crate::shell::desktop::runtime::registries::theme::ThemeTokenSet {
+    crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+        app.default_registry_theme_id(),
+    )
+    .tokens
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum SearchPaletteScope {
     CurrentTarget,
@@ -243,6 +250,7 @@ pub fn render_command_palette_panel(
     let mut open = app.workspace.show_command_palette;
     let mut intents = Vec::new();
     let mut should_close = false;
+    let theme_tokens = active_theme_tokens(app);
 
     let pair_context = super::resolve_pair_command_context(app, hovered_node, focused_pane_node);
     let source_context = super::resolve_source_node_context(app, hovered_node, focused_pane_node);
@@ -300,7 +308,7 @@ pub fn render_command_palette_panel(
                         .unwrap_or(false);
                     if fallback_notice {
                         ui.colored_label(
-                            egui::Color32::from_rgb(234, 200, 145),
+                            theme_tokens.command_notice,
                             "Radial layout constrained; opened interaction menu for reliable selection.",
                         );
                         ctx.data_mut(|d| d.remove::<bool>(fallback_notice_id));

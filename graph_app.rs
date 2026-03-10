@@ -2268,6 +2268,9 @@ impl GraphBrowserApp {
             GraphIntent::SetPhysicsProfile { profile_id } => {
                 self.set_default_registry_physics_id(Some(&profile_id));
             }
+            GraphIntent::SetTheme { theme_id } => {
+                self.set_default_registry_theme_id(Some(&theme_id));
+            }
             GraphIntent::SetNodeUrl { key, new_url } => {
                 let _ = self.update_node_url_and_log(key, new_url);
             }
@@ -3060,10 +3063,14 @@ impl GraphBrowserApp {
 
     pub fn set_default_registry_theme_id(&mut self, theme_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(theme_id.map(str::to_owned));
-        self.workspace.default_registry_theme_id = normalized.clone();
+        let persisted = normalized.as_deref().map(|requested| {
+            crate::shell::desktop::runtime::registries::phase3_set_active_theme(requested)
+                .resolved_id
+        });
+        self.workspace.default_registry_theme_id = persisted.clone();
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_THEME_ID_NAME,
-            normalized.as_deref().unwrap_or(""),
+            persisted.as_deref().unwrap_or(""),
         );
     }
 
@@ -3229,6 +3236,11 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
+        if let Some(theme_id) = self.workspace.default_registry_theme_id.as_deref() {
+            let resolution =
+                crate::shell::desktop::runtime::registries::phase3_set_active_theme(theme_id);
+            self.workspace.default_registry_theme_id = Some(resolution.resolved_id);
+        }
         let canvas_profile_id = self
             .load_workspace_layout_json(Self::SETTINGS_CANVAS_PROFILE_ID_NAME)
             .map(|raw| raw.trim().to_ascii_lowercase())
@@ -8898,6 +8910,25 @@ mod tests {
         assert_eq!(
             app.workspace.views.get(&view_id).unwrap().lens.physics.name,
             "Gas"
+        );
+    }
+
+    #[test]
+    fn test_set_theme_intent_updates_runtime_and_workspace_setting() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([GraphIntent::SetTheme {
+            theme_id: crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK.to_string(),
+        }]);
+
+        assert_eq!(
+            app.default_registry_theme_id(),
+            Some(crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK)
+        );
+        assert_eq!(
+            crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(None)
+                .resolved_id,
+            crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK
         );
     }
 

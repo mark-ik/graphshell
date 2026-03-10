@@ -80,7 +80,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_LAYOUT_COMPUTE_FAILED, CHANNEL_LAYOUT_COMPUTE_STARTED,
     CHANNEL_LAYOUT_COMPUTE_SUCCEEDED, CHANNEL_LAYOUT_FALLBACK_USED,
     CHANNEL_PHYSICS_PROFILE_ACTIVATED, CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED,
-    CHANNEL_PRESENTATION_PROFILE_RESOLVED,
+    CHANNEL_PRESENTATION_PROFILE_RESOLVED, CHANNEL_THEME_ACTIVATED,
 };
 
 /// Severity tier for diagnostic channel prioritization in the diagnostics pane.
@@ -530,7 +530,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 112] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 113] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -813,6 +813,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 112] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_PRESENTATION_PROFILE_RESOLVED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_THEME_ACTIVATED,
         schema_version: 1,
         severity: ChannelSeverity::Info,
     },

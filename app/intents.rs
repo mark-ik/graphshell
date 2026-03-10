@@ -447,6 +447,9 @@ pub enum GraphIntent {
     SetPhysicsProfile {
         profile_id: String,
     },
+    SetTheme {
+        theme_id: String,
+    },
     SetNodeUrl {
         key: NodeKey,
         new_url: String,

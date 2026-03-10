@@ -42,7 +42,6 @@ const COMMAND_BUTTON_RADIUS: f32 = 22.0;
 const MIN_COMMAND_CENTER_SPACING: f32 = (COMMAND_BUTTON_RADIUS * 2.0) + 4.0;
 const HOVER_LABEL_MAX_CHARS: usize = 22;
 const HOVER_LABEL_OFFSET: f32 = 34.0;
-const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 const RADIAL_GAMEPAD_INPUTS_KEY: &str = "radial_menu_gamepad_inputs";
 const RADIAL_SELECTED_DOMAIN_KEY: &str = "radial_menu_selected_domain";
@@ -54,6 +53,15 @@ const TIER2_RING_RADIUS_KEY: &str = "radial_tier2_ring_radius";
 // Current radial UI does not enlarge button radius on hover yet.
 // Keep this explicit so the pre-check gate can be tightened when hover-size growth lands.
 const EFFECTIVE_HOVER_BUTTON_RADIUS: f32 = COMMAND_BUTTON_RADIUS;
+
+fn active_theme_tokens(
+    app: &GraphBrowserApp,
+) -> crate::shell::desktop::runtime::registries::theme::ThemeTokenSet {
+    crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
+        app.default_registry_theme_id(),
+    )
+    .tokens
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RadialGamepadInput {
@@ -350,6 +358,7 @@ pub fn render_radial_command_menu(
             && app.wry_enabled()
             && crate::registries::infrastructure::mod_loader::runtime_has_capability("viewer:wry"),
     };
+    let theme_tokens = active_theme_tokens(app);
 
     let center_id = egui::Id::new("radial_menu_center");
     let node_context_group_state_id = egui::Id::new("node_context_kbd_group");
@@ -823,11 +832,11 @@ pub fn render_radial_command_menu(
             .show(ctx, |ui| {
                 ui.set_min_size(egui::vec2(440.0, 440.0));
                 let painter = ui.painter();
-                painter.circle_filled(center, hub_radius, Color32::from_rgb(28, 32, 36));
+                painter.circle_filled(center, hub_radius, theme_tokens.radial_hub_fill);
                 painter.circle_stroke(
                     center,
                     hub_radius,
-                    Stroke::new(2.0, Color32::from_rgb(90, 110, 125)),
+                    Stroke::new(2.0, theme_tokens.radial_hub_stroke),
                 );
                 let hub_label = hovered_domain
                     .map(|d| radial_category_label(ordered_categories[d.index()]).to_string())
@@ -837,7 +846,7 @@ pub fn render_radial_command_menu(
                     egui::Align2::CENTER_CENTER,
                     hub_label,
                     egui::FontId::proportional(16.0),
-                    Color32::from_rgb(210, 230, 245),
+                    theme_tokens.radial_hub_text,
                 );
 
                 for domain in RadialDomain::ALL {
@@ -863,9 +872,9 @@ pub fn render_radial_command_menu(
                     });
                     semantic_snapshot.summary.tier1_visible_count += 1;
                     let color = if Some(domain) == hovered_domain {
-                        Color32::from_rgb(70, 130, 170)
+                        theme_tokens.radial_domain_active_fill
                     } else {
-                        Color32::from_rgb(50, 66, 80)
+                        theme_tokens.radial_domain_idle_fill
                     };
                     painter.circle_filled(base, 26.0, color);
                     painter.text(
@@ -988,11 +997,11 @@ pub fn render_radial_command_menu(
                             tier2_ring_radius,
                         );
                         let color = if is_hovered {
-                            Color32::from_rgb(80, 170, 215)
+                            theme_tokens.radial_command_active_fill
                         } else if entry.enabled {
-                            Color32::from_rgb(64, 82, 98)
+                            theme_tokens.radial_command_hover_fill
                         } else {
-                            Color32::from_rgb(42, 48, 54)
+                            theme_tokens.radial_command_disabled_fill
                         };
                         painter.circle_filled(anchor, 22.0, color);
                         painter.text(
@@ -1001,9 +1010,9 @@ pub fn render_radial_command_menu(
                             entry.id.short_label(),
                             egui::FontId::proportional(10.0),
                             if entry.enabled {
-                                Color32::from_rgb(230, 240, 248)
+                                theme_tokens.radial_command_text
                             } else {
-                                RADIAL_DISABLED_TEXT_COLOR
+                                theme_tokens.radial_disabled_text
                             },
                         );
 
@@ -1011,7 +1020,7 @@ pub fn render_radial_command_menu(
                             let label_text =
                                 bounded_hover_label(entry.id.label(), HOVER_LABEL_MAX_CHARS);
                             let label_pos = radial_label_anchor(anchor, center, HOVER_LABEL_OFFSET);
-                            draw_radial_hover_label(painter, label_pos, &label_text);
+                            draw_radial_hover_label(painter, label_pos, &label_text, &theme_tokens);
                         }
                     }
                 }
@@ -1031,7 +1040,7 @@ pub fn render_radial_command_menu(
                             egui::Align2::CENTER_CENTER,
                             format!("Page {}/{}", page + 1, page_count),
                             egui::FontId::proportional(11.0),
-                            Color32::from_rgb(170, 190, 205),
+                            theme_tokens.radial_chrome_text,
                         );
                     }
                     painter.text(
@@ -1039,7 +1048,7 @@ pub fn render_radial_command_menu(
                         egui::Align2::CENTER_CENTER,
                         "Arrow Left/Right: Tier1 rail | Shift+Arrow: Tier2 rail | Alt+Up/Down radius",
                         egui::FontId::proportional(10.0),
-                        Color32::from_rgb(170, 190, 205),
+                        theme_tokens.radial_chrome_text,
                     );
                 }
 
@@ -1052,7 +1061,7 @@ pub fn render_radial_command_menu(
                         egui::Align2::CENTER_CENTER,
                         "Radial layout constrained. Switching to command palette.",
                         egui::FontId::proportional(11.0),
-                        Color32::from_rgb(234, 200, 145),
+                        theme_tokens.radial_warning_text,
                     );
                 }
             });
@@ -1497,16 +1506,21 @@ fn radial_label_anchor(anchor: egui::Pos2, center: egui::Pos2, outward: f32) -> 
     anchor + (delta / len) * outward
 }
 
-fn draw_radial_hover_label(painter: &egui::Painter, pos: egui::Pos2, text: &str) {
+fn draw_radial_hover_label(
+    painter: &egui::Painter,
+    pos: egui::Pos2,
+    text: &str,
+    tokens: &crate::shell::desktop::runtime::registries::theme::ThemeTokenSet,
+) {
     let font = egui::FontId::proportional(12.0);
     let approx_width = (text.chars().count() as f32) * 7.2 + 14.0;
     let size = egui::vec2(approx_width.max(44.0), 22.0);
     let rect = egui::Rect::from_center_size(pos, size);
-    painter.rect_filled(rect, 6.0, Color32::from_rgba_unmultiplied(22, 28, 34, 235));
+    painter.rect_filled(rect, 6.0, tokens.hover_label_background);
     painter.rect_stroke(
         rect,
         6.0,
-        Stroke::new(1.0, Color32::from_rgb(88, 110, 126)),
+        Stroke::new(1.0, tokens.hover_label_stroke),
         egui::StrokeKind::Middle,
     );
     painter.text(
@@ -1514,7 +1528,7 @@ fn draw_radial_hover_label(painter: &egui::Painter, pos: egui::Pos2, text: &str)
         egui::Align2::CENTER_CENTER,
         text,
         font,
-        Color32::from_rgb(220, 236, 248),
+        tokens.hover_label_text,
     );
 }
 
@@ -1820,8 +1834,10 @@ mod tests {
 
     #[test]
     fn radial_disabled_text_contrast_meets_wcag_minimum_for_text() {
-        let disabled_button_fill = Color32::from_rgb(42, 48, 54);
-        let ratio = contrast_ratio(RADIAL_DISABLED_TEXT_COLOR, disabled_button_fill);
+        let tokens = crate::shell::desktop::runtime::registries::theme::ThemeRegistry::default()
+            .active_theme()
+            .tokens;
+        let ratio = contrast_ratio(tokens.radial_disabled_text, tokens.radial_command_disabled_fill);
         assert!(
             ratio >= 4.5,
             "expected disabled text contrast >= 4.5:1, got {ratio:.2}:1"
