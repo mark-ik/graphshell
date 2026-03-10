@@ -74,7 +74,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING,
     CHANNEL_VIEWER_FALLBACK_WRY_DISABLED_BY_PREFERENCE,
     CHANNEL_VIEWER_FALLBACK_WRY_FEATURE_DISABLED, CHANNEL_VIEWER_SELECT_STARTED,
-    CHANNEL_VIEWER_SELECT_SUCCEEDED,
+    CHANNEL_VIEWER_SELECT_SUCCEEDED, CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED,
 };
 
 /// Severity tier for diagnostic channel prioritization in the diagnostics pane.
@@ -398,7 +398,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 97] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 98] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -636,6 +636,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 97] = [
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_UX_TREE_SNAPSHOT_BUILT,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED,
         schema_version: 1,
         severity: ChannelSeverity::Info,
     },

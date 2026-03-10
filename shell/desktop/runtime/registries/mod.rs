@@ -7,6 +7,7 @@ pub(crate) mod nostr_core;
 pub(crate) mod protocol;
 pub(crate) mod renderer;
 pub(crate) mod signal_routing;
+pub(crate) mod workbench_surface;
 
 use std::sync::{Mutex, OnceLock};
 
@@ -51,6 +52,9 @@ use renderer::{PaneAttachment, RendererRegistry, RendererRegistryError};
 use servo::ServoUrl;
 use signal_routing::{
     ObserverId, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource, SignalTopic,
+};
+use workbench_surface::{
+    WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
 };
 
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_STARTED: &str = "registry.protocol.resolve_started";
@@ -283,6 +287,8 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED: &str =
     "register.signal_routing.mod_workflow_routed";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &str =
     "register.signal_routing.subsystem_health_propagated";
+pub(crate) const CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED: &str =
+    "registry.workbench_surface.profile_activated";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -314,6 +320,7 @@ pub(crate) struct RegistryRuntime {
     #[allow(dead_code)]
     renderer: Mutex<RendererRegistry>,
     viewer: ViewerRegistry,
+    workbench_surface: Mutex<WorkbenchSurfaceRegistry>,
     pub(crate) knowledge: KnowledgeRegistry,
 }
 
@@ -482,6 +489,7 @@ impl RegistryRuntime {
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
+            workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
         }
     }
@@ -536,8 +544,40 @@ impl RegistryRuntime {
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
+            workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
         }
+    }
+
+    pub(crate) fn describe_workbench_surface(
+        &self,
+        profile_id: Option<&str>,
+    ) -> WorkbenchSurfaceDescription {
+        self.workbench_surface
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .describe_surface(profile_id)
+    }
+
+    fn resolve_active_workbench_surface_profile(&self) -> WorkbenchSurfaceResolution {
+        self.workbench_surface
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_profile()
+    }
+
+    fn set_active_workbench_surface_profile(&self, profile_id: &str) -> WorkbenchSurfaceResolution {
+        let resolution = self
+            .workbench_surface
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_active_profile(profile_id);
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED,
+            byte_len: resolution.resolved_id.len(),
+        });
+        resolution
     }
 
     fn accept_renderer_attachment(
@@ -1521,6 +1561,22 @@ pub(crate) fn phase3_resolve_viewer_surface_profile(_viewer_id: &str) -> ViewerS
     resolution
 }
 
+pub(crate) fn phase3_resolve_active_workbench_surface_profile() -> WorkbenchSurfaceResolution {
+    runtime().resolve_active_workbench_surface_profile()
+}
+
+pub(crate) fn phase3_set_active_workbench_surface_profile(
+    profile_id: &str,
+) -> WorkbenchSurfaceResolution {
+    runtime().set_active_workbench_surface_profile(profile_id)
+}
+
+pub(crate) fn phase3_describe_workbench_surface(
+    profile_id: Option<&str>,
+) -> WorkbenchSurfaceDescription {
+    runtime().describe_workbench_surface(profile_id)
+}
+
 #[cfg(test)]
 fn phase0_observe_navigation_url_for_tests_with_control(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
@@ -2230,6 +2286,11 @@ mod tests {
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE)
         );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED)
+        );
     }
 
     #[test]
@@ -2563,6 +2624,40 @@ mod tests {
         assert!(resolution.matched);
         assert!(!resolution.fallback_used);
         assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DEFAULT);
+    }
+
+    #[test]
+    fn phase3_workbench_surface_resolution_returns_default_profile() {
+        let resolution = phase3_resolve_active_workbench_surface_profile();
+        assert!(resolution.matched);
+        assert!(!resolution.fallback_used);
+        assert_eq!(
+            resolution.resolved_id,
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT
+        );
+    }
+
+    #[test]
+    fn phase3_workbench_surface_switches_and_describes_profiles() {
+        let switched = phase3_set_active_workbench_surface_profile(
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE,
+        );
+        assert!(switched.matched);
+        assert_eq!(
+            switched.resolved_id,
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
+        );
+
+        let description = phase3_describe_workbench_surface(None);
+        assert_eq!(description.display_name, "Compare");
+        assert_eq!(description.resolved_id, switched.resolved_id);
+
+        let fallback = phase3_set_active_workbench_surface_profile("workbench_surface:missing");
+        assert!(fallback.fallback_used);
+        assert_eq!(
+            fallback.resolved_id,
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT
+        );
     }
 
     #[test]
