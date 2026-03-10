@@ -51,9 +51,9 @@ All registries in the system spec family are listed here. Implementation state i
 | `PresentationDomainRegistry` | Domain | ✅ | ✅ | ✅ | ✅ | ✅ | [D](#sector-d) |
 | `WorkbenchSurfaceRegistry` | Surface | ✅ | ✅ | ✅ | ✅ | ✅ | [E](#sector-e) |
 | `WorkflowRegistry` | Domain | ✅ | ✅ | ✅ | ✅ | ✅ | [E](#sector-e) |
-| `KnowledgeRegistry` | Atomic | ⚠️ shim | ⚠️ reconcile-only | ⚠️ | ✅ | ❌ | [F](#sector-f) |
-| `IndexRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [F](#sector-f) |
-| `DiagnosticsRegistry` | Atomic | ✅ (atomic) | ⚠️ | ✅ | ⚠️ | — | [F](#sector-f) |
+| `KnowledgeRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [F](#sector-f) |
+| `IndexRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [F](#sector-f) |
+| `DiagnosticsRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [F](#sector-f) |
 | `ModRegistry` | Atomic | ✅ (atomic) | ✅ | ✅ | ✅ | ✅ | [G](#sector-g) |
 | `AgentRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [G](#sector-g) |
 | `ThemeRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [G](#sector-g) |
@@ -175,9 +175,16 @@ authority existence.
 **Registries:** `KnowledgeRegistry`, `IndexRegistry`, `DiagnosticsRegistry`
 **Plan:** [2026-03-08_sector_f_knowledge_index_plan.md](2026-03-08_sector_f_knowledge_index_plan.md)
 
-The knowledge and index registries form the semantic layer. `KnowledgeRegistry` currently exists as a reconcile shim. `IndexRegistry` does not exist. `DiagnosticsRegistry` exists in the atomic layer but lacks the versioned payload schema contract from its spec.
+The knowledge/index/diagnostics registries now exist as live runtime authorities. `KnowledgeRegistry`
+owns bundled UDC seed data, validation, query APIs, semantic-distance helpers, and semantic-index
+lifecycle signaling. `IndexRegistry` owns `index:local` / `index:history` / `index:knowledge`
+fanout and now backs the omnibox submit/action path. `DiagnosticsRegistry` now carries schema,
+severity, retention, sampling, invariant, and config-roundtrip contract surfaces.
 
-Diagnostics must be advanced first in this sector as it is a prerequisite for cross-sector test harness confidence.
+Residual follow-ons are now explicit rather than hidden sector blockers:
+- omnibar suggestion-dropdown UI still uses a legacy candidate pipeline instead of `IndexRegistry`
+- semantic placement-anchor consumption still needs a semantic-tagged node-creation caller
+- `index:timeline` remains a future history-coupled stub rather than a live provider
 
 ---
 

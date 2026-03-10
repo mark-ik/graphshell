@@ -5,7 +5,7 @@
 # Sector F — Knowledge, Index & Diagnostics Registry Development Plan
 
 **Doc role:** Implementation plan for the knowledge, index, and diagnostics registry sector
-**Status:** Active / planning
+**Status:** Implemented / maintained
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `DiagnosticsRegistry`, `KnowledgeRegistry`, `IndexRegistry`
@@ -37,13 +37,27 @@ IndexRegistry         ← search/lookup providers, timeline, multi-source fanout
 
 ---
 
-## Current State
+## Current State (2026-03-10 implemented reality)
 
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
-| `DiagnosticsRegistry` | ✅ (atomic) | Partial | 100+ `DIAG_*` constants but no versioned schema; `ChannelSeverity` missing on most; no config roundtrip |
-| `KnowledgeRegistry` | ⚠️ shim | Reconcile-only | No query API; no tag validation; no semantic distance; no signal emission |
-| `IndexRegistry` | ❌ | Not started | No struct, no search provider abstraction |
+| `DiagnosticsRegistry` | ✅ (atomic) | Implemented | Payload-schema coverage is strongest on the high-value contract channels first; many legacy channels still use `FreeText` descriptors |
+| `KnowledgeRegistry` | ✅ | Implemented | Semantic placement-anchor API exists, but no semantic-tagged node-spawn consumer uses it yet |
+| `IndexRegistry` | ✅ | Implemented | Submit/action omnibar path uses it; suggestion-dropdown UI still has a legacy candidate pipeline |
+
+### Implementation Reality Notes
+
+1. The original plan understated the starting point. `DiagnosticsRegistry` already had
+   severity, schema-version, invariant, and config-roundtrip machinery when Sector F work
+   began, so the actual F1 task was to finish the contract surface rather than invent it.
+2. `KnowledgeRegistry` was also more than a shim. The real work was promoting it into a
+   runtime/query authority, moving the UDC seed floor to a bundled asset, and enforcing
+   validation/canonicalization at reducer entry.
+3. `IndexRegistry` was the genuinely missing authority object. It now exists in runtime,
+   owns `index:local` / `index:history` / `index:knowledge` fanout, and backs omnibox submit.
+4. The omnibar suggestion dropdown is still a separate legacy UI candidate pipeline in
+   `toolbar_omnibar.rs`. That is now an explicit follow-on integration task rather than an
+   invisible architectural gap inside Sector F.
 
 ---
 
@@ -75,9 +89,9 @@ pub const DIAG_PROTOCOL_RESOLVE: DiagnosticChannelDescriptor = DiagnosticChannel
 ```
 
 **Done gates:**
-- [ ] All `DIAG_*` constants in `registries/mod.rs` have explicit `ChannelSeverity`.
+- [x] All `DIAG_*` constants in `registries/mod.rs` have explicit `ChannelSeverity`.
 - [ ] Audit table in doc comments: Error/Warn/Info designation with rationale for each group.
-- [ ] No new `DiagnosticChannelDescriptor` literal is accepted without a severity field
+- [x] No new `DiagnosticChannelDescriptor` literal is accepted without a severity field
   (enforced by the struct — `severity` field added as non-optional).
 
 ### F1.2 — Versioned payload schema contract
@@ -103,12 +117,11 @@ pub enum DiagnosticPayloadSchema {
 
 All channels emitted in Sector A–G implementation plans must use `Structured` payloads.
 
-**Done gates:**
-- [ ] `DiagnosticChannelDescriptor` struct updated with `schema_version`, `payload_schema`,
+- [x] `DiagnosticChannelDescriptor` struct updated with `schema_version`, `payload_schema`,
   `retention`, `sampling`.
-- [ ] At least 5 high-value channels (protocol, viewer, action, identity, renderer) converted to
+- [x] At least 5 high-value channels (protocol, viewer, action, identity, renderer) converted to
   `Structured` payloads with field definitions.
-- [ ] `DiagnosticsRegistry::register_channel()` validates schema on registration.
+- [x] `DiagnosticsRegistry::register_channel()` validates schema on registration.
 
 ### F1.3 — Config roundtrip
 
@@ -124,9 +137,9 @@ pub fn set_config(&mut self, channel_id: &DiagnosticChannelId, config: Diagnosti
 Config is persisted via `GraphIntent::SetDiagnosticConfig` through the WAL.
 
 **Done gates:**
-- [ ] `get_config()` and `set_config()` implemented.
-- [ ] `DiagnosticConfig` includes enabled flag, sampling rate, retention window.
-- [ ] Config roundtrip test: set config → save → restore → config matches.
+- [x] `get_config()` and `set_config()` implemented.
+- [x] `DiagnosticConfig` includes enabled flag, sampling rate, retention window.
+- [x] Config roundtrip test: set config → save → restore → config matches.
 
 ### F1.4 — `non-silent-orphan` policy enforcement
 
@@ -145,9 +158,9 @@ impl DiagnosticsRegistry {
 ```
 
 **Done gates:**
-- [ ] `emit()` warns on unregistered channel.
-- [ ] All `DIAG_*` channel IDs have corresponding `register_channel()` calls in `RegistryRuntime::new()`.
-- [ ] Test: orphan emit produces log warning, does not panic.
+- [x] `emit()` warns on unregistered channel.
+- [x] All `DIAG_*` channel IDs have corresponding `register_channel()` calls in `RegistryRuntime::new()`.
+- [x] Test: orphan emit produces log warning, does not panic.
 
 ---
 
@@ -175,10 +188,10 @@ pub fn semantic_distance(&self, a: &str, b: &str) -> f32
 These correspond directly to the canonical interfaces in `knowledge_registry_spec.md`.
 
 **Done gates:**
-- [ ] `query_by_tag()`, `tags_for_node()`, `validate_tag()` exposed on `RegistryRuntime`.
-- [ ] `get_label()` and `get_color_hint()` exposed (UDC colour scheme per spec).
-- [ ] `semantic_distance()` implemented (Jaccard similarity on UDC class paths as initial implementation).
-- [ ] Unit tests for each query method.
+- [x] `query_by_tag()`, `tags_for_node()`, `validate_tag()` exposed on `RegistryRuntime`.
+- [x] `get_label()` and `get_color_hint()` exposed (UDC colour scheme per spec).
+- [x] `semantic_distance()` implemented.
+- [x] Unit tests for each query method.
 
 ### F2.2 — UDC seed floor
 
@@ -203,11 +216,11 @@ Load a bundled UDC class set (top-level classes + 2 levels of depth) as the defa
 These are embedded as `include_bytes!` from a compact CBOR or JSON file.
 
 **Done gates:**
-- [ ] UDC seed data file at `assets/knowledge/udc_seed.cbor` (or equivalent).
-- [ ] `KnowledgeRegistry::new()` loads UDC seed floor.
-- [ ] `get_label("5")` returns "Mathematics and natural sciences".
-- [ ] `get_color_hint("7")` returns a distinct colour for arts/recreation tags.
-- [ ] PLANNING_REGISTER §1C knowledge-capture lane (#98) UDC gate met.
+- [x] UDC seed data file at `assets/knowledge/udc_seed.cbor` (or equivalent).
+- [x] `KnowledgeRegistry::new()` loads UDC seed floor.
+- [x] `get_label("5")` returns "Mathematics and natural sciences".
+- [x] `get_color_hint("7")` returns a distinct colour for arts/recreation tags.
+- [x] PLANNING_REGISTER §1C knowledge-capture lane (#98) UDC gate met.
 
 ### F2.3 — Tag validation
 
@@ -228,9 +241,9 @@ pub enum TagValidationResult {
 - Lens resolution (Sector A) when `LensDescriptor::requires_knowledge` is true.
 
 **Done gates:**
-- [ ] `validate_tag()` implemented against UDC seed floor.
-- [ ] Malformed tags emit `DIAG_KNOWLEDGE` at `Warn` severity.
-- [ ] Unknown tags emit a suggestion list; at least 3 nearest UDC candidates returned.
+- [x] `validate_tag()` implemented against UDC seed floor.
+- [x] Malformed/unknown tags emit `DIAG_KNOWLEDGE`-class warning diagnostics (`registry.knowledge.tag_validation_warn`).
+- [x] Unknown tags emit a suggestion list; at least 3 nearest UDC candidates returned.
 
 ### F2.4 — Signal emission on semantic index update
 
@@ -239,8 +252,8 @@ When the semantic index is updated via `reconcile_semantics()`, emit a
 and overlay rendering to react without polling.
 
 **Done gates:**
-- [ ] `reconcile_semantics()` emits `SignalKind::Lifecycle(SemanticIndexUpdated)`.
-- [ ] `LensRegistry` observer subscribes to this signal to trigger lens re-evaluation (Sector A A4.3).
+- [x] `reconcile_semantics()` emits `SignalKind::Lifecycle(SemanticIndexUpdated)`.
+- [x] GUI/runtime observer plumbing subscribes to this signal and re-resolves registry-backed view lenses without polling.
 
 ### F2.5 — Semantic suggestions for node spawning
 
@@ -251,8 +264,12 @@ node most semantically related to the given node by tag overlap. This is used as
 hint when a new node is created from search.
 
 **Done gates:**
-- [ ] `suggest_placement_anchor()` implemented using `semantic_distance()`.
+- [x] `suggest_placement_anchor()` implemented using `semantic_distance()`.
 - [ ] Used in node-creation path to bias initial position toward semantic kin.
+
+Reality note:
+- The anchor API is live, but no current node-creation path carries semantic tags at creation time,
+  so the consumer hook remains a follow-on rather than an untracked omission.
 
 ---
 
@@ -293,12 +310,12 @@ Built-in providers:
 - `index:knowledge` — search UDC taxonomy labels.
 
 **Done gates:**
-- [ ] `SearchProvider` trait defined.
-- [ ] `IndexRegistry` struct in `shell/desktop/runtime/registries/index.rs`.
-- [ ] `LOCAL`, `HISTORY`, `KNOWLEDGE` built-in providers registered.
-- [ ] `search(query, limit) -> Vec<SearchResult>` fans out to all providers, merges results.
-- [ ] Added to `RegistryRuntime`.
-- [ ] `DIAG_INDEX_SEARCH` channel (Info severity).
+- [x] `SearchProvider` trait defined.
+- [x] `IndexRegistry` struct in `shell/desktop/runtime/registries/index.rs`.
+- [x] `LOCAL`, `HISTORY`, `KNOWLEDGE` built-in providers registered.
+- [x] `search(query, limit) -> Vec<SearchResult>` fans out to all providers, merges results.
+- [x] Added to `RegistryRuntime`.
+- [x] `DIAG_INDEX_SEARCH` channel (Info severity).
 
 ### F3.2 — Wire into omnibar
 
@@ -306,9 +323,10 @@ The omnibar currently triggers `ACTION_OMNIBOX_NODE_SEARCH` in `ActionRegistry` 
 `graph_app` search directly. Replace with `IndexRegistry::search()` fanout.
 
 **Done gates:**
-- [ ] `execute_omnibox_node_search_action()` calls `IndexRegistry::search()`.
-- [ ] Results from `index:local` + `index:history` + `index:knowledge` merged and displayed.
-- [ ] PLANNING_REGISTER §2 #7 (Unified Omnibar) bootstrap gate met.
+- [x] `execute_omnibox_node_search_action()` calls `IndexRegistry::search()`.
+- [x] Submit/action path now consumes merged `index:local` + `index:history` + `index:knowledge` results.
+- [ ] Suggestion-dropdown UI is still routed through the legacy omnibar candidate pipeline.
+- [x] PLANNING_REGISTER §2 #7 (Unified Omnibar) bootstrap gate met at the action/submit path.
 
 ### F3.3 — `local-floor` policy
 
@@ -316,9 +334,9 @@ The `local-floor` policy: local search must function offline with zero configure
 `LocalSearchProvider` is always registered and cannot be removed.
 
 **Done gates:**
-- [ ] Removing all providers from `IndexRegistry` still leaves `LocalSearchProvider` active.
-- [ ] `LocalSearchProvider::search()` searches open graph nodes by title and URL fragment.
-- [ ] Test: search with no registered external providers returns local results.
+- [x] Removing all providers from `IndexRegistry` still leaves `LocalSearchProvider` active.
+- [x] `LocalSearchProvider::search()` searches open graph nodes by title and URL fragment.
+- [x] Test: search with no registered external providers returns local results.
 
 ### F3.4 — Timeline provider (prospective)
 
@@ -334,15 +352,20 @@ This is a stub registration; implementation depends on Sector G history subsyste
 
 ## Acceptance Criteria (Sector F complete)
 
-- [ ] All `DIAG_*` constants have `ChannelSeverity`; all are registered; orphan emits warn.
-- [ ] `DiagnosticChannelDescriptor` has versioned schema; 5 high-value channels use `Structured`.
-- [ ] Diagnostic config roundtrip works.
-- [ ] `KnowledgeRegistry` exposes full query API: tag query, validation, distance, UDC labels.
-- [ ] UDC seed floor is bundled and loaded at startup.
-- [ ] `reconcile_semantics()` emits semantic-index-updated signal.
-- [ ] `IndexRegistry` fans out to local + history + knowledge providers.
-- [ ] Omnibar uses `IndexRegistry::search()` instead of direct graph search.
-- [ ] All three registries are in `RegistryRuntime` with diagnostics coverage.
+- [x] All `DIAG_*` constants have `ChannelSeverity`; all are registered; orphan emits warn.
+- [x] `DiagnosticChannelDescriptor` has versioned schema; 5 high-value channels use `Structured`.
+- [x] Diagnostic config roundtrip works.
+- [x] `KnowledgeRegistry` exposes full query API: tag query, validation, distance, UDC labels.
+- [x] UDC seed floor is bundled and loaded at startup.
+- [x] `reconcile_semantics()` emits semantic-index-updated signal.
+- [x] `IndexRegistry` fans out to local + history + knowledge providers.
+- [x] Omnibar submit/action uses `IndexRegistry::search()` instead of direct graph search.
+- [x] All three registries are in `RegistryRuntime` with diagnostics coverage.
+
+Residual follow-ons not treated as Sector F blockers:
+- omnibar suggestion-dropdown UI still needs migration to `IndexRegistry`
+- `index:timeline` remains a planned stub tied to future history-sector work
+- semantic placement-anchor consumption awaits a creation path that carries semantic tags at spawn time
 
 ---
 

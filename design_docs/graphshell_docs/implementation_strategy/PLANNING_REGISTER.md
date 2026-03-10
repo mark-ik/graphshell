@@ -969,7 +969,7 @@ These are intentionally scoped to small slices that can ship independently witho
 | 1 | ✅ **Extract `desktop/radial_menu.rs` from `render/mod.rs`** | Done — `render/radial_menu.rs` exists as a standalone module. | `2026-02-24_control_ui_ux_plan.md` |
 | 2 | ✅ **Extract `desktop/command_palette.rs` from `render/mod.rs`** | Done — `render/command_palette.rs` exists as a standalone module. | `2026-02-24_control_ui_ux_plan.md` |
 | 3 | **Reheat physics on `AddNode` / `AddEdge`** | Fixes "dead graph" feel immediately when physics is paused. | `2026-02-24_layout_behaviors_plan.md` §1.1, `2026-02-18_graph_ux_research_report.md` §5.3 |
-| 4 | **Spawn new nodes near semantic parent (parent + jitter)** | Improves mental-map preservation and reduces convergence churn. | `2026-02-24_layout_behaviors_plan.md` §1.2, `2026-02-18_graph_ux_research_report.md` §§2.1, 2.6 |
+| 4 | **Spawn new nodes near semantic parent (parent + jitter)** | Improves mental-map preservation and reduces convergence churn. `KnowledgeRegistry::suggest_placement_anchor()` now exists; the remaining gap is a creation path that carries semantic tags at spawn time. | `2026-02-24_layout_behaviors_plan.md` §1.2, `2026-02-18_graph_ux_research_report.md` §§2.1, 2.6 |
 | 5 | **Fix `WebViewUrlChanged` prior-URL ordering in traversal append path** | Prevents incorrect traversal records and future temporal-navigation corruption. | `2026-02-20_edge_traversal_impl_plan.md`, `2026-02-20_edge_traversal_model_research.md` |
 | 6 | **Wire `Ctrl+Click` multi-select in graph pane** | Tiny code slice with immediate UX gain; unlocks group operations expectations. | `2026-02-18_graph_ux_research_report.md` §§1.3, 6.3 |
 | 7 | **Add semantic container tab titles (`Split ↔`, `Split ↕`, `Tab Group`, `Grid`)** | Converts "looks broken" tile labels into teachable architecture UI. | `2026-02-23_graph_interaction_consistency_plan.md` Phase 4 |
@@ -996,6 +996,19 @@ Sector D is now complete in the repo:
 - Layout execution still uses `egui_graphs` as the widget substrate, but layout authority is now
   registry-owned through the extracted `app/graph_layout.rs` adapter layer and runtime
   resolution/apply ordering.
+
+### Sector F Reality Note (2026-03-10)
+
+Sector F is now complete in the repo at the registry/runtime level:
+- `DiagnosticsRegistry` now carries schema/retention/sampling contract data and warns on orphan emits.
+- `KnowledgeRegistry` is no longer a reconcile shim; it owns bundled UDC seed data, validation,
+  query APIs, semantic-distance helpers, and semantic-index lifecycle signaling.
+- `IndexRegistry` now exists as a runtime authority and backs the omnibox submit/action path with
+  `index:local` + `index:history` + `index:knowledge` fanout.
+
+Residual non-blockers that should stay explicit:
+- the omnibar suggestion dropdown still uses a legacy candidate pipeline instead of `IndexRegistry`
+- semantic placement-anchor consumption still needs a node-spawn caller that already knows semantic tags
 
 ---
 

@@ -276,10 +276,16 @@ let profile = registries.lens.compose(&lens_ids);
 The `lens_compositor_spec.md` requires that `knowledge_filter` in `LensProfile` can carry
 semantic class data from `KnowledgeRegistry`. This wiring depends on Sector F progress.
 
-**Done gate (deferred to after Sector F):**
+**Done gate (deferred follow-on after Sector F groundwork):**
 - [ ] `LensRegistry::compose()` optionally queries `KnowledgeRegistry` when
   `LensDescriptor::requires_knowledge` is true.
 - [ ] `LENS_ID_SEMANTIC_OVERLAY` produces a non-empty `knowledge_filter` for nodes with UDC tags.
+
+Reality note (2026-03-10):
+- Sector F now publishes `SemanticIndexUpdated` and the GUI/runtime observer path already
+  re-resolves registry-backed view lenses on that signal.
+- The remaining A4.3 gap is not signal plumbing anymore; it is lens-composition semantics inside
+  `LensRegistry` itself (`requires_knowledge`, `knowledge_filter`, and semantic-overlay profile data).
 
 ---
 

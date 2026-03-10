@@ -83,6 +83,8 @@ Implemented:
 - RegistryRuntime provider-wired phase0 protocol/viewer dispatch paths and diagnostics coverage
 - Folded viewer/surface capability-conformance declarations with runtime diagnostics inspection hooks
 - Runtime-owned canvas, physics, layout-domain, and presentation-domain profile resolution paths
+- Runtime-owned diagnostics, knowledge, and index authorities with semantic lifecycle signaling and
+  omnibox submit-path search fanout
 
 Gaps / active architectural work:
 - Signal/event routing is still transitional (no dedicated `SignalBus` abstraction/API yet)
@@ -91,6 +93,8 @@ Gaps / active architectural work:
 - Layout execution still uses `egui_graphs` as the widget substrate, but algorithm ownership is now
   registry-owned through `LayoutRegistry` + `app/graph_layout.rs`; remaining work here is
   stabilization, not missing authority structure
+- Omnibar suggestion-dropdown UI still has a legacy local candidate pipeline; only the submit/action
+  path is currently unified through `IndexRegistry`
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 
@@ -157,6 +161,9 @@ consistent**.
 - Workflow lifecycle changes now publish through the Register signal-routing
   layer, and Sector D now provides runtime-stateful canvas/physics/layout
   authorities for those activations.
+- Semantic-index changes now also publish through the Register signal-routing
+  layer, and the GUI-side observer path re-resolves registry-backed view lenses
+  when those lifecycle notifications arrive.
 
 ### Routing anti-patterns to avoid
 

@@ -28,7 +28,7 @@ but the `SignalBus` upgrade must complete before cross-registry wiring in Sector
 can be considered clean.
 
 ```
-Current state:     SignalRoutingLayer (direct fanout, 3 topics, sync observers)
+Current state:     SignalRoutingLayer (direct fanout, sync observers, lifecycle now includes `SemanticIndexUpdated`)
 SR4 target:        SignalBus (typed, async observers, backpressure, dead-letter, full topic set)
 ```
 
@@ -117,8 +117,9 @@ pub enum LifecycleSignal {
 ```
 
 **Done gates:**
-- [ ] `SemanticIndexUpdated` and `MimeResolved` variants added.
-- [ ] `KnowledgeRegistry::reconcile_semantics()` emits `SemanticIndexUpdated`.
+- [x] `SemanticIndexUpdated` added (with GUI/runtime observer consumption for registry-backed lens refresh).
+- [ ] `MimeResolved` variant added.
+- [x] `KnowledgeRegistry::reconcile_semantics()` emits `SemanticIndexUpdated`.
 - [ ] Sector A MIME probe emits `MimeResolved`.
 
 ---
