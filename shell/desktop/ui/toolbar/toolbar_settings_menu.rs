@@ -1,7 +1,6 @@
 use crate::app::{
-    CommandPaletteShortcut, GraphBrowserApp, GraphIntent, HelpPanelShortcut,
-    OmnibarNonAtOrderPreset, OmnibarPreferredScope, RadialMenuShortcut, ToastAnchorPreference,
-    WorkbenchIntent,
+    GraphBrowserApp, GraphIntent, OmnibarNonAtOrderPreset, OmnibarPreferredScope,
+    ToastAnchorPreference, WorkbenchIntent,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
@@ -85,50 +84,11 @@ pub(super) fn render_settings_menu(
             }
             ui.separator();
             ui.label("Input");
-            ui.label(format!(
-                "Command Palette: {}",
-                super::command_palette_shortcut_label(graph_app.workspace.command_palette_shortcut)
-            ));
-            for shortcut in [CommandPaletteShortcut::F2, CommandPaletteShortcut::CtrlK] {
-                if ui
-                    .selectable_label(
-                        graph_app.workspace.command_palette_shortcut == shortcut,
-                        super::command_palette_shortcut_label(shortcut),
-                    )
-                    .clicked()
-                {
-                    graph_app.set_command_palette_shortcut(shortcut);
-                }
-            }
-            ui.label(format!(
-                "Help: {}",
-                super::help_shortcut_label(graph_app.workspace.help_panel_shortcut)
-            ));
-            for shortcut in [HelpPanelShortcut::F1OrQuestion, HelpPanelShortcut::H] {
-                if ui
-                    .selectable_label(
-                        graph_app.workspace.help_panel_shortcut == shortcut,
-                        super::help_shortcut_label(shortcut),
-                    )
-                    .clicked()
-                {
-                    graph_app.set_help_panel_shortcut(shortcut);
-                }
-            }
-            ui.label(format!(
-                "Radial: {}",
-                super::radial_shortcut_label(graph_app.workspace.radial_menu_shortcut)
-            ));
-            for shortcut in [RadialMenuShortcut::F3, RadialMenuShortcut::R] {
-                if ui
-                    .selectable_label(
-                        graph_app.workspace.radial_menu_shortcut == shortcut,
-                        super::radial_shortcut_label(shortcut),
-                    )
-                    .clicked()
-                {
-                    graph_app.set_radial_menu_shortcut(shortcut);
-                }
+            if ui.button("Open Keybindings Settings").clicked() {
+                graph_app.enqueue_workbench_intent(WorkbenchIntent::OpenSettingsUrl {
+                    url: VersoAddress::settings(GraphshellSettingsPath::Keybindings).to_string(),
+                });
+                ui.close();
             }
             ui.label(format!(
                 "Lasso: {}",

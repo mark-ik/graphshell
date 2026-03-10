@@ -57,8 +57,8 @@ use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
 use index::{IndexRegistry, SearchResult};
 use input::{
-    INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputBindingRemap,
-    InputConflict as InputRemapConflict, InputContext, InputRegistry,
+    INPUT_BINDING_TOOLBAR_SUBMIT, InputActionBindingDescriptor, InputBinding,
+    InputBindingRemap, InputConflict as InputRemapConflict, InputContext, InputRegistry,
 };
 use knowledge::{KnowledgeRegistry, SemanticReconcileReport, TagValidationResult};
 use layout::LayoutRegistry;
@@ -1573,6 +1573,20 @@ impl RegistryRuntime {
         ));
     }
 
+    pub(crate) fn describe_input_bindings(&self) -> Vec<InputActionBindingDescriptor> {
+        self.input
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .describe_bindable_actions()
+    }
+
+    pub(crate) fn binding_display_labels_for_action(&self, action_id: &str) -> Vec<String> {
+        self.input
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .binding_display_labels_for_action(action_id)
+    }
+
     pub(crate) fn sign_identity_payload(
         &self,
         identity_id: &str,
@@ -1829,6 +1843,16 @@ pub(crate) fn phase2_apply_input_binding_remaps(
 pub(crate) fn phase2_reset_input_binding_remaps() {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
     runtime().reset_input_binding_remaps();
+}
+
+pub(crate) fn phase2_describe_input_bindings() -> Vec<InputActionBindingDescriptor> {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+    runtime().describe_input_bindings()
+}
+
+pub(crate) fn phase2_binding_display_labels_for_action(action_id: &str) -> Vec<String> {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+    runtime().binding_display_labels_for_action(action_id)
 }
 
 pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {

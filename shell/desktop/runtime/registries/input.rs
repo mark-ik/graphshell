@@ -13,6 +13,29 @@ pub(crate) const ACTION_GRAPH_VIEW_CONFIRM: &str = "graph:view_confirm";
 pub(crate) const ACTION_GRAPH_CYCLE_FOCUS_REGION: &str = "graph:cycle_focus_region";
 pub(crate) const ACTION_GRAPH_COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
 pub(crate) const ACTION_GRAPH_RADIAL_MENU_OPEN: &str = "workbench:radial_menu_open";
+pub(crate) const ACTION_GRAPH_TOGGLE_PHYSICS: &str = "graph:toggle_physics";
+pub(crate) const ACTION_GRAPH_REHEAT_PHYSICS: &str = "graph:reheat_physics";
+pub(crate) const ACTION_GRAPH_ZOOM_IN: &str = "graph:zoom_in";
+pub(crate) const ACTION_GRAPH_ZOOM_OUT: &str = "graph:zoom_out";
+pub(crate) const ACTION_GRAPH_ZOOM_RESET: &str = "graph:zoom_reset";
+pub(crate) const ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK: &str = "graph:toggle_position_fit_lock";
+pub(crate) const ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK: &str = "graph:toggle_zoom_fit_lock";
+pub(crate) const ACTION_GRAPH_NODE_NEW: &str = "graph:node_new";
+pub(crate) const ACTION_GRAPH_EDGE_CONNECT_PAIR: &str = "graph:edge_connect_pair";
+pub(crate) const ACTION_GRAPH_EDGE_CONNECT_BOTH: &str = "graph:edge_connect_both";
+pub(crate) const ACTION_GRAPH_EDGE_REMOVE_USER: &str = "graph:edge_remove_user";
+pub(crate) const ACTION_GRAPH_NODE_PIN_SELECTED: &str = "graph:node_pin_selected";
+pub(crate) const ACTION_GRAPH_NODE_UNPIN_SELECTED: &str = "graph:node_unpin_selected";
+pub(crate) const ACTION_GRAPH_NODE_PIN_TOGGLE: &str = "graph:node_pin_toggle";
+pub(crate) const ACTION_GRAPH_NODE_DELETE: &str = "graph:node_delete";
+pub(crate) const ACTION_GRAPH_CLEAR: &str = "graph:clear";
+pub(crate) const ACTION_GRAPH_SELECT_ALL: &str = "graph:select_all";
+pub(crate) const ACTION_WORKBENCH_HELP_OPEN: &str = "workbench:help_open";
+pub(crate) const ACTION_WORKBENCH_OPEN_HISTORY_MANAGER: &str = "workbench:open_history_manager";
+pub(crate) const ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS: &str = "workbench:open_physics_settings";
+pub(crate) const ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS: &str = "workbench:open_camera_controls";
+pub(crate) const ACTION_WORKBENCH_UNDO: &str = "workbench:undo";
+pub(crate) const ACTION_WORKBENCH_REDO: &str = "workbench:redo";
 pub(crate) const ACTION_RADIAL_MENU_CATEGORY_PREVIOUS: &str = "radial_menu:category_previous";
 pub(crate) const ACTION_RADIAL_MENU_CATEGORY_NEXT: &str = "radial_menu:category_next";
 pub(crate) const ACTION_RADIAL_MENU_SELECTION_PREVIOUS: &str = "radial_menu:selection_previous";
@@ -25,14 +48,42 @@ pub(crate) struct ModifierMask(u8);
 
 impl ModifierMask {
     pub(crate) const NONE: Self = Self(0);
-    pub(crate) const ALT: Self = Self(1 << 0);
+    pub(crate) const CTRL: Self = Self(1 << 0);
+    pub(crate) const SHIFT: Self = Self(1 << 1);
+    pub(crate) const ALT: Self = Self(1 << 2);
 
     fn label(self) -> &'static str {
         match self.0 {
             0 => "none",
+            value if value == Self::CTRL.0 => "ctrl",
+            value if value == Self::SHIFT.0 => "shift",
             value if value == Self::ALT.0 => "alt",
+            value if value == (Self::CTRL.0 | Self::SHIFT.0) => "ctrl_shift",
+            value if value == (Self::CTRL.0 | Self::ALT.0) => "ctrl_alt",
+            value if value == (Self::SHIFT.0 | Self::ALT.0) => "shift_alt",
+            value if value == (Self::CTRL.0 | Self::SHIFT.0 | Self::ALT.0) => {
+                "ctrl_shift_alt"
+            }
             _ => "custom",
         }
+    }
+
+    pub(crate) fn from_egui(modifiers: &egui::Modifiers) -> Self {
+        let mut mask = Self::NONE;
+        if modifiers.ctrl || modifiers.command {
+            mask.0 |= Self::CTRL.0;
+        }
+        if modifiers.shift {
+            mask.0 |= Self::SHIFT.0;
+        }
+        if modifiers.alt {
+            mask.0 |= Self::ALT.0;
+        }
+        mask
+    }
+
+    fn contains(self, flag: Self) -> bool {
+        self.0 & flag.0 == flag.0
     }
 }
 
@@ -42,7 +93,13 @@ impl FromStr for ModifierMask {
     fn from_str(raw: &str) -> Result<Self, Self::Err> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "none" => Ok(Self::NONE),
+            "ctrl" => Ok(Self::CTRL),
+            "shift" => Ok(Self::SHIFT),
             "alt" => Ok(Self::ALT),
+            "ctrl_shift" => Ok(Self(Self::CTRL.0 | Self::SHIFT.0)),
+            "ctrl_alt" => Ok(Self(Self::CTRL.0 | Self::ALT.0)),
+            "shift_alt" => Ok(Self(Self::SHIFT.0 | Self::ALT.0)),
+            "ctrl_shift_alt" => Ok(Self(Self::CTRL.0 | Self::SHIFT.0 | Self::ALT.0)),
             _ => Err(()),
         }
     }
@@ -54,6 +111,18 @@ pub(crate) enum NamedKey {
     ArrowLeft,
     ArrowRight,
     F5,
+    F1,
+    F2,
+    F3,
+    F6,
+    F9,
+    Home,
+    Escape,
+    Delete,
+    Backspace,
+    Plus,
+    Minus,
+    Num0,
 }
 
 impl NamedKey {
@@ -63,6 +132,18 @@ impl NamedKey {
             Self::ArrowLeft => "arrow_left",
             Self::ArrowRight => "arrow_right",
             Self::F5 => "f5",
+            Self::F1 => "f1",
+            Self::F2 => "f2",
+            Self::F3 => "f3",
+            Self::F6 => "f6",
+            Self::F9 => "f9",
+            Self::Home => "home",
+            Self::Escape => "escape",
+            Self::Delete => "delete",
+            Self::Backspace => "backspace",
+            Self::Plus => "plus",
+            Self::Minus => "minus",
+            Self::Num0 => "num0",
         }
     }
 }
@@ -76,6 +157,18 @@ impl FromStr for NamedKey {
             "arrow_left" => Ok(Self::ArrowLeft),
             "arrow_right" => Ok(Self::ArrowRight),
             "f5" => Ok(Self::F5),
+            "f1" => Ok(Self::F1),
+            "f2" => Ok(Self::F2),
+            "f3" => Ok(Self::F3),
+            "f6" => Ok(Self::F6),
+            "f9" => Ok(Self::F9),
+            "home" => Ok(Self::Home),
+            "escape" => Ok(Self::Escape),
+            "delete" => Ok(Self::Delete),
+            "backspace" => Ok(Self::Backspace),
+            "plus" => Ok(Self::Plus),
+            "minus" => Ok(Self::Minus),
+            "num0" => Ok(Self::Num0),
             _ => Err(()),
         }
     }
@@ -195,6 +288,97 @@ impl InputBinding {
             }
         }
     }
+
+    pub(crate) fn display_label(&self) -> String {
+        match self {
+            Self::Key { modifiers, keycode } => {
+                let mut parts = Vec::new();
+                if modifiers.contains(ModifierMask::CTRL) {
+                    parts.push("Ctrl".to_string());
+                }
+                if modifiers.contains(ModifierMask::SHIFT) {
+                    parts.push("Shift".to_string());
+                }
+                if modifiers.contains(ModifierMask::ALT) {
+                    parts.push("Alt".to_string());
+                }
+                parts.push(match keycode {
+                    Keycode::Named(named) => match named {
+                        NamedKey::Enter => "Enter".to_string(),
+                        NamedKey::ArrowLeft => "Left".to_string(),
+                        NamedKey::ArrowRight => "Right".to_string(),
+                        NamedKey::F5 => "F5".to_string(),
+                        NamedKey::F1 => "F1".to_string(),
+                        NamedKey::F2 => "F2".to_string(),
+                        NamedKey::F3 => "F3".to_string(),
+                        NamedKey::F6 => "F6".to_string(),
+                        NamedKey::F9 => "F9".to_string(),
+                        NamedKey::Home => "Home".to_string(),
+                        NamedKey::Escape => "Esc".to_string(),
+                        NamedKey::Delete => "Delete".to_string(),
+                        NamedKey::Backspace => "Backspace".to_string(),
+                        NamedKey::Plus => "+".to_string(),
+                        NamedKey::Minus => "-".to_string(),
+                        NamedKey::Num0 => "0".to_string(),
+                    },
+                    Keycode::Char(ch) => ch.to_ascii_uppercase().to_string(),
+                });
+                parts.join("+")
+            }
+            Self::Gamepad { button, modifier } => match modifier {
+                Some(modifier) => format!("{}+{}", modifier.label(), button.label()),
+                None => button.label().to_string(),
+            },
+            Self::Chord(sequence) => sequence
+                .iter()
+                .map(Self::display_label)
+                .collect::<Vec<_>>()
+                .join(" then "),
+        }
+    }
+
+    pub(crate) fn from_egui_key(key: egui::Key, modifiers: &egui::Modifiers) -> Option<Self> {
+        let keycode = match key {
+            egui::Key::Enter => Keycode::Named(NamedKey::Enter),
+            egui::Key::ArrowLeft => Keycode::Named(NamedKey::ArrowLeft),
+            egui::Key::ArrowRight => Keycode::Named(NamedKey::ArrowRight),
+            egui::Key::F1 => Keycode::Named(NamedKey::F1),
+            egui::Key::F2 => Keycode::Named(NamedKey::F2),
+            egui::Key::F3 => Keycode::Named(NamedKey::F3),
+            egui::Key::F5 => Keycode::Named(NamedKey::F5),
+            egui::Key::F6 => Keycode::Named(NamedKey::F6),
+            egui::Key::F9 => Keycode::Named(NamedKey::F9),
+            egui::Key::Home => Keycode::Named(NamedKey::Home),
+            egui::Key::Escape => Keycode::Named(NamedKey::Escape),
+            egui::Key::Delete => Keycode::Named(NamedKey::Delete),
+            egui::Key::Backspace => Keycode::Named(NamedKey::Backspace),
+            egui::Key::Plus | egui::Key::Equals => Keycode::Named(NamedKey::Plus),
+            egui::Key::Minus => Keycode::Named(NamedKey::Minus),
+            egui::Key::Num0 => Keycode::Named(NamedKey::Num0),
+            egui::Key::A => Keycode::Char('a'),
+            egui::Key::C => Keycode::Char('c'),
+            egui::Key::F => Keycode::Char('f'),
+            egui::Key::G => Keycode::Char('g'),
+            egui::Key::H => Keycode::Char('h'),
+            egui::Key::I => Keycode::Char('i'),
+            egui::Key::K => Keycode::Char('k'),
+            egui::Key::L => Keycode::Char('l'),
+            egui::Key::N => Keycode::Char('n'),
+            egui::Key::P => Keycode::Char('p'),
+            egui::Key::Questionmark => Keycode::Char('?'),
+            egui::Key::R => Keycode::Char('r'),
+            egui::Key::T => Keycode::Char('t'),
+            egui::Key::U => Keycode::Char('u'),
+            egui::Key::Y => Keycode::Char('y'),
+            egui::Key::Z => Keycode::Char('z'),
+            _ => return None,
+        };
+
+        Some(Self::Key {
+            modifiers: ModifierMask::from_egui(modifiers),
+            keycode,
+        })
+    }
 }
 
 impl FromStr for InputBinding {
@@ -242,6 +426,33 @@ pub(crate) enum InputContext {
     OmnibarOpen,
     RadialMenuOpen,
     DialogOpen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InputBindingSection {
+    Graph,
+    Workbench,
+    Navigation,
+}
+
+impl InputBindingSection {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Graph => "Graph",
+            Self::Workbench => "Workbench",
+            Self::Navigation => "Navigation",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InputActionBindingDescriptor {
+    pub(crate) action_id: String,
+    pub(crate) display_name: &'static str,
+    pub(crate) context: InputContext,
+    pub(crate) section: InputBindingSection,
+    pub(crate) current_binding: Option<InputBinding>,
+    pub(crate) default_binding: Option<InputBinding>,
 }
 
 impl InputContext {
@@ -434,6 +645,301 @@ fn binding_label(binding: &InputBinding, context: InputContext) -> String {
     format!("{}@{}", binding.label(), context.label())
 }
 
+#[derive(Clone)]
+struct DefaultBindingSpec {
+    action_id: &'static str,
+    display_name: &'static str,
+    section: InputBindingSection,
+    context: InputContext,
+    binding: InputBinding,
+}
+
+fn default_binding_specs() -> Vec<DefaultBindingSpec> {
+    vec![
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_TOGGLE_PHYSICS,
+            display_name: "Toggle Physics Simulation",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('t'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_REHEAT_PHYSICS,
+            display_name: "Reheat Physics Simulation",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('r'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_ZOOM_IN,
+            display_name: "Zoom In",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::Plus),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_ZOOM_OUT,
+            display_name: "Zoom Out",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::Minus),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_ZOOM_RESET,
+            display_name: "Reset Zoom",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::Num0),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK,
+            display_name: "Toggle Position-Fit Lock",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('c'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK,
+            display_name: "Toggle Zoom-Fit Lock",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('z'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_NODE_NEW,
+            display_name: "Create Node",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('n'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_EDGE_CONNECT_PAIR,
+            display_name: "Connect Selected Pair",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('g'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_EDGE_CONNECT_BOTH,
+            display_name: "Connect Both Directions",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::SHIFT,
+                keycode: Keycode::Char('g'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_EDGE_REMOVE_USER,
+            display_name: "Remove User Edge",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::ALT,
+                keycode: Keycode::Char('g'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_NODE_PIN_SELECTED,
+            display_name: "Pin Selected Node(s)",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('i'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_NODE_UNPIN_SELECTED,
+            display_name: "Unpin Selected Node(s)",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('u'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_NODE_PIN_TOGGLE,
+            display_name: "Toggle Primary Node Pin",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('l'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_NODE_DELETE,
+            display_name: "Delete Selected Nodes",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::Delete),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_CLEAR,
+            display_name: "Clear Graph",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask(ModifierMask::CTRL.0 | ModifierMask::SHIFT.0),
+                keycode: Keycode::Named(NamedKey::Delete),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_SELECT_ALL,
+            display_name: "Select All Nodes",
+            section: InputBindingSection::Graph,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::CTRL,
+                keycode: Keycode::Char('a'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_WORKBENCH_HELP_OPEN,
+            display_name: "Toggle Help Panel",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::F1),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+            display_name: "Open Command Palette",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::F2),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_RADIAL_MENU_OPEN,
+            display_name: "Toggle Radial Palette",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::F3),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS,
+            display_name: "Open Physics Settings",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Char('p'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS,
+            display_name: "Open Camera Controls",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::F9),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            display_name: "Open History Manager",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::CTRL,
+                keycode: Keycode::Char('h'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_WORKBENCH_UNDO,
+            display_name: "Undo",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::CTRL,
+                keycode: Keycode::Char('z'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_WORKBENCH_REDO,
+            display_name: "Redo",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::CTRL,
+                keycode: Keycode::Char('y'),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            display_name: "Cycle Focus Region",
+            section: InputBindingSection::Workbench,
+            context: InputContext::GraphView,
+            binding: InputBinding::Key {
+                modifiers: ModifierMask::NONE,
+                keycode: Keycode::Named(NamedKey::F6),
+            },
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_TOOLBAR_NAV_BACK,
+            display_name: "Navigate Back",
+            section: InputBindingSection::Navigation,
+            context: InputContext::DetailView,
+            binding: toolbar_nav_back_binding(),
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_TOOLBAR_NAV_FORWARD,
+            display_name: "Navigate Forward",
+            section: InputBindingSection::Navigation,
+            context: InputContext::DetailView,
+            binding: toolbar_nav_forward_binding(),
+        },
+        DefaultBindingSpec {
+            action_id: ACTION_TOOLBAR_NAV_RELOAD,
+            display_name: "Reload",
+            section: InputBindingSection::Navigation,
+            context: InputContext::DetailView,
+            binding: toolbar_nav_reload_binding(),
+        },
+    ]
+}
+
 fn legacy_binding(binding_id: &str) -> Option<(InputBinding, InputContext)> {
     match binding_id.to_ascii_lowercase().as_str() {
         INPUT_BINDING_TOOLBAR_SUBMIT => Some((toolbar_submit_binding(), InputContext::OmnibarOpen)),
@@ -464,6 +970,45 @@ pub(crate) struct InputRegistry {
 }
 
 impl InputRegistry {
+    fn current_binding_for_action(
+        &self,
+        action_id: &str,
+        context: InputContext,
+    ) -> Option<InputBinding> {
+        let normalized = action_id.to_ascii_lowercase();
+        self.bindings.iter().find_map(|((entry_context, binding), slot)| {
+            if *entry_context != context {
+                return None;
+            }
+            match slot {
+                BindingSlot::Routed(routed) if routed == &normalized => Some(binding.clone()),
+                _ => None,
+            }
+        })
+    }
+
+    pub(crate) fn describe_bindable_actions(&self) -> Vec<InputActionBindingDescriptor> {
+        default_binding_specs()
+            .into_iter()
+            .map(|spec| InputActionBindingDescriptor {
+                action_id: spec.action_id.to_string(),
+                display_name: spec.display_name,
+                context: spec.context,
+                section: spec.section,
+                current_binding: self.current_binding_for_action(spec.action_id, spec.context),
+                default_binding: Some(spec.binding),
+            })
+            .collect()
+    }
+
+    pub(crate) fn binding_display_labels_for_action(&self, action_id: &str) -> Vec<String> {
+        self.describe_bindable_actions()
+            .into_iter()
+            .filter(|entry| entry.action_id == action_id)
+            .filter_map(|entry| entry.current_binding.map(|binding| binding.display_label()))
+            .collect()
+    }
+
     pub(crate) fn register_binding(
         &mut self,
         binding: InputBinding,
@@ -617,31 +1162,11 @@ impl Default for InputRegistry {
         let mut registry = Self {
             bindings: HashMap::new(),
         };
-        registry.register_binding(
-            toolbar_submit_binding(),
-            ACTION_TOOLBAR_SUBMIT,
-            InputContext::OmnibarOpen,
-        );
-        registry.register_binding(
-            graph_view_confirm_binding(),
-            ACTION_GRAPH_VIEW_CONFIRM,
-            InputContext::GraphView,
-        );
-        registry.register_binding(
-            toolbar_nav_back_binding(),
-            ACTION_TOOLBAR_NAV_BACK,
-            InputContext::DetailView,
-        );
-        registry.register_binding(
-            toolbar_nav_forward_binding(),
-            ACTION_TOOLBAR_NAV_FORWARD,
-            InputContext::DetailView,
-        );
-        registry.register_binding(
-            toolbar_nav_reload_binding(),
-            ACTION_TOOLBAR_NAV_RELOAD,
-            InputContext::DetailView,
-        );
+        registry.register_binding(toolbar_submit_binding(), ACTION_TOOLBAR_SUBMIT, InputContext::OmnibarOpen);
+        registry.register_binding(graph_view_confirm_binding(), ACTION_GRAPH_VIEW_CONFIRM, InputContext::GraphView);
+        for spec in default_binding_specs() {
+            registry.register_binding(spec.binding, spec.action_id, spec.context);
+        }
         registry.register_binding(
             gamepad_command_palette_binding(),
             ACTION_GRAPH_COMMAND_PALETTE_OPEN,
@@ -1000,6 +1525,45 @@ mod tests {
     }
 
     #[test]
+    fn input_binding_display_label_uses_human_shortcut_format() {
+        let binding = InputBinding::Key {
+            modifiers: ModifierMask(ModifierMask::CTRL.0 | ModifierMask::SHIFT.0),
+            keycode: Keycode::Char('g'),
+        };
+
+        assert_eq!(binding.display_label(), "Ctrl+Shift+G");
+    }
+
+    #[test]
+    fn input_registry_describes_bindable_actions_with_current_and_default_bindings() {
+        let registry = InputRegistry::default();
+        let descriptors = registry.describe_bindable_actions();
+        let command_palette = descriptors
+            .iter()
+            .find(|entry| entry.action_id == ACTION_GRAPH_COMMAND_PALETTE_OPEN)
+            .expect("command palette binding descriptor should exist");
+
+        assert_eq!(command_palette.display_name, "Open Command Palette");
+        assert_eq!(command_palette.context, InputContext::GraphView);
+        assert_eq!(
+            command_palette
+                .current_binding
+                .as_ref()
+                .map(InputBinding::display_label)
+                .as_deref(),
+            Some("F2")
+        );
+        assert_eq!(
+            command_palette
+                .default_binding
+                .as_ref()
+                .map(InputBinding::display_label)
+                .as_deref(),
+            Some("F2")
+        );
+    }
+
+    #[test]
     fn input_registry_action_ids_follow_namespace_name_format() {
         for action_id in [
             ACTION_TOOLBAR_SUBMIT,
@@ -1010,6 +1574,29 @@ mod tests {
             ACTION_GRAPH_CYCLE_FOCUS_REGION,
             ACTION_GRAPH_COMMAND_PALETTE_OPEN,
             ACTION_GRAPH_RADIAL_MENU_OPEN,
+            ACTION_GRAPH_TOGGLE_PHYSICS,
+            ACTION_GRAPH_REHEAT_PHYSICS,
+            ACTION_GRAPH_ZOOM_IN,
+            ACTION_GRAPH_ZOOM_OUT,
+            ACTION_GRAPH_ZOOM_RESET,
+            ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK,
+            ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK,
+            ACTION_GRAPH_NODE_NEW,
+            ACTION_GRAPH_EDGE_CONNECT_PAIR,
+            ACTION_GRAPH_EDGE_CONNECT_BOTH,
+            ACTION_GRAPH_EDGE_REMOVE_USER,
+            ACTION_GRAPH_NODE_PIN_SELECTED,
+            ACTION_GRAPH_NODE_UNPIN_SELECTED,
+            ACTION_GRAPH_NODE_PIN_TOGGLE,
+            ACTION_GRAPH_NODE_DELETE,
+            ACTION_GRAPH_CLEAR,
+            ACTION_GRAPH_SELECT_ALL,
+            ACTION_WORKBENCH_HELP_OPEN,
+            ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS,
+            ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS,
+            ACTION_WORKBENCH_UNDO,
+            ACTION_WORKBENCH_REDO,
             ACTION_RADIAL_MENU_CATEGORY_PREVIOUS,
             ACTION_RADIAL_MENU_CATEGORY_NEXT,
             ACTION_RADIAL_MENU_SELECTION_PREVIOUS,

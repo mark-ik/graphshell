@@ -35,7 +35,7 @@ use crate::services::persistence::{GraphStore, TimelineIndexEntry};
 use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::input::{
-    InputBindingRemap, InputConflict as InputRemapConflict,
+    InputBinding, InputBindingRemap, InputConflict as InputRemapConflict, InputContext,
 };
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
@@ -49,7 +49,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED, CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
     CHANNEL_UX_NAVIGATION_TRANSITION, phase2_apply_input_binding_remaps,
-    phase2_reset_input_binding_remaps,
+    phase2_describe_input_bindings, phase2_reset_input_binding_remaps,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
@@ -263,6 +263,7 @@ pub enum SettingsToolPage {
     Physics,
     Sync,
     Appearance,
+    Keybindings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2990,6 +2991,59 @@ impl GraphBrowserApp {
             .unwrap_or_default()
     }
 
+    pub fn set_input_binding_for_action(
+        &mut self,
+        action_id: &str,
+        context: InputContext,
+        binding: InputBinding,
+    ) -> Result<(), InputRemapConflict> {
+        let mut remaps = self.input_binding_remaps();
+        remaps.retain(|remap| {
+            let descriptor = phase2_describe_input_bindings()
+                .into_iter()
+                .find(|entry| entry.action_id == action_id && entry.context == context);
+            descriptor.as_ref().is_none_or(|entry| {
+                entry.default_binding
+                    .as_ref()
+                    .is_none_or(|default_binding| {
+                        !(remap.context == context && remap.old == *default_binding)
+                    })
+            })
+        });
+
+        if let Some(descriptor) = phase2_describe_input_bindings()
+            .into_iter()
+            .find(|entry| entry.action_id == action_id && entry.context == context)
+            && let Some(default_binding) = descriptor.default_binding
+            && binding != default_binding
+        {
+            remaps.push(InputBindingRemap {
+                old: default_binding,
+                new: binding,
+                context,
+            });
+        }
+
+        self.set_input_binding_remaps(&remaps)
+    }
+
+    pub fn reset_input_binding_for_action(&mut self, action_id: &str, context: InputContext) {
+        let descriptors = phase2_describe_input_bindings();
+        let Some(default_binding) = descriptors
+            .iter()
+            .find(|entry| entry.action_id == action_id && entry.context == context)
+            .and_then(|entry| entry.default_binding.clone())
+        else {
+            return;
+        };
+
+        let mut remaps = self.input_binding_remaps();
+        remaps.retain(|remap| !(remap.context == context && remap.old == default_binding));
+        if let Err(error) = self.set_input_binding_remaps(&remaps) {
+            warn!("failed to reset input binding for action '{action_id}': {error:?}");
+        }
+    }
+
     fn save_radial_menu_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
@@ -3752,6 +3806,9 @@ impl GraphBrowserApp {
             }
             VersoAddress::Settings(GraphshellSettingsPath::Appearance) => {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Appearance))
+            }
+            VersoAddress::Settings(GraphshellSettingsPath::Keybindings) => {
+                Some(SettingsRouteTarget::Settings(SettingsToolPage::Keybindings))
             }
             VersoAddress::Frame(_)
             | VersoAddress::View(_)

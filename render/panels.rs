@@ -1,4 +1,5 @@
 use std::env;
+use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -13,6 +14,10 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UX_NAVIGATION_TRANSITION,
+    phase2_describe_input_bindings,
+};
+use crate::shell::desktop::runtime::registries::input::{
+    InputBinding, InputBindingSection, InputContext,
 };
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
@@ -308,18 +313,15 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 CanvasLassoBinding::RightDrag => "Right+Alt+Drag",
                                 CanvasLassoBinding::ShiftLeftDrag => "Shift+Alt+LeftDrag",
                             };
-                            let command_palette_key = match app.workspace.command_palette_shortcut {
-                                crate::app::CommandPaletteShortcut::F2 => "F2",
-                                crate::app::CommandPaletteShortcut::CtrlK => "Ctrl+K",
-                            };
-                            let radial_key = match app.workspace.radial_menu_shortcut {
-                                crate::app::RadialMenuShortcut::F3 => "F3",
-                                crate::app::RadialMenuShortcut::R => "R",
-                            };
-                            let help_key = match app.workspace.help_panel_shortcut {
-                                crate::app::HelpPanelShortcut::F1OrQuestion => "F1 / ?",
-                                crate::app::HelpPanelShortcut::H => "H",
-                            };
+                            let command_palette_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+                                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+                            ).join(" / ");
+                            let radial_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+                                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN,
+                            ).join(" / ");
+                            let help_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+                                crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_HELP_OPEN,
+                            ).join(" / ");
                             let shortcuts = [
                                 ("Home / Esc", "Toggle Graph / Detail view"),
                                 ("N", "Create new node"),
@@ -333,8 +335,8 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 ("P", "Physics settings panel"),
                                 ("Ctrl+H", "History Manager panel"),
                                 ("Ctrl+F", "Show graph search"),
-                                (command_palette_key, "Toggle command palette"),
-                                (radial_key, "Toggle radial palette mode"),
+                                (&command_palette_key, "Toggle command palette"),
+                                (&radial_key, "Toggle radial palette mode"),
                                 ("Ctrl+Z / Ctrl+Y", "Undo / Redo"),
                                 ("G", "Connect selected pair"),
                                 ("Shift+G", "Connect both directions"),
@@ -346,7 +348,7 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 (lasso_toggle, "Lasso toggle selection"),
                                 ("Search Up/Down", "Cycle graph matches"),
                                 ("Search Enter", "Select active search match"),
-                                (help_key, "This help panel"),
+                                (&help_key, "This help panel"),
                                 ("Ctrl+L / Alt+D", "Focus address bar"),
                                 ("Double-click node", "Open node via workspace routing"),
                                 ("Drag tab out", "Detach tab into split pane"),
@@ -974,6 +976,11 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     crate::app::SettingsToolPage::Appearance,
                     "Appearance",
                 );
+                ui.selectable_value(
+                    &mut app.workspace.settings_tool_page,
+                    crate::app::SettingsToolPage::Keybindings,
+                    "Keybindings",
+                );
             });
             ui.separator();
 
@@ -1125,10 +1132,162 @@ pub fn render_settings_tool_pane_in_ui_with_control_panel(
                     });
                     ui.small("Press F9 to jump directly to Camera Controls in Physics settings.");
                 }
+                crate::app::SettingsToolPage::Keybindings => {
+                    render_keybindings_settings_in_ui(ui, app);
+                }
             }
         });
 
     intents
+}
+
+fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
+    let capture_action_id = ui.make_persistent_id("settings_keybindings_capture_action");
+    let capture_context_id = ui.make_persistent_id("settings_keybindings_capture_context");
+    let capture_error_id = ui.make_persistent_id("settings_keybindings_capture_error");
+
+    let mut capture_action = ui
+        .ctx()
+        .data_mut(|data| data.get_persisted::<String>(capture_action_id));
+    let mut capture_context = ui
+        .ctx()
+        .data_mut(|data| data.get_persisted::<String>(capture_context_id));
+    let mut capture_error = ui
+        .ctx()
+        .data_mut(|data| data.get_persisted::<String>(capture_error_id));
+
+    if let (Some(action_id), Some(context_raw)) = (capture_action.as_deref(), capture_context.as_deref())
+        && let Ok(context) = InputContext::from_str(context_raw)
+    {
+        let captured = ui.ctx().input(|input| {
+            input.events.iter().find_map(|event| match event {
+                egui::Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } => Some((*key, *modifiers)),
+                _ => None,
+            })
+        });
+
+        if let Some((key, modifiers)) = captured {
+            if key == egui::Key::Escape {
+                capture_action = None;
+                capture_context = None;
+                capture_error = None;
+            } else if let Some(binding) = InputBinding::from_egui_key(key, &modifiers) {
+                match app.set_input_binding_for_action(action_id, context, binding) {
+                    Ok(()) => {
+                        capture_action = None;
+                        capture_context = None;
+                        capture_error = None;
+                    }
+                    Err(error) => {
+                        capture_error = Some(format!("{error:?}"));
+                    }
+                }
+            }
+        }
+    }
+
+    ui.label("Keyboard shortcuts are registry-backed and persisted per workspace.");
+    ui.small("Click Rebind, then press a key or chord. Press Esc to cancel capture.");
+    ui.add_space(8.0);
+
+    if ui.button("Reset All To Defaults").clicked() {
+        if let Err(error) = app.set_input_binding_remaps(&[]) {
+            capture_error = Some(format!("{error:?}"));
+        } else {
+            capture_error = None;
+        }
+    }
+
+    if let Some(error) = capture_error.as_deref() {
+        ui.colored_label(egui::Color32::from_rgb(180, 60, 60), error);
+    }
+
+    let descriptors = phase2_describe_input_bindings();
+    for section in [
+        InputBindingSection::Graph,
+        InputBindingSection::Workbench,
+        InputBindingSection::Navigation,
+    ] {
+        let entries = descriptors
+            .iter()
+            .filter(|entry| entry.section == section)
+            .collect::<Vec<_>>();
+        if entries.is_empty() {
+            continue;
+        }
+        ui.separator();
+        ui.heading(section.label());
+        egui::Grid::new(format!("keybinding_grid_{}", section.label()))
+            .num_columns(5)
+            .spacing([12.0, 6.0])
+            .show(ui, |ui| {
+                ui.strong("Action");
+                ui.strong("Current");
+                ui.strong("Default");
+                ui.strong("Context");
+                ui.strong("Edit");
+                ui.end_row();
+
+                for entry in entries {
+                    let is_capturing = capture_action.as_deref() == Some(entry.action_id.as_str())
+                        && capture_context.as_deref() == Some(entry.context.label());
+                    ui.label(entry.display_name);
+                    ui.label(
+                        entry
+                            .current_binding
+                            .as_ref()
+                            .map(InputBinding::display_label)
+                            .unwrap_or_else(|| "Unbound".to_string()),
+                    );
+                    ui.label(
+                        entry
+                            .default_binding
+                            .as_ref()
+                            .map(InputBinding::display_label)
+                            .unwrap_or_else(|| "None".to_string()),
+                    );
+                    ui.small(entry.context.label());
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(if is_capturing { "Press Key..." } else { "Rebind" })
+                            .clicked()
+                        {
+                            capture_action = Some(entry.action_id.clone());
+                            capture_context = Some(entry.context.label().to_string());
+                            capture_error = None;
+                        }
+                        if ui.button("Reset").clicked() {
+                            app.reset_input_binding_for_action(&entry.action_id, entry.context);
+                            capture_error = None;
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
+    }
+
+    ui.ctx().data_mut(|data| {
+        if let Some(value) = capture_action {
+            data.insert_persisted(capture_action_id, value);
+        } else {
+            data.remove::<String>(capture_action_id);
+        }
+        if let Some(value) = capture_context {
+            data.insert_persisted(capture_context_id, value);
+        } else {
+            data.remove::<String>(capture_context_id);
+        }
+        if let Some(value) = capture_error {
+            data.insert_persisted(capture_error_id, value);
+        } else {
+            data.remove::<String>(capture_error_id);
+        }
+    });
 }
 
 pub fn render_sync_settings_in_ui(

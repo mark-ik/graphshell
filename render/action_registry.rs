@@ -209,6 +209,37 @@ pub enum ActionId {
 }
 
 impl ActionId {
+    pub fn shortcut_hints(self) -> Vec<String> {
+        let action_ids: &[&str] = match self {
+            Self::NodeNew => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_NEW],
+            Self::NodePinToggle => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_TOGGLE],
+            Self::NodePinSelected => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_SELECTED],
+            Self::NodeUnpinSelected => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_UNPIN_SELECTED],
+            Self::NodeDelete => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_DELETE],
+            Self::EdgeConnectPair => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_PAIR],
+            Self::EdgeConnectBoth => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_BOTH],
+            Self::EdgeRemoveUser => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_REMOVE_USER],
+            Self::GraphFit => &[],
+            Self::GraphTogglePhysics => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_PHYSICS],
+            Self::GraphPhysicsConfig => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS],
+            Self::GraphCommandPalette => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN],
+            Self::GraphRadialMenu => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN],
+            Self::PersistUndo => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_UNDO],
+            Self::PersistRedo => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_REDO],
+            Self::PersistOpenHistoryManager => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_HISTORY_MANAGER],
+            _ => &[],
+        };
+
+        action_ids
+            .iter()
+            .flat_map(|action_id| {
+                crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+                    action_id,
+                )
+            })
+            .collect()
+    }
+
     pub fn key(self) -> &'static str {
         match self {
             Self::NodeNew => "node:new",

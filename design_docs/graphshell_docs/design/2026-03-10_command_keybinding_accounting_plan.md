@@ -342,6 +342,15 @@ Work needed:
 - `ActionRegistry` must expose shortcut hints for display in the help overlay
   and in palette action rows (shortcut badge column)
 
+Status (2026-03-10): landed for the registry-backed keyboard command set.
+`InputRegistry` now owns the bindable keyboard command catalogue, Settings has a
+real **Keybindings** page with capture-based rebinding + reset, and current
+shortcut hints feed both the help overlay and command palette rows.
+
+Remaining note: `graph:toggle_detail_view` and `graph:search_open` are still
+UI-owned focus/surface transitions rather than registry-dispatched semantic
+actions, so they are not part of the new bindable registry catalogue yet.
+
 This phase is deliberately last — it depends on the registry having a complete
 action set (C1) and the settings surface being stable.
 
@@ -616,7 +625,6 @@ stable — it should not be designed as a workaround for missing action-level re
 | No context-per-entity column in matrix | command_semantics_matrix.md | C2.1 |
 | Edge command context undefined in spec | graph_node_edge_interaction_spec.md | C2.2 |
 | Workflow activation has no default keyboard shortcut yet | KEYBINDINGS.md / settings UX | follow-on after C4 |
-| History manager open has no default keyboard shortcut yet | KEYBINDINGS.md / settings UX | follow-on after C4 |
-| No keybindings settings surface | Settings UX | C4 |
+| `graph:toggle_detail_view` and `graph:search_open` are still UI-owned, not registry-owned bindable actions | input/mod.rs / graph_search_flow.rs | post-C4 follow-on |
 | Label entry UI for edge label (label-drop seam) | action.rs / reducer | B3.3 blocker |
 | Shortcut changes needed vs current defaults | KEYBINDINGS.md | §6.3 (pre-C1) |

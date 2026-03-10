@@ -69,6 +69,7 @@ pub(crate) enum GraphshellSettingsPath {
     Physics,
     Sync,
     Appearance,
+    Keybindings,
     History,
     Other(String),
 }
@@ -190,6 +191,7 @@ impl GraphshellSettingsPath {
             "physics" => Self::Physics,
             "sync" => Self::Sync,
             "appearance" => Self::Appearance,
+            "keybindings" => Self::Keybindings,
             "history" => Self::History,
             other => Self::Other(other.to_string()),
         }
@@ -202,6 +204,7 @@ impl GraphshellSettingsPath {
             Self::Physics => Some("physics"),
             Self::Sync => Some("sync"),
             Self::Appearance => Some("appearance"),
+            Self::Keybindings => Some("keybindings"),
             Self::History => Some("history"),
             Self::Other(other) => Some(other.as_str()),
         }

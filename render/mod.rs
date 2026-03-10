@@ -2616,20 +2616,20 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
 
     // Draw controls hint
     let lasso_hint = canvas_lasso_binding_label(app.lasso_binding_preference());
-    let command_hint = match app.workspace.command_palette_shortcut {
-        crate::app::CommandPaletteShortcut::F2 => "F2 Commands",
-        crate::app::CommandPaletteShortcut::CtrlK => "Ctrl+K Commands",
-    };
-    let radial_hint = match app.workspace.radial_menu_shortcut {
-        crate::app::RadialMenuShortcut::F3 => "F3 Radial",
-        crate::app::RadialMenuShortcut::R => "R Radial",
-    };
-    let help_hint = match app.workspace.help_panel_shortcut {
-        crate::app::HelpPanelShortcut::F1OrQuestion => "F1/? Help",
-        crate::app::HelpPanelShortcut::H => "H Help",
-    };
+    let command_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+        crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+    )
+    .join(" / ");
+    let radial_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+        crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN,
+    )
+    .join(" / ");
+    let help_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+        crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_HELP_OPEN,
+    )
+    .join(" / ");
     let controls_text = format!(
-        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} | {radial_hint} | Ctrl+Z/Y Undo/Redo | {help_hint}"
+        "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} Commands | {radial_hint} Radial | Ctrl+Z/Y Undo/Redo | {help_hint} Help"
     );
     ui.painter().text(
         ui.available_rect_before_wrap().left_bottom() + Vec2::new(10.0, -10.0),

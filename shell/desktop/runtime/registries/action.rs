@@ -51,6 +51,7 @@ pub(crate) const ACTION_WORKBENCH_SPLIT_HORIZONTAL: &str = "workbench:split_hori
 pub(crate) const ACTION_WORKBENCH_SPLIT_VERTICAL: &str = "workbench:split_vertical";
 pub(crate) const ACTION_WORKBENCH_CLOSE_PANE: &str = "workbench:close_pane";
 pub(crate) const ACTION_WORKBENCH_COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
+pub(crate) const ACTION_WORKBENCH_HELP_OPEN: &str = "workbench:help_open";
 pub(crate) const ACTION_WORKBENCH_SETTINGS_OPEN: &str = "workbench:settings_open";
 pub(crate) const ACTION_WORKBENCH_UNDO: &str = "workbench:undo";
 pub(crate) const ACTION_WORKBENCH_REDO: &str = "workbench:redo";
@@ -125,6 +126,7 @@ pub(crate) enum ActionPayload {
         pane_id: PaneId,
     },
     WorkbenchCommandPaletteOpen,
+    WorkbenchHelpOpen,
     WorkbenchSettingsOpen,
     WorkbenchUndo,
     WorkbenchRedo,
@@ -570,6 +572,11 @@ impl Default for ActionRegistry {
             ACTION_WORKBENCH_COMMAND_PALETTE_OPEN,
             ActionCapability::AlwaysAvailable,
             execute_workbench_command_palette_open_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_HELP_OPEN,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_help_open_action,
         );
         registry.register(
             ACTION_WORKBENCH_SETTINGS_OPEN,
@@ -1332,6 +1339,20 @@ fn execute_workbench_command_palette_open_action(
     ActionOutcome::Dispatch(ActionDispatch::workbench_intent(
         WorkbenchIntent::OpenCommandPalette,
     ))
+}
+
+fn execute_workbench_help_open_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchHelpOpen = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:help_open requires WorkbenchHelpOpen payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Dispatch(ActionDispatch::intents(vec![GraphIntent::ToggleHelpPanel]))
 }
 
 fn execute_workbench_settings_open_action(

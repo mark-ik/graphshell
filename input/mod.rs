@@ -8,9 +8,10 @@
 //! selection) is handled by egui_graphs via the GraphView widget.
 
 use crate::app::{
-    CommandPaletteShortcut, EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation,
-    HelpPanelShortcut, RadialMenuShortcut, ViewAction, WorkbenchIntent,
+    EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
 };
+use crate::shell::desktop::runtime::registries::phase2_describe_input_bindings;
+use crate::shell::desktop::runtime::registries::input::InputBinding;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::Key;
 
@@ -51,12 +52,106 @@ pub struct KeyboardActions {
     pub cycle_focus_region: bool,
 }
 
+fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool {
+    match binding {
+        InputBinding::Key { modifiers, keycode } => {
+            let active_modifiers =
+                crate::shell::desktop::runtime::registries::input::ModifierMask::from_egui(
+                    &input.modifiers,
+                );
+            if active_modifiers != *modifiers {
+                return false;
+            }
+
+            match keycode {
+                crate::shell::desktop::runtime::registries::input::Keycode::Named(named) => {
+                    let expected = match named {
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Enter => {
+                            Key::Enter
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::ArrowLeft => {
+                            Key::ArrowLeft
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::ArrowRight => {
+                            Key::ArrowRight
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::F5 => Key::F5,
+                        crate::shell::desktop::runtime::registries::input::NamedKey::F1 => Key::F1,
+                        crate::shell::desktop::runtime::registries::input::NamedKey::F2 => Key::F2,
+                        crate::shell::desktop::runtime::registries::input::NamedKey::F3 => Key::F3,
+                        crate::shell::desktop::runtime::registries::input::NamedKey::F6 => Key::F6,
+                        crate::shell::desktop::runtime::registries::input::NamedKey::F9 => Key::F9,
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Home => {
+                            Key::Home
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Escape => {
+                            Key::Escape
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Delete => {
+                            Key::Delete
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Backspace => {
+                            Key::Backspace
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Plus => {
+                            Key::Plus
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Minus => {
+                            Key::Minus
+                        }
+                        crate::shell::desktop::runtime::registries::input::NamedKey::Num0 => {
+                            Key::Num0
+                        }
+                    };
+                    input.key_pressed(expected) || (expected == Key::Plus && input.key_pressed(Key::Equals))
+                }
+                crate::shell::desktop::runtime::registries::input::Keycode::Char(ch) => {
+                    let expected = match ch.to_ascii_lowercase() {
+                        'a' => Key::A,
+                        'c' => Key::C,
+                        'f' => Key::F,
+                        'g' => Key::G,
+                        'h' => Key::H,
+                        'i' => Key::I,
+                        'k' => Key::K,
+                        'l' => Key::L,
+                        'n' => Key::N,
+                        'p' => Key::P,
+                        '?' => Key::Questionmark,
+                        'r' => Key::R,
+                        't' => Key::T,
+                        'u' => Key::U,
+                        'y' => Key::Y,
+                        'z' => Key::Z,
+                        _ => return false,
+                    };
+                    input.key_pressed(expected)
+                }
+            }
+        }
+        _ => false,
+    }
+}
+
+fn action_binding_pressed(
+    input: &egui::InputState,
+    action_id: &str,
+    bindings: &[crate::shell::desktop::runtime::registries::input::InputActionBindingDescriptor],
+) -> bool {
+    bindings
+        .iter()
+        .filter(|entry| entry.action_id == action_id)
+        .filter_map(|entry| entry.current_binding.as_ref())
+        .any(|binding| key_binding_pressed(input, binding))
+}
+
 /// Collect keyboard actions from the egui context (input detection only).
-pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) -> KeyboardActions {
+pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp) -> KeyboardActions {
     // Don't handle shortcuts while egui is actively capturing keyboard input
     // (for example, URL bar text editing).
     let keyboard_captured_by_egui = ctx.wants_keyboard_input();
     let mut actions = KeyboardActions::default();
+    let binding_descriptors = phase2_describe_input_bindings();
 
     ctx.input(|i| {
         // Escape always works: unfocus text field or toggle view
@@ -83,162 +178,198 @@ pub(crate) fn collect_actions(ctx: &egui::Context, graph_app: &GraphBrowserApp) 
             return;
         }
 
-        // T: Toggle physics
-        if i.key_pressed(Key::T) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_PHYSICS,
+            &binding_descriptors,
+        ) {
             actions.toggle_physics = true;
         }
 
-        // + / - / 0: keyboard zoom controls
-        if i.key_pressed(Key::Plus) || i.key_pressed(Key::Equals) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_ZOOM_IN,
+            &binding_descriptors,
+        ) {
             actions.zoom_in = true;
         }
-        if i.key_pressed(Key::Minus) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_ZOOM_OUT,
+            &binding_descriptors,
+        ) {
             actions.zoom_out = true;
         }
-        if i.key_pressed(Key::Num0) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_ZOOM_RESET,
+            &binding_descriptors,
+        ) {
             actions.zoom_reset = true;
         }
 
-        // P: Open physics settings
-        if i.key_pressed(Key::P) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS,
+            &binding_descriptors,
+        ) {
             actions.open_physics_settings = true;
         }
-
-        // Ctrl+H: Toggle history manager panel
-        if i.modifiers.ctrl && i.key_pressed(Key::H) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS,
+            &binding_descriptors,
+        ) {
+            actions.open_camera_controls = true;
+        }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            &binding_descriptors,
+        ) {
             actions.toggle_history_manager = true;
         }
 
-        // N: Create new node
-        if i.key_pressed(Key::N) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_NEW,
+            &binding_descriptors,
+        ) {
             actions.create_node = true;
         }
 
-        // Z: toggle zoom-fit lock for active graph pane
-        if i.key_pressed(Key::Z) && !i.modifiers.ctrl {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK,
+            &binding_descriptors,
+        ) {
             actions.toggle_camera_zoom_fit_lock = true;
         }
 
-        // C: toggle position-fit lock for active graph pane
-        if i.key_pressed(Key::C) && !i.modifiers.ctrl {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK,
+            &binding_descriptors,
+        ) {
             actions.toggle_camera_position_fit_lock = true;
         }
 
-        // R: manual physics reheat (no modifiers).
-        if i.key_pressed(Key::R)
-            && !i.modifiers.ctrl
-            && !i.modifiers.shift
-            && !i.modifiers.alt
-            && !i.modifiers.command
-            && !matches!(
-                graph_app.workspace.radial_menu_shortcut,
-                RadialMenuShortcut::R
-            )
-        {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_REHEAT_PHYSICS,
+            &binding_descriptors,
+        ) {
             actions.reheat_physics = true;
         }
 
-        // G: connect selected pair, Shift+G: connect both directions, Alt+G: remove user edge
-        if i.key_pressed(Key::G) {
-            if i.modifiers.shift {
-                actions.connect_both_directions = true;
-            } else if i.modifiers.alt {
-                actions.remove_user_edge = true;
-            } else {
-                actions.connect_selected_pair = true;
-            }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_PAIR,
+            &binding_descriptors,
+        ) {
+            actions.connect_selected_pair = true;
+        }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_BOTH,
+            &binding_descriptors,
+        ) {
+            actions.connect_both_directions = true;
+        }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_REMOVE_USER,
+            &binding_descriptors,
+        ) {
+            actions.remove_user_edge = true;
         }
 
-        // I: pin selected node(s)
-        if i.key_pressed(Key::I) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_SELECTED,
+            &binding_descriptors,
+        ) {
             actions.pin_selected = true;
         }
-
-        // U: unpin selected node(s)
-        if i.key_pressed(Key::U) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_UNPIN_SELECTED,
+            &binding_descriptors,
+        ) {
             actions.unpin_selected = true;
         }
-
-        // L: toggle pin state on primary selected node
-        if i.key_pressed(Key::L)
-            && !i.modifiers.ctrl
-            && !i.modifiers.shift
-            && !i.modifiers.alt
-            && !i.modifiers.command
-        {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_TOGGLE,
+            &binding_descriptors,
+        ) {
             actions.toggle_pin_primary = true;
         }
 
-        // Toggle keyboard shortcut help panel.
-        match graph_app.workspace.help_panel_shortcut {
-            HelpPanelShortcut::F1OrQuestion => {
-                if i.key_pressed(Key::F1) || i.key_pressed(Key::Questionmark) {
-                    actions.toggle_help_panel = true;
-                }
-            }
-            HelpPanelShortcut::H => {
-                if i.key_pressed(Key::H) {
-                    actions.toggle_help_panel = true;
-                }
-            }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_HELP_OPEN,
+            &binding_descriptors,
+        ) {
+            actions.toggle_help_panel = true;
+        }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+            &binding_descriptors,
+        ) {
+            actions.toggle_command_palette = true;
+        }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN,
+            &binding_descriptors,
+        ) {
+            actions.toggle_radial_menu = true;
         }
 
-        // Toggle command palette.
-        match graph_app.workspace.command_palette_shortcut {
-            CommandPaletteShortcut::F2 => {
-                if i.key_pressed(Key::F2) {
-                    actions.toggle_command_palette = true;
-                }
-            }
-            CommandPaletteShortcut::CtrlK => {
-                if i.modifiers.ctrl && i.key_pressed(Key::K) {
-                    actions.toggle_command_palette = true;
-                }
-            }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_DELETE,
+            &binding_descriptors,
+        ) {
+            actions.delete_selected = true;
         }
-
-        // Toggle radial palette mode.
-        match graph_app.workspace.radial_menu_shortcut {
-            RadialMenuShortcut::F3 => {
-                if i.key_pressed(Key::F3) {
-                    actions.toggle_radial_menu = true;
-                }
-            }
-            RadialMenuShortcut::R => {
-                if i.key_pressed(Key::R) {
-                    actions.toggle_radial_menu = true;
-                }
-            }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_CLEAR,
+            &binding_descriptors,
+        ) {
+            actions.clear_graph = true;
         }
-
-        // Ctrl+Shift+Delete: Clear entire graph
-        // Delete (no modifiers): Remove selected nodes
-        if i.key_pressed(Key::Delete) {
-            if i.modifiers.ctrl && i.modifiers.shift {
-                actions.clear_graph = true;
-            } else if !i.modifiers.ctrl && !i.modifiers.shift {
-                actions.delete_selected = true;
-            }
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_UNDO,
+            &binding_descriptors,
+        ) {
+            actions.undo = true;
         }
-
-        if i.modifiers.ctrl && i.key_pressed(Key::Z) {
-            if i.modifiers.shift {
-                actions.redo = true;
-            } else {
-                actions.undo = true;
-            }
-        }
-        if i.modifiers.ctrl && i.key_pressed(Key::Y) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_REDO,
+            &binding_descriptors,
+        ) {
             actions.redo = true;
         }
 
-        // Ctrl+A: select all nodes
-        if i.modifiers.ctrl && i.key_pressed(Key::A) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_SELECT_ALL,
+            &binding_descriptors,
+        ) {
             actions.select_all = true;
         }
 
-        // F6: cycle top-level focus region (workbench authority path).
-        if i.key_pressed(Key::F6) {
+        if action_binding_pressed(
+            i,
+            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            &binding_descriptors,
+        ) {
             actions.cycle_focus_region = true;
         }
     });

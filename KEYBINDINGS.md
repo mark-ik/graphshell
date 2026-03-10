@@ -4,6 +4,8 @@
 
 # GraphShell Keybindings
 
+Most keyboard shortcuts can now be rebound from `Settings -> Keybindings`.
+
 ## Graph View
 
 Default keybinds are configurable in `Settings -> Input`.

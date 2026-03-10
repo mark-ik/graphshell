@@ -213,7 +213,13 @@ fn render_action_entry_button(
     focused_pane_id: Option<PaneId>,
     should_close: &mut bool,
 ) {
-    let mut response = ui.add_enabled(entry.enabled, egui::Button::new(entry.id.label()));
+    let shortcuts = entry.id.shortcut_hints();
+    let button = egui::Button::new(if shortcuts.is_empty() {
+        entry.id.label().to_string()
+    } else {
+        format!("{}    {}", entry.id.label(), shortcuts.join(" / "))
+    });
+    let mut response = ui.add_enabled(entry.enabled, button);
     if !entry.enabled
         && let Some(reason) = disabled_action_reason(entry.id, action_context)
     {
