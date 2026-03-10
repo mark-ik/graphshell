@@ -10,6 +10,7 @@ use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId};
 use crate::graph::NodeKey;
+use crate::registries::domain::layout::workbench_surface::FocusCycle;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_backpressure::{
@@ -149,7 +150,7 @@ fn make_focus_cycle_region_active(
     }
 }
 
-pub(crate) fn cycle_focus_region(tiles_tree: &mut Tree<TileKind>) -> bool {
+fn cycle_focus_region_by_kind(tiles_tree: &mut Tree<TileKind>) -> bool {
     let order = [
         FocusCycleRegion::Graph,
         FocusCycleRegion::Node,
@@ -173,6 +174,50 @@ pub(crate) fn cycle_focus_region(tiles_tree: &mut Tree<TileKind>) -> bool {
     }
 
     false
+}
+
+fn cycle_active_tab_in_parent(tiles_tree: &mut Tree<TileKind>) -> bool {
+    let active_tile_id = tiles_tree.active_tiles().into_iter().last();
+    let Some(active_tile_id) = active_tile_id else {
+        return false;
+    };
+    let Some(parent_id) = tiles_tree.tiles.parent_of(active_tile_id) else {
+        return false;
+    };
+    let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(parent_id) else {
+        return false;
+    };
+    let Some(index) = tabs.children.iter().position(|child| *child == active_tile_id) else {
+        return false;
+    };
+    if tabs.children.len() < 2 {
+        return false;
+    }
+
+    let next_index = (index + 1) % tabs.children.len();
+    let next_active = tabs.children[next_index];
+    if next_active == active_tile_id {
+        return false;
+    }
+    tabs.set_active(next_active);
+    true
+}
+
+pub(crate) fn cycle_focus_region_with_policy(
+    tiles_tree: &mut Tree<TileKind>,
+    focus_cycle: FocusCycle,
+) -> bool {
+    match focus_cycle {
+        FocusCycle::Tabs => cycle_active_tab_in_parent(tiles_tree),
+        FocusCycle::Panes => cycle_focus_region_by_kind(tiles_tree),
+        FocusCycle::Both => {
+            cycle_active_tab_in_parent(tiles_tree) || cycle_focus_region_by_kind(tiles_tree)
+        }
+    }
+}
+
+pub(crate) fn cycle_focus_region(tiles_tree: &mut Tree<TileKind>) -> bool {
+    cycle_focus_region_with_policy(tiles_tree, FocusCycle::Both)
 }
 
 pub(crate) fn open_or_focus_graph_pane(tiles_tree: &mut Tree<TileKind>, view_id: GraphViewId) {

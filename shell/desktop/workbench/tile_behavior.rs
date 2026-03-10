@@ -18,13 +18,12 @@ use crate::app::{
     ViewAction, WorkbenchIntent,
 };
 use crate::graph::{NodeKey, NodeLifecycle};
-use crate::registries::domain::layout::LayoutDomainRegistry;
-use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
 use crate::render;
 use crate::render::GraphAction;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::render_backend::{texture_id_from_token, texture_token_from_handle};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DEGRADATION_PLACEHOLDER_MODE, CHANNEL_UX_CONTRACT_WARNING,
     CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_FALLBACK_WRY_CAPABILITY_MISSING,
@@ -725,10 +724,7 @@ impl<'a> GraphshellTileBehavior<'a> {
 
 impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
     fn simplification_options(&self) -> SimplificationOptions {
-        let layout_domain = LayoutDomainRegistry::default();
-        let workbench_surface = layout_domain
-            .workbench_surface()
-            .resolve(WORKBENCH_SURFACE_DEFAULT);
+        let workbench_surface = registries::phase3_resolve_active_workbench_surface_profile();
 
         SimplificationOptions {
             all_panes_must_have_tabs: workbench_surface.profile.layout.all_panes_must_have_tabs,
@@ -1160,10 +1156,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
         let icon_size = 16.0;
         let icon_spacing = 6.0;
         let x_margin = self.tab_title_spacing(ui.visuals());
-        let layout_domain = LayoutDomainRegistry::default();
-        let workbench_surface = layout_domain
-            .workbench_surface()
-            .resolve(WORKBENCH_SURFACE_DEFAULT);
+        let workbench_surface = registries::phase3_resolve_active_workbench_surface_profile();
 
         let (title_text, favicon_texture) = match tiles.get(tile_id) {
             Some(Tile::Pane(TileKind::Graph(view_ref))) => {

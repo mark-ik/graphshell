@@ -13,6 +13,7 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RendererId, RuntimeEvent,
+    WorkbenchIntent,
 };
 use crate::graph::NodeKey;
 use crate::registries::atomic::ProtocolHandlerProviders;
@@ -578,6 +579,18 @@ impl RegistryRuntime {
             byte_len: resolution.resolved_id.len(),
         });
         resolution
+    }
+
+    fn dispatch_workbench_surface_intent(
+        &self,
+        graph_app: &mut GraphBrowserApp,
+        tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
+        intent: WorkbenchIntent,
+    ) -> Option<WorkbenchIntent> {
+        self.workbench_surface
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .dispatch_intent(graph_app, tiles_tree, intent)
     }
 
     fn accept_renderer_attachment(
@@ -1575,6 +1588,14 @@ pub(crate) fn phase3_describe_workbench_surface(
     profile_id: Option<&str>,
 ) -> WorkbenchSurfaceDescription {
     runtime().describe_workbench_surface(profile_id)
+}
+
+pub(crate) fn dispatch_workbench_surface_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
+    intent: WorkbenchIntent,
+) -> Option<WorkbenchIntent> {
+    runtime().dispatch_workbench_surface_intent(graph_app, tiles_tree, intent)
 }
 
 #[cfg(test)]
