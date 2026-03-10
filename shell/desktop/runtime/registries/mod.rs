@@ -70,8 +70,9 @@ use protocol::{
 use renderer::{PaneAttachment, RendererRegistry, RendererRegistryError};
 use servo::ServoUrl;
 use signal_routing::{
-    InputEventSignal, LifecycleSignal, NavigationSignal, ObserverId, RegistryEventSignal,
-    SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource, SignalTopic,
+    AsyncSignalSubscription, InputEventSignal, LifecycleSignal, NavigationSignal, ObserverId,
+    RegistryEventSignal, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource,
+    SignalTopic,
 };
 use workbench_surface::{
     WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
@@ -305,6 +306,8 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED: &str =
     "register.signal_routing.failed";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH: &str =
     "register.signal_routing.queue_depth";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED: &str =
+    "register.signal_routing.lagged";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED: &str =
     "register.signal_routing.mod_workflow_routed";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &str =
@@ -1289,6 +1292,14 @@ impl RegistryRuntime {
         self.signal_routing.unsubscribe(topic, observer_id)
     }
 
+    pub(crate) fn subscribe_signal_async(&self, topic: SignalTopic) -> AsyncSignalSubscription {
+        self.signal_routing.subscribe_async(topic)
+    }
+
+    pub(crate) fn subscribe_all_signals_async(&self) -> AsyncSignalSubscription {
+        self.signal_routing.subscribe_all()
+    }
+
     #[cfg(test)]
     fn signal_routing_diagnostics(&self) -> signal_routing::SignalRoutingDiagnostics {
         self.signal_routing.diagnostics_snapshot()
@@ -2221,6 +2232,14 @@ pub(crate) fn phase3_unsubscribe_signal(topic: SignalTopic, observer_id: Observe
     runtime().unsubscribe_signal(topic, observer_id)
 }
 
+pub(crate) fn phase3_subscribe_signal_async(topic: SignalTopic) -> AsyncSignalSubscription {
+    runtime().subscribe_signal_async(topic)
+}
+
+pub(crate) fn phase3_subscribe_all_signals_async() -> AsyncSignalSubscription {
+    runtime().subscribe_all_signals_async()
+}
+
 pub(crate) fn dispatch_workbench_surface_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
@@ -2644,6 +2663,28 @@ mod tests {
             signal,
             SignalKind::InputEvent(InputEventSignal::BindingsReset)
         )));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn phase3_async_signal_subscription_receives_runtime_publish() {
+        let runtime = RegistryRuntime::default();
+        let mut receiver = runtime.subscribe_signal_async(SignalTopic::Lifecycle);
+
+        runtime.publish_navigation_mime_resolved(
+            NodeKey::new(41),
+            "https://example.com/data.csv",
+            Some("text/csv"),
+        );
+
+        let received = receiver
+            .recv()
+            .await
+            .expect("async runtime receiver should stay open");
+        assert!(matches!(
+            received.kind,
+            SignalKind::Lifecycle(LifecycleSignal::MimeResolved { node_key, ref mime })
+                if node_key == NodeKey::new(41) && mime == "text/csv"
+        ));
     }
 
     fn nostr_backend_test_guard() -> std::sync::MutexGuard<'static, ()> {

@@ -4,6 +4,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::graph::NodeKey;
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use tokio::sync::broadcast;
+
+use super::CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED;
 
 /// Topic families used by the Register signal routing layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -13,6 +17,26 @@ pub(crate) enum SignalTopic {
     Sync,
     RegistryEvent,
     InputEvent,
+}
+
+impl SignalTopic {
+    const ALL: [SignalTopic; 5] = [
+        SignalTopic::Navigation,
+        SignalTopic::Lifecycle,
+        SignalTopic::Sync,
+        SignalTopic::RegistryEvent,
+        SignalTopic::InputEvent,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            SignalTopic::Navigation => "navigation",
+            SignalTopic::Lifecycle => "lifecycle",
+            SignalTopic::Sync => "sync",
+            SignalTopic::RegistryEvent => "registry_event",
+            SignalTopic::InputEvent => "input_event",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +186,7 @@ pub(crate) type SyncObserverCallback =
     Arc<dyn Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync>;
 
 const DEAD_LETTER_LIMIT: usize = 64;
+const ASYNC_SIGNAL_BUFFER: usize = 64;
 
 #[derive(Clone)]
 struct SignalObserver {
@@ -175,6 +200,7 @@ pub(crate) struct SignalRoutingDiagnostics {
     pub(crate) routed_deliveries: u64,
     pub(crate) unrouted_signals: u64,
     pub(crate) observer_failures: u64,
+    pub(crate) lagged_receivers: u64,
     pub(crate) queue_depth: usize,
 }
 
@@ -209,13 +235,71 @@ struct SignalRoutingState {
     dead_letters: VecDeque<SignalDeadLetter>,
 }
 
-/// SR2/SR3 transitional Register-owned signal routing facade and in-process fabric.
-#[derive(Default, Clone)]
-pub(crate) struct SignalRoutingLayer {
+pub(crate) struct AsyncSignalSubscription {
+    label: &'static str,
+    receiver: broadcast::Receiver<SignalEnvelope>,
     state: Arc<Mutex<SignalRoutingState>>,
 }
 
+impl AsyncSignalSubscription {
+    pub(crate) async fn recv(&mut self) -> Option<SignalEnvelope> {
+        loop {
+            match self.receiver.recv().await {
+                Ok(envelope) => return Some(envelope),
+                Err(broadcast::error::RecvError::Closed) => return None,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    let mut guard = self.state.lock().expect("signal routing lock poisoned");
+                    guard.diagnostics.lagged_receivers = guard
+                        .diagnostics
+                        .lagged_receivers
+                        .saturating_add(skipped as u64);
+                    drop(guard);
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED,
+                        byte_len: skipped as usize,
+                    });
+                    log::warn!(
+                        "signal_routing: async subscriber for {} lagged and skipped {} signal(s)",
+                        self.label,
+                        skipped
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// SR2/SR3 transitional Register-owned signal routing facade and in-process fabric.
+#[derive(Clone)]
+pub(crate) struct SignalRoutingLayer {
+    state: Arc<Mutex<SignalRoutingState>>,
+    topic_broadcast_tx: Arc<HashMap<SignalTopic, broadcast::Sender<SignalEnvelope>>>,
+    all_broadcast_tx: broadcast::Sender<SignalEnvelope>,
+}
+
+impl Default for SignalRoutingLayer {
+    fn default() -> Self {
+        Self::with_async_capacity(ASYNC_SIGNAL_BUFFER)
+    }
+}
+
 impl SignalRoutingLayer {
+    pub(crate) fn with_async_capacity(async_capacity: usize) -> Self {
+        let topic_broadcast_tx = SignalTopic::ALL
+            .into_iter()
+            .map(|topic| {
+                let (tx, _rx) = broadcast::channel(async_capacity);
+                (topic, tx)
+            })
+            .collect::<HashMap<_, _>>();
+        let (all_broadcast_tx, _all_rx) = broadcast::channel(async_capacity);
+        Self {
+            state: Arc::new(Mutex::new(SignalRoutingState::default())),
+            topic_broadcast_tx: Arc::new(topic_broadcast_tx),
+            all_broadcast_tx,
+        }
+    }
+
     pub(crate) fn subscribe(
         &self,
         topic: SignalTopic,
@@ -242,13 +326,53 @@ impl SignalRoutingLayer {
         len_before != observers.len()
     }
 
+    pub(crate) fn subscribe_async(&self, topic: SignalTopic) -> AsyncSignalSubscription {
+        let sender = self
+            .topic_broadcast_tx
+            .get(&topic)
+            .expect("signal topic sender missing");
+        AsyncSignalSubscription {
+            label: topic.label(),
+            receiver: sender.subscribe(),
+            state: Arc::clone(&self.state),
+        }
+    }
+
+    pub(crate) fn subscribe_all(&self) -> AsyncSignalSubscription {
+        AsyncSignalSubscription {
+            label: "all_topics",
+            receiver: self.all_broadcast_tx.subscribe(),
+            state: Arc::clone(&self.state),
+        }
+    }
+
     pub(crate) fn publish(&self, envelope: SignalEnvelope) -> SignalPublishReport {
         let topic = envelope.kind.topic();
+        let topic_async_receivers = self
+            .topic_broadcast_tx
+            .get(&topic)
+            .map(|sender| sender.receiver_count())
+            .unwrap_or(0);
+        let all_async_receivers = self.all_broadcast_tx.receiver_count();
         let observers = {
             let mut guard = self.state.lock().expect("signal routing lock poisoned");
             guard.diagnostics.published_signals =
                 guard.diagnostics.published_signals.saturating_add(1);
             let Some(observers) = guard.observers.get(&topic) else {
+                if topic_async_receivers > 0 || all_async_receivers > 0 {
+                    let async_deliveries = self.publish_async(&envelope, topic);
+                    guard.diagnostics.routed_deliveries = guard
+                        .diagnostics
+                        .routed_deliveries
+                        .saturating_add(async_deliveries as u64);
+                    guard.diagnostics.queue_depth = self.max_queue_depth();
+                    return SignalPublishReport {
+                        observers_notified: async_deliveries,
+                        observer_failures: 0,
+                        dead_letters_added: 0,
+                        queue_depth: guard.diagnostics.queue_depth,
+                    };
+                }
                 guard.diagnostics.unrouted_signals =
                     guard.diagnostics.unrouted_signals.saturating_add(1);
                 push_dead_letter(
@@ -273,6 +397,20 @@ impl SignalRoutingLayer {
                 };
             };
             if observers.is_empty() {
+                if topic_async_receivers > 0 || all_async_receivers > 0 {
+                    let async_deliveries = self.publish_async(&envelope, topic);
+                    guard.diagnostics.routed_deliveries = guard
+                        .diagnostics
+                        .routed_deliveries
+                        .saturating_add(async_deliveries as u64);
+                    guard.diagnostics.queue_depth = self.max_queue_depth();
+                    return SignalPublishReport {
+                        observers_notified: async_deliveries,
+                        observer_failures: 0,
+                        dead_letters_added: 0,
+                        queue_depth: guard.diagnostics.queue_depth,
+                    };
+                }
                 guard.diagnostics.unrouted_signals =
                     guard.diagnostics.unrouted_signals.saturating_add(1);
                 push_dead_letter(
@@ -338,21 +476,23 @@ impl SignalRoutingLayer {
             }
         }
 
+        let async_deliveries = self.publish_async(&envelope, topic);
         let mut guard = self.state.lock().expect("signal routing lock poisoned");
         guard.diagnostics.routed_deliveries = guard
             .diagnostics
             .routed_deliveries
-            .saturating_add(observers.len() as u64);
+            .saturating_add((observers.len() + async_deliveries) as u64);
         guard.diagnostics.observer_failures = guard
             .diagnostics
             .observer_failures
             .saturating_add(failures as u64);
+        guard.diagnostics.queue_depth = self.max_queue_depth();
         for dead_letter in &dead_letters {
             push_dead_letter(&mut guard.dead_letters, dead_letter.clone());
         }
 
         SignalPublishReport {
-            observers_notified: observers.len(),
+            observers_notified: observers.len() + async_deliveries,
             observer_failures: failures,
             dead_letters_added: dead_letters.len(),
             queue_depth: guard.diagnostics.queue_depth,
@@ -374,6 +514,29 @@ impl SignalRoutingLayer {
             .iter()
             .cloned()
             .collect()
+    }
+
+    fn publish_async(&self, envelope: &SignalEnvelope, topic: SignalTopic) -> usize {
+        let mut delivered = 0usize;
+        if let Some(sender) = self.topic_broadcast_tx.get(&topic) {
+            if let Ok(count) = sender.send(envelope.clone()) {
+                delivered = delivered.saturating_add(count);
+            }
+        }
+        if let Ok(count) = self.all_broadcast_tx.send(envelope.clone()) {
+            delivered = delivered.saturating_add(count);
+        }
+        delivered
+    }
+
+    fn max_queue_depth(&self) -> usize {
+        let topic_depth = self
+            .topic_broadcast_tx
+            .values()
+            .map(broadcast::Sender::len)
+            .max()
+            .unwrap_or(0);
+        topic_depth.max(self.all_broadcast_tx.len())
     }
 }
 
@@ -442,6 +605,7 @@ mod tests {
         assert_eq!(diagnostics.routed_deliveries, 2);
         assert_eq!(diagnostics.unrouted_signals, 0);
         assert_eq!(diagnostics.observer_failures, 0);
+        assert_eq!(diagnostics.lagged_receivers, 0);
         assert_eq!(diagnostics.queue_depth, 0);
     }
 
@@ -506,5 +670,77 @@ mod tests {
             SignalDeadLetterReason::ObserverPanicked
         );
         assert_eq!(dead_letters[0].observer_id, Some(ObserverId(1)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn signal_routing_async_topic_subscriber_receives_published_signal() {
+        let layer = SignalRoutingLayer::default();
+        let mut receiver = layer.subscribe_async(SignalTopic::Navigation);
+
+        let report = layer.publish(SignalEnvelope::new(
+            SignalKind::Navigation(NavigationSignal::Resolved {
+                uri: "https://example.com".to_string(),
+                viewer_id: "viewer:webview".to_string(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+
+        let received = receiver.recv().await.expect("async receiver should stay open");
+        assert_eq!(report.observers_notified, 1);
+        assert!(matches!(
+            received.kind,
+            SignalKind::Navigation(NavigationSignal::Resolved { ref uri, .. })
+                if uri == "https://example.com"
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn signal_routing_async_all_subscriber_receives_cross_topic_signal() {
+        let layer = SignalRoutingLayer::default();
+        let mut receiver = layer.subscribe_all();
+
+        layer.publish(SignalEnvelope::new(
+            SignalKind::Lifecycle(LifecycleSignal::WorkflowActivated {
+                workflow_id: "workflow:research".to_string(),
+            }),
+            SignalSource::ControlPanel,
+            None,
+        ));
+
+        let received = receiver.recv().await.expect("all-topics receiver should stay open");
+        assert!(matches!(
+            received.kind,
+            SignalKind::Lifecycle(LifecycleSignal::WorkflowActivated { ref workflow_id })
+                if workflow_id == "workflow:research"
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn signal_routing_async_receiver_reports_lagged_delivery() {
+        let layer = SignalRoutingLayer::with_async_capacity(1);
+        let mut receiver = layer.subscribe_async(SignalTopic::Navigation);
+
+        for index in 0..3 {
+            layer.publish(SignalEnvelope::new(
+                SignalKind::Navigation(NavigationSignal::Resolved {
+                    uri: format!("https://example.com/{index}"),
+                    viewer_id: "viewer:webview".to_string(),
+                }),
+                SignalSource::RegistryRuntime,
+                None,
+            ));
+        }
+
+        let received = receiver.recv().await.expect("receiver should stay open");
+        assert!(matches!(
+            received.kind,
+            SignalKind::Navigation(NavigationSignal::Resolved { ref uri, .. })
+                if uri == "https://example.com/2"
+        ));
+        assert!(
+            layer.diagnostics_snapshot().lagged_receivers > 0,
+            "lagged receiver count should increment after skipped messages"
+        );
     }
 }

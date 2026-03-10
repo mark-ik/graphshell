@@ -49,6 +49,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
     CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED,
     CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED, CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
+    CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED,
     CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH,
     CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED,
     CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED, CHANNEL_RENDERER_ATTACH, CHANNEL_RENDERER_DETACH,
@@ -529,7 +530,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 111] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 112] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -879,6 +880,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 111] = [
         channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH,
         schema_version: 1,
         severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_LAGGED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED,

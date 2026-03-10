@@ -51,11 +51,10 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, phase3_subscribe_signal,
-    phase3_unsubscribe_signal,
+    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, phase3_subscribe_signal_async,
 };
 use crate::shell::desktop::runtime::registries::signal_routing::{
-    LifecycleSignal, ObserverId, SignalKind, SignalTopic,
+    LifecycleSignal, SignalKind, SignalTopic,
 };
 use crate::shell::desktop::ui::thumbnail_pipeline::{
     RendererFaviconTextureCache, ThumbnailCaptureResult,
@@ -180,7 +179,6 @@ pub struct Gui {
 
     /// Pending lifecycle notifications for semantic-index-driven lens refresh.
     semantic_index_signal_rx: Receiver<usize>,
-    semantic_index_signal_observer: ObserverId,
 
     /// Tokio runtime for async background workers
     tokio_runtime: tokio::runtime::Runtime,
@@ -191,10 +189,6 @@ pub struct Gui {
 
 impl Drop for Gui {
     fn drop(&mut self) {
-        let _ = phase3_unsubscribe_signal(
-            SignalTopic::Lifecycle,
-            self.semantic_index_signal_observer,
-        );
         if let Ok(layout_json) = serde_json::to_string(&self.tiles_tree) {
             self.graph_app.save_tile_layout_json(&layout_json);
         } else {
@@ -290,16 +284,17 @@ impl Gui {
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
         let registry_runtime = RegistryRuntime::new_with_mods();
         let (semantic_index_signal_tx, semantic_index_signal_rx) = channel();
-        let semantic_index_signal_observer =
-            phase3_subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+        let mut semantic_index_signal_async = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
+        tokio_runtime.spawn(async move {
+            while let Some(signal) = semantic_index_signal_async.recv().await {
                 if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
                     indexed_nodes,
-                }) = &signal.kind
+                }) = signal.kind
                 {
-                    let _ = semantic_index_signal_tx.send(*indexed_nodes);
+                    let _ = semantic_index_signal_tx.send(indexed_nodes);
                 }
-                Ok(())
-            });
+            }
+        });
 
         Self {
             rendering_context,
@@ -354,7 +349,6 @@ impl Gui {
             diagnostics_state: diagnostics::DiagnosticsState::new(),
             registry_runtime,
             semantic_index_signal_rx,
-            semantic_index_signal_observer,
             tokio_runtime,
             control_panel,
         }
