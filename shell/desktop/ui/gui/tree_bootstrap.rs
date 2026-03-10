@@ -14,7 +14,11 @@ pub(super) fn ensure_tiles_tree_root(tiles_tree: &mut Tree<TileKind>) {
 fn insert_default_graph_tile(tiles_tree: &mut Tree<TileKind>) -> TileId {
     tiles_tree
         .tiles
-        .insert_pane(TileKind::Graph(GraphViewId::default()))
+        .insert_pane(TileKind::Graph(
+            crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(
+                GraphViewId::default(),
+            ),
+        ))
 }
 
 fn set_tiles_tree_root(tiles_tree: &mut Tree<TileKind>, root_tile_id: TileId) {

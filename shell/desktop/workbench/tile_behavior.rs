@@ -738,8 +738,8 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn pane_ui(&mut self, ui: &mut egui::Ui, _tile_id: TileId, pane: &mut TileKind) -> UiResponse {
         match pane {
-            TileKind::Graph(view_id) => {
-                let view_id = *view_id;
+            TileKind::Graph(view_ref) => {
+                let view_id = view_ref.graph_view_id;
                 // Snapshot the pane rect now (before the graph fills the space).
                 let pane_rect = ui.max_rect();
 
@@ -1098,7 +1098,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             #[cfg(feature = "diagnostics")]
             TileKind::Tool(tool) => {
                 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
-                match tool {
+                match &tool.kind {
                     ToolPaneState::Diagnostics => {
                         self.diagnostics_state.render_in_pane(ui, self.graph_app);
                     }
@@ -1129,11 +1129,11 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
 
     fn tab_title_for_pane(&mut self, pane: &TileKind) -> WidgetText {
         match pane {
-            TileKind::Graph(view_id) => self
+            TileKind::Graph(view_ref) => self
                 .graph_app
                 .workspace
                 .views
-                .get(view_id)
+                .get(&view_ref.graph_view_id)
                 .map(|v| v.name.clone().into())
                 .unwrap_or_else(|| "Graph".into()),
             TileKind::Node(state) => self
@@ -1166,12 +1166,12 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             .resolve(WORKBENCH_SURFACE_DEFAULT);
 
         let (title_text, favicon_texture) = match tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Graph(view_id))) => {
+            Some(Tile::Pane(TileKind::Graph(view_ref))) => {
                 let name = self
                     .graph_app
                     .workspace
                     .views
-                    .get(view_id)
+                    .get(&view_ref.graph_view_id)
                     .map(|v| v.name.clone())
                     .unwrap_or_else(|| "Graph".to_string());
                 (name, None)
@@ -1599,7 +1599,9 @@ mod tests {
     use crate::app::GraphViewId;
     use crate::graph::NodeKey;
     use crate::shell::desktop::tests::harness::TestRegistry;
-    use crate::shell::desktop::workbench::pane_model::{NodePaneState, ToolPaneState};
+    use crate::shell::desktop::workbench::pane_model::{
+        GraphPaneRef, NodePaneState, ToolPaneRef, ToolPaneState,
+    };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use crate::shell::desktop::workbench::ux_tree::{self, UxNodeRole};
     use egui_tiles::{Container, Tile, Tiles};
@@ -1671,7 +1673,7 @@ mod tests {
     #[test]
     fn close_handoff_from_active_node_tab_prefers_right_successor() {
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
         let node_a = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(1))));
         let node_b = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(NodeKey::new(2))));
         let root = tiles.insert_tab_tile(vec![graph_tile, node_a, node_b]);
@@ -1692,8 +1694,8 @@ mod tests {
     #[test]
     fn close_handoff_from_active_tool_tab_prefers_left_when_no_right_successor() {
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
-        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
+        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneRef::new(ToolPaneState::Diagnostics)));
         let root = tiles.insert_tab_tile(vec![graph_tile, tool_tile]);
 
         if let Some(Tile::Container(Container::Tabs(tabs))) = tiles.get_mut(root) {

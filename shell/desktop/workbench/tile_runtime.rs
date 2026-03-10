@@ -453,7 +453,9 @@ mod tests {
     use super::TileCoordinator;
     use crate::app::GraphBrowserApp;
     use crate::graph::NodeKey;
-    use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode, ViewerId};
+    use crate::shell::desktop::workbench::pane_model::{
+        GraphPaneRef, NodePaneState, TileRenderMode, ViewerId,
+    };
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
     use egui_tiles::{Tiles, Tree};
@@ -684,7 +686,7 @@ mod tests {
     #[test]
     fn render_mode_for_node_pane_in_tree_returns_placeholder_for_missing_node() {
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
         let tree = Tree::new("tile_runtime_render_mode_lookup", graph, tiles);
 
         assert_eq!(

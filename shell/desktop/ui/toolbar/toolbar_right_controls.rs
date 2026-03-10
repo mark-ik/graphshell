@@ -1,4 +1,4 @@
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -84,7 +84,7 @@ pub(super) fn render_toolbar_right_controls(
         .add(super::toolbar_button("Cmd"))
         .on_hover_text("Open command palette (F2)");
     if command_button.clicked() {
-        frame_intents.push(GraphIntent::ToggleCommandPalette);
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
     }
 
     super::render_frame_pin_controls(

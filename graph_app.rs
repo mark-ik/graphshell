@@ -743,9 +743,15 @@ impl_display_from_str!(OmnibarNonAtOrderPreset {
 
 #[derive(Debug, Clone)]
 pub enum WorkbenchIntent {
+    OpenCommandPalette,
+    ToggleCommandPalette,
     CycleFocusRegion,
     OpenToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
+    },
+    ClosePane {
+        pane: crate::shell::desktop::workbench::pane_model::PaneId,
+        restore_previous_focus: bool,
     },
     CloseToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
@@ -2119,7 +2125,9 @@ impl GraphBrowserApp {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
             }
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
-            GraphIntent::ToggleCommandPalette => self.toggle_command_palette(),
+            GraphIntent::ToggleCommandPalette => {
+                self.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
+            }
             GraphIntent::ToggleRadialMenu => self.toggle_radial_menu(),
             GraphIntent::TraverseBack => {
                 let target = BrowserCommandTarget::ChromeProjection {
@@ -9326,7 +9334,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         assert!(!app.workspace.show_command_palette);
 
-        app.apply_reducer_intents([GraphIntent::ToggleCommandPalette]);
+        app.toggle_command_palette();
 
         assert!(app.workspace.show_command_palette);
         diagnostics.force_drain_for_tests();
@@ -9772,12 +9780,26 @@ mod tests {
         app.workspace.show_radial_menu = true;
         app.set_pending_node_context_target(Some(NodeKey::new(10)));
 
-        app.apply_reducer_intents([GraphIntent::ToggleCommandPalette]);
+        app.open_command_palette();
 
         assert!(app.workspace.show_command_palette);
         assert!(!app.workspace.show_help_panel);
         assert!(!app.workspace.show_radial_menu);
         assert!(app.pending_node_context_target().is_none());
+    }
+
+    #[test]
+    fn toggle_command_palette_reducer_path_enqueues_workbench_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.apply_reducer_intents([GraphIntent::ToggleCommandPalette]);
+
+        assert!(!app.workspace.show_command_palette);
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::ToggleCommandPalette]
+        ));
     }
 
     #[test]

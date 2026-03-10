@@ -10,7 +10,7 @@
 //! which is shared with the command palette so both surfaces use a single
 //! execution path.
 
-use crate::app::{GraphBrowserApp, SelectionUpdateMode, ViewAction};
+use crate::app::{GraphBrowserApp, SelectionUpdateMode, ViewAction, WorkbenchIntent};
 use crate::graph::NodeKey;
 use crate::render::action_registry::{
     ActionCategory, ActionContext, ActionEntry, ActionId, InputMode, category_persisted_name,
@@ -1058,7 +1058,7 @@ pub fn render_radial_command_menu(
             if app.pending_node_context_target().is_none() {
                 app.set_pending_node_context_target(source_context);
             }
-            app.workspace.show_command_palette = true;
+            app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
             ctx.data_mut(|d| d.insert_persisted(egui::Id::new(RADIAL_FALLBACK_NOTICE_KEY), true));
             should_close = true;
         }

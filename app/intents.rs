@@ -886,6 +886,7 @@ impl GraphIntent {
     pub(crate) fn workbench_authority_bridge_name(&self) -> Option<&'static str> {
         match self {
             Self::RouteGraphViewToWorkbench { .. } => Some("RouteGraphViewToWorkbench"),
+            Self::ToggleCommandPalette => Some("ToggleCommandPalette"),
             _ => None,
         }
     }

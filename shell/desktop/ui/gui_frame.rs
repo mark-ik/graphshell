@@ -526,11 +526,12 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
 mod tests {
     use super::*;
     use crate::app::GraphIntent;
+    use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 
     #[test]
     fn snapshot_restore_focus_reset_emits_ux_navigation_transition_channel() {
         let mut tiles = Tiles::default();
-        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let mut tree = Tree::new("graphshell_tiles", root, tiles);
         let mut tile_rendering_contexts: HashMap<NodeKey, Rc<OffscreenRenderingContext>> =
             HashMap::new();

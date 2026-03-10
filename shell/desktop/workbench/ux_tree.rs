@@ -694,12 +694,12 @@ fn push_nodes(
     let focused = active.contains(&tile_id);
 
     match tile {
-        Tile::Pane(TileKind::Graph(view_id)) => {
+        Tile::Pane(TileKind::Graph(view_ref)) => {
             let focused_selection = graph_app.focused_selection();
             semantic_nodes.push(UxSemanticNode {
                 ux_node_id: ux_node_id.clone(),
                 role: UxNodeRole::GraphSurface,
-                label: format!("Graph View {:?}", view_id),
+                label: format!("Graph View {:?}", view_ref.graph_view_id),
                 state: UxNodeState {
                     focused,
                     selected: false,
@@ -708,7 +708,7 @@ fn push_nodes(
                 },
                 allowed_actions: vec![UxAction::Focus, UxAction::Navigate],
                 domain: UxDomainIdentity::GraphView {
-                    graph_view_id: *view_id,
+                    graph_view_id: view_ref.graph_view_id,
                 },
             });
             presentation_nodes.push(UxPresentationNode {
@@ -728,7 +728,10 @@ fn push_nodes(
 
             for (node_key, node) in graph_app.domain_graph().nodes() {
                 let graph_node_ux_id =
-                    format!("uxnode://workbench/graph/{view_id:?}/node/{}", node.id);
+                    format!(
+                        "uxnode://workbench/graph/{:?}/node/{}",
+                        view_ref.graph_view_id, node.id
+                    );
                 let selected = focused_selection.contains(&node_key);
                 let focused_graph_node = focused_selection.primary() == Some(node_key);
                 let blocked = graph_app.runtime_block_state_for_node(node_key).is_some();
@@ -973,8 +976,11 @@ fn push_nodes(
 
 fn ux_node_id_for_tile(tile_id: TileId, tile: &Tile<TileKind>) -> String {
     match tile {
-        Tile::Pane(TileKind::Graph(view_id)) => {
-            format!("uxnode://workbench/tile/{tile_id:?}/graph/{view_id:?}")
+        Tile::Pane(TileKind::Graph(view_ref)) => {
+            format!(
+                "uxnode://workbench/tile/{tile_id:?}/graph/{:?}",
+                view_ref.graph_view_id
+            )
         }
         Tile::Pane(TileKind::Node(state)) => {
             format!("uxnode://workbench/tile/{tile_id:?}/node/{:?}", state.node)

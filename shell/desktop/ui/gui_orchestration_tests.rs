@@ -7,7 +7,7 @@ use crate::shell::desktop::runtime::registries::{
 };
 use crate::shell::desktop::ui::gui_orchestration;
 use crate::shell::desktop::workbench::pane_model::{
-    NodePaneState, PaneId, ToolPaneState, ViewerId,
+    GraphPaneRef, NodePaneState, PaneId, ToolPaneRef, ToolPaneState, ViewerId,
 };
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use base::id::{PIPELINE_NAMESPACE, PainterId, PipelineNamespace, TEST_NAMESPACE};
@@ -52,14 +52,80 @@ fn test_webview_id() -> WebViewId {
     WebViewId::new(PainterId::next())
 }
 
+fn graph_pane(view_id: GraphViewId) -> TileKind {
+    TileKind::Graph(GraphPaneRef::new(view_id))
+}
+
+fn tool_pane(kind: ToolPaneState) -> TileKind {
+    TileKind::Tool(ToolPaneRef::new(kind))
+}
+
+#[cfg(feature = "diagnostics")]
+fn is_tool_tile(tile: &Tile<TileKind>, kind: ToolPaneState) -> bool {
+    matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool.kind == kind)
+}
+
 #[cfg(feature = "diagnostics")]
 fn active_tool_pane(tree: &Tree<TileKind>, kind: ToolPaneState) -> bool {
     tree.active_tiles().into_iter().any(|tile_id| {
+        tree.tiles
+            .get(tile_id)
+            .is_some_and(|tile| is_tool_tile(tile, kind.clone()))
+    })
+}
+
+#[test]
+fn toggle_command_palette_intent_is_consumed_by_orchestration_authority() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(graph_pane(graph_view));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+    let mut intents = vec![WorkbenchIntent::ToggleCommandPalette];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert!(app.workspace.show_command_palette);
+}
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn close_pane_intent_closes_target_pane_by_pane_id() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let graph_view = GraphViewId::new();
+    let graph_ref = GraphPaneRef::new(graph_view);
+    let settings_ref = ToolPaneRef::new(ToolPaneState::Settings);
+    let mut tiles = Tiles::default();
+    let graph = tiles.insert_pane(TileKind::Graph(graph_ref.clone()));
+    let settings = tiles.insert_pane(TileKind::Tool(settings_ref.clone()));
+    let root = tiles.insert_tab_tile(vec![graph, settings]);
+    let mut tree = Tree::new("close_pane_by_id", root, tiles);
+
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
+    app.set_pending_tool_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
+        graph_view,
+    )));
+
+    let mut intents = vec![WorkbenchIntent::ClosePane {
+        pane: settings_ref.pane_id,
+        restore_previous_focus: true,
+    }];
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert!(!tree.tiles.iter().any(|(_, tile)| {
+        matches!(
+            tile,
+            Tile::Pane(TileKind::Tool(tool)) if tool.pane_id == settings_ref.pane_id
+        )
+    }));
+    assert!(tree.active_tiles().into_iter().any(|tile_id| {
         matches!(
             tree.tiles.get(tile_id),
-            Some(Tile::Pane(TileKind::Tool(tool_kind))) if *tool_kind == kind
+            Some(Tile::Pane(TileKind::Graph(existing))) if existing.pane_id == graph_ref.pane_id
         )
-    })
+    }));
 }
 
 #[test]
@@ -67,7 +133,7 @@ fn settings_history_url_intent_is_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
@@ -84,7 +150,7 @@ fn unknown_settings_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = crate::util::VersoAddress::settings(
         crate::util::GraphshellSettingsPath::Other("not-a-real-route".to_string()),
@@ -108,7 +174,7 @@ fn frame_url_intent_queues_frame_restore_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenFrameUrl {
         url: crate::util::VersoAddress::frame("frame-123").to_string(),
@@ -128,7 +194,7 @@ fn invalid_frame_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = "verso://frame".to_string();
     let mut intents = vec![WorkbenchIntent::OpenFrameUrl {
@@ -150,7 +216,7 @@ fn tool_url_intent_opens_history_tool_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenToolUrl {
         url: crate::util::VersoAddress::tool("history", Some(2)).to_string(),
@@ -167,7 +233,7 @@ fn unknown_tool_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = crate::util::VersoAddress::tool("unknown-tool", None).to_string();
     let mut intents = vec![WorkbenchIntent::OpenToolUrl {
@@ -189,7 +255,7 @@ fn clip_url_intent_is_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenClipUrl {
         url: crate::util::VersoAddress::clip("clip-42").to_string(),
@@ -210,7 +276,7 @@ fn invalid_clip_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = "verso://clip".to_string();
     let mut intents = vec![WorkbenchIntent::OpenClipUrl {
@@ -231,7 +297,7 @@ fn view_url_intent_opens_graph_view_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let route_uuid = uuid::Uuid::new_v4().to_string();
     let view_url = crate::util::VersoAddress::view(route_uuid).to_string();
@@ -257,7 +323,7 @@ fn open_graph_view_pane_intent_routes_to_workbench_pane_open() {
     let initial_view = GraphViewId::new();
     let new_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenGraphViewPane {
         view_id: new_view,
@@ -351,7 +417,7 @@ fn invalid_view_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = crate::util::VersoAddress::view("not-a-uuid").to_string();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
@@ -372,7 +438,7 @@ fn note_view_url_intent_queues_note_open_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let node_key = app.add_node_and_sync(
         "https://example.com/article".to_string(),
@@ -398,7 +464,7 @@ fn node_view_url_intent_opens_node_pane_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let node_key = app.add_node_and_sync(
         "https://example.com/view-node".to_string(),
@@ -426,7 +492,7 @@ fn invalid_node_view_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = crate::util::VersoAddress::view_node("not-a-uuid").to_string();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
@@ -447,7 +513,7 @@ fn note_url_intent_queues_note_open_via_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let node_key = app.add_node_and_sync(
         "https://example.com/note-url".to_string(),
@@ -472,7 +538,7 @@ fn invalid_note_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = "notes://not-a-uuid".to_string();
     let mut intents = vec![WorkbenchIntent::OpenNoteUrl {
@@ -501,7 +567,7 @@ fn graph_view_url_intent_queues_named_graph_restore_when_snapshot_exists() {
 
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
         url: crate::util::VersoAddress::view_graph("graph-main").to_string(),
@@ -521,7 +587,7 @@ fn unresolved_graph_view_url_intent_is_not_consumed_by_orchestration_authority()
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = crate::util::VersoAddress::view_graph("missing-graph").to_string();
     let mut intents = vec![WorkbenchIntent::OpenViewUrl {
@@ -542,7 +608,7 @@ fn unresolved_note_view_url_intent_is_not_consumed_by_orchestration_authority() 
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url =
         crate::util::VersoAddress::view_note(uuid::Uuid::new_v4().to_string()).to_string();
@@ -572,7 +638,7 @@ fn graph_url_intent_queues_named_graph_restore_when_snapshot_exists() {
 
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenGraphUrl {
         url: crate::util::GraphAddress::graph("graph-main").to_string(),
@@ -592,7 +658,7 @@ fn unresolved_graph_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = crate::util::GraphAddress::graph("missing-graph").to_string();
     let mut intents = vec![WorkbenchIntent::OpenGraphUrl {
@@ -613,7 +679,7 @@ fn pending_note_open_request_is_consumed_by_orchestration_semantic_phase() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let node_key = app.add_node_and_sync(
         "https://example.com/semantic-note".to_string(),
@@ -637,7 +703,7 @@ fn pending_unknown_note_open_request_is_cleared_by_orchestration_semantic_phase(
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     app.request_open_note_by_id(crate::app::NoteId::new());
 
@@ -651,7 +717,7 @@ fn pending_clip_open_request_is_consumed_by_orchestration_semantic_phase() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     app.request_open_clip_by_id("clip-semantic");
 
@@ -666,7 +732,7 @@ fn pending_clip_open_request_is_noop_when_queue_empty() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
     gui_orchestration::handle_pending_open_clip_after_intents(&mut app, &mut tree);
@@ -691,7 +757,7 @@ fn node_url_intent_opens_node_pane_via_orchestration_authority() {
 
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenNodeUrl {
         url: crate::util::NodeAddress::node(node_id.to_string()).to_string(),
@@ -708,7 +774,7 @@ fn invalid_node_url_intent_is_not_consumed_by_orchestration_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let unresolved_url = "node://not-a-uuid".to_string();
     let mut intents = vec![WorkbenchIntent::OpenNodeUrl {
@@ -730,7 +796,7 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
@@ -753,7 +819,7 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
     assert!(tree.active_tiles().into_iter().any(|tile_id| {
         matches!(
             tree.tiles.get(tile_id),
-            Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
+            Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
         )
     }));
 }
@@ -763,10 +829,10 @@ fn close_settings_tool_pane_restores_previous_graph_focus_via_orchestration() {
 fn cycle_focus_region_intent_cycles_graph_node_tool_regions() {
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let node_key = crate::graph::NodeKey::new(11);
     let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node_key)));
-    let tool = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+    let tool = tiles.insert_pane(tool_pane(ToolPaneState::Diagnostics));
     let root = tiles.insert_tab_tile(vec![graph, node, tool]);
     let mut tree = Tree::new("cycle_focus_orchestration", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
@@ -788,7 +854,7 @@ fn cycle_focus_region_intent_cycles_graph_node_tool_regions() {
     assert!(tree.active_tiles().into_iter().any(|tile_id| {
         matches!(
             tree.tiles.get(tile_id),
-            Some(Tile::Pane(TileKind::Tool(ToolPaneState::Diagnostics)))
+            Some(tile) if is_tool_tile(tile, ToolPaneState::Diagnostics)
         )
     }));
 
@@ -798,7 +864,7 @@ fn cycle_focus_region_intent_cycles_graph_node_tool_regions() {
     assert!(tree.active_tiles().into_iter().any(|tile_id| {
         matches!(
             tree.tiles.get(tile_id),
-            Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
+            Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
         )
     }));
 }
@@ -809,7 +875,7 @@ fn workbench_intent_dispatch_emits_ux_dispatch_channels() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_dispatch_channels", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
@@ -843,7 +909,7 @@ fn unresolved_workbench_intent_emits_contract_warning_for_default_fallback() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_dispatch_contract_warning", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
@@ -886,7 +952,7 @@ fn modal_isolation_consumes_non_modal_workbench_intent() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_dispatch_modal_isolation", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
@@ -921,7 +987,7 @@ fn cycle_focus_region_failure_emits_ux_navigation_violation_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let mut tree = Tree::new("ux_navigation_violation", graph, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
 
@@ -943,7 +1009,7 @@ fn cycle_focus_region_success_does_not_emit_ux_navigation_violation_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_navigation_no_violation", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
@@ -969,7 +1035,7 @@ fn open_tool_pane_emits_ux_navigation_transition_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_navigation_transition_open_tool", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
@@ -997,7 +1063,7 @@ fn open_settings_url_emits_ux_navigation_transition_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_navigation_transition_open_settings_url", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
@@ -1025,7 +1091,7 @@ fn open_settings_url_emits_ux_navigation_transition_channel() {
 fn open_settings_url_already_focused_does_not_emit_ux_navigation_transition_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let mut tiles = Tiles::default();
-    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
     let root = tiles.insert_tab_tile(vec![settings]);
     let mut tree = Tree::new(
         "ux_navigation_transition_open_settings_url_noop",
@@ -1034,8 +1100,7 @@ fn open_settings_url_already_focused_does_not_emit_ux_navigation_transition_chan
     );
     let mut app = GraphBrowserApp::new_for_testing();
 
-    let _ = tree
-        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))));
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
 
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
@@ -1070,7 +1135,7 @@ fn open_graph_url_emits_open_decision_diagnostics_for_routed_target() {
 
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_open_decision_graph_routed", root, tiles);
 
@@ -1093,7 +1158,7 @@ fn unresolved_graph_url_emits_open_decision_diagnostics_for_fallback_path() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("ux_open_decision_graph_unresolved", root, tiles);
 
@@ -1119,13 +1184,12 @@ fn unresolved_graph_url_emits_open_decision_diagnostics_for_fallback_path() {
 fn open_tool_pane_already_focused_does_not_emit_ux_navigation_transition_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let mut tiles = Tiles::default();
-    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
     let root = tiles.insert_tab_tile(vec![settings]);
     let mut tree = Tree::new("ux_navigation_transition_open_tool_noop", root, tiles);
     let mut app = GraphBrowserApp::new_for_testing();
 
-    let _ = tree
-        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))));
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
 
     let mut intents = vec![WorkbenchIntent::OpenToolPane {
         kind: ToolPaneState::Settings,
@@ -1151,7 +1215,7 @@ fn close_history_tool_pane_restores_previous_node_focus_via_orchestration() {
     let graph_view = GraphViewId::new();
     let focus_node = crate::graph::NodeKey::new(77);
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let node = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(focus_node)));
     let root = tiles.insert_tab_tile(vec![graph, node]);
     let mut tree = Tree::new("restore_history_focus_node", root, tiles);
@@ -1183,7 +1247,7 @@ fn close_tool_pane_restore_failure_emits_ux_navigation_violation_channel() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let mut app = GraphBrowserApp::new_for_testing();
     let mut tiles = Tiles::default();
-    let tool = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let tool = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
     let mut tree = Tree::new("restore_failure_violation", tool, tiles);
 
     app.set_pending_tool_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
@@ -1215,13 +1279,12 @@ fn close_tool_pane_restore_success_does_not_emit_ux_navigation_violation_channel
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
-    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
     let root = tiles.insert_tab_tile(vec![graph, settings]);
     let mut tree = Tree::new("restore_success_no_violation", root, tiles);
 
-    let _ = tree
-        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))));
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
     app.set_pending_tool_surface_return_target(Some(crate::app::ToolSurfaceReturnTarget::Graph(
         graph_view,
     )));
@@ -1250,8 +1313,8 @@ fn close_tool_pane_without_restore_clears_pending_return_target() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
-    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
     let root = tiles.insert_tab_tile(vec![graph, settings]);
     let mut tree = Tree::new("clear_pending_return_target", root, tiles);
 
@@ -1274,7 +1337,7 @@ fn close_tool_pane_without_restore_keeps_pending_target_when_close_fails() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("keep_pending_target_when_close_fails", root, tiles);
 
@@ -1301,7 +1364,7 @@ fn close_tool_pane_restore_requested_but_close_fails_emits_ux_navigation_violati
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("restore_requested_close_fail_violation", root, tiles);
 
@@ -1326,7 +1389,7 @@ fn close_tool_pane_without_restore_and_close_fails_does_not_emit_ux_navigation_v
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("no_restore_close_fail_no_violation", root, tiles);
 
@@ -1355,13 +1418,12 @@ fn close_tool_pane_without_restore_and_close_succeeds_emits_ux_navigation_transi
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
-    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
     let root = tiles.insert_tab_tile(vec![graph, settings]);
     let mut tree = Tree::new("close_without_restore_transition", root, tiles);
 
-    let _ = tree
-        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings))));
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
 
     let mut close_intents = vec![WorkbenchIntent::CloseToolPane {
         kind: ToolPaneState::Settings,
@@ -1391,7 +1453,7 @@ fn pending_open_mode_is_one_shot_after_execution() {
     app.select_node(selected, false);
 
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut frame_intents = Vec::new();
@@ -1432,7 +1494,7 @@ fn pending_open_request_split_mode_uses_split_route_and_focuses_node() {
     );
 
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
     let mut tree = Tree::new("graphshell_tiles", graph, tiles);
     let mut frame_intents = Vec::new();
     let mut open_node_tile_after_intents = None;
@@ -1480,7 +1542,7 @@ fn frame_loop_drains_workbench_intents_before_reducer_apply() {
     );
 
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let root = tiles.insert_pane(graph_pane(GraphViewId::new()));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut open_node_tile_after_intents = None;
 
@@ -1521,7 +1583,7 @@ fn frame_loop_panics_when_workbench_intent_leaks_past_interception() {
     let mut app = GraphBrowserApp::new_for_testing();
 
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+    let root = tiles.insert_pane(graph_pane(GraphViewId::new()));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut open_node_tile_after_intents = None;
     let mut frame_intents = Vec::new();
@@ -1586,3 +1648,4 @@ fn clipboard_missing_node_failure_message_includes_recovery_suggestion() {
     assert!(text.contains("try again"));
     assert!(text.contains("select a node"));
 }
+

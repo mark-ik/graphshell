@@ -2,6 +2,7 @@ use super::super::harness::TestRegistry;
 use crate::app::{GraphIntent, GraphViewId, GraphViewState, WorkbenchIntent};
 use crate::input::{KeyboardActions, intents_from_actions};
 use crate::shell::desktop::ui::gui_orchestration;
+use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use egui_tiles::{Tiles, Tree};
 
@@ -54,7 +55,7 @@ fn focus_cycle_survives_webview_focus_routing() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("input_routing_focus_cycle", root, tiles);
 
@@ -74,7 +75,7 @@ fn modal_isolation_preserves_camera_lock_toggle() {
 
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("input_routing_modal_camera_lock", root, tiles);
 

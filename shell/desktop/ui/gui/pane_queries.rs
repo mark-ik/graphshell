@@ -47,7 +47,7 @@ fn graph_view_ids_from_tiles(tiles_tree: &Tree<TileKind>) -> HashSet<GraphViewId
         .tiles
         .iter()
         .filter_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::Graph(view_id)) => Some(*view_id),
+            Tile::Pane(TileKind::Graph(view_ref)) => Some(view_ref.graph_view_id),
             _ => None,
         })
         .collect()

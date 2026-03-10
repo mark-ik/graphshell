@@ -790,6 +790,7 @@ mod tests {
     use crate::mods::native::verso;
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
+    use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 
     fn test_webview_id() -> servo::WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -802,7 +803,7 @@ mod tests {
 
     fn tree_with_two_active_nodes(a: NodeKey, b: NodeKey) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
         let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
         let root = tiles.insert_tab_tile(vec![graph, a_tile, b_tile]);
@@ -823,7 +824,7 @@ mod tests {
         b_mode: TileRenderMode,
     ) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
         let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
 
@@ -920,7 +921,7 @@ mod tests {
         app.map_webview_to_node(b_webview, b);
 
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(crate::app::GraphViewId::default()));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
         let root = tiles.insert_tab_tile(vec![graph, b_tile]);
         let mut tree = Tree::new("tile_compositor_focus_after_close", root, tiles);

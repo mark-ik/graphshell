@@ -67,7 +67,9 @@ pub(super) fn initialize_startup_graph_and_tiles(
     }
 
     let mut tiles = Tiles::default();
-    let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+    let graph_tile_id = tiles.insert_pane(TileKind::Graph(
+        crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::default()),
+    ));
     let mut tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
     let _ = restore_startup_session_frame_if_available(&mut graph_app, &mut tiles_tree);
 

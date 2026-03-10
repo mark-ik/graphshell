@@ -21,8 +21,6 @@ use crate::render::action_registry::{
 use crate::render::command_profile::{
     load_category_recency, load_pinned_categories, record_recent_category, toggle_category_pin,
 };
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
 use crate::shell::desktop::workbench::pane_model::{
     PaneId, ToolPaneState, ViewerId,
 };
@@ -479,12 +477,11 @@ pub fn render_command_palette_panel(
                 });
         });
 
-    app.workspace.show_command_palette = open && !should_close;
-    if app.workspace.show_command_palette != was_open {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
+    let next_open = open && !should_close;
+    if next_open {
+        app.open_command_palette();
+    } else {
+        app.close_command_palette();
     }
     super::apply_ui_intents_with_checkpoint(app, intents);
 }
@@ -678,7 +675,9 @@ pub(crate) fn execute_action(
                 url: VersoAddress::settings(GraphshellSettingsPath::Physics).to_string(),
             });
         }
-        ActionId::GraphCommandPalette => intents.push(GraphIntent::ToggleCommandPalette),
+        ActionId::GraphCommandPalette => {
+            app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
+        }
         ActionId::GraphRadialMenu => intents.push(GraphIntent::ToggleRadialMenu),
         ActionId::PersistUndo => intents.push(GraphIntent::Undo),
         ActionId::PersistRedo => intents.push(GraphIntent::Redo),

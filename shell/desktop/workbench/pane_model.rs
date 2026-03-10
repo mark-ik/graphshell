@@ -76,15 +76,57 @@ impl std::fmt::Display for ViewerId {
 ///
 /// Identifies which `GraphViewState` (camera + Lens + per-view local layout state) is active in this pane.
 /// The graph data itself (`GraphWorkspace.domain.graph`) remains shared across all graph panes.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "GraphPaneRefCompat")]
 pub(crate) struct GraphPaneRef {
+    /// Stable pane identity for this graph-hosting workbench pane.
+    pub pane_id: PaneId,
     /// The graph view state driving this pane's camera, Lens, and layout.
     pub graph_view_id: GraphViewId,
 }
 
 impl GraphPaneRef {
     pub(crate) fn new(graph_view_id: GraphViewId) -> Self {
-        Self { graph_view_id }
+        Self {
+            pane_id: PaneId::new(),
+            graph_view_id,
+        }
+    }
+
+    pub(crate) fn view_id(self) -> GraphViewId {
+        self.graph_view_id
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum GraphPaneRefCompat {
+    Legacy(GraphViewId),
+    Current {
+        #[serde(default)]
+        pane_id: Option<PaneId>,
+        graph_view_id: GraphViewId,
+    },
+}
+
+impl From<GraphPaneRefCompat> for GraphPaneRef {
+    fn from(compat: GraphPaneRefCompat) -> Self {
+        match compat {
+            GraphPaneRefCompat::Legacy(graph_view_id) => Self::new(graph_view_id),
+            GraphPaneRefCompat::Current {
+                pane_id,
+                graph_view_id,
+            } => Self {
+                pane_id: pane_id.unwrap_or_default(),
+                graph_view_id,
+            },
+        }
+    }
+}
+
+impl PartialEq<GraphViewId> for GraphPaneRef {
+    fn eq(&self, other: &GraphViewId) -> bool {
+        self.graph_view_id == *other
     }
 }
 
@@ -220,6 +262,57 @@ impl ToolPaneState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "ToolPaneRefCompat")]
+pub(crate) struct ToolPaneRef {
+    /// Stable pane identity for this tool-hosting workbench pane.
+    pub pane_id: PaneId,
+    /// Which tool surface this pane renders.
+    pub kind: ToolPaneState,
+}
+
+impl ToolPaneRef {
+    pub(crate) fn new(kind: ToolPaneState) -> Self {
+        Self {
+            pane_id: PaneId::new(),
+            kind,
+        }
+    }
+
+    pub(crate) fn title(&self) -> &'static str {
+        self.kind.title()
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum ToolPaneRefCompat {
+    Legacy(ToolPaneState),
+    Current {
+        #[serde(default)]
+        pane_id: Option<PaneId>,
+        kind: ToolPaneState,
+    },
+}
+
+impl From<ToolPaneRefCompat> for ToolPaneRef {
+    fn from(compat: ToolPaneRefCompat) -> Self {
+        match compat {
+            ToolPaneRefCompat::Legacy(kind) => Self::new(kind),
+            ToolPaneRefCompat::Current { pane_id, kind } => Self {
+                pane_id: pane_id.unwrap_or_default(),
+                kind,
+            },
+        }
+    }
+}
+
+impl PartialEq<ToolPaneState> for ToolPaneRef {
+    fn eq(&self, other: &ToolPaneState) -> bool {
+        self.kind == *other
+    }
+}
+
 /// Pane-hosted view payload.
 ///
 /// Determines how a workbench pane renders and routes input.
@@ -239,7 +332,7 @@ pub(crate) enum PaneViewState {
     /// Renders a node using the selected viewer backend (Servo texture, Wry overlay, native).
     Node(NodePaneState),
     /// Renders a tool surface (diagnostics, history, accessibility, settings, etc.).
-    Tool(ToolPaneState),
+    Tool(ToolPaneRef),
 }
 
 impl PaneViewState {
@@ -256,6 +349,15 @@ impl PaneViewState {
         match self {
             Self::Graph(graph_ref) => Some(graph_ref.graph_view_id),
             _ => None,
+        }
+    }
+
+    /// Returns the pane id regardless of pane view type.
+    pub(crate) fn pane_id(&self) -> PaneId {
+        match self {
+            Self::Graph(graph_ref) => graph_ref.pane_id,
+            Self::Node(state) => state.pane_id,
+            Self::Tool(tool_ref) => tool_ref.pane_id,
         }
     }
 }
@@ -404,7 +506,7 @@ mod tests {
 
     #[test]
     fn pane_view_state_tool_round_trips() {
-        let view = PaneViewState::Tool(ToolPaneState::Diagnostics);
+        let view = PaneViewState::Tool(ToolPaneRef::new(ToolPaneState::Diagnostics));
         let json = serde_json::to_string(&view).unwrap();
         let back: PaneViewState = serde_json::from_str(&json).unwrap();
         assert_eq!(view, back);

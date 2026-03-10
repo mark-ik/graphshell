@@ -213,9 +213,14 @@ fn runtime_tree_to_bundle(
                 PersistedPaneTile::Pane(pane_id)
             }
             #[cfg(feature = "diagnostics")]
-            TileKind::Tool(tool_state) => {
+            TileKind::Tool(tool_ref) => {
                 let pane_id = tile_id.0;
-                panes.insert(pane_id, PaneContent::Tool { kind: tool_state });
+                panes.insert(
+                    pane_id,
+                    PaneContent::Tool {
+                        kind: tool_ref.kind.clone(),
+                    },
+                );
                 PersistedPaneTile::Pane(pane_id)
             }
         };
@@ -327,12 +332,18 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
         let persisted_pane: PersistedPaneTile =
             serde_json::from_value(pane_value.clone()).map_err(|e| e.to_string())?;
         let runtime_pane = match persisted_pane {
-            PersistedPaneTile::Graph => Some(TileKind::Graph(GraphViewId::default())),
+            PersistedPaneTile::Graph => Some(TileKind::Graph(
+                crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(
+                    GraphViewId::default(),
+                ),
+            )),
             PersistedPaneTile::LegacyDiagnostic => {
                 #[cfg(feature = "diagnostics")]
                 {
                     Some(TileKind::Tool(
-                        crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
+                        crate::shell::desktop::workbench::pane_model::ToolPaneRef::new(
+                            crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics,
+                        ),
                     ))
                 }
                 #[cfg(not(feature = "diagnostics"))]
@@ -342,7 +353,11 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
                 }
             }
             PersistedPaneTile::Pane(pane_id) => match repaired.manifest.panes.get(&pane_id) {
-                Some(PaneContent::Graph) => Some(TileKind::Graph(GraphViewId::default())),
+                Some(PaneContent::Graph) => Some(TileKind::Graph(
+                    crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(
+                        GraphViewId::default(),
+                    ),
+                )),
                 Some(PaneContent::NodePane { node_uuid }) => {
                     if let Some(node_key) = graph_app
                         .workspace
@@ -360,7 +375,11 @@ pub(crate) fn restore_runtime_tree_from_frame_bundle(
                 Some(PaneContent::Tool { kind }) => {
                     #[cfg(feature = "diagnostics")]
                     {
-                        Some(TileKind::Tool(kind.clone()))
+                        Some(TileKind::Tool(
+                            crate::shell::desktop::workbench::pane_model::ToolPaneRef::new(
+                                kind.clone(),
+                            ),
+                        ))
                     }
                     #[cfg(not(feature = "diagnostics"))]
                     {
@@ -538,7 +557,9 @@ pub(crate) fn mark_named_workspace_bundle_activated(
 
 pub(crate) fn restore_tiles_tree_from_persistence(graph_app: &GraphBrowserApp) -> Tree<TileKind> {
     let mut tiles = Tiles::default();
-    let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+    let graph_tile_id = tiles.insert_pane(TileKind::Graph(
+        crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::default()),
+    ));
     let mut tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
     if let Some(layout_json) = graph_app.load_tile_layout_json()
         && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
@@ -701,11 +722,12 @@ mod tests {
     use egui_tiles::{Tiles, Tree};
     use euclid::default::Point2D;
     use tempfile::TempDir;
+    use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
 
     fn workspace_layout_json_with_nodes(node_keys: &[NodeKey]) -> String {
         let mut tiles = Tiles::default();
         let mut children = Vec::new();
-        children.push(tiles.insert_pane(TileKind::Graph(GraphViewId::default())));
+        children.push(tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default()))));
         for node_key in node_keys {
             children.push(tiles.insert_pane(TileKind::Node((*node_key).into())));
         }
@@ -844,7 +866,7 @@ mod tests {
         let node = app.add_node_and_sync("https://schema.example".into(), Point2D::new(0.0, 0.0));
 
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let node_pane = tiles.insert_pane(TileKind::Node(node.into()));
         let root = tiles.insert_tab_tile(vec![graph, node_pane]);
         let tree = Tree::new("workspace-schema-terms", root, tiles);
@@ -868,7 +890,7 @@ mod tests {
             let node =
                 app.add_node_and_sync("https://restart.example".into(), Point2D::new(0.0, 0.0));
             let mut tiles = Tiles::default();
-            let graph = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+            let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
             let webview = tiles.insert_pane(TileKind::Node(node.into()));
             let root = tiles.insert_tab_tile(vec![graph, webview]);
             let tree = Tree::new("restart_bundle", root, tiles);
@@ -932,9 +954,7 @@ mod tests {
             let has_tool = restored.tiles.iter().any(|(_, tile)| {
                 matches!(
                     tile,
-                    Tile::Pane(TileKind::Tool(
-                        crate::shell::desktop::workbench::pane_model::ToolPaneState::Diagnostics
-                    ))
+                    Tile::Pane(TileKind::Tool(tool)) if tool.kind == ToolPaneState::Diagnostics
                 )
             });
             assert!(
@@ -953,7 +973,7 @@ mod tests {
         let node_uuid = app.workspace.domain.graph.get_node(node_key).unwrap().id;
 
         let mut runtime_tiles = Tiles::default();
-        let graph = runtime_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let graph = runtime_tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let node = runtime_tiles.insert_pane(TileKind::Node(node_key.into()));
         let root = runtime_tiles.insert_tab_tile(vec![graph, node]);
         let runtime_tree = Tree::new("workspace-legacy-alias", root, runtime_tiles);

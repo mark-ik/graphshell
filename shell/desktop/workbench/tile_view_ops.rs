@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use egui_tiles::{Container, Tile, Tree};
+use egui_tiles::{Container, Tile, TileId, Tree};
 use servo::{OffscreenRenderingContext, WebViewId, WindowRenderingContext};
 
 use crate::app::{GraphBrowserApp, GraphIntent, GraphViewId};
@@ -15,9 +15,9 @@ use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
-use crate::shell::desktop::workbench::pane_model::NodePaneState;
+use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState, PaneId};
 #[cfg(feature = "diagnostics")]
-use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+use crate::shell::desktop::workbench::pane_model::{ToolPaneRef, ToolPaneState};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_runtime;
 
@@ -50,8 +50,8 @@ pub(crate) fn preferred_detail_node(graph_app: &GraphBrowserApp) -> Option<NodeK
 pub(crate) fn active_graph_view_id(tiles_tree: &Tree<TileKind>) -> Option<GraphViewId> {
     let mut last_active_graph = None;
     for tile_id in tiles_tree.active_tiles() {
-        if let Some(Tile::Pane(TileKind::Graph(view_id))) = tiles_tree.tiles.get(tile_id) {
-            last_active_graph = Some(*view_id);
+        if let Some(Tile::Pane(TileKind::Graph(view_ref))) = tiles_tree.tiles.get(tile_id) {
+            last_active_graph = Some(view_ref.graph_view_id);
         }
     }
     last_active_graph
@@ -191,7 +191,9 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
     );
 
     if tiles_tree.make_active(
-        |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == view_id),
+        |_, tile| {
+            matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == view_id)
+        },
     ) {
         log::debug!(
             "tile_view_ops: focused existing graph pane for view {:?}",
@@ -200,7 +202,9 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
         return;
     }
 
-    let graph_pane_tile_id = tiles_tree.tiles.insert_pane(TileKind::Graph(view_id));
+    let graph_pane_tile_id = tiles_tree
+        .tiles
+        .insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
     let split_leaf_tile_id = tiles_tree.tiles.insert_tab_tile(vec![graph_pane_tile_id]);
     let Some(root_id) = tiles_tree.root() else {
         tiles_tree.root = Some(match mode {
@@ -224,7 +228,9 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
                 .insert_tab_tile(vec![root_id, graph_pane_tile_id]);
             tiles_tree.root = Some(tabs_root);
             let _ = tiles_tree.make_active(
-                |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == view_id),
+                |_, tile| {
+                    matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == view_id)
+                },
             );
         }
         TileOpenMode::SplitHorizontal => {
@@ -241,7 +247,9 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
             {
                 linear.add_child(split_leaf_tile_id);
                 let _ = tiles_tree.make_active(
-                    |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == view_id),
+                    |_, tile| {
+                        matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == view_id)
+                    },
                 );
                 return;
             }
@@ -251,7 +259,9 @@ pub(crate) fn open_or_focus_graph_pane_with_mode(
                 .insert_horizontal_tile(vec![split_lhs_id, split_leaf_tile_id]);
             tiles_tree.root = Some(split_root);
             let _ = tiles_tree.make_active(
-                |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == view_id),
+                |_, tile| {
+                    matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == view_id)
+                },
             );
         }
     }
@@ -267,14 +277,16 @@ pub(crate) fn open_or_focus_node_pane(
 
 #[cfg(feature = "diagnostics")]
 pub(crate) fn open_or_focus_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneState) {
-    if tiles_tree
-        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind))
-    {
+    if tiles_tree.make_active(|_, tile| {
+        matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool.kind == kind)
+    }) {
         log::debug!("tile_view_ops: focused existing tool pane {:?}", kind);
         return;
     }
 
-    let tool_tile_id = tiles_tree.tiles.insert_pane(TileKind::Tool(kind.clone()));
+    let tool_tile_id = tiles_tree
+        .tiles
+        .insert_pane(TileKind::Tool(ToolPaneRef::new(kind.clone())));
     let Some(root_id) = tiles_tree.root() else {
         tiles_tree.root = Some(tool_tile_id);
         return;
@@ -290,8 +302,9 @@ pub(crate) fn open_or_focus_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: Too
         .tiles
         .insert_tab_tile(vec![root_id, tool_tile_id]);
     tiles_tree.root = Some(tabs_root);
-    let _ = tiles_tree
-        .make_active(|_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool == &kind));
+    let _ = tiles_tree.make_active(|_, tile| {
+        matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool.kind == kind)
+    });
 }
 
 #[cfg(not(feature = "diagnostics"))]
@@ -307,7 +320,7 @@ pub(crate) fn close_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneSta
         .tiles
         .iter()
         .find_map(|(tile_id, tile)| match tile {
-            Tile::Pane(TileKind::Tool(existing)) if *existing == kind => Some(*tile_id),
+            Tile::Pane(TileKind::Tool(existing)) if existing.kind == kind => Some(*tile_id),
             _ => None,
         });
 
@@ -318,6 +331,147 @@ pub(crate) fn close_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneSta
     tiles_tree.remove_recursively(tile_id);
     let _ = ensure_active_tile(tiles_tree);
     true
+}
+
+pub(crate) fn tile_id_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> Option<egui_tiles::TileId> {
+    tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
+        Tile::Pane(pane) if pane.pane_id() == pane_id => Some(*tile_id),
+        _ => None,
+    })
+}
+
+pub(crate) fn focus_pane(tiles_tree: &mut Tree<TileKind>, pane_id: PaneId) -> bool {
+    tiles_tree.make_active(|_, tile| matches!(tile, Tile::Pane(pane) if pane.pane_id() == pane_id))
+}
+
+pub(crate) fn close_pane(tiles_tree: &mut Tree<TileKind>, pane_id: PaneId) -> bool {
+    let Some(tile_id) = tile_id_for_pane(tiles_tree, pane_id) else {
+        return false;
+    };
+
+    tiles_tree.remove_recursively(tile_id);
+    let _ = ensure_active_tile(tiles_tree);
+    true
+}
+
+fn replace_child_in_parent(
+    tiles_tree: &mut Tree<TileKind>,
+    parent_id: TileId,
+    old_child: TileId,
+    new_child: TileId,
+) {
+    let Some(parent_tile) = tiles_tree.tiles.get_mut(parent_id) else {
+        return;
+    };
+
+    match parent_tile {
+        Tile::Container(Container::Tabs(tabs)) => {
+            let was_active = tabs.active == Some(old_child);
+            if let Some(index) = tabs.children.iter().position(|child| *child == old_child) {
+                tabs.children[index] = new_child;
+                if was_active {
+                    tabs.set_active(new_child);
+                }
+            }
+        }
+        Tile::Container(Container::Linear(linear)) => {
+            if let Some(index) = linear.children.iter().position(|child| *child == old_child) {
+                linear.children[index] = new_child;
+                linear.shares.replace_with(old_child, new_child);
+            }
+        }
+        Tile::Container(Container::Grid(grid)) => {
+            let index = grid
+                .children()
+                .enumerate()
+                .find_map(|(index, child)| (*child == old_child).then_some(index));
+            if let Some(index) = index {
+                let _ = grid.replace_at(index, new_child);
+            }
+        }
+        Tile::Pane(_) => {}
+    }
+}
+
+fn wrap_pane_in_split_container(
+    tiles_tree: &mut Tree<TileKind>,
+    source_pane: PaneId,
+    inserted_tile_id: TileId,
+    direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
+) -> bool {
+    let Some(source_tile_id) = tile_id_for_pane(tiles_tree, source_pane) else {
+        return false;
+    };
+    let inserted_pane_id = match tiles_tree.tiles.get(inserted_tile_id) {
+        Some(Tile::Pane(pane)) => Some(pane.pane_id()),
+        _ => None,
+    };
+    let source_parent_id = tiles_tree.tiles.parent_of(source_tile_id);
+
+    let source_leaf_tile_id = if matches!(tiles_tree.tiles.get(source_tile_id), Some(Tile::Pane(_))) {
+        let wrapped = tiles_tree.tiles.insert_tab_tile(vec![source_tile_id]);
+        if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(wrapped) {
+            tabs.set_active(source_tile_id);
+        }
+        if let Some(parent_id) = source_parent_id {
+            replace_child_in_parent(tiles_tree, parent_id, source_tile_id, wrapped);
+        } else {
+            tiles_tree.root = Some(wrapped);
+        }
+        wrapped
+    } else {
+        source_tile_id
+    };
+
+    let inserted_leaf_tile_id =
+        if matches!(tiles_tree.tiles.get(inserted_tile_id), Some(Tile::Pane(_))) {
+            let wrapped = tiles_tree.tiles.insert_tab_tile(vec![inserted_tile_id]);
+            if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(wrapped) {
+                tabs.set_active(inserted_tile_id);
+            }
+            wrapped
+        } else {
+            inserted_tile_id
+        };
+    let source_leaf_parent_id = tiles_tree.tiles.parent_of(source_leaf_tile_id);
+
+    let split_tile_id = match direction {
+        crate::shell::desktop::workbench::pane_model::SplitDirection::Horizontal => {
+            tiles_tree
+                .tiles
+                .insert_horizontal_tile(vec![source_leaf_tile_id, inserted_leaf_tile_id])
+        }
+        crate::shell::desktop::workbench::pane_model::SplitDirection::Vertical => {
+            tiles_tree
+                .tiles
+                .insert_vertical_tile(vec![source_leaf_tile_id, inserted_leaf_tile_id])
+        }
+    };
+
+    if let Some(parent_id) = source_leaf_parent_id {
+        replace_child_in_parent(tiles_tree, parent_id, source_leaf_tile_id, split_tile_id);
+    } else {
+        tiles_tree.root = Some(split_tile_id);
+    }
+
+    if let Some(inserted_pane_id) = inserted_pane_id {
+        let _ = focus_pane(tiles_tree, inserted_pane_id);
+    } else {
+        let _ = tiles_tree.make_active(|tile_id, _| tile_id == inserted_leaf_tile_id);
+    }
+    true
+}
+
+pub(crate) fn split_pane_with_new_graph_view(
+    tiles_tree: &mut Tree<TileKind>,
+    source_pane: PaneId,
+    direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
+    view_id: GraphViewId,
+) -> bool {
+    let inserted_tile_id = tiles_tree
+        .tiles
+        .insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
+    wrap_pane_in_split_container(tiles_tree, source_pane, inserted_tile_id, direction)
 }
 
 #[cfg(not(feature = "diagnostics"))]
@@ -495,8 +649,17 @@ mod tests {
     use super::*;
     use crate::app::GraphBrowserApp;
     #[cfg(feature = "diagnostics")]
-    use crate::shell::desktop::workbench::pane_model::ToolPaneState;
+    use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneRef, ToolPaneState};
     use egui_tiles::Tiles;
+
+    fn graph_pane(view_id: GraphViewId) -> TileKind {
+        TileKind::Graph(GraphPaneRef::new(view_id))
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn tool_pane(kind: ToolPaneState) -> TileKind {
+        TileKind::Tool(ToolPaneRef::new(kind))
+    }
 
     fn count_graph_panes(tiles_tree: &Tree<TileKind>) -> usize {
         tiles_tree
@@ -534,7 +697,7 @@ mod tests {
     fn open_or_focus_graph_pane_focuses_existing_graph_in_mixed_tree() {
         let graph_a = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_a));
+        let graph_tile = tiles.insert_pane(graph_pane(graph_a));
         let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(0).into()));
         let root = tiles.insert_tab_tile(vec![graph_tile, node_tile]);
         let mut tree = Tree::new("graph_focus_existing", root, tiles);
@@ -554,7 +717,7 @@ mod tests {
         let graph_a = GraphViewId::new();
         let graph_b = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_a));
+        let graph_tile = tiles.insert_pane(graph_pane(graph_a));
         let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(1).into()));
         let root = tiles.insert_tab_tile(vec![graph_tile, node_tile]);
         let mut tree = Tree::new("graph_open_new_tab", root, tiles);
@@ -567,7 +730,7 @@ mod tests {
         assert!(tree
             .tiles
             .iter()
-            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == graph_b)));
+            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == graph_b)));
     }
 
     #[test]
@@ -575,7 +738,7 @@ mod tests {
         let graph_a = GraphViewId::new();
         let graph_b = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_a));
+        let graph_tile = tiles.insert_pane(graph_pane(graph_a));
         let mut tree = Tree::new("graph_split", graph_tile, tiles);
 
         open_or_focus_graph_pane_with_mode(&mut tree, graph_b, TileOpenMode::SplitHorizontal);
@@ -585,18 +748,18 @@ mod tests {
         assert!(tree
             .tiles
             .iter()
-            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == graph_a)));
+            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == graph_a)));
         assert!(tree
             .tiles
             .iter()
-            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == graph_b)));
+            .any(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == graph_b)));
     }
 
     #[test]
     fn ensure_active_tile_is_noop_when_tree_already_has_active_tile() {
         let graph_a = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_a));
+        let graph_tile = tiles.insert_pane(graph_pane(graph_a));
         let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(2).into()));
         let root = tiles.insert_tab_tile(vec![graph_tile, node_tile]);
         let mut tree = Tree::new("ensure_active_tile", root, tiles);
@@ -609,7 +772,7 @@ mod tests {
     fn ensure_active_tile_recovers_after_active_node_tile_is_removed() {
         let graph_a = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_a));
+        let graph_tile = tiles.insert_pane(graph_pane(graph_a));
         let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(5).into()));
         let root = tiles.insert_tab_tile(vec![graph_tile, node_tile]);
         let mut tree = Tree::new("ensure_active_tile_after_node_close", root, tiles);
@@ -630,7 +793,7 @@ mod tests {
         );
 
         let mut tiles = Tiles::default();
-        let root_graph = tiles.insert_pane(TileKind::Graph(GraphViewId::new()));
+        let root_graph = tiles.insert_pane(graph_pane(GraphViewId::new()));
         let mut tree = Tree::new("node_split_wrap", root_graph, tiles);
 
         open_or_focus_node_pane_with_mode(&mut tree, &app, node_key, TileOpenMode::SplitHorizontal);
@@ -660,9 +823,9 @@ mod tests {
     fn cycle_focus_region_rotates_graph_node_tool_deterministically() {
         let graph_view = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_view));
+        let graph_tile = tiles.insert_pane(graph_pane(graph_view));
         let node_tile = tiles.insert_pane(TileKind::Node(NodeKey::new(7).into()));
-        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneState::Diagnostics));
+        let tool_tile = tiles.insert_pane(tool_pane(ToolPaneState::Diagnostics));
         let root = tiles.insert_tab_tile(vec![graph_tile, node_tile, tool_tile]);
         let mut tree = Tree::new("cycle_focus_regions", root, tiles);
 
@@ -684,8 +847,8 @@ mod tests {
     fn cycle_focus_region_skips_absent_regions() {
         let graph_view = GraphViewId::new();
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(graph_view));
-        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
+        let graph_tile = tiles.insert_pane(graph_pane(graph_view));
+        let tool_tile = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
         let root = tiles.insert_tab_tile(vec![graph_tile, tool_tile]);
         let mut tree = Tree::new("cycle_focus_skip_absent_node", root, tiles);
 
@@ -699,3 +862,4 @@ mod tests {
         assert_eq!(active_region_name(&tree), Some("graph"));
     }
 }
+

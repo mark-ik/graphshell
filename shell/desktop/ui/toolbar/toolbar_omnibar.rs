@@ -865,6 +865,7 @@ mod tests {
     use super::*;
     use crate::app::{GraphBrowserApp, GraphViewId};
     use crate::graph::EdgeType;
+    use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
     use crate::shell::desktop::workbench::tile_kind::TileKind;
     use egui_tiles::Tree;
     use euclid::default::Point2D;
@@ -1181,7 +1182,7 @@ mod tests {
         }]);
 
         let mut tiles = egui_tiles::Tiles::default();
-        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let tree = Tree::new("graph_hop_order_test", root, tiles);
 
         let matches = omnibar_matches_for_query(
@@ -1212,7 +1213,7 @@ mod tests {
         );
 
         let mut tiles = egui_tiles::Tiles::default();
-        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let tree = Tree::new("nodes_all_test", root, tiles);
 
         let matches = omnibar_matches_for_query(
@@ -1242,7 +1243,7 @@ mod tests {
             .expect("save frame bundle");
 
         let mut current_tiles = egui_tiles::Tiles::default();
-        let current_root = current_tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let current_root = current_tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let current_tree = Tree::new("current_tree", current_root, current_tiles);
 
         let matches = omnibar_matches_for_query(
@@ -1302,7 +1303,7 @@ mod tests {
         let _ = app.remove_edges_and_log(from, to, EdgeType::UserGrouped);
 
         let mut tiles = egui_tiles::Tiles::default();
-        let root = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let root = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let tree = Tree::new("edges_all_test", root, tiles);
 
         let matches = omnibar_matches_for_query(

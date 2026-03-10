@@ -10,6 +10,7 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{
     CompositorFrameSample, CompositorTileSample, DiagnosticsState, HierarchySample,
 };
+use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 
@@ -23,7 +24,7 @@ pub(crate) struct TestRegistry {
 impl TestRegistry {
     pub(crate) fn new() -> Self {
         let mut tiles = Tiles::default();
-        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+        let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let tiles_tree = Tree::new("test_registry_tree", graph_tile, tiles);
 
         Self {

@@ -269,6 +269,8 @@ pub(super) fn reset_graph_workspace_after_snapshot_restore(
         });
     }
     let mut tiles = Tiles::default();
-    let graph_tile_id = tiles.insert_pane(TileKind::Graph(GraphViewId::default()));
+    let graph_tile_id = tiles.insert_pane(TileKind::Graph(
+        crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::default()),
+    ));
     *tiles_tree = Tree::new("graphshell_tiles", graph_tile_id, tiles);
 }

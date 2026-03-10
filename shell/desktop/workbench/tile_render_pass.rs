@@ -504,6 +504,14 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     };
 
     let focused_node_key = focused_node_pane.map(|pane| pane.node_key);
+    let focused_pane_id = focused_node_pane.map(|pane| pane.pane_id).or_else(|| {
+        tiles_tree.active_tiles().into_iter().find_map(|tile_id| {
+            match tiles_tree.tiles.get(tile_id) {
+                Some(egui_tiles::Tile::Pane(pane)) => Some(pane.pane_id()),
+                _ => None,
+            }
+        })
+    });
 
     if let Some(focused_node_pane) = focused_node_pane {
         window.set_focused_pane(Some(focused_node_pane.pane_id));
@@ -521,6 +529,11 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
                 focused_node_pane.pane_id,
             )));
         }
+    } else if let Some(focused_pane_id) = focused_pane_id {
+        window.set_focused_pane(Some(focused_pane_id));
+        window.set_dialog_owner(Some(DialogOwner::Pane(focused_pane_id)));
+        window.set_input_target(Some(InputTarget::Pane(focused_pane_id)));
+        window.set_chrome_projection_source(Some(ChromeProjectionSource::Pane(focused_pane_id)));
     } else {
         window.set_focused_pane(None);
         window.set_input_target(None);

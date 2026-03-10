@@ -144,7 +144,7 @@ pub(crate) fn run_pre_frame_phase(
     let mut frame_intents = Vec::new();
     if *command_palette_toggle_requested {
         *command_palette_toggle_requested = false;
-        frame_intents.push(GraphIntent::ToggleCommandPalette);
+        graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
     }
 
     let pre_frame = gui_frame::ingest_pre_frame(
@@ -800,15 +800,15 @@ fn active_tool_surface_return_target(
 ) -> Option<ToolSurfaceReturnTarget> {
     for tile_id in tiles_tree.active_tiles() {
         match tiles_tree.tiles.get(tile_id) {
-            Some(Tile::Pane(TileKind::Graph(view_id))) => {
-                return Some(ToolSurfaceReturnTarget::Graph(*view_id));
+            Some(Tile::Pane(TileKind::Graph(view_ref))) => {
+                return Some(ToolSurfaceReturnTarget::Graph(view_ref.graph_view_id));
             }
             Some(Tile::Pane(TileKind::Node(state))) => {
                 return Some(ToolSurfaceReturnTarget::Node(state.node));
             }
             #[cfg(feature = "diagnostics")]
-            Some(Tile::Pane(TileKind::Tool(kind))) => {
-                return Some(ToolSurfaceReturnTarget::Tool(kind.clone()));
+            Some(Tile::Pane(TileKind::Tool(tool_ref))) => {
+                return Some(ToolSurfaceReturnTarget::Tool(tool_ref.kind.clone()));
             }
             _ => {}
         }
@@ -822,7 +822,9 @@ fn focus_tool_surface_return_target(
 ) -> bool {
     match target {
         ToolSurfaceReturnTarget::Graph(view_id) => tiles_tree.make_active(
-            |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == view_id),
+            |_, tile| {
+                matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == view_id)
+            },
         ),
         ToolSurfaceReturnTarget::Node(node_key) => tiles_tree.make_active(
             |_, tile| matches!(tile, Tile::Pane(TileKind::Node(state)) if state.node == node_key),
@@ -831,7 +833,7 @@ fn focus_tool_surface_return_target(
             #[cfg(feature = "diagnostics")]
             {
                 tiles_tree.make_active(|_, tile| {
-                    matches!(tile, Tile::Pane(TileKind::Tool(existing)) if *existing == kind)
+                    matches!(tile, Tile::Pane(TileKind::Tool(existing)) if existing.kind == kind)
                 })
             }
             #[cfg(not(feature = "diagnostics"))]
@@ -978,7 +980,10 @@ fn ux_event_kind_for_workbench_intent(intent: &WorkbenchIntent) -> UxEventKind {
 
 fn ux_dispatch_path_for_workbench_intent(intent: &WorkbenchIntent) -> UxDispatchPath {
     let leaf = match intent {
-        WorkbenchIntent::OpenToolPane { .. }
+        WorkbenchIntent::OpenCommandPalette
+        | WorkbenchIntent::ToggleCommandPalette
+        | WorkbenchIntent::OpenToolPane { .. }
+        | WorkbenchIntent::ClosePane { .. }
         | WorkbenchIntent::CloseToolPane { .. }
         | WorkbenchIntent::OpenSettingsUrl { .. }
         | WorkbenchIntent::OpenFrameUrl { .. }
@@ -1008,6 +1013,14 @@ fn dispatch_workbench_authority_intent(
     intent: WorkbenchIntent,
 ) -> Option<WorkbenchIntent> {
     match intent {
+        WorkbenchIntent::OpenCommandPalette => {
+            graph_app.open_command_palette();
+            None
+        }
+        WorkbenchIntent::ToggleCommandPalette => {
+            graph_app.toggle_command_palette();
+            None
+        }
         WorkbenchIntent::CycleFocusRegion => {
             if handle_cycle_focus_region_intent(tiles_tree) {
                 emit_event(DiagnosticEvent::MessageReceived {
@@ -1024,6 +1037,13 @@ fn dispatch_workbench_authority_intent(
         }
         WorkbenchIntent::OpenToolPane { kind } => {
             handle_open_tool_pane_intent(graph_app, tiles_tree, kind);
+            None
+        }
+        WorkbenchIntent::ClosePane {
+            pane,
+            restore_previous_focus,
+        } => {
+            handle_close_pane_intent(graph_app, tiles_tree, pane, restore_previous_focus);
             None
         }
         WorkbenchIntent::CloseToolPane {
@@ -1250,6 +1270,41 @@ fn handle_close_tool_pane_intent(
                 byte_len: 1,
             });
         }
+    }
+}
+
+fn handle_close_pane_intent(
+    graph_app: &mut GraphBrowserApp,
+    tiles_tree: &mut Tree<TileKind>,
+    pane: crate::shell::desktop::workbench::pane_model::PaneId,
+    restore_previous_focus: bool,
+) {
+    let focused_before = active_tool_surface_return_target(tiles_tree);
+    let closed = crate::shell::desktop::workbench::tile_view_ops::close_pane(tiles_tree, pane);
+
+    if closed && restore_previous_focus {
+        if restore_tool_surface_focus_or_ensure_active_tile(graph_app, tiles_tree) {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                latency_us: 0,
+            });
+        }
+    } else if closed {
+        graph_app.set_pending_tool_surface_return_target(None);
+        let focused_after = active_tool_surface_return_target(tiles_tree);
+        if crate::shell::desktop::workbench::tile_view_ops::ensure_active_tile(tiles_tree)
+            || (focused_after.is_some() && focused_before != focused_after)
+        {
+            emit_event(DiagnosticEvent::MessageReceived {
+                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
+                latency_us: 0,
+            });
+        }
+    } else if restore_previous_focus {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+            byte_len: 1,
+        });
     }
 }
 
@@ -1616,8 +1671,8 @@ fn handle_set_pane_view_intent(
     view: crate::shell::desktop::workbench::pane_model::PaneViewState,
 ) {
     match view {
-        crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(kind) => {
-            open_or_focus_tool_pane_if_available(tiles_tree, kind);
+        crate::shell::desktop::workbench::pane_model::PaneViewState::Tool(tool_ref) => {
+            open_or_focus_tool_pane_if_available(tiles_tree, tool_ref.kind);
         }
         crate::shell::desktop::workbench::pane_model::PaneViewState::Node(state) => {
             let exact_pane_updated = if let Some((_, Tile::Pane(TileKind::Node(node_state)))) = tiles_tree
@@ -1712,21 +1767,18 @@ fn handle_split_pane_intent(
     source_pane: crate::shell::desktop::workbench::pane_model::PaneId,
     direction: crate::shell::desktop::workbench::pane_model::SplitDirection,
 ) {
-    if matches!(
-        direction,
-        crate::shell::desktop::workbench::pane_model::SplitDirection::Vertical
-    ) {
-        log::debug!(
-            "workbench intent SplitPane({source_pane}, {:?}) currently maps to horizontal split in tile_view_ops",
-            direction
-        );
-    }
     let new_view_id = crate::app::GraphViewId::new();
-    crate::shell::desktop::workbench::tile_view_ops::open_or_focus_graph_pane_with_mode(
+    if !crate::shell::desktop::workbench::tile_view_ops::split_pane_with_new_graph_view(
         tiles_tree,
+        source_pane,
+        direction,
         new_view_id,
-        TileOpenMode::SplitHorizontal,
-    );
+    ) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_UX_NAVIGATION_VIOLATION,
+            byte_len: 1,
+        });
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

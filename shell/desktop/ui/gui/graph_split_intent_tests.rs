@@ -6,10 +6,24 @@ use crate::app::{
 };
 use crate::graph::NodeKey;
 use crate::shell::desktop::ui::gui_state::GuiRuntimeState;
-use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
+use crate::shell::desktop::workbench::pane_model::{
+    GraphPaneRef, PaneId, SplitDirection, ToolPaneRef, ToolPaneState,
+};
 use crate::shell::desktop::workbench::tile_kind::TileKind;
 use egui_tiles::{Tile, Tiles, Tree};
 use std::time::Duration;
+
+fn graph_pane(view_id: GraphViewId) -> TileKind {
+    TileKind::Graph(GraphPaneRef::new(view_id))
+}
+
+fn tool_pane(kind: ToolPaneState) -> TileKind {
+    TileKind::Tool(ToolPaneRef::new(kind))
+}
+
+fn is_tool_tile(tile: &Tile<TileKind>, kind: ToolPaneState) -> bool {
+    matches!(tile, Tile::Pane(TileKind::Tool(tool_kind)) if tool_kind.kind == kind)
+}
 
 fn active_graph_count(tree: &Tree<TileKind>) -> usize {
     tree.active_tiles()
@@ -27,21 +41,29 @@ fn tool_pane_count(tree: &Tree<TileKind>, kind: ToolPaneState) -> usize {
     tree.tiles
         .iter()
         .filter(|(_, tile)| {
-            matches!(
-                tile,
-                Tile::Pane(TileKind::Tool(tool_kind)) if *tool_kind == kind
-            )
+            is_tool_tile(tile, kind.clone())
         })
         .count()
 }
 
 fn active_tool_pane(tree: &Tree<TileKind>, kind: ToolPaneState) -> bool {
     tree.active_tiles().into_iter().any(|tile_id| {
-        matches!(
-            tree.tiles.get(tile_id),
-            Some(Tile::Pane(TileKind::Tool(tool_kind))) if *tool_kind == kind
-        )
+        tree.tiles
+            .get(tile_id)
+            .is_some_and(|tile| is_tool_tile(tile, kind.clone()))
     })
+}
+
+fn graph_pane_id(tree: &Tree<TileKind>, view_id: GraphViewId) -> PaneId {
+    tree.tiles
+        .iter()
+        .find_map(|(_, tile)| match tile {
+            Tile::Pane(TileKind::Graph(view_ref)) if view_ref.graph_view_id == view_id => {
+                Some(view_ref.pane_id)
+            }
+            _ => None,
+        })
+        .expect("expected graph pane id")
 }
 
 #[test]
@@ -49,11 +71,11 @@ fn split_pane_intent_creates_new_graph_view_pane() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
     let mut intents = vec![WorkbenchIntent::SplitPane {
-        source_pane: PaneId::new(),
+        source_pane: graph_pane_id(&tree, initial_view),
         direction: SplitDirection::Horizontal,
     }];
 
@@ -68,7 +90,7 @@ fn split_pane_intent_creates_new_graph_view_pane() {
         .tiles
         .iter()
         .filter_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::Graph(view_id)) => Some(*view_id),
+            Tile::Pane(TileKind::Graph(view_ref)) => Some(view_ref.graph_view_id),
             _ => None,
         })
         .collect();
@@ -87,11 +109,48 @@ fn split_pane_intent_creates_new_graph_view_pane() {
 }
 
 #[test]
+fn split_pane_intent_accepts_tool_pane_identity_as_source() {
+    let mut app = GraphBrowserApp::new_for_testing();
+    let settings_ref = ToolPaneRef::new(ToolPaneState::Settings);
+    let mut tiles = Tiles::default();
+    let root = tiles.insert_pane(TileKind::Tool(settings_ref.clone()));
+    let mut tree = Tree::new("graphshell_tiles", root, tiles);
+
+    let mut intents = vec![WorkbenchIntent::SplitPane {
+        source_pane: settings_ref.pane_id,
+        direction: SplitDirection::Horizontal,
+    }];
+
+    gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
+
+    assert!(intents.is_empty());
+    assert_eq!(tool_pane_count(&tree, ToolPaneState::Settings), 1);
+    let graph_count = tree
+        .tiles
+        .iter()
+        .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))))
+        .count();
+    assert_eq!(graph_count, 1, "split should add a graph pane beside the tool pane");
+    let root_id = tree.root().expect("split should preserve a root");
+    let linear = match tree.tiles.get(root_id) {
+        Some(Tile::Container(egui_tiles::Container::Linear(linear))) => linear,
+        other => panic!("expected split root container, got {other:?}"),
+    };
+    assert_eq!(linear.children.len(), 2);
+    for child in &linear.children {
+        assert!(matches!(
+            tree.tiles.get(*child),
+            Some(Tile::Container(egui_tiles::Container::Tabs(_)))
+        ));
+    }
+}
+
+#[test]
 fn settings_history_url_intent_is_consumed_by_workbench_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
@@ -111,7 +170,7 @@ fn settings_physics_url_intent_is_consumed_by_workbench_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Physics)
@@ -131,7 +190,7 @@ fn settings_persistence_url_intent_is_consumed_by_workbench_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(
@@ -153,7 +212,7 @@ fn settings_sync_url_intent_is_consumed_by_workbench_authority() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Sync)
@@ -173,7 +232,7 @@ fn settings_root_url_opens_settings_tool_pane() {
     let mut app = GraphBrowserApp::new_for_testing();
     let initial_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let root = tiles.insert_pane(TileKind::Graph(initial_view));
+    let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::General)
@@ -192,15 +251,12 @@ fn settings_root_url_opens_settings_tool_pane() {
 fn settings_sync_url_focuses_existing_settings_tool_pane_without_duplication() {
     let mut app = GraphBrowserApp::new_for_testing();
     let mut tiles = Tiles::default();
-    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
-    let history = tiles.insert_pane(TileKind::Tool(ToolPaneState::HistoryManager));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
+    let history = tiles.insert_pane(tool_pane(ToolPaneState::HistoryManager));
     let tabs_root = tiles.insert_tab_tile(vec![history, settings]);
     let mut tree = Tree::new("graphshell_tiles", tabs_root, tiles);
     let _ = tree.make_active(|_, tile| {
-        matches!(
-            tile,
-            Tile::Pane(TileKind::Tool(ToolPaneState::HistoryManager))
-        )
+        is_tool_tile(tile, ToolPaneState::HistoryManager)
     });
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Sync)
@@ -218,13 +274,11 @@ fn settings_sync_url_focuses_existing_settings_tool_pane_without_duplication() {
 fn settings_history_url_focuses_existing_history_tool_pane_without_duplication() {
     let mut app = GraphBrowserApp::new_for_testing();
     let mut tiles = Tiles::default();
-    let settings = tiles.insert_pane(TileKind::Tool(ToolPaneState::Settings));
-    let history = tiles.insert_pane(TileKind::Tool(ToolPaneState::HistoryManager));
+    let settings = tiles.insert_pane(tool_pane(ToolPaneState::Settings));
+    let history = tiles.insert_pane(tool_pane(ToolPaneState::HistoryManager));
     let tabs_root = tiles.insert_tab_tile(vec![settings, history]);
     let mut tree = Tree::new("graphshell_tiles", tabs_root, tiles);
-    let _ = tree.make_active(|_, tile| {
-        matches!(tile, Tile::Pane(TileKind::Tool(ToolPaneState::Settings)))
-    });
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::Settings));
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::History)
             .to_string(),
@@ -242,7 +296,7 @@ fn close_settings_tool_pane_restores_previous_graph_focus() {
     let mut app = GraphBrowserApp::new_for_testing();
     let graph_view = GraphViewId::new();
     let mut tiles = Tiles::default();
-    let graph = tiles.insert_pane(TileKind::Graph(graph_view));
+    let graph = tiles.insert_pane(graph_pane(graph_view));
     let root = tiles.insert_tab_tile(vec![graph]);
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
 
@@ -264,7 +318,7 @@ fn close_settings_tool_pane_restores_previous_graph_focus() {
     assert!(tree.active_tiles().into_iter().any(|tile_id| {
         matches!(
             tree.tiles.get(tile_id),
-            Some(Tile::Pane(TileKind::Graph(existing))) if *existing == graph_view
+            Some(Tile::Pane(TileKind::Graph(existing))) if existing.graph_view_id == graph_view
         )
     }));
 }
@@ -371,10 +425,10 @@ fn reconcile_workspace_graph_views_prunes_stale_state_and_preserves_active_focus
     app.queue_pending_wheel_zoom_delta(stale_view, 1.0, Some((10.0, 20.0)));
 
     let mut tiles = Tiles::default();
-    let live_graph_tile = tiles.insert_pane(TileKind::Graph(live_view));
+    let live_graph_tile = tiles.insert_pane(graph_pane(live_view));
     let mut tree = Tree::new("graphshell_tiles", live_graph_tile, tiles);
     let _ = tree.make_active(
-        |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if *existing == live_view),
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Graph(existing)) if existing.graph_view_id == live_view),
     );
 
     super::pane_queries::reconcile_workspace_graph_views_from_tiles(&mut app, &tree);
