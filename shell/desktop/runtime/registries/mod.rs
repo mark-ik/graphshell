@@ -31,7 +31,7 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 use action::{
     ACTION_DETAIL_VIEW_SUBMIT, ACTION_GRAPH_VIEW_SUBMIT, ACTION_OMNIBOX_NODE_SEARCH,
     ACTION_VERSE_FORGET_DEVICE, ACTION_VERSE_PAIR_DEVICE, ACTION_VERSE_SHARE_WORKSPACE,
-    ACTION_VERSE_SYNC_NOW, ActionPayload, ActionRegistry, PairingMode,
+    ACTION_VERSE_SYNC_NOW, ActionCapability, ActionPayload, ActionRegistry, PairingMode,
 };
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
@@ -443,6 +443,10 @@ pub(crate) fn phase1_detach_renderer(renderer_id: RendererId) -> Option<PaneAtta
 }
 
 impl RegistryRuntime {
+    pub(crate) fn describe_action(&self, action_id: &str) -> Option<ActionCapability> {
+        self.action.describe_action(action_id)
+    }
+
     fn build_provider_wired_registries(
         protocol_providers: &ProtocolHandlerProviders,
         viewer_providers: &ViewerHandlerProviders,
@@ -1155,6 +1159,10 @@ pub(crate) fn phase5_execute_verse_forget_device_action(
     execution.into_intents()
 }
 
+pub(crate) fn describe_action_capability(action_id: &str) -> Option<ActionCapability> {
+    runtime().describe_action(action_id)
+}
+
 #[allow(dead_code)]
 pub(crate) fn register_mod_diagnostics_channel(
     mod_id: &str,
@@ -1783,6 +1791,20 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
 
     use super::*;
+
+    #[test]
+    fn registry_runtime_describes_action_capabilities() {
+        let runtime = RegistryRuntime::default();
+
+        assert_eq!(
+            runtime.describe_action(action::ACTION_GRAPH_DESELECT_ALL),
+            Some(ActionCapability::RequiresSelection)
+        );
+        assert_eq!(
+            describe_action_capability(action::ACTION_WORKBENCH_SETTINGS_OPEN),
+            Some(ActionCapability::AlwaysAvailable)
+        );
+    }
 
     fn nostr_backend_test_guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

@@ -341,8 +341,8 @@ Register canonical workbench actions:
 |---|---|---|
 | `workbench:split_horizontal` | `{ pane_id }` | `WorkbenchIntent::SplitPane(Horizontal)` |
 | `workbench:split_vertical` | `{ pane_id }` | `WorkbenchIntent::SplitPane(Vertical)` |
-| `workbench:close_pane` | `{ pane_id }` | `WorkbenchIntent::ClosePane` |
-| `workbench:command_palette_open` | — | `WorkbenchIntent::OpenToolPane(CommandPalette)` |
+| `workbench:close_pane` | `{ pane_id }` | `WorkbenchIntent::ClosePane { pane, restore_previous_focus: true }` |
+| `workbench:command_palette_open` | — | `WorkbenchIntent::OpenCommandPalette` |
 | `workbench:settings_open` | — | `WorkbenchIntent::OpenToolPane(Settings)` |
 
 **Done gates:**
@@ -365,6 +365,17 @@ Register canonical workbench actions:
 - This is sufficient to make the routing boundary explicit before
   `WorkbenchSurfaceRegistry` exists, but it is not yet the full Sector E
   authority object.
+
+**Implementation note (2026-03-10, pane-id refactor):**
+- B3.4's generic pane actions were previously blocked by graph/tool panes lacking
+  stable `PaneId`. That prerequisite is now part of the lane's architectural
+  groundwork: graph, node, and tool panes all carry `PaneId`, and generic
+  split/close operations must target those stable pane identities rather than
+  graph-view IDs or tool kinds.
+- Command palette is not modeled as `ToolPaneState::CommandPalette` in the
+  current architecture. The honest workbench-authority action is
+  `WorkbenchIntent::OpenCommandPalette`; do not reintroduce a fake tool-pane
+  variant just to satisfy the registry table.
 
 **Preconditions / non-blocking groundwork:**
 - `apply_reducer_intents()` and `apply_reducer_intent_internal()` remain owned by
@@ -398,6 +409,13 @@ pub enum ActionCapability {
 ```
 
 `describe_action(id) -> ActionCapability` is exposed through `RegistryRuntime`.
+
+**Implementation note (2026-03-10):**
+- `RequiresWritableWorkspace` currently exists as an action-contract boundary and
+  UI-availability descriptor, but the codebase does not yet have a first-class
+  read-only workspace mode. Until that lands, writable capability checks can
+  only reject on richer predicates (selection, active-node, etc.) and must not
+  pretend a persistence lock bit exists if it does not.
 
 **Done gates:**
 - [ ] `ActionDescriptor` defined; all existing actions annotated with capability.

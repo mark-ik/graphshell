@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent, SelectionUpdateMode,
+    WorkbenchIntent,
 };
 use crate::graph::NodeKey;
-use crate::shell::desktop::workbench::pane_model::PaneId;
+use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::services::search::fuzzy_match_node_keys;
 use euclid::default::Point2D;
 
@@ -19,6 +20,11 @@ pub(crate) const ACTION_GRAPH_NAVIGATE_BACK: &str = "graph:navigate_back";
 pub(crate) const ACTION_GRAPH_NAVIGATE_FORWARD: &str = "graph:navigate_forward";
 pub(crate) const ACTION_GRAPH_SELECT_NODE: &str = "graph:select_node";
 pub(crate) const ACTION_GRAPH_DESELECT_ALL: &str = "graph:deselect_all";
+pub(crate) const ACTION_WORKBENCH_SPLIT_HORIZONTAL: &str = "workbench:split_horizontal";
+pub(crate) const ACTION_WORKBENCH_SPLIT_VERTICAL: &str = "workbench:split_vertical";
+pub(crate) const ACTION_WORKBENCH_CLOSE_PANE: &str = "workbench:close_pane";
+pub(crate) const ACTION_WORKBENCH_COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
+pub(crate) const ACTION_WORKBENCH_SETTINGS_OPEN: &str = "workbench:settings_open";
 
 // Verse sync actions (Step 5.3)
 pub(crate) const ACTION_VERSE_PAIR_DEVICE: &str = "verse:pair_device";
@@ -46,6 +52,17 @@ pub(crate) enum ActionPayload {
         node_key: NodeKey,
     },
     GraphDeselectAll,
+    WorkbenchSplitHorizontal {
+        pane_id: PaneId,
+    },
+    WorkbenchSplitVertical {
+        pane_id: PaneId,
+    },
+    WorkbenchClosePane {
+        pane_id: PaneId,
+    },
+    WorkbenchCommandPaletteOpen,
+    WorkbenchSettingsOpen,
     OmniboxNodeSearch {
         query: String,
     },
@@ -81,6 +98,21 @@ pub(crate) enum PairingMode {
 
 type ActionHandler = fn(&GraphBrowserApp, &ActionPayload) -> ActionOutcome;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionCapability {
+    AlwaysAvailable,
+    RequiresActiveNode,
+    RequiresSelection,
+    RequiresWritableWorkspace,
+}
+
+#[derive(Clone)]
+struct ActionDescriptor {
+    id: String,
+    required_capability: ActionCapability,
+    handler: ActionHandler,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ActionFailureKind {
     UnknownAction,
@@ -97,17 +129,19 @@ pub(crate) struct ActionFailure {
 #[derive(Debug, Clone)]
 pub(crate) enum ActionOutcome {
     Intents(Vec<GraphIntent>),
+    WorkbenchIntent(WorkbenchIntent),
     Failure(ActionFailure),
 }
 
 impl ActionOutcome {
     pub(crate) fn succeeded(&self) -> bool {
-        matches!(self, Self::Intents(_))
+        matches!(self, Self::Intents(_) | Self::WorkbenchIntent(_))
     }
 
     pub(crate) fn intent_len(&self) -> usize {
         match self {
             Self::Intents(intents) => intents.len(),
+            Self::WorkbenchIntent(_) => 1,
             Self::Failure(_) => 0,
         }
     }
@@ -115,25 +149,50 @@ impl ActionOutcome {
     pub(crate) fn into_intents(self) -> Vec<GraphIntent> {
         match self {
             Self::Intents(intents) => intents,
+            Self::WorkbenchIntent(_) => Vec::new(),
             Self::Failure(_) => Vec::new(),
+        }
+    }
+
+    pub(crate) fn into_workbench_intent(self) -> Option<WorkbenchIntent> {
+        match self {
+            Self::WorkbenchIntent(intent) => Some(intent),
+            Self::Intents(_) | Self::Failure(_) => None,
         }
     }
 }
 
 pub(crate) struct ActionRegistry {
-    handlers: HashMap<String, ActionHandler>,
+    handlers: HashMap<String, ActionDescriptor>,
 }
 
 impl ActionRegistry {
-    pub(crate) fn register(&mut self, action_id: &str, handler: ActionHandler) {
+    pub(crate) fn register(
+        &mut self,
+        action_id: &str,
+        required_capability: ActionCapability,
+        handler: ActionHandler,
+    ) {
         if !is_namespaced_action_id(action_id) {
             log::warn!(
                 "action_registry: key {:?} does not follow namespace:name format",
                 action_id
             );
         }
+        self.handlers.insert(
+            action_id.to_ascii_lowercase(),
+            ActionDescriptor {
+                id: action_id.to_ascii_lowercase(),
+                required_capability,
+                handler,
+            },
+        );
+    }
+
+    pub(crate) fn describe_action(&self, action_id: &str) -> Option<ActionCapability> {
         self.handlers
-            .insert(action_id.to_ascii_lowercase(), handler);
+            .get(&action_id.to_ascii_lowercase())
+            .map(|descriptor| descriptor.required_capability)
     }
 
     pub(crate) fn execute(
@@ -143,8 +202,18 @@ impl ActionRegistry {
         payload: ActionPayload,
     ) -> ActionOutcome {
         let normalized_action_id = action_id.to_ascii_lowercase();
-        if let Some(handler) = self.handlers.get(&normalized_action_id) {
-            return handler(app, &payload);
+        if let Some(descriptor) = self.handlers.get(&normalized_action_id) {
+            if !capability_available(app, descriptor.required_capability) {
+                return ActionOutcome::Failure(ActionFailure {
+                    kind: ActionFailureKind::Rejected,
+                    reason: format!(
+                        "action '{}' unavailable: {}",
+                        descriptor.id,
+                        capability_reason(descriptor.required_capability)
+                    ),
+                });
+            }
+            return (descriptor.handler)(app, &payload);
         }
 
         ActionOutcome::Failure(ActionFailure {
@@ -171,39 +240,125 @@ impl Default for ActionRegistry {
         let mut registry = Self {
             handlers: HashMap::new(),
         };
-        registry.register(ACTION_GRAPH_NODE_OPEN, execute_graph_node_open_action);
-        registry.register(ACTION_GRAPH_NODE_CLOSE, execute_graph_node_close_action);
-        registry.register(ACTION_GRAPH_EDGE_CREATE, execute_graph_edge_create_action);
+        registry.register(
+            ACTION_GRAPH_NODE_OPEN,
+            ActionCapability::AlwaysAvailable,
+            execute_graph_node_open_action,
+        );
+        registry.register(
+            ACTION_GRAPH_NODE_CLOSE,
+            ActionCapability::AlwaysAvailable,
+            execute_graph_node_close_action,
+        );
+        registry.register(
+            ACTION_GRAPH_EDGE_CREATE,
+            ActionCapability::RequiresWritableWorkspace,
+            execute_graph_edge_create_action,
+        );
         registry.register(
             ACTION_GRAPH_NAVIGATE_BACK,
+            ActionCapability::AlwaysAvailable,
             execute_graph_navigate_back_action,
         );
         registry.register(
             ACTION_GRAPH_NAVIGATE_FORWARD,
+            ActionCapability::AlwaysAvailable,
             execute_graph_navigate_forward_action,
         );
-        registry.register(ACTION_GRAPH_SELECT_NODE, execute_graph_select_node_action);
-        registry.register(ACTION_GRAPH_DESELECT_ALL, execute_graph_deselect_all_action);
-        registry.register(ACTION_DETAIL_VIEW_SUBMIT, execute_detail_view_submit_action);
-        registry.register(ACTION_GRAPH_VIEW_SUBMIT, execute_graph_view_submit_action);
+        registry.register(
+            ACTION_GRAPH_SELECT_NODE,
+            ActionCapability::AlwaysAvailable,
+            execute_graph_select_node_action,
+        );
+        registry.register(
+            ACTION_GRAPH_DESELECT_ALL,
+            ActionCapability::RequiresSelection,
+            execute_graph_deselect_all_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_SPLIT_HORIZONTAL,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_split_horizontal_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_SPLIT_VERTICAL,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_split_vertical_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_CLOSE_PANE,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_close_pane_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_COMMAND_PALETTE_OPEN,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_command_palette_open_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_SETTINGS_OPEN,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_settings_open_action,
+        );
+        registry.register(
+            ACTION_DETAIL_VIEW_SUBMIT,
+            ActionCapability::RequiresWritableWorkspace,
+            execute_detail_view_submit_action,
+        );
+        registry.register(
+            ACTION_GRAPH_VIEW_SUBMIT,
+            ActionCapability::RequiresWritableWorkspace,
+            execute_graph_view_submit_action,
+        );
         registry.register(
             ACTION_OMNIBOX_NODE_SEARCH,
+            ActionCapability::AlwaysAvailable,
             execute_omnibox_node_search_action,
         );
 
         // Verse sync actions (Step 5.3)
-        registry.register(ACTION_VERSE_PAIR_DEVICE, execute_verse_pair_device_action);
-        registry.register(ACTION_VERSE_SYNC_NOW, execute_verse_sync_now_action);
+        registry.register(
+            ACTION_VERSE_PAIR_DEVICE,
+            ActionCapability::AlwaysAvailable,
+            execute_verse_pair_device_action,
+        );
+        registry.register(
+            ACTION_VERSE_SYNC_NOW,
+            ActionCapability::AlwaysAvailable,
+            execute_verse_sync_now_action,
+        );
         registry.register(
             ACTION_VERSE_SHARE_WORKSPACE,
+            ActionCapability::RequiresWritableWorkspace,
             execute_verse_share_workspace_action,
         );
         registry.register(
             ACTION_VERSE_FORGET_DEVICE,
+            ActionCapability::AlwaysAvailable,
             execute_verse_forget_device_action,
         );
 
         registry
+    }
+}
+
+fn capability_available(app: &GraphBrowserApp, capability: ActionCapability) -> bool {
+    match capability {
+        ActionCapability::AlwaysAvailable => true,
+        ActionCapability::RequiresActiveNode => app.get_single_selected_node().is_some(),
+        ActionCapability::RequiresSelection => !app.focused_selection().is_empty(),
+        // No explicit read-only workspace mode exists yet, so writable capability currently
+        // gates intent shape and future UI affordances rather than a persisted lock bit.
+        ActionCapability::RequiresWritableWorkspace => true,
+    }
+}
+
+fn capability_reason(capability: ActionCapability) -> &'static str {
+    match capability {
+        ActionCapability::AlwaysAvailable => "always available",
+        ActionCapability::RequiresActiveNode => "requires an active node",
+        ActionCapability::RequiresSelection => "requires a non-empty selection",
+        ActionCapability::RequiresWritableWorkspace => "requires a writable workspace",
     }
 }
 
@@ -315,6 +470,89 @@ fn execute_graph_deselect_all_action(_app: &GraphBrowserApp, payload: &ActionPay
         keys: Vec::new(),
         mode: SelectionUpdateMode::Replace,
     }])
+}
+
+fn execute_workbench_split_horizontal_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchSplitHorizontal { pane_id } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:split_horizontal requires WorkbenchSplitHorizontal payload"
+                .to_string(),
+        });
+    };
+
+    ActionOutcome::WorkbenchIntent(WorkbenchIntent::SplitPane {
+        source_pane: *pane_id,
+        direction: SplitDirection::Horizontal,
+    })
+}
+
+fn execute_workbench_split_vertical_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchSplitVertical { pane_id } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:split_vertical requires WorkbenchSplitVertical payload".to_string(),
+        });
+    };
+
+    ActionOutcome::WorkbenchIntent(WorkbenchIntent::SplitPane {
+        source_pane: *pane_id,
+        direction: SplitDirection::Vertical,
+    })
+}
+
+fn execute_workbench_close_pane_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchClosePane { pane_id } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:close_pane requires WorkbenchClosePane payload".to_string(),
+        });
+    };
+
+    ActionOutcome::WorkbenchIntent(WorkbenchIntent::ClosePane {
+        pane: *pane_id,
+        restore_previous_focus: true,
+    })
+}
+
+fn execute_workbench_command_palette_open_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchCommandPaletteOpen = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:command_palette_open requires WorkbenchCommandPaletteOpen payload"
+                .to_string(),
+        });
+    };
+
+    ActionOutcome::WorkbenchIntent(WorkbenchIntent::OpenCommandPalette)
+}
+
+fn execute_workbench_settings_open_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchSettingsOpen = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:settings_open requires WorkbenchSettingsOpen payload".to_string(),
+        });
+    };
+
+    ActionOutcome::WorkbenchIntent(WorkbenchIntent::OpenToolPane {
+        kind: ToolPaneState::Settings,
+    })
 }
 
 fn execute_graph_view_submit_action(
@@ -729,6 +967,9 @@ mod tests {
                 assert_eq!(kind, ActionFailureKind::Rejected);
                 assert!(reason.contains("no trusted peers"));
             }
+            ActionOutcome::WorkbenchIntent(intent) => {
+                panic!("unexpected workbench intent for verse share action: {intent:?}");
+            }
         }
     }
 
@@ -882,12 +1123,114 @@ mod tests {
     }
 
     #[test]
+    fn action_registry_workbench_split_horizontal_emits_workbench_intent() {
+        let app = GraphBrowserApp::new_for_testing();
+        let registry = ActionRegistry::default();
+        let pane_id = PaneId::new();
+
+        let execution = registry.execute(
+            ACTION_WORKBENCH_SPLIT_HORIZONTAL,
+            &app,
+            ActionPayload::WorkbenchSplitHorizontal { pane_id },
+        );
+
+        assert!(matches!(
+            execution.into_workbench_intent(),
+            Some(WorkbenchIntent::SplitPane {
+                source_pane,
+                direction: SplitDirection::Horizontal,
+            }) if source_pane == pane_id
+        ));
+    }
+
+    #[test]
+    fn action_registry_workbench_close_and_open_actions_emit_workbench_authority_intents() {
+        let app = GraphBrowserApp::new_for_testing();
+        let registry = ActionRegistry::default();
+        let pane_id = PaneId::new();
+
+        let close = registry.execute(
+            ACTION_WORKBENCH_CLOSE_PANE,
+            &app,
+            ActionPayload::WorkbenchClosePane { pane_id },
+        );
+        assert!(matches!(
+            close.into_workbench_intent(),
+            Some(WorkbenchIntent::ClosePane {
+                pane,
+                restore_previous_focus: true,
+            }) if pane == pane_id
+        ));
+
+        let command_palette = registry.execute(
+            ACTION_WORKBENCH_COMMAND_PALETTE_OPEN,
+            &app,
+            ActionPayload::WorkbenchCommandPaletteOpen,
+        );
+        assert!(matches!(
+            command_palette.into_workbench_intent(),
+            Some(WorkbenchIntent::OpenCommandPalette)
+        ));
+
+        let settings = registry.execute(
+            ACTION_WORKBENCH_SETTINGS_OPEN,
+            &app,
+            ActionPayload::WorkbenchSettingsOpen,
+        );
+        assert!(matches!(
+            settings.into_workbench_intent(),
+            Some(WorkbenchIntent::OpenToolPane {
+                kind: ToolPaneState::Settings
+            })
+        ));
+    }
+
+    #[test]
+    fn action_registry_describe_action_reports_capability() {
+        let registry = ActionRegistry::default();
+
+        assert_eq!(
+            registry.describe_action(ACTION_GRAPH_DESELECT_ALL),
+            Some(ActionCapability::RequiresSelection)
+        );
+        assert_eq!(
+            registry.describe_action(ACTION_WORKBENCH_SETTINGS_OPEN),
+            Some(ActionCapability::AlwaysAvailable)
+        );
+    }
+
+    #[test]
+    fn action_registry_capability_guard_rejects_deselect_without_selection() {
+        let app = GraphBrowserApp::new_for_testing();
+        let registry = ActionRegistry::default();
+
+        let execution = registry.execute(
+            ACTION_GRAPH_DESELECT_ALL,
+            &app,
+            ActionPayload::GraphDeselectAll,
+        );
+
+        assert!(matches!(
+            execution,
+            ActionOutcome::Failure(ActionFailure {
+                kind: ActionFailureKind::Rejected,
+                reason,
+            }) if reason.contains("requires a non-empty selection")
+        ));
+    }
+
+    #[test]
     fn action_registry_requires_namespace_name_keys() {
         assert!(is_namespaced_action_id(ACTION_OMNIBOX_NODE_SEARCH));
         assert!(is_namespaced_action_id(ACTION_GRAPH_VIEW_SUBMIT));
         assert!(is_namespaced_action_id(ACTION_DETAIL_VIEW_SUBMIT));
         assert!(is_namespaced_action_id(ACTION_GRAPH_NODE_OPEN));
         assert!(is_namespaced_action_id(ACTION_GRAPH_EDGE_CREATE));
+        assert!(is_namespaced_action_id(ACTION_WORKBENCH_SPLIT_HORIZONTAL));
+        assert!(is_namespaced_action_id(ACTION_WORKBENCH_SPLIT_VERTICAL));
+        assert!(is_namespaced_action_id(ACTION_WORKBENCH_CLOSE_PANE));
+        assert!(is_namespaced_action_id(ACTION_WORKBENCH_COMMAND_PALETTE_OPEN));
+        assert!(is_namespaced_action_id(ACTION_WORKBENCH_SETTINGS_OPEN));
         assert!(is_namespaced_action_id(ACTION_VERSE_PAIR_DEVICE));
         assert!(!is_namespaced_action_id("action.invalid.dot"));
         assert!(!is_namespaced_action_id("missing_colon"));

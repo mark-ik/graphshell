@@ -47,6 +47,25 @@ mutation, delta, and persistence where applicable).
 If any of these are missing, the dependent step is treated as partial and must
 not be marked complete in lane status updates.
 
+### Structural Groundwork Guardrail (2026-03-10)
+
+When a lane claims a generic action or authority boundary over an entity type
+(`PaneId`, `RendererId`, etc.), the underlying structure must exist on every
+entity variant the action is supposed to target before the step can be marked
+done.
+
+Examples:
+
+1. `workbench:split_*` / `workbench:close_pane` are not honestly unblocked
+   until graph, node, and tool panes all carry stable `PaneId`.
+2. A registry table must not invent a conceptual surface (`CommandPalette` as a
+   tool pane, for example) if the implemented authority model uses a different
+   carrier (`WorkbenchIntent::OpenCommandPalette`).
+
+If implementation reveals that the planned abstraction is missing prerequisite
+structure, the plan must be updated immediately with that prerequisite instead
+of leaving the lane to "complete" against a patchwork model.
+
 ### Post-Completion Stabilization Policy (2026-03-10)
 
 Lane ordering is now completion-first, then stabilization:
