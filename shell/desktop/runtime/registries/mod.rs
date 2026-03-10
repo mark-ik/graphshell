@@ -333,10 +333,18 @@ pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
     "registry.knowledge.tag_validation_warn";
 pub(crate) const CHANNEL_INDEX_SEARCH: &str = "registry.index.search";
 
-static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
+static REGISTRY_RUNTIME: OnceLock<Arc<RegistryRuntime>> = OnceLock::new();
 
 fn runtime() -> &'static RegistryRuntime {
-    REGISTRY_RUNTIME.get_or_init(RegistryRuntime::new_with_mods)
+    REGISTRY_RUNTIME
+        .get_or_init(|| Arc::new(RegistryRuntime::new_with_mods()))
+        .as_ref()
+}
+
+pub(crate) fn shared_runtime() -> Arc<RegistryRuntime> {
+    REGISTRY_RUNTIME
+        .get_or_init(|| Arc::new(RegistryRuntime::new_with_mods()))
+        .clone()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2530,6 +2538,10 @@ pub(crate) fn phase3_subscribe_all_signals_async() -> AsyncSignalSubscription {
     runtime().subscribe_all_signals_async()
 }
 
+pub(crate) fn phase3_shared_runtime() -> Arc<RegistryRuntime> {
+    shared_runtime()
+}
+
 pub(crate) fn dispatch_workbench_surface_intent(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut egui_tiles::Tree<crate::shell::desktop::workbench::tile_kind::TileKind>,
@@ -4274,5 +4286,13 @@ mod tests {
         .expect("invariant registration should succeed");
 
         assert!(created);
+    }
+
+    #[test]
+    fn phase3_shared_runtime_returns_single_global_authority() {
+        let a = phase3_shared_runtime();
+        let b = phase3_shared_runtime();
+
+        assert!(Arc::ptr_eq(&a, &b));
     }
 }

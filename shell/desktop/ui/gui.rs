@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
@@ -51,7 +52,8 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, phase3_subscribe_signal_async,
+    CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, phase3_shared_runtime,
+    phase3_subscribe_signal_async,
 };
 use crate::shell::desktop::runtime::registries::signal_routing::{
     LifecycleSignal, SignalKind, SignalTopic,
@@ -175,7 +177,7 @@ pub struct Gui {
     diagnostics_state: diagnostics::DiagnosticsState,
 
     /// Registry runtime for semantic services
-    registry_runtime: RegistryRuntime,
+    registry_runtime: Arc<RegistryRuntime>,
 
     /// Pending lifecycle notifications for semantic-index-driven lens refresh.
     semantic_index_signal_rx: Receiver<usize>,
@@ -258,6 +260,8 @@ impl Gui {
             options.fallback_theme = egui::Theme::Light;
         });
 
+        let registry_runtime = phase3_shared_runtime();
+
         let (mut graph_app, tiles_tree, initial_search_filter_mode) =
             startup::initialize_startup_graph_and_tiles(
                 graph_data_dir,
@@ -282,7 +286,6 @@ impl Gui {
             panel
         };
         graph_app.set_sync_command_tx(control_panel.sync_command_sender());
-        let registry_runtime = RegistryRuntime::new_with_mods();
         let (semantic_index_signal_tx, semantic_index_signal_rx) = channel();
         let mut semantic_index_signal_async = phase3_subscribe_signal_async(SignalTopic::Lifecycle);
         tokio_runtime.spawn(async move {
