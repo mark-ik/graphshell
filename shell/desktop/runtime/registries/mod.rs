@@ -30,7 +30,9 @@ use crate::registries::atomic::diagnostics;
 use crate::registries::atomic::lens::THEME_ID_DEFAULT;
 use crate::registries::atomic::lens::LensRegistry;
 use crate::registries::atomic::protocol::ProtocolContractRegistry;
-use crate::registries::atomic::viewer::{ViewerRegistry, ViewerSelection};
+use crate::registries::atomic::viewer::{
+    ViewerCapability, ViewerRegistry, ViewerSelection,
+};
 use crate::registries::domain::layout::ConformanceLevel;
 use crate::registries::domain::layout::LayoutDomainRegistry;
 use crate::registries::domain::layout::viewer_surface::{
@@ -492,6 +494,10 @@ pub(crate) fn phase1_detach_renderer(renderer_id: RendererId) -> Option<PaneAtta
 impl RegistryRuntime {
     pub(crate) fn describe_action(&self, action_id: &str) -> Option<ActionCapability> {
         self.action.describe_action(action_id)
+    }
+
+    pub(crate) fn describe_viewer(&self, viewer_id: &str) -> Option<ViewerCapability> {
+        self.viewer.describe_viewer(viewer_id)
     }
 
     fn build_provider_wired_registries(
@@ -1310,6 +1316,25 @@ impl RegistryRuntime {
             byte_len,
         });
     }
+
+    pub(crate) fn publish_navigation_mime_resolved(
+        &self,
+        key: NodeKey,
+        uri: &str,
+        mime_hint: Option<&str>,
+    ) {
+        let viewer = self.viewer.select_for_uri(uri, mime_hint);
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::NavigationMimeResolved {
+                key,
+                uri: uri.to_string(),
+                mime_hint: mime_hint.map(str::to_string),
+                viewer_id: viewer.viewer_id.to_string(),
+            },
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+    }
 }
 
 pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
@@ -1328,6 +1353,15 @@ pub(crate) fn phase3_propagate_subsystem_health_memory_pressure(
 ) {
     debug_assert!(!diagnostics::phase3_required_channels().is_empty());
     runtime().propagate_subsystem_health_memory_pressure(level, available_mib, total_mib);
+}
+
+pub(crate) fn phase3_publish_navigation_mime_resolved(
+    key: NodeKey,
+    uri: &str,
+    mime_hint: Option<&str>,
+) {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().publish_navigation_mime_resolved(key, uri, mime_hint);
 }
 
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
@@ -2364,6 +2398,49 @@ mod tests {
             describe_action_capability(action::ACTION_WORKBENCH_SETTINGS_OPEN),
             Some(ActionCapability::AlwaysAvailable)
         );
+    }
+
+    #[test]
+    fn registry_runtime_describes_viewer_capabilities() {
+        let runtime = RegistryRuntime::default();
+        let capability = runtime
+            .describe_viewer("viewer:webview")
+            .expect("viewer:webview should be described");
+
+        assert_eq!(capability.viewer_id, "viewer:webview");
+        assert!(capability.supported_mime_types.iter().any(|mime| mime == "text/html"));
+    }
+
+    #[test]
+    fn publish_navigation_mime_resolved_routes_navigation_signal() {
+        let runtime = RegistryRuntime::default();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        runtime.subscribe_signal(SignalTopic::Navigation, move |signal| {
+            seen.lock()
+                .expect("observer lock poisoned")
+                .push(signal.kind.clone());
+            Ok(())
+        });
+
+        runtime.publish_navigation_mime_resolved(
+            NodeKey::new(17),
+            "https://example.com/data.csv",
+            Some("text/csv"),
+        );
+
+        let observed = observed.lock().expect("observer lock poisoned");
+        assert!(observed.iter().any(|signal| matches!(
+            signal,
+            SignalKind::NavigationMimeResolved {
+                key,
+                mime_hint,
+                viewer_id,
+                ..
+            } if *key == NodeKey::new(17)
+                && mime_hint.as_deref() == Some("text/csv")
+                && viewer_id == "viewer:csv"
+        )));
     }
 
     fn nostr_backend_test_guard() -> std::sync::MutexGuard<'static, ()> {

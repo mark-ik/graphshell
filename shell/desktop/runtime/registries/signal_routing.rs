@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use crate::graph::NodeKey;
+
 /// Topic families used by the Register signal routing layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum SignalTopic {
@@ -15,6 +17,12 @@ pub(crate) enum SignalTopic {
 pub(crate) enum SignalKind {
     NavigationResolved {
         uri: String,
+        viewer_id: String,
+    },
+    NavigationMimeResolved {
+        key: NodeKey,
+        uri: String,
+        mime_hint: Option<String>,
         viewer_id: String,
     },
     ModLifecycleChanged {
@@ -40,6 +48,7 @@ impl SignalKind {
     pub(crate) fn topic(&self) -> SignalTopic {
         match self {
             Self::NavigationResolved { .. } => SignalTopic::Navigation,
+            Self::NavigationMimeResolved { .. } => SignalTopic::Navigation,
             Self::ModLifecycleChanged { .. } => SignalTopic::Lifecycle,
             Self::WorkflowChanged { .. } => SignalTopic::Lifecycle,
             Self::SemanticIndexUpdated { .. } => SignalTopic::Lifecycle,

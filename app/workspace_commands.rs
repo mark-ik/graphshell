@@ -516,6 +516,22 @@ impl GraphBrowserApp {
         }
     }
 
+    pub(crate) fn set_pending_protocol_probe(&mut self, key: NodeKey, url: Option<String>) {
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::ProtocolProbe { key: pending_key, .. } if *pending_key == key)
+        });
+        self.enqueue_app_command(AppCommand::ProtocolProbe { key, url });
+    }
+
+    pub(crate) fn take_pending_protocol_probe(&mut self) -> Option<(NodeKey, Option<String>)> {
+        match self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::ProtocolProbe { .. })
+        })? {
+            AppCommand::ProtocolProbe { key, url } => Some((key, url)),
+            _ => None,
+        }
+    }
+
     pub fn set_pending_tool_surface_return_target(
         &mut self,
         target: Option<ToolSurfaceReturnTarget>,

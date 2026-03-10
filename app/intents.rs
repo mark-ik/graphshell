@@ -118,6 +118,10 @@ pub enum AppCommand {
     ClipboardCopy {
         request: ClipboardCopyRequest,
     },
+    ProtocolProbe {
+        key: NodeKey,
+        url: Option<String>,
+    },
     SwitchDataDir {
         path: PathBuf,
     },

@@ -16,6 +16,8 @@
 //! routing. `SignalBus` remains an architecture term only in this phase; no
 //! dedicated runtime bus type is implemented here yet.
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use sysinfo::System;
@@ -27,6 +29,7 @@ use crate::app::{GraphIntent, LifecycleCause, MemoryPressureLevel};
 use crate::graph::NodeKey;
 use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
+use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
 
 /// Capacity of the intent channel — limits flooding from async producers.
 const INTENT_CHANNEL_CAPACITY: usize = 256;
@@ -87,6 +90,8 @@ pub(crate) enum IntentSource {
     PrefetchScheduler,
     /// P2P sync worker (Phase CP4).
     P2pSync,
+    /// Background content-type probe worker (Sector A).
+    ProtocolProbe,
     /// Restore/replay from persistence.
     #[allow(dead_code)]
     Restore,
@@ -97,10 +102,11 @@ fn intent_source_priority(source: IntentSource) -> u8 {
         IntentSource::LocalUI => 0,
         IntentSource::ServoDelegate => 1,
         IntentSource::MemoryMonitor => 2,
-        IntentSource::ModLoader => 3,
-        IntentSource::PrefetchScheduler => 4,
-        IntentSource::P2pSync => 5,
-        IntentSource::Restore => 6,
+        IntentSource::ProtocolProbe => 3,
+        IntentSource::ModLoader => 4,
+        IntentSource::PrefetchScheduler => 5,
+        IntentSource::P2pSync => 6,
+        IntentSource::Restore => 7,
     }
 }
 
@@ -125,6 +131,10 @@ pub(crate) struct ControlPanel {
     cancel: CancellationToken,
     /// CP3 lifecycle policy watch sender consumed by scheduler workers.
     lifecycle_policy_tx: watch::Sender<LifecyclePolicy>,
+    /// Active content-type probe tokens keyed by node for cancellation/replacement.
+    active_protocol_probes: Arc<Mutex<HashMap<NodeKey, (u64, CancellationToken)>>>,
+    /// Monotonic nonce for protocol probe replacement.
+    next_protocol_probe_nonce: u64,
     /// Supervised background worker tasks.
     workers: JoinSet<()>,
 }
@@ -141,6 +151,8 @@ impl ControlPanel {
             intent_rx,
             cancel: CancellationToken::new(),
             lifecycle_policy_tx,
+            active_protocol_probes: Arc::new(Mutex::new(HashMap::new())),
+            next_protocol_probe_nonce: 0,
             workers: JoinSet::new(),
             sync_command_tx: None,
             discovery_result_rx: None,
@@ -283,6 +295,58 @@ impl ControlPanel {
         });
 
         log::debug!("control_panel: sync worker spawned");
+    }
+
+    pub(crate) fn handle_protocol_probe_request(&mut self, key: NodeKey, url: Option<String>) {
+        self.cancel_protocol_probe(key);
+
+        let Some(url) = url else {
+            return;
+        };
+
+        self.next_protocol_probe_nonce = self.next_protocol_probe_nonce.saturating_add(1);
+        let nonce = self.next_protocol_probe_nonce;
+        let cancel = self.cancel.child_token();
+        self.active_protocol_probes
+            .lock()
+            .expect("protocol probe lock poisoned")
+            .insert(key, (nonce, cancel.clone()));
+
+        let tx = self.intent_tx.clone();
+        let active_probes = Arc::clone(&self.active_protocol_probes);
+        self.workers.spawn(async move {
+            let prober = ContentTypeProber::default();
+            let result = prober.probe(url, cancel.clone()).await;
+            if let Some(result) = result {
+                let _ = tx
+                    .send(QueuedIntent {
+                        intent: GraphIntent::UpdateNodeMimeHint {
+                            key,
+                            mime_hint: result.mime_hint,
+                        },
+                        queued_at: Instant::now(),
+                        source: IntentSource::ProtocolProbe,
+                    })
+                    .await;
+            }
+
+            let mut guard = active_probes.lock().expect("protocol probe lock poisoned");
+            if guard.get(&key).is_some_and(|(current_nonce, _)| *current_nonce == nonce) {
+                guard.remove(&key);
+            }
+        });
+        log::debug!("control_panel: protocol probe spawned for node {key:?}");
+    }
+
+    pub(crate) fn cancel_protocol_probe(&mut self, key: NodeKey) {
+        let cancelled = self
+            .active_protocol_probes
+            .lock()
+            .expect("protocol probe lock poisoned")
+            .remove(&key);
+        if let Some((_, token)) = cancelled {
+            token.cancel();
+        }
     }
 
     /// Cancel all supervised workers and await their completion.
@@ -496,7 +560,33 @@ fn sample_memory() -> (MemoryPressureLevel, u64, u64) {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
     use super::*;
+
+    fn spawn_head_server(content_type: &'static str, delay: Duration) -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let address = listener.local_addr().expect("listener should expose address");
+
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&mut buffer);
+                if !delay.is_zero() {
+                    std::thread::sleep(delay);
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nContent-Type: {content_type}\r\n\r\n"
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+
+        format!("http://{}", address)
+    }
 
     #[tokio::test]
     async fn control_panel_new_creates_open_channel() {
@@ -701,6 +791,47 @@ mod tests {
             command,
             SyncCommand::DiscoverNearby { timeout_secs: 2 }
         ));
+    }
+
+    #[tokio::test]
+    async fn protocol_probe_request_emits_update_node_mime_hint_intent() {
+        let mut panel = ControlPanel::new();
+        let key = NodeKey::new(41);
+        let url = spawn_head_server("text/csv; charset=utf-8", Duration::ZERO);
+
+        panel.handle_protocol_probe_request(key, Some(url));
+
+        let drained = tokio::time::timeout(Duration::from_secs(4), async {
+            loop {
+                let drained = panel.drain_pending();
+                if !drained.is_empty() {
+                    return drained;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("protocol probe should emit an intent");
+
+        assert!(matches!(
+            drained.first(),
+            Some(GraphIntent::UpdateNodeMimeHint { key: emitted_key, mime_hint })
+                if *emitted_key == key && mime_hint.as_deref() == Some("text/csv")
+        ));
+    }
+
+    #[tokio::test]
+    async fn protocol_probe_cancellation_prevents_mime_intent_delivery() {
+        let mut panel = ControlPanel::new();
+        let key = NodeKey::new(42);
+        let url = spawn_head_server("application/pdf", Duration::from_millis(150));
+
+        panel.handle_protocol_probe_request(key, Some(url));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        panel.handle_protocol_probe_request(key, None);
+
+        tokio::time::sleep(Duration::from_millis(220)).await;
+        assert!(panel.drain_pending().is_empty());
     }
 
     #[tokio::test]

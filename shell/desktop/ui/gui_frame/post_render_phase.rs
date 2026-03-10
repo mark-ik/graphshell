@@ -197,4 +197,8 @@ pub(crate) fn run_post_render_phase<FActive>(
             focused_node_hint,
         );
     }
+
+    while let Some((key, url)) = graph_app.take_pending_protocol_probe() {
+        control_panel.handle_protocol_probe_request(key, url);
+    }
 }

@@ -3,6 +3,27 @@ use std::collections::HashMap;
 use crate::registries::domain::layout::CapabilityDeclaration;
 use crate::util::VersoAddress;
 
+pub(crate) const VIEWER_ID_FALLBACK: &str = "viewer:webview";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum ViewerRenderMode {
+    CompositedTexture,
+    NativeOverlay,
+    EmbeddedEgui,
+    Placeholder,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ViewerCapability {
+    pub(crate) viewer_id: String,
+    pub(crate) supported_mime_types: Vec<String>,
+    pub(crate) supported_extensions: Vec<String>,
+    pub(crate) render_mode: ViewerRenderMode,
+    pub(crate) overlay_affordance: bool,
+    #[serde(flatten)]
+    pub(crate) subsystems: ViewerSubsystemCapabilities,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ViewerSubsystemCapabilities {
     pub(crate) accessibility: CapabilityDeclaration,
@@ -72,6 +93,54 @@ impl ViewerRegistry {
             .get(viewer_id)
             .cloned()
             .unwrap_or_else(ViewerSubsystemCapabilities::full)
+    }
+
+    pub(crate) fn describe_viewer(&self, viewer_id: &str) -> Option<ViewerCapability> {
+        let normalized = viewer_id.trim();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        let known = self.capabilities.contains_key(normalized)
+            || self.mime_handlers.values().any(|registered| *registered == normalized)
+            || self
+                .extension_handlers
+                .values()
+                .any(|registered| *registered == normalized);
+        if !known {
+            return None;
+        }
+
+        let mut supported_mime_types = self
+            .mime_handlers
+            .iter()
+            .filter_map(|(mime, registered)| (*registered == normalized).then_some(mime.clone()))
+            .collect::<Vec<_>>();
+        supported_mime_types.sort();
+        supported_mime_types.dedup();
+
+        let mut supported_extensions = self
+            .extension_handlers
+            .iter()
+            .filter_map(|(extension, registered)| {
+                (*registered == normalized).then_some(extension.clone())
+            })
+            .collect::<Vec<_>>();
+        supported_extensions.sort();
+        supported_extensions.dedup();
+
+        Some(ViewerCapability {
+            viewer_id: normalized.to_string(),
+            supported_mime_types,
+            supported_extensions,
+            render_mode: render_mode_for_viewer_id(normalized),
+            overlay_affordance: overlay_affordance_for_viewer_id(normalized),
+            subsystems: self
+                .capabilities
+                .get(normalized)
+                .cloned()
+                .unwrap_or_else(ViewerSubsystemCapabilities::full),
+        })
     }
 
     fn selection(
@@ -169,7 +238,7 @@ impl ViewerRegistry {
 
 impl Default for ViewerRegistry {
     fn default() -> Self {
-        let mut registry = Self::new("viewer:webview");
+        let mut registry = Self::new(VIEWER_ID_FALLBACK);
         registry.register_mime("application/x-graphshell-settings", "viewer:settings");
         registry.register_mime("application/x-graphshell-internal", "viewer:webview");
         registry.register_mime("text/html", "viewer:webview");
@@ -219,6 +288,20 @@ fn extract_extension(uri: &str) -> Option<&str> {
     let no_fragment = uri.split('#').next().unwrap_or(uri);
     let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
     no_query.rsplit_once('.').map(|(_, ext)| ext)
+}
+
+fn render_mode_for_viewer_id(viewer_id: &str) -> ViewerRenderMode {
+    match viewer_id {
+        "viewer:webview" => ViewerRenderMode::CompositedTexture,
+        "viewer:wry" => ViewerRenderMode::NativeOverlay,
+        "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
+        | "viewer:settings" | "viewer:metadata" => ViewerRenderMode::EmbeddedEgui,
+        _ => ViewerRenderMode::Placeholder,
+    }
+}
+
+fn overlay_affordance_for_viewer_id(viewer_id: &str) -> bool {
+    !matches!(render_mode_for_viewer_id(viewer_id), ViewerRenderMode::Placeholder)
 }
 
 /// Baseline plaintext viewer handler.
@@ -449,6 +532,34 @@ mod tests {
             registry.select_for(Some("application/json"), AddressKind::File),
             "viewer:plaintext"
         );
+    }
+
+    #[test]
+    fn describe_viewer_returns_capability_payload_for_registered_viewer() {
+        let registry = ViewerRegistry::default();
+        let capability = registry
+            .describe_viewer("viewer:webview")
+            .expect("viewer:webview should be described");
+
+        assert_eq!(capability.viewer_id, "viewer:webview");
+        assert_eq!(capability.render_mode, ViewerRenderMode::CompositedTexture);
+        assert!(capability.overlay_affordance);
+        assert!(capability.supported_mime_types.iter().any(|mime| mime == "text/html"));
+    }
+
+    #[test]
+    fn describe_viewer_returns_none_for_unknown_viewer() {
+        let registry = ViewerRegistry::default();
+        assert!(registry.describe_viewer("viewer:unknown").is_none());
+    }
+
+    #[test]
+    fn select_for_unknown_mime_uses_canonical_runtime_fallback() {
+        let registry = ViewerRegistry::default();
+        let selection = registry.select_for_uri("https://example.com/file.bin", Some(""));
+
+        assert_eq!(selection.viewer_id, VIEWER_ID_FALLBACK);
+        assert!(selection.fallback_used);
     }
 
     // --- PlaintextViewerHandler tests ---

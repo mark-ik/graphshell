@@ -2571,6 +2571,15 @@ impl GraphBrowserApp {
                         mime_hint,
                     });
                 }
+                if updated
+                    && let Some(node) = self.workspace.domain.graph.get_node(key)
+                {
+                    crate::shell::desktop::runtime::registries::phase3_publish_navigation_mime_resolved(
+                        key,
+                        &node.url,
+                        node.mime_hint.as_deref(),
+                    );
+                }
             }
             GraphIntent::UpdateNodeAddressKind { key, kind } => {
                 let node_id = self
@@ -9150,6 +9159,35 @@ mod tests {
         let node = app.workspace.domain.graph.get_node(key).unwrap();
         assert_eq!(node.address_kind, crate::graph::AddressKind::File);
         assert_eq!(node.mime_hint.as_deref(), Some("application/pdf"));
+    }
+
+    #[test]
+    fn add_node_and_sync_http_url_queues_protocol_probe_request() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let key = app.add_node_and_sync(
+            "https://example.com".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+
+        assert_eq!(
+            app.take_pending_protocol_probe(),
+            Some((key, Some("https://example.com".to_string())))
+        );
+    }
+
+    #[test]
+    fn update_node_url_and_log_to_file_url_queues_probe_cancellation() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync(
+            "https://before.example".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
+        let _ = app.take_pending_protocol_probe();
+
+        app.update_node_url_and_log(key, "file:///home/user/report.pdf".to_string());
+
+        assert_eq!(app.take_pending_protocol_probe(), Some((key, None)));
     }
 
     #[test]

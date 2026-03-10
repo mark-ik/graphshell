@@ -1,6 +1,17 @@
 use super::*;
 
 impl GraphBrowserApp {
+    fn refresh_protocol_probe_for_node(&mut self, key: NodeKey, url: &str, enqueue_cancel: bool) {
+        let protocol_resolution =
+            crate::shell::desktop::runtime::registries::protocol::ProtocolRegistry::default()
+                .resolve(url);
+        let should_probe = matches!(crate::graph::address_kind_from_url(url), crate::graph::AddressKind::Http)
+            && protocol_resolution.inferred_mime_hint.is_none();
+        if should_probe || enqueue_cancel {
+            self.set_pending_protocol_probe(key, should_probe.then(|| url.to_string()));
+        }
+    }
+
     pub fn add_node_and_sync(
         &mut self,
         url: String,
@@ -20,13 +31,14 @@ impl GraphBrowserApp {
         {
             store.log_mutation(&LogEntry::AddNode {
                 node_id: node.id.to_string(),
-                url,
+                url: url.clone(),
                 position_x: position.x,
                 position_y: position.y,
             });
         }
         self.workspace.physics.base.is_running = true;
         self.workspace.drag_release_frames_remaining = 0;
+        self.refresh_protocol_probe_for_node(key, &url, false);
         key
     }
 
@@ -777,7 +789,7 @@ impl GraphBrowserApp {
                 let node_id = node.id.to_string();
                 store.log_mutation(&LogEntry::UpdateNodeUrl {
                     node_id: node_id.clone(),
-                    new_url,
+                    new_url: new_url.clone(),
                 });
                 store.log_mutation(&LogEntry::UpdateNodeMimeHint {
                     node_id: node_id.clone(),
@@ -801,6 +813,7 @@ impl GraphBrowserApp {
             }
         }
         self.workspace.egui_state_dirty = true;
+        self.refresh_protocol_probe_for_node(key, &new_url, true);
         Some(old_url)
     }
 }

@@ -140,13 +140,18 @@ fn infer_mime_hint(uri: &str, scheme: &str) -> Option<String> {
         return infer_data_uri_mime_hint(uri);
     }
 
-    let no_fragment = uri.split('#').next().unwrap_or(uri);
-    let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
-    let path = no_query
-        .split_once(':')
-        .map(|(_, tail)| tail)
-        .unwrap_or(no_query);
-    let trimmed = path.trim_start_matches('/');
+    let trimmed = url::Url::parse(uri)
+        .ok()
+        .map(|parsed| parsed.path().trim_start_matches('/').to_string())
+        .unwrap_or_else(|| {
+            let no_fragment = uri.split('#').next().unwrap_or(uri);
+            let no_query = no_fragment.split('?').next().unwrap_or(no_fragment);
+            let path = no_query
+                .split_once(':')
+                .map(|(_, tail)| tail)
+                .unwrap_or(no_query);
+            path.trim_start_matches('/').to_string()
+        });
 
     if trimmed.is_empty() {
         return None;
@@ -236,6 +241,14 @@ mod tests {
             resolution.inferred_mime_hint.as_deref(),
             Some("application/x-graphshell-settings")
         );
+    }
+
+    #[test]
+    fn protocol_resolution_does_not_treat_http_host_suffix_as_path_extension() {
+        let registry = ProtocolRegistry::default();
+        let resolution = registry.resolve("https://example.com");
+
+        assert_eq!(resolution.inferred_mime_hint, None);
     }
 
     #[test]

@@ -6,6 +6,7 @@ pub(crate) mod caches;
 pub(crate) mod cli;
 pub(crate) mod control_panel;
 pub(crate) mod diagnostics;
+pub(crate) mod protocol_probe;
 pub(crate) mod protocols;
 pub(crate) mod registries;
 pub(crate) mod tracing;
