@@ -15,6 +15,7 @@ use crate::app::{
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
+use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
@@ -28,6 +29,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UX_NAVIGATION_TRANSITION, phase3_resolve_active_canvas_profile,
+    phase3_resolve_active_presentation_profile,
 };
 use crate::util::CoordBridge;
 use egui::{Color32, Stroke, Ui, Vec2, Window};
@@ -698,6 +700,7 @@ fn draw_highlighted_edge_overlay(
     _widget_id: egui::Id,
     metadata_id: egui::Id,
 ) {
+    let presentation = active_presentation_profile(app);
     let Some((from, to)) = app.workspace.highlighted_graph_edge else {
         return;
     };
@@ -723,17 +726,17 @@ fn draw_highlighted_edge_overlay(
     };
     ui.painter().line_segment(
         [from_screen, to_screen],
-        Stroke::new(6.0, Color32::from_rgba_unmultiplied(10, 30, 40, 120)),
+        Stroke::new(6.0, presentation.edge_highlight_backdrop.to_color32()),
     );
     ui.painter().line_segment(
         [from_screen, to_screen],
-        Stroke::new(5.0, Color32::from_rgb(80, 220, 255)),
+        Stroke::new(5.0, presentation.edge_highlight_foreground.to_color32()),
     );
     // Draw endpoint markers so edge-search selection is obvious even on dense graphs.
     ui.painter()
-        .circle_filled(from_screen, 6.0, Color32::from_rgb(80, 220, 255));
+        .circle_filled(from_screen, 6.0, presentation.edge_highlight_foreground.to_color32());
     ui.painter()
-        .circle_filled(to_screen, 6.0, Color32::from_rgb(80, 220, 255));
+        .circle_filled(to_screen, 6.0, presentation.edge_highlight_foreground.to_color32());
 }
 
 fn draw_hovered_node_tooltip(
@@ -987,12 +990,16 @@ fn canvas_rect_from_view_frame(
     Some(canvas_rect)
 }
 
-fn lifecycle_color(lifecycle: NodeLifecycle) -> Color32 {
+fn active_presentation_profile(app: &GraphBrowserApp) -> PresentationProfile {
+    phase3_resolve_active_presentation_profile(app.default_registry_theme_id()).profile
+}
+
+fn lifecycle_color(presentation: &PresentationProfile, lifecycle: NodeLifecycle) -> Color32 {
     match lifecycle {
-        NodeLifecycle::Active => Color32::from_rgb(100, 200, 255),
-        NodeLifecycle::Warm => Color32::from_rgb(120, 170, 205),
-        NodeLifecycle::Cold => Color32::from_rgb(140, 140, 165),
-        NodeLifecycle::Tombstone => Color32::from_rgb(96, 96, 96),
+        NodeLifecycle::Active => presentation.lifecycle_active.to_color32(),
+        NodeLifecycle::Warm => presentation.lifecycle_warm.to_color32(),
+        NodeLifecycle::Cold => presentation.lifecycle_cold.to_color32(),
+        NodeLifecycle::Tombstone => presentation.lifecycle_tombstone.to_color32(),
     }
 }
 
@@ -1007,24 +1014,25 @@ fn apply_search_node_visuals(
     let highlighted_edge = app.workspace.highlighted_graph_edge;
     let search_mode = app.workspace.search_display_mode;
     let adjacency_set = hovered_adjacency_set(app, hovered);
+    let presentation = active_presentation_profile(app);
     let colors: Vec<(NodeKey, Color32)> = app
         .workspace
         .domain
         .graph
         .nodes()
         .map(|(key, node)| {
-            let mut color = lifecycle_color(node.lifecycle);
+            let mut color = lifecycle_color(&presentation, node.lifecycle);
             if app.is_crash_blocked(key) {
-                color = Color32::from_rgb(205, 112, 82);
+                color = presentation.crash_blocked.to_color32();
             }
 
             let search_match = search_query_active && search_matches.contains(&key);
             let search_miss = search_query_active && !search_matches.contains(&key);
             if search_match {
                 color = if active_search_match == Some(key) {
-                    Color32::from_rgb(140, 255, 140)
+                    presentation.search_match_active.to_color32()
                 } else {
-                    Color32::from_rgb(95, 220, 130)
+                    presentation.search_match.to_color32()
                 };
             } else if search_miss && matches!(search_mode, SearchDisplayMode::Highlight) {
                 color = color.gamma_multiply(0.45);
@@ -1035,20 +1043,20 @@ fn apply_search_node_visuals(
             }
             if hovered == Some(key) {
                 // Visual cue for command-target disambiguation while hovering.
-                color = Color32::from_rgb(255, 150, 80);
+                color = presentation.hover_target.to_color32();
             }
             if let Some((from, to)) = highlighted_edge
                 && (key == from || key == to)
             {
-                color = Color32::from_rgb(80, 220, 255);
+                color = presentation.edge_highlight_foreground.to_color32();
             }
             if selection.primary() == Some(key) {
-                color = Color32::from_rgb(255, 200, 100);
+                color = presentation.selection_primary.to_color32();
             } else if selection.contains(&key) && hovered != Some(key) {
                 color = if app.is_crash_blocked(key) {
-                    Color32::from_rgb(205, 112, 82)
+                    presentation.crash_blocked.to_color32()
                 } else {
-                    lifecycle_color(node.lifecycle)
+                    lifecycle_color(&presentation, node.lifecycle)
                 };
             }
             (key, color)
@@ -1900,6 +1908,7 @@ fn collect_lasso_action(
     metadata_id: egui::Id,
     lasso_binding: CanvasLassoBinding,
 ) -> LassoGestureResult {
+    let presentation = active_presentation_profile(app);
     let (start_id, moved_id) = lasso_state_ids(metadata_id);
     let threshold_px = 6.0_f32;
     if !enabled {
@@ -1965,11 +1974,11 @@ fn collect_lasso_action(
             ui.painter().rect_stroke(
                 rect,
                 0.0,
-                Stroke::new(1.5, Color32::from_rgb(90, 220, 170)),
+                Stroke::new(1.5, presentation.lasso_stroke.to_color32()),
                 egui::epaint::StrokeKind::Outside,
             );
             ui.painter()
-                .rect_filled(rect, 0.0, Color32::from_rgba_unmultiplied(90, 220, 170, 28));
+                .rect_filled(rect, 0.0, presentation.lasso_fill.to_color32());
         }
     }
 
@@ -2548,6 +2557,7 @@ fn semantic_pair_similarity(
 
 /// Draw graph information overlay
 fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
+    let presentation = active_presentation_profile(app);
     let info_text = format!(
         "Nodes: {} | Edges: {} | Physics: {} | Zoom: {:.1}x",
         app.domain_graph().node_count(),
@@ -2565,7 +2575,7 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
         egui::Align2::LEFT_TOP,
         info_text,
         egui::FontId::monospace(12.0),
-        Color32::from_rgb(200, 200, 200),
+        presentation.info_text.to_color32(),
     );
 
     // Draw controls hint
@@ -2590,7 +2600,7 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
         egui::Align2::LEFT_BOTTOM,
         controls_text,
         egui::FontId::proportional(10.0),
-        Color32::from_rgb(150, 150, 150),
+        presentation.controls_text.to_color32(),
     );
 }
 
@@ -3736,7 +3746,11 @@ mod tests {
         assert!(state.graph.node(a).is_some());
         assert!(state.graph.node(b).is_some());
         let b_color = state.graph.node(b).unwrap().color().unwrap();
-        assert!(b_color != lifecycle_color(NodeLifecycle::Cold));
+        let presentation =
+            crate::registries::domain::presentation::PresentationDomainRegistry::default()
+                .resolve_profile("physics:default", "theme:default")
+                .profile;
+        assert!(b_color != lifecycle_color(&presentation, NodeLifecycle::Cold));
     }
 
     #[test]

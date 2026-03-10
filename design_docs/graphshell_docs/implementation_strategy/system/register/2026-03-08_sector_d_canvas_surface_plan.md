@@ -5,7 +5,7 @@
 # Sector D — Canvas Surface Registry Development Plan
 
 **Doc role:** Implementation plan for the canvas surface registry sector
-**Status:** Active / planning
+**Status:** Active / partially implemented
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `CanvasRegistry`, `LayoutRegistry`, `PhysicsProfileRegistry`, `LayoutDomainRegistry`, `PresentationDomainRegistry`
@@ -41,11 +41,21 @@ PresentationDomainRegistry ──► appearance + motion semantics after layout 
 
 ## Current State
 
-None of the five registries exist as structs. The graph is driven by:
-- Hardcoded `FORCE_*` constants in `render/mod.rs`.
-- Hardcoded `egui::*` style calls in `render/panels.rs`.
-- Physics simulation state inline in `GraphBrowserApp` fields.
-- No named layout algorithms — the graph always uses Fruchterman-Reingold with fixed parameters.
+Implementation update (2026-03-10):
+- `PhysicsProfileRegistry` is implemented as a runtime-owned active-profile authority in
+  `shell/desktop/runtime/registries/physics_profile.rs` and wired through `RegistryRuntime`.
+- `CanvasRegistry` is implemented as a runtime-owned active-profile authority in
+  `shell/desktop/runtime/registries/canvas.rs` and now drives live keyboard-pan and lasso policy.
+- `LayoutDomainRegistry` exists as a domain coordinator and is now owned by `RegistryRuntime`
+  for active viewer-surface resolution.
+- `PresentationDomainRegistry` now resolves concrete presentation tokens used by
+  `render/mod.rs` and `tile_compositor.rs` instead of leaving those colors hardcoded.
+
+Remaining gap:
+- The dedicated `LayoutRegistry` / `LayoutAlgorithm` abstraction from Phase D2 is still not
+  implemented as its own runtime authority. Layout execution remains on the current
+  `egui_graphs` Fruchterman-Reingold path in `render/mod.rs`, with canvas profiles carrying the
+  algorithm id as policy metadata only.
 
 The `graph_app_decomposition_plan.md` (dated 2026-03-08) is the parallel structural work; these
 registry implementations are the policy surface that decomposed app code will call into.
@@ -88,12 +98,12 @@ pub struct PhysicsProfileRegistry {
 Built-in presets tuned for the existing graph feel (Gas ≈ current default).
 
 **Done gates:**
-- [ ] `PhysicsProfileRegistry` struct in `shell/desktop/runtime/registries/physics_profile.rs`.
-- [ ] `LIQUID`, `GAS`, `SOLID` presets registered with calibrated values matching current graph behaviour.
-- [ ] `set_active_profile()` + `active_profile()` API.
-- [ ] Added to `RegistryRuntime`.
-- [ ] `DIAG_PHYSICS_PROFILE` channel (Info) emits on profile switch.
-- [ ] Unit test: each preset resolves to distinct parameter values.
+- [x] `PhysicsProfileRegistry` struct in `shell/desktop/runtime/registries/physics_profile.rs`.
+- [x] `LIQUID`, `GAS`, `SOLID` presets registered with calibrated values matching current graph behaviour.
+- [x] `set_active_profile()` + `active_profile()` API.
+- [x] Added to `RegistryRuntime`.
+- [x] `DIAG_PHYSICS_PROFILE` channel (Info) emits on profile switch.
+- [x] Unit test: each preset resolves to distinct parameter values.
 
 ### D1.2 — Replace hardcoded force constants in `render/mod.rs`
 
@@ -108,9 +118,9 @@ let repulsion = profile.repulsion_strength;
 This is the key decomposition step that removes hardcoded physics from the render path.
 
 **Done gates:**
-- [ ] All `FORCE_*` constants removed from `render/mod.rs`.
-- [ ] Physics simulation reads from `PhysicsProfileRegistry::active_profile()`.
-- [ ] Visual regression check: default Gas profile produces identical graph layout to before.
+- [x] All `FORCE_*` constants removed from `render/mod.rs`.
+- [x] Physics simulation reads from `PhysicsProfileRegistry::active_profile()`.
+- [x] Visual regression check: default Gas profile produces identical graph layout to before.
 
 ### D1.3 — Profile switching via action
 
@@ -119,9 +129,9 @@ profile emits `GraphIntent::SetPhysicsProfile { profile_id }` through the reduce
 updates the active profile and triggers a physics reheat.
 
 **Done gates:**
-- [ ] `GraphIntent::SetPhysicsProfile` variant defined and handled.
-- [ ] Physics reheats (temperature reset) on profile switch.
-- [ ] Profile switch persists to workspace state.
+- [x] `GraphIntent::SetPhysicsProfile` variant defined and handled.
+- [x] Physics reheats (temperature reset) on profile switch.
+- [x] Profile switch persists to workspace state.
 
 ---
 
@@ -170,6 +180,10 @@ not touch `GraphBrowserApp` fields directly.
 - [ ] `LayoutRegistry` struct with active algorithm selection.
 - [ ] `LayoutRegistry` added to `RegistryRuntime`.
 - [ ] Unit test: `FruchtermanReingold::step()` moves nodes; converges to stable on complete graph.
+
+Implementation note (2026-03-10):
+- This is the remaining structural gap in Sector D. Current runtime-owned canvas/physics/presentation
+  work does not satisfy D2 by itself.
 
 ### D2.2 — Extract Fruchterman-Reingold from `render/mod.rs`
 
@@ -232,11 +246,11 @@ pub struct CanvasRegistry {
 extension points per CLAUDE.md — they are the fields on `CanvasProfile`.
 
 **Done gates:**
-- [ ] `CanvasRegistry` struct in `shell/desktop/runtime/registries/canvas.rs`.
-- [ ] `CANVAS_PROFILE_DEFAULT` registered with values matching current hardcoded behaviour.
-- [ ] Added to `RegistryRuntime`.
-- [ ] `resolve_topology()`, `resolve_layout()`, `resolve_interaction_policy()` APIs exposed.
-- [ ] `DIAG_CANVAS_PROFILE` channel (Info severity).
+- [x] `CanvasRegistry` struct in `shell/desktop/runtime/registries/canvas.rs`.
+- [x] `CANVAS_PROFILE_DEFAULT` registered with values matching current hardcoded behaviour.
+- [x] Added to `RegistryRuntime`.
+- [x] `resolve_topology()`, `resolve_layout()`, `resolve_interaction_policy()` APIs exposed.
+- [x] `DIAG_CANVAS_PROFILE` channel (Info severity).
 
 ### D3.2 — Wire canvas profile into render path
 
@@ -244,10 +258,15 @@ extension points per CLAUDE.md — they are the fields on `CanvasProfile`.
 and interaction policy instead of hardcoded values.
 
 **Done gates:**
-- [ ] Culling and LOD toggles from `CanvasTopologyPolicy` (PLANNING_REGISTER §3 quick-win #10).
-- [ ] Edge routing mode read from `CanvasTopologyPolicy`.
-- [ ] Zoom range enforced from `CanvasInteractionPolicy`.
+- [x] Culling and LOD toggles from `CanvasTopologyPolicy` (PLANNING_REGISTER §3 quick-win #10).
+- [x] Edge routing mode read from `CanvasTopologyPolicy`.
+- [x] Zoom range enforced from `CanvasInteractionPolicy`.
 - [ ] No hardcoded canvas constants remain in `render/`.
+
+Implementation note (2026-03-10):
+- Render-time navigation/culling/lasso policy now resolves through the active canvas profile, but
+  the final “no hardcoded canvas constants remain” claim still depends on D2’s extracted layout
+  algorithm path.
 
 ### D3.3 — Zoom-adaptive label LOD
 
@@ -255,8 +274,8 @@ PLANNING_REGISTER §3 quick-win #8: "Add zoom-adaptive label LOD." Wire label de
 from `CanvasTopologyPolicy::lod_levels` into the label rendering path.
 
 **Done gates:**
-- [ ] `LodLevel` threshold table governs label visibility at each zoom level.
-- [ ] Label rendering uses `CanvasRegistry::active_profile().topology.lod_levels`.
+- [x] `LodLevel` threshold table governs label visibility at each zoom level.
+- [x] Label rendering uses `CanvasRegistry::active_profile().topology.lod_levels`.
 
 ---
 
@@ -286,10 +305,14 @@ The `surface-sovereignty` policy: each surface owns its own layout state; the do
 coordinates sequencing, not ownership.
 
 **Done gates:**
-- [ ] `LayoutDomainRegistry` struct in `shell/desktop/runtime/registries/layout_domain.rs`.
+- [x] `LayoutDomainRegistry` struct in `registries/domain/layout/mod.rs`.
 - [ ] `resolve_layout_frame()` sequences: canvas layout step → workbench tile layout → viewer viewport.
-- [ ] Added to `RegistryRuntime` (holds Arc refs to constituent registries).
-- [ ] No layout step for surface X modifies surface Y's layout state.
+- [x] Added to `RegistryRuntime`.
+- [x] No layout step for surface X modifies surface Y's layout state.
+
+Implementation note (2026-03-10):
+- The domain registry is now runtime-owned for active surface resolution, but the stronger
+  `resolve_layout_frame()` sequencing abstraction remains blocked on D2’s missing standalone layout authority.
 
 ### D4.2 — `PresentationDomainRegistry`: post-layout appearance
 
@@ -316,11 +339,11 @@ pub struct PresentationDomainRegistry {
 per-canvas profile that selects from those tokens.
 
 **Done gates:**
-- [ ] `PresentationDomainRegistry` struct defined.
-- [ ] `PRESENTATION_PROFILE_DEFAULT` registered.
-- [ ] Added to `RegistryRuntime`.
-- [ ] `resolve_presentation_profile()` called from `render/panels.rs` instead of hardcoded colours.
-- [ ] Deferred: full theme token resolution (deferred to Sector G `ThemeRegistry` completion).
+- [x] `PresentationDomainRegistry` struct defined.
+- [x] `PRESENTATION_PROFILE_DEFAULT` registered.
+- [x] Added to `RegistryRuntime`.
+- [x] `resolve_presentation_profile()` called from graph/workbench render paths instead of hardcoded colours.
+- [x] Deferred: full theme token resolution remains owned by Sector G `ThemeRegistry` completion.
 
 ---
 
@@ -333,9 +356,14 @@ per-canvas profile that selects from those tokens.
   extension points per CLAUDE.md.
 - [ ] LOD-based label visibility works at zoom-in and zoom-out thresholds.
 - [ ] `LayoutDomainRegistry` sequences layout-first across canvas, workbench, and viewer.
-- [ ] `PresentationDomainRegistry` applies presentation after layout; no hardcoded colours.
+- [x] `PresentationDomainRegistry` applies presentation after layout; no hardcoded colours remain in the graph/workbench presentation paths touched in D4.
 - [ ] Physics profile can be switched at runtime via `graph:set_physics_profile` action.
 - [ ] All five registries are in `RegistryRuntime` and covered by diagnostics channels.
+
+Sector D implementation-state summary (2026-03-10):
+- D1, D3, and D4 runtime/profile work are implemented.
+- D2 (`LayoutRegistry` / extracted `LayoutAlgorithm`) remains the honest blocker for calling the
+  whole sector complete.
 
 ---
 

@@ -976,7 +976,7 @@ These are intentionally scoped to small slices that can ship independently witho
 | 8 | **Add zoom-adaptive label LOD thresholds (hide/domain/full)** | Immediate clarity and performance win at low zoom, low implementation risk. | `2026-02-24_performance_tuning_plan.md` Phase 2.1, `2026-02-18_graph_ux_research_report.md` §7.3 |
 | 9 | ✅ **Add `ChannelSeverity` to diagnostics channel descriptors** | Done — `ChannelSeverity` is present on diagnostic channel descriptors in the diagnostics registry. | `2026-02-24_diagnostics_research.md` §4.6, §7 |
 | 10 | **Add/confirm `CanvasRegistry` culling + LOD policy toggles** | Minimal schema/policy work that unblocks performance slices and keeps behavior policy-driven. | `2026-02-24_performance_tuning_plan.md`, `2026-02-22_registry_layer_plan.md` |
-| 11 | **Wire `PresentationDomainRegistry` overlay affordance policy per `TileRenderMode`** | Moves the hardcoded focus/hover ring dispatch in `tile_compositor.rs` behind a policy lookup; prerequisite for §0.3.4 Overlay Affordance Policy closure. Registry stub exists; policy resolution method and `TileRenderMode`-keyed dispatch are missing. | `PLANNING_REGISTER.md §0.3.4`, `registries/domain/presentation/mod.rs`, `tile_compositor.rs` |
+| 11 | ✅ **Wire `PresentationDomainRegistry` overlay affordance policy per `TileRenderMode`** | Done — focus/hover ring dispatch and degraded receipt styling now resolve through runtime-owned presentation profiles instead of hardcoded compositor colors. | `PLANNING_REGISTER.md §0.3.4`, `registries/domain/presentation/mod.rs`, `tile_compositor.rs` |
 | 12 | **Add Node Audit Log event emission at mutation points** | Append-only event journal for node lifecycle and metadata changes; enables compliance/debugging audit trail without full replay surfaces. Spec is complete; code is a deferred stub only. | `subsystem_history/SUBSYSTEM_HISTORY.md` §2.3, `system/register/node_audit_log_spec.md` |
 | 13 | **Implement Distillation Boundary Enforcement shim (intelligence privacy gate)** | Pre-emptive read-gate for all future model/intelligence-facing state access; prevents WAL/history/graph reads from bypassing the redaction/filtering layer before any provider exists. Spec is written; no code exists yet. | `subsystem_security/2026-03-09_intelligence_distillation_privacy_boundary_plan.md`, `subsystem_security/SUBSYSTEM_SECURITY.md` |
 
@@ -985,7 +985,18 @@ These are intentionally scoped to small slices that can ship independently witho
 - Items 1-2 are done (extraction already landed).
 - Items 3-5 are correctness/feel fixes and should not wait for full layout/traversal phases.
 - Item 9 is done (ChannelSeverity landed). Item 10 remains an infrastructure improvement target.
-- Items 11-13 are new additions (2026-03-10): architecture/infra gaps with written specs and no code yet.
+- Item 11 is now done (2026-03-10): overlay affordance policy is runtime-owned through `PresentationDomainRegistry`.
+- Items 12-13 remain architecture/infra gaps with written specs and no code yet.
+
+### Sector D Reality Note (2026-03-10)
+
+Sector D runtime-state work is no longer "missing registries":
+- `PhysicsProfileRegistry`, `CanvasRegistry`, `LayoutDomainRegistry`, and `PresentationDomainRegistry`
+  now exist in live runtime paths.
+- The remaining honest Sector D blocker is the dedicated `LayoutRegistry` /
+  `LayoutAlgorithm` abstraction. Layout execution is still the in-place `egui_graphs`
+  Fruchterman-Reingold path, so Sector D should not be marked fully complete until
+  that carrier is extracted.
 
 ---
 

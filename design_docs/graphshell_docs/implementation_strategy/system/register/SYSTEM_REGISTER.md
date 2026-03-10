@@ -82,11 +82,13 @@ Implemented:
 - RegistryRuntime composition root for atomic/domain registries and mod/runtime services
 - RegistryRuntime provider-wired phase0 protocol/viewer dispatch paths and diagnostics coverage
 - Folded viewer/surface capability-conformance declarations with runtime diagnostics inspection hooks
+- Runtime-owned canvas, physics, layout-domain, and presentation-domain profile resolution paths
 
 Gaps / active architectural work:
 - Signal/event routing is still transitional (no dedicated `SignalBus` abstraction/API yet)
 - Canonical docs/terminology wording still needs tightening around `Signal` vs `Intent` vs direct calls (routing rules are defined here but not yet propagated everywhere)
 - Some authority-boundary misroutes are still too silent in fallback/no-op paths and should surface more explicitly during development
+- Sector D's dedicated `LayoutRegistry` / `LayoutAlgorithm` authority is still missing; current layout execution remains the `egui_graphs` Fruchterman-Reingold path even though canvas/physics/presentation profile authorities are now runtime-owned
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 

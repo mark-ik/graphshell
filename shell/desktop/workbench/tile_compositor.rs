@@ -14,6 +14,7 @@ use servo::OffscreenRenderingContext;
 
 use crate::app::GraphBrowserApp;
 use crate::graph::NodeKey;
+use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -28,6 +29,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_INTERACTION_MENU,
     CHANNEL_COMPOSITOR_OVERLAY_NATIVE_SUPPRESSED_RADIAL_MENU,
     CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+    phase3_resolve_active_presentation_profile,
 };
 use crate::shell::desktop::workbench::compositor_adapter::{
     CompositedContentPassOutcome, CompositorAdapter, CompositorPassTracker, OverlayAffordanceStyle,
@@ -80,6 +82,10 @@ const DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME: usize = 32 * 1024 * 102
 
 pub(crate) fn composited_content_budget_bytes_per_frame() -> usize {
     DEFAULT_COMPOSITED_CONTENT_BUDGET_BYTES_PER_FRAME
+}
+
+fn active_presentation_profile(app: &GraphBrowserApp) -> PresentationProfile {
+    phase3_resolve_active_presentation_profile(app.default_registry_theme_id()).profile
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -234,6 +240,7 @@ fn run_composited_texture_content_pass(
     ctx: &egui::Context,
     window: &EmbedderWindow,
     graph_app: &GraphBrowserApp,
+    presentation: &PresentationProfile,
     tile_rendering_contexts: &mut HashMap<NodeKey, Rc<OffscreenRenderingContext>>,
     pass_tracker: &mut CompositorPassTracker,
     pending_overlay_passes: &mut Vec<OverlayStrokePass>,
@@ -287,11 +294,13 @@ fn run_composited_texture_content_pass(
                 node_key,
                 tile_rect,
                 focus_ring_alpha,
+                presentation,
             )),
             Some(ScheduledOverlay::Hover) => pending_overlay_passes.push(hover_overlay_for_mode(
                 TileRenderMode::Placeholder,
                 node_key,
                 tile_rect,
+                presentation,
             )),
             None => {}
         }
@@ -545,6 +554,7 @@ pub(crate) fn composite_active_node_pane_webviews(
         "composite_active_node_pane_runtime_viewers: {} tiles",
         active_tile_rects.len()
     );
+    let presentation = active_presentation_profile(graph_app);
     let mut pass_tracker = CompositorPassTracker::new();
     let mut pending_overlay_passes: Vec<OverlayStrokePass> = Vec::new();
     let mut degraded_receipts: Vec<DegradedReceipt> = Vec::new();
@@ -611,6 +621,7 @@ pub(crate) fn composite_active_node_pane_webviews(
                 ctx,
                 window,
                 graph_app,
+                &presentation,
                 tile_rendering_contexts,
                 &mut pass_tracker,
                 &mut pending_overlay_passes,
@@ -632,11 +643,13 @@ pub(crate) fn composite_active_node_pane_webviews(
                 node_key,
                 tile_rect,
                 focus_ring_alpha,
+                &presentation,
             )),
             Some(ScheduledOverlay::Hover) => pending_overlay_passes.push(hover_overlay_for_mode(
                 interaction_render_mode,
                 node_key,
                 tile_rect,
+                &presentation,
             )),
             None => {}
         }
@@ -655,7 +668,7 @@ pub(crate) fn composite_active_node_pane_webviews(
     });
     retain_composited_signature_cache(&active_composited_nodes);
     CompositorAdapter::execute_overlay_affordance_pass(ctx, &pass_tracker, pending_overlay_passes);
-    render_degraded_receipts(ctx, &degraded_receipts);
+    render_degraded_receipts(ctx, &degraded_receipts, &presentation);
 
     #[cfg(feature = "diagnostics")]
     crate::shell::desktop::runtime::diagnostics::emit_span_duration(
@@ -664,7 +677,11 @@ pub(crate) fn composite_active_node_pane_webviews(
     );
 }
 
-fn render_degraded_receipts(ctx: &egui::Context, receipts: &[DegradedReceipt]) {
+fn render_degraded_receipts(
+    ctx: &egui::Context,
+    receipts: &[DegradedReceipt],
+    presentation: &PresentationProfile,
+) {
     if receipts.is_empty() {
         return;
     }
@@ -682,14 +699,14 @@ fn render_degraded_receipts(ctx: &egui::Context, receipts: &[DegradedReceipt]) {
         painter.rect_filled(
             box_rect,
             4.0,
-            egui::Color32::from_rgba_unmultiplied(45, 30, 20, 225),
+            presentation.degraded_receipt_background.to_color32(),
         );
         painter.text(
             box_rect.left_center() + egui::vec2(8.0, 0.0),
             egui::Align2::LEFT_CENTER,
             &receipt.message,
             font.clone(),
-            egui::Color32::from_rgb(255, 210, 120),
+            presentation.degraded_receipt_text.to_color32(),
         );
     }
 }
@@ -743,13 +760,11 @@ fn focus_overlay_for_mode(
     node_key: NodeKey,
     tile_rect: egui::Rect,
     focus_ring_alpha: f32,
+    presentation: &PresentationProfile,
 ) -> OverlayStrokePass {
     let alpha = (focus_ring_alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
     let policy = overlay_affordance_policy_for_render_mode(render_mode);
-    let stroke = Stroke::new(
-        2.0,
-        egui::Color32::from_rgba_unmultiplied(120, 200, 255, alpha),
-    );
+    let stroke = Stroke::new(2.0, presentation.focus_ring.with_alpha(alpha));
 
     OverlayStrokePass {
         node_key,
@@ -765,12 +780,10 @@ fn hover_overlay_for_mode(
     render_mode: TileRenderMode,
     node_key: NodeKey,
     tile_rect: egui::Rect,
+    presentation: &PresentationProfile,
 ) -> OverlayStrokePass {
     let policy = overlay_affordance_policy_for_render_mode(render_mode);
-    let stroke = Stroke::new(
-        1.5,
-        egui::Color32::from_rgba_unmultiplied(180, 180, 190, 180),
-    );
+    let stroke = Stroke::new(1.5, presentation.hover_ring.to_color32());
 
     OverlayStrokePass {
         node_key,
@@ -796,6 +809,12 @@ mod tests {
     use crate::shell::desktop::runtime::diagnostics::DiagnosticsState;
     use crate::shell::desktop::runtime::registries::CHANNEL_COMPOSITOR_FOCUS_ACTIVATION_DEFERRED;
     use crate::shell::desktop::workbench::pane_model::GraphPaneRef;
+
+    fn test_presentation_profile() -> PresentationProfile {
+        crate::registries::domain::presentation::PresentationDomainRegistry::default()
+            .resolve_profile("physics:default", "theme:default")
+            .profile
+    }
 
     fn test_webview_id() -> servo::WebViewId {
         PIPELINE_NAMESPACE.with(|tls| {
@@ -1044,6 +1063,7 @@ mod tests {
             NodeKey::new(702),
             egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 100.0)),
             1.0,
+            &test_presentation_profile(),
         );
 
         assert_eq!(effective_mode, TileRenderMode::Placeholder);
@@ -1138,7 +1158,13 @@ mod tests {
     fn focus_overlay_for_native_overlay_uses_chrome_only_style() {
         let node = NodeKey::new(40);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(110.0, 70.0));
-        let overlay = focus_overlay_for_mode(TileRenderMode::NativeOverlay, node, tile_rect, 1.0);
+        let overlay = focus_overlay_for_mode(
+            TileRenderMode::NativeOverlay,
+            node,
+            tile_rect,
+            1.0,
+            &test_presentation_profile(),
+        );
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::ChromeOnly));
         assert_eq!(overlay.render_mode, TileRenderMode::NativeOverlay);
@@ -1148,8 +1174,13 @@ mod tests {
     fn focus_overlay_for_composited_texture_uses_rect_stroke_style() {
         let node = NodeKey::new(41);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(20.0, 20.0), egui::pos2(120.0, 80.0));
-        let overlay =
-            focus_overlay_for_mode(TileRenderMode::CompositedTexture, node, tile_rect, 1.0);
+        let overlay = focus_overlay_for_mode(
+            TileRenderMode::CompositedTexture,
+            node,
+            tile_rect,
+            1.0,
+            &test_presentation_profile(),
+        );
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
@@ -1159,7 +1190,12 @@ mod tests {
     fn hover_overlay_for_native_overlay_uses_chrome_only_style() {
         let node = NodeKey::new(42);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(30.0, 30.0), egui::pos2(130.0, 90.0));
-        let overlay = hover_overlay_for_mode(TileRenderMode::NativeOverlay, node, tile_rect);
+        let overlay = hover_overlay_for_mode(
+            TileRenderMode::NativeOverlay,
+            node,
+            tile_rect,
+            &test_presentation_profile(),
+        );
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::ChromeOnly));
         assert_eq!(overlay.render_mode, TileRenderMode::NativeOverlay);
@@ -1169,7 +1205,12 @@ mod tests {
     fn hover_overlay_for_composited_texture_uses_rect_stroke_style() {
         let node = NodeKey::new(43);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(40.0, 40.0), egui::pos2(140.0, 100.0));
-        let overlay = hover_overlay_for_mode(TileRenderMode::CompositedTexture, node, tile_rect);
+        let overlay = hover_overlay_for_mode(
+            TileRenderMode::CompositedTexture,
+            node,
+            tile_rect,
+            &test_presentation_profile(),
+        );
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::CompositedTexture);
@@ -1179,7 +1220,13 @@ mod tests {
     fn focus_overlay_for_placeholder_uses_rect_stroke_style() {
         let node = NodeKey::new(44);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(50.0, 50.0), egui::pos2(150.0, 110.0));
-        let overlay = focus_overlay_for_mode(TileRenderMode::Placeholder, node, tile_rect, 1.0);
+        let overlay = focus_overlay_for_mode(
+            TileRenderMode::Placeholder,
+            node,
+            tile_rect,
+            1.0,
+            &test_presentation_profile(),
+        );
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::Placeholder);
@@ -1189,7 +1236,12 @@ mod tests {
     fn hover_overlay_for_embedded_egui_uses_rect_stroke_style() {
         let node = NodeKey::new(45);
         let tile_rect = egui::Rect::from_min_max(egui::pos2(60.0, 60.0), egui::pos2(160.0, 120.0));
-        let overlay = hover_overlay_for_mode(TileRenderMode::EmbeddedEgui, node, tile_rect);
+        let overlay = hover_overlay_for_mode(
+            TileRenderMode::EmbeddedEgui,
+            node,
+            tile_rect,
+            &test_presentation_profile(),
+        );
 
         assert!(matches!(overlay.style, OverlayAffordanceStyle::RectStroke));
         assert_eq!(overlay.render_mode, TileRenderMode::EmbeddedEgui);

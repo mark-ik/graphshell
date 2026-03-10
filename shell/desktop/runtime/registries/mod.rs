@@ -25,6 +25,7 @@ use crate::graph::NodeKey;
 use crate::registries::atomic::ProtocolHandlerProviders;
 use crate::registries::atomic::ViewerHandlerProviders;
 use crate::registries::atomic::diagnostics;
+use crate::registries::atomic::lens::THEME_ID_DEFAULT;
 use crate::registries::atomic::lens::LensRegistry;
 use crate::registries::atomic::protocol::ProtocolContractRegistry;
 use crate::registries::atomic::viewer::{ViewerRegistry, ViewerSelection};
@@ -32,6 +33,9 @@ use crate::registries::domain::layout::ConformanceLevel;
 use crate::registries::domain::layout::LayoutDomainRegistry;
 use crate::registries::domain::layout::viewer_surface::{
     VIEWER_SURFACE_DEFAULT, ViewerSurfaceResolution,
+};
+use crate::registries::domain::presentation::{
+    PresentationDomainProfileResolution, PresentationDomainRegistry,
 };
 use crate::registries::infrastructure::ModRegistry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -301,6 +305,10 @@ pub(crate) const CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED: &str =
 pub(crate) const CHANNEL_CANVAS_PROFILE_ACTIVATED: &str = "registry.canvas.profile_activated";
 pub(crate) const CHANNEL_PHYSICS_PROFILE_ACTIVATED: &str =
     "registry.physics_profile.activated";
+pub(crate) const CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED: &str =
+    "registry.layout_domain.profile_resolved";
+pub(crate) const CHANNEL_PRESENTATION_PROFILE_RESOLVED: &str =
+    "registry.presentation.profile_resolved";
 pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
@@ -330,6 +338,8 @@ pub(crate) struct RegistryRuntime {
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
     canvas: Mutex<CanvasRegistry>,
+    layout_domain: LayoutDomainRegistry,
+    presentation: PresentationDomainRegistry,
     physics_profile: Mutex<PhysicsProfileRegistry>,
     protocol: ProtocolRegistry,
     #[allow(dead_code)]
@@ -503,6 +513,8 @@ impl RegistryRuntime {
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             canvas: Mutex::new(CanvasRegistry::default()),
+            layout_domain: LayoutDomainRegistry::default(),
+            presentation: PresentationDomainRegistry::default(),
             physics_profile: Mutex::new(PhysicsProfileRegistry::default()),
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
@@ -561,6 +573,8 @@ impl RegistryRuntime {
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             canvas: Mutex::new(CanvasRegistry::default()),
+            layout_domain: LayoutDomainRegistry::default(),
+            presentation: PresentationDomainRegistry::default(),
             physics_profile: Mutex::new(PhysicsProfileRegistry::default()),
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
@@ -652,6 +666,105 @@ impl RegistryRuntime {
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_PHYSICS_PROFILE_ACTIVATED,
             byte_len: resolution.resolved_id.len(),
+        });
+        resolution
+    }
+
+    fn resolve_viewer_surface_profile(&self, _viewer_id: &str) -> ViewerSurfaceResolution {
+        let active_canvas = self.resolve_active_canvas_profile();
+        let active_workbench = self.resolve_active_workbench_surface_profile();
+        let profile_resolution = self.layout_domain.resolve_profile(
+            &active_canvas.resolved_id,
+            &active_workbench.resolved_id,
+            VIEWER_SURFACE_DEFAULT,
+        );
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED,
+            byte_len: profile_resolution.viewer_surface.resolved_id.len(),
+        });
+        emit_surface_conformance_diagnostics(
+            profile_resolution
+                .canvas
+                .profile
+                .subsystems
+                .accessibility
+                .level,
+            profile_resolution.canvas.profile.subsystems.security.level,
+            profile_resolution.canvas.profile.subsystems.storage.level,
+            profile_resolution.canvas.profile.subsystems.history.level,
+        );
+        emit_surface_conformance_diagnostics(
+            profile_resolution
+                .workbench_surface
+                .profile
+                .subsystems
+                .accessibility
+                .level,
+            profile_resolution
+                .workbench_surface
+                .profile
+                .subsystems
+                .security
+                .level,
+            profile_resolution
+                .workbench_surface
+                .profile
+                .subsystems
+                .storage
+                .level,
+            profile_resolution
+                .workbench_surface
+                .profile
+                .subsystems
+                .history
+                .level,
+        );
+        emit_surface_conformance_diagnostics(
+            profile_resolution
+                .viewer_surface
+                .profile
+                .subsystems
+                .accessibility
+                .level
+                .clone(),
+            profile_resolution
+                .viewer_surface
+                .profile
+                .subsystems
+                .security
+                .level
+                .clone(),
+            profile_resolution
+                .viewer_surface
+                .profile
+                .subsystems
+                .storage
+                .level
+                .clone(),
+            profile_resolution
+                .viewer_surface
+                .profile
+                .subsystems
+                .history
+                .level
+                .clone(),
+        );
+        profile_resolution.viewer_surface
+    }
+
+    fn resolve_active_presentation_profile(
+        &self,
+        theme_id: Option<&str>,
+    ) -> PresentationDomainProfileResolution {
+        let physics = self.resolve_active_physics_profile();
+        let resolution = self.presentation.resolve_profile(
+            &physics.resolved_id,
+            theme_id.unwrap_or(THEME_ID_DEFAULT),
+        );
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_PRESENTATION_PROFILE_RESOLVED,
+            byte_len: resolution.resolved_profile_id.len(),
         });
         resolution
     }
@@ -1665,60 +1778,7 @@ pub(crate) fn phase0_decide_navigation_with_control(
 }
 
 pub(crate) fn phase3_resolve_viewer_surface_profile(_viewer_id: &str) -> ViewerSurfaceResolution {
-    let layout_domain = LayoutDomainRegistry::default();
-    let active_canvas = runtime().resolve_active_canvas_profile();
-    let active_workbench = runtime().resolve_active_workbench_surface_profile();
-    let profile_resolution = layout_domain.resolve_profile(
-        &active_canvas.resolved_id,
-        &active_workbench.resolved_id,
-        VIEWER_SURFACE_DEFAULT,
-    );
-
-    let resolution = profile_resolution.viewer_surface;
-    emit_surface_conformance_diagnostics(
-        profile_resolution
-            .canvas
-            .profile
-            .subsystems
-            .accessibility
-            .level,
-        profile_resolution.canvas.profile.subsystems.security.level,
-        profile_resolution.canvas.profile.subsystems.storage.level,
-        profile_resolution.canvas.profile.subsystems.history.level,
-    );
-    emit_surface_conformance_diagnostics(
-        profile_resolution
-            .workbench_surface
-            .profile
-            .subsystems
-            .accessibility
-            .level,
-        profile_resolution
-            .workbench_surface
-            .profile
-            .subsystems
-            .security
-            .level,
-        profile_resolution
-            .workbench_surface
-            .profile
-            .subsystems
-            .storage
-            .level,
-        profile_resolution
-            .workbench_surface
-            .profile
-            .subsystems
-            .history
-            .level,
-    );
-    emit_surface_conformance_diagnostics(
-        resolution.profile.subsystems.accessibility.level.clone(),
-        resolution.profile.subsystems.security.level.clone(),
-        resolution.profile.subsystems.storage.level.clone(),
-        resolution.profile.subsystems.history.level.clone(),
-    );
-    resolution
+    runtime().resolve_viewer_surface_profile(_viewer_id)
 }
 
 pub(crate) fn phase3_resolve_active_workbench_surface_profile() -> WorkbenchSurfaceResolution {
@@ -1752,6 +1812,12 @@ pub(crate) fn phase3_set_active_physics_profile(
     profile_id: &str,
 ) -> crate::registries::atomic::lens::PhysicsProfileResolution {
     runtime().set_active_physics_profile(profile_id)
+}
+
+pub(crate) fn phase3_resolve_active_presentation_profile(
+    theme_id: Option<&str>,
+) -> PresentationDomainProfileResolution {
+    runtime().resolve_active_presentation_profile(theme_id)
 }
 
 pub(crate) fn phase3_set_active_workbench_surface_profile(
@@ -2931,6 +2997,31 @@ mod tests {
         assert_eq!(
             fallback.resolved_id,
             physics_profile::PHYSICS_PROFILE_LIQUID
+        );
+    }
+
+    #[test]
+    fn phase3_presentation_profile_tracks_active_physics_and_theme() {
+        phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SOLID);
+
+        let dark = phase3_resolve_active_presentation_profile(Some(
+            crate::registries::atomic::lens::THEME_ID_DARK,
+        ));
+        assert_eq!(dark.physics.resolved_id, physics_profile::PHYSICS_PROFILE_SOLID);
+        assert_eq!(
+            dark.theme.resolved_id,
+            crate::registries::atomic::lens::THEME_ID_DARK
+        );
+        assert_eq!(
+            dark.resolved_profile_id,
+            crate::registries::domain::presentation::PRESENTATION_PROFILE_DARK
+        );
+
+        let fallback = phase3_resolve_active_presentation_profile(Some("theme:missing"));
+        assert!(fallback.theme.fallback_used);
+        assert_eq!(
+            fallback.resolved_profile_id,
+            crate::registries::domain::presentation::PRESENTATION_PROFILE_DEFAULT
         );
     }
 
