@@ -8,9 +8,9 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::services::search::fuzzy_match_node_keys;
 use euclid::default::Point2D;
 
-pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "action.omnibox_node_search";
-pub(crate) const ACTION_GRAPH_VIEW_SUBMIT: &str = "action.graph_view_submit";
-pub(crate) const ACTION_DETAIL_VIEW_SUBMIT: &str = "action.detail_view_submit";
+pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "omnibox:node_search";
+pub(crate) const ACTION_GRAPH_VIEW_SUBMIT: &str = "graph:view_submit";
+pub(crate) const ACTION_DETAIL_VIEW_SUBMIT: &str = "detail:view_submit";
 
 pub(crate) const ACTION_GRAPH_NODE_OPEN: &str = "graph:node_open";
 pub(crate) const ACTION_GRAPH_NODE_CLOSE: &str = "graph:node_close";
@@ -21,10 +21,10 @@ pub(crate) const ACTION_GRAPH_SELECT_NODE: &str = "graph:select_node";
 pub(crate) const ACTION_GRAPH_DESELECT_ALL: &str = "graph:deselect_all";
 
 // Verse sync actions (Step 5.3)
-pub(crate) const ACTION_VERSE_PAIR_DEVICE: &str = "action.verse.pair_device";
-pub(crate) const ACTION_VERSE_SYNC_NOW: &str = "action.verse.sync_now";
-pub(crate) const ACTION_VERSE_SHARE_WORKSPACE: &str = "action.verse.share_workspace";
-pub(crate) const ACTION_VERSE_FORGET_DEVICE: &str = "action.verse.forget_device";
+pub(crate) const ACTION_VERSE_PAIR_DEVICE: &str = "verse:pair_device";
+pub(crate) const ACTION_VERSE_SYNC_NOW: &str = "verse:sync_now";
+pub(crate) const ACTION_VERSE_SHARE_WORKSPACE: &str = "verse:share_workspace";
+pub(crate) const ACTION_VERSE_FORGET_DEVICE: &str = "verse:forget_device";
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActionPayload {
@@ -126,6 +126,12 @@ pub(crate) struct ActionRegistry {
 
 impl ActionRegistry {
     pub(crate) fn register(&mut self, action_id: &str, handler: ActionHandler) {
+        if !is_namespaced_action_id(action_id) {
+            log::warn!(
+                "action_registry: key {:?} does not follow namespace:name format",
+                action_id
+            );
+        }
         self.handlers
             .insert(action_id.to_ascii_lowercase(), handler);
     }
@@ -146,6 +152,18 @@ impl ActionRegistry {
             reason: format!("unknown action: {normalized_action_id}"),
         })
     }
+}
+
+fn is_namespaced_action_id(action_id: &str) -> bool {
+    let mut segments = action_id.split(':');
+    let Some(namespace) = segments.next() else {
+        return false;
+    };
+    let Some(name) = segments.next() else {
+        return false;
+    };
+
+    !namespace.is_empty() && !name.is_empty() && segments.next().is_none()
 }
 
 impl Default for ActionRegistry {
@@ -580,7 +598,7 @@ mod tests {
         let app = GraphBrowserApp::new_for_testing();
         let registry = ActionRegistry::default();
         let execution = registry.execute(
-            "action.unknown",
+            "unknown:action",
             &app,
             ActionPayload::OmniboxNodeSearch {
                 query: "payload".to_string(),
@@ -861,5 +879,20 @@ mod tests {
             Some(GraphIntent::UpdateSelection { keys, mode })
                 if keys.is_empty() && *mode == SelectionUpdateMode::Replace
         ));
+    }
+
+    #[test]
+    fn action_registry_requires_namespace_name_keys() {
+        assert!(is_namespaced_action_id(ACTION_OMNIBOX_NODE_SEARCH));
+        assert!(is_namespaced_action_id(ACTION_GRAPH_VIEW_SUBMIT));
+        assert!(is_namespaced_action_id(ACTION_DETAIL_VIEW_SUBMIT));
+        assert!(is_namespaced_action_id(ACTION_GRAPH_NODE_OPEN));
+        assert!(is_namespaced_action_id(ACTION_GRAPH_EDGE_CREATE));
+        assert!(is_namespaced_action_id(ACTION_VERSE_PAIR_DEVICE));
+        assert!(!is_namespaced_action_id("action.invalid.dot"));
+        assert!(!is_namespaced_action_id("missing_colon"));
+        assert!(!is_namespaced_action_id("namespace:"));
+        assert!(!is_namespaced_action_id(":name"));
+        assert!(!is_namespaced_action_id("too:many:segments"));
     }
 }

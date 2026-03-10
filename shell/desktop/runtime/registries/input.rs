@@ -2,23 +2,23 @@ use std::collections::{HashMap, hash_map::Entry};
 use std::str::FromStr;
 
 pub(crate) const INPUT_BINDING_TOOLBAR_SUBMIT: &str = "input.toolbar.submit";
-pub(crate) const ACTION_TOOLBAR_SUBMIT: &str = "action.toolbar.submit";
+pub(crate) const ACTION_TOOLBAR_SUBMIT: &str = "toolbar:submit";
 pub(crate) const INPUT_BINDING_TOOLBAR_NAV_BACK: &str = "input.toolbar.nav.back";
 pub(crate) const INPUT_BINDING_TOOLBAR_NAV_FORWARD: &str = "input.toolbar.nav.forward";
 pub(crate) const INPUT_BINDING_TOOLBAR_NAV_RELOAD: &str = "input.toolbar.nav.reload";
-pub(crate) const ACTION_TOOLBAR_NAV_BACK: &str = "action.toolbar.nav.back";
-pub(crate) const ACTION_TOOLBAR_NAV_FORWARD: &str = "action.toolbar.nav.forward";
-pub(crate) const ACTION_TOOLBAR_NAV_RELOAD: &str = "action.toolbar.nav.reload";
-pub(crate) const ACTION_GRAPH_VIEW_CONFIRM: &str = "action.graph_view.confirm";
-pub(crate) const ACTION_GRAPH_CYCLE_FOCUS_REGION: &str = "action.graph.cycle_focus_region";
-pub(crate) const ACTION_GRAPH_COMMAND_PALETTE_OPEN: &str = "action.graph.command_palette_open";
-pub(crate) const ACTION_GRAPH_RADIAL_MENU_OPEN: &str = "action.graph.radial_menu_open";
-pub(crate) const ACTION_RADIAL_MENU_CATEGORY_PREVIOUS: &str = "action.radial_menu.category_previous";
-pub(crate) const ACTION_RADIAL_MENU_CATEGORY_NEXT: &str = "action.radial_menu.category_next";
-pub(crate) const ACTION_RADIAL_MENU_SELECTION_PREVIOUS: &str = "action.radial_menu.selection_previous";
-pub(crate) const ACTION_RADIAL_MENU_SELECTION_NEXT: &str = "action.radial_menu.selection_next";
-pub(crate) const ACTION_RADIAL_MENU_CONFIRM: &str = "action.radial_menu.confirm";
-pub(crate) const ACTION_RADIAL_MENU_CANCEL: &str = "action.radial_menu.cancel";
+pub(crate) const ACTION_TOOLBAR_NAV_BACK: &str = "toolbar:navigate_back";
+pub(crate) const ACTION_TOOLBAR_NAV_FORWARD: &str = "toolbar:navigate_forward";
+pub(crate) const ACTION_TOOLBAR_NAV_RELOAD: &str = "toolbar:navigate_reload";
+pub(crate) const ACTION_GRAPH_VIEW_CONFIRM: &str = "graph:view_confirm";
+pub(crate) const ACTION_GRAPH_CYCLE_FOCUS_REGION: &str = "graph:cycle_focus_region";
+pub(crate) const ACTION_GRAPH_COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
+pub(crate) const ACTION_GRAPH_RADIAL_MENU_OPEN: &str = "workbench:radial_menu_open";
+pub(crate) const ACTION_RADIAL_MENU_CATEGORY_PREVIOUS: &str = "radial_menu:category_previous";
+pub(crate) const ACTION_RADIAL_MENU_CATEGORY_NEXT: &str = "radial_menu:category_next";
+pub(crate) const ACTION_RADIAL_MENU_SELECTION_PREVIOUS: &str = "radial_menu:selection_previous";
+pub(crate) const ACTION_RADIAL_MENU_SELECTION_NEXT: &str = "radial_menu:selection_next";
+pub(crate) const ACTION_RADIAL_MENU_CONFIRM: &str = "radial_menu:confirm";
+pub(crate) const ACTION_RADIAL_MENU_CANCEL: &str = "radial_menu:cancel";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModifierMask(u8);
@@ -713,6 +713,18 @@ impl Default for InputRegistry {
 mod tests {
     use super::*;
 
+    fn is_namespaced_action_id(action_id: &str) -> bool {
+        let mut segments = action_id.split(':');
+        let Some(namespace) = segments.next() else {
+            return false;
+        };
+        let Some(name) = segments.next() else {
+            return false;
+        };
+
+        !namespace.is_empty() && !name.is_empty() && segments.next().is_none()
+    }
+
     #[test]
     fn input_registry_resolves_toolbar_submit_binding() {
         let registry = InputRegistry::default();
@@ -960,5 +972,27 @@ mod tests {
                 .as_deref(),
             Some(ACTION_TOOLBAR_NAV_BACK)
         );
+    }
+
+    #[test]
+    fn input_registry_action_ids_follow_namespace_name_format() {
+        for action_id in [
+            ACTION_TOOLBAR_SUBMIT,
+            ACTION_TOOLBAR_NAV_BACK,
+            ACTION_TOOLBAR_NAV_FORWARD,
+            ACTION_TOOLBAR_NAV_RELOAD,
+            ACTION_GRAPH_VIEW_CONFIRM,
+            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+            ACTION_GRAPH_RADIAL_MENU_OPEN,
+            ACTION_RADIAL_MENU_CATEGORY_PREVIOUS,
+            ACTION_RADIAL_MENU_CATEGORY_NEXT,
+            ACTION_RADIAL_MENU_SELECTION_PREVIOUS,
+            ACTION_RADIAL_MENU_SELECTION_NEXT,
+            ACTION_RADIAL_MENU_CONFIRM,
+            ACTION_RADIAL_MENU_CANCEL,
+        ] {
+            assert!(is_namespaced_action_id(action_id), "{action_id}");
+        }
     }
 }
