@@ -35,18 +35,20 @@ impl GraphBrowserApp {
         from_key: NodeKey,
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
+        edge_label: Option<String>,
     ) -> Option<crate::graph::EdgeKey> {
         let GraphDeltaResult::EdgeAdded(edge_key) =
             self.apply_graph_delta_and_sync(GraphDelta::AddEdge {
                 from: from_key,
                 to: to_key,
                 edge_type,
+                edge_label: edge_label.clone(),
             })
         else {
             unreachable!("add edge delta must return EdgeAdded");
         };
         if edge_key.is_some() {
-            self.log_edge_mutation(from_key, to_key, edge_type);
+            self.log_edge_mutation(from_key, to_key, edge_type, edge_label);
             self.workspace.physics.base.is_running = true;
             self.workspace.drag_release_frames_remaining = 0;
         }
@@ -108,6 +110,7 @@ impl GraphBrowserApp {
         from_key: NodeKey,
         to_key: NodeKey,
         edge_type: crate::graph::EdgeType,
+        edge_label: Option<String>,
     ) {
         if let Some(store) = &mut self.services.persistence {
             let from_id = self
@@ -134,6 +137,7 @@ impl GraphBrowserApp {
                 from_node_id,
                 to_node_id,
                 edge_type: persisted_type,
+                edge_label,
             });
         }
     }
@@ -301,7 +305,7 @@ impl GraphBrowserApp {
         });
 
         if !history_semantic_existed {
-            self.log_edge_mutation(from_key, to_key, EdgeType::History);
+            self.log_edge_mutation(from_key, to_key, EdgeType::History, None);
         }
         self.log_traversal_mutation(from_key, to_key, traversal);
         self.workspace.physics.base.is_running = true;
@@ -359,7 +363,12 @@ impl GraphBrowserApp {
         self.update_history_failure(reason, detail)
     }
 
-    pub(crate) fn add_user_grouped_edge_if_missing(&mut self, from: NodeKey, to: NodeKey) {
+    pub(crate) fn add_user_grouped_edge_if_missing(
+        &mut self,
+        from: NodeKey,
+        to: NodeKey,
+        label: Option<String>,
+    ) {
         if from == to {
             return;
         }
@@ -372,7 +381,7 @@ impl GraphBrowserApp {
             edge.edge_type == EdgeType::UserGrouped && edge.from == from && edge.to == to
         });
         if !already_grouped {
-            let _ = self.add_edge_and_sync(from, to, EdgeType::UserGrouped);
+            let _ = self.add_edge_and_sync(from, to, EdgeType::UserGrouped, label);
         }
     }
 
@@ -383,7 +392,7 @@ impl GraphBrowserApp {
         };
         let to = selection.iter().copied().find(|key| *key != from);
         if let Some(to) = to {
-            self.add_user_grouped_edge_if_missing(from, to);
+            self.add_user_grouped_edge_if_missing(from, to, None);
         }
     }
 
@@ -414,8 +423,8 @@ impl GraphBrowserApp {
                     let pair = if a < b { (a, b) } else { (b, a) };
                     if !created_pairs.contains(&pair) {
                         created_pairs.insert(pair);
-                        self.add_user_grouped_edge_if_missing(a, b);
-                        self.add_user_grouped_edge_if_missing(b, a);
+                        self.add_user_grouped_edge_if_missing(a, b, None);
+                        self.add_user_grouped_edge_if_missing(b, a, None);
                     }
                 }
             }
@@ -430,24 +439,50 @@ impl GraphBrowserApp {
         match command {
             EdgeCommand::ConnectSelectedPair => self
                 .selected_pair_in_order()
-                .map(|(from, to)| vec![GraphIntent::CreateUserGroupedEdge { from, to }])
+                .map(|(from, to)| {
+                    vec![GraphIntent::CreateUserGroupedEdge {
+                        from,
+                        to,
+                        label: None,
+                    }]
+                })
                 .unwrap_or_default(),
             EdgeCommand::ConnectPair { from, to } => {
-                vec![GraphIntent::CreateUserGroupedEdge { from, to }]
+                vec![GraphIntent::CreateUserGroupedEdge {
+                    from,
+                    to,
+                    label: None,
+                }]
             }
             EdgeCommand::ConnectBothDirections => self
                 .selected_pair_in_order()
                 .map(|(from, to)| {
                     vec![
-                        GraphIntent::CreateUserGroupedEdge { from, to },
-                        GraphIntent::CreateUserGroupedEdge { from: to, to: from },
+                        GraphIntent::CreateUserGroupedEdge {
+                            from,
+                            to,
+                            label: None,
+                        },
+                        GraphIntent::CreateUserGroupedEdge {
+                            from: to,
+                            to: from,
+                            label: None,
+                        },
                     ]
                 })
                 .unwrap_or_default(),
             EdgeCommand::ConnectBothDirectionsPair { a, b } => {
                 vec![
-                    GraphIntent::CreateUserGroupedEdge { from: a, to: b },
-                    GraphIntent::CreateUserGroupedEdge { from: b, to: a },
+                    GraphIntent::CreateUserGroupedEdge {
+                        from: a,
+                        to: b,
+                        label: None,
+                    },
+                    GraphIntent::CreateUserGroupedEdge {
+                        from: b,
+                        to: a,
+                        label: None,
+                    },
                 ]
             }
             EdgeCommand::RemoveUserEdge => self

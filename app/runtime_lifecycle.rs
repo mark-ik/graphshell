@@ -24,7 +24,7 @@ impl GraphBrowserApp {
             self.workspace.pending_host_create_tokens.insert(child_node, token);
         }
         if let Some(parent_key) = parent_node {
-            let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
+            let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink, None);
         }
     }
 
@@ -70,7 +70,7 @@ impl GraphBrowserApp {
             },
         ]);
         if let Some(parent_key) = parent_node {
-            let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink);
+            let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink, None);
         }
     }
 

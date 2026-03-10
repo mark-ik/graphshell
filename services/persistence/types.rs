@@ -128,6 +128,7 @@ pub struct PersistedEdge {
     pub from_node_id: String,
     pub to_node_id: String,
     pub edge_type: PersistedEdgeType,
+    pub edge_label: Option<String>,
 }
 
 /// Full graph snapshot for periodic saves.
@@ -151,6 +152,7 @@ pub enum LogEntry {
         from_node_id: String,
         to_node_id: String,
         edge_type: PersistedEdgeType,
+        edge_label: Option<String>,
     },
     RemoveEdge {
         from_node_id: String,
@@ -269,6 +271,7 @@ mod tests {
             from_node_id: Uuid::new_v4().to_string(),
             to_node_id: Uuid::new_v4().to_string(),
             edge_type: PersistedEdgeType::Hyperlink,
+            edge_label: None,
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&edge).unwrap();
@@ -284,6 +287,7 @@ mod tests {
             from_node_id: Uuid::new_v4().to_string(),
             to_node_id: Uuid::new_v4().to_string(),
             edge_type: PersistedEdgeType::UserGrouped,
+            edge_label: Some("tab-group".to_string()),
         };
 
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&edge).unwrap();

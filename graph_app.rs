@@ -1941,7 +1941,7 @@ impl GraphBrowserApp {
             | GraphMutation::CreateNodeAtUrlAndOpen { .. } => true,
             GraphMutation::RemoveSelectedNodes => !self.focused_selection().is_empty(),
             GraphMutation::ClearGraph => self.workspace.domain.graph.node_count() > 0,
-            GraphMutation::CreateUserGroupedEdge { from, to } => {
+            GraphMutation::CreateUserGroupedEdge { from, to, .. } => {
                 self.would_create_user_grouped_edge(from, to)
             }
             GraphMutation::CreateUserGroupedEdgeFromPrimarySelection => self
@@ -2048,6 +2048,12 @@ impl GraphBrowserApp {
             return;
         }
 
+        if let Some(bridge_name) = intent.workbench_authority_bridge_name() {
+            log::warn!(
+                "workbench-authority bridge intent reached apply_reducer_intents(): {bridge_name}; forwarding to pending workbench intents"
+            );
+        }
+
         if allow_undo_capture && self.should_capture_undo_checkpoint_for_intent(&intent) {
             self.capture_undo_checkpoint_internal(
                 self.current_undo_checkpoint_layout_json(),
@@ -2115,6 +2121,18 @@ impl GraphBrowserApp {
             GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
             GraphIntent::ToggleCommandPalette => self.toggle_command_palette(),
             GraphIntent::ToggleRadialMenu => self.toggle_radial_menu(),
+            GraphIntent::TraverseBack => {
+                let target = BrowserCommandTarget::ChromeProjection {
+                    fallback_node: self.focused_selection().primary(),
+                };
+                self.request_browser_command(target, BrowserCommand::Back);
+            }
+            GraphIntent::TraverseForward => {
+                let target = BrowserCommandTarget::ChromeProjection {
+                    fallback_node: self.focused_selection().primary(),
+                };
+                self.request_browser_command(target, BrowserCommand::Forward);
+            }
             GraphIntent::EnterGraphViewLayoutManager => {
                 self.workspace.graph_view_layout_manager.active = true;
                 self.persist_graph_view_layout_manager_state();
@@ -2237,8 +2255,8 @@ impl GraphBrowserApp {
             } => {
                 self.apply_open_node_workspace_routed(key, prefer_workspace);
             }
-            GraphIntent::CreateUserGroupedEdge { from, to } => {
-                self.add_user_grouped_edge_if_missing(from, to);
+            GraphIntent::CreateUserGroupedEdge { from, to, label } => {
+                self.add_user_grouped_edge_if_missing(from, to, label);
             }
             GraphIntent::RemoveEdge {
                 from,
@@ -5878,8 +5896,8 @@ mod tests {
             .find_edge_key(a, b)
             .expect("traversal edge from a to b should exist");
         let payload = app.workspace.domain.graph.get_edge(edge_key).unwrap();
-        assert_eq!(payload.traversals.len(), 1);
-        assert_eq!(payload.traversals[0].trigger, NavigationTrigger::Unknown);
+        assert_eq!(payload.traversals().len(), 1);
+        assert_eq!(payload.traversals()[0].trigger, NavigationTrigger::Unknown);
         // No self-loop on b — confirms prior URL was captured before mutation.
         assert!(app.workspace.domain.graph.find_edge_key(b, b).is_none());
     }
@@ -6152,8 +6170,8 @@ mod tests {
             .find_edge_key(b, a)
             .expect("back traversal edge");
         let back_payload = app.workspace.domain.graph.get_edge(back_edge_key).unwrap();
-        assert_eq!(back_payload.traversals.len(), 1);
-        assert_eq!(back_payload.traversals[0].trigger, NavigationTrigger::Back);
+        assert_eq!(back_payload.traversals().len(), 1);
+        assert_eq!(back_payload.traversals()[0].trigger, NavigationTrigger::Back);
 
         let forward_edge_key = app
             .workspace
@@ -6167,9 +6185,9 @@ mod tests {
             .graph
             .get_edge(forward_edge_key)
             .unwrap();
-        assert_eq!(forward_payload.traversals.len(), 1);
+        assert_eq!(forward_payload.traversals().len(), 1);
         assert_eq!(
-            forward_payload.traversals[0].trigger,
+            forward_payload.traversals()[0].trigger,
             NavigationTrigger::Forward
         );
 
@@ -6180,8 +6198,8 @@ mod tests {
         }]);
 
         let back_payload = app.workspace.domain.graph.get_edge(back_edge_key).unwrap();
-        assert_eq!(back_payload.traversals.len(), 2);
-        assert_eq!(back_payload.traversals[1].trigger, NavigationTrigger::Back);
+        assert_eq!(back_payload.traversals().len(), 2);
+        assert_eq!(back_payload.traversals()[1].trigger, NavigationTrigger::Back);
     }
 
     #[test]
@@ -6217,7 +6235,7 @@ mod tests {
             .graph
             .get_edge(edge_key)
             .expect("edge payload")
-            .traversals
+            .traversals()
             .len();
 
         app.apply_reducer_intents([GraphIntent::SetHighlightedEdge { from: a, to: b }]);
@@ -6229,7 +6247,7 @@ mod tests {
             .graph
             .get_edge(edge_key)
             .expect("edge payload")
-            .traversals
+            .traversals()
             .len();
         assert_eq!(before, after);
     }
@@ -6639,7 +6657,11 @@ mod tests {
             .graph
             .add_node("https://to.com".into(), Point2D::new(10.0, 0.0));
 
-        app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge { from, to }]);
+        app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge {
+            from,
+            to,
+            label: None,
+        }]);
 
         let count = app
             .workspace
@@ -6666,8 +6688,16 @@ mod tests {
             .add_node("https://to.com".into(), Point2D::new(10.0, 0.0));
 
         app.apply_reducer_intents([
-            GraphIntent::CreateUserGroupedEdge { from, to },
-            GraphIntent::CreateUserGroupedEdge { from, to },
+            GraphIntent::CreateUserGroupedEdge {
+                from,
+                to,
+                label: None,
+            },
+            GraphIntent::CreateUserGroupedEdge {
+                from,
+                to,
+                label: None,
+            },
         ]);
 
         let count = app
@@ -6768,8 +6798,8 @@ mod tests {
             .graph
             .add_node("https://to.com".into(), Point2D::new(10.0, 0.0));
 
-        app.add_user_grouped_edge_if_missing(from, to);
-        app.add_user_grouped_edge_if_missing(to, from);
+        app.add_user_grouped_edge_if_missing(from, to, None);
+        app.add_user_grouped_edge_if_missing(to, from, None);
         app.select_node(from, false);
         app.select_node(to, true);
         app.workspace.physics.base.is_running = false;
@@ -6914,8 +6944,8 @@ mod tests {
         let from = app.add_node_and_sync("https://from.com".into(), Point2D::new(0.0, 0.0));
         let to = app.add_node_and_sync("https://to.com".into(), Point2D::new(100.0, 0.0));
 
-        let _ = app.add_edge_and_sync(from, to, EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped);
+        let _ = app.add_edge_and_sync(from, to, EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
 
         app.apply_reducer_intents([GraphIntent::RemoveEdge {
             from,
@@ -6945,11 +6975,11 @@ mod tests {
         let from = app.add_node_and_sync("https://from.com".into(), Point2D::new(0.0, 0.0));
         let to = app.add_node_and_sync("https://to.com".into(), Point2D::new(100.0, 0.0));
 
-        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped);
-        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped);
+        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
+        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
 
         let removed = app.remove_edges_and_log(from, to, EdgeType::UserGrouped);
-        assert_eq!(removed, 2);
+        assert_eq!(removed, 1);
         assert_eq!(
             app.workspace
                 .domain
@@ -8367,6 +8397,7 @@ mod tests {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
                 edge_type: PersistedEdgeType::Hyperlink,
+                edge_label: None,
             });
         }
 
@@ -8958,10 +8989,17 @@ mod tests {
             .graph
             .add_node("https://b.example".to_string(), Point2D::new(10.0, 0.0));
 
-        app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge { from, to }]);
+        app.apply_reducer_intents([GraphIntent::CreateUserGroupedEdge {
+            from,
+            to,
+            label: Some("registry-label".to_string()),
+        }]);
         assert!(app.workspace.domain.graph.edges().any(|edge| {
             edge.from == from && edge.to == to && edge.edge_type == EdgeType::UserGrouped
         }));
+        let edge_key = app.workspace.domain.graph.find_edge_key(from, to).unwrap();
+        let payload = app.workspace.domain.graph.get_edge(edge_key).unwrap();
+        assert_eq!(payload.label(), Some("registry-label"));
         assert_eq!(app.undo_stack_len(), 1);
 
         app.apply_reducer_intents([GraphIntent::Undo]);
@@ -9237,6 +9275,22 @@ mod tests {
                 mode: PendingTileOpenMode::SplitHorizontal
             }] if *routed == view_id
         ));
+    }
+
+    #[test]
+    fn workbench_authority_bridge_intent_is_classified_for_reducer_warning() {
+        assert_eq!(
+            GraphIntent::RouteGraphViewToWorkbench {
+                view_id: GraphViewId::new(),
+                mode: PendingTileOpenMode::SplitHorizontal,
+            }
+            .workbench_authority_bridge_name(),
+            Some("RouteGraphViewToWorkbench")
+        );
+        assert_eq!(
+            GraphIntent::CreateNodeNearCenter.workbench_authority_bridge_name(),
+            None
+        );
     }
 
     #[test]

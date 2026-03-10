@@ -1341,6 +1341,7 @@ impl GraphStore {
                     from_node_id,
                     to_node_id,
                     edge_type,
+                    edge_label,
                 } => {
                     let Ok(from_node_id) = Uuid::parse_str(from_node_id.as_str()) else {
                         continue;
@@ -1365,6 +1366,7 @@ impl GraphStore {
                             from_id: from_node_id,
                             to_id: to_node_id,
                             edge_type: et,
+                            edge_label: edge_label.as_ref().map(|label| label.to_string()),
                         },
                     );
                 }
@@ -1654,6 +1656,7 @@ mod tests {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
                 edge_type: types::PersistedEdgeType::Hyperlink,
+                edge_label: None,
             });
         }
 
@@ -1694,6 +1697,7 @@ mod tests {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
                 edge_type: types::PersistedEdgeType::UserGrouped,
+                edge_label: None,
             });
         }
 
@@ -1702,6 +1706,46 @@ mod tests {
             let graph = store.recover().unwrap();
             let has_user_grouped = graph.edges().any(|e| e.edge_type == EdgeType::UserGrouped);
             assert!(has_user_grouped);
+        }
+    }
+
+    #[test]
+    fn test_log_and_recover_user_grouped_edge_label() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+        let id_a = Uuid::new_v4();
+        let id_b = Uuid::new_v4();
+
+        {
+            let mut store = GraphStore::open(path.clone()).unwrap();
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: id_a.to_string(),
+                url: "https://a.com".to_string(),
+                position_x: 10.0,
+                position_y: 20.0,
+            });
+            store.log_mutation(&LogEntry::AddNode {
+                node_id: id_b.to_string(),
+                url: "https://b.com".to_string(),
+                position_x: 30.0,
+                position_y: 40.0,
+            });
+            store.log_mutation(&LogEntry::AddEdge {
+                from_node_id: id_a.to_string(),
+                to_node_id: id_b.to_string(),
+                edge_type: types::PersistedEdgeType::UserGrouped,
+                edge_label: Some("tab-group".to_string()),
+            });
+        }
+
+        {
+            let store = GraphStore::open(path).unwrap();
+            let graph = store.recover().unwrap();
+            let (from_key, _) = graph.get_node_by_url("https://a.com").unwrap();
+            let (to_key, _) = graph.get_node_by_url("https://b.com").unwrap();
+            let edge_key = graph.find_edge_key(from_key, to_key).unwrap();
+            let payload = graph.get_edge(edge_key).unwrap();
+            assert_eq!(payload.label(), Some("tab-group"));
         }
     }
 
@@ -1811,6 +1855,7 @@ mod tests {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
                 edge_type: types::PersistedEdgeType::UserGrouped,
+                edge_label: None,
             });
             store.log_mutation(&LogEntry::RemoveEdge {
                 from_node_id: id_a.to_string(),
@@ -1852,6 +1897,7 @@ mod tests {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
                 edge_type: types::PersistedEdgeType::History,
+                edge_label: None,
             });
             store.log_mutation(&LogEntry::AppendTraversal {
                 from_node_id: id_a.to_string(),
@@ -1867,10 +1913,10 @@ mod tests {
         let (to_key, _) = graph.get_node_by_url("https://b.com").unwrap();
         let edge_key = graph.find_edge_key(from_key, to_key).unwrap();
         let payload = graph.get_edge(edge_key).unwrap();
-        assert_eq!(payload.traversals.len(), 1);
-        assert_eq!(payload.traversals[0].timestamp_ms, 42);
+        assert_eq!(payload.traversals().len(), 1);
+        assert_eq!(payload.traversals()[0].timestamp_ms, 42);
         assert_eq!(
-            payload.traversals[0].trigger,
+            payload.traversals()[0].trigger,
             crate::graph::NavigationTrigger::Back
         );
         assert!(
@@ -1892,7 +1938,7 @@ mod tests {
             graph.add_node("https://b.com".to_string(), Point2D::new(300.0, 400.0));
             let (n1, _) = graph.get_node_by_url("https://a.com").unwrap();
             let (n2, _) = graph.get_node_by_url("https://b.com").unwrap();
-            graph.add_edge(n1, n2, EdgeType::Hyperlink);
+            graph.add_edge(n1, n2, EdgeType::Hyperlink, None);
 
             store.take_snapshot(&graph);
         }
@@ -2465,6 +2511,7 @@ mod tests {
                 from_node_id: id_a.to_string(),
                 to_node_id: id_b.to_string(),
                 edge_type: types::PersistedEdgeType::History,
+                edge_label: None,
             });
 
             // Archive traversal events
@@ -2505,18 +2552,18 @@ mod tests {
             // Verify traversal events were recovered from archive.
             // History edges now store only real traversal events.
             assert_eq!(
-                edge_payload.traversals.len(),
+                edge_payload.traversals().len(),
                 2,
                 "Recovery scan should populate 2 archived traversals"
             );
-            assert_eq!(edge_payload.traversals[0].timestamp_ms, 1000);
+            assert_eq!(edge_payload.traversals()[0].timestamp_ms, 1000);
             assert_eq!(
-                edge_payload.traversals[0].trigger,
+                edge_payload.traversals()[0].trigger,
                 crate::graph::NavigationTrigger::Forward
             );
-            assert_eq!(edge_payload.traversals[1].timestamp_ms, 2000);
+            assert_eq!(edge_payload.traversals()[1].timestamp_ms, 2000);
             assert_eq!(
-                edge_payload.traversals[1].trigger,
+                edge_payload.traversals()[1].trigger,
                 crate::graph::NavigationTrigger::Back
             );
         }
@@ -2533,7 +2580,7 @@ mod tests {
 
         // Add History edge with traversals
         let edge_key = graph
-            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .add_edge(n1, n2, crate::graph::EdgeType::History, None)
             .unwrap();
 
         // Add some traversals
@@ -2549,7 +2596,7 @@ mod tests {
         }
 
         // Verify edge exists with 2 traversals.
-        assert_eq!(graph.get_edge(edge_key).unwrap().traversals.len(), 2);
+        assert_eq!(graph.get_edge(edge_key).unwrap().traversals().len(), 2);
         assert_eq!(store.dissolved_archive_len(), 0);
 
         // Remove edges with dissolution transfer
@@ -2577,10 +2624,10 @@ mod tests {
 
         // Add History edges with traversals
         let e1 = graph
-            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .add_edge(n1, n2, crate::graph::EdgeType::History, None)
             .unwrap();
         let e2 = graph
-            .add_edge(n2, n3, crate::graph::EdgeType::History)
+            .add_edge(n2, n3, crate::graph::EdgeType::History, None)
             .unwrap();
 
         // Add traversals to both edges
@@ -2598,8 +2645,8 @@ mod tests {
         }
 
         // Each edge has 1 traversal.
-        assert_eq!(graph.get_edge(e1).unwrap().traversals.len(), 1);
-        assert_eq!(graph.get_edge(e2).unwrap().traversals.len(), 1);
+        assert_eq!(graph.get_edge(e1).unwrap().traversals().len(), 1);
+        assert_eq!(graph.get_edge(e2).unwrap().traversals().len(), 1);
         assert_eq!(store.dissolved_archive_len(), 0);
 
         // Remove middle node with dissolution transfer
@@ -2626,7 +2673,7 @@ mod tests {
         let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
 
         let edge_key = graph
-            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .add_edge(n1, n2, crate::graph::EdgeType::History, None)
             .unwrap();
 
         if let Some(payload) = graph.get_edge_mut(edge_key) {
@@ -2661,7 +2708,7 @@ mod tests {
         let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
 
         let edge_key = graph
-            .add_edge(n1, n2, crate::graph::EdgeType::History)
+            .add_edge(n1, n2, crate::graph::EdgeType::History, None)
             .unwrap();
         if let Some(payload) = graph.get_edge_mut(edge_key) {
             payload.push_traversal(crate::graph::Traversal {
@@ -2689,7 +2736,7 @@ mod tests {
 
         // Add Hyperlink edge (no traversals)
         let _ = graph
-            .add_edge(n1, n2, crate::graph::EdgeType::Hyperlink)
+            .add_edge(n1, n2, crate::graph::EdgeType::Hyperlink, None)
             .unwrap();
 
         assert_eq!(store.dissolved_archive_len(), 0);

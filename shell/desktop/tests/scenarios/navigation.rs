@@ -54,8 +54,8 @@ fn webview_url_changed_appends_traversal_between_known_nodes_without_self_loop()
         .graph
         .get_edge(edge_key)
         .expect("edge payload should exist");
-    assert_eq!(edge.traversals.len(), 1);
-    assert_eq!(edge.traversals[0].trigger, NavigationTrigger::Unknown);
+    assert_eq!(edge.traversals().len(), 1);
+    assert_eq!(edge.traversals()[0].trigger, NavigationTrigger::Unknown);
     assert!(
         harness
             .app
@@ -174,9 +174,9 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
             .edges()
             .any(|edge| { edge.edge_type == EdgeType::History && edge.from == b && edge.to == a })
     );
-    assert_eq!(back_edge.traversals.len(), 2);
-    assert_eq!(back_edge.traversals[0].trigger, NavigationTrigger::Back);
-    assert_eq!(back_edge.traversals[1].trigger, NavigationTrigger::Back);
+    assert_eq!(back_edge.traversals().len(), 2);
+    assert_eq!(back_edge.traversals()[0].trigger, NavigationTrigger::Back);
+    assert_eq!(back_edge.traversals()[1].trigger, NavigationTrigger::Back);
 
     let forward_edge_key = harness
         .app
@@ -201,9 +201,9 @@ fn webview_history_changed_adds_back_then_forward_traversals_with_repeat_counts(
             .edges()
             .any(|edge| { edge.edge_type == EdgeType::History && edge.from == a && edge.to == b })
     );
-    assert_eq!(forward_edge.traversals.len(), 1);
+    assert_eq!(forward_edge.traversals().len(), 1);
     assert_eq!(
-        forward_edge.traversals[0].trigger,
+        forward_edge.traversals()[0].trigger,
         NavigationTrigger::Forward
     );
 }

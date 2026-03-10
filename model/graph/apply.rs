@@ -18,6 +18,7 @@ pub enum GraphDelta {
         from: NodeKey,
         to: NodeKey,
         edge_type: EdgeType,
+        edge_label: Option<String>,
     },
     RemoveNode {
         key: NodeKey,
@@ -31,6 +32,7 @@ pub enum GraphDelta {
         from_id: Uuid,
         to_id: Uuid,
         edge_type: EdgeType,
+        edge_label: Option<String>,
     },
     ReplayRemoveNodeById {
         node_id: Uuid,
@@ -110,7 +112,8 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
             from,
             to,
             edge_type,
-        } => GraphDeltaResult::EdgeAdded(graph.add_edge(from, to, edge_type)),
+            edge_label,
+        } => GraphDeltaResult::EdgeAdded(graph.add_edge(from, to, edge_type, edge_label)),
         GraphDelta::RemoveNode { key } => GraphDeltaResult::NodeRemoved(graph.remove_node(key)),
         GraphDelta::ReplayAddNodeWithIdIfMissing { id, url, position } => {
             GraphDeltaResult::NodeMaybeAdded(
@@ -121,7 +124,13 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
             from_id,
             to_id,
             edge_type,
-        } => GraphDeltaResult::EdgeAdded(graph.replay_add_edge_by_ids(from_id, to_id, edge_type)),
+            edge_label,
+        } => GraphDeltaResult::EdgeAdded(graph.replay_add_edge_by_ids(
+            from_id,
+            to_id,
+            edge_type,
+            edge_label,
+        )),
         GraphDelta::ReplayRemoveNodeById { node_id } => {
             GraphDeltaResult::NodeRemoved(graph.replay_remove_node_by_id(node_id))
         }

@@ -1,13 +1,24 @@
 use std::collections::HashMap;
 
-use crate::app::{GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent};
+use crate::app::{
+    GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent, SelectionUpdateMode,
+};
 use crate::graph::NodeKey;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::services::search::fuzzy_match_node_keys;
 use euclid::default::Point2D;
 
 pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "action.omnibox_node_search";
 pub(crate) const ACTION_GRAPH_VIEW_SUBMIT: &str = "action.graph_view_submit";
 pub(crate) const ACTION_DETAIL_VIEW_SUBMIT: &str = "action.detail_view_submit";
+
+pub(crate) const ACTION_GRAPH_NODE_OPEN: &str = "graph:node_open";
+pub(crate) const ACTION_GRAPH_NODE_CLOSE: &str = "graph:node_close";
+pub(crate) const ACTION_GRAPH_EDGE_CREATE: &str = "graph:edge_create";
+pub(crate) const ACTION_GRAPH_NAVIGATE_BACK: &str = "graph:navigate_back";
+pub(crate) const ACTION_GRAPH_NAVIGATE_FORWARD: &str = "graph:navigate_forward";
+pub(crate) const ACTION_GRAPH_SELECT_NODE: &str = "graph:select_node";
+pub(crate) const ACTION_GRAPH_DESELECT_ALL: &str = "graph:deselect_all";
 
 // Verse sync actions (Step 5.3)
 pub(crate) const ACTION_VERSE_PAIR_DEVICE: &str = "action.verse.pair_device";
@@ -17,6 +28,24 @@ pub(crate) const ACTION_VERSE_FORGET_DEVICE: &str = "action.verse.forget_device"
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActionPayload {
+    GraphNodeOpen {
+        node_key: NodeKey,
+        pane_id: Option<PaneId>,
+    },
+    GraphNodeClose {
+        node_key: NodeKey,
+    },
+    GraphEdgeCreate {
+        from: NodeKey,
+        to: NodeKey,
+        label: Option<String>,
+    },
+    GraphNavigateBack,
+    GraphNavigateForward,
+    GraphSelectNode {
+        node_key: NodeKey,
+    },
+    GraphDeselectAll,
     OmniboxNodeSearch {
         query: String,
     },
@@ -124,6 +153,19 @@ impl Default for ActionRegistry {
         let mut registry = Self {
             handlers: HashMap::new(),
         };
+        registry.register(ACTION_GRAPH_NODE_OPEN, execute_graph_node_open_action);
+        registry.register(ACTION_GRAPH_NODE_CLOSE, execute_graph_node_close_action);
+        registry.register(ACTION_GRAPH_EDGE_CREATE, execute_graph_edge_create_action);
+        registry.register(
+            ACTION_GRAPH_NAVIGATE_BACK,
+            execute_graph_navigate_back_action,
+        );
+        registry.register(
+            ACTION_GRAPH_NAVIGATE_FORWARD,
+            execute_graph_navigate_forward_action,
+        );
+        registry.register(ACTION_GRAPH_SELECT_NODE, execute_graph_select_node_action);
+        registry.register(ACTION_GRAPH_DESELECT_ALL, execute_graph_deselect_all_action);
         registry.register(ACTION_DETAIL_VIEW_SUBMIT, execute_detail_view_submit_action);
         registry.register(ACTION_GRAPH_VIEW_SUBMIT, execute_graph_view_submit_action);
         registry.register(
@@ -145,6 +187,116 @@ impl Default for ActionRegistry {
 
         registry
     }
+}
+
+fn execute_graph_node_open_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+    let ActionPayload::GraphNodeOpen { node_key, pane_id: _ } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:node_open requires GraphNodeOpen payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![
+        GraphIntent::SelectNode {
+            key: *node_key,
+            multi_select: false,
+        },
+        RuntimeEvent::PromoteNodeToActive {
+            key: *node_key,
+            cause: LifecycleCause::UserSelect,
+        }
+        .into(),
+    ])
+}
+
+fn execute_graph_node_close_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+    let ActionPayload::GraphNodeClose { node_key } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:node_close requires GraphNodeClose payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![
+        RuntimeEvent::DemoteNodeToCold {
+            key: *node_key,
+            cause: LifecycleCause::ExplicitClose,
+        }
+        .into(),
+    ])
+}
+
+fn execute_graph_edge_create_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+    let ActionPayload::GraphEdgeCreate { from, to, label } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:edge_create requires GraphEdgeCreate payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![GraphMutation::CreateUserGroupedEdge {
+        from: *from,
+        to: *to,
+        label: label.clone(),
+    }
+    .into()])
+}
+
+fn execute_graph_navigate_back_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::GraphNavigateBack = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:navigate_back requires GraphNavigateBack payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![GraphIntent::TraverseBack])
+}
+
+fn execute_graph_navigate_forward_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::GraphNavigateForward = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:navigate_forward requires GraphNavigateForward payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![GraphIntent::TraverseForward])
+}
+
+fn execute_graph_select_node_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+    let ActionPayload::GraphSelectNode { node_key } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:select_node requires GraphSelectNode payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![GraphIntent::SelectNode {
+        key: *node_key,
+        multi_select: false,
+    }])
+}
+
+fn execute_graph_deselect_all_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+    let ActionPayload::GraphDeselectAll = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:deselect_all requires GraphDeselectAll payload".to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![GraphIntent::UpdateSelection {
+        keys: Vec::new(),
+        mode: SelectionUpdateMode::Replace,
+    }])
 }
 
 fn execute_graph_view_submit_action(
@@ -560,5 +712,154 @@ mod tests {
                 assert!(reason.contains("no trusted peers"));
             }
         }
+    }
+
+    #[test]
+    fn action_registry_graph_node_open_emits_select_and_activate() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://open-target.test".into(), Point2D::new(7.0, 7.0));
+        let registry = ActionRegistry::default();
+
+        let execution = registry.execute(
+            ACTION_GRAPH_NODE_OPEN,
+            &app,
+            ActionPayload::GraphNodeOpen {
+                node_key: key,
+                pane_id: None,
+            },
+        );
+
+        let intents = execution.into_intents();
+        assert_eq!(intents.len(), 2);
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::SelectNode { key: selected, multi_select }) if *selected == key && !multi_select
+        ));
+        assert!(matches!(
+            intents.get(1),
+            Some(GraphIntent::PromoteNodeToActive { key: selected, cause })
+                if *selected == key && *cause == LifecycleCause::UserSelect
+        ));
+    }
+
+    #[test]
+    fn action_registry_graph_node_close_emits_demote_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://close-target.test".into(), Point2D::new(9.0, 9.0));
+        let registry = ActionRegistry::default();
+
+        let execution = registry.execute(
+            ACTION_GRAPH_NODE_CLOSE,
+            &app,
+            ActionPayload::GraphNodeClose { node_key: key },
+        );
+
+        let intents = execution.into_intents();
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::DemoteNodeToCold { key: selected, cause })
+                if *selected == key && *cause == LifecycleCause::ExplicitClose
+        ));
+    }
+
+    #[test]
+    fn action_registry_graph_edge_create_emits_grouped_edge_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let edge_from = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://edge-from.test".into(), Point2D::new(1.0, 1.0));
+        let edge_to = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://edge-to.test".into(), Point2D::new(2.0, 2.0));
+        let registry = ActionRegistry::default();
+
+        let execution = registry.execute(
+            ACTION_GRAPH_EDGE_CREATE,
+            &app,
+            ActionPayload::GraphEdgeCreate {
+                from: edge_from,
+                to: edge_to,
+                label: None,
+            },
+        );
+
+        let intents = execution.into_intents();
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::CreateUserGroupedEdge {
+                from,
+                to,
+                ..
+            }) if *from == edge_from && *to == edge_to
+        ));
+    }
+
+    #[test]
+    fn action_registry_graph_navigate_handlers_emit_traversal_intents() {
+        let app = GraphBrowserApp::new_for_testing();
+        let registry = ActionRegistry::default();
+
+        let back = registry.execute(
+            ACTION_GRAPH_NAVIGATE_BACK,
+            &app,
+            ActionPayload::GraphNavigateBack,
+        );
+        assert!(matches!(back.into_intents().first(), Some(GraphIntent::TraverseBack)));
+
+        let forward = registry.execute(
+            ACTION_GRAPH_NAVIGATE_FORWARD,
+            &app,
+            ActionPayload::GraphNavigateForward,
+        );
+        assert!(matches!(
+            forward.into_intents().first(),
+            Some(GraphIntent::TraverseForward)
+        ));
+    }
+
+    #[test]
+    fn action_registry_graph_select_and_deselect_emit_selection_intents() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node_key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://select-target.test".into(), Point2D::new(3.0, 3.0));
+        let registry = ActionRegistry::default();
+
+        let select = registry.execute(
+            ACTION_GRAPH_SELECT_NODE,
+            &app,
+            ActionPayload::GraphSelectNode {
+                node_key,
+            },
+        );
+        assert!(matches!(
+            select.into_intents().first(),
+            Some(GraphIntent::SelectNode { key, multi_select }) if *key == node_key && !multi_select
+        ));
+
+        let deselect = registry.execute(
+            ACTION_GRAPH_DESELECT_ALL,
+            &app,
+            ActionPayload::GraphDeselectAll,
+        );
+        assert!(matches!(
+            deselect.into_intents().first(),
+            Some(GraphIntent::UpdateSelection { keys, mode })
+                if keys.is_empty() && *mode == SelectionUpdateMode::Replace
+        ));
     }
 }

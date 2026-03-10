@@ -171,6 +171,37 @@ Rules:
 4. If construct policy appears in multiple files, the canonical authority file wins and supporting files must be aligned.
 5. Authority docs must include **component-specific policy statements** distilled from that construct's own canonical spec content and accepted research conclusions (avoid generic boilerplate-only policy language).
 
+### 13. Implementation Feedback Loop Rule
+
+Every implementation is also a design probe. When code is written or reviewed,
+extract structural learnings and disseminate them to the relevant docs in the
+same session.
+
+**What to disseminate:**
+
+- If implementation reveals that a planned structure is incomplete or has an
+  unaccounted-for problem, record it in the relevant plan/spec as an explicit
+  note or blocker — do not leave it as tribal knowledge.
+- If implementation confirms or refines a spec assumption, update the spec's
+  "current reality" or "landed" section to reflect that.
+- If a carrier model, API surface, or data shape changes, check which downstream
+  plans depend on the old shape and add dependency notes or blocking guards
+  before the next dependent step proceeds.
+
+**Tolerance rule:**
+
+- It is acceptable for a plan to describe something not yet fully implemented,
+  as long as no downstream step is proceeding on an assumption the implementation
+  does not yet satisfy.
+- It is not acceptable for a plan to be silent about an architectural problem
+  that is visible in code. Surface it in the plan, even if the fix is deferred.
+
+**Enforcement hook:**
+
+- The Cross-Plan Dependency Guardrail in `PLANNING_REGISTER.md` (§36) is the
+  execution-level mechanism for this policy. This rule is the authority behind
+  that guardrail.
+
 ### Workflow Documentation Rule
 
 For AI assistants: store documentation (including memories, instructions, plans, etc.) in DOC_README.md per this file's rules. Refer to DOC_README.md first, then this file, for context when needed. This also means that the content of agent-specific instruction folders should exist in design_docs (such as .claude/ readme sending its updates to DOC_README.md, but also memory files that are useful for context should be copied and archived).

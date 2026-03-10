@@ -140,11 +140,17 @@ intercept path (`handle_tool_pane_intents` in `shell/desktop/ui/gui.rs`). This i
 architecture — not a gap — **provided the intercept is documented and
 consistent**.
 
-**The current gap:** `apply_intents` silently no-ops on workbench-authority
-intents (`OpenToolPane`, `SplitPane`, `SetPaneView`, `OpenNodeInPane`), making
-authority mis-routing invisible. The fix (tracked as item E in the gap-analysis
-plan) is to emit a `log::warn!` on these arms so mis-routing surfaces
-immediately during development.
+**Current status (2026-03-10):**
+- The old silent-no-op gap has been partially addressed by adding a reducer-side
+  warning/classification seam for graph-carrier intents that are actually
+  workbench-authority bridges.
+- The practical current seam is not raw `WorkbenchIntent` reaching
+  `apply_intents()` by type; it is graph-carrier bridge intents such as
+  `RouteGraphViewToWorkbench` reaching reducer ingress before being forwarded to
+  workbench authority.
+- This closes the "silent misroute" problem at the current carrier layer, but
+  does **not** mean `WorkbenchSurfaceRegistry` exists yet. Full authority
+  embodiment still belongs to Sector E.
 
 ### Routing anti-patterns to avoid
 

@@ -989,7 +989,7 @@ mod tests {
                 format!("https://alpha-connected-{idx}.example"),
                 Point2D::new(20.0 + idx as f32, 0.0),
             );
-            let _ = app.add_edge_and_sync(context, key, EdgeType::Hyperlink);
+            let _ = app.add_edge_and_sync(context, key, EdgeType::Hyperlink, None);
             connected_nodes.push(key);
         }
         app.apply_reducer_intents([GraphIntent::SelectNode {
@@ -1101,7 +1101,7 @@ mod tests {
             "https://alpha-unrelated.example".into(),
             Point2D::new(40.0, 0.0),
         );
-        app.add_edge_and_sync(context_key, related_tab, EdgeType::Hyperlink)
+        app.add_edge_and_sync(context_key, related_tab, EdgeType::Hyperlink, None)
             .expect("edge should be valid");
         app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
@@ -1132,9 +1132,9 @@ mod tests {
             app.add_node_and_sync("https://alpha-hop2.example".into(), Point2D::new(20.0, 0.0));
         let hop3 =
             app.add_node_and_sync("https://alpha-hop3.example".into(), Point2D::new(30.0, 0.0));
-        let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(hop2, hop3, EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(hop2, hop3, EdgeType::Hyperlink, None);
         app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
@@ -1173,8 +1173,8 @@ mod tests {
             "https://alpha-graph-hop2.example".into(),
             Point2D::new(20.0, 0.0),
         );
-        let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(context_key, hop1, EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(hop1, hop2, EdgeType::Hyperlink, None);
         app.apply_reducer_intents([GraphIntent::SelectNode {
             key: context_key,
             multi_select: false,
@@ -1296,7 +1296,7 @@ mod tests {
         let mut app = GraphBrowserApp::new_from_dir(temp.path().to_path_buf());
         let from = app.add_node_and_sync("https://edge-a.example".into(), Point2D::zero());
         let to = app.add_node_and_sync("https://edge-b.example".into(), Point2D::new(20.0, 0.0));
-        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped);
+        let _ = app.add_edge_and_sync(from, to, EdgeType::UserGrouped, None);
         app.save_named_graph_snapshot("saved-edge-graph")
             .expect("save named graph snapshot");
         let _ = app.remove_edges_and_log(from, to, EdgeType::UserGrouped);

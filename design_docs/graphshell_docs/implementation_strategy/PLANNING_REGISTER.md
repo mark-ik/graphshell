@@ -33,6 +33,20 @@
 - `§1D` is the comprehensive lane catalog (including prospective and incubation lanes).
 - Historical tail payload has been archived to dated receipts under `design_docs/archive_docs/checkpoint_2026-02-27/` to keep this file focused on active execution control-plane content.
 
+### Cross-Plan Dependency Guardrail (2026-03-10)
+
+When a lane step depends on another subsystem's carrier model (for example,
+an action payload contract depending on history/persistence edge carriers), the
+dependent step must include all of the following before it can be marked done:
+
+1. Explicit link to the prerequisite strategy/spec doc in the step text.
+2. A blocking note stating completion is gated by the prerequisite carrier path.
+3. A done-gate item that names the full end-to-end carrier path (intent,
+mutation, delta, and persistence where applicable).
+
+If any of these are missing, the dependent step is treated as partial and must
+not be marked complete in lane status updates.
+
 ---
 
 ## 0. Surface Composition Architecture (2026-02-26 Gap Analysis & Remediation)
@@ -304,7 +318,7 @@ The following entry in the Stabilization Bug Register (§1A) should be updated t
 
 Project phase statement (2026-02-26): **fix the foundation to enable aspirational capabilities**.
 
-Appendix A in `2026-02-26_composited_viewer_pass_contract.md` introduces 10 strategic opportunities (`A.1`..`A.10`). To avoid speculative drift, execution is constrained to a foundation-first sequence where architecture slices are landed before capability expansion.
+The historical Appendix A opportunity inventory from the now-archived `viewer/2026-02-26_composited_viewer_pass_contract.md` is retained here so follow-on compositor work stays in active planning rather than a stale implementation note. To avoid speculative drift, execution is constrained to a foundation-first sequence where architecture slices are landed before capability expansion.
 
 #### 0.10.1 Foundation slice order (must-run)
 
@@ -336,6 +350,10 @@ Appendix A in `2026-02-26_composited_viewer_pass_contract.md` introduces 10 stra
 - A.10 mod-hosted compositor extension passes
 - A.9 Verse-published telemetry races (keep local telemetry first)
 - A.4 upstream/shared protocol packaging to Verso once Graphshell contract stabilizes
+
+Archive note (2026-03-10):
+- The original Appendix A source note has been archived under `design_docs/archive_docs/checkpoint_2026-03-10/graphshell_docs/implementation_strategy/viewer/2026-02-26_composited_viewer_pass_contract.md`.
+- This section is now the active home for any retained deferred compositor capability ideas from that archive.
 
 #### 0.10.3 Issue seeding from foundation slices
 
@@ -861,45 +879,23 @@ Positioning note:
 
 ## 2. Top 10 Forgotten Concepts for Adoption (Vision / Research Ideas Missing from Active Queue)
 
-These are not "do now" items. They are concepts that should be explicitly adopted into planning so they do not disappear between migration and feature work.
+These are not "do now" items. They are concepts that should be explicitly adopted into planning so they do not disappear between migration and feature work. ✅ marks concepts that now have a strategy doc and a lane; they remain here as visibility anchors until their lane is promoted to `§1C`.
 
 | Rank | Forgotten Concept | Adoption Value | Source Docs | Adoption Trigger |
 | --- | --- | --- | --- | --- |
-| 1 | **Ghost Nodes (nodes/edges preserved after deletion)** | Preserves structural memory and reduces disorientation after destructive edits. Previously "Visual Tombstones"; canonical term is now Ghost Node. Code-level state: `NodeLifecycle::Tombstone`. | `2026-02-24_visual_tombstones_research.md` | After traversal/history UI and deletion UX are stable. |
-| 2 | **Temporal Navigation / Time-Travel Preview** | Makes traversal history and deterministic intent log materially useful to users (not just diagnostics). | `2026-02-20_edge_traversal_impl_plan.md` (Stage F), `GRAPHSHELL_AS_BROWSER.md`, `2026-02-18_graph_ux_research_report.md` | After Stage E History Manager closure and preview-mode effect isolation hardening. |
-| 3 | **Collaborative Presence (ghost cursors, remote selection, follow mode)** | Turns Verse sync from data sync into shared work. | `2026-02-18_graph_ux_research_report.md` §15.2, `GRAPHSHELL_AS_BROWSER.md`, Verse vision docs cited there | After Phase 5 done gates and identity/presence semantics are stable. |
-| 4 | **Semantic Fisheye + DOI (focus+context without geometric distortion)** | High-value readability improvement for dense graphs; preserves mental map while surfacing relevance. | `2026-02-18_graph_ux_research_report.md` §§13.2, 14.8, 14.9 | After basic LOD and viewport culling are in place. |
+| 1 | ✅ **Ghost Nodes (nodes/edges preserved after deletion)** | Preserves structural memory and reduces disorientation after destructive edits. Previously "Visual Tombstones"; canonical term is now Ghost Node. Code-level state: `NodeLifecycle::Tombstone`. | `2026-02-24_visual_tombstones_research.md`, `2026-02-26_visual_tombstones_plan.md` (strategy adopted — `lane:ghost-nodes`) | After traversal/history UI and deletion UX are stable. |
+| 2 | ✅ **Temporal Navigation / Time-Travel Preview** | Makes traversal history and deterministic intent log materially useful to users (not just diagnostics). | `2026-02-20_edge_traversal_impl_plan.md` Stage F (adopted as staged backlog — deferred until Stage E History Manager maturity), `GRAPHSHELL_AS_BROWSER.md`, `2026-02-18_graph_ux_research_report.md` | Stage E History Manager closure + preview-mode effect isolation hardening. Preview-mode effect isolation contract: no WAL writes, no webview/graph mutations, clean return-to-present; enforcement point: `desktop/gui_frame.rs`. Preserved non-goals: collaborative replay, undo/redo replacement, scrubber fidelity, timeline snapshot export. |
+| 3 | ✅ **Collaborative Presence (ghost cursors, remote selection, follow mode)** | Turns Verse sync from data sync into shared work. | `2026-02-18_graph_ux_research_report.md` §15.2, `GRAPHSHELL_AS_BROWSER.md`, `2026-02-25_verse_presence_plan.md` (adopted — `lane:presence-collaboration`) | After Phase 5 done gates and identity/presence semantics are stable. |
+| 4 | ✅ **Semantic Fisheye + DOI (focus+context without geometric distortion)** | High-value readability improvement for dense graphs; preserves mental map while surfacing relevance. | `2026-02-18_graph_ux_research_report.md` §§13.2, 14.8, 14.9, `2026-02-25_doi_fisheye_plan.md` (adopted — `lane:doi-fisheye`) | After basic LOD and viewport culling are in place. |
 | 5 | **Frame-affinity organizational behavior / Group-in-a-Box / Query-to-Zone** (legacy alias: Magnetic Zones) | Adds spatial organization as a first-class workflow, not just emergent physics. | `2026-02-24_layout_behaviors_plan.md` Phase 3 (expanded with persistence scope, interaction model, and implementation sequence), `2026-02-18_graph_ux_research_report.md` §13.1 | **Prerequisites now documented** in `layout_behaviors_plan.md` §3.0–3.5. Implementation blocked on: (1) layout injection hook (Phase 2), (2) Canonical/Divergent scope settlement. Trigger: when both blockers are resolved, execute implementation sequence in §3.5. |
 | 6 | **Graph Reader ("Room" + "Map" linearization) and list-view fallback** | Critical accessibility concept beyond the initial webview bridge; gives non-visual users graph comprehension. | `2026-02-24_spatial_accessibility_research.md`, `SUBSYSTEM_ACCESSIBILITY.md` §8 Phase 2 | After Phase 1 WebView Bridge lands. |
 | 7 | **Unified Omnibar (URL + graph search + web search heuristics)** | Core browser differentiator; unifies navigation and retrieval. | `GRAPHSHELL_AS_BROWSER.md` §7, `2026-02-18_graph_ux_research_report.md` §15.4 | After command palette/input routing stabilization. |
-| 8 | **Progressive Lenses + Lens/Physics binding policy** | Makes Lens abstraction feel native and semantic, not static presets. | `2026-02-24_interaction_and_semantic_design_schemes.md`, `2026-02-24_physics_engine_extensibility_plan.md` (lens-physics binding preference) | After Lens resolution is active runtime path and physics presets are distinct in behavior. |
+| 8 | ✅ **Progressive Lenses + Lens/Physics binding policy** | Makes Lens abstraction feel native and semantic, not static presets. | `2026-02-24_interaction_and_semantic_design_schemes.md`, `2026-02-24_physics_engine_extensibility_plan.md` (lens-physics binding preference), `2026-02-25_progressive_lens_and_physics_binding_plan.md` (adopted — `lane:lens-physics`; implementation blocked on runtime prerequisites) | After Lens resolution is active runtime path and physics presets are distinct in behavior. |
 | 9 | **2D↔3D Hotswitch with `ViewDimension` and position parity** | Named first-class vision feature; fits the new per-view architecture and future Rapier/3D work. | `2026-02-24_physics_engine_extensibility_plan.md`, `design_docs/PROJECT_DESCRIPTION.md` | After pane-hosted view model and `GraphViewState` are stable. |
 | 10 | **Interactive HTML Export (self-contained graph artifact)** | Strong shareability and offline review workflow; distinctive output mode. | `design_docs/archive_docs/checkpoint_2026-01-29/PROJECT_PHILOSOPHY.md` (archived concept) | After viewer/content model and export-safe snapshot shape are defined. |
-
-Appended adoption note (preserved from PR `#55`, pending table refactor):
-
-- Ghost Nodes (`Rank 1`, formerly "Visual Tombstones") is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-26_visual_tombstones_plan.md` and should be treated as `✅ adopted` in future table cleanup.
-
-Appended adoption note (preserved from PR `#56`, pending table refactor):
-
-- Temporal Navigation / Time-Travel Preview (`Rank 2`) should be treated as `✅ adopted` and promoted to a tracked staged backlog item via `design_docs/graphshell_docs/implementation_strategy/2026-02-20_edge_traversal_impl_plan.md` Stage F.
-
-Appended staged backlog summary (preserved from PR `#56`, pending section refactor):
-
-- **Stage F: Temporal Navigation (Tracked Staged Backlog Item)** — Deferred until Stage E History Manager maturity (tiered storage, dissolution correctness, and stable WAL shape).
-- Deliverables preserved from PR summary: timeline index, `replay_to_timestamp(...)`, detached preview graph state, timeline slider/return-to-present UI, and preview ghost rendering.
-- Preview-mode effect isolation contract (preserved): no WAL writes, no webview lifecycle mutations, no live graph mutations, no persistence side effects, and clean return-to-present with no preview-state leakage.
-- Designated enforcement point preserved: `desktop/gui_frame.rs` effect-suppression gates.
-- Preserved non-goals: collaborative replay, undo/redo replacement, scrubber polish fidelity, timeline snapshot export.
-
-Appended adoption note (preserved from PR `#58`, pending table refactor):
-- Semantic Fisheye + DOI (`Rank 4`) is now backed by `design_docs/graphshell_docs/implementation_strategy/2026-02-25_doi_fisheye_plan.md` and should be linked from the forgotten-concepts table during later cleanup.
-
-Appended adoption note (preserved from PR `#60`, pending table refactor):
-- Progressive Lenses + Lens/Physics Binding Policy (`Rank 8`) now has a strategy doc: `design_docs/graphshell_docs/implementation_strategy/2026-02-25_progressive_lens_and_physics_binding_plan.md`; treat the concept as policy-specified (implementation still blocked on runtime prerequisites).
-
-Appended adoption note (preserved from PR `#54`, pending table refactor):
-- Collaborative Presence (`Rank 3`) is now backed by `design_docs/verse_docs/implementation_strategy/2026-02-25_verse_presence_plan.md` and should be linked from the forgotten-concepts table during later cleanup.
+| 11 | **Focus Subsystem Unified Authority & Router** | Makes focus diagnostics and cross-surface handoff an explicit, testable contract instead of six distributed side-effect tracks. Currently no single authority object owns focus state. | `subsystem_focus/SUBSYSTEM_FOCUS.md` §1A (Runtime Reality Gap), `subsystem_focus/2026-03-08_unified_focus_architecture_plan.md` | After `lane:control-ui-settings` (`#89`) reaches implementation phase; depends on workbench/tile surface model stabilization. |
+| 12 | **UX Semantics End-to-End Closure (Projection + Contracts + Bridge + Scenario Harness)** | Completes regression testing and accessibility mapping for all surfaces. UxTree build/publish and snapshot diff-gate are landed; full `UxProbeSet`, `UxBridge` command surface (`GetUxSnapshot`, `FindUxNode`, `InvokeUxAction`), and YAML scenario runner remain incomplete. | `subsystem_ux_semantics/SUBSYSTEM_UX_SEMANTICS.md` §0B–0C, §13–15, `subsystem_ux_semantics/2026-03-08_unified_ux_semantics_architecture_plan.md` | Track under `lane:diagnostics` (`#94`); trigger when diagnostics lane is promoted to `§1C` execution slot. |
+| 13 | **Mod Lifecycle Integrity Spec (activation/sandboxing/unload contract)** | Without a canonical spec, mod activation, sandbox isolation, and unload lifecycle will drift into undocumented behavior as Phase 6+ mod work expands. Spec is explicitly deferred in the subsystem guide. | `subsystem_mods/SUBSYSTEM_MODS.md` §9 (Deferred Spec), `subsystem_mods/2026-03-08_unified_mods_architecture_plan.md` | After `mod_registry_spec.md`, `action_registry_spec.md`, and `input_registry_spec.md` are stable (listed as explicit blocking dependencies in `SUBSYSTEM_MODS.md` §9). |
 
 ---
 
@@ -909,22 +905,26 @@ These are intentionally scoped to small slices that can ship independently witho
 
 | Rank | Quick Improvement | Why It Pays Off | Primary Source Docs |
 | --- | --- | --- | --- |
-| 1 | **Extract `desktop/radial_menu.rs` from `render/mod.rs`** | Reduces render module sprawl and unblocks control UI redesign without behavior changes. | `2026-02-24_control_ui_ux_plan.md` |
-| 2 | **Extract `desktop/command_palette.rs` from `render/mod.rs`** | Same benefit as #1; clarifies ownership for unified command surface work. | `2026-02-24_control_ui_ux_plan.md` |
+| 1 | ✅ **Extract `desktop/radial_menu.rs` from `render/mod.rs`** | Done — `render/radial_menu.rs` exists as a standalone module. | `2026-02-24_control_ui_ux_plan.md` |
+| 2 | ✅ **Extract `desktop/command_palette.rs` from `render/mod.rs`** | Done — `render/command_palette.rs` exists as a standalone module. | `2026-02-24_control_ui_ux_plan.md` |
 | 3 | **Reheat physics on `AddNode` / `AddEdge`** | Fixes "dead graph" feel immediately when physics is paused. | `2026-02-24_layout_behaviors_plan.md` §1.1, `2026-02-18_graph_ux_research_report.md` §5.3 |
 | 4 | **Spawn new nodes near semantic parent (parent + jitter)** | Improves mental-map preservation and reduces convergence churn. | `2026-02-24_layout_behaviors_plan.md` §1.2, `2026-02-18_graph_ux_research_report.md` §§2.1, 2.6 |
 | 5 | **Fix `WebViewUrlChanged` prior-URL ordering in traversal append path** | Prevents incorrect traversal records and future temporal-navigation corruption. | `2026-02-20_edge_traversal_impl_plan.md`, `2026-02-20_edge_traversal_model_research.md` |
 | 6 | **Wire `Ctrl+Click` multi-select in graph pane** | Tiny code slice with immediate UX gain; unlocks group operations expectations. | `2026-02-18_graph_ux_research_report.md` §§1.3, 6.3 |
 | 7 | **Add semantic container tab titles (`Split ↔`, `Split ↕`, `Tab Group`, `Grid`)** | Converts "looks broken" tile labels into teachable architecture UI. | `2026-02-23_graph_interaction_consistency_plan.md` Phase 4 |
 | 8 | **Add zoom-adaptive label LOD thresholds (hide/domain/full)** | Immediate clarity and performance win at low zoom, low implementation risk. | `2026-02-24_performance_tuning_plan.md` Phase 2.1, `2026-02-18_graph_ux_research_report.md` §7.3 |
-| 9 | **Add `ChannelSeverity` to diagnostics channel descriptors** | Small schema extension that unlocks better pane prioritization and health summary. | `2026-02-24_diagnostics_research.md` §4.6, §7 |
+| 9 | ✅ **Add `ChannelSeverity` to diagnostics channel descriptors** | Done — `ChannelSeverity` is present on diagnostic channel descriptors in the diagnostics registry. | `2026-02-24_diagnostics_research.md` §4.6, §7 |
 | 10 | **Add/confirm `CanvasRegistry` culling + LOD policy toggles** | Minimal schema/policy work that unblocks performance slices and keeps behavior policy-driven. | `2026-02-24_performance_tuning_plan.md`, `2026-02-22_registry_layer_plan.md` |
+| 11 | **Wire `PresentationDomainRegistry` overlay affordance policy per `TileRenderMode`** | Moves the hardcoded focus/hover ring dispatch in `tile_compositor.rs` behind a policy lookup; prerequisite for §0.3.4 Overlay Affordance Policy closure. Registry stub exists; policy resolution method and `TileRenderMode`-keyed dispatch are missing. | `PLANNING_REGISTER.md §0.3.4`, `registries/domain/presentation/mod.rs`, `tile_compositor.rs` |
+| 12 | **Add Node Audit Log event emission at mutation points** | Append-only event journal for node lifecycle and metadata changes; enables compliance/debugging audit trail without full replay surfaces. Spec is complete; code is a deferred stub only. | `subsystem_history/SUBSYSTEM_HISTORY.md` §2.3, `system/register/node_audit_log_spec.md` |
+| 13 | **Implement Distillation Boundary Enforcement shim (intelligence privacy gate)** | Pre-emptive read-gate for all future model/intelligence-facing state access; prevents WAL/history/graph reads from bypassing the redaction/filtering layer before any provider exists. Spec is written; no code exists yet. | `subsystem_security/2026-03-09_intelligence_distillation_privacy_boundary_plan.md`, `subsystem_security/SUBSYSTEM_SECURITY.md` |
 
 ### Quick Win Notes
 
-- Items 1-2 pair naturally and should be landed together if the extraction is mechanical.
+- Items 1-2 are done (extraction already landed).
 - Items 3-5 are correctness/feel fixes and should not wait for full layout/traversal phases.
-- Items 9-10 are low-churn infrastructure improvements that improve future implementation discipline.
+- Item 9 is done (ChannelSeverity landed). Item 10 remains an infrastructure improvement target.
+- Items 11-13 are new additions (2026-03-10): architecture/infra gaps with written specs and no code yet.
 
 ---
 

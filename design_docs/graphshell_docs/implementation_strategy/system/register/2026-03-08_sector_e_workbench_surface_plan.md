@@ -28,6 +28,19 @@ being real.
 
 Neither registry exists yet.
 
+**Implementation note (2026-03-10):**
+- B3.4 groundwork landed before Sector E: reducer ingress now has an explicit
+  warning/classification seam for graph-carrier intents that are really
+  workbench-authority bridges.
+- This should be treated as a deliberate intermediate architecture state:
+  the authority contract is now explicit, but the concrete authority object is
+  still the queue + `gui_orchestration.rs` dispatch path rather than a real
+  `WorkbenchSurfaceRegistry`.
+- Sector E should absorb that seam rather than bypass it. The eventual registry
+  implementation should replace ad hoc dispatch internals without changing the
+  boundary contract:
+  `bridge intent -> workbench authority -> tile-tree mutation`.
+
 ---
 
 ## Current State
@@ -105,10 +118,18 @@ tab strip configuration are replaced with calls to the active `WorkbenchSurfaceP
 The `tile-tree-authority` policy from the spec: tile-tree shape mutations are initiated by
 workbench intent, resolved by this registry, and never intercepted by graph-reducer paths.
 
+Interim boundary rule until this phase lands:
+- Graph-reducer ingress may still receive graph-carrier bridge intents that are
+  destined for workbench authority. Those paths must warn and enqueue/delegate;
+  they must not be treated as permission for reducer-owned tile-tree mutation.
+
 **Done gates:**
 - [ ] No magic layout constants in `tile_behavior.rs` or `ux_tree.rs`.
 - [ ] `tile_behavior.rs` calls `registries.workbench_surface.resolve_layout_policy()`.
 - [ ] Regression test: default profile reproduces current visual layout behaviour.
+- [ ] Existing reducer-side bridge classification/warn logic is deleted or
+  reduced to a thin adapter because `WorkbenchSurfaceRegistry` has become the
+  real authority object rather than a future placeholder.
 
 ### E1.3 — Focus handoff policy
 

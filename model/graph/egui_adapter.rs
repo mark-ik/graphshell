@@ -793,18 +793,18 @@ fn aggregate_logical_pair_traversals(
     let ba_payload = ba_key.and_then(|k| graph.get_edge(k));
 
     let ab_total = ab_payload
-        .map(|p| p.metrics.total_navigations as usize)
+        .map(|p| p.metrics().total_navigations as usize)
         .unwrap_or(0);
     let ba_total = ba_payload
-        .map(|p| p.metrics.total_navigations as usize)
+        .map(|p| p.metrics().total_navigations as usize)
         .unwrap_or(0);
     let total_count = ab_total + ba_total;
     let dominant_source = ab_payload.or(ba_payload);
     let forward_count = dominant_source
-        .map(|p| p.metrics.forward_navigations as usize)
+        .map(|p| p.metrics().forward_navigations as usize)
         .unwrap_or(0);
     let backward_count = dominant_source
-        .map(|p| p.metrics.backward_navigations as usize)
+        .map(|p| p.metrics().backward_navigations as usize)
         .unwrap_or(0);
     let style = if ab_payload.is_some_and(|p| p.has_kind(EdgeKind::UserGrouped))
         || ba_payload.is_some_and(|p| p.has_kind(EdgeKind::UserGrouped))
@@ -1260,7 +1260,7 @@ mod tests {
         let mut graph = Graph::new();
         let key1 = graph.add_node("a".to_string(), Point2D::new(0.0, 0.0));
         let key2 = graph.add_node("b".to_string(), Point2D::new(100.0, 100.0));
-        graph.add_edge(key1, key2, EdgeType::Hyperlink);
+        graph.add_edge(key1, key2, EdgeType::Hyperlink, None);
         let selected_nodes = HashSet::new();
         let state = EguiGraphState::from_graph(&graph, &selected_nodes);
 
@@ -1532,13 +1532,13 @@ mod tests {
     #[test]
     fn test_edge_shape_selection() {
         let history = GraphEdgeShape::from(EdgeProps {
-            payload: EdgePayload::from_edge_type(EdgeType::History),
+            payload: EdgePayload::from_edge_type(EdgeType::History, None),
             order: 0,
             selected: false,
             label: String::new(),
         });
         let grouped = GraphEdgeShape::from(EdgeProps {
-            payload: EdgePayload::from_edge_type(EdgeType::UserGrouped),
+            payload: EdgePayload::from_edge_type(EdgeType::UserGrouped, None),
             order: 0,
             selected: false,
             label: String::new(),
@@ -1556,7 +1556,7 @@ mod tests {
     #[test]
     fn test_traversal_count_drives_stroke_width() {
         let mut edge = GraphEdgeShape::from(EdgeProps {
-            payload: EdgePayload::from_edge_type(EdgeType::History),
+            payload: EdgePayload::from_edge_type(EdgeType::History, None),
             order: 0,
             selected: false,
             label: String::new(),
@@ -1601,8 +1601,8 @@ mod tests {
         let mut graph = Graph::new();
         let a = graph.add_node("https://a.example".into(), Point2D::new(0.0, 0.0));
         let b = graph.add_node("https://b.example".into(), Point2D::new(10.0, 0.0));
-        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
-        let _ = graph.add_edge(b, a, EdgeType::History);
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(b, a, EdgeType::History, None);
         let selected = HashSet::new();
         let state = EguiGraphState::from_graph(&graph, &selected);
 

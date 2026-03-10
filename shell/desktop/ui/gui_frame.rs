@@ -587,10 +587,10 @@ mod connected_open_tests {
             Point2D::new(30.0, 0.0),
         );
 
-        let _ = app.add_edge_and_sync(source, left, crate::model::graph::EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(source, right, crate::model::graph::EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(left, shared, crate::model::graph::EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(right, shared, crate::model::graph::EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(source, left, crate::model::graph::EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(source, right, crate::model::graph::EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(left, shared, crate::model::graph::EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(right, shared, crate::model::graph::EdgeType::Hyperlink, None);
 
         let candidates = app.domain_graph().connected_candidates_with_depth(source, 2);
 
@@ -620,8 +620,8 @@ mod connected_open_tests {
             Point2D::new(20.0, 0.0),
         );
 
-        let _ = app.add_edge_and_sync(source, neighbor, crate::model::graph::EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(neighbor, depth_two, crate::model::graph::EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(source, neighbor, crate::model::graph::EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(neighbor, depth_two, crate::model::graph::EdgeType::Hyperlink, None);
 
         let candidates = app.domain_graph().connected_candidates_with_depth(source, 1);
 

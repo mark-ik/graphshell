@@ -74,7 +74,7 @@ misreported as complete.
 | Memory pressure levels (Normal / Warning / Critical) | ✅ Done | `viewer/node_lifecycle_and_runtime_reconcile_spec.md` |
 | RuntimeBlocked state with retry scheduling | ✅ Done | `MarkRuntimeBlocked` / `ClearRuntimeBlocked`; `viewer/node_lifecycle_and_runtime_reconcile_spec.md` |
 | Recovery action affordance for blocked nodes | 🔨 Active | UX contract S5 (`SUBSYSTEM_UX_SEMANTICS.md`) |
-| Per-tile GPU memory budget with graceful degradation | 📋 Planned | `2026-02-26_composited_viewer_pass_contract.md` |
+| Per-tile GPU memory budget with graceful degradation | 📋 Planned | `PLANNING_REGISTER.md` §0.10 |
 
 ### Physics & Layout
 
@@ -144,7 +144,7 @@ misreported as complete.
 | TileRenderMode enum (CompositedTexture / NativeOverlay / EmbeddedEgui / Placeholder) | ✅ Done | `aspect_render/frame_assembly_and_compositor_spec.md` |
 | Overlay Affordance Policy per TileRenderMode | 🔨 Active | Focus/hover rings correct in all modes |
 | Focus ring visible above composited Servo content | 🔨 Active | Z-order fix in compositor |
-| Differential composition (skip re-render of unchanged tiles) | 🔭 Speculative | `2026-02-26_composited_viewer_pass_contract.md` |
+| Differential composition (skip re-render of unchanged tiles) | 🔭 Speculative | `PLANNING_REGISTER.md` §0.10 |
 | Compositor replay traces (forensic debugging) | 🔭 Speculative | |
 | Compositor chaos mode (GL isolation validation) | 📋 Planned | |
 | Multi-backend hot-swap per tile at runtime | 🔭 Speculative | |

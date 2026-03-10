@@ -223,6 +223,7 @@ pub enum GraphMutation {
     CreateUserGroupedEdge {
         from: NodeKey,
         to: NodeKey,
+        label: Option<String>,
     },
     RemoveEdge {
         from: NodeKey,
@@ -359,6 +360,8 @@ pub enum GraphIntent {
     ToggleHelpPanel,
     ToggleCommandPalette,
     ToggleRadialMenu,
+    TraverseBack,
+    TraverseForward,
     EnterGraphViewLayoutManager,
     ExitGraphViewLayoutManager,
     ToggleGraphViewLayoutManager,
@@ -463,6 +466,7 @@ pub enum GraphIntent {
     CreateUserGroupedEdge {
         from: NodeKey,
         to: NodeKey,
+        label: Option<String>,
     },
     RemoveEdge {
         from: NodeKey,
@@ -735,8 +739,8 @@ impl From<GraphMutation> for GraphIntent {
             GraphMutation::SetNodeUrl { key, new_url } => Self::SetNodeUrl { key, new_url },
             GraphMutation::TagNode { key, tag } => Self::TagNode { key, tag },
             GraphMutation::UntagNode { key, tag } => Self::UntagNode { key, tag },
-            GraphMutation::CreateUserGroupedEdge { from, to } => {
-                Self::CreateUserGroupedEdge { from, to }
+            GraphMutation::CreateUserGroupedEdge { from, to, label } => {
+                Self::CreateUserGroupedEdge { from, to, label }
             }
             GraphMutation::RemoveEdge {
                 from,
@@ -879,6 +883,13 @@ impl From<RuntimeEvent> for GraphIntent {
 }
 
 impl GraphIntent {
+    pub(crate) fn workbench_authority_bridge_name(&self) -> Option<&'static str> {
+        match self {
+            Self::RouteGraphViewToWorkbench { .. } => Some("RouteGraphViewToWorkbench"),
+            _ => None,
+        }
+    }
+
     pub(crate) fn as_view_action(&self) -> Option<ViewAction> {
         match self {
             Self::ToggleCameraPositionFitLock => Some(ViewAction::ToggleCameraPositionFitLock),
@@ -990,10 +1001,11 @@ impl GraphIntent {
                 key: *key,
                 tag: tag.clone(),
             }),
-            Self::CreateUserGroupedEdge { from, to } => {
+            Self::CreateUserGroupedEdge { from, to, label } => {
                 Some(GraphMutation::CreateUserGroupedEdge {
                     from: *from,
                     to: *to,
+                    label: label.clone(),
                 })
             }
             Self::RemoveEdge {

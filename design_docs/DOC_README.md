@@ -37,6 +37,7 @@ It serves three goals:
 - When designing a new feature, ask:
 - - Is the way you want this system to work consistent with our architectural guarantees (modularity, parallelization, access through intents and not direct state mutation, componentization as opposed to consolidation into monolithic core files, centralization of testing + diagnostic threading to automate testing)?
 - - How can we refine the integration to meet our feature goals but respect our architecture?
+- **Implementation feedback loop** (DOC_POLICY §13): every implementation is also a design probe. After each implementation pass, disseminate structural learnings to the relevant plans/docs in the same session. If a carrier model, API surface, or data shape changes, check which downstream plans depend on the old shape and add dependency notes or blocking guards before the next dependent step proceeds. It is acceptable for a plan to describe something not yet fully implemented — it is not acceptable for a plan to be silent about an architectural problem visible in code.
 
 ## Design Docs Index
 
@@ -209,3 +210,4 @@ Project status source: [../README.md](../README.md)
 - [archive_docs/checkpoint_2026-03-01/](archive_docs/checkpoint_2026-03-01/) — bridge spike receipts and embedder-debt records for `#180` and `#183`.
 - [archive_docs/checkpoint_2026-03-05/](archive_docs/checkpoint_2026-03-05/) — `2026-03-05_camera_navigation_fix_postmortem.md`: root-cause and fix record for longstanding camera pan/zoom bug (dead metadata slot + every-frame fit reset).
 - [archive_docs/checkpoint_2026-03-07/](archive_docs/checkpoint_2026-03-07/) — foundational reset receipt consolidation: archived `2026-03-06_foundational_reset_architecture_vision.md`, `2026-03-06_foundational_reset_migration_governance.md`, `2026-03-06_foundational_reset_demolition_plan.md`, and `2026-03-06_clat_domain_state_core_extraction.md` after consolidating active policy/progress into `system_architecture_spec.md`, `2026-03-06_foundational_reset_implementation_plan.md`, and `2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md`.
+- [archive_docs/checkpoint_2026-03-10/](archive_docs/checkpoint_2026-03-10/) — archived `graphshell_docs/implementation_strategy/viewer/2026-02-26_composited_viewer_pass_contract.md` after consolidating active compositor contract authority into `implementation_strategy/PLANNING_REGISTER.md` §0 and `implementation_strategy/aspect_render/frame_assembly_and_compositor_spec.md`; retained Appendix A future-work ideas live in `PLANNING_REGISTER.md` §0.10.

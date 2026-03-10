@@ -790,6 +790,7 @@ fn maybe_push_grouped_edge_after_tab_open(
         frame_intents.push(GraphIntent::CreateUserGroupedEdge {
             from: anchor,
             to: node_key,
+            label: None,
         });
     }
 }

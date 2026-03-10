@@ -214,6 +214,10 @@ This is the missing cross-system boundary event that the future
 
 ### 4.1 Landed
 
+- **payload-first single-edge model**: `EdgePayload` is the semantic source of truth — one
+  stored directed edge per `(from, to)` pair; `EdgeKind` is the selector API; richer data
+  lives in `UserGroupedData { label }` and `TraversalData { traversals, metrics }` (landed
+  2026-03-10, completes Stage A goal from the traversal impl plan)
 - traversal append path and repeated traversal preservation
 - traversal archives + dissolved archives
 - History Manager tool pane with Timeline + Dissolved tabs

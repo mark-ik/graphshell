@@ -628,8 +628,8 @@ fn draw_hovered_edge_tooltip(
         .find_edge_key(to, from)
         .and_then(|k| app.domain_graph().get_edge(k));
 
-    let ab_count = ab_payload.map(|p| p.traversals.len()).unwrap_or(0);
-    let ba_count = ba_payload.map(|p| p.traversals.len()).unwrap_or(0);
+    let ab_count = ab_payload.map(|p| p.traversals().len()).unwrap_or(0);
+    let ba_count = ba_payload.map(|p| p.traversals().len()).unwrap_or(0);
     let total = ab_count + ba_count;
     if total == 0 {
         return;
@@ -637,11 +637,11 @@ fn draw_hovered_edge_tooltip(
 
     let latest_ts = ab_payload
         .into_iter()
-        .flat_map(|p| p.traversals.iter().map(|t| t.timestamp_ms))
+        .flat_map(|p| p.traversals().iter().map(|t| t.timestamp_ms))
         .chain(
             ba_payload
                 .into_iter()
-                .flat_map(|p| p.traversals.iter().map(|t| t.timestamp_ms)),
+                .flat_map(|p| p.traversals().iter().map(|t| t.timestamp_ms)),
         )
         .max();
 
@@ -3720,8 +3720,8 @@ mod tests {
         let a = app.add_node_and_sync("a".into(), Point2D::new(0.0, 0.0));
         let b = app.add_node_and_sync("b".into(), Point2D::new(10.0, 0.0));
         let c = app.add_node_and_sync("c".into(), Point2D::new(20.0, 0.0));
-        let _ = app.add_edge_and_sync(a, b, crate::graph::EdgeType::Hyperlink);
-        let _ = app.add_edge_and_sync(c, a, crate::graph::EdgeType::Hyperlink);
+        let _ = app.add_edge_and_sync(a, b, crate::graph::EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(c, a, crate::graph::EdgeType::Hyperlink, None);
 
         let set = hovered_adjacency_set(&app, Some(a));
         assert!(set.contains(&a));
@@ -3875,7 +3875,7 @@ mod tests {
         }
 
         for pair in keys.windows(2) {
-            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink);
+            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(300.0, 300.0));
@@ -3904,7 +3904,7 @@ mod tests {
         }
 
         for pair in keys.windows(2) {
-            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink);
+            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(260.0, 260.0));

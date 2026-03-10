@@ -85,6 +85,7 @@ pub(crate) fn user_grouped_intents_for_tab_group_moves(
             intents.push(GraphIntent::CreateUserGroupedEdge {
                 from: *node_key,
                 to: anchor,
+                label: None,
             });
         }
     }

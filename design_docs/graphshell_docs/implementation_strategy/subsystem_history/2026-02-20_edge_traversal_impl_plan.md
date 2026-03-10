@@ -25,7 +25,7 @@ The goal is to avoid a "data model first, UI later" rewrite that cuts across the
 
 ---
 
-## Current Reality (2026-03-06)
+## Current Reality (2026-03-10)
 
 Core traversal semantics are implemented through Stage E:
 
@@ -33,6 +33,17 @@ Core traversal semantics are implemented through Stage E:
 - edge semantics are split into durable edge payload + temporal traversal history
 - traversal events are persisted and replayable
 - History Manager UI (Timeline + Dissolved) is active with clear/export and auto-curation controls
+
+**Payload-first single-edge model landed (2026-03-10)**: The Stage A goal of replacing
+`EdgeType` selectors with a traversal-capable payload is now fully realised. `EdgePayload`
+is now the semantic source of truth: one stored directed edge per `(from, to)` pair carries
+`kinds: BTreeSet<EdgeKind>`, `user_grouped: Option<UserGroupedData>` (holds `label`), and
+`traversal: Option<TraversalData>` (holds `traversals` + `metrics`). Selector-style helpers
+(`add_edge_kind`, `remove_edge_kind`, `has_edge_kind`) and convenience accessors (`label()`,
+`traversals()`, `metrics()`) replace the old grouped-edge helper pattern. Dependent carrier
+paths (`apply.rs`, persistence WAL, `graph_app.rs`, `egui_adapter.rs`, `render/mod.rs`) are
+updated. **Behaviour note**: removing a semantic kind from an edge reports `1` for one
+merged edge-kind removal, not the old duplicate-edge count.
 
 Remaining gap is Stage F temporal navigation hardening/polish work.
 

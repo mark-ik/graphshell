@@ -8,7 +8,7 @@
 
 - `ASPECT_RENDER.md`
 - `2026-02-20_embedder_decomposition_plan.md`
-- `../viewer/2026-02-26_composited_viewer_pass_contract.md`
+- `../PLANNING_REGISTER.md` §0, §0.10
 - `../viewer/viewer_presentation_and_fallback_spec.md`
 - `../../TERMINOLOGY.md` — `CompositorAdapter`, `TileRenderMode`, `Composition Pass`, `Surface Composition Contract`
 
@@ -29,6 +29,8 @@ This spec defines the canonical contracts for:
 5. **Frame loop coordination** — begin/layout/paint ownership.
 
 This spec covers the **current render architecture** and what is being actively built. It does not specify the deferred `egui_glow → egui_wgpu` migration (see `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`).
+
+Historical note: the earlier composited-viewer contract note has been archived. Any still-relevant future-work ideas from its Appendix A are tracked in `../PLANNING_REGISTER.md` §0.10 rather than in a separate active render-contract doc.
 
 ---
 

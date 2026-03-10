@@ -775,6 +775,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                                 self.queue_post_render_intent(GraphIntent::CreateUserGroupedEdge {
                                     from: primary,
                                     to: key,
+                                    label: None,
                                 });
                             }
                             self.queue_post_render_intent(GraphIntent::SelectNode {

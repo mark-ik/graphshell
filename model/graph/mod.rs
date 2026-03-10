@@ -485,77 +485,152 @@ impl EdgeMetrics {
     }
 }
 
+impl Default for EdgeMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
+pub struct UserGroupedData {
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize, Default)]
+pub struct TraversalData {
+    pub traversals: Vec<Traversal>,
+    pub metrics: EdgeMetrics,
+}
+
+impl TraversalData {
+    fn push(&mut self, traversal: Traversal) {
+        self.metrics.record(traversal);
+        self.traversals.push(traversal);
+    }
+}
+
 /// Edge semantics payload: structural assertions + temporal traversal events.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 pub struct EdgePayload {
     pub kinds: BTreeSet<EdgeKind>,
-    pub traversals: Vec<Traversal>,
-    pub metrics: EdgeMetrics,
+    pub user_grouped: Option<UserGroupedData>,
+    pub traversal: Option<TraversalData>,
 }
 
 impl EdgePayload {
     pub fn new() -> Self {
         Self {
             kinds: BTreeSet::new(),
-            traversals: Vec::new(),
-            metrics: EdgeMetrics::new(),
+            user_grouped: None,
+            traversal: None,
         }
     }
 
-    pub fn from_edge_type(edge_type: EdgeType) -> Self {
+    pub fn from_edge_type(edge_type: EdgeType, label: Option<String>) -> Self {
         let mut payload = Self::new();
-        payload.add_edge_type(edge_type);
+        let _ = payload.add_edge_kind(edge_type, label);
         payload
     }
 
-    pub fn add_edge_type(&mut self, edge_type: EdgeType) {
+    pub fn add_edge_kind(&mut self, edge_type: EdgeType, label: Option<String>) -> bool {
         match edge_type {
-            EdgeType::Hyperlink => {
-                let _ = self.kinds.insert(EdgeKind::Hyperlink);
-            }
+            EdgeType::Hyperlink => self.kinds.insert(EdgeKind::Hyperlink),
             EdgeType::UserGrouped => {
-                let _ = self.kinds.insert(EdgeKind::UserGrouped);
+                let inserted = self.kinds.insert(EdgeKind::UserGrouped);
+                let data = self.user_grouped.get_or_insert_with(UserGroupedData::default);
+                if let Some(label) = label
+                    && data.label.as_ref() != Some(&label)
+                {
+                    data.label = Some(label);
+                    return true;
+                }
+                inserted
             }
             EdgeType::History => {
-                let _ = self.kinds.insert(EdgeKind::TraversalDerived);
+                let inserted = self.kinds.insert(EdgeKind::TraversalDerived);
+                let had_data = self.traversal.is_some();
+                let _ = self.traversal.get_or_insert_with(TraversalData::default);
+                inserted || !had_data
+            }
+        }
+    }
+
+    pub fn add_edge_type(&mut self, edge_type: EdgeType) {
+        let _ = self.add_edge_kind(edge_type, None);
+    }
+
+    pub fn has_edge_kind(&self, edge_type: EdgeType) -> bool {
+        match edge_type {
+            EdgeType::Hyperlink => self.kinds.contains(&EdgeKind::Hyperlink),
+            EdgeType::UserGrouped => {
+                self.kinds.contains(&EdgeKind::UserGrouped) && self.user_grouped.is_some()
+            }
+            EdgeType::History => {
+                self.kinds.contains(&EdgeKind::TraversalDerived) && self.traversal.is_some()
             }
         }
     }
 
     pub fn has_edge_type(&self, edge_type: EdgeType) -> bool {
-        match edge_type {
-            EdgeType::Hyperlink => self.kinds.contains(&EdgeKind::Hyperlink),
-            EdgeType::UserGrouped => self.kinds.contains(&EdgeKind::UserGrouped),
-            EdgeType::History => self.kinds.contains(&EdgeKind::TraversalDerived),
-        }
+        self.has_edge_kind(edge_type)
     }
 
     pub fn has_kind(&self, kind: EdgeKind) -> bool {
         self.kinds.contains(&kind)
     }
 
-    pub fn remove_edge_type(&mut self, edge_type: EdgeType) -> bool {
+    pub fn remove_edge_kind(&mut self, edge_type: EdgeType) -> bool {
         match edge_type {
             EdgeType::Hyperlink if self.kinds.remove(&EdgeKind::Hyperlink) => true,
-            EdgeType::UserGrouped if self.kinds.remove(&EdgeKind::UserGrouped) => true,
-            EdgeType::History if !self.traversals.is_empty() => {
-                self.traversals.clear();
-                self.metrics = EdgeMetrics::new();
-                let _ = self.kinds.remove(&EdgeKind::TraversalDerived);
+            EdgeType::UserGrouped if self.kinds.remove(&EdgeKind::UserGrouped) => {
+                self.user_grouped = None;
+                true
+            }
+            EdgeType::History if self.kinds.remove(&EdgeKind::TraversalDerived) => {
+                self.traversal = None;
                 true
             }
             _ => false,
         }
     }
 
+    pub fn remove_edge_type(&mut self, edge_type: EdgeType) -> bool {
+        self.remove_edge_kind(edge_type)
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.kinds.is_empty() && self.traversals.is_empty()
+        self.kinds.is_empty()
+    }
+
+    pub fn label(&self) -> Option<&str> {
+        self.user_grouped
+            .as_ref()
+            .and_then(|data| data.label.as_deref())
+    }
+
+    pub fn traversal_data(&self) -> Option<&TraversalData> {
+        self.traversal.as_ref()
+    }
+
+    pub fn traversals(&self) -> &[Traversal] {
+        self.traversal
+            .as_ref()
+            .map(|data| data.traversals.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn metrics(&self) -> EdgeMetrics {
+        self.traversal
+            .as_ref()
+            .map(|data| data.metrics)
+            .unwrap_or_default()
     }
 
     pub fn push_traversal(&mut self, traversal: Traversal) {
         let _ = self.kinds.insert(EdgeKind::TraversalDerived);
-        self.metrics.record(traversal);
-        self.traversals.push(traversal);
+        self.traversal
+            .get_or_insert_with(TraversalData::default)
+            .push(traversal);
     }
 }
 
@@ -884,13 +959,18 @@ impl Graph {
         from: NodeKey,
         to: NodeKey,
         edge_type: EdgeType,
+        label: Option<String>,
     ) -> Option<EdgeKey> {
         if !self.inner.contains_node(from) || !self.inner.contains_node(to) {
             return None;
         }
+        if let Some(edge_key) = self.find_edge_key(from, to) {
+            let payload = self.inner.edge_weight_mut(edge_key)?;
+            return payload.add_edge_kind(edge_type, label).then_some(edge_key);
+        }
         Some(
             self.inner
-                .add_edge(from, to, EdgePayload::from_edge_type(edge_type)),
+                .add_edge(from, to, EdgePayload::from_edge_type(edge_type, label)),
         )
     }
 
@@ -913,10 +993,11 @@ impl Graph {
         from_id: Uuid,
         to_id: Uuid,
         edge_type: EdgeType,
+        label: Option<String>,
     ) -> Option<EdgeKey> {
         let from_key = self.get_node_key_by_id(from_id)?;
         let to_key = self.get_node_key_by_id(to_id)?;
-        self.add_edge(from_key, to_key, edge_type)
+        self.add_edge(from_key, to_key, edge_type, label)
     }
 
     /// Replay helper: remove node by stable UUID.
@@ -956,7 +1037,7 @@ impl Graph {
             .edges_directed(key, Direction::Outgoing)
             .chain(self.inner.edges_directed(key, Direction::Incoming))
         {
-            if edge.weight().traversals.is_empty() {
+            if edge.weight().traversals().is_empty() {
                 continue;
             }
 
@@ -965,7 +1046,7 @@ impl Graph {
             records.push(DissolvedTraversalRecord {
                 from_node_id: from_node.id,
                 to_node_id: to_node.id,
-                traversals: edge.weight().traversals.clone(),
+                traversals: edge.weight().traversals().to_vec(),
             });
         }
 
@@ -986,7 +1067,7 @@ impl Graph {
             .edges_directed(key, Direction::Outgoing)
             .chain(self.inner.edges_directed(key, Direction::Incoming))
         {
-            if edge.weight().traversals.is_empty() {
+            if edge.weight().traversals().is_empty() {
                 continue;
             }
 
@@ -995,7 +1076,7 @@ impl Graph {
             records.push(DissolvedTraversalRecord {
                 from_node_id: from_node.id,
                 to_node_id: to_node.id,
-                traversals: edge.weight().traversals.clone(),
+                traversals: edge.weight().traversals().to_vec(),
             });
         }
 
@@ -1024,14 +1105,14 @@ impl Graph {
                     && edge.target() == to
                     && edge.weight().has_edge_type(edge_type)
             }) {
-                if edge.weight().traversals.is_empty() {
+                if edge.weight().traversals().is_empty() {
                     continue;
                 }
 
                 records.push(DissolvedTraversalRecord {
                     from_node_id,
                     to_node_id,
-                    traversals: edge.weight().traversals.clone(),
+                    traversals: edge.weight().traversals().to_vec(),
                 });
             }
         }
@@ -1062,14 +1143,14 @@ impl Graph {
                     && edge.target() == to
                     && edge.weight().has_edge_type(edge_type)
             }) {
-                if edge.weight().traversals.is_empty() {
+                if edge.weight().traversals().is_empty() {
                     continue;
                 }
 
                 records.push(DissolvedTraversalRecord {
                     from_node_id,
                     to_node_id,
-                    traversals: edge.weight().traversals.clone(),
+                    traversals: edge.weight().traversals().to_vec(),
                 });
             }
         }
@@ -1439,25 +1520,44 @@ impl Graph {
             .collect();
 
         let edges = self
-            .edges()
-            .map(|edge| {
+            .inner
+            .edge_references()
+            .flat_map(|edge| {
                 let from_node_id = self
-                    .get_node(edge.from)
+                    .get_node(edge.source())
                     .map(|n| n.id.to_string())
                     .unwrap_or_default();
                 let to_node_id = self
-                    .get_node(edge.to)
+                    .get_node(edge.target())
                     .map(|n| n.id.to_string())
                     .unwrap_or_default();
-                PersistedEdge {
-                    from_node_id,
-                    to_node_id,
-                    edge_type: match edge.edge_type {
-                        EdgeType::Hyperlink => PersistedEdgeType::Hyperlink,
-                        EdgeType::History => PersistedEdgeType::History,
-                        EdgeType::UserGrouped => PersistedEdgeType::UserGrouped,
-                    },
+                let payload = edge.weight();
+                let mut persisted_edges = Vec::with_capacity(3);
+                if payload.has_kind(EdgeKind::Hyperlink) {
+                    persisted_edges.push(PersistedEdge {
+                        from_node_id: from_node_id.clone(),
+                        to_node_id: to_node_id.clone(),
+                        edge_type: PersistedEdgeType::Hyperlink,
+                        edge_label: payload.label().map(str::to_string),
+                    });
                 }
+                if payload.has_kind(EdgeKind::TraversalDerived) {
+                    persisted_edges.push(PersistedEdge {
+                        from_node_id: from_node_id.clone(),
+                        to_node_id: to_node_id.clone(),
+                        edge_type: PersistedEdgeType::History,
+                        edge_label: payload.label().map(str::to_string),
+                    });
+                }
+                if payload.has_kind(EdgeKind::UserGrouped) {
+                    persisted_edges.push(PersistedEdge {
+                        from_node_id,
+                        to_node_id,
+                        edge_type: PersistedEdgeType::UserGrouped,
+                        edge_label: payload.label().map(str::to_string),
+                    });
+                }
+                persisted_edges
             })
             .collect();
 
@@ -1546,7 +1646,7 @@ impl Graph {
                     PersistedEdgeType::History => EdgeType::History,
                     PersistedEdgeType::UserGrouped => EdgeType::UserGrouped,
                 };
-                let _ = graph.add_edge(from, to, edge_type);
+                let _ = graph.add_edge(from, to, edge_type, pedge.edge_label.clone());
             }
         }
 
@@ -1728,7 +1828,7 @@ mod tests {
         let node1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let node2 = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
 
-        graph.add_edge(node1, node2, EdgeType::Hyperlink).unwrap();
+        graph.add_edge(node1, node2, EdgeType::Hyperlink, None).unwrap();
 
         // Check adjacency via graph methods
         assert!(graph.has_edge_between(node1, node2));
@@ -1746,12 +1846,12 @@ mod tests {
 
         assert!(
             graph
-                .add_edge(invalid_key, node1, EdgeType::Hyperlink)
+                .add_edge(invalid_key, node1, EdgeType::Hyperlink, None)
                 .is_none()
         );
         assert!(
             graph
-                .add_edge(node1, invalid_key, EdgeType::Hyperlink)
+                .add_edge(node1, invalid_key, EdgeType::Hyperlink, None)
                 .is_none()
         );
     }
@@ -1763,9 +1863,9 @@ mod tests {
         let node2 = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
         let node3 = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 2.0));
 
-        graph.add_edge(node1, node2, EdgeType::Hyperlink).unwrap();
-        graph.add_edge(node1, node3, EdgeType::Hyperlink).unwrap();
-        graph.add_edge(node2, node3, EdgeType::Hyperlink).unwrap();
+        graph.add_edge(node1, node2, EdgeType::Hyperlink, None).unwrap();
+        graph.add_edge(node1, node3, EdgeType::Hyperlink, None).unwrap();
+        graph.add_edge(node2, node3, EdgeType::Hyperlink, None).unwrap();
 
         assert_eq!(graph.edge_count(), 3);
 
@@ -1782,12 +1882,12 @@ mod tests {
         let a = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let b = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
 
-        graph.add_edge(a, b, EdgeType::Hyperlink).unwrap();
-        graph.add_edge(a, b, EdgeType::UserGrouped).unwrap();
-        graph.add_edge(a, b, EdgeType::UserGrouped).unwrap();
+        graph.add_edge(a, b, EdgeType::Hyperlink, None).unwrap();
+        graph.add_edge(a, b, EdgeType::UserGrouped, None).unwrap();
+        graph.add_edge(a, b, EdgeType::UserGrouped, None).unwrap();
 
         let removed = graph.remove_edges(a, b, EdgeType::UserGrouped);
-        assert_eq!(removed, 2);
+        assert_eq!(removed, 1);
         assert_eq!(graph.edge_count(), 1);
         assert!(
             graph
@@ -1797,11 +1897,31 @@ mod tests {
     }
 
     #[test]
+    fn test_add_edge_merges_semantics_on_single_stored_edge() {
+        let mut graph = Graph::new();
+        let a = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let b = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
+
+        graph.add_edge(a, b, EdgeType::Hyperlink, None).unwrap();
+        graph
+            .add_edge(a, b, EdgeType::UserGrouped, Some("tab-group".to_string()))
+            .unwrap();
+
+        assert_eq!(graph.edge_count(), 1);
+        let edge_key = graph.find_edge_key(a, b).unwrap();
+        let payload = graph.get_edge(edge_key).unwrap();
+        assert!(payload.has_edge_kind(EdgeType::Hyperlink));
+        assert!(payload.has_edge_kind(EdgeType::UserGrouped));
+        assert_eq!(payload.label(), Some("tab-group"));
+        assert_eq!(graph.edges().count(), 2);
+    }
+
+    #[test]
     fn test_remove_node() {
         let mut graph = Graph::new();
         let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
-        graph.add_edge(n1, n2, EdgeType::Hyperlink);
+        graph.add_edge(n1, n2, EdgeType::Hyperlink, None);
 
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 1);
@@ -1843,8 +1963,8 @@ mod tests {
         let node2 = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
         let node3 = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 2.0));
 
-        graph.add_edge(node1, node2, EdgeType::Hyperlink);
-        graph.add_edge(node1, node3, EdgeType::Hyperlink);
+        graph.add_edge(node1, node2, EdgeType::Hyperlink, None);
+        graph.add_edge(node1, node3, EdgeType::Hyperlink, None);
 
         let edge_count = graph.edges().count();
         assert_eq!(edge_count, 2);
@@ -1894,10 +2014,10 @@ mod tests {
 
         assert_eq!(graph.edge_count(), 0);
 
-        graph.add_edge(node1, node2, EdgeType::Hyperlink);
+        graph.add_edge(node1, node2, EdgeType::Hyperlink, None);
         assert_eq!(graph.edge_count(), 1);
 
-        graph.add_edge(node2, node1, EdgeType::Hyperlink);
+        graph.add_edge(node2, node1, EdgeType::Hyperlink, None);
         assert_eq!(graph.edge_count(), 2);
     }
 
@@ -1906,7 +2026,7 @@ mod tests {
         let mut graph = Graph::new();
         let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(10.0, 20.0));
         let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(30.0, 40.0));
-        graph.add_edge(n1, n2, EdgeType::Hyperlink);
+        graph.add_edge(n1, n2, EdgeType::Hyperlink, None);
 
         graph.get_node_mut(n1).unwrap().title = "Site A".to_string();
         graph.get_node_mut(n2).unwrap().is_pinned = true;
@@ -1943,9 +2063,9 @@ mod tests {
         let n1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let n2 = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
         let n3 = graph.add_node("https://c.com".to_string(), Point2D::new(200.0, 0.0));
-        graph.add_edge(n1, n2, EdgeType::Hyperlink);
-        graph.add_edge(n2, n1, EdgeType::History);
-        graph.add_edge(n1, n3, EdgeType::UserGrouped);
+        graph.add_edge(n1, n2, EdgeType::Hyperlink, None);
+        graph.add_edge(n2, n1, EdgeType::History, None);
+        graph.add_edge(n1, n3, EdgeType::UserGrouped, None);
 
         let snapshot = graph.to_snapshot();
         let restored = Graph::from_snapshot(&snapshot);
@@ -1959,6 +2079,27 @@ mod tests {
         assert!(has_hyperlink);
         assert!(has_history);
         assert!(has_user_grouped);
+    }
+
+    #[test]
+    fn test_snapshot_preserves_user_grouped_edge_label() {
+        let mut graph = Graph::new();
+        let from = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
+        let to = graph.add_node("https://b.com".to_string(), Point2D::new(100.0, 0.0));
+        graph
+            .add_edge(
+                from,
+                to,
+                EdgeType::UserGrouped,
+                Some("tab-group".to_string()),
+            )
+            .unwrap();
+
+        let snapshot = graph.to_snapshot();
+        let restored = Graph::from_snapshot(&snapshot);
+        let edge_key = restored.find_edge_key(from, to).unwrap();
+        let payload = restored.get_edge(edge_key).unwrap();
+        assert_eq!(payload.label(), Some("tab-group"));
     }
 
     #[test]
@@ -2044,6 +2185,7 @@ mod tests {
                 from_node_id: Uuid::new_v4().to_string(),
                 to_node_id: Uuid::new_v4().to_string(),
                 edge_type: PersistedEdgeType::Hyperlink,
+                edge_label: None,
             }],
             timestamp_secs: 0,
         };
@@ -2425,8 +2567,8 @@ mod tests {
         let c = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 0.0));
         let d = graph.add_node("https://d.com".to_string(), Point2D::new(3.0, 0.0));
 
-        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
-        let _ = graph.add_edge(b, c, EdgeType::Hyperlink);
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(b, c, EdgeType::Hyperlink, None);
 
         let hops = graph.hop_distances_from(a);
         assert_eq!(hops.get(&a).copied(), Some(0));
@@ -2451,8 +2593,8 @@ mod tests {
         let d = graph.add_node("https://d.com".to_string(), Point2D::new(3.0, 0.0));
         let e = graph.add_node("https://e.com".to_string(), Point2D::new(4.0, 0.0));
 
-        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
-        let _ = graph.add_edge(d, e, EdgeType::Hyperlink);
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(d, e, EdgeType::Hyperlink, None);
 
         let mut orphans = graph.orphan_node_keys();
         orphans.sort_by_key(|k| k.index());
@@ -2486,10 +2628,10 @@ mod tests {
         let isolated =
             graph.add_node("https://isolated.example".to_string(), Point2D::new(3.0, 0.0));
 
-        let _ = graph.add_edge(seed, right, EdgeType::Hyperlink);
-        let _ = graph.add_edge(left, seed, EdgeType::Hyperlink);
-        let _ = graph.add_edge(left, shared, EdgeType::Hyperlink);
-        let _ = graph.add_edge(right, shared, EdgeType::Hyperlink);
+        let _ = graph.add_edge(seed, right, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(left, seed, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(left, shared, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(right, shared, EdgeType::Hyperlink, None);
 
         let sorted_neighbors = graph.neighbors_undirected_sorted(seed);
         assert_eq!(sorted_neighbors, vec![left, right]);
@@ -2514,10 +2656,10 @@ mod tests {
         let c = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 0.0));
         let d = graph.add_node("https://d.com".to_string(), Point2D::new(3.0, 0.0));
 
-        let _ = graph.add_edge(a, b, EdgeType::Hyperlink);
-        let _ = graph.add_edge(b, c, EdgeType::Hyperlink);
-        let _ = graph.add_edge(c, a, EdgeType::Hyperlink);
-        let _ = graph.add_edge(c, d, EdgeType::Hyperlink);
+        let _ = graph.add_edge(a, b, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(b, c, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(c, a, EdgeType::Hyperlink, None);
+        let _ = graph.add_edge(c, d, EdgeType::Hyperlink, None);
 
         let mut sizes: Vec<usize> = graph
             .strongly_connected_components()

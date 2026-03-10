@@ -309,6 +309,12 @@ state directly inside the action layer.
 
 ### B3.3 — Graph action family
 
+Dependency note (2026-03-10): `graph:edge_create` payload semantics depend on the
+`subsystem_history/2026-02-20_edge_traversal_impl_plan.md` carrier model. If
+label-bearing edge metadata is not available on the active `GraphIntent` /
+`GraphMutation` / `GraphDelta` / persistence WAL path, this step is not
+complete and must remain blocked until the carrier path is upgraded.
+
 Register canonical graph actions:
 
 | Action ID | Payload | Emits |
@@ -324,6 +330,8 @@ Register canonical graph actions:
 **Done gates:**
 - [ ] All 7 graph actions registered with intent-returning handlers.
 - [ ] `graph:navigate_back` / `forward` replace any hardcoded navigation calls.
+- [ ] `graph:edge_create` supports `{ from, to, label? }` end-to-end through
+    the reducer and persistence carrier path (no label drop or silent rejection).
 
 ### B3.4 — Workbench action family
 
@@ -342,6 +350,32 @@ Register canonical workbench actions:
 - [ ] Workbench intents are routed to the workbench authority, not the graph reducer.
 - [ ] `log::warn!` emitted if a workbench intent is mistakenly sent to `apply_reducer_intents()`.
   (This is the SYSTEM_REGISTER "silent no-op" gap fix.)
+
+**Implementation note (2026-03-10):**
+- In the current codebase, `WorkbenchIntent` itself does not type-flow into
+  `apply_reducer_intents()`. The practical misroute seam is
+  `GraphIntent` variants that are actually workbench-authority bridge carriers
+  (currently `RouteGraphViewToWorkbench`).
+- Therefore B3.4 must be read as requiring:
+  1. a central classifier for reducer-received workbench-authority bridge intents,
+  2. a reducer-ingress `log::warn!` when such a bridge intent reaches
+     `apply_reducer_intents()`, and
+  3. forwarding from that bridge seam into the pending workbench-intent queue,
+     not direct tile-tree mutation in reducer logic.
+- This is sufficient to make the routing boundary explicit before
+  `WorkbenchSurfaceRegistry` exists, but it is not yet the full Sector E
+  authority object.
+
+**Preconditions / non-blocking groundwork:**
+- `apply_reducer_intents()` and `apply_reducer_intent_internal()` remain owned by
+  `graph_app.rs` after the decomposition push; B3.4 boundary hardening belongs
+  there unless/until reducer ingress is extracted.
+- `app/workbench_commands.rs` queue helpers and the desktop frame-loop drain in
+  `gui_orchestration.rs` are prerequisite seams for B3.4 and should be treated
+  as intentional groundwork, not temporary accidents.
+- If additional graph-carrier variants begin acting as workbench bridges, they
+  must be added to the central classifier immediately; do not let new bridge
+  variants silently piggyback on reducer traffic.
 
 ### B3.5 — Capability guard
 
