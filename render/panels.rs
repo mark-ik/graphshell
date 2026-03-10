@@ -17,7 +17,7 @@ use crate::shell::desktop::runtime::registries::{
     phase2_describe_input_bindings,
 };
 use crate::shell::desktop::runtime::registries::input::{
-    InputBinding, InputBindingSection, InputContext,
+    InputBinding, InputBindingSection, InputContext, action_id,
 };
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
@@ -314,13 +314,13 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                                 CanvasLassoBinding::ShiftLeftDrag => "Shift+Alt+LeftDrag",
                             };
                             let command_palette_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-                                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+                                action_id::graph::COMMAND_PALETTE_OPEN,
                             ).join(" / ");
                             let radial_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-                                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN,
+                                action_id::graph::RADIAL_MENU_OPEN,
                             ).join(" / ");
                             let help_key = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-                                crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_HELP_OPEN,
+                                action_id::workbench::HELP_OPEN,
                             ).join(" / ");
                             let shortcuts = [
                                 ("Home / Esc", "Toggle Graph / Detail view"),

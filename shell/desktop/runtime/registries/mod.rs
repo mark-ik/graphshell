@@ -57,7 +57,7 @@ use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
 use index::{IndexRegistry, SearchResult};
 use input::{
-    INPUT_BINDING_TOOLBAR_SUBMIT, InputActionBindingDescriptor, InputBinding,
+    InputActionBindingDescriptor, InputBinding,
     InputBindingRemap, InputConflict as InputRemapConflict, InputContext, InputRegistry,
 };
 use knowledge::{KnowledgeRegistry, SemanticReconcileReport, TagValidationResult};
@@ -1781,7 +1781,7 @@ impl RegistryRuntime {
 }
 
 pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
-    phase2_resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT)
+    phase2_resolve_input_binding(input::binding_id::toolbar::SUBMIT)
 }
 
 pub(crate) fn phase0_select_viewer_for_content(uri: &str, mime_hint: Option<&str>) -> ViewerSelection {
@@ -2253,7 +2253,7 @@ pub(crate) fn phase3_sign_identity_payload_for_tests(
 pub(crate) fn phase2_resolve_toolbar_submit_binding_for_tests(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
 ) -> bool {
-    phase2_resolve_input_binding_for_tests(diagnostics_state, INPUT_BINDING_TOOLBAR_SUBMIT)
+    phase2_resolve_input_binding_for_tests(diagnostics_state, input::binding_id::toolbar::SUBMIT)
 }
 
 #[cfg(test)]
@@ -3102,7 +3102,7 @@ mod tests {
         assert!(observed.iter().any(|signal| matches!(
             signal,
             SignalKind::InputEvent(InputEventSignal::BindingRemapped { action_id })
-                if action_id == crate::shell::desktop::runtime::registries::input::ACTION_TOOLBAR_NAV_BACK
+                if action_id == crate::shell::desktop::runtime::registries::input::action_id::toolbar::NAV_BACK
         )));
         assert!(observed.iter().any(|signal| matches!(
             signal,
@@ -3341,8 +3341,8 @@ mod tests {
 
     #[test]
     fn phase2_input_binding_path_matches_registry_runtime_dispatch_api() {
-        let via_phase_api = phase2_resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT);
-        let via_runtime_api = runtime().resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT);
+        let via_phase_api = phase2_resolve_input_binding(input::binding_id::toolbar::SUBMIT);
+        let via_runtime_api = runtime().resolve_input_binding(input::binding_id::toolbar::SUBMIT);
         assert_eq!(via_phase_api, via_runtime_api);
     }
 
@@ -3819,7 +3819,7 @@ mod tests {
     #[test]
     fn phase2_input_registry_resolves_toolbar_nav_reload_binding() {
         assert!(phase2_resolve_input_binding(
-            crate::shell::desktop::runtime::registries::input::INPUT_BINDING_TOOLBAR_NAV_RELOAD,
+            crate::shell::desktop::runtime::registries::input::binding_id::toolbar::NAV_RELOAD,
         ));
     }
 

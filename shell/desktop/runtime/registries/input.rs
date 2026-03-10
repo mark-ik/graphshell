@@ -1,47 +1,65 @@
 use std::collections::{HashMap, hash_map::Entry};
 use std::str::FromStr;
 
-pub(crate) const INPUT_BINDING_TOOLBAR_SUBMIT: &str = "input.toolbar.submit";
-pub(crate) const ACTION_TOOLBAR_SUBMIT: &str = "toolbar:submit";
-pub(crate) const INPUT_BINDING_TOOLBAR_NAV_BACK: &str = "input.toolbar.nav.back";
-pub(crate) const INPUT_BINDING_TOOLBAR_NAV_FORWARD: &str = "input.toolbar.nav.forward";
-pub(crate) const INPUT_BINDING_TOOLBAR_NAV_RELOAD: &str = "input.toolbar.nav.reload";
-pub(crate) const ACTION_TOOLBAR_NAV_BACK: &str = "toolbar:navigate_back";
-pub(crate) const ACTION_TOOLBAR_NAV_FORWARD: &str = "toolbar:navigate_forward";
-pub(crate) const ACTION_TOOLBAR_NAV_RELOAD: &str = "toolbar:navigate_reload";
-pub(crate) const ACTION_GRAPH_VIEW_CONFIRM: &str = "graph:view_confirm";
-pub(crate) const ACTION_GRAPH_CYCLE_FOCUS_REGION: &str = "graph:cycle_focus_region";
-pub(crate) const ACTION_GRAPH_COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
-pub(crate) const ACTION_GRAPH_RADIAL_MENU_OPEN: &str = "workbench:radial_menu_open";
-pub(crate) const ACTION_GRAPH_TOGGLE_PHYSICS: &str = "graph:toggle_physics";
-pub(crate) const ACTION_GRAPH_REHEAT_PHYSICS: &str = "graph:reheat_physics";
-pub(crate) const ACTION_GRAPH_ZOOM_IN: &str = "graph:zoom_in";
-pub(crate) const ACTION_GRAPH_ZOOM_OUT: &str = "graph:zoom_out";
-pub(crate) const ACTION_GRAPH_ZOOM_RESET: &str = "graph:zoom_reset";
-pub(crate) const ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK: &str = "graph:toggle_position_fit_lock";
-pub(crate) const ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK: &str = "graph:toggle_zoom_fit_lock";
-pub(crate) const ACTION_GRAPH_NODE_NEW: &str = "graph:node_new";
-pub(crate) const ACTION_GRAPH_EDGE_CONNECT_PAIR: &str = "graph:edge_connect_pair";
-pub(crate) const ACTION_GRAPH_EDGE_CONNECT_BOTH: &str = "graph:edge_connect_both";
-pub(crate) const ACTION_GRAPH_EDGE_REMOVE_USER: &str = "graph:edge_remove_user";
-pub(crate) const ACTION_GRAPH_NODE_PIN_SELECTED: &str = "graph:node_pin_selected";
-pub(crate) const ACTION_GRAPH_NODE_UNPIN_SELECTED: &str = "graph:node_unpin_selected";
-pub(crate) const ACTION_GRAPH_NODE_PIN_TOGGLE: &str = "graph:node_pin_toggle";
-pub(crate) const ACTION_GRAPH_NODE_DELETE: &str = "graph:node_delete";
-pub(crate) const ACTION_GRAPH_CLEAR: &str = "graph:clear";
-pub(crate) const ACTION_GRAPH_SELECT_ALL: &str = "graph:select_all";
-pub(crate) const ACTION_WORKBENCH_HELP_OPEN: &str = "workbench:help_open";
-pub(crate) const ACTION_WORKBENCH_OPEN_HISTORY_MANAGER: &str = "workbench:open_history_manager";
-pub(crate) const ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS: &str = "workbench:open_physics_settings";
-pub(crate) const ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS: &str = "workbench:open_camera_controls";
-pub(crate) const ACTION_WORKBENCH_UNDO: &str = "workbench:undo";
-pub(crate) const ACTION_WORKBENCH_REDO: &str = "workbench:redo";
-pub(crate) const ACTION_RADIAL_MENU_CATEGORY_PREVIOUS: &str = "radial_menu:category_previous";
-pub(crate) const ACTION_RADIAL_MENU_CATEGORY_NEXT: &str = "radial_menu:category_next";
-pub(crate) const ACTION_RADIAL_MENU_SELECTION_PREVIOUS: &str = "radial_menu:selection_previous";
-pub(crate) const ACTION_RADIAL_MENU_SELECTION_NEXT: &str = "radial_menu:selection_next";
-pub(crate) const ACTION_RADIAL_MENU_CONFIRM: &str = "radial_menu:confirm";
-pub(crate) const ACTION_RADIAL_MENU_CANCEL: &str = "radial_menu:cancel";
+pub(crate) mod binding_id {
+    pub(crate) mod toolbar {
+        pub(crate) const SUBMIT: &str = "input.toolbar.submit";
+        pub(crate) const NAV_BACK: &str = "input.toolbar.nav.back";
+        pub(crate) const NAV_FORWARD: &str = "input.toolbar.nav.forward";
+        pub(crate) const NAV_RELOAD: &str = "input.toolbar.nav.reload";
+    }
+}
+
+pub(crate) mod action_id {
+    pub(crate) mod toolbar {
+        pub(crate) const SUBMIT: &str = "toolbar:submit";
+        pub(crate) const NAV_BACK: &str = "toolbar:navigate_back";
+        pub(crate) const NAV_FORWARD: &str = "toolbar:navigate_forward";
+        pub(crate) const NAV_RELOAD: &str = "toolbar:navigate_reload";
+    }
+
+    pub(crate) mod graph {
+        pub(crate) const VIEW_CONFIRM: &str = "graph:view_confirm";
+        pub(crate) const CYCLE_FOCUS_REGION: &str = "graph:cycle_focus_region";
+        pub(crate) const COMMAND_PALETTE_OPEN: &str = "workbench:command_palette_open";
+        pub(crate) const RADIAL_MENU_OPEN: &str = "workbench:radial_menu_open";
+        pub(crate) const TOGGLE_PHYSICS: &str = "graph:toggle_physics";
+        pub(crate) const REHEAT_PHYSICS: &str = "graph:reheat_physics";
+        pub(crate) const ZOOM_IN: &str = "graph:zoom_in";
+        pub(crate) const ZOOM_OUT: &str = "graph:zoom_out";
+        pub(crate) const ZOOM_RESET: &str = "graph:zoom_reset";
+        pub(crate) const TOGGLE_POSITION_FIT_LOCK: &str = "graph:toggle_position_fit_lock";
+        pub(crate) const TOGGLE_ZOOM_FIT_LOCK: &str = "graph:toggle_zoom_fit_lock";
+        pub(crate) const NODE_NEW: &str = "graph:node_new";
+        pub(crate) const EDGE_CONNECT_PAIR: &str = "graph:edge_connect_pair";
+        pub(crate) const EDGE_CONNECT_BOTH: &str = "graph:edge_connect_both";
+        pub(crate) const EDGE_REMOVE_USER: &str = "graph:edge_remove_user";
+        pub(crate) const NODE_PIN_SELECTED: &str = "graph:node_pin_selected";
+        pub(crate) const NODE_UNPIN_SELECTED: &str = "graph:node_unpin_selected";
+        pub(crate) const NODE_PIN_TOGGLE: &str = "graph:node_pin_toggle";
+        pub(crate) const NODE_DELETE: &str = "graph:node_delete";
+        pub(crate) const CLEAR: &str = "graph:clear";
+        pub(crate) const SELECT_ALL: &str = "graph:select_all";
+    }
+
+    pub(crate) mod workbench {
+        pub(crate) const HELP_OPEN: &str = "workbench:help_open";
+        pub(crate) const OPEN_HISTORY_MANAGER: &str = "workbench:open_history_manager";
+        pub(crate) const OPEN_PHYSICS_SETTINGS: &str = "workbench:open_physics_settings";
+        pub(crate) const OPEN_CAMERA_CONTROLS: &str = "workbench:open_camera_controls";
+        pub(crate) const UNDO: &str = "workbench:undo";
+        pub(crate) const REDO: &str = "workbench:redo";
+    }
+
+    pub(crate) mod radial_menu {
+        pub(crate) const CATEGORY_PREVIOUS: &str = "radial_menu:category_previous";
+        pub(crate) const CATEGORY_NEXT: &str = "radial_menu:category_next";
+        pub(crate) const SELECTION_PREVIOUS: &str = "radial_menu:selection_previous";
+        pub(crate) const SELECTION_NEXT: &str = "radial_menu:selection_next";
+        pub(crate) const CONFIRM: &str = "radial_menu:confirm";
+        pub(crate) const CANCEL: &str = "radial_menu:cancel";
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModifierMask(u8);
@@ -657,7 +675,7 @@ struct DefaultBindingSpec {
 fn default_binding_specs() -> Vec<DefaultBindingSpec> {
     vec![
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_TOGGLE_PHYSICS,
+            action_id: action_id::graph::TOGGLE_PHYSICS,
             display_name: "Toggle Physics Simulation",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -667,7 +685,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_REHEAT_PHYSICS,
+            action_id: action_id::graph::REHEAT_PHYSICS,
             display_name: "Reheat Physics Simulation",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -677,7 +695,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_ZOOM_IN,
+            action_id: action_id::graph::ZOOM_IN,
             display_name: "Zoom In",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -687,7 +705,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_ZOOM_OUT,
+            action_id: action_id::graph::ZOOM_OUT,
             display_name: "Zoom Out",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -697,7 +715,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_ZOOM_RESET,
+            action_id: action_id::graph::ZOOM_RESET,
             display_name: "Reset Zoom",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -707,7 +725,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK,
+            action_id: action_id::graph::TOGGLE_POSITION_FIT_LOCK,
             display_name: "Toggle Position-Fit Lock",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -717,7 +735,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK,
+            action_id: action_id::graph::TOGGLE_ZOOM_FIT_LOCK,
             display_name: "Toggle Zoom-Fit Lock",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -727,7 +745,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_NODE_NEW,
+            action_id: action_id::graph::NODE_NEW,
             display_name: "Create Node",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -737,7 +755,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_EDGE_CONNECT_PAIR,
+            action_id: action_id::graph::EDGE_CONNECT_PAIR,
             display_name: "Connect Selected Pair",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -747,7 +765,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_EDGE_CONNECT_BOTH,
+            action_id: action_id::graph::EDGE_CONNECT_BOTH,
             display_name: "Connect Both Directions",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -757,7 +775,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_EDGE_REMOVE_USER,
+            action_id: action_id::graph::EDGE_REMOVE_USER,
             display_name: "Remove User Edge",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -767,7 +785,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_NODE_PIN_SELECTED,
+            action_id: action_id::graph::NODE_PIN_SELECTED,
             display_name: "Pin Selected Node(s)",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -777,7 +795,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_NODE_UNPIN_SELECTED,
+            action_id: action_id::graph::NODE_UNPIN_SELECTED,
             display_name: "Unpin Selected Node(s)",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -787,7 +805,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_NODE_PIN_TOGGLE,
+            action_id: action_id::graph::NODE_PIN_TOGGLE,
             display_name: "Toggle Primary Node Pin",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -797,7 +815,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_NODE_DELETE,
+            action_id: action_id::graph::NODE_DELETE,
             display_name: "Delete Selected Nodes",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -807,7 +825,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_CLEAR,
+            action_id: action_id::graph::CLEAR,
             display_name: "Clear Graph",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -817,7 +835,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_SELECT_ALL,
+            action_id: action_id::graph::SELECT_ALL,
             display_name: "Select All Nodes",
             section: InputBindingSection::Graph,
             context: InputContext::GraphView,
@@ -827,7 +845,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_WORKBENCH_HELP_OPEN,
+            action_id: action_id::workbench::HELP_OPEN,
             display_name: "Toggle Help Panel",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -837,7 +855,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+            action_id: action_id::graph::COMMAND_PALETTE_OPEN,
             display_name: "Open Command Palette",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -847,7 +865,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_RADIAL_MENU_OPEN,
+            action_id: action_id::graph::RADIAL_MENU_OPEN,
             display_name: "Toggle Radial Palette",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -857,7 +875,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS,
+            action_id: action_id::workbench::OPEN_PHYSICS_SETTINGS,
             display_name: "Open Physics Settings",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -867,7 +885,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS,
+            action_id: action_id::workbench::OPEN_CAMERA_CONTROLS,
             display_name: "Open Camera Controls",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -877,7 +895,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            action_id: action_id::workbench::OPEN_HISTORY_MANAGER,
             display_name: "Open History Manager",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -887,7 +905,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_WORKBENCH_UNDO,
+            action_id: action_id::workbench::UNDO,
             display_name: "Undo",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -897,7 +915,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_WORKBENCH_REDO,
+            action_id: action_id::workbench::REDO,
             display_name: "Redo",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -907,7 +925,7 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            action_id: action_id::graph::CYCLE_FOCUS_REGION,
             display_name: "Cycle Focus Region",
             section: InputBindingSection::Workbench,
             context: InputContext::GraphView,
@@ -917,21 +935,21 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
             },
         },
         DefaultBindingSpec {
-            action_id: ACTION_TOOLBAR_NAV_BACK,
+            action_id: action_id::toolbar::NAV_BACK,
             display_name: "Navigate Back",
             section: InputBindingSection::Navigation,
             context: InputContext::DetailView,
             binding: toolbar_nav_back_binding(),
         },
         DefaultBindingSpec {
-            action_id: ACTION_TOOLBAR_NAV_FORWARD,
+            action_id: action_id::toolbar::NAV_FORWARD,
             display_name: "Navigate Forward",
             section: InputBindingSection::Navigation,
             context: InputContext::DetailView,
             binding: toolbar_nav_forward_binding(),
         },
         DefaultBindingSpec {
-            action_id: ACTION_TOOLBAR_NAV_RELOAD,
+            action_id: action_id::toolbar::NAV_RELOAD,
             display_name: "Reload",
             section: InputBindingSection::Navigation,
             context: InputContext::DetailView,
@@ -942,14 +960,14 @@ fn default_binding_specs() -> Vec<DefaultBindingSpec> {
 
 fn legacy_binding(binding_id: &str) -> Option<(InputBinding, InputContext)> {
     match binding_id.to_ascii_lowercase().as_str() {
-        INPUT_BINDING_TOOLBAR_SUBMIT => Some((toolbar_submit_binding(), InputContext::OmnibarOpen)),
-        INPUT_BINDING_TOOLBAR_NAV_BACK => {
+        binding_id::toolbar::SUBMIT => Some((toolbar_submit_binding(), InputContext::OmnibarOpen)),
+        binding_id::toolbar::NAV_BACK => {
             Some((toolbar_nav_back_binding(), InputContext::DetailView))
         }
-        INPUT_BINDING_TOOLBAR_NAV_FORWARD => {
+        binding_id::toolbar::NAV_FORWARD => {
             Some((toolbar_nav_forward_binding(), InputContext::DetailView))
         }
-        INPUT_BINDING_TOOLBAR_NAV_RELOAD => {
+        binding_id::toolbar::NAV_RELOAD => {
             Some((toolbar_nav_reload_binding(), InputContext::DetailView))
         }
         _ => None,
@@ -1162,79 +1180,87 @@ impl Default for InputRegistry {
         let mut registry = Self {
             bindings: HashMap::new(),
         };
-        registry.register_binding(toolbar_submit_binding(), ACTION_TOOLBAR_SUBMIT, InputContext::OmnibarOpen);
-        registry.register_binding(graph_view_confirm_binding(), ACTION_GRAPH_VIEW_CONFIRM, InputContext::GraphView);
+        registry.register_binding(
+            toolbar_submit_binding(),
+            action_id::toolbar::SUBMIT,
+            InputContext::OmnibarOpen,
+        );
+        registry.register_binding(
+            graph_view_confirm_binding(),
+            action_id::graph::VIEW_CONFIRM,
+            InputContext::GraphView,
+        );
         for spec in default_binding_specs() {
             registry.register_binding(spec.binding, spec.action_id, spec.context);
         }
         registry.register_binding(
             gamepad_command_palette_binding(),
-            ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+            action_id::graph::COMMAND_PALETTE_OPEN,
             InputContext::GraphView,
         );
         registry.register_binding(
             gamepad_radial_menu_binding(),
-            ACTION_GRAPH_RADIAL_MENU_OPEN,
+            action_id::graph::RADIAL_MENU_OPEN,
             InputContext::GraphView,
         );
         registry.register_binding(
             gamepad_cycle_focus_binding(GamepadButton::DPadUp),
-            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            action_id::graph::CYCLE_FOCUS_REGION,
             InputContext::GraphView,
         );
         registry.register_binding(
             gamepad_cycle_focus_binding(GamepadButton::DPadDown),
-            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            action_id::graph::CYCLE_FOCUS_REGION,
             InputContext::GraphView,
         );
         registry.register_binding(
             gamepad_cycle_focus_binding(GamepadButton::DPadLeft),
-            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            action_id::graph::CYCLE_FOCUS_REGION,
             InputContext::GraphView,
         );
         registry.register_binding(
             gamepad_cycle_focus_binding(GamepadButton::DPadRight),
-            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            action_id::graph::CYCLE_FOCUS_REGION,
             InputContext::GraphView,
         );
         registry.register_binding(
             gamepad_nav_back_binding(),
-            ACTION_TOOLBAR_NAV_BACK,
+            action_id::toolbar::NAV_BACK,
             InputContext::DetailView,
         );
         registry.register_binding(
             gamepad_nav_forward_binding(),
-            ACTION_TOOLBAR_NAV_FORWARD,
+            action_id::toolbar::NAV_FORWARD,
             InputContext::DetailView,
         );
         registry.register_binding(
             gamepad_radial_category_previous_binding(),
-            ACTION_RADIAL_MENU_CATEGORY_PREVIOUS,
+            action_id::radial_menu::CATEGORY_PREVIOUS,
             InputContext::RadialMenuOpen,
         );
         registry.register_binding(
             gamepad_radial_category_next_binding(),
-            ACTION_RADIAL_MENU_CATEGORY_NEXT,
+            action_id::radial_menu::CATEGORY_NEXT,
             InputContext::RadialMenuOpen,
         );
         registry.register_binding(
             gamepad_radial_selection_previous_binding(),
-            ACTION_RADIAL_MENU_SELECTION_PREVIOUS,
+            action_id::radial_menu::SELECTION_PREVIOUS,
             InputContext::RadialMenuOpen,
         );
         registry.register_binding(
             gamepad_radial_selection_next_binding(),
-            ACTION_RADIAL_MENU_SELECTION_NEXT,
+            action_id::radial_menu::SELECTION_NEXT,
             InputContext::RadialMenuOpen,
         );
         registry.register_binding(
             gamepad_radial_confirm_binding(),
-            ACTION_RADIAL_MENU_CONFIRM,
+            action_id::radial_menu::CONFIRM,
             InputContext::RadialMenuOpen,
         );
         registry.register_binding(
             gamepad_radial_cancel_binding(),
-            ACTION_RADIAL_MENU_CANCEL,
+            action_id::radial_menu::CANCEL,
             InputContext::RadialMenuOpen,
         );
         registry
@@ -1263,7 +1289,7 @@ mod tests {
         let resolution = registry.resolve(&toolbar_submit_binding(), InputContext::OmnibarOpen);
 
         assert!(resolution.matched);
-        assert_eq!(resolution.action_id.as_deref(), Some(ACTION_TOOLBAR_SUBMIT));
+        assert_eq!(resolution.action_id.as_deref(), Some(action_id::toolbar::SUBMIT));
     }
 
     #[test]
@@ -1282,18 +1308,18 @@ mod tests {
 
         let back = registry.resolve(&toolbar_nav_back_binding(), InputContext::DetailView);
         assert!(back.matched);
-        assert_eq!(back.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_BACK));
+        assert_eq!(back.action_id.as_deref(), Some(action_id::toolbar::NAV_BACK));
 
         let forward = registry.resolve(&toolbar_nav_forward_binding(), InputContext::DetailView);
         assert!(forward.matched);
         assert_eq!(
             forward.action_id.as_deref(),
-            Some(ACTION_TOOLBAR_NAV_FORWARD)
+            Some(action_id::toolbar::NAV_FORWARD)
         );
 
         let reload = registry.resolve(&toolbar_nav_reload_binding(), InputContext::DetailView);
         assert!(reload.matched);
-        assert_eq!(reload.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_RELOAD));
+        assert_eq!(reload.action_id.as_deref(), Some(action_id::toolbar::NAV_RELOAD));
     }
 
     #[test]
@@ -1301,12 +1327,12 @@ mod tests {
         let registry = InputRegistry::default();
 
         let omnibar = registry.resolve(&toolbar_submit_binding(), InputContext::OmnibarOpen);
-        assert_eq!(omnibar.action_id.as_deref(), Some(ACTION_TOOLBAR_SUBMIT));
+        assert_eq!(omnibar.action_id.as_deref(), Some(action_id::toolbar::SUBMIT));
 
         let graph_view = registry.resolve(&graph_view_confirm_binding(), InputContext::GraphView);
         assert_eq!(
             graph_view.action_id.as_deref(),
-            Some(ACTION_GRAPH_VIEW_CONFIRM)
+            Some(action_id::graph::VIEW_CONFIRM)
         );
     }
 
@@ -1318,12 +1344,12 @@ mod tests {
 
         registry.register_binding(
             toolbar_submit_binding(),
-            ACTION_TOOLBAR_SUBMIT,
+            action_id::toolbar::SUBMIT,
             InputContext::OmnibarOpen,
         );
         registry.register_binding(
             toolbar_submit_binding(),
-            ACTION_GRAPH_VIEW_CONFIRM,
+            action_id::graph::VIEW_CONFIRM,
             InputContext::OmnibarOpen,
         );
 
@@ -1337,12 +1363,12 @@ mod tests {
     fn input_registry_legacy_binding_ids_resolve_through_typed_map() {
         let registry = InputRegistry::default();
 
-        let resolution = registry.resolve_binding_id(INPUT_BINDING_TOOLBAR_NAV_RELOAD);
+        let resolution = registry.resolve_binding_id(binding_id::toolbar::NAV_RELOAD);
         assert!(resolution.matched);
         assert_eq!(resolution.context, InputContext::DetailView);
         assert_eq!(
             resolution.action_id.as_deref(),
-            Some(ACTION_TOOLBAR_NAV_RELOAD)
+            Some(action_id::toolbar::NAV_RELOAD)
         );
     }
 
@@ -1354,13 +1380,13 @@ mod tests {
             registry.resolve(&gamepad_command_palette_binding(), InputContext::GraphView);
         assert_eq!(
             command_palette.action_id.as_deref(),
-            Some(ACTION_GRAPH_COMMAND_PALETTE_OPEN)
+            Some(action_id::graph::COMMAND_PALETTE_OPEN)
         );
 
         let radial_menu = registry.resolve(&gamepad_radial_menu_binding(), InputContext::GraphView);
         assert_eq!(
             radial_menu.action_id.as_deref(),
-            Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+            Some(action_id::graph::RADIAL_MENU_OPEN)
         );
 
         let focus_cycle = registry.resolve(
@@ -1369,7 +1395,7 @@ mod tests {
         );
         assert_eq!(
             focus_cycle.action_id.as_deref(),
-            Some(ACTION_GRAPH_CYCLE_FOCUS_REGION)
+            Some(action_id::graph::CYCLE_FOCUS_REGION)
         );
     }
 
@@ -1378,12 +1404,12 @@ mod tests {
         let registry = InputRegistry::default();
 
         let back = registry.resolve(&gamepad_nav_back_binding(), InputContext::DetailView);
-        assert_eq!(back.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_BACK));
+        assert_eq!(back.action_id.as_deref(), Some(action_id::toolbar::NAV_BACK));
 
         let forward = registry.resolve(&gamepad_nav_forward_binding(), InputContext::DetailView);
         assert_eq!(
             forward.action_id.as_deref(),
-            Some(ACTION_TOOLBAR_NAV_FORWARD)
+            Some(action_id::toolbar::NAV_FORWARD)
         );
     }
 
@@ -1397,7 +1423,7 @@ mod tests {
         );
         assert_eq!(
             category_previous.action_id.as_deref(),
-            Some(ACTION_RADIAL_MENU_CATEGORY_PREVIOUS)
+            Some(action_id::radial_menu::CATEGORY_PREVIOUS)
         );
 
         let category_next = registry.resolve(
@@ -1406,7 +1432,7 @@ mod tests {
         );
         assert_eq!(
             category_next.action_id.as_deref(),
-            Some(ACTION_RADIAL_MENU_CATEGORY_NEXT)
+            Some(action_id::radial_menu::CATEGORY_NEXT)
         );
 
         let selection_previous = registry.resolve(
@@ -1415,7 +1441,7 @@ mod tests {
         );
         assert_eq!(
             selection_previous.action_id.as_deref(),
-            Some(ACTION_RADIAL_MENU_SELECTION_PREVIOUS)
+            Some(action_id::radial_menu::SELECTION_PREVIOUS)
         );
 
         let selection_next = registry.resolve(
@@ -1424,7 +1450,7 @@ mod tests {
         );
         assert_eq!(
             selection_next.action_id.as_deref(),
-            Some(ACTION_RADIAL_MENU_SELECTION_NEXT)
+            Some(action_id::radial_menu::SELECTION_NEXT)
         );
 
         let confirm = registry.resolve(
@@ -1433,14 +1459,14 @@ mod tests {
         );
         assert_eq!(
             confirm.action_id.as_deref(),
-            Some(ACTION_RADIAL_MENU_CONFIRM)
+            Some(action_id::radial_menu::CONFIRM)
         );
 
         let cancel = registry.resolve(
             &gamepad_radial_cancel_binding(),
             InputContext::RadialMenuOpen,
         );
-        assert_eq!(cancel.action_id.as_deref(), Some(ACTION_RADIAL_MENU_CANCEL));
+        assert_eq!(cancel.action_id.as_deref(), Some(action_id::radial_menu::CANCEL));
     }
 
     #[test]
@@ -1480,7 +1506,7 @@ mod tests {
                 .resolve(&new, InputContext::GraphView)
                 .action_id
                 .as_deref(),
-            Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+            Some(action_id::graph::RADIAL_MENU_OPEN)
         );
     }
 
@@ -1499,7 +1525,7 @@ mod tests {
                 .resolve(&gamepad_radial_menu_binding(), InputContext::GraphView)
                 .action_id
                 .as_deref(),
-            Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+            Some(action_id::graph::RADIAL_MENU_OPEN)
         );
     }
 
@@ -1520,7 +1546,7 @@ mod tests {
                 .resolve(&remaps[0].new, InputContext::DetailView)
                 .action_id
                 .as_deref(),
-            Some(ACTION_TOOLBAR_NAV_BACK)
+            Some(action_id::toolbar::NAV_BACK)
         );
     }
 
@@ -1540,7 +1566,7 @@ mod tests {
         let descriptors = registry.describe_bindable_actions();
         let command_palette = descriptors
             .iter()
-            .find(|entry| entry.action_id == ACTION_GRAPH_COMMAND_PALETTE_OPEN)
+            .find(|entry| entry.action_id == action_id::graph::COMMAND_PALETTE_OPEN)
             .expect("command palette binding descriptor should exist");
 
         assert_eq!(command_palette.display_name, "Open Command Palette");
@@ -1566,43 +1592,43 @@ mod tests {
     #[test]
     fn input_registry_action_ids_follow_namespace_name_format() {
         for action_id in [
-            ACTION_TOOLBAR_SUBMIT,
-            ACTION_TOOLBAR_NAV_BACK,
-            ACTION_TOOLBAR_NAV_FORWARD,
-            ACTION_TOOLBAR_NAV_RELOAD,
-            ACTION_GRAPH_VIEW_CONFIRM,
-            ACTION_GRAPH_CYCLE_FOCUS_REGION,
-            ACTION_GRAPH_COMMAND_PALETTE_OPEN,
-            ACTION_GRAPH_RADIAL_MENU_OPEN,
-            ACTION_GRAPH_TOGGLE_PHYSICS,
-            ACTION_GRAPH_REHEAT_PHYSICS,
-            ACTION_GRAPH_ZOOM_IN,
-            ACTION_GRAPH_ZOOM_OUT,
-            ACTION_GRAPH_ZOOM_RESET,
-            ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK,
-            ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK,
-            ACTION_GRAPH_NODE_NEW,
-            ACTION_GRAPH_EDGE_CONNECT_PAIR,
-            ACTION_GRAPH_EDGE_CONNECT_BOTH,
-            ACTION_GRAPH_EDGE_REMOVE_USER,
-            ACTION_GRAPH_NODE_PIN_SELECTED,
-            ACTION_GRAPH_NODE_UNPIN_SELECTED,
-            ACTION_GRAPH_NODE_PIN_TOGGLE,
-            ACTION_GRAPH_NODE_DELETE,
-            ACTION_GRAPH_CLEAR,
-            ACTION_GRAPH_SELECT_ALL,
-            ACTION_WORKBENCH_HELP_OPEN,
-            ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
-            ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS,
-            ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS,
-            ACTION_WORKBENCH_UNDO,
-            ACTION_WORKBENCH_REDO,
-            ACTION_RADIAL_MENU_CATEGORY_PREVIOUS,
-            ACTION_RADIAL_MENU_CATEGORY_NEXT,
-            ACTION_RADIAL_MENU_SELECTION_PREVIOUS,
-            ACTION_RADIAL_MENU_SELECTION_NEXT,
-            ACTION_RADIAL_MENU_CONFIRM,
-            ACTION_RADIAL_MENU_CANCEL,
+            action_id::toolbar::SUBMIT,
+            action_id::toolbar::NAV_BACK,
+            action_id::toolbar::NAV_FORWARD,
+            action_id::toolbar::NAV_RELOAD,
+            action_id::graph::VIEW_CONFIRM,
+            action_id::graph::CYCLE_FOCUS_REGION,
+            action_id::graph::COMMAND_PALETTE_OPEN,
+            action_id::graph::RADIAL_MENU_OPEN,
+            action_id::graph::TOGGLE_PHYSICS,
+            action_id::graph::REHEAT_PHYSICS,
+            action_id::graph::ZOOM_IN,
+            action_id::graph::ZOOM_OUT,
+            action_id::graph::ZOOM_RESET,
+            action_id::graph::TOGGLE_POSITION_FIT_LOCK,
+            action_id::graph::TOGGLE_ZOOM_FIT_LOCK,
+            action_id::graph::NODE_NEW,
+            action_id::graph::EDGE_CONNECT_PAIR,
+            action_id::graph::EDGE_CONNECT_BOTH,
+            action_id::graph::EDGE_REMOVE_USER,
+            action_id::graph::NODE_PIN_SELECTED,
+            action_id::graph::NODE_UNPIN_SELECTED,
+            action_id::graph::NODE_PIN_TOGGLE,
+            action_id::graph::NODE_DELETE,
+            action_id::graph::CLEAR,
+            action_id::graph::SELECT_ALL,
+            action_id::workbench::HELP_OPEN,
+            action_id::workbench::OPEN_HISTORY_MANAGER,
+            action_id::workbench::OPEN_PHYSICS_SETTINGS,
+            action_id::workbench::OPEN_CAMERA_CONTROLS,
+            action_id::workbench::UNDO,
+            action_id::workbench::REDO,
+            action_id::radial_menu::CATEGORY_PREVIOUS,
+            action_id::radial_menu::CATEGORY_NEXT,
+            action_id::radial_menu::SELECTION_PREVIOUS,
+            action_id::radial_menu::SELECTION_NEXT,
+            action_id::radial_menu::CONFIRM,
+            action_id::radial_menu::CANCEL,
         ] {
             assert!(is_namespaced_action_id(action_id), "{action_id}");
         }

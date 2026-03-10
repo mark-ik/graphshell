@@ -11,7 +11,7 @@ use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
 };
 use crate::shell::desktop::runtime::registries::phase2_describe_input_bindings;
-use crate::shell::desktop::runtime::registries::input::InputBinding;
+use crate::shell::desktop::runtime::registries::input::{InputBinding, action_id};
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::Key;
 
@@ -180,7 +180,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_PHYSICS,
+            action_id::graph::TOGGLE_PHYSICS,
             &binding_descriptors,
         ) {
             actions.toggle_physics = true;
@@ -188,21 +188,21 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_ZOOM_IN,
+            action_id::graph::ZOOM_IN,
             &binding_descriptors,
         ) {
             actions.zoom_in = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_ZOOM_OUT,
+            action_id::graph::ZOOM_OUT,
             &binding_descriptors,
         ) {
             actions.zoom_out = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_ZOOM_RESET,
+            action_id::graph::ZOOM_RESET,
             &binding_descriptors,
         ) {
             actions.zoom_reset = true;
@@ -210,21 +210,21 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS,
+            action_id::workbench::OPEN_PHYSICS_SETTINGS,
             &binding_descriptors,
         ) {
             actions.open_physics_settings = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_CAMERA_CONTROLS,
+            action_id::workbench::OPEN_CAMERA_CONTROLS,
             &binding_descriptors,
         ) {
             actions.open_camera_controls = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            action_id::workbench::OPEN_HISTORY_MANAGER,
             &binding_descriptors,
         ) {
             actions.toggle_history_manager = true;
@@ -232,7 +232,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_NEW,
+            action_id::graph::NODE_NEW,
             &binding_descriptors,
         ) {
             actions.create_node = true;
@@ -240,7 +240,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_ZOOM_FIT_LOCK,
+            action_id::graph::TOGGLE_ZOOM_FIT_LOCK,
             &binding_descriptors,
         ) {
             actions.toggle_camera_zoom_fit_lock = true;
@@ -248,7 +248,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_POSITION_FIT_LOCK,
+            action_id::graph::TOGGLE_POSITION_FIT_LOCK,
             &binding_descriptors,
         ) {
             actions.toggle_camera_position_fit_lock = true;
@@ -256,7 +256,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_REHEAT_PHYSICS,
+            action_id::graph::REHEAT_PHYSICS,
             &binding_descriptors,
         ) {
             actions.reheat_physics = true;
@@ -264,21 +264,21 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_PAIR,
+            action_id::graph::EDGE_CONNECT_PAIR,
             &binding_descriptors,
         ) {
             actions.connect_selected_pair = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_BOTH,
+            action_id::graph::EDGE_CONNECT_BOTH,
             &binding_descriptors,
         ) {
             actions.connect_both_directions = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_REMOVE_USER,
+            action_id::graph::EDGE_REMOVE_USER,
             &binding_descriptors,
         ) {
             actions.remove_user_edge = true;
@@ -286,21 +286,21 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_SELECTED,
+            action_id::graph::NODE_PIN_SELECTED,
             &binding_descriptors,
         ) {
             actions.pin_selected = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_UNPIN_SELECTED,
+            action_id::graph::NODE_UNPIN_SELECTED,
             &binding_descriptors,
         ) {
             actions.unpin_selected = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_TOGGLE,
+            action_id::graph::NODE_PIN_TOGGLE,
             &binding_descriptors,
         ) {
             actions.toggle_pin_primary = true;
@@ -308,21 +308,21 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_HELP_OPEN,
+            action_id::workbench::HELP_OPEN,
             &binding_descriptors,
         ) {
             actions.toggle_help_panel = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+            action_id::graph::COMMAND_PALETTE_OPEN,
             &binding_descriptors,
         ) {
             actions.toggle_command_palette = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN,
+            action_id::graph::RADIAL_MENU_OPEN,
             &binding_descriptors,
         ) {
             actions.toggle_radial_menu = true;
@@ -330,28 +330,28 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_DELETE,
+            action_id::graph::NODE_DELETE,
             &binding_descriptors,
         ) {
             actions.delete_selected = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_CLEAR,
+            action_id::graph::CLEAR,
             &binding_descriptors,
         ) {
             actions.clear_graph = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_UNDO,
+            action_id::workbench::UNDO,
             &binding_descriptors,
         ) {
             actions.undo = true;
         }
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_REDO,
+            action_id::workbench::REDO,
             &binding_descriptors,
         ) {
             actions.redo = true;
@@ -359,7 +359,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_SELECT_ALL,
+            action_id::graph::SELECT_ALL,
             &binding_descriptors,
         ) {
             actions.select_all = true;
@@ -367,7 +367,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
 
         if action_binding_pressed(
             i,
-            crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            action_id::graph::CYCLE_FOCUS_REGION,
             &binding_descriptors,
         ) {
             actions.cycle_focus_region = true;

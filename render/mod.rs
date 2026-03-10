@@ -33,6 +33,7 @@ use crate::shell::desktop::runtime::registries::{
     phase3_resolve_active_canvas_profile, phase3_resolve_layout_algorithm,
     phase3_resolve_active_presentation_profile,
 };
+use crate::shell::desktop::runtime::registries::input::action_id;
 use crate::util::CoordBridge;
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
@@ -2617,15 +2618,15 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     // Draw controls hint
     let lasso_hint = canvas_lasso_binding_label(app.lasso_binding_preference());
     let command_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-        crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+        action_id::graph::COMMAND_PALETTE_OPEN,
     )
     .join(" / ");
     let radial_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-        crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN,
+        action_id::graph::RADIAL_MENU_OPEN,
     )
     .join(" / ");
     let help_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-        crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_HELP_OPEN,
+        action_id::workbench::HELP_OPEN,
     )
     .join(" / ");
     let controls_text = format!(

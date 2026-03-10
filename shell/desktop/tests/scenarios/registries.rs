@@ -398,7 +398,7 @@ fn phase2_input_registry_toolbar_nav_binding_emits_resolved_channel() {
 
     let resolved = registries::phase2_resolve_input_binding_for_tests(
         &harness.diagnostics,
-        registries::input::INPUT_BINDING_TOOLBAR_NAV_RELOAD,
+        registries::input::binding_id::toolbar::NAV_RELOAD,
     );
     assert!(resolved);
 

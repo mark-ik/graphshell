@@ -11,6 +11,7 @@
 
 use crate::app::GraphViewId;
 use crate::graph::NodeKey;
+use crate::shell::desktop::runtime::registries::input::action_id as input_action;
 use std::sync::Once;
 
 static ACTION_KEY_AUDIT_ONCE: Once = Once::new();
@@ -211,22 +212,22 @@ pub enum ActionId {
 impl ActionId {
     pub fn shortcut_hints(self) -> Vec<String> {
         let action_ids: &[&str] = match self {
-            Self::NodeNew => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_NEW],
-            Self::NodePinToggle => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_TOGGLE],
-            Self::NodePinSelected => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_PIN_SELECTED],
-            Self::NodeUnpinSelected => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_UNPIN_SELECTED],
-            Self::NodeDelete => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_NODE_DELETE],
-            Self::EdgeConnectPair => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_PAIR],
-            Self::EdgeConnectBoth => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_CONNECT_BOTH],
-            Self::EdgeRemoveUser => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_EDGE_REMOVE_USER],
+            Self::NodeNew => &[input_action::graph::NODE_NEW],
+            Self::NodePinToggle => &[input_action::graph::NODE_PIN_TOGGLE],
+            Self::NodePinSelected => &[input_action::graph::NODE_PIN_SELECTED],
+            Self::NodeUnpinSelected => &[input_action::graph::NODE_UNPIN_SELECTED],
+            Self::NodeDelete => &[input_action::graph::NODE_DELETE],
+            Self::EdgeConnectPair => &[input_action::graph::EDGE_CONNECT_PAIR],
+            Self::EdgeConnectBoth => &[input_action::graph::EDGE_CONNECT_BOTH],
+            Self::EdgeRemoveUser => &[input_action::graph::EDGE_REMOVE_USER],
             Self::GraphFit => &[],
-            Self::GraphTogglePhysics => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_TOGGLE_PHYSICS],
-            Self::GraphPhysicsConfig => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_PHYSICS_SETTINGS],
-            Self::GraphCommandPalette => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN],
-            Self::GraphRadialMenu => &[crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN],
-            Self::PersistUndo => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_UNDO],
-            Self::PersistRedo => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_REDO],
-            Self::PersistOpenHistoryManager => &[crate::shell::desktop::runtime::registries::input::ACTION_WORKBENCH_OPEN_HISTORY_MANAGER],
+            Self::GraphTogglePhysics => &[input_action::graph::TOGGLE_PHYSICS],
+            Self::GraphPhysicsConfig => &[input_action::workbench::OPEN_PHYSICS_SETTINGS],
+            Self::GraphCommandPalette => &[input_action::graph::COMMAND_PALETTE_OPEN],
+            Self::GraphRadialMenu => &[input_action::graph::RADIAL_MENU_OPEN],
+            Self::PersistUndo => &[input_action::workbench::UNDO],
+            Self::PersistRedo => &[input_action::workbench::REDO],
+            Self::PersistOpenHistoryManager => &[input_action::workbench::OPEN_HISTORY_MANAGER],
             _ => &[],
         };
 

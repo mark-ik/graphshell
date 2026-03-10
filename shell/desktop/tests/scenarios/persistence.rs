@@ -9,7 +9,7 @@ use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::registries::input::{
-    ACTION_GRAPH_RADIAL_MENU_OPEN, GamepadButton, InputBinding, InputBindingRemap, InputContext,
+    GamepadButton, InputBinding, InputBindingRemap, InputContext, action_id,
 };
 use crate::shell::desktop::runtime::registries::{
     phase2_reset_input_binding_remaps, phase2_resolve_typed_input_action_id,
@@ -390,7 +390,7 @@ fn set_input_binding_remaps_persist_across_restart() {
     let _reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(
         phase2_resolve_typed_input_action_id(&remaps[0].new, InputContext::GraphView).as_deref(),
-        Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+        Some(action_id::graph::RADIAL_MENU_OPEN)
     );
     assert_eq!(
         phase2_resolve_typed_input_action_id(&remaps[0].old, InputContext::GraphView),

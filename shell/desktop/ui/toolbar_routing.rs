@@ -7,10 +7,7 @@ use crate::graph::NodeKey;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::webview_controller;
 use crate::shell::desktop::runtime::registries;
-use crate::shell::desktop::runtime::registries::input::{
-    INPUT_BINDING_TOOLBAR_NAV_BACK, INPUT_BINDING_TOOLBAR_NAV_FORWARD,
-    INPUT_BINDING_TOOLBAR_NAV_RELOAD,
-};
+use crate::shell::desktop::runtime::registries::input::binding_id;
 use crate::shell::desktop::ui::nav_targeting;
 
 pub(crate) enum ToolbarNavAction {
@@ -37,9 +34,9 @@ pub(crate) fn run_nav_action(
     action: ToolbarNavAction,
 ) -> bool {
     let binding_id = match action {
-        ToolbarNavAction::Back => INPUT_BINDING_TOOLBAR_NAV_BACK,
-        ToolbarNavAction::Forward => INPUT_BINDING_TOOLBAR_NAV_FORWARD,
-        ToolbarNavAction::Reload => INPUT_BINDING_TOOLBAR_NAV_RELOAD,
+        ToolbarNavAction::Back => binding_id::toolbar::NAV_BACK,
+        ToolbarNavAction::Forward => binding_id::toolbar::NAV_FORWARD,
+        ToolbarNavAction::Reload => binding_id::toolbar::NAV_RELOAD,
     };
     if !registries::phase2_resolve_input_binding(binding_id) {
         return false;

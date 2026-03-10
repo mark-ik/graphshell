@@ -37,6 +37,7 @@ use crate::shell::desktop::lifecycle::lifecycle_reconcile::{
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::diagnostics;
+use crate::shell::desktop::runtime::registries::input::action_id;
 #[cfg(all(
     feature = "gamepad",
     not(any(target_os = "android", target_env = "ohos"))
@@ -222,7 +223,7 @@ pub(crate) fn ingest_pre_frame(
             };
 
             match action_id.as_str() {
-                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_CYCLE_FOCUS_REGION => {
+                action_id::graph::CYCLE_FOCUS_REGION => {
                     render::dispatch_action_id(
                         graph_app,
                         render::action_registry::ActionId::GraphCycleFocusRegion,
@@ -232,7 +233,7 @@ pub(crate) fn ingest_pre_frame(
                         None,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN => {
+                action_id::graph::COMMAND_PALETTE_OPEN => {
                     render::dispatch_action_id(
                         graph_app,
                         render::action_registry::ActionId::GraphCommandPalette,
@@ -242,7 +243,7 @@ pub(crate) fn ingest_pre_frame(
                         None,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN => {
+                action_id::graph::RADIAL_MENU_OPEN => {
                     render::dispatch_action_id(
                         graph_app,
                         render::action_registry::ActionId::GraphRadialMenu,
@@ -252,51 +253,51 @@ pub(crate) fn ingest_pre_frame(
                         None,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_TOOLBAR_NAV_BACK => {
+                action_id::toolbar::NAV_BACK => {
                     let target = BrowserCommandTarget::ChromeProjection {
                         fallback_node: nav_targeting::chrome_projection_node(graph_app, window)
                             .or(focused_node),
                     };
                     graph_app.request_browser_command(target, BrowserCommand::Back);
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_TOOLBAR_NAV_FORWARD => {
+                action_id::toolbar::NAV_FORWARD => {
                     let target = BrowserCommandTarget::ChromeProjection {
                         fallback_node: nav_targeting::chrome_projection_node(graph_app, window)
                             .or(focused_node),
                     };
                     graph_app.request_browser_command(target, BrowserCommand::Forward);
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CATEGORY_PREVIOUS => {
+                action_id::radial_menu::CATEGORY_PREVIOUS => {
                     render::radial_menu::queue_gamepad_input(
                         ctx,
                         render::radial_menu::RadialGamepadInput::NavigateLeft,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CATEGORY_NEXT => {
+                action_id::radial_menu::CATEGORY_NEXT => {
                     render::radial_menu::queue_gamepad_input(
                         ctx,
                         render::radial_menu::RadialGamepadInput::NavigateRight,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_SELECTION_PREVIOUS => {
+                action_id::radial_menu::SELECTION_PREVIOUS => {
                     render::radial_menu::queue_gamepad_input(
                         ctx,
                         render::radial_menu::RadialGamepadInput::NavigateUp,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_SELECTION_NEXT => {
+                action_id::radial_menu::SELECTION_NEXT => {
                     render::radial_menu::queue_gamepad_input(
                         ctx,
                         render::radial_menu::RadialGamepadInput::NavigateDown,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CONFIRM => {
+                action_id::radial_menu::CONFIRM => {
                     render::radial_menu::queue_gamepad_input(
                         ctx,
                         render::radial_menu::RadialGamepadInput::Confirm,
                     );
                 }
-                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CANCEL => {
+                action_id::radial_menu::CANCEL => {
                     render::radial_menu::queue_gamepad_input(
                         ctx,
                         render::radial_menu::RadialGamepadInput::Cancel,
