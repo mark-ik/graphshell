@@ -1,4 +1,5 @@
 pub(crate) mod action;
+pub(crate) mod agent;
 pub(crate) mod canvas;
 pub(crate) mod identity;
 pub(crate) mod index;
@@ -49,6 +50,7 @@ use action::{
     ACTION_VERSE_FORGET_DEVICE, ACTION_VERSE_PAIR_DEVICE, ACTION_VERSE_SHARE_WORKSPACE,
     ACTION_VERSE_SYNC_NOW, ActionCapability, ActionPayload, ActionRegistry, PairingMode,
 };
+use agent::{Agent, AgentDescriptor, AgentRegistry};
 use canvas::CanvasRegistry;
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
@@ -327,6 +329,8 @@ pub(crate) const CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED: &str =
 pub(crate) const CHANNEL_PRESENTATION_PROFILE_RESOLVED: &str =
     "registry.presentation.profile_resolved";
 pub(crate) const CHANNEL_THEME_ACTIVATED: &str = "registry.theme.activated";
+pub(crate) const CHANNEL_AGENT_SPAWNED: &str = "registry.agent.spawned";
+pub(crate) const CHANNEL_AGENT_INTENT_DROPPED: &str = "registry.agent.intent_dropped";
 pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated";
 pub(crate) const CHANNEL_KNOWLEDGE_INDEX_UPDATED: &str = "registry.knowledge.index_updated";
 pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
@@ -366,6 +370,7 @@ pub(crate) struct RegistryRuntime {
     layout: Mutex<LayoutRegistry>,
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
+    agent: Mutex<AgentRegistry>,
     canvas: Mutex<CanvasRegistry>,
     layout_domain: LayoutDomainRegistry,
     presentation: PresentationDomainRegistry,
@@ -721,6 +726,20 @@ impl RegistryRuntime {
         self.dynamic().theme.describe_theme(theme_id)
     }
 
+    pub(crate) fn describe_agent(&self, agent_id: &str) -> Option<AgentDescriptor> {
+        self.agent
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .describe(agent_id)
+    }
+
+    pub(crate) fn instantiate_agent(&self, agent_id: &str) -> Option<Box<dyn Agent>> {
+        self.agent
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .instantiate(agent_id)
+    }
+
     pub(crate) fn select_viewer_for_content(
         &self,
         uri: &str,
@@ -801,6 +820,7 @@ impl RegistryRuntime {
             input: Mutex::new(InputRegistry::default()),
             layout: Mutex::new(LayoutRegistry::default()),
             nostr_core: NostrCoreRegistry::default(),
+            agent: Mutex::new(AgentRegistry::default()),
             canvas: Mutex::new(CanvasRegistry::default()),
             layout_domain: LayoutDomainRegistry::default(),
             presentation: PresentationDomainRegistry::default(),
@@ -1279,6 +1299,17 @@ impl RegistryRuntime {
         self.knowledge.get_color_hint(code)
     }
 
+    pub(crate) fn suggest_knowledge_tags(&self, query: &str, limit: usize) -> Vec<String> {
+        let mut suggestions = self
+            .knowledge
+            .search(query)
+            .into_iter()
+            .map(|entry| format!("udc:{}", entry.code))
+            .collect::<Vec<_>>();
+        suggestions.truncate(limit);
+        suggestions
+    }
+
     pub(crate) fn semantic_distance(&self, a: &str, b: &str) -> Option<f32> {
         self.knowledge.semantic_distance(a, b)
     }
@@ -1303,6 +1334,20 @@ impl RegistryRuntime {
             byte_len: query.len().saturating_add(results.len()),
         });
         results
+    }
+
+    pub(crate) fn route_agent_spawned(&self, agent_id: &str) {
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_AGENT_SPAWNED,
+            byte_len: agent_id.len(),
+        });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::AgentSpawned {
+                agent_id: agent_id.to_string(),
+            }),
+            SignalSource::ControlPanel,
+            None,
+        ));
     }
 
     fn dispatch_workbench_surface_intent(
@@ -1696,6 +1741,28 @@ impl RegistryRuntime {
             ));
         }
     }
+
+    pub(crate) fn publish_navigation_node_activated(
+        &self,
+        key: NodeKey,
+        uri: &str,
+        title: &str,
+    ) {
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::Navigation(NavigationSignal::NodeActivated {
+                key,
+                uri: uri.to_string(),
+                title: title.to_string(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn publish_signal_for_tests(&self, envelope: SignalEnvelope) {
+        self.publish_signal(envelope);
+    }
 }
 
 pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
@@ -1731,6 +1798,11 @@ pub(crate) fn phase3_publish_navigation_mime_resolved(
 ) {
     debug_assert!(!diagnostics::phase3_required_channels().is_empty());
     runtime().publish_navigation_mime_resolved(key, uri, mime_hint);
+}
+
+pub(crate) fn phase3_publish_navigation_node_activated(key: NodeKey, uri: &str, title: &str) {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().publish_navigation_node_activated(key, uri, title);
 }
 
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
@@ -3586,6 +3658,16 @@ mod tests {
         assert!(
             channels
                 .iter()
+                .any(|entry| entry.channel_id == CHANNEL_AGENT_SPAWNED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_AGENT_INTENT_DROPPED)
+        );
+        assert!(
+            channels
+                .iter()
                 .any(|entry| entry.channel_id == CHANNEL_WORKFLOW_ACTIVATED)
         );
         assert!(
@@ -4294,5 +4376,18 @@ mod tests {
         let b = phase3_shared_runtime();
 
         assert!(Arc::ptr_eq(&a, &b));
+    }
+
+    #[test]
+    fn registry_runtime_describes_builtin_tag_suggester_agent() {
+        let runtime = phase3_shared_runtime();
+        let descriptor = runtime
+            .describe_agent("agent:tag_suggester")
+            .expect("tag suggester descriptor should exist");
+
+        assert_eq!(descriptor.id, "agent:tag_suggester");
+        assert!(descriptor
+            .capabilities
+            .contains(&agent::AgentCapability::SuggestNodeTags));
     }
 }

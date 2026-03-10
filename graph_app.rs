@@ -222,6 +222,9 @@ pub use intents::{
     ViewAction,
 };
 
+#[path = "app/agents/mod.rs"]
+pub(crate) mod agents;
+
 #[path = "app/workspace_commands.rs"]
 mod workspace_commands;
 
@@ -1071,6 +1074,8 @@ pub struct GraphWorkspace {
 
     /// Runtime semantic tags by node key (e.g. "udc:51").
     pub semantic_tags: HashMap<NodeKey, HashSet<String>>,
+    /// Display-only semantic tag suggestions surfaced by background agents.
+    pub suggested_semantic_tags: HashMap<NodeKey, Vec<String>>,
 }
 
 /// Main application state (workspace + runtime services).
@@ -1283,6 +1288,7 @@ impl GraphBrowserApp {
                 semantic_index: HashMap::new(),
                 semantic_index_dirty: true,
                 semantic_tags: HashMap::new(),
+                suggested_semantic_tags: HashMap::new(),
             },
             services: AppServices::new(persistence),
         };
@@ -1386,6 +1392,7 @@ impl GraphBrowserApp {
                 semantic_index: HashMap::new(),
                 semantic_index_dirty: true,
                 semantic_tags: HashMap::new(),
+                suggested_semantic_tags: HashMap::new(),
             },
             services: AppServices::new(None),
         }
@@ -2404,8 +2411,15 @@ impl GraphBrowserApp {
                     }
 
                     let tags = self.workspace.semantic_tags.entry(key).or_default();
-                    if tags.insert(normalized_tag) {
+                    if tags.insert(normalized_tag.clone()) {
                         self.workspace.semantic_index_dirty = true;
+                    }
+                    if let Some(suggestions) = self.workspace.suggested_semantic_tags.get_mut(&key)
+                    {
+                        suggestions.retain(|suggestion| suggestion != &normalized_tag);
+                        if suggestions.is_empty() {
+                            self.workspace.suggested_semantic_tags.remove(&key);
+                        }
                     }
                 }
             }
@@ -2421,6 +2435,44 @@ impl GraphBrowserApp {
                         self.workspace.semantic_tags.remove(&key);
                     }
                     self.workspace.semantic_index_dirty = true;
+                }
+            }
+            GraphIntent::SuggestNodeTags { key, suggestions } => {
+                if self.workspace.domain.graph.get_node(key).is_none() {
+                    return;
+                }
+
+                let existing_tags = self
+                    .workspace
+                    .semantic_tags
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut normalized = BTreeSet::new();
+                for suggestion in suggestions {
+                    match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(
+                        &suggestion,
+                    ) {
+                        crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                            canonical_code,
+                            ..
+                        } => {
+                            let canonical = format!("udc:{canonical_code}");
+                            if !existing_tags.contains(&canonical) {
+                                normalized.insert(canonical);
+                            }
+                        }
+                        crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
+                        | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {}
+                    }
+                }
+
+                if normalized.is_empty() {
+                    self.workspace.suggested_semantic_tags.remove(&key);
+                } else {
+                    self.workspace
+                        .suggested_semantic_tags
+                        .insert(key, normalized.into_iter().collect());
                 }
             }
             GraphIntent::ClearHistoryTimeline
@@ -8930,6 +8982,42 @@ mod tests {
                 .resolved_id,
             crate::shell::desktop::runtime::registries::theme::THEME_ID_DARK
         );
+    }
+
+    #[test]
+    fn suggest_node_tags_intent_stores_display_only_suggestions_and_prunes_on_tag_commit() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync("https://math.example.edu".to_string(), Point2D::new(0.0, 0.0));
+
+        app.apply_reducer_intents([GraphIntent::SuggestNodeTags {
+            key,
+            suggestions: vec![
+                "udc:51".to_string(),
+                "udc:519.6".to_string(),
+                "unknown".to_string(),
+            ],
+        }]);
+
+        assert_eq!(
+            app.workspace.suggested_semantic_tags.get(&key),
+            Some(&vec!["udc:51".to_string(), "udc:519.6".to_string()])
+        );
+        assert!(!app.workspace.semantic_tags.contains_key(&key));
+
+        app.apply_reducer_intents([GraphIntent::TagNode {
+            key,
+            tag: "519.6".to_string(),
+        }]);
+
+        assert_eq!(
+            app.workspace.suggested_semantic_tags.get(&key),
+            Some(&vec!["udc:51".to_string()])
+        );
+        assert!(app
+            .workspace
+            .semantic_tags
+            .get(&key)
+            .is_some_and(|tags| tags.contains("udc:519.6")));
     }
 
     #[test]

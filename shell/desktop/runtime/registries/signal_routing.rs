@@ -45,6 +45,11 @@ pub(crate) enum NavigationSignal {
         uri: String,
         viewer_id: String,
     },
+    NodeActivated {
+        key: NodeKey,
+        uri: String,
+        title: String,
+    },
     MimeResolved {
         key: NodeKey,
         uri: String,

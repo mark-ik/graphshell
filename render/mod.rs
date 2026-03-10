@@ -2601,6 +2601,19 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
         presentation.info_text.to_color32(),
     );
 
+    if let Some(selected_key) = app.get_single_selected_node() {
+        let suggestions = app.suggested_semantic_tags_for_node(selected_key);
+        if !suggestions.is_empty() {
+            ui.painter().text(
+                ui.available_rect_before_wrap().left_top() + Vec2::new(10.0, 28.0),
+                egui::Align2::LEFT_TOP,
+                format!("Suggested tags: {}", suggestions.join(", ")),
+                egui::FontId::proportional(11.0),
+                presentation.controls_text.to_color32(),
+            );
+        }
+    }
+
     // Draw controls hint
     let lasso_hint = canvas_lasso_binding_label(app.lasso_binding_preference());
     let command_hint = match app.workspace.command_palette_shortcut {

@@ -29,6 +29,8 @@ use crate::app::{GraphIntent, LifecycleCause, MemoryPressureLevel};
 use crate::graph::NodeKey;
 use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
+use crate::shell::desktop::runtime::registries::RegistryRuntime;
+use crate::shell::desktop::runtime::registries::agent::{Agent, AgentContext};
 use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
 
 /// Capacity of the intent channel — limits flooding from async producers.
@@ -92,6 +94,8 @@ pub(crate) enum IntentSource {
     P2pSync,
     /// Background content-type probe worker (Sector A).
     ProtocolProbe,
+    /// Register-supervised application agent.
+    Agent,
     /// Restore/replay from persistence.
     #[allow(dead_code)]
     Restore,
@@ -103,10 +107,11 @@ fn intent_source_priority(source: IntentSource) -> u8 {
         IntentSource::ServoDelegate => 1,
         IntentSource::MemoryMonitor => 2,
         IntentSource::ProtocolProbe => 3,
-        IntentSource::ModLoader => 4,
-        IntentSource::PrefetchScheduler => 5,
-        IntentSource::P2pSync => 6,
-        IntentSource::Restore => 7,
+        IntentSource::Agent => 4,
+        IntentSource::ModLoader => 5,
+        IntentSource::PrefetchScheduler => 6,
+        IntentSource::P2pSync => 7,
+        IntentSource::Restore => 8,
     }
 }
 
@@ -295,6 +300,37 @@ impl ControlPanel {
         });
 
         log::debug!("control_panel: sync worker spawned");
+    }
+
+    pub(crate) fn spawn_agent(
+        &mut self,
+        agent: Box<dyn Agent>,
+        registries: Arc<RegistryRuntime>,
+    ) {
+        let agent_id = agent.id().to_string();
+        let agent_name = agent.display_name().to_string();
+        let context = AgentContext {
+            intent_tx: self.intent_tx.clone(),
+            signal_rx: registries.subscribe_all_signals_async(),
+            cancel: self.cancel.child_token(),
+            registries: Arc::clone(&registries),
+        };
+        let handle = agent.spawn(context);
+        self.workers.spawn(handle.task);
+        registries.route_agent_spawned(&agent_id);
+        log::debug!("control_panel: agent spawned ({agent_name}, {agent_id})");
+    }
+
+    pub(crate) fn spawn_registered_agent(
+        &mut self,
+        agent_id: &str,
+        registries: Arc<RegistryRuntime>,
+    ) -> Result<(), String> {
+        let agent = registries
+            .instantiate_agent(agent_id)
+            .ok_or_else(|| format!("unknown agent: {agent_id}"))?;
+        self.spawn_agent(agent, registries);
+        Ok(())
     }
 
     pub(crate) fn handle_protocol_probe_request(&mut self, key: NodeKey, url: Option<String>) {
@@ -560,11 +596,42 @@ fn sample_memory() -> (MemoryPressureLevel, u64, u64) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
 
     use super::*;
+    use crate::shell::desktop::runtime::registries::agent::{
+        Agent, AgentCapability, AgentContext, AgentHandle,
+    };
+    use crate::shell::desktop::runtime::registries::phase3_shared_runtime;
+
+    struct CancelAwareTestAgent {
+        cancelled: Arc<AtomicBool>,
+    }
+
+    impl Agent for CancelAwareTestAgent {
+        fn id(&self) -> &'static str {
+            "agent:test_cancel"
+        }
+
+        fn display_name(&self) -> &'static str {
+            "Test cancel-aware agent"
+        }
+
+        fn declared_capabilities(&self) -> Vec<AgentCapability> {
+            vec![AgentCapability::ReadNavigationSignals]
+        }
+
+        fn spawn(self: Box<Self>, context: AgentContext) -> AgentHandle {
+            let cancelled = Arc::clone(&self.cancelled);
+            AgentHandle::from_future(async move {
+                context.cancel.cancelled().await;
+                cancelled.store(true, Ordering::SeqCst);
+            })
+        }
+    }
 
     fn spawn_head_server(content_type: &'static str, delay: Duration) -> String {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
@@ -640,6 +707,27 @@ mod tests {
         let mut panel = ControlPanel::new();
         panel.spawn_memory_monitor();
         panel.shutdown().await;
+        assert_eq!(panel.worker_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn spawn_agent_is_supervised_and_shutdown_cancels_it() {
+        let runtime = phase3_shared_runtime();
+        let mut panel = ControlPanel::new();
+        let cancelled = Arc::new(AtomicBool::new(false));
+
+        panel.spawn_agent(
+            Box::new(CancelAwareTestAgent {
+                cancelled: Arc::clone(&cancelled),
+            }),
+            runtime,
+        );
+        tokio::task::yield_now().await;
+        assert_eq!(panel.worker_count(), 1);
+
+        panel.shutdown().await;
+
+        assert!(cancelled.load(Ordering::SeqCst));
         assert_eq!(panel.worker_count(), 0);
     }
 

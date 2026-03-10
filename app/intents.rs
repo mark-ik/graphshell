@@ -462,6 +462,10 @@ pub enum GraphIntent {
         key: NodeKey,
         tag: String,
     },
+    SuggestNodeTags {
+        key: NodeKey,
+        suggestions: Vec<String>,
+    },
     OpenNodeFrameRouted {
         key: NodeKey,
         prefer_frame: Option<String>,

@@ -649,6 +649,7 @@ impl GraphBrowserApp {
             self.workspace.runtime_block_state.remove(&node_key);
             self.workspace.runtime_block_state.remove(&node_key);
             self.workspace.semantic_tags.remove(&node_key);
+            self.workspace.suggested_semantic_tags.remove(&node_key);
             if let Some(node_id) = node_id {
                 self.workspace.node_last_active_workspace.remove(&node_id);
                 self.workspace.node_workspace_membership.remove(&node_id);
@@ -689,6 +690,14 @@ impl GraphBrowserApp {
         }
     }
 
+    pub(crate) fn suggested_semantic_tags_for_node(&self, key: NodeKey) -> Vec<String> {
+        self.workspace
+            .suggested_semantic_tags
+            .get(&key)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn clear_graph(&mut self) {
         if let Some(store) = &mut self.services.persistence {
             store.log_mutation(&LogEntry::ClearGraph);
@@ -712,6 +721,7 @@ impl GraphBrowserApp {
         self.workspace.runtime_block_state.clear();
         self.workspace.runtime_block_state.clear();
         self.workspace.semantic_tags.clear();
+        self.workspace.suggested_semantic_tags.clear();
         self.workspace.semantic_index.clear();
         self.workspace.semantic_index_dirty = true;
         self.workspace.node_last_active_workspace.clear();
@@ -749,6 +759,7 @@ impl GraphBrowserApp {
         self.workspace.runtime_block_state.clear();
         self.workspace.runtime_block_state.clear();
         self.workspace.semantic_tags.clear();
+        self.workspace.suggested_semantic_tags.clear();
         self.workspace.node_last_active_workspace.clear();
         self.workspace.node_workspace_membership.clear();
         self.workspace.current_workspace_is_synthesized = false;

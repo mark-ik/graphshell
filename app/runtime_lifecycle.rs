@@ -380,7 +380,13 @@ impl GraphBrowserApp {
     pub fn promote_node_to_active_with_cause(&mut self, node_key: NodeKey, cause: LifecycleCause) {
         use crate::graph::NodeLifecycle;
 
-        if self.workspace.domain.graph.get_node(node_key).is_none() {
+        let previous_lifecycle = self
+            .workspace
+            .domain
+            .graph
+            .get_node(node_key)
+            .map(|node| node.lifecycle);
+        if previous_lifecycle.is_none() {
             return;
         }
 
@@ -399,6 +405,13 @@ impl GraphBrowserApp {
         self.workspace.runtime_block_state.remove(&node_key);
         if matches!(cause, LifecycleCause::UserSelect | LifecycleCause::Restore) {
             self.workspace.runtime_block_state.remove(&node_key);
+        }
+        if previous_lifecycle != Some(NodeLifecycle::Active)
+            && let Some(node) = self.workspace.domain.graph.get_node(node_key)
+        {
+            crate::shell::desktop::runtime::registries::phase3_publish_navigation_node_activated(
+                node_key, &node.url, &node.title,
+            );
         }
     }
 
