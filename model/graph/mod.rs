@@ -22,8 +22,8 @@
 use euclid::default::{Point2D, Vector2D};
 use petgraph::algo::{astar, dijkstra, has_path_connecting, kosaraju_scc};
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
-use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::visit::UndirectedAdaptor;
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{Directed, Direction};
 use rkyv::{
     Archive, Archived, Deserialize, Place, Resolver, Serialize,
@@ -79,7 +79,10 @@ where
     D: Fallible + ?Sized,
     Archived<[u8; 16]>: Deserialize<[u8; 16], D>,
 {
-    fn deserialize_with(field: &Archived<[u8; 16]>, deserializer: &mut D) -> Result<Uuid, D::Error> {
+    fn deserialize_with(
+        field: &Archived<[u8; 16]>,
+        deserializer: &mut D,
+    ) -> Result<Uuid, D::Error> {
         let bytes = field.deserialize(deserializer)?;
         Ok(Uuid::from_bytes(bytes))
     }
@@ -406,9 +409,7 @@ pub enum EdgeType {
 }
 
 /// Canonical edge kind set entry.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Archive, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Archive, Serialize, Deserialize)]
 #[rkyv(compare(PartialEq, PartialOrd), derive(PartialEq, Eq, PartialOrd, Ord))]
 pub enum EdgeKind {
     Hyperlink,
@@ -537,7 +538,9 @@ impl EdgePayload {
             EdgeType::Hyperlink => self.kinds.insert(EdgeKind::Hyperlink),
             EdgeType::UserGrouped => {
                 let inserted = self.kinds.insert(EdgeKind::UserGrouped);
-                let data = self.user_grouped.get_or_insert_with(UserGroupedData::default);
+                let data = self
+                    .user_grouped
+                    .get_or_insert_with(UserGroupedData::default);
                 if let Some(label) = label
                     && data.label.as_ref() != Some(&label)
                 {
@@ -1396,14 +1399,9 @@ impl Graph {
         if self.get_node(source).is_none() {
             return HashMap::new();
         }
-        dijkstra(
-            &UndirectedAdaptor(&self.inner),
-            source,
-            None,
-            |_| 1_usize,
-        )
-        .into_iter()
-        .collect()
+        dijkstra(&UndirectedAdaptor(&self.inner), source, None, |_| 1_usize)
+            .into_iter()
+            .collect()
     }
 
     /// Nodes with no incoming or outgoing edges.
@@ -1411,8 +1409,15 @@ impl Graph {
         self.inner
             .node_indices()
             .filter(|&key| {
-                self.inner.edges_directed(key, Direction::Outgoing).next().is_none()
-                    && self.inner.edges_directed(key, Direction::Incoming).next().is_none()
+                self.inner
+                    .edges_directed(key, Direction::Outgoing)
+                    .next()
+                    .is_none()
+                    && self
+                        .inner
+                        .edges_directed(key, Direction::Incoming)
+                        .next()
+                        .is_none()
             })
             .collect()
     }
@@ -1828,7 +1833,9 @@ mod tests {
         let node1 = graph.add_node("https://a.com".to_string(), Point2D::new(0.0, 0.0));
         let node2 = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
 
-        graph.add_edge(node1, node2, EdgeType::Hyperlink, None).unwrap();
+        graph
+            .add_edge(node1, node2, EdgeType::Hyperlink, None)
+            .unwrap();
 
         // Check adjacency via graph methods
         assert!(graph.has_edge_between(node1, node2));
@@ -1863,9 +1870,15 @@ mod tests {
         let node2 = graph.add_node("https://b.com".to_string(), Point2D::new(1.0, 1.0));
         let node3 = graph.add_node("https://c.com".to_string(), Point2D::new(2.0, 2.0));
 
-        graph.add_edge(node1, node2, EdgeType::Hyperlink, None).unwrap();
-        graph.add_edge(node1, node3, EdgeType::Hyperlink, None).unwrap();
-        graph.add_edge(node2, node3, EdgeType::Hyperlink, None).unwrap();
+        graph
+            .add_edge(node1, node2, EdgeType::Hyperlink, None)
+            .unwrap();
+        graph
+            .add_edge(node1, node3, EdgeType::Hyperlink, None)
+            .unwrap();
+        graph
+            .add_edge(node2, node3, EdgeType::Hyperlink, None)
+            .unwrap();
 
         assert_eq!(graph.edge_count(), 3);
 
@@ -2625,8 +2638,10 @@ mod tests {
         let left = graph.add_node("https://left.example".to_string(), Point2D::new(1.0, 0.0));
         let right = graph.add_node("https://right.example".to_string(), Point2D::new(2.0, 0.0));
         let shared = graph.add_node("https://shared.example".to_string(), Point2D::new(2.5, 0.0));
-        let isolated =
-            graph.add_node("https://isolated.example".to_string(), Point2D::new(3.0, 0.0));
+        let isolated = graph.add_node(
+            "https://isolated.example".to_string(),
+            Point2D::new(3.0, 0.0),
+        );
 
         let _ = graph.add_edge(seed, right, EdgeType::Hyperlink, None);
         let _ = graph.add_edge(left, seed, EdgeType::Hyperlink, None);

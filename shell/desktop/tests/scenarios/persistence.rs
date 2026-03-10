@@ -389,8 +389,7 @@ fn set_input_binding_remaps_persist_across_restart() {
 
     let _reopened = GraphBrowserApp::new_from_dir(path);
     assert_eq!(
-        phase2_resolve_typed_input_action_id(&remaps[0].new, InputContext::GraphView)
-            .as_deref(),
+        phase2_resolve_typed_input_action_id(&remaps[0].new, InputContext::GraphView).as_deref(),
         Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
     );
     assert_eq!(

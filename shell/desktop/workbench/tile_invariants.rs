@@ -94,7 +94,9 @@ mod tests {
 
     fn tree_with_active_node_pane_using_composited_runtime(node_key: NodeKey) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
+            crate::app::GraphViewId::default(),
+        )));
         let node_pane = tiles.insert_pane(TileKind::Node(node_key.into()));
         let root = tiles.insert_tab_tile(vec![graph, node_pane]);
         let mut tree = Tree::new("tile_invariants_test", root, tiles);
@@ -131,7 +133,9 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let node_key = app.add_node_and_sync("https://example.test".into(), Point2D::new(0.0, 0.0));
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
+            crate::app::GraphViewId::default(),
+        )));
         let node_pane = tiles.insert_pane(TileKind::Node(node_key.into()));
         let root = tiles.insert_tab_tile(vec![graph, node_pane]);
         let mut tree = Tree::new("tile_invariants_non_active", root, tiles);

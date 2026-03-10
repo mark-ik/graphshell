@@ -289,15 +289,17 @@ fn add_nodes_to_named_frame_snapshot(
     }
 
     let mut workspace_tree = match persistence_ops::load_named_frame_bundle(graph_app, name) {
-        Ok(bundle) => match persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle) {
-            Ok((tree, _)) => tree,
-            Err(e) => {
-                warn!(
-                    "Failed to restore named frame snapshot '{name}' for add-tab operation: {e}"
-                );
-                frame_tree_with_single_node(live_nodes[0])
+        Ok(bundle) => {
+            match persistence_ops::restore_runtime_tree_from_frame_bundle(graph_app, &bundle) {
+                Ok((tree, _)) => tree,
+                Err(e) => {
+                    warn!(
+                        "Failed to restore named frame snapshot '{name}' for add-tab operation: {e}"
+                    );
+                    frame_tree_with_single_node(live_nodes[0])
+                }
             }
-        },
+        }
         Err(_) => frame_tree_with_single_node(live_nodes[0]),
     };
     if workspace_tree.root().is_none() {
@@ -318,4 +320,3 @@ fn add_nodes_to_named_frame_snapshot(
         Err(e) => warn!("Failed to save frame snapshot '{name}' after add-tab operation: {e}"),
     }
 }
-

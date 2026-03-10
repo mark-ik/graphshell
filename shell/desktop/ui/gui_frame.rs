@@ -16,12 +16,17 @@ use super::nav_targeting;
 use super::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
 use crate::app::{
     BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
-    LifecycleCause, PendingConnectedOpenScope,
-    PendingNodeOpenRequest, PendingTileOpenMode, ReducerDispatchContext, UndoBoundaryReason,
-    UnsavedFramePromptAction, UnsavedFramePromptRequest,
+    LifecycleCause, PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode,
+    ReducerDispatchContext, UndoBoundaryReason, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest,
 };
 use crate::graph::NodeKey;
 use crate::render;
+#[cfg(all(
+    feature = "gamepad",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+use crate::shell::desktop::host::gamepad::GamepadUiCommand;
 use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
@@ -32,9 +37,14 @@ use crate::shell::desktop::lifecycle::lifecycle_reconcile::{
 use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::diagnostics;
-use crate::shell::desktop::runtime::registries::{
-    self, CHANNEL_UX_NAVIGATION_TRANSITION,
+#[cfg(all(
+    feature = "gamepad",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+use crate::shell::desktop::runtime::registries::input::{
+    GamepadButton, InputBinding, InputContext,
 };
+use crate::shell::desktop::runtime::registries::{self, CHANNEL_UX_NAVIGATION_TRANSITION};
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
 use crate::shell::desktop::ui::thumbnail_pipeline::ThumbnailCaptureResult;
@@ -44,33 +54,23 @@ use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::workbench::tile_render_pass::{self, TileRenderPassArgs};
 use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops;
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-use crate::shell::desktop::host::gamepad::GamepadUiCommand;
-#[cfg(all(
-    feature = "gamepad",
-    not(any(target_os = "android", target_env = "ohos"))
-))]
-use crate::shell::desktop::runtime::registries::input::{GamepadButton, InputBinding, InputContext};
 
-#[path = "gui_frame/pending_actions.rs"]
-mod pending_actions;
 #[path = "gui_frame/connected_open.rs"]
 mod connected_open;
-#[path = "gui_frame/graph_snapshot.rs"]
-mod graph_snapshot;
 #[path = "gui_frame/frame_persistence.rs"]
 mod frame_persistence;
-#[path = "gui_frame/workspace_layout.rs"]
-mod workspace_layout;
-#[path = "gui_frame/toolbar_dialog.rs"]
-mod toolbar_dialog;
+#[path = "gui_frame/graph_snapshot.rs"]
+mod graph_snapshot;
 #[path = "gui_frame/keyboard_phase.rs"]
 mod keyboard_phase;
+#[path = "gui_frame/pending_actions.rs"]
+mod pending_actions;
 #[path = "gui_frame/post_render_phase.rs"]
 mod post_render_phase;
+#[path = "gui_frame/toolbar_dialog.rs"]
+mod toolbar_dialog;
+#[path = "gui_frame/workspace_layout.rs"]
+mod workspace_layout;
 
 pub(crate) use keyboard_phase::{KeyboardPhaseArgs, handle_keyboard_phase};
 pub(crate) use post_render_phase::{PostRenderPhaseArgs, run_post_render_phase};
@@ -215,7 +215,8 @@ pub(crate) fn ingest_pre_frame(
                 ),
             };
 
-            let Some(action_id) = registries::phase2_resolve_typed_input_action_id(&binding, context)
+            let Some(action_id) =
+                registries::phase2_resolve_typed_input_action_id(&binding, context)
             else {
                 continue;
             };
@@ -330,7 +331,9 @@ pub(crate) fn ingest_pre_frame(
         thumbnail_capture_in_flight,
     );
 
-    PreFrameIngestOutput { responsive_webviews }
+    PreFrameIngestOutput {
+        responsive_webviews,
+    }
 }
 
 pub(crate) fn apply_intents_if_any(
@@ -500,8 +503,8 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
 
     // After intents are applied, ensure runtime viewers for Active nodes without tiles (prewarm).
     // Visible tile nodes are handled later in tile_render_pass.
-    let mut prewarm_intents = lifecycle_reconcile::create_runtime_for_active_prewarm_nodes(
-        ActivePrewarmArgs {
+    let mut prewarm_intents =
+        lifecycle_reconcile::create_runtime_for_active_prewarm_nodes(ActivePrewarmArgs {
             graph_app,
             tiles_tree,
             window,
@@ -511,8 +514,7 @@ pub(crate) fn run_lifecycle_reconcile_and_apply(
             tile_rendering_contexts,
             responsive_webviews,
             webview_creation_backpressure,
-        },
-    );
+        });
     apply_intents_if_any(graph_app, tiles_tree, &mut prewarm_intents);
 
     #[cfg(debug_assertions)]
@@ -581,19 +583,28 @@ mod connected_open_tests {
         let mut app = GraphBrowserApp::new_for_testing();
         let source = app.add_node_and_sync("https://source.example".into(), Point2D::zero());
         let left = app.add_node_and_sync("https://left.example".into(), Point2D::new(10.0, 0.0));
-        let right =
-            app.add_node_and_sync("https://right.example".into(), Point2D::new(20.0, 0.0));
-        let shared = app.add_node_and_sync(
-            "https://shared.example".into(),
-            Point2D::new(30.0, 0.0),
-        );
+        let right = app.add_node_and_sync("https://right.example".into(), Point2D::new(20.0, 0.0));
+        let shared =
+            app.add_node_and_sync("https://shared.example".into(), Point2D::new(30.0, 0.0));
 
         let _ = app.add_edge_and_sync(source, left, crate::model::graph::EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(source, right, crate::model::graph::EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(
+            source,
+            right,
+            crate::model::graph::EdgeType::Hyperlink,
+            None,
+        );
         let _ = app.add_edge_and_sync(left, shared, crate::model::graph::EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(right, shared, crate::model::graph::EdgeType::Hyperlink, None);
+        let _ = app.add_edge_and_sync(
+            right,
+            shared,
+            crate::model::graph::EdgeType::Hyperlink,
+            None,
+        );
 
-        let candidates = app.domain_graph().connected_candidates_with_depth(source, 2);
+        let candidates = app
+            .domain_graph()
+            .connected_candidates_with_depth(source, 2);
 
         assert!(candidates.contains(&(left, 1)));
         assert!(candidates.contains(&(right, 1)));
@@ -612,19 +623,27 @@ mod connected_open_tests {
     fn neighbors_scope_reports_only_depth_one_neighbors() {
         let mut app = GraphBrowserApp::new_for_testing();
         let source = app.add_node_and_sync("https://source.example".into(), Point2D::zero());
-        let neighbor = app.add_node_and_sync(
-            "https://neighbor.example".into(),
-            Point2D::new(10.0, 0.0),
+        let neighbor =
+            app.add_node_and_sync("https://neighbor.example".into(), Point2D::new(10.0, 0.0));
+        let depth_two =
+            app.add_node_and_sync("https://depth-two.example".into(), Point2D::new(20.0, 0.0));
+
+        let _ = app.add_edge_and_sync(
+            source,
+            neighbor,
+            crate::model::graph::EdgeType::Hyperlink,
+            None,
         );
-        let depth_two = app.add_node_and_sync(
-            "https://depth-two.example".into(),
-            Point2D::new(20.0, 0.0),
+        let _ = app.add_edge_and_sync(
+            neighbor,
+            depth_two,
+            crate::model::graph::EdgeType::Hyperlink,
+            None,
         );
 
-        let _ = app.add_edge_and_sync(source, neighbor, crate::model::graph::EdgeType::Hyperlink, None);
-        let _ = app.add_edge_and_sync(neighbor, depth_two, crate::model::graph::EdgeType::Hyperlink, None);
-
-        let candidates = app.domain_graph().connected_candidates_with_depth(source, 1);
+        let candidates = app
+            .domain_graph()
+            .connected_candidates_with_depth(source, 1);
 
         assert_eq!(candidates, vec![(neighbor, 1)]);
     }

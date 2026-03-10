@@ -13,7 +13,10 @@ pub(super) fn handle_accesskit_event(
             accesskit_input::handle_accesskit_initial_tree_requested(gui.context.egui_context())
         }
         egui_winit::accesskit_winit::WindowEvent::ActionRequested(req) => {
-            accesskit_input::handle_accesskit_action_requested(gui.context.egui_winit_state_mut(), req)
+            accesskit_input::handle_accesskit_action_requested(
+                gui.context.egui_winit_state_mut(),
+                req,
+            )
         }
         egui_winit::accesskit_winit::WindowEvent::AccessibilityDeactivated => {
             accesskit_input::handle_accesskit_deactivated(gui.context.egui_context())

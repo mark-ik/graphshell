@@ -21,7 +21,9 @@ impl GraphBrowserApp {
         self.request_open_node_tile_mode(child_node, PendingTileOpenMode::Tab);
 
         if let Some(token) = request.pending_create_token {
-            self.workspace.pending_host_create_tokens.insert(child_node, token);
+            self.workspace
+                .pending_host_create_tokens
+                .insert(child_node, token);
         }
         if let Some(parent_key) = parent_node {
             let _ = self.add_edge_and_sync(parent_key, child_node, EdgeType::Hyperlink, None);
@@ -46,10 +48,7 @@ impl GraphBrowserApp {
                 .graph
                 .node_projected_position(parent_key)
                 .map(|position| {
-                    Point2D::new(
-                        position.x + 140.0 + jitter_x,
-                        position.y + 80.0 + jitter_y,
-                    )
+                    Point2D::new(position.x + 140.0 + jitter_x, position.y + 80.0 + jitter_y)
                 })
                 .unwrap_or_else(|| Point2D::new(400.0, 300.0))
         } else {
@@ -92,10 +91,7 @@ impl GraphBrowserApp {
                     .graph
                     .node_projected_position(parent_key)
                     .map(|position| {
-                        Point2D::new(
-                            position.x + 140.0 + jitter_x,
-                            position.y + 80.0 + jitter_y,
-                        )
+                        Point2D::new(position.x + 140.0 + jitter_x, position.y + 80.0 + jitter_y)
                     })
                     .unwrap_or_else(|| Point2D::new(400.0, 300.0));
             }
@@ -201,8 +197,8 @@ impl GraphBrowserApp {
         if title.is_empty() {
             return;
         }
-        let GraphDeltaResult::NodeMetadataUpdated(changed) = self
-            .apply_graph_delta_and_sync(GraphDelta::SetNodeTitle {
+        let GraphDeltaResult::NodeMetadataUpdated(changed) =
+            self.apply_graph_delta_and_sync(GraphDelta::SetNodeTitle {
                 key: node_key,
                 title,
             })
@@ -276,7 +272,10 @@ impl GraphBrowserApp {
         &self,
         node_key: NodeKey,
     ) -> Option<PendingCreateToken> {
-        self.workspace.pending_host_create_tokens.get(&node_key).copied()
+        self.workspace
+            .pending_host_create_tokens
+            .get(&node_key)
+            .copied()
     }
 
     pub fn runtime_block_state_for_node(&self, node_key: NodeKey) -> Option<&RuntimeBlockState> {

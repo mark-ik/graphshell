@@ -55,7 +55,10 @@ fn is_webview_accessibility_max_node_id_value(node_id_value: u64) -> bool {
     node_id_value == u64::MAX
 }
 
-pub(super) fn webview_accessibility_label(webview_id: WebViewId, tree_update: &TreeUpdate) -> String {
+pub(super) fn webview_accessibility_label(
+    webview_id: WebViewId,
+    tree_update: &TreeUpdate,
+) -> String {
     if let Some(label) = focused_webview_accessibility_label(tree_update) {
         return format_embedded_web_content_label(label);
     }
@@ -137,7 +140,8 @@ pub(super) fn build_webview_a11y_graft_plan(
     let (nodes, conversion_fallback_count) =
         build_webview_a11y_node_plans(tree_update, &allowed_node_ids);
 
-    let root_node_id = select_webview_a11y_root_node_id(&allowed_node_ids, tree_update.focus, &nodes);
+    let root_node_id =
+        select_webview_a11y_root_node_id(&allowed_node_ids, tree_update.focus, &nodes);
 
     compose_webview_a11y_graft_plan(
         webview_id,
@@ -245,7 +249,11 @@ fn has_no_pending_webview_a11y_updates(pending: &HashMap<WebViewId, TreeUpdate>)
     pending.is_empty()
 }
 
-fn inject_single_webview_a11y_update(ctx: &Context, webview_id: WebViewId, tree_update: &TreeUpdate) {
+fn inject_single_webview_a11y_update(
+    ctx: &Context,
+    webview_id: WebViewId,
+    tree_update: &TreeUpdate,
+) {
     let plan = build_webview_a11y_graft_plan(webview_id, tree_update);
     let anchor_id = webview_accessibility_anchor_id(webview_id);
 
@@ -302,7 +310,11 @@ fn inject_webview_a11y_anchor_node(ctx: &Context, anchor_id: egui::Id, anchor_la
     });
 }
 
-fn inject_webview_a11y_plan_nodes(ctx: &Context, webview_id: WebViewId, nodes: &[WebViewA11yNodePlan]) {
+fn inject_webview_a11y_plan_nodes(
+    ctx: &Context,
+    webview_id: WebViewId,
+    nodes: &[WebViewA11yNodePlan],
+) {
     for node in nodes {
         inject_webview_a11y_plan_node(ctx, webview_id, node);
     }

@@ -24,24 +24,23 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_COMPOSITOR_DIFFERENTIAL_CONTENT_SKIPPED,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_NO_PRIOR_SIGNATURE,
     CHANNEL_COMPOSITOR_DIFFERENTIAL_FALLBACK_SIGNATURE_CHANGED,
-    CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
-    CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
+    CHANNEL_COMPOSITOR_DIFFERENTIAL_SKIP_RATE_SAMPLE, CHANNEL_COMPOSITOR_GL_STATE_VIOLATION,
+    CHANNEL_COMPOSITOR_OVERLAY_BATCH_SIZE_SAMPLE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_COMPOSITED_TEXTURE,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_EMBEDDED_EGUI, CHANNEL_COMPOSITOR_OVERLAY_MODE_NATIVE_OVERLAY,
     CHANNEL_COMPOSITOR_OVERLAY_MODE_PLACEHOLDER, CHANNEL_COMPOSITOR_OVERLAY_STYLE_CHROME_ONLY,
-    CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
+    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION,
     CHANNEL_COMPOSITOR_REPLAY_ARTIFACT_RECORDED, CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED,
-    CHANNEL_COMPOSITOR_OVERLAY_STYLE_RECT_STROKE, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT,
-    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
+    CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_HIT, CHANNEL_COMPOSITOR_RESOURCE_REUSE_CONTEXT_MISS,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_CALLBACK_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PRESENTATION_US_SAMPLE,
     CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL,
-    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS, CHANNEL_DIAGNOSTICS_CONFIG_CHANGED,
-    CHANNEL_INVARIANT_TIMEOUT, CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE,
-    CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE, CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED,
-    CHANNEL_VIEWER_FALLBACK_USED, CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS,
+    CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_FAIL, CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS,
+    CHANNEL_DIAGNOSTICS_CONFIG_CHANGED, CHANNEL_INVARIANT_TIMEOUT,
+    CHANNEL_STARTUP_SELFCHECK_CHANNELS_COMPLETE, CHANNEL_STARTUP_SELFCHECK_CHANNELS_INCOMPLETE,
+    CHANNEL_STARTUP_SELFCHECK_REGISTRIES_LOADED, CHANNEL_VIEWER_FALLBACK_USED,
+    CHANNEL_VIEWER_SELECT_STARTED, CHANNEL_VIEWER_SELECT_SUCCEEDED,
 };
 use crate::shell::desktop::runtime::tracing::perf_ring_snapshot;
 use crate::shell::desktop::workbench::compositor_adapter::{
@@ -280,7 +279,8 @@ pub(crate) struct AnalyzerResult {
     pub(crate) summary: String,
 }
 
-type DiagnosticsAnalyzerFn = fn(&DiagnosticGraph, &VecDeque<DiagnosticEvent>, &Value) -> AnalyzerResult;
+type DiagnosticsAnalyzerFn =
+    fn(&DiagnosticGraph, &VecDeque<DiagnosticEvent>, &Value) -> AnalyzerResult;
 
 #[derive(Clone, Debug)]
 struct RegisteredAnalyzer {
@@ -333,7 +333,8 @@ impl AnalyzerRegistry {
     ) {
         for analyzer in &mut self.analyzers {
             analyzer.run_count = analyzer.run_count.saturating_add(1);
-            analyzer.last_result = Some((analyzer.analyze)(graph, event_ring, tracing_perf_snapshot));
+            analyzer.last_result =
+                Some((analyzer.analyze)(graph, event_ring, tracing_perf_snapshot));
         }
     }
 
@@ -429,9 +430,15 @@ fn analyze_tracing_hotpath_latency(
         };
     }
 
-    let p95_elapsed_us = tracing_perf_snapshot["p95_elapsed_us"].as_u64().unwrap_or(0);
-    let avg_elapsed_us = tracing_perf_snapshot["avg_elapsed_us"].as_u64().unwrap_or(0);
-    let max_elapsed_us = tracing_perf_snapshot["max_elapsed_us"].as_u64().unwrap_or(0);
+    let p95_elapsed_us = tracing_perf_snapshot["p95_elapsed_us"]
+        .as_u64()
+        .unwrap_or(0);
+    let avg_elapsed_us = tracing_perf_snapshot["avg_elapsed_us"]
+        .as_u64()
+        .unwrap_or(0);
+    let max_elapsed_us = tracing_perf_snapshot["max_elapsed_us"]
+        .as_u64()
+        .unwrap_or(0);
 
     let (signal, status) = if p95_elapsed_us >= 16_000 {
         (AnalyzerSignal::Alert, "hotpath p95 above 16ms")
@@ -746,10 +753,8 @@ impl DiagnosticsState {
             .iter()
             .filter(|sample| !sample.restore_verified)
             .count() as u64;
-        let chaos_enabled_sample_count = samples
-            .iter()
-            .filter(|sample| sample.chaos_enabled)
-            .count() as u64;
+        let chaos_enabled_sample_count =
+            samples.iter().filter(|sample| sample.chaos_enabled).count() as u64;
         let latest_sequence = samples.last().map(|sample| sample.sequence);
         let latest_violation_node = samples
             .iter()
@@ -762,7 +767,8 @@ impl DiagnosticsState {
         let bridge_failed_frame_count =
             self.channel_count(CHANNEL_DIAGNOSTICS_COMPOSITOR_BRIDGE_PROBE_FAILED_FRAME);
         let gl_state_violation_count = self.channel_count(CHANNEL_COMPOSITOR_GL_STATE_VIOLATION);
-        let pass_order_violation_count = self.channel_count(CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION);
+        let pass_order_violation_count =
+            self.channel_count(CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION);
         let replay_sample_recorded_count =
             self.channel_count(CHANNEL_COMPOSITOR_REPLAY_SAMPLE_RECORDED);
         let replay_artifact_recorded_count =
@@ -1077,12 +1083,13 @@ impl DiagnosticsState {
                 }
                 latest_estimated_visible_content_bytes = latest_estimated_visible_content_bytes
                     .saturating_add(tile.estimated_content_bytes as u64);
-                latest_max_estimated_tile_bytes = latest_max_estimated_tile_bytes
-                    .max(tile.estimated_content_bytes as u64);
+                latest_max_estimated_tile_bytes =
+                    latest_max_estimated_tile_bytes.max(tile.estimated_content_bytes as u64);
                 if tile.render_mode == TileRenderMode::CompositedTexture {
                     latest_composited_tile_count += 1;
-                    latest_estimated_composited_content_bytes = latest_estimated_composited_content_bytes
-                        .saturating_add(tile.estimated_content_bytes as u64);
+                    latest_estimated_composited_content_bytes =
+                        latest_estimated_composited_content_bytes
+                            .saturating_add(tile.estimated_content_bytes as u64);
                 }
             }
         }
@@ -1253,12 +1260,11 @@ impl DiagnosticsState {
             }
         }
 
-        self.analyzer_registry
-            .run_all(
-                &self.diagnostic_graph,
-                &self.event_ring,
-                &self.tracing_perf_snapshot,
-            );
+        self.analyzer_registry.run_all(
+            &self.diagnostic_graph,
+            &self.event_ring,
+            &self.tracing_perf_snapshot,
+        );
     }
 
     fn aggregate_event(&mut self, event: &DiagnosticEvent) {
@@ -2066,16 +2072,25 @@ impl DiagnosticsState {
                 let cache_hits = self.runtime_cache_snapshot["hits"].as_u64().unwrap_or(0);
                 let cache_misses = self.runtime_cache_snapshot["misses"].as_u64().unwrap_or(0);
                 let cache_inserts = self.runtime_cache_snapshot["inserts"].as_u64().unwrap_or(0);
-                let cache_evictions =
-                    self.runtime_cache_snapshot["evictions"].as_u64().unwrap_or(0);
+                let cache_evictions = self.runtime_cache_snapshot["evictions"]
+                    .as_u64()
+                    .unwrap_or(0);
                 ui.small(format!(
                     "runtime_cache: hits={} misses={} inserts={} evictions={}",
                     cache_hits, cache_misses, cache_inserts, cache_evictions
                 ));
-                let perf_sample_count = self.tracing_perf_snapshot["sample_count"].as_u64().unwrap_or(0);
-                let perf_avg_us = self.tracing_perf_snapshot["avg_elapsed_us"].as_u64().unwrap_or(0);
-                let perf_p95_us = self.tracing_perf_snapshot["p95_elapsed_us"].as_u64().unwrap_or(0);
-                let perf_max_us = self.tracing_perf_snapshot["max_elapsed_us"].as_u64().unwrap_or(0);
+                let perf_sample_count = self.tracing_perf_snapshot["sample_count"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let perf_avg_us = self.tracing_perf_snapshot["avg_elapsed_us"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let perf_p95_us = self.tracing_perf_snapshot["p95_elapsed_us"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let perf_max_us = self.tracing_perf_snapshot["max_elapsed_us"]
+                    .as_u64()
+                    .unwrap_or(0);
                 ui.small(format!(
                     "tracing_perf: samples={} avg={}us p95={}us max={}us",
                     perf_sample_count, perf_avg_us, perf_p95_us, perf_max_us
@@ -3586,7 +3601,8 @@ Object {
             snapshot["backend_telemetry"]["latest_frame_sequence"].as_u64()
         );
         assert_eq!(
-            snapshot["backend_telemetry_report"]["summary"]["viewer_select_succeeded_count"].as_u64(),
+            snapshot["backend_telemetry_report"]["summary"]["viewer_select_succeeded_count"]
+                .as_u64(),
             Some(1)
         );
         assert_eq!(

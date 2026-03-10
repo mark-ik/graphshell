@@ -125,12 +125,9 @@ pub fn apply_graph_delta(graph: &mut Graph, delta: GraphDelta) -> GraphDeltaResu
             to_id,
             edge_type,
             edge_label,
-        } => GraphDeltaResult::EdgeAdded(graph.replay_add_edge_by_ids(
-            from_id,
-            to_id,
-            edge_type,
-            edge_label,
-        )),
+        } => GraphDeltaResult::EdgeAdded(
+            graph.replay_add_edge_by_ids(from_id, to_id, edge_type, edge_label),
+        ),
         GraphDelta::ReplayRemoveNodeById { node_id } => {
             GraphDeltaResult::NodeRemoved(graph.replay_remove_node_by_id(node_id))
         }

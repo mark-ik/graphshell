@@ -35,8 +35,8 @@ use servo::{
 };
 use url::Url;
 
-use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
 use crate::app::PendingCreateToken;
+use crate::prefs::{AppPreferences, EXPERIMENTAL_PREFS};
 use crate::shell::desktop::host::embedder::EmbedderCore;
 #[cfg(all(
     feature = "gamepad",

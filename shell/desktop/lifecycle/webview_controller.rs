@@ -170,10 +170,7 @@ fn resolve_browser_command_target(
     }
 }
 
-pub(crate) fn apply_pending_browser_commands(
-    app: &mut GraphBrowserApp,
-    window: &EmbedderWindow,
-) {
+pub(crate) fn apply_pending_browser_commands(app: &mut GraphBrowserApp, window: &EmbedderWindow) {
     while let Some((target, command)) = app.take_pending_browser_command() {
         let Some(webview_id) = resolve_browser_command_target(app, window, target) else {
             continue;

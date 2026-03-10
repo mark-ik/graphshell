@@ -99,7 +99,11 @@ impl PlatformWindow for EmbeddedPlatformWindow {
         state: &RunningAppState,
         window: &EmbedderWindow,
     ) -> bool {
-        let newest = window.webview_collection.borrow().newest().map(|wv| wv.id());
+        let newest = window
+            .webview_collection
+            .borrow()
+            .newest()
+            .map(|wv| wv.id());
         let (Some(webview_id), _) =
             resolve_input_target_webview_id(window.explicit_input_webview_id(), newest)
         else {
@@ -421,7 +425,8 @@ impl App {
     }
 
     pub(crate) fn create_toplevel_webview(self: &Rc<Self>, url: Url) -> WebView {
-        self.window().create_toplevel_webview(self.state.clone(), url)
+        self.window()
+            .create_toplevel_webview(self.state.clone(), url)
     }
 
     pub(crate) fn retarget_input_to_webview(&self, webview_id: WebViewId) {

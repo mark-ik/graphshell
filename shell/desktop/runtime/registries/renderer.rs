@@ -144,7 +144,9 @@ mod tests {
         let pane_id = PaneId::new();
         let existing_renderer_id = renderer_id();
 
-        registry.accept(pane_id, existing_renderer_id, None).unwrap();
+        registry
+            .accept(pane_id, existing_renderer_id, None)
+            .unwrap();
 
         let error = registry.accept(pane_id, renderer_id(), None).unwrap_err();
         assert_eq!(

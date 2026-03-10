@@ -281,12 +281,16 @@ impl GraphBrowserApp {
                 } else {
                     self.workspace.history_replay_cursor = None;
                 }
-                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref() {
+                if let Some(snapshot) = self.workspace.history_preview_live_graph_snapshot.as_ref()
+                {
                     self.workspace.history_preview_graph = Some(snapshot.clone());
                 }
                 self.workspace.history_last_event_unix_ms = Some(Self::unix_timestamp_ms_now());
             }
-            GraphIntent::HistoryTimelineReplayProgress { cursor, total_steps } => {
+            GraphIntent::HistoryTimelineReplayProgress {
+                cursor,
+                total_steps,
+            } => {
                 self.workspace.history_replay_in_progress = true;
                 self.workspace.history_replay_total_steps = Some(total_steps);
                 self.workspace.history_replay_cursor = Some(cursor.min(total_steps));

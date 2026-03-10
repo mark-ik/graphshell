@@ -73,7 +73,10 @@ fn apply_connected_split_layout(tree: &mut Tree<TileKind>, nodes: &[NodeKey]) {
         Some(grid_root)
     } else {
         let overflow_tabs = tree.tiles.insert_tab_tile(overflow_tile_ids);
-        Some(tree.tiles.insert_vertical_tile(vec![grid_root, overflow_tabs]))
+        Some(
+            tree.tiles
+                .insert_vertical_tile(vec![grid_root, overflow_tabs]),
+        )
     };
 }
 
@@ -183,13 +186,17 @@ fn apply_connected_open_selection_intents(
     apply_intents_if_any(graph_app, tiles_tree, &mut intents);
 }
 
-fn build_connected_open_selection_intents(source: NodeKey, ordered: &[NodeKey]) -> Vec<GraphIntent> {
+fn build_connected_open_selection_intents(
+    source: NodeKey,
+    ordered: &[NodeKey],
+) -> Vec<GraphIntent> {
     let mut intents = Vec::with_capacity(ordered.len() + 1);
     intents.push(GraphIntent::SelectNode {
         key: source,
         multi_select: false,
     });
-    intents.push(lifecycle_intents::promote_node_to_active(source, LifecycleCause::UserSelect).into());
+    intents
+        .push(lifecycle_intents::promote_node_to_active(source, LifecycleCause::UserSelect).into());
     for node in ordered.iter().skip(1) {
         intents.push(
             lifecycle_intents::promote_node_to_active(*node, LifecycleCause::ActiveTileVisible)

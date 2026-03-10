@@ -727,11 +727,10 @@ fn push_nodes(
             });
 
             for (node_key, node) in graph_app.domain_graph().nodes() {
-                let graph_node_ux_id =
-                    format!(
-                        "uxnode://workbench/graph/{:?}/node/{}",
-                        view_ref.graph_view_id, node.id
-                    );
+                let graph_node_ux_id = format!(
+                    "uxnode://workbench/graph/{:?}/node/{}",
+                    view_ref.graph_view_id, node.id
+                );
                 let selected = focused_selection.contains(&node_key);
                 let focused_graph_node = focused_selection.primary() == Some(node_key);
                 let blocked = graph_app.runtime_block_state_for_node(node_key).is_some();

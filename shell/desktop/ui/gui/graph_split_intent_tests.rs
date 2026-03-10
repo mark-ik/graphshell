@@ -40,9 +40,7 @@ fn active_graph_count(tree: &Tree<TileKind>) -> usize {
 fn tool_pane_count(tree: &Tree<TileKind>, kind: ToolPaneState) -> usize {
     tree.tiles
         .iter()
-        .filter(|(_, tile)| {
-            is_tool_tile(tile, kind.clone())
-        })
+        .filter(|(_, tile)| is_tool_tile(tile, kind.clone()))
         .count()
 }
 
@@ -130,7 +128,10 @@ fn split_pane_intent_accepts_tool_pane_identity_as_source() {
         .iter()
         .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))))
         .count();
-    assert_eq!(graph_count, 1, "split should add a graph pane beside the tool pane");
+    assert_eq!(
+        graph_count, 1,
+        "split should add a graph pane beside the tool pane"
+    );
     let root_id = tree.root().expect("split should preserve a root");
     let linear = match tree.tiles.get(root_id) {
         Some(Tile::Container(egui_tiles::Container::Linear(linear))) => linear,
@@ -193,10 +194,8 @@ fn settings_persistence_url_intent_is_consumed_by_workbench_authority() {
     let root = tiles.insert_pane(graph_pane(initial_view));
     let mut tree = Tree::new("graphshell_tiles", root, tiles);
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
-        url: crate::util::VersoAddress::settings(
-            crate::util::GraphshellSettingsPath::Persistence,
-        )
-        .to_string(),
+        url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Persistence)
+            .to_string(),
     }];
 
     gui_orchestration::handle_tool_pane_intents(&mut app, &mut tree, &mut intents);
@@ -255,9 +254,7 @@ fn settings_sync_url_focuses_existing_settings_tool_pane_without_duplication() {
     let history = tiles.insert_pane(tool_pane(ToolPaneState::HistoryManager));
     let tabs_root = tiles.insert_tab_tile(vec![history, settings]);
     let mut tree = Tree::new("graphshell_tiles", tabs_root, tiles);
-    let _ = tree.make_active(|_, tile| {
-        is_tool_tile(tile, ToolPaneState::HistoryManager)
-    });
+    let _ = tree.make_active(|_, tile| is_tool_tile(tile, ToolPaneState::HistoryManager));
     let mut intents = vec![WorkbenchIntent::OpenSettingsUrl {
         url: crate::util::VersoAddress::settings(crate::util::GraphshellSettingsPath::Sync)
             .to_string(),

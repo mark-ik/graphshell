@@ -880,7 +880,8 @@ pub fn render_file_tree_tool_pane_in_ui(
                         }
 
                         let is_selected = selected_rows_current.contains(row_key);
-                        let response = ui.selectable_label(is_selected, file_tree_row_label(row_key));
+                        let response =
+                            ui.selectable_label(is_selected, file_tree_row_label(row_key));
                         if response.clicked() {
                             intents.push(
                                 ViewAction::SetFileTreeSelectedRows {
@@ -897,7 +898,12 @@ pub fn render_file_tree_tool_pane_in_ui(
         if expanded_rows_next != app.file_tree_projection_state().expanded_rows {
             let mut expanded_rows: Vec<String> = expanded_rows_next.into_iter().collect();
             expanded_rows.sort();
-            intents.push(ViewAction::SetFileTreeExpandedRows { rows: expanded_rows }.into());
+            intents.push(
+                ViewAction::SetFileTreeExpandedRows {
+                    rows: expanded_rows,
+                }
+                .into(),
+            );
         }
 
         let selected_row = app
@@ -1250,8 +1256,8 @@ pub fn render_sync_settings_in_ui(
             }
         });
 
-        if let Some(code) = ctx
-            .data_mut(|d| d.get_temp::<crate::mods::native::verse::PairingCode>(pairing_code_id))
+        if let Some(code) =
+            ctx.data_mut(|d| d.get_temp::<crate::mods::native::verse::PairingCode>(pairing_code_id))
         {
             ui.group(|ui| {
                 ui.label(egui::RichText::new("Pairing Code").strong());
@@ -1299,9 +1305,9 @@ pub fn render_sync_settings_in_ui(
         });
         ctx.data_mut(|d| d.insert_temp(pairing_code_input_id, pairing_code_input));
 
-        if let Some(peers) = ctx
-            .data_mut(|d| d.get_temp::<Vec<crate::mods::native::verse::DiscoveredPeer>>(discovery_results_id))
-            && !peers.is_empty()
+        if let Some(peers) = ctx.data_mut(|d| {
+            d.get_temp::<Vec<crate::mods::native::verse::DiscoveredPeer>>(discovery_results_id)
+        }) && !peers.is_empty()
         {
             ui.group(|ui| {
                 ui.label(egui::RichText::new("Nearby Devices").strong());

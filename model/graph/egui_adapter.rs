@@ -1492,7 +1492,8 @@ mod tests {
     #[test]
     fn test_label_tier_domain_empty_title_uses_fallback() {
         // empty title in domain tier falls back to fallback text
-        let label = GraphNodeShape::label_text_for_zoom_value("", "not-a-valid-url", None, "fb", 1.0);
+        let label =
+            GraphNodeShape::label_text_for_zoom_value("", "not-a-valid-url", None, "fb", 1.0);
         assert_eq!(label.as_deref(), Some("fb"));
     }
 

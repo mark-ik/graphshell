@@ -46,8 +46,9 @@ use {
     objc2_foundation::MainThreadMarker,
 };
 
-use crate::prefs::AppPreferences;
+use crate::app::OpenSurfaceSource;
 use crate::app::{BrowserCommand, BrowserCommandTarget};
+use crate::prefs::AppPreferences;
 use crate::shell::desktop::host::accelerated_gl_media::setup_gl_accelerated_media;
 use crate::shell::desktop::host::event_loop::AppEvent;
 use crate::shell::desktop::host::geometry::{
@@ -55,7 +56,6 @@ use crate::shell::desktop::host::geometry::{
 };
 use crate::shell::desktop::host::keyutils::CMD_OR_CONTROL;
 use crate::shell::desktop::host::keyutils::{CMD_OR_ALT, keyboard_event_from_winit};
-use crate::app::OpenSurfaceSource;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{
     EmbedderWindow, EmbedderWindowId, LINE_HEIGHT, LINE_WIDTH, MIN_WINDOW_INNER_SIZE,

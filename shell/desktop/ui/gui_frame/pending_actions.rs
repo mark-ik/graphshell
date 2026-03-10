@@ -67,7 +67,10 @@ fn run_pending_post_render_stage(
 }
 
 fn run_pending_frame_snapshot_stage(pipeline: &mut PendingPostRenderActionPipeline<'_>) {
-    frame_persistence::handle_pending_frame_snapshot_actions(pipeline.graph_app, pipeline.tiles_tree);
+    frame_persistence::handle_pending_frame_snapshot_actions(
+        pipeline.graph_app,
+        pipeline.tiles_tree,
+    );
 }
 
 fn run_pending_graph_snapshot_stage(pipeline: &mut PendingPostRenderActionPipeline<'_>) {

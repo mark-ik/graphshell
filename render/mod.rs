@@ -54,8 +54,8 @@ mod spatial_index;
 #[cfg(test)]
 pub(crate) use panels::history_manager_entry_limit_for_tests;
 pub use panels::{
-    render_file_tree_tool_pane_in_ui, render_help_panel,
-    render_history_manager_in_ui, render_settings_tool_pane_in_ui_with_control_panel,
+    render_file_tree_tool_pane_in_ui, render_help_panel, render_history_manager_in_ui,
+    render_settings_tool_pane_in_ui_with_control_panel,
 };
 use reducer_bridge::{apply_reducer_graph_intents_hardened, apply_ui_intents_with_checkpoint};
 use spatial_index::NodeSpatialIndex;
@@ -3875,7 +3875,8 @@ mod tests {
         }
 
         for pair in keys.windows(2) {
-            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
+            let _ =
+                app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(300.0, 300.0));
@@ -3904,7 +3905,8 @@ mod tests {
         }
 
         for pair in keys.windows(2) {
-            let _ = app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
+            let _ =
+                app.add_edge_and_sync(pair[0], pair[1], crate::graph::EdgeType::Hyperlink, None);
         }
 
         let canvas_rect = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(260.0, 260.0));

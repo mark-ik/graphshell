@@ -719,15 +719,16 @@ pub(crate) fn parse_data_dir_input(raw: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
     use egui_tiles::{Tiles, Tree};
     use euclid::default::Point2D;
     use tempfile::TempDir;
-    use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, ToolPaneState};
 
     fn workspace_layout_json_with_nodes(node_keys: &[NodeKey]) -> String {
         let mut tiles = Tiles::default();
         let mut children = Vec::new();
-        children.push(tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default()))));
+        children
+            .push(tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default()))));
         for node_key in node_keys {
             children.push(tiles.insert_pane(TileKind::Node((*node_key).into())));
         }
@@ -890,7 +891,8 @@ mod tests {
             let node =
                 app.add_node_and_sync("https://restart.example".into(), Point2D::new(0.0, 0.0));
             let mut tiles = Tiles::default();
-            let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+            let graph =
+                tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
             let webview = tiles.insert_pane(TileKind::Node(node.into()));
             let root = tiles.insert_tab_tile(vec![graph, webview]);
             let tree = Tree::new("restart_bundle", root, tiles);
@@ -973,7 +975,8 @@ mod tests {
         let node_uuid = app.workspace.domain.graph.get_node(node_key).unwrap().id;
 
         let mut runtime_tiles = Tiles::default();
-        let graph = runtime_tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let graph =
+            runtime_tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let node = runtime_tiles.insert_pane(TileKind::Node(node_key.into()));
         let root = runtime_tiles.insert_tab_tile(vec![graph, node]);
         let runtime_tree = Tree::new("workspace-legacy-alias", root, runtime_tiles);

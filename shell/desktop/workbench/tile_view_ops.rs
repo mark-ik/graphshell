@@ -187,7 +187,11 @@ fn cycle_active_tab_in_parent(tiles_tree: &mut Tree<TileKind>) -> bool {
     let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(parent_id) else {
         return false;
     };
-    let Some(index) = tabs.children.iter().position(|child| *child == active_tile_id) else {
+    let Some(index) = tabs
+        .children
+        .iter()
+        .position(|child| *child == active_tile_id)
+    else {
         return false;
     };
     if tabs.children.len() < 2 {
@@ -322,9 +326,9 @@ pub(crate) fn open_or_focus_node_pane(
 
 #[cfg(feature = "diagnostics")]
 pub(crate) fn open_or_focus_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneState) {
-    if tiles_tree.make_active(|_, tile| {
-        matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool.kind == kind)
-    }) {
+    if tiles_tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool.kind == kind),
+    ) {
         log::debug!("tile_view_ops: focused existing tool pane {:?}", kind);
         return;
     }
@@ -347,9 +351,9 @@ pub(crate) fn open_or_focus_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: Too
         .tiles
         .insert_tab_tile(vec![root_id, tool_tile_id]);
     tiles_tree.root = Some(tabs_root);
-    let _ = tiles_tree.make_active(|_, tile| {
-        matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool.kind == kind)
-    });
+    let _ = tiles_tree.make_active(
+        |_, tile| matches!(tile, Tile::Pane(TileKind::Tool(tool)) if tool.kind == kind),
+    );
 }
 
 #[cfg(not(feature = "diagnostics"))]
@@ -378,11 +382,17 @@ pub(crate) fn close_tool_pane(tiles_tree: &mut Tree<TileKind>, kind: ToolPaneSta
     true
 }
 
-pub(crate) fn tile_id_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> Option<egui_tiles::TileId> {
-    tiles_tree.tiles.iter().find_map(|(tile_id, tile)| match tile {
-        Tile::Pane(pane) if pane.pane_id() == pane_id => Some(*tile_id),
-        _ => None,
-    })
+pub(crate) fn tile_id_for_pane(
+    tiles_tree: &Tree<TileKind>,
+    pane_id: PaneId,
+) -> Option<egui_tiles::TileId> {
+    tiles_tree
+        .tiles
+        .iter()
+        .find_map(|(tile_id, tile)| match tile {
+            Tile::Pane(pane) if pane.pane_id() == pane_id => Some(*tile_id),
+            _ => None,
+        })
 }
 
 pub(crate) fn focus_pane(tiles_tree: &mut Tree<TileKind>, pane_id: PaneId) -> bool {
@@ -453,7 +463,8 @@ fn wrap_pane_in_split_container(
     };
     let source_parent_id = tiles_tree.tiles.parent_of(source_tile_id);
 
-    let source_leaf_tile_id = if matches!(tiles_tree.tiles.get(source_tile_id), Some(Tile::Pane(_))) {
+    let source_leaf_tile_id = if matches!(tiles_tree.tiles.get(source_tile_id), Some(Tile::Pane(_)))
+    {
         let wrapped = tiles_tree.tiles.insert_tab_tile(vec![source_tile_id]);
         if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(wrapped) {
             tabs.set_active(source_tile_id);
@@ -471,7 +482,8 @@ fn wrap_pane_in_split_container(
     let inserted_leaf_tile_id =
         if matches!(tiles_tree.tiles.get(inserted_tile_id), Some(Tile::Pane(_))) {
             let wrapped = tiles_tree.tiles.insert_tab_tile(vec![inserted_tile_id]);
-            if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(wrapped) {
+            if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(wrapped)
+            {
                 tabs.set_active(inserted_tile_id);
             }
             wrapped
@@ -481,16 +493,12 @@ fn wrap_pane_in_split_container(
     let source_leaf_parent_id = tiles_tree.tiles.parent_of(source_leaf_tile_id);
 
     let split_tile_id = match direction {
-        crate::shell::desktop::workbench::pane_model::SplitDirection::Horizontal => {
-            tiles_tree
-                .tiles
-                .insert_horizontal_tile(vec![source_leaf_tile_id, inserted_leaf_tile_id])
-        }
-        crate::shell::desktop::workbench::pane_model::SplitDirection::Vertical => {
-            tiles_tree
-                .tiles
-                .insert_vertical_tile(vec![source_leaf_tile_id, inserted_leaf_tile_id])
-        }
+        crate::shell::desktop::workbench::pane_model::SplitDirection::Horizontal => tiles_tree
+            .tiles
+            .insert_horizontal_tile(vec![source_leaf_tile_id, inserted_leaf_tile_id]),
+        crate::shell::desktop::workbench::pane_model::SplitDirection::Vertical => tiles_tree
+            .tiles
+            .insert_vertical_tile(vec![source_leaf_tile_id, inserted_leaf_tile_id]),
     };
 
     if let Some(parent_id) = source_leaf_parent_id {
@@ -907,4 +915,3 @@ mod tests {
         assert_eq!(active_region_name(&tree), Some("graph"));
     }
 }
-

@@ -725,7 +725,10 @@ mod tests {
         }]);
 
         assert_eq!(app.focused_selection().primary(), Some(key));
-        assert_eq!(app.take_pending_restore_frame_snapshot_named(), Some("beta".to_string()));
+        assert_eq!(
+            app.take_pending_restore_frame_snapshot_named(),
+            Some("beta".to_string())
+        );
         assert_eq!(
             app.take_pending_frame_restore_open_request(),
             Some(PendingNodeOpenRequest {

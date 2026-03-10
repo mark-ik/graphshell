@@ -4,11 +4,11 @@ use crate::app::{
     WorkbenchIntent,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
+use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::runtime::registries::input::{
     GamepadButton, InputBinding, InputBindingRemap, InputContext,
 };
-use crate::shell::desktop::host::running_app_state::RunningAppState;
-use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 

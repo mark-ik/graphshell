@@ -227,8 +227,7 @@ pub(crate) fn ensure_webview_for_node(
         let Some(request) = running_state.take_pending_create_request(token) else {
             warn!(
                 "accepted child create token {:?} for node {:?} was missing at reconcile time",
-                token,
-                node_key
+                token, node_key
             );
             return;
         };

@@ -245,16 +245,21 @@ pub(super) fn render_location_search_panel(
             session.provider_debounce_deadline = None;
             let provider_query = provider_query_for_session(session);
             let cache_key = provider_cache_key(provider, &provider_query);
-            if let Some(cached_suggestions) = graph_app.workspace.runtime_caches.get_suggestions(&cache_key)
+            if let Some(cached_suggestions) = graph_app
+                .workspace
+                .runtime_caches
+                .get_suggestions(&cache_key)
             {
-                fetched_outcome = Some(outcome_from_cached_suggestions(provider, &cached_suggestions));
+                fetched_outcome = Some(outcome_from_cached_suggestions(
+                    provider,
+                    &cached_suggestions,
+                ));
             } else {
-                session.provider_rx =
-                    Some(spawn_provider_suggestion_request(
-                        provider,
-                        &provider_query,
-                        graph_app.workspace.runtime_caches.clone(),
-                    ));
+                session.provider_rx = Some(spawn_provider_suggestion_request(
+                    provider,
+                    &provider_query,
+                    graph_app.workspace.runtime_caches.clone(),
+                ));
             }
         }
 

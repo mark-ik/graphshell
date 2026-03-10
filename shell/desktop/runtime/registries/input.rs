@@ -437,7 +437,9 @@ fn binding_label(binding: &InputBinding, context: InputContext) -> String {
 fn legacy_binding(binding_id: &str) -> Option<(InputBinding, InputContext)> {
     match binding_id.to_ascii_lowercase().as_str() {
         INPUT_BINDING_TOOLBAR_SUBMIT => Some((toolbar_submit_binding(), InputContext::OmnibarOpen)),
-        INPUT_BINDING_TOOLBAR_NAV_BACK => Some((toolbar_nav_back_binding(), InputContext::DetailView)),
+        INPUT_BINDING_TOOLBAR_NAV_BACK => {
+            Some((toolbar_nav_back_binding(), InputContext::DetailView))
+        }
         INPUT_BINDING_TOOLBAR_NAV_FORWARD => {
             Some((toolbar_nav_forward_binding(), InputContext::DetailView))
         }
@@ -554,14 +556,18 @@ impl InputRegistry {
 
         let old_key = (context, old.clone());
         let new_key = (context, new.clone());
-        let old_slot = self.bindings.remove(&old_key).ok_or_else(|| InputConflict::MissingBinding {
-            binding_label: binding_label(&old, context),
-        })?;
+        let old_slot =
+            self.bindings
+                .remove(&old_key)
+                .ok_or_else(|| InputConflict::MissingBinding {
+                    binding_label: binding_label(&old, context),
+                })?;
 
         let action_id = match old_slot {
             BindingSlot::Routed(action_id) => action_id,
             BindingSlot::Conflict(action_ids) => {
-                self.bindings.insert(old_key, BindingSlot::Conflict(action_ids.clone()));
+                self.bindings
+                    .insert(old_key, BindingSlot::Conflict(action_ids.clone()));
                 return Err(InputConflict::SourceConflict {
                     binding_label: binding_label(&old, context),
                     action_ids,
@@ -587,7 +593,8 @@ impl InputRegistry {
                     }),
                 };
 
-                self.bindings.insert(old_key, BindingSlot::Routed(action_id));
+                self.bindings
+                    .insert(old_key, BindingSlot::Routed(action_id));
                 match conflict {
                     Some(conflict) => Err(conflict),
                     None => Ok(()),
@@ -808,17 +815,18 @@ mod tests {
         let resolution = registry.resolve_binding_id(INPUT_BINDING_TOOLBAR_NAV_RELOAD);
         assert!(resolution.matched);
         assert_eq!(resolution.context, InputContext::DetailView);
-        assert_eq!(resolution.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_RELOAD));
+        assert_eq!(
+            resolution.action_id.as_deref(),
+            Some(ACTION_TOOLBAR_NAV_RELOAD)
+        );
     }
 
     #[test]
     fn input_registry_resolves_graph_view_gamepad_bindings() {
         let registry = InputRegistry::default();
 
-        let command_palette = registry.resolve(
-            &gamepad_command_palette_binding(),
-            InputContext::GraphView,
-        );
+        let command_palette =
+            registry.resolve(&gamepad_command_palette_binding(), InputContext::GraphView);
         assert_eq!(
             command_palette.action_id.as_deref(),
             Some(ACTION_GRAPH_COMMAND_PALETTE_OPEN)
@@ -848,22 +856,29 @@ mod tests {
         assert_eq!(back.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_BACK));
 
         let forward = registry.resolve(&gamepad_nav_forward_binding(), InputContext::DetailView);
-        assert_eq!(forward.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_FORWARD));
+        assert_eq!(
+            forward.action_id.as_deref(),
+            Some(ACTION_TOOLBAR_NAV_FORWARD)
+        );
     }
 
     #[test]
     fn input_registry_resolves_radial_menu_gamepad_bindings() {
         let registry = InputRegistry::default();
 
-        let category_previous =
-            registry.resolve(&gamepad_radial_category_previous_binding(), InputContext::RadialMenuOpen);
+        let category_previous = registry.resolve(
+            &gamepad_radial_category_previous_binding(),
+            InputContext::RadialMenuOpen,
+        );
         assert_eq!(
             category_previous.action_id.as_deref(),
             Some(ACTION_RADIAL_MENU_CATEGORY_PREVIOUS)
         );
 
-        let category_next =
-            registry.resolve(&gamepad_radial_category_next_binding(), InputContext::RadialMenuOpen);
+        let category_next = registry.resolve(
+            &gamepad_radial_category_next_binding(),
+            InputContext::RadialMenuOpen,
+        );
         assert_eq!(
             category_next.action_id.as_deref(),
             Some(ACTION_RADIAL_MENU_CATEGORY_NEXT)
@@ -887,12 +902,19 @@ mod tests {
             Some(ACTION_RADIAL_MENU_SELECTION_NEXT)
         );
 
-        let confirm =
-            registry.resolve(&gamepad_radial_confirm_binding(), InputContext::RadialMenuOpen);
-        assert_eq!(confirm.action_id.as_deref(), Some(ACTION_RADIAL_MENU_CONFIRM));
+        let confirm = registry.resolve(
+            &gamepad_radial_confirm_binding(),
+            InputContext::RadialMenuOpen,
+        );
+        assert_eq!(
+            confirm.action_id.as_deref(),
+            Some(ACTION_RADIAL_MENU_CONFIRM)
+        );
 
-        let cancel =
-            registry.resolve(&gamepad_radial_cancel_binding(), InputContext::RadialMenuOpen);
+        let cancel = registry.resolve(
+            &gamepad_radial_cancel_binding(),
+            InputContext::RadialMenuOpen,
+        );
         assert_eq!(cancel.action_id.as_deref(), Some(ACTION_RADIAL_MENU_CANCEL));
     }
 
@@ -929,7 +951,10 @@ mod tests {
             None
         );
         assert_eq!(
-            registry.resolve(&new, InputContext::GraphView).action_id.as_deref(),
+            registry
+                .resolve(&new, InputContext::GraphView)
+                .action_id
+                .as_deref(),
             Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
         );
     }

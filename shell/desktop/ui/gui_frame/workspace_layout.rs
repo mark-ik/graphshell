@@ -67,7 +67,8 @@ fn persist_autosave_session_workspace_layout_if_available(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &Tree<TileKind>,
 ) {
-    if let Some(layout_json) = serialize_tiles_tree_layout_json(tiles_tree, "session frame layout") {
+    if let Some(layout_json) = serialize_tiles_tree_layout_json(tiles_tree, "session frame layout")
+    {
         graph_app.save_session_workspace_layout_json_if_changed(&layout_json);
     }
 }

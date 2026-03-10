@@ -14,7 +14,9 @@ fn begin_paint_pass(gui: &Gui) {
     gui.rendering_context
         .make_current()
         .expect("Could not make RenderingContext current");
-    gui.rendering_context.parent_context().prepare_for_rendering();
+    gui.rendering_context
+        .parent_context()
+        .prepare_for_rendering();
 }
 
 fn end_paint_pass(gui: &Gui) {

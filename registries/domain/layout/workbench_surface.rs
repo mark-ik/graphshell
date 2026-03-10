@@ -287,7 +287,10 @@ mod tests {
         let compare = registry.resolve(WORKBENCH_SURFACE_COMPARE);
         assert!(compare.matched);
         assert_eq!(compare.profile.display_name, "Compare");
-        assert_eq!(compare.profile.layout.initial_layout, InitialLayout::TwoPane);
+        assert_eq!(
+            compare.profile.layout.initial_layout,
+            InitialLayout::TwoPane
+        );
         assert_eq!(
             compare.profile.interaction.keyboard_focus_cycle,
             FocusCycle::Panes

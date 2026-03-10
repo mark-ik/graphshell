@@ -387,9 +387,7 @@ fn action_id_has_namespace_format(id: &str) -> bool {
     namespace
         .chars()
         .all(|ch| ch.is_ascii_lowercase() || ch == '_')
-        && name
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch == '_')
+        && name.chars().all(|ch| ch.is_ascii_lowercase() || ch == '_')
 }
 
 fn all_action_ids() -> &'static [ActionId] {

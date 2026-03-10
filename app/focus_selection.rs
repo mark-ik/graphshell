@@ -5,7 +5,10 @@ impl GraphBrowserApp {
         self.workspace.hop_distance_cache = None;
     }
 
-    pub fn cached_hop_distances_for_context(&mut self, context: NodeKey) -> HashMap<NodeKey, usize> {
+    pub fn cached_hop_distances_for_context(
+        &mut self,
+        context: NodeKey,
+    ) -> HashMap<NodeKey, usize> {
         if self.workspace.domain.graph.get_node(context).is_none() {
             return HashMap::new();
         }
@@ -104,12 +107,14 @@ impl GraphBrowserApp {
         registered_views: &HashSet<GraphViewId>,
     ) {
         let previous_primary = self.focused_selection().primary();
-        self.workspace.selection_by_scope.retain(|scope, _| match scope {
-            SelectionScope::Unfocused => true,
-            SelectionScope::View(view_id) => {
-                live_graph_views.contains(view_id) || registered_views.contains(view_id)
-            }
-        });
+        self.workspace
+            .selection_by_scope
+            .retain(|scope, _| match scope {
+                SelectionScope::Unfocused => true,
+                SelectionScope::View(view_id) => {
+                    live_graph_views.contains(view_id) || registered_views.contains(view_id)
+                }
+            });
         self.invalidate_hop_distance_cache_on_primary_change(previous_primary);
         self.workspace.egui_state_dirty = true;
     }

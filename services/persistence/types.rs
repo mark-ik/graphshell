@@ -28,15 +28,7 @@ pub enum PersistedAddressKind {
 }
 
 /// Persisted per-node session fidelity state.
-#[derive(
-    Archive,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PersistedNodeSessionState {
     pub history_entries: Vec<String>,
     pub history_index: usize,
@@ -46,15 +38,7 @@ pub struct PersistedNodeSessionState {
 }
 
 /// Persisted node.
-#[derive(
-    Archive,
-    Serialize,
-    Deserialize,
-    Clone,
-    Debug,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PersistedNode {
     /// Stable node identity.
     pub node_id: String,

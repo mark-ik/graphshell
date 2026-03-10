@@ -1,5 +1,9 @@
 use egui_tiles::{Tile, Tree};
 
+use super::{
+    CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
+    CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
+};
 use crate::app::{
     GraphBrowserApp, PendingTileOpenMode, ToolSurfaceReturnTarget, UndoBoundaryReason,
     WorkbenchIntent,
@@ -7,9 +11,9 @@ use crate::app::{
 use crate::graph::NodeKey;
 pub(crate) use crate::registries::domain::layout::workbench_surface::WorkbenchSurfaceResolution;
 use crate::registries::domain::layout::workbench_surface::{
-    FocusHandoffPolicy, WorkbenchInteractionPolicy, WorkbenchLayoutPolicy, WorkbenchLock,
+    FocusHandoffPolicy, WORKBENCH_SURFACE_COMPARE, WORKBENCH_SURFACE_DEFAULT,
+    WORKBENCH_SURFACE_FOCUS, WorkbenchInteractionPolicy, WorkbenchLayoutPolicy, WorkbenchLock,
     WorkbenchSurfaceProfile, WorkbenchSurfaceRegistry as DomainWorkbenchSurfaceRegistry,
-    WORKBENCH_SURFACE_COMPARE, WORKBENCH_SURFACE_DEFAULT, WORKBENCH_SURFACE_FOCUS,
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::ui::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
@@ -17,12 +21,8 @@ use crate::shell::desktop::workbench::pane_model::{
     PaneId, PaneViewState, SplitDirection, ToolPaneState, ViewerId,
 };
 use crate::shell::desktop::workbench::tile_kind::TileKind;
-use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 use crate::shell::desktop::workbench::tile_runtime;
-use super::{
-    CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_NAVIGATION_VIOLATION,
-    CHANNEL_UX_OPEN_DECISION_PATH, CHANNEL_UX_OPEN_DECISION_REASON,
-};
+use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 
 pub(crate) const WORKBENCH_PROFILE_DEFAULT: &str = WORKBENCH_SURFACE_DEFAULT;
 pub(crate) const WORKBENCH_PROFILE_FOCUS: &str = WORKBENCH_SURFACE_FOCUS;
@@ -105,10 +105,7 @@ impl WorkbenchSurfaceRegistry {
         }
     }
 
-    pub(crate) fn describe_surface(
-        &self,
-        profile_id: Option<&str>,
-    ) -> WorkbenchSurfaceDescription {
+    pub(crate) fn describe_surface(&self, profile_id: Option<&str>) -> WorkbenchSurfaceDescription {
         let resolution = self.resolve_profile(profile_id);
         WorkbenchSurfaceDescription {
             requested_id: resolution.requested_id,
@@ -236,9 +233,7 @@ impl WorkbenchSurfaceRegistry {
             WorkbenchIntent::OpenViewUrl { url } => {
                 handle_open_view_url_intent(graph_app, tiles_tree, url)
             }
-            WorkbenchIntent::OpenGraphUrl { url } => {
-                handle_open_graph_url_intent(graph_app, url)
-            }
+            WorkbenchIntent::OpenGraphUrl { url } => handle_open_graph_url_intent(graph_app, url),
             WorkbenchIntent::OpenGraphViewPane { view_id, mode } => {
                 handle_open_graph_view_pane_intent(tiles_tree, view_id, mode);
                 None
@@ -259,7 +254,13 @@ impl WorkbenchSurfaceRegistry {
                 node,
                 viewer_id_override,
             } => {
-                handle_swap_viewer_backend_intent(graph_app, tiles_tree, pane, node, viewer_id_override);
+                handle_swap_viewer_backend_intent(
+                    graph_app,
+                    tiles_tree,
+                    pane,
+                    node,
+                    viewer_id_override,
+                );
                 None
             }
             WorkbenchIntent::SetPaneView { pane, view } => {
@@ -1007,7 +1008,10 @@ mod tests {
             WorkbenchLock::PreventClose,
             &close
         ));
-        assert!(!WorkbenchSurfaceRegistry::can_mutate(WorkbenchLock::FullLock, &split));
+        assert!(!WorkbenchSurfaceRegistry::can_mutate(
+            WorkbenchLock::FullLock,
+            &split
+        ));
     }
 
     #[test]
@@ -1057,14 +1061,15 @@ mod tests {
         }
         let mut tree = Tree::new("focus_tabs", root, tiles);
 
-        let result = registry.dispatch_intent(
-            &mut app,
-            &mut tree,
-            WorkbenchIntent::CycleFocusRegion,
-        );
+        let result =
+            registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::CycleFocusRegion);
 
         assert!(result.is_none());
-        assert!(tree.active_tiles().into_iter().any(|tile_id| tile_id == graph_b));
+        assert!(
+            tree.active_tiles()
+                .into_iter()
+                .any(|tile_id| tile_id == graph_b)
+        );
     }
 
     #[test]
@@ -1082,13 +1087,14 @@ mod tests {
         }
         let mut tree = Tree::new("compare_panes", root, tiles);
 
-        let result = registry.dispatch_intent(
-            &mut app,
-            &mut tree,
-            WorkbenchIntent::CycleFocusRegion,
-        );
+        let result =
+            registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::CycleFocusRegion);
 
         assert!(result.is_none());
-        assert!(tree.active_tiles().into_iter().any(|tile_id| tile_id == node));
+        assert!(
+            tree.active_tiles()
+                .into_iter()
+                .any(|tile_id| tile_id == node)
+        );
     }
 }

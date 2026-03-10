@@ -246,7 +246,10 @@ fn run_composited_texture_content_pass(
     overlay: Option<ScheduledOverlay>,
 ) -> bool {
     let Some(webview_id) = graph_app.get_webview_for_node(node_key) else {
-        log::debug!("composite: no runtime viewer mapped for node {:?}", node_key);
+        log::debug!(
+            "composite: no runtime viewer mapped for node {:?}",
+            node_key
+        );
         return false;
     };
     active_composited_nodes.insert(node_key);
@@ -459,9 +462,9 @@ pub(crate) fn node_for_frame_activation(
     hinted_node_pane_for_frame_activation(tiles_tree, focused_hint)
         .map(|pane| pane.node_key)
         .or_else(|| {
-        active_node_pane_rects(tiles_tree)
-            .first()
-            .map(|(_, node_key, _)| *node_key)
+            active_node_pane_rects(tiles_tree)
+                .first()
+                .map(|(_, node_key, _)| *node_key)
         })
 }
 
@@ -705,7 +708,9 @@ pub(crate) fn active_node_pane(tiles_tree: &Tree<TileKind>) -> Option<FocusedNod
 }
 
 fn render_mode_for_pane(tiles_tree: &Tree<TileKind>, pane_id: PaneId) -> TileRenderMode {
-    crate::shell::desktop::workbench::tile_runtime::render_mode_for_pane_in_tree(tiles_tree, pane_id)
+    crate::shell::desktop::workbench::tile_runtime::render_mode_for_pane_in_tree(
+        tiles_tree, pane_id,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -803,7 +808,9 @@ mod tests {
 
     fn tree_with_two_active_nodes(a: NodeKey, b: NodeKey) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
+            crate::app::GraphViewId::default(),
+        )));
         let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
         let root = tiles.insert_tab_tile(vec![graph, a_tile, b_tile]);
@@ -824,7 +831,9 @@ mod tests {
         b_mode: TileRenderMode,
     ) -> Tree<TileKind> {
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
+            crate::app::GraphViewId::default(),
+        )));
         let a_tile = tiles.insert_pane(TileKind::Node(a.into()));
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
 
@@ -876,8 +885,12 @@ mod tests {
         let other = NodeKey::new(31);
         let tree = tree_with_two_active_nodes(focused, other);
 
-        let pane = focused_node_pane_for_node_panes(&tree, &GraphBrowserApp::new_for_testing(), Some(focused))
-            .expect("expected focused node pane");
+        let pane = focused_node_pane_for_node_panes(
+            &tree,
+            &GraphBrowserApp::new_for_testing(),
+            Some(focused),
+        )
+        .expect("expected focused node pane");
 
         assert_eq!(pane.node_key, other);
         assert_ne!(pane.pane_id, PaneId::default());
@@ -921,7 +934,9 @@ mod tests {
         app.map_webview_to_node(b_webview, b);
 
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
+            crate::app::GraphViewId::default(),
+        )));
         let b_tile = tiles.insert_pane(TileKind::Node(b.into()));
         let root = tiles.insert_tab_tile(vec![graph, b_tile]);
         let mut tree = Tree::new("tile_compositor_focus_after_close", root, tiles);

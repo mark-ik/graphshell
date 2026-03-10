@@ -3,9 +3,7 @@ mod physics;
 mod registry;
 mod theme;
 
-pub(crate) use layout::{
-    LayoutMode,
-};
+pub(crate) use layout::LayoutMode;
 pub(crate) use physics::{
     PHYSICS_ID_DEFAULT, PHYSICS_ID_GAS, PHYSICS_ID_SOLID, PhysicsProfile, PhysicsProfileResolution,
     physics_profile_id, resolve_physics_profile,

@@ -183,7 +183,9 @@ fn persist_radial_geometry(
 pub(crate) fn queue_gamepad_input(ctx: &egui::Context, input: RadialGamepadInput) {
     let queue_id = egui::Id::new(RADIAL_GAMEPAD_INPUTS_KEY);
     ctx.data_mut(|d| {
-        let mut pending = d.get_temp::<Vec<RadialGamepadInput>>(queue_id).unwrap_or_default();
+        let mut pending = d
+            .get_temp::<Vec<RadialGamepadInput>>(queue_id)
+            .unwrap_or_default();
         pending.push(input);
         d.insert_temp(queue_id, pending);
     });
@@ -398,8 +400,8 @@ pub fn render_radial_command_menu(
         for input in pending_gamepad_inputs.iter().copied() {
             match input {
                 RadialGamepadInput::NavigateLeft => {
-                    group_idx = (group_idx + NodeContextGroup::ALL.len() - 1)
-                        % NodeContextGroup::ALL.len();
+                    group_idx =
+                        (group_idx + NodeContextGroup::ALL.len() - 1) % NodeContextGroup::ALL.len();
                     command_idx = 0;
                 }
                 RadialGamepadInput::NavigateRight => {
@@ -407,20 +409,23 @@ pub fn render_radial_command_menu(
                     command_idx = 0;
                 }
                 RadialGamepadInput::NavigateUp => {
-                    let keyboard_commands = NodeContextGroup::ALL[group_idx].actions(&action_context);
+                    let keyboard_commands =
+                        NodeContextGroup::ALL[group_idx].actions(&action_context);
                     if !keyboard_commands.is_empty() {
-                        command_idx = (command_idx + keyboard_commands.len() - 1)
-                            % keyboard_commands.len();
+                        command_idx =
+                            (command_idx + keyboard_commands.len() - 1) % keyboard_commands.len();
                     }
                 }
                 RadialGamepadInput::NavigateDown => {
-                    let keyboard_commands = NodeContextGroup::ALL[group_idx].actions(&action_context);
+                    let keyboard_commands =
+                        NodeContextGroup::ALL[group_idx].actions(&action_context);
                     if !keyboard_commands.is_empty() {
                         command_idx = (command_idx + 1) % keyboard_commands.len();
                     }
                 }
                 RadialGamepadInput::Confirm => {
-                    let keyboard_commands = NodeContextGroup::ALL[group_idx].actions(&action_context);
+                    let keyboard_commands =
+                        NodeContextGroup::ALL[group_idx].actions(&action_context);
                     if let Some(entry) = keyboard_commands.get(command_idx)
                         && entry.enabled
                     {
@@ -663,8 +668,8 @@ pub fn render_radial_command_menu(
         for input in pending_gamepad_inputs.iter().copied() {
             match input {
                 RadialGamepadInput::NavigateLeft => {
-                    selected_domain_idx =
-                        (selected_domain_idx + RadialDomain::ALL.len() - 1) % RadialDomain::ALL.len();
+                    selected_domain_idx = (selected_domain_idx + RadialDomain::ALL.len() - 1)
+                        % RadialDomain::ALL.len();
                 }
                 RadialGamepadInput::NavigateRight => {
                     selected_domain_idx = (selected_domain_idx + 1) % RadialDomain::ALL.len();
@@ -682,8 +687,8 @@ pub fn render_radial_command_menu(
                         selected_command_idx %= commands.len();
                         match input {
                             RadialGamepadInput::NavigateUp => {
-                                selected_command_idx = (selected_command_idx + commands.len() - 1)
-                                    % commands.len();
+                                selected_command_idx =
+                                    (selected_command_idx + commands.len() - 1) % commands.len();
                             }
                             RadialGamepadInput::NavigateDown => {
                                 selected_command_idx = (selected_command_idx + 1) % commands.len();
@@ -716,7 +721,8 @@ pub fn render_radial_command_menu(
         let selected_domain = RadialDomain::ALL[selected_domain_idx];
         let selected_category = ordered_categories[selected_domain.index()];
         let selected_command_state_id = radial_command_selection_state_id(selected_category);
-        let selected_commands = list_radial_actions_for_category(&action_context, selected_category);
+        let selected_commands =
+            list_radial_actions_for_category(&action_context, selected_category);
         let mut selected_command_idx = ctx
             .data_mut(|d| d.get_persisted::<usize>(selected_command_state_id))
             .unwrap_or(0);
@@ -737,8 +743,11 @@ pub fn render_radial_command_menu(
                 selected_page,
             )
         });
-        let selected_visible_commands =
-            paged_ring_entries(&selected_commands, selected_page, MAX_VISIBLE_ACTIONS_PER_RING);
+        let selected_visible_commands = paged_ring_entries(
+            &selected_commands,
+            selected_page,
+            MAX_VISIBLE_ACTIONS_PER_RING,
+        );
         let selected_visible_idx = if selected_visible_commands.is_empty() {
             0
         } else {

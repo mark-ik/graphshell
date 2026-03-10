@@ -13,15 +13,15 @@ use sysinfo::System;
 use crate::app::RuntimeEvent;
 use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, MemoryPressureLevel};
 use crate::graph::{NodeKey, NodeLifecycle};
-use crate::shell::desktop::host::window::EmbedderWindow;
+#[cfg(feature = "wry")]
+use crate::mods::native::verso;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
+use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::lifecycle::webview_backpressure::{
     self, WebviewCreationBackpressureState,
 };
 use crate::shell::desktop::lifecycle::webview_controller;
-#[cfg(feature = "wry")]
-use crate::mods::native::verso;
 use crate::shell::desktop::workbench::pane_model::NodePaneState;
 use crate::shell::desktop::workbench::pane_model::TileRenderMode;
 use crate::shell::desktop::workbench::tile_compositor;

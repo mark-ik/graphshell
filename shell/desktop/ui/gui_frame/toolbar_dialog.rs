@@ -89,8 +89,7 @@ pub(crate) fn handle_toolbar_dialog_phase(
     let focused_toolbar_node_key = if graph_surface_focused {
         None
     } else {
-        nav_targeting::chrome_projection_node(graph_app, window)
-            .or(active_webview_node)
+        nav_targeting::chrome_projection_node(graph_app, window).or(active_webview_node)
     };
     let focused_toolbar_node = nav_targeting::focused_toolbar_node(
         active_webview_node,

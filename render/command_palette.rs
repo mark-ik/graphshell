@@ -21,9 +21,7 @@ use crate::render::action_registry::{
 use crate::render::command_profile::{
     load_category_recency, load_pinned_categories, record_recent_category, toggle_category_pin,
 };
-use crate::shell::desktop::workbench::pane_model::{
-    PaneId, ToolPaneState, ViewerId,
-};
+use crate::shell::desktop::workbench::pane_model::{PaneId, ToolPaneState, ViewerId};
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::{Key, Window};
 use std::time::{SystemTime, UNIX_EPOCH};

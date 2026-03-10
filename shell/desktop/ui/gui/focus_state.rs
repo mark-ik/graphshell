@@ -4,7 +4,10 @@
 
 use super::*;
 
-pub(super) fn apply_node_focus_state(runtime_state: &mut GuiRuntimeState, node_key: Option<NodeKey>) {
+pub(super) fn apply_node_focus_state(
+    runtime_state: &mut GuiRuntimeState,
+    node_key: Option<NodeKey>,
+) {
     let was_focused_node_hint = runtime_state.focused_node_hint;
     let was_graph_surface_focused = runtime_state.graph_surface_focused;
 

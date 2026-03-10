@@ -29,9 +29,9 @@ use crate::shell::desktop::lifecycle::webview_backpressure::{
 };
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::registries::CHANNEL_UX_NAVIGATION_TRANSITION;
-use crate::shell::desktop::runtime::registries;
 
 pub(crate) struct TileRenderPassArgs<'a> {
     pub ctx: &'a egui::Context,

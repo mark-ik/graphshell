@@ -668,7 +668,6 @@ impl GraphBrowserApp {
         self.sanitize_pending_frame_import_commands();
     }
 
-
     pub fn get_single_selected_node(&self) -> Option<NodeKey> {
         let selected = self.focused_selection();
         if selected.len() == 1 {

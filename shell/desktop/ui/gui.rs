@@ -63,39 +63,39 @@ use crate::shell::desktop::workbench::tile_runtime;
 use crate::shell::desktop::workbench::tile_view_ops::{self, TileOpenMode};
 use crate::util::CoordBridge;
 
-#[path = "gui/gui_update_coordinator.rs"]
-mod gui_update_coordinator;
 #[path = "gui/accessibility.rs"]
 mod accessibility;
-#[path = "gui/update_frame_phases.rs"]
-mod update_frame_phases;
-#[path = "gui/startup.rs"]
-mod startup;
-#[path = "gui/focus_state.rs"]
-mod focus_state;
-#[path = "gui/toolbar_status_sync.rs"]
-mod toolbar_status_sync;
-#[path = "gui/hit_testing.rs"]
-mod hit_testing;
-#[path = "gui/accesskit_input.rs"]
-mod accesskit_input;
-#[path = "gui/pane_queries.rs"]
-mod pane_queries;
-#[path = "gui/input_routing.rs"]
-mod input_routing;
 #[path = "gui/accesskit_events.rs"]
 mod accesskit_events;
-#[path = "gui/paint_pass.rs"]
-mod paint_pass;
-#[path = "gui/interaction_queries.rs"]
-mod interaction_queries;
-#[path = "gui/window_input.rs"]
-mod window_input;
-#[path = "gui/tree_bootstrap.rs"]
-mod tree_bootstrap;
+#[path = "gui/accesskit_input.rs"]
+mod accesskit_input;
+#[path = "gui/focus_state.rs"]
+mod focus_state;
+#[path = "gui/gui_update_coordinator.rs"]
+mod gui_update_coordinator;
+#[path = "gui/hit_testing.rs"]
+mod hit_testing;
+#[path = "gui/input_routing.rs"]
+mod input_routing;
 #[cfg(test)]
 #[path = "gui/intent_translation.rs"]
 mod intent_translation;
+#[path = "gui/interaction_queries.rs"]
+mod interaction_queries;
+#[path = "gui/paint_pass.rs"]
+mod paint_pass;
+#[path = "gui/pane_queries.rs"]
+mod pane_queries;
+#[path = "gui/startup.rs"]
+mod startup;
+#[path = "gui/toolbar_status_sync.rs"]
+mod toolbar_status_sync;
+#[path = "gui/tree_bootstrap.rs"]
+mod tree_bootstrap;
+#[path = "gui/update_frame_phases.rs"]
+mod update_frame_phases;
+#[path = "gui/window_input.rs"]
+mod window_input;
 
 use update_frame_phases::ExecuteUpdateFrameArgs;
 
@@ -426,9 +426,10 @@ impl Gui {
         let Some(active_pane) = self.runtime_state.active_toolbar_pane else {
             return;
         };
-        self.runtime_state
-            .toolbar_drafts
-            .insert(active_pane, ToolbarDraft::from_toolbar_state(&self.toolbar_state));
+        self.runtime_state.toolbar_drafts.insert(
+            active_pane,
+            ToolbarDraft::from_toolbar_state(&self.toolbar_state),
+        );
     }
 
     fn sync_active_toolbar_draft(&mut self, window: &EmbedderWindow) {
@@ -677,7 +678,6 @@ impl Gui {
         self.pending_webview_a11y_updates
             .insert(webview_id, tree_update);
     }
-
 }
 fn ui_overlay_active_from_flags(
     show_command_palette: bool,

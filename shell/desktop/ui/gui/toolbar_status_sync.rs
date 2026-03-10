@@ -13,8 +13,8 @@ pub(super) fn update_location_in_toolbar(
     focused_node_key: Option<NodeKey>,
     window: &EmbedderWindow,
 ) -> bool {
-    let chrome_projection_node = nav_targeting::chrome_projection_node(graph_app, window)
-        .or(focused_node_key);
+    let chrome_projection_node =
+        nav_targeting::chrome_projection_node(graph_app, window).or(focused_node_key);
     webview_status_sync::update_location_in_toolbar(
         toolbar_state.location_dirty,
         &mut toolbar_state.location,
@@ -32,8 +32,8 @@ pub(super) fn sync_toolbar_webview_status_fields(
     graph_app: &GraphBrowserApp,
     window: &EmbedderWindow,
 ) -> bool {
-    let chrome_projection_node = nav_targeting::chrome_projection_node(graph_app, window)
-        .or(focused_node_key);
+    let chrome_projection_node =
+        nav_targeting::chrome_projection_node(graph_app, window).or(focused_node_key);
     let load_status_changed =
         sync_toolbar_load_status(toolbar_state, chrome_projection_node, graph_app, window);
     let status_text_changed =

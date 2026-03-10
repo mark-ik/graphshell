@@ -391,7 +391,9 @@ pub(crate) fn render_mode_for_pane_in_tree(
         .tiles
         .iter()
         .find_map(|(_, tile)| match tile {
-            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => Some(state.render_mode),
+            Tile::Pane(TileKind::Node(state)) if state.pane_id == pane_id => {
+                Some(state.render_mode)
+            }
             _ => None,
         })
         .unwrap_or(TileRenderMode::Placeholder)
@@ -686,7 +688,9 @@ mod tests {
     #[test]
     fn render_mode_for_node_pane_in_tree_returns_placeholder_for_missing_node() {
         let mut tiles = Tiles::default();
-        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(crate::app::GraphViewId::default())));
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(
+            crate::app::GraphViewId::default(),
+        )));
         let tree = Tree::new("tile_runtime_render_mode_lookup", graph, tiles);
 
         assert_eq!(

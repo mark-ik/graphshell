@@ -37,9 +37,9 @@ pub(super) fn node_key_for_webview_id(gui: &Gui, webview_id: WebViewId) -> Optio
 
 pub(super) fn location_has_focus(gui: &Gui) -> bool {
     let location_id = toolbar_location_input_id(gui.runtime_state.active_toolbar_pane);
-    gui.context.egui_context().memory(|m| {
-        m.focused().is_some_and(|focused| focused == location_id)
-    })
+    gui.context
+        .egui_context()
+        .memory(|m| m.focused().is_some_and(|focused| focused == location_id))
 }
 
 pub(super) fn request_location_submit(gui: &mut Gui) {

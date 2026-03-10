@@ -350,8 +350,7 @@ mod tests {
             }),
         ];
 
-        let (runtime_events, responsive) =
-            runtime_events_and_responsive_from_events(events);
+        let (runtime_events, responsive) = runtime_events_and_responsive_from_events(events);
         let intent_kinds = runtime_events
             .iter()
             .map(|intent| match intent {
@@ -376,8 +375,7 @@ mod tests {
             new_url: "https://trace.example".to_string(),
         })];
 
-        let (runtime_events, responsive) =
-            runtime_events_and_responsive_from_events(events);
+        let (runtime_events, responsive) = runtime_events_and_responsive_from_events(events);
         tracing::info!(
             "semantic_pipeline ingest_events={} emitted_intents={} responsive_webviews={}",
             1,

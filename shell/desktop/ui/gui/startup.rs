@@ -9,8 +9,8 @@ pub(super) fn restore_startup_session_frame_if_available(
     graph_app: &mut GraphBrowserApp,
     tiles_tree: &mut Tree<TileKind>,
 ) -> bool {
-    if let Some(layout_json) = graph_app
-        .load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
+    if let Some(layout_json) =
+        graph_app.load_workspace_layout_json(GraphBrowserApp::SESSION_WORKSPACE_LAYOUT_NAME)
         && let Ok(mut restored_tree) = serde_json::from_str::<Tree<TileKind>>(&layout_json)
     {
         tile_runtime::prune_stale_node_pane_keys_only(&mut restored_tree, graph_app);
@@ -88,8 +88,10 @@ pub(super) fn initialize_startup_graph_and_tiles(
         persistence_ops::build_frame_activation_recency_from_frame_manifests(&graph_app);
     graph_app.init_frame_activation_recency(workspace_recency, workspace_activation_seq);
 
-    let initial_search_filter_mode =
-        matches!(graph_app.workspace.search_display_mode, SearchDisplayMode::Filter);
+    let initial_search_filter_mode = matches!(
+        graph_app.workspace.search_display_mode,
+        SearchDisplayMode::Filter
+    );
 
     (graph_app, tiles_tree, initial_search_filter_mode)
 }

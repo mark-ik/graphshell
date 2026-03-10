@@ -22,9 +22,13 @@ pub(crate) fn chrome_projection_node(
     window: &EmbedderWindow,
 ) -> Option<NodeKey> {
     match window.chrome_projection_source() {
-        Some(ChromeProjectionSource::Renderer(renderer_id)) => graph_app.get_node_for_webview(renderer_id),
-        Some(ChromeProjectionSource::Pane(pane_id)) => registries::phase1_renderer_attachment_for_pane(pane_id)
-            .and_then(|attachment| attachment.node_key),
+        Some(ChromeProjectionSource::Renderer(renderer_id)) => {
+            graph_app.get_node_for_webview(renderer_id)
+        }
+        Some(ChromeProjectionSource::Pane(pane_id)) => {
+            registries::phase1_renderer_attachment_for_pane(pane_id)
+                .and_then(|attachment| attachment.node_key)
+        }
         None => None,
     }
 }

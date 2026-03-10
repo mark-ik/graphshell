@@ -125,7 +125,8 @@ fn fetch_provider_search_suggestions(
         ) => return Err(ProviderSuggestionError::Network),
         Err(OutboundFetchError::Body) => return Err(ProviderSuggestionError::Parse),
     };
-    let parsed_value = serde_json::from_str::<Value>(&body).map_err(|_| ProviderSuggestionError::Parse)?;
+    let parsed_value =
+        serde_json::from_str::<Value>(&body).map_err(|_| ProviderSuggestionError::Parse)?;
     runtime_caches.insert_parsed_metadata(parsed_cache_key, parsed_value.clone());
     parse_provider_suggestion_value(&parsed_value, query).ok_or(ProviderSuggestionError::Parse)
 }
@@ -136,7 +137,10 @@ fn provider_parsed_metadata_cache_key(provider: SearchProviderKind, query: &str)
         SearchProviderKind::Bing => "bing",
         SearchProviderKind::Google => "google",
     };
-    format!("provider:parsed_suggestions:{provider_key}:{}", query.trim())
+    format!(
+        "provider:parsed_suggestions:{provider_key}:{}",
+        query.trim()
+    )
 }
 
 fn provider_suggest_url(provider: SearchProviderKind, query: &str) -> String {
@@ -970,7 +974,10 @@ mod tests {
             .expect("parsed suggestion value should produce output");
         assert_eq!(suggestions.first().map(String::as_str), Some("rust"));
         assert_eq!(
-            suggestions.iter().filter(|entry| entry.as_str() == "rust book").count(),
+            suggestions
+                .iter()
+                .filter(|entry| entry.as_str() == "rust book")
+                .count(),
             1
         );
     }
@@ -1060,13 +1067,8 @@ mod tests {
         let tabs = tiles.insert_tab_tile(vec![tab_tile]);
         let tree = Tree::new("tabs_mode_test", tabs, tiles);
 
-        let matches = omnibar_matches_for_query(
-            &mut app,
-            &tree,
-            OmnibarSearchMode::TabsLocal,
-            "alpha",
-            true,
-        );
+        let matches =
+            omnibar_matches_for_query(&mut app, &tree, OmnibarSearchMode::TabsLocal, "alpha", true);
         assert_eq!(matches, vec![OmnibarMatch::Node(tab_key)]);
         assert!(!matches.contains(&OmnibarMatch::Node(non_tab_key)));
     }
@@ -1149,13 +1151,8 @@ mod tests {
         let root = tiles.insert_tab_tile(vec![context_leaf, hop3_leaf, hop2_leaf, hop1_leaf]);
         let tree = Tree::new("hop_order_test", root, tiles);
 
-        let matches = omnibar_matches_for_query(
-            &mut app,
-            &tree,
-            OmnibarSearchMode::Mixed,
-            "alpha-hop",
-            true,
-        );
+        let matches =
+            omnibar_matches_for_query(&mut app, &tree, OmnibarSearchMode::Mixed, "alpha-hop", true);
         assert!(matches.len() >= 3);
         assert_eq!(matches[0], OmnibarMatch::Node(hop1));
         assert_eq!(matches[1], OmnibarMatch::Node(hop2));
@@ -1243,7 +1240,8 @@ mod tests {
             .expect("save frame bundle");
 
         let mut current_tiles = egui_tiles::Tiles::default();
-        let current_root = current_tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
+        let current_root =
+            current_tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::default())));
         let current_tree = Tree::new("current_tree", current_root, current_tiles);
 
         let matches = omnibar_matches_for_query(

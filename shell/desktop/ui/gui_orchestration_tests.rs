@@ -1648,4 +1648,3 @@ fn clipboard_missing_node_failure_message_includes_recovery_suggestion() {
     assert!(text.contains("try again"));
     assert!(text.contains("select a node"));
 }
-

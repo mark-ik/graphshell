@@ -22,13 +22,13 @@ use url::Url;
 
 use crate::app::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId};
 use crate::shell::desktop::host::running_app_state::{RunningAppState, WebViewCollection};
-use crate::shell::desktop::runtime::registries;
-use crate::shell::desktop::workbench::pane_model::PaneId;
 #[cfg(all(
     feature = "diagnostics",
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 use crate::shell::desktop::runtime::diagnostics::{self, DiagnosticEvent};
+use crate::shell::desktop::runtime::registries;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 
 pub(crate) trait WebViewCreationContext {
     fn servo(&self) -> &Servo;
@@ -282,10 +282,7 @@ impl EmbedderWindow {
         self.chrome_projection_source.get()
     }
 
-    pub(crate) fn set_chrome_projection_source(
-        &self,
-        source: Option<ChromeProjectionSource>,
-    ) {
+    pub(crate) fn set_chrome_projection_source(&self, source: Option<ChromeProjectionSource>) {
         self.chrome_projection_source.set(source);
     }
 
@@ -716,11 +713,7 @@ impl EmbedderWindow {
             GraphSemanticEventKind::HostOpenRequest { request } => {
                 debug!(
                     "graph_event_trace seq={} t_ms={} kind=host_open_request url={} source={:?} parent={:?}",
-                    event.seq,
-                    elapsed_ms,
-                    request.url,
-                    request.source,
-                    request.parent_webview_id
+                    event.seq, elapsed_ms, request.url, request.source, request.parent_webview_id
                 );
             }
             GraphSemanticEventKind::WebViewCrashed {
@@ -810,7 +803,6 @@ impl EmbedderWindow {
         self.set_needs_update();
         self.set_needs_repaint();
     }
-
 }
 
 /// A `PlatformWindow` abstracts away the differents kinds of platform windows that might

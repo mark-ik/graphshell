@@ -139,9 +139,12 @@ pub(crate) fn run_post_render_phase<FActive>(
     apply_intents_if_any(graph_app, tiles_tree, &mut post_render_intents);
 
     render::render_help_panel(ctx, graph_app);
-    let active_node_pane = crate::shell::desktop::workbench::tile_compositor::active_node_pane(tiles_tree);
+    let active_node_pane =
+        crate::shell::desktop::workbench::tile_compositor::active_node_pane(tiles_tree);
     let focused_pane_node = nav_targeting::chrome_projection_node(graph_app, window)
-        .or_else(|| focused_dialog_webview.and_then(|webview_id| graph_app.get_node_for_webview(webview_id)))
+        .or_else(|| {
+            focused_dialog_webview.and_then(|webview_id| graph_app.get_node_for_webview(webview_id))
+        })
         .or_else(|| active_node_pane.map(|pane| pane.node_key));
     render::render_command_palette_panel(
         ctx,

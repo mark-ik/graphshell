@@ -5,8 +5,8 @@ use crate::app::{
     WorkbenchIntent,
 };
 use crate::graph::NodeKey;
-use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use crate::services::search::fuzzy_match_node_keys;
+use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use euclid::default::Point2D;
 
 pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "omnibox:node_search";
@@ -362,8 +362,15 @@ fn capability_reason(capability: ActionCapability) -> &'static str {
     }
 }
 
-fn execute_graph_node_open_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
-    let ActionPayload::GraphNodeOpen { node_key, pane_id: _ } = payload else {
+fn execute_graph_node_open_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::GraphNodeOpen {
+        node_key,
+        pane_id: _,
+    } = payload
+    else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
             reason: "graph:node_open requires GraphNodeOpen payload".to_string(),
@@ -383,7 +390,10 @@ fn execute_graph_node_open_action(_app: &GraphBrowserApp, payload: &ActionPayloa
     ])
 }
 
-fn execute_graph_node_close_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+fn execute_graph_node_close_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
     let ActionPayload::GraphNodeClose { node_key } = payload else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
@@ -400,7 +410,10 @@ fn execute_graph_node_close_action(_app: &GraphBrowserApp, payload: &ActionPaylo
     ])
 }
 
-fn execute_graph_edge_create_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+fn execute_graph_edge_create_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
     let ActionPayload::GraphEdgeCreate { from, to, label } = payload else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
@@ -408,12 +421,14 @@ fn execute_graph_edge_create_action(_app: &GraphBrowserApp, payload: &ActionPayl
         });
     };
 
-    ActionOutcome::Intents(vec![GraphMutation::CreateUserGroupedEdge {
-        from: *from,
-        to: *to,
-        label: label.clone(),
-    }
-    .into()])
+    ActionOutcome::Intents(vec![
+        GraphMutation::CreateUserGroupedEdge {
+            from: *from,
+            to: *to,
+            label: label.clone(),
+        }
+        .into(),
+    ])
 }
 
 fn execute_graph_navigate_back_action(
@@ -444,7 +459,10 @@ fn execute_graph_navigate_forward_action(
     ActionOutcome::Intents(vec![GraphIntent::TraverseForward])
 }
 
-fn execute_graph_select_node_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+fn execute_graph_select_node_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
     let ActionPayload::GraphSelectNode { node_key } = payload else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
@@ -458,7 +476,10 @@ fn execute_graph_select_node_action(_app: &GraphBrowserApp, payload: &ActionPayl
     }])
 }
 
-fn execute_graph_deselect_all_action(_app: &GraphBrowserApp, payload: &ActionPayload) -> ActionOutcome {
+fn execute_graph_deselect_all_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
     let ActionPayload::GraphDeselectAll = payload else {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::InvalidPayload,
@@ -700,17 +721,18 @@ fn execute_verse_pair_device_action(
             kind: ActionFailureKind::Rejected,
             reason: "verse_pair_device show-code is handled by the UI surface".to_string(),
         }),
-        PairingMode::EnterCode { code } => match crate::mods::native::verse::decode_pairing_code(code)
-        {
-            Ok(node_id) => ActionOutcome::Intents(vec![GraphIntent::TrustPeer {
-                peer_id: node_id.to_string(),
-                display_name: format!("Paired {}", &node_id.to_string()[..8]),
-            }]),
-            Err(error) => ActionOutcome::Failure(ActionFailure {
-                kind: ActionFailureKind::Rejected,
-                reason: format!("pairing code decode failed: {error}"),
-            }),
-        },
+        PairingMode::EnterCode { code } => {
+            match crate::mods::native::verse::decode_pairing_code(code) {
+                Ok(node_id) => ActionOutcome::Intents(vec![GraphIntent::TrustPeer {
+                    peer_id: node_id.to_string(),
+                    display_name: format!("Paired {}", &node_id.to_string()[..8]),
+                }]),
+                Err(error) => ActionOutcome::Failure(ActionFailure {
+                    kind: ActionFailureKind::Rejected,
+                    reason: format!("pairing code decode failed: {error}"),
+                }),
+            }
+        }
         PairingMode::LocalPeer { node_id } => match node_id.parse::<iroh::NodeId>() {
             Ok(parsed_node_id) => ActionOutcome::Intents(vec![GraphIntent::TrustPeer {
                 peer_id: parsed_node_id.to_string(),
@@ -1075,7 +1097,10 @@ mod tests {
             &app,
             ActionPayload::GraphNavigateBack,
         );
-        assert!(matches!(back.into_intents().first(), Some(GraphIntent::TraverseBack)));
+        assert!(matches!(
+            back.into_intents().first(),
+            Some(GraphIntent::TraverseBack)
+        ));
 
         let forward = registry.execute(
             ACTION_GRAPH_NAVIGATE_FORWARD,
@@ -1101,9 +1126,7 @@ mod tests {
         let select = registry.execute(
             ACTION_GRAPH_SELECT_NODE,
             &app,
-            ActionPayload::GraphSelectNode {
-                node_key,
-            },
+            ActionPayload::GraphSelectNode { node_key },
         );
         assert!(matches!(
             select.into_intents().first(),
@@ -1229,7 +1252,9 @@ mod tests {
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_SPLIT_HORIZONTAL));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_SPLIT_VERTICAL));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_CLOSE_PANE));
-        assert!(is_namespaced_action_id(ACTION_WORKBENCH_COMMAND_PALETTE_OPEN));
+        assert!(is_namespaced_action_id(
+            ACTION_WORKBENCH_COMMAND_PALETTE_OPEN
+        ));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_SETTINGS_OPEN));
         assert!(is_namespaced_action_id(ACTION_VERSE_PAIR_DEVICE));
         assert!(!is_namespaced_action_id("action.invalid.dot"));

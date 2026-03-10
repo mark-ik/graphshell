@@ -1688,7 +1688,8 @@ mod tests {
     fn close_handoff_from_active_tool_tab_prefers_left_when_no_right_successor() {
         let mut tiles = Tiles::default();
         let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(GraphViewId::new())));
-        let tool_tile = tiles.insert_pane(TileKind::Tool(ToolPaneRef::new(ToolPaneState::Diagnostics)));
+        let tool_tile =
+            tiles.insert_pane(TileKind::Tool(ToolPaneRef::new(ToolPaneState::Diagnostics)));
         let root = tiles.insert_tab_tile(vec![graph_tile, tool_tile]);
 
         if let Some(Tile::Container(Container::Tabs(tabs))) = tiles.get_mut(root) {

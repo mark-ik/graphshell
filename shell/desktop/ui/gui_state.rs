@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::graph::NodeKey;
-use crate::shell::desktop::workbench::pane_model::PaneId;
 use crate::shell::desktop::ui::toolbar::toolbar_ui::OmnibarSearchSession;
+use crate::shell::desktop::workbench::pane_model::PaneId;
 use servo::{LoadStatus, WebViewId};
 
 pub(super) struct ToolbarState {
@@ -45,7 +45,10 @@ impl ToolbarDraft {
 }
 
 pub(super) fn toolbar_location_input_id(active_toolbar_pane: Option<PaneId>) -> egui::Id {
-    egui::Id::new(("location_input", active_toolbar_pane.map(|pane_id| pane_id.to_string())))
+    egui::Id::new((
+        "location_input",
+        active_toolbar_pane.map(|pane_id| pane_id.to_string()),
+    ))
 }
 
 pub(super) struct GuiRuntimeState {

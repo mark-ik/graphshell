@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use super::*;
 use super::update_frame_phases::{
     ExecuteUpdateFrameArgs, GraphSearchAndKeyboardPhaseArgs, PreFrameAndIntentInitArgs,
     SemanticAndPostRenderPhaseArgs, SemanticLifecyclePhaseArgs,
     ToolbarAndGraphSearchWindowPhaseArgs, UPDATE_FRAME_STAGE_SEQUENCE, UpdateFrameStage,
 };
+use super::*;
 use crate::app::MemoryPressureLevel;
 use crate::shell::desktop::runtime::control_panel::LifecyclePolicy;
 
