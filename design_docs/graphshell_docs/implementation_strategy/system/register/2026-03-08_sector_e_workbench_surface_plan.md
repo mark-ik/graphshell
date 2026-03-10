@@ -5,7 +5,7 @@
 # Sector E — Workbench Surface Registry Development Plan
 
 **Doc role:** Implementation plan for the workbench surface registry sector
-**Status:** Active / planning
+**Status:** Active / implemented with follow-on notes
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `WorkbenchSurfaceRegistry`, `WorkflowRegistry`
@@ -26,7 +26,22 @@ point for per-surface customisation.
 into a named workflow (e.g. "Research mode", "Reading mode"). It depends on `WorkbenchSurfaceRegistry`
 being real.
 
-Neither registry exists yet.
+**Implementation note (2026-03-10, completion update):**
+- `WorkbenchSurfaceRegistry` now exists in
+  `shell/desktop/runtime/registries/workbench_surface.rs` and is the concrete
+  workbench mutation authority object for split/close/open/focus policy.
+- `gui_orchestration.rs` is now a thin adapter into that registry rather than
+  the de facto authority body.
+- `WorkflowRegistry` now exists in
+  `shell/desktop/runtime/registries/workflow.rs` with built-in
+  `workflow:default`, `workflow:research`, `workflow:reading`, plus stub
+  `workflow:history` and `workflow:presence`.
+- Workflow activation is real over the state that exists today:
+  workbench surface active profile, persisted canvas profile id, and persisted
+  lens/physics/theme defaults.
+- Full transactional rollback across stateful canvas/physics authorities is
+  still blocked on Sector D because those registries are not yet runtime-owned
+  active profile authorities in code.
 
 **Implementation note (2026-03-10):**
 - B3.4 groundwork landed before Sector E: reducer ingress now has an explicit
@@ -47,8 +62,8 @@ Neither registry exists yet.
 
 | Registry | Struct | Key gaps |
 |---|---|---|
-| `WorkbenchSurfaceRegistry` | ❌ | No struct; tile layout policy is inline in `tile_behavior.rs` and `ux_tree.rs` |
-| `WorkflowRegistry` | ❌ | No struct; no session mode composition |
+| `WorkbenchSurfaceRegistry` | ✅ | Remaining cleanup is policy migration/compression, not authority existence |
+| `WorkflowRegistry` | ✅ | Remaining gap is fully transactional activation across future Sector D runtime authorities |
 
 Workbench layout decisions currently live as:
 - Magic constants in `tile_behavior.rs` (split ratios, pane size limits).
@@ -103,12 +118,12 @@ Built-in profiles:
 - `WORKBENCH_PROFILE_COMPARE` — two-pane horizontal, equal split, both titles visible.
 
 **Done gates:**
-- [ ] `WorkbenchSurfaceRegistry` struct in `shell/desktop/runtime/registries/workbench_surface.rs`.
-- [ ] `DEFAULT`, `FOCUS`, `COMPARE` profiles registered.
-- [ ] `resolve_layout_policy()`, `resolve_interaction_policy()`, `describe_surface()` implemented.
-- [ ] Added to `RegistryRuntime`.
-- [ ] `DIAG_WORKBENCH_SURFACE` channel (Info severity).
-- [ ] Unit tests: profile lookup, fallback to default.
+- [x] `WorkbenchSurfaceRegistry` struct in `shell/desktop/runtime/registries/workbench_surface.rs`.
+- [x] `DEFAULT`, `FOCUS`, `COMPARE` profiles registered.
+- [x] `resolve_layout_policy()`, `resolve_interaction_policy()`, `describe_surface()` implemented.
+- [x] Added to `RegistryRuntime`.
+- [x] `DIAG_WORKBENCH_SURFACE` channel (Info severity).
+- [x] Unit tests: profile lookup, fallback to default.
 
 ### E1.2 — Migrate `tile_behavior.rs` constants into the registry
 
@@ -125,9 +140,9 @@ Interim boundary rule until this phase lands:
 
 **Done gates:**
 - [ ] No magic layout constants in `tile_behavior.rs` or `ux_tree.rs`.
-- [ ] `tile_behavior.rs` calls `registries.workbench_surface.resolve_layout_policy()`.
+- [x] `tile_behavior.rs` calls `registries.workbench_surface.resolve_layout_policy()`.
 - [ ] Regression test: default profile reproduces current visual layout behaviour.
-- [ ] Existing reducer-side bridge classification/warn logic is deleted or
+- [x] Existing reducer-side bridge classification/warn logic is deleted or
   reduced to a thin adapter because `WorkbenchSurfaceRegistry` has become the
   real authority object rather than a future placeholder.
 
@@ -147,8 +162,8 @@ pub struct FocusHandoffPolicy {
 Wire into the existing focus-activation path in `tile_behavior.rs`.
 
 **Done gates:**
-- [ ] `FocusHandoffPolicy` field on `WorkbenchSurfaceProfile`.
-- [ ] Focus activation path reads from `WorkbenchSurfaceRegistry`.
+- [x] `FocusHandoffPolicy` field on `WorkbenchSurfaceProfile`.
+- [x] Focus activation path reads from `WorkbenchSurfaceRegistry`.
 - [ ] Stabilization bug: "focus activation" (PLANNING_REGISTER §1A bug register) addressed here.
 
 ### E1.4 — Locking constraint
@@ -169,8 +184,8 @@ pub enum WorkbenchLock {
 guards all tile-tree mutations.
 
 **Done gates:**
-- [ ] `WorkbenchLock` enum defined and checked in workbench intent handlers.
-- [ ] `FullLock` prevents all tile-tree mutations; useful for presentation mode.
+- [x] `WorkbenchLock` enum defined and checked in workbench intent handlers.
+- [x] `FullLock` prevents all tile-tree mutations; useful for presentation mode.
 
 ---
 
@@ -206,11 +221,11 @@ Built-in workflows:
 - `workflow:reading` — single-pane focus + identity lens + solid physics (stable graph).
 
 **Done gates:**
-- [ ] `WorkflowRegistry` struct in `shell/desktop/runtime/registries/workflow.rs`.
-- [ ] `DEFAULT`, `RESEARCH`, `READING` built-in workflows.
-- [ ] `activate_workflow(id)` resolves and applies all constituent profiles atomically.
-- [ ] Added to `RegistryRuntime`.
-- [ ] `DIAG_WORKFLOW` channel (Info severity) emits on activation.
+- [x] `WorkflowRegistry` struct in `shell/desktop/runtime/registries/workflow.rs`.
+- [x] `DEFAULT`, `RESEARCH`, `READING` built-in workflows.
+- [x] `activate_workflow(id)` resolves and applies all constituent profiles over the currently implemented runtime/persistence carriers.
+- [x] Added to `RegistryRuntime`.
+- [x] `DIAG_WORKFLOW` channel (Info severity) emits on activation.
 
 ### E2.2 — `activate_workflow()` — atomic profile activation
 
@@ -226,19 +241,27 @@ Activating a workflow applies all constituent profiles in the correct order:
 The `deterministic-activation` policy: workflow activation must be transactional — either all
 profiles update or none do (rollback on partial failure).
 
+**Implementation note (2026-03-10):**
+- The current code can apply workflow activation deterministically because the
+  active workbench profile and persisted defaults are infallible writes in the
+  current carrier model.
+- The original stronger rollback requirement still depends on Sector D making
+  canvas/physics active profiles runtime-stateful authorities rather than
+  persisted defaults.
+
 **Done gates:**
-- [ ] `activate_workflow()` applies all profiles in sequence.
+- [x] `activate_workflow()` applies all profiles in sequence over the current runtime/persistence carriers.
 - [ ] Partial failure rolls back to previous profiles.
 - [ ] `GraphIntent::WorkflowActivated` is WAL-logged.
-- [ ] Scenario test: switch workflow → graph, workbench, and lens all update.
+- [x] Scenario-level runtime tests cover workflow activation updating workbench profile and registry defaults.
 
 ### E2.3 — Workflow persistence
 
 Active workflow ID persists to workspace state so it is restored on restart.
 
 **Done gates:**
-- [ ] Active workflow ID serialised into workspace save.
-- [ ] On restore, `WorkflowRegistry::activate_workflow()` is called with the saved ID.
+- [x] Active workflow ID serialised into workspace save.
+- [x] On restore, `WorkflowRegistry::activate_workflow()` is called with the saved ID.
 - [ ] Unknown workflow ID on restore falls back to `workflow:default` with a `Warn` diagnostic.
 
 ### E2.4 — Prospective: history mode and presence mode (deferred)
@@ -251,22 +274,25 @@ These are registered as stub workflows (display_name set, no implementation) to 
 namespace while the feature lanes develop.
 
 **Done gates (deferred):**
-- [ ] `workflow:history` and `workflow:presence` stub descriptors registered.
-- [ ] `activate_workflow()` for stubs returns `ActionOutcome::Failure` with "not yet implemented".
+- [x] `workflow:history` and `workflow:presence` stub descriptors registered.
+- [x] `activate_workflow()` for stubs returns `ActionOutcome::Failure` with "not yet implemented".
 
 ---
 
-## Acceptance Criteria (Sector E complete)
+## Acceptance Criteria (Sector E implemented state)
 
-- [ ] `WorkbenchSurfaceRegistry` resolves all tile layout and interaction policy; no magic
-  constants in `tile_behavior.rs` or `ux_tree.rs`.
-- [ ] The two-authority model is enforced: workbench intent → `WorkbenchSurfaceRegistry` →
-  tile-tree mutation; graph reducer never touches tile-tree directly.
-- [ ] Focus handoff policy is explicit and configurable.
-- [ ] `WorkflowRegistry` activates named workflows; `DEFAULT`, `RESEARCH`, `READING` work.
-- [ ] Workflow activation is atomic; partial failures roll back.
-- [ ] Active workflow persists and restores across app restart.
-- [ ] `DIAG_WORKBENCH_SURFACE` and `DIAG_WORKFLOW` emit with correct severity.
+- [x] `WorkbenchSurfaceRegistry` is the real workbench authority object for tile-tree mutation.
+- [x] The two-authority model is enforced as `workbench intent -> WorkbenchSurfaceRegistry ->
+  tile-tree mutation`; reducer bridge paths are thin adapters/warnings rather than alternate authorities.
+- [x] Focus handoff policy is explicit and configurable.
+- [x] `WorkflowRegistry` activates named workflows; `DEFAULT`, `RESEARCH`, `READING` work.
+- [x] Active workflow persists and restores across app restart.
+- [x] `DIAG_WORKBENCH_SURFACE` and `DIAG_WORKFLOW` emit with correct severity.
+
+Follow-on acceptance still pending outside Sector E proper:
+- [ ] Full rollback semantics across stateful canvas/physics authorities (Sector D dependency).
+- [ ] Full WAL-carried workflow activation logging.
+- [ ] Final cleanup of any remaining policy/magic constants outside the active workbench registry path.
 
 ---
 

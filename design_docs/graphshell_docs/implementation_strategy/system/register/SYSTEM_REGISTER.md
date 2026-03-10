@@ -141,16 +141,18 @@ architecture — not a gap — **provided the intercept is documented and
 consistent**.
 
 **Current status (2026-03-10):**
-- The old silent-no-op gap has been partially addressed by adding a reducer-side
+- The old silent-no-op gap has been addressed by a reducer-side
   warning/classification seam for graph-carrier intents that are actually
   workbench-authority bridges.
-- The practical current seam is not raw `WorkbenchIntent` reaching
+- `WorkbenchSurfaceRegistry` now exists and is the concrete workbench authority
+  object reached by the frame-loop adapter path.
+- The practical bridge seam is still not raw `WorkbenchIntent` reaching
   `apply_intents()` by type; it is graph-carrier bridge intents such as
   `RouteGraphViewToWorkbench` reaching reducer ingress before being forwarded to
   workbench authority.
-- This closes the "silent misroute" problem at the current carrier layer, but
-  does **not** mean `WorkbenchSurfaceRegistry` exists yet. Full authority
-  embodiment still belongs to Sector E.
+- Workflow lifecycle changes now publish through the Register signal-routing
+  layer, but full transactional workflow activation across canvas/physics still
+  depends on Sector D making those profile authorities runtime-stateful.
 
 ### Routing anti-patterns to avoid
 

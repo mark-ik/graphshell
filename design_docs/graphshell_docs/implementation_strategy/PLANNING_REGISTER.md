@@ -66,6 +66,23 @@ If implementation reveals that the planned abstraction is missing prerequisite
 structure, the plan must be updated immediately with that prerequisite instead
 of leaving the lane to "complete" against a patchwork model.
 
+### Workflow Activation Realism Guardrail (2026-03-10)
+
+When a workflow/session-mode plan claims atomic multi-profile activation, the
+plan must distinguish between:
+
+1. Runtime-owned active authorities that can actually be switched transactionally.
+2. Persisted-default carriers that only emulate activation by writing future
+   defaults/settings.
+
+If some workflow constituents still use persisted defaults instead of stateful
+runtime authorities, the lane may still proceed, but the plan must:
+
+1. Name the activation as adapter-based or partial rather than fully transactional.
+2. Link the missing runtime authority lane explicitly (for example, Sector D for
+   canvas/physics active-profile ownership).
+3. Avoid claiming rollback/WAL semantics that the current carrier model cannot enforce.
+
 ### Post-Completion Stabilization Policy (2026-03-10)
 
 Lane ordering is now completion-first, then stabilization:
