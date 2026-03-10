@@ -301,8 +301,10 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED: &str =
     "register.signal_routing.published";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_UNROUTED: &str =
     "register.signal_routing.unrouted";
-pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_OBSERVER_FAILED: &str =
-    "register.signal_routing.observer_failed";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED: &str =
+    "register.signal_routing.failed";
+pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH: &str =
+    "register.signal_routing.queue_depth";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_MOD_WORKFLOW_ROUTED: &str =
     "register.signal_routing.mod_workflow_routed";
 pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &str =
@@ -1292,6 +1294,11 @@ impl RegistryRuntime {
         self.signal_routing.diagnostics_snapshot()
     }
 
+    #[cfg(test)]
+    fn signal_routing_dead_letters(&self) -> Vec<signal_routing::SignalDeadLetter> {
+        self.signal_routing.dead_letters_snapshot()
+    }
+
     fn publish_signal(&self, envelope: SignalEnvelope) {
         let report = self.signal_routing.publish(envelope);
         emit_event(DiagnosticEvent::MessageSent {
@@ -1308,10 +1315,15 @@ impl RegistryRuntime {
 
         if report.observer_failures > 0 {
             emit_event(DiagnosticEvent::MessageSent {
-                channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_OBSERVER_FAILED,
+                channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_FAILED,
                 byte_len: report.observer_failures,
             });
         }
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_QUEUE_DEPTH,
+            byte_len: report.queue_depth,
+        });
     }
 
     pub(crate) fn route_mod_lifecycle_event(&self, mod_id: &str, activated: bool) {
@@ -2800,7 +2812,8 @@ mod tests {
         let diagnostics = runtime.signal_routing_diagnostics();
         assert_eq!(diagnostics.published_signals, 1);
         assert_eq!(diagnostics.routed_deliveries, 0);
-        assert_eq!(diagnostics.unrouted_signals, 0);
+        assert_eq!(diagnostics.unrouted_signals, 1);
+        assert_eq!(runtime.signal_routing_dead_letters().len(), 1);
     }
 
     #[test]

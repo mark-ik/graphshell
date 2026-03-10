@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -160,6 +161,8 @@ pub(crate) struct ObserverId(u64);
 pub(crate) type SyncObserverCallback =
     Arc<dyn Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync>;
 
+const DEAD_LETTER_LIMIT: usize = 64;
+
 #[derive(Clone)]
 struct SignalObserver {
     id: ObserverId,
@@ -172,12 +175,30 @@ pub(crate) struct SignalRoutingDiagnostics {
     pub(crate) routed_deliveries: u64,
     pub(crate) unrouted_signals: u64,
     pub(crate) observer_failures: u64,
+    pub(crate) queue_depth: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SignalPublishReport {
     pub(crate) observers_notified: usize,
     pub(crate) observer_failures: usize,
+    pub(crate) dead_letters_added: usize,
+    pub(crate) queue_depth: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SignalDeadLetterReason {
+    Unrouted,
+    ObserverFailed,
+    ObserverPanicked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SignalDeadLetter {
+    pub(crate) envelope: SignalEnvelope,
+    pub(crate) observer_id: Option<ObserverId>,
+    pub(crate) reason: SignalDeadLetterReason,
+    pub(crate) detail: String,
 }
 
 #[derive(Default)]
@@ -185,6 +206,7 @@ struct SignalRoutingState {
     next_observer_id: u64,
     observers: HashMap<SignalTopic, Vec<SignalObserver>>,
     diagnostics: SignalRoutingDiagnostics,
+    dead_letters: VecDeque<SignalDeadLetter>,
 }
 
 /// SR2/SR3 transitional Register-owned signal routing facade and in-process fabric.
@@ -222,28 +244,97 @@ impl SignalRoutingLayer {
 
     pub(crate) fn publish(&self, envelope: SignalEnvelope) -> SignalPublishReport {
         let topic = envelope.kind.topic();
-        let callbacks = {
+        let observers = {
             let mut guard = self.state.lock().expect("signal routing lock poisoned");
             guard.diagnostics.published_signals =
                 guard.diagnostics.published_signals.saturating_add(1);
             let Some(observers) = guard.observers.get(&topic) else {
                 guard.diagnostics.unrouted_signals =
                     guard.diagnostics.unrouted_signals.saturating_add(1);
+                push_dead_letter(
+                    &mut guard.dead_letters,
+                    SignalDeadLetter {
+                        envelope: envelope.clone(),
+                        observer_id: None,
+                        reason: SignalDeadLetterReason::Unrouted,
+                        detail: "no observers registered for topic".to_string(),
+                    },
+                );
+                log::warn!(
+                    "signal_routing: signal {:?} has no observers (source: {:?})",
+                    envelope.kind,
+                    envelope.source
+                );
                 return SignalPublishReport {
                     observers_notified: 0,
                     observer_failures: 0,
+                    dead_letters_added: 1,
+                    queue_depth: guard.diagnostics.queue_depth,
                 };
             };
-            observers
-                .iter()
-                .map(|entry| entry.callback.clone())
-                .collect::<Vec<_>>()
+            if observers.is_empty() {
+                guard.diagnostics.unrouted_signals =
+                    guard.diagnostics.unrouted_signals.saturating_add(1);
+                push_dead_letter(
+                    &mut guard.dead_letters,
+                    SignalDeadLetter {
+                        envelope: envelope.clone(),
+                        observer_id: None,
+                        reason: SignalDeadLetterReason::Unrouted,
+                        detail: "observer list empty for topic".to_string(),
+                    },
+                );
+                log::warn!(
+                    "signal_routing: signal {:?} has no observers (source: {:?})",
+                    envelope.kind,
+                    envelope.source
+                );
+                return SignalPublishReport {
+                    observers_notified: 0,
+                    observer_failures: 0,
+                    dead_letters_added: 1,
+                    queue_depth: guard.diagnostics.queue_depth,
+                };
+            }
+            observers.clone()
         };
 
         let mut failures = 0usize;
-        for callback in &callbacks {
-            if callback(&envelope).is_err() {
-                failures = failures.saturating_add(1);
+        let mut dead_letters = Vec::new();
+        for observer in &observers {
+            match catch_unwind(AssertUnwindSafe(|| (observer.callback)(&envelope))) {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    failures = failures.saturating_add(1);
+                    log::error!(
+                        "signal_routing: observer {:?} failed on {:?}: {}",
+                        observer.id,
+                        envelope.kind,
+                        error
+                    );
+                    dead_letters.push(SignalDeadLetter {
+                        envelope: envelope.clone(),
+                        observer_id: Some(observer.id),
+                        reason: SignalDeadLetterReason::ObserverFailed,
+                        detail: error,
+                    });
+                }
+                Err(payload) => {
+                    failures = failures.saturating_add(1);
+                    let detail = panic_payload_message(payload);
+                    log::error!(
+                        "signal_routing: observer {:?} panicked on {:?}: {}",
+                        observer.id,
+                        envelope.kind,
+                        detail
+                    );
+                    dead_letters.push(SignalDeadLetter {
+                        envelope: envelope.clone(),
+                        observer_id: Some(observer.id),
+                        reason: SignalDeadLetterReason::ObserverPanicked,
+                        detail,
+                    });
+                }
             }
         }
 
@@ -251,15 +342,20 @@ impl SignalRoutingLayer {
         guard.diagnostics.routed_deliveries = guard
             .diagnostics
             .routed_deliveries
-            .saturating_add(callbacks.len() as u64);
+            .saturating_add(observers.len() as u64);
         guard.diagnostics.observer_failures = guard
             .diagnostics
             .observer_failures
             .saturating_add(failures as u64);
+        for dead_letter in &dead_letters {
+            push_dead_letter(&mut guard.dead_letters, dead_letter.clone());
+        }
 
         SignalPublishReport {
-            observers_notified: callbacks.len(),
+            observers_notified: observers.len(),
             observer_failures: failures,
+            dead_letters_added: dead_letters.len(),
+            queue_depth: guard.diagnostics.queue_depth,
         }
     }
 
@@ -268,6 +364,33 @@ impl SignalRoutingLayer {
             .lock()
             .expect("signal routing lock poisoned")
             .diagnostics
+    }
+
+    pub(crate) fn dead_letters_snapshot(&self) -> Vec<SignalDeadLetter> {
+        self.state
+            .lock()
+            .expect("signal routing lock poisoned")
+            .dead_letters
+            .iter()
+            .cloned()
+            .collect()
+    }
+}
+
+fn push_dead_letter(dead_letters: &mut VecDeque<SignalDeadLetter>, dead_letter: SignalDeadLetter) {
+    if dead_letters.len() >= DEAD_LETTER_LIMIT {
+        dead_letters.pop_front();
+    }
+    dead_letters.push_back(dead_letter);
+}
+
+fn panic_payload_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    match payload.downcast::<String>() {
+        Ok(message) => *message,
+        Err(payload) => match payload.downcast::<&'static str>() {
+            Ok(message) => (*message).to_string(),
+            Err(_) => "observer panicked with non-string payload".to_string(),
+        },
     }
 }
 
@@ -310,6 +433,7 @@ mod tests {
 
         assert_eq!(report.observers_notified, 2);
         assert_eq!(report.observer_failures, 0);
+        assert_eq!(report.dead_letters_added, 0);
         assert_eq!(observer_a.load(Ordering::Relaxed), 1);
         assert_eq!(observer_b.load(Ordering::Relaxed), 1);
 
@@ -318,6 +442,7 @@ mod tests {
         assert_eq!(diagnostics.routed_deliveries, 2);
         assert_eq!(diagnostics.unrouted_signals, 0);
         assert_eq!(diagnostics.observer_failures, 0);
+        assert_eq!(diagnostics.queue_depth, 0);
     }
 
     #[test]
@@ -334,6 +459,7 @@ mod tests {
             None,
         ));
         assert_eq!(unrouted.observers_notified, 0);
+        assert_eq!(unrouted.dead_letters_added, 1);
 
         layer.subscribe(SignalTopic::Sync, |_| Err("forced failure".to_string()));
         let failed = layer.publish(SignalEnvelope::new(
@@ -343,11 +469,42 @@ mod tests {
         ));
         assert_eq!(failed.observers_notified, 1);
         assert_eq!(failed.observer_failures, 1);
+        assert_eq!(failed.dead_letters_added, 1);
 
         let diagnostics = layer.diagnostics_snapshot();
         assert_eq!(diagnostics.published_signals, 2);
         assert_eq!(diagnostics.routed_deliveries, 1);
         assert_eq!(diagnostics.unrouted_signals, 1);
         assert_eq!(diagnostics.observer_failures, 1);
+
+        let dead_letters = layer.dead_letters_snapshot();
+        assert_eq!(dead_letters.len(), 2);
+        assert_eq!(dead_letters[0].reason, SignalDeadLetterReason::Unrouted);
+        assert_eq!(dead_letters[1].reason, SignalDeadLetterReason::ObserverFailed);
+    }
+
+    #[test]
+    fn signal_routing_captures_panicking_observer_as_dead_letter() {
+        let layer = SignalRoutingLayer::default();
+        layer.subscribe(SignalTopic::Navigation, |_| panic!("boom"));
+
+        let report = layer.publish(SignalEnvelope::new(
+            SignalKind::Navigation(NavigationSignal::Resolved {
+                uri: "https://example.com".to_string(),
+                viewer_id: "viewer:webview".to_string(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
+
+        assert_eq!(report.observers_notified, 1);
+        assert_eq!(report.observer_failures, 1);
+        let dead_letters = layer.dead_letters_snapshot();
+        assert_eq!(dead_letters.len(), 1);
+        assert_eq!(
+            dead_letters[0].reason,
+            SignalDeadLetterReason::ObserverPanicked
+        );
+        assert_eq!(dead_letters[0].observer_id, Some(ObserverId(1)));
     }
 }
