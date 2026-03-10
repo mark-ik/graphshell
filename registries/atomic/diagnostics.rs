@@ -38,6 +38,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_HISTORY_TIMELINE_RETURN_TO_PRESENT_FAILED, CHANNEL_HISTORY_TRAVERSAL_RECORD_FAILED,
     CHANNEL_HISTORY_TRAVERSAL_RECORDED, CHANNEL_IDENTITY_KEY_UNAVAILABLE,
     CHANNEL_IDENTITY_SIGN_FAILED, CHANNEL_IDENTITY_SIGN_STARTED, CHANNEL_IDENTITY_SIGN_SUCCEEDED,
+    CHANNEL_INDEX_SEARCH,
     CHANNEL_INPUT_BINDING_CONFLICT, CHANNEL_INPUT_BINDING_MISSING, CHANNEL_INPUT_BINDING_REBOUND,
     CHANNEL_INPUT_BINDING_RESOLVED, CHANNEL_INVARIANT_TIMEOUT, CHANNEL_LENS_FALLBACK_USED,
     CHANNEL_KNOWLEDGE_INDEX_UPDATED, CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN,
@@ -527,7 +528,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 109] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 110] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -822,6 +823,11 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 109] = [
         channel_id: CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN,
         schema_version: 1,
         severity: ChannelSeverity::Warn,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_INDEX_SEARCH,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_WORKFLOW_ACTIVATED,

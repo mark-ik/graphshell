@@ -1,6 +1,7 @@
 pub(crate) mod action;
 pub(crate) mod canvas;
 pub(crate) mod identity;
+pub(crate) mod index;
 pub(crate) mod input;
 pub(crate) mod knowledge;
 pub(crate) mod layout;
@@ -49,6 +50,7 @@ use action::{
 use canvas::CanvasRegistry;
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
+use index::{IndexRegistry, SearchResult};
 use input::{
     INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputBindingRemap,
     InputConflict as InputRemapConflict, InputContext, InputRegistry,
@@ -319,6 +321,7 @@ pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated
 pub(crate) const CHANNEL_KNOWLEDGE_INDEX_UPDATED: &str = "registry.knowledge.index_updated";
 pub(crate) const CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN: &str =
     "registry.knowledge.tag_validation_warn";
+pub(crate) const CHANNEL_INDEX_SEARCH: &str = "registry.index.search";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -358,6 +361,7 @@ pub(crate) struct RegistryRuntime {
     workflow: Mutex<WorkflowRegistry>,
     workbench_surface: Mutex<WorkbenchSurfaceRegistry>,
     pub(crate) knowledge: KnowledgeRegistry,
+    index: IndexRegistry,
 }
 
 #[allow(dead_code)]
@@ -533,6 +537,7 @@ impl RegistryRuntime {
             workflow: Mutex::new(WorkflowRegistry::default()),
             workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
+            index: IndexRegistry::default(),
         }
     }
 
@@ -594,6 +599,7 @@ impl RegistryRuntime {
             workflow: Mutex::new(WorkflowRegistry::default()),
             workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
+            index: IndexRegistry::default(),
         }
     }
 
@@ -965,6 +971,20 @@ impl RegistryRuntime {
         key: NodeKey,
     ) -> Option<NodeKey> {
         knowledge::suggest_placement_anchor(app, &self.knowledge, key)
+    }
+
+    pub(crate) fn index_search(
+        &self,
+        app: &GraphBrowserApp,
+        query: &str,
+        limit: usize,
+    ) -> Vec<SearchResult> {
+        let results = self.index.search(app, &self.knowledge, query, limit);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_INDEX_SEARCH,
+            byte_len: query.len().saturating_add(results.len()),
+        });
+        results
     }
 
     fn dispatch_workbench_surface_intent(
@@ -2033,6 +2053,14 @@ pub(crate) fn phase3_suggest_semantic_placement_anchor(
     runtime().suggest_semantic_placement_anchor(app, key)
 }
 
+pub(crate) fn phase3_index_search(
+    app: &GraphBrowserApp,
+    query: &str,
+    limit: usize,
+) -> Vec<SearchResult> {
+    runtime().index_search(app, query, limit)
+}
+
 pub(crate) fn phase3_subscribe_signal(
     topic: SignalTopic,
     callback: impl Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync + 'static,
@@ -2893,6 +2921,11 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_WORKFLOW_ACTIVATED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_INDEX_SEARCH)
         );
     }
 

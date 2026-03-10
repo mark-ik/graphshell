@@ -5,9 +5,10 @@ use crate::app::{
     WorkbenchIntent,
 };
 use crate::graph::NodeKey;
-use crate::services::search::fuzzy_match_node_keys;
 use crate::shell::desktop::workbench::pane_model::{PaneId, SplitDirection, ToolPaneState};
 use euclid::default::Point2D;
+
+use super::index::SearchResultKind;
 
 pub(crate) const ACTION_OMNIBOX_NODE_SEARCH: &str = "omnibox:node_search";
 pub(crate) const ACTION_GRAPH_VIEW_SUBMIT: &str = "graph:view_submit";
@@ -716,12 +717,30 @@ fn execute_omnibox_node_search_action(
         });
     };
 
-    let matched_keys = fuzzy_match_node_keys(app.domain_graph(), query);
-    if let Some(key) = matched_keys.first() {
-        return ActionOutcome::Intents(vec![GraphIntent::SelectNode {
-            key: *key,
-            multi_select: false,
-        }]);
+    let results = super::phase3_index_search(app, query, 10);
+    if let Some(result) = results.first() {
+        return match &result.kind {
+            SearchResultKind::Node(key) => ActionOutcome::Intents(vec![GraphIntent::SelectNode {
+                key: *key,
+                multi_select: false,
+            }]),
+            SearchResultKind::HistoryUrl(url) => ActionOutcome::Intents(vec![
+                GraphMutation::CreateNodeAtUrl {
+                    url: url.clone(),
+                    position: new_node_position_for_context(
+                        app,
+                        app.focused_selection().primary(),
+                    ),
+                }
+                .into(),
+            ]),
+            SearchResultKind::KnowledgeTag { code } => ActionOutcome::Failure(ActionFailure {
+                kind: ActionFailureKind::Rejected,
+                reason: format!(
+                    "omnibox_node_search matched knowledge tag 'udc:{code}' but no graph node yet"
+                ),
+            }),
+        };
     }
     ActionOutcome::Failure(ActionFailure {
         kind: ActionFailureKind::Rejected,
@@ -876,6 +895,37 @@ mod tests {
         assert!(matches!(
             intents.first(),
             Some(GraphIntent::SelectNode { key: selected, .. }) if *selected == key
+        ));
+    }
+
+    #[test]
+    fn action_registry_omnibox_search_falls_back_to_history_provider() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://example.com".into(), Point2D::new(0.0, 0.0));
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(key) {
+            node.title = "Example".into();
+            node.history_entries = vec!["https://history.example/rust".to_string()];
+            node.history_index = 0;
+        }
+
+        let registry = ActionRegistry::default();
+        let execution = registry.execute(
+            ACTION_OMNIBOX_NODE_SEARCH,
+            &app,
+            ActionPayload::OmniboxNodeSearch {
+                query: "history.example/rust".to_string(),
+            },
+        );
+
+        assert!(execution.succeeded());
+        let intents = execution.into_intents();
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::CreateNodeAtUrl { url, .. }) if url == "https://history.example/rust"
         ));
     }
 
