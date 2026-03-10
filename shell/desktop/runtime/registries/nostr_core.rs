@@ -2,13 +2,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ed25519_dalek::Signer;
-use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::registries::infrastructure::mod_loader::runtime_has_capability;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 
+use super::identity::IdentityRegistry;
 use super::{
     CHANNEL_NOSTR_CAPABILITY_DENIED, CHANNEL_NOSTR_INTENT_REJECTED,
     CHANNEL_NOSTR_RELAY_PUBLISH_FAILED, CHANNEL_NOSTR_RELAY_SUBSCRIPTION_FAILED,
@@ -202,7 +201,6 @@ impl NostrRelayService for InProcessRelayService {
 struct NostrCoreState {
     relay_service: InProcessRelayService,
     signer_backend: NostrSignerBackend,
-    local_signing_key: ed25519_dalek::SigningKey,
     relay_policy: NostrRelayPolicy,
     caller_subscription_count: HashMap<String, usize>,
     caller_publish_count: HashMap<String, usize>,
@@ -213,7 +211,6 @@ impl Default for NostrCoreState {
         Self {
             relay_service: InProcessRelayService::default(),
             signer_backend: NostrSignerBackend::LocalHostKey,
-            local_signing_key: ed25519_dalek::SigningKey::generate(&mut OsRng),
             relay_policy: NostrRelayPolicy::default(),
             caller_subscription_count: HashMap::new(),
             caller_publish_count: HashMap::new(),
@@ -305,6 +302,7 @@ impl NostrCoreRegistry {
 
     pub(crate) fn sign_event(
         &self,
+        identity: &IdentityRegistry,
         persona: &str,
         unsigned: &NostrUnsignedEvent,
     ) -> Result<NostrSignedEvent, NostrCoreError> {
@@ -326,12 +324,26 @@ impl NostrCoreRegistry {
         let state = self.state.lock().expect("nostr core lock poisoned");
         let (signature, pubkey) = match &state.signer_backend {
             NostrSignerBackend::LocalHostKey => {
-                let payload_digest = Sha256::digest(&canonical);
-                let signature = state.local_signing_key.sign(payload_digest.as_slice());
-                (
-                    to_hex(signature.to_bytes().as_slice()),
-                    to_hex(state.local_signing_key.verifying_key().as_bytes()),
-                )
+                let signed = identity.sign(persona, &canonical);
+                let Some(signature) = signed.signature else {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
+                        byte_len: persona.len(),
+                    });
+                    return Err(NostrCoreError::ValidationFailed(format!(
+                        "identity key unavailable for persona '{persona}'"
+                    )));
+                };
+                let Some(pubkey) = signed.verifying_key else {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
+                        byte_len: persona.len(),
+                    });
+                    return Err(NostrCoreError::ValidationFailed(format!(
+                        "verifying key unavailable for persona '{persona}'"
+                    )));
+                };
+                (signature.trim_start_matches("sig:").to_string(), pubkey)
             }
             NostrSignerBackend::Nip46Delegated(config) => {
                 emit_event(DiagnosticEvent::MessageSent {
@@ -671,13 +683,14 @@ mod tests {
     #[test]
     fn nostr_core_sign_event_produces_cryptographic_local_signature() {
         let registry = NostrCoreRegistry::default();
+        let identity = IdentityRegistry::default();
         let unsigned = NostrUnsignedEvent {
             kind: 1,
             content: "hello nostr".to_string(),
             tags: vec![("t".to_string(), "graph".to_string())],
         };
 
-        let signed = registry.sign_event("default", &unsigned);
+        let signed = registry.sign_event(&identity, "default", &unsigned);
         assert!(signed.is_ok());
         let signed = signed.expect("signed event should be produced");
         assert_eq!(signed.signature.len(), 128);
@@ -689,6 +702,7 @@ mod tests {
     #[test]
     fn nostr_core_nip46_backend_is_explicit_stub() {
         let registry = NostrCoreRegistry::default();
+        let identity = IdentityRegistry::default();
         registry
             .use_nip46_signer("wss://relay.example", "npub1delegate")
             .expect("nip46 config should be accepted");
@@ -699,7 +713,7 @@ mod tests {
             tags: Vec::new(),
         };
 
-        let result = registry.sign_event("default", &unsigned);
+        let result = registry.sign_event(&identity, "default", &unsigned);
         assert!(matches!(result, Err(NostrCoreError::BackendUnavailable(_))));
     }
 

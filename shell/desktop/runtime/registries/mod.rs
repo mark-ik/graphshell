@@ -593,7 +593,8 @@ pub(crate) fn phase3_nostr_sign_event(
     persona: &str,
     unsigned: &NostrUnsignedEvent,
 ) -> Result<NostrSignedEvent, NostrCoreError> {
-    runtime().nostr_core.sign_event(persona, unsigned)
+    let runtime = runtime();
+    runtime.nostr_core.sign_event(&runtime.identity, persona, unsigned)
 }
 
 #[allow(dead_code)]
@@ -1618,6 +1619,15 @@ impl RegistryRuntime {
         }
 
         result.signature
+    }
+
+    pub(crate) fn verify_identity_payload(
+        &self,
+        identity_id: &str,
+        payload: &[u8],
+        signature: &str,
+    ) -> bool {
+        self.identity.verify(identity_id, payload, signature).verified
     }
 
     pub(crate) fn subscribe_signal(

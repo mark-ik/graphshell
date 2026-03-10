@@ -1,11 +1,15 @@
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
+use std::fs;
+use std::path::{Path, PathBuf};
 
-// Import Verse P2P types for trait implementation
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use rand::rngs::OsRng;
+
 use crate::mods::native::verse::{P2PIdentityExt, TrustedPeer};
 
 pub(crate) const IDENTITY_ID_DEFAULT: &str = "identity:default";
 pub(crate) const IDENTITY_ID_P2P: &str = "identity:p2p";
+const IDENTITY_ID_LOCKED: &str = "identity:locked";
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityResolution {
@@ -19,31 +23,232 @@ pub(crate) struct IdentityResolution {
 pub(crate) struct IdentitySignResult {
     pub(crate) resolution: IdentityResolution,
     pub(crate) signature: Option<String>,
+    pub(crate) verifying_key: Option<String>,
     pub(crate) succeeded: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct IdentityVerifyResult {
+    pub(crate) resolution: IdentityResolution,
+    pub(crate) verified: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KeyProtection {
+    Unprotected,
+    Ephemeral,
+}
+
+#[derive(Debug)]
+pub(crate) enum IdentityKeyError {
+    InvalidKeyMaterial,
+    Io(String),
+    PersonaLocked,
+    PersonaMissing(String),
+}
+
+impl std::fmt::Display for IdentityKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidKeyMaterial => write!(f, "invalid key material"),
+            Self::Io(error) => write!(f, "{error}"),
+            Self::PersonaLocked => write!(f, "persona is locked"),
+            Self::PersonaMissing(identity_id) => write!(f, "missing persona: {identity_id}"),
+        }
+    }
+}
+
+impl std::error::Error for IdentityKeyError {}
+
+#[derive(Debug, Clone)]
+struct IdentityKey {
+    signing_key: Option<SigningKey>,
+    verifying_key: VerifyingKey,
+    archived_verifying_keys: Vec<VerifyingKey>,
+    seed_path: Option<PathBuf>,
+    archive_path: Option<PathBuf>,
+    protection: KeyProtection,
+}
+
+impl IdentityKey {
+    fn generate_ephemeral() -> Self {
+        let signing_key = SigningKey::generate(&mut OsRng);
+        Self {
+            verifying_key: signing_key.verifying_key(),
+            signing_key: Some(signing_key),
+            archived_verifying_keys: Vec::new(),
+            seed_path: None,
+            archive_path: None,
+            protection: KeyProtection::Ephemeral,
+        }
+    }
+
+    fn locked() -> Self {
+        let signing_key = SigningKey::generate(&mut OsRng);
+        Self {
+            verifying_key: signing_key.verifying_key(),
+            signing_key: None,
+            archived_verifying_keys: Vec::new(),
+            seed_path: None,
+            archive_path: None,
+            protection: KeyProtection::Ephemeral,
+        }
+    }
+
+    fn load_or_generate(
+        identity_id: &str,
+        store_root: &Path,
+    ) -> Result<(Self, bool), IdentityKeyError> {
+        let seed_path = seed_path_for(store_root, identity_id);
+        let archive_path = archive_path_for(store_root, identity_id);
+        if let Some(parent) = seed_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| IdentityKeyError::Io(format!("create identity dir: {error}")))?;
+        }
+
+        let (signing_key, generated) = if seed_path.exists() {
+            let bytes = fs::read(&seed_path)
+                .map_err(|error| IdentityKeyError::Io(format!("read identity key: {error}")))?;
+            if bytes.len() != 32 {
+                return Err(IdentityKeyError::InvalidKeyMaterial);
+            }
+            let mut seed = [0u8; 32];
+            seed.copy_from_slice(&bytes);
+            (SigningKey::from_bytes(&seed), false)
+        } else {
+            let signing_key = SigningKey::generate(&mut OsRng);
+            fs::write(&seed_path, signing_key.to_bytes())
+                .map_err(|error| IdentityKeyError::Io(format!("write identity key: {error}")))?;
+            (signing_key, true)
+        };
+
+        let archived_verifying_keys = load_archived_verifying_keys(&archive_path)?;
+        Ok((
+            Self {
+                verifying_key: signing_key.verifying_key(),
+                signing_key: Some(signing_key),
+                archived_verifying_keys,
+                seed_path: Some(seed_path),
+                archive_path: Some(archive_path),
+                protection: KeyProtection::Unprotected,
+            },
+            generated,
+        ))
+    }
+
+    fn key_available(&self) -> bool {
+        self.signing_key.is_some()
+    }
+
+    fn sign(&self, payload: &[u8]) -> Option<Signature> {
+        self.signing_key.as_ref().map(|key| key.sign(payload))
+    }
+
+    fn verify(&self, payload: &[u8], signature: &Signature) -> bool {
+        if self.verifying_key.verify(payload, signature).is_ok() {
+            return true;
+        }
+
+        self.archived_verifying_keys
+            .iter()
+            .any(|key| key.verify(payload, signature).is_ok())
+    }
+
+    fn rotate(&mut self) -> Result<VerifyingKey, IdentityKeyError> {
+        let Some(current) = self.signing_key.as_ref() else {
+            return Err(IdentityKeyError::PersonaLocked);
+        };
+        self.archived_verifying_keys.push(current.verifying_key());
+        self.persist_archived_verifying_keys()?;
+
+        let next = SigningKey::generate(&mut OsRng);
+        if let Some(seed_path) = &self.seed_path {
+            fs::write(seed_path, next.to_bytes())
+                .map_err(|error| IdentityKeyError::Io(format!("rotate identity key: {error}")))?;
+        }
+        self.verifying_key = next.verifying_key();
+        self.signing_key = Some(next);
+        Ok(self.verifying_key)
+    }
+
+    fn revoke(&mut self) -> Result<(), IdentityKeyError> {
+        if let Some(current) = self.signing_key.as_ref() {
+            self.archived_verifying_keys.push(current.verifying_key());
+            self.persist_archived_verifying_keys()?;
+        }
+        if let Some(seed_path) = &self.seed_path
+            && seed_path.exists()
+        {
+            fs::remove_file(seed_path)
+                .map_err(|error| IdentityKeyError::Io(format!("remove identity key: {error}")))?;
+        }
+        self.signing_key = None;
+        Ok(())
+    }
+
+    fn persist_archived_verifying_keys(&self) -> Result<(), IdentityKeyError> {
+        let Some(archive_path) = &self.archive_path else {
+            return Ok(());
+        };
+
+        let serialized = self
+            .archived_verifying_keys
+            .iter()
+            .map(|key| encode_hex(key.as_bytes()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(archive_path, serialized)
+            .map_err(|error| IdentityKeyError::Io(format!("write archived identity keys: {error}")))
+    }
+}
+
 pub(crate) struct IdentityRegistry {
-    keys: HashMap<String, String>,
+    keys: HashMap<String, IdentityKey>,
     fallback_id: String,
+    trust_store: Vec<TrustedPeer>,
 }
 
 impl IdentityRegistry {
-    fn has_usable_key(&self, identity_id: &str) -> bool {
+    fn register_generated_persona(&mut self, identity_id: &str) {
         self.keys
-            .get(identity_id)
-            .is_some_and(|key| !key.trim().is_empty())
+            .insert(identity_id.to_string(), IdentityKey::generate_ephemeral());
     }
 
-    pub(crate) fn register_persona(&mut self, identity_id: &str, key_material: &str) {
-        self.keys
-            .insert(identity_id.to_ascii_lowercase(), key_material.to_string());
+    fn register_locked_persona(&mut self, identity_id: &str) {
+        self.keys.insert(identity_id.to_string(), IdentityKey::locked());
+    }
+
+    fn generated_identities() -> [&'static str; 2] {
+        [IDENTITY_ID_DEFAULT, IDENTITY_ID_P2P]
+    }
+
+    fn load_persistent_personas(&mut self, store_root: &Path) {
+        for identity_id in Self::generated_identities() {
+            match IdentityKey::load_or_generate(identity_id, store_root) {
+                Ok((identity_key, generated)) => {
+                    if generated {
+                        log::warn!("identity key generated for {identity_id}");
+                    }
+                    self.keys.insert(identity_id.to_string(), identity_key);
+                }
+                Err(error) => {
+                    log::warn!(
+                        "identity key load failed for {identity_id}: {error}; falling back to ephemeral key"
+                    );
+                    self.register_generated_persona(identity_id);
+                }
+            }
+        }
     }
 
     pub(crate) fn resolve(&self, identity_id: &str) -> IdentityResolution {
         let requested = identity_id.trim().to_ascii_lowercase();
 
         if requested.is_empty() {
-            let key_available = self.has_usable_key(&self.fallback_id);
+            let key_available = self
+                .keys
+                .get(&self.fallback_id)
+                .is_some_and(IdentityKey::key_available);
             return IdentityResolution {
                 requested_id: requested,
                 resolved_id: self.fallback_id.clone(),
@@ -52,17 +257,19 @@ impl IdentityRegistry {
             };
         }
 
-        if self.keys.contains_key(&requested) {
-            let key_available = self.has_usable_key(&requested);
+        if let Some(identity_key) = self.keys.get(&requested) {
             return IdentityResolution {
                 requested_id: requested.clone(),
                 resolved_id: requested,
                 matched: true,
-                key_available,
+                key_available: identity_key.key_available(),
             };
         }
 
-        let key_available = self.has_usable_key(&self.fallback_id);
+        let key_available = self
+            .keys
+            .get(&self.fallback_id)
+            .is_some_and(IdentityKey::key_available);
         IdentityResolution {
             requested_id: requested,
             resolved_id: self.fallback_id.clone(),
@@ -73,32 +280,88 @@ impl IdentityRegistry {
 
     pub(crate) fn sign(&self, identity_id: &str, payload: &[u8]) -> IdentitySignResult {
         let resolution = self.resolve(identity_id);
-        let Some(key_material) = self.keys.get(&resolution.resolved_id) else {
+        let Some(identity_key) = self.keys.get(&resolution.resolved_id) else {
             return IdentitySignResult {
                 resolution,
                 signature: None,
-                succeeded: false,
-            };
-        };
-        if key_material.trim().is_empty() {
-            return IdentitySignResult {
-                resolution,
-                signature: None,
+                verifying_key: None,
                 succeeded: false,
             };
         };
 
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        resolution.resolved_id.hash(&mut hasher);
-        key_material.hash(&mut hasher);
-        payload.hash(&mut hasher);
-        let digest = hasher.finish();
+        let Some(signature) = identity_key.sign(payload) else {
+            return IdentitySignResult {
+                resolution,
+                signature: None,
+                verifying_key: Some(encode_hex(identity_key.verifying_key.as_bytes())),
+                succeeded: false,
+            };
+        };
 
         IdentitySignResult {
             resolution,
-            signature: Some(format!("sig:{digest:016x}")),
+            signature: Some(format!("sig:{}", encode_hex(&signature.to_bytes()))),
+            verifying_key: Some(encode_hex(identity_key.verifying_key.as_bytes())),
             succeeded: true,
         }
+    }
+
+    pub(crate) fn verify(
+        &self,
+        identity_id: &str,
+        payload: &[u8],
+        signature: &str,
+    ) -> IdentityVerifyResult {
+        let resolution = self.resolve(identity_id);
+        let Some(identity_key) = self.keys.get(&resolution.resolved_id) else {
+            return IdentityVerifyResult {
+                resolution,
+                verified: false,
+            };
+        };
+
+        let Some(signature) = parse_signature(signature) else {
+            return IdentityVerifyResult {
+                resolution,
+                verified: false,
+            };
+        };
+
+        IdentityVerifyResult {
+            resolution,
+            verified: identity_key.verify(payload, &signature),
+        }
+    }
+
+    pub(crate) fn verifying_key_hex_for(&self, identity_id: &str) -> Option<String> {
+        let resolution = self.resolve(identity_id);
+        self.keys
+            .get(&resolution.resolved_id)
+            .map(|key| encode_hex(key.verifying_key.as_bytes()))
+    }
+
+    pub(crate) fn rotate_key(&mut self, identity_id: &str) -> Result<String, IdentityKeyError> {
+        let resolution = self.resolve(identity_id);
+        let identity_key = self
+            .keys
+            .get_mut(&resolution.resolved_id)
+            .ok_or_else(|| IdentityKeyError::PersonaMissing(resolution.resolved_id.clone()))?;
+        let verifying_key = identity_key.rotate()?;
+        Ok(encode_hex(verifying_key.as_bytes()))
+    }
+
+    pub(crate) fn revoke_key(&mut self, identity_id: &str) -> Result<(), IdentityKeyError> {
+        let resolution = self.resolve(identity_id);
+        let identity_key = self
+            .keys
+            .get_mut(&resolution.resolved_id)
+            .ok_or_else(|| IdentityKeyError::PersonaMissing(resolution.resolved_id.clone()))?;
+        identity_key.revoke()
+    }
+
+    pub(crate) fn protection_for(&self, identity_id: &str) -> Option<KeyProtection> {
+        let resolution = self.resolve(identity_id);
+        self.keys.get(&resolution.resolved_id).map(|key| key.protection)
     }
 }
 
@@ -107,19 +370,172 @@ impl Default for IdentityRegistry {
         let mut registry = Self {
             keys: HashMap::new(),
             fallback_id: IDENTITY_ID_DEFAULT.to_string(),
+            trust_store: Vec::new(),
         };
-        registry.register_persona(IDENTITY_ID_DEFAULT, "local-test-key-default");
-        registry.register_persona("identity:locked", "");
+
+        #[cfg(test)]
+        {
+            registry.register_generated_persona(IDENTITY_ID_DEFAULT);
+            registry.register_generated_persona(IDENTITY_ID_P2P);
+        }
+
+        #[cfg(not(test))]
+        {
+            if let Some(store_root) = default_identity_store_dir() {
+                registry.load_persistent_personas(&store_root);
+            } else {
+                registry.register_generated_persona(IDENTITY_ID_DEFAULT);
+                registry.register_generated_persona(IDENTITY_ID_P2P);
+            }
+        }
+
+        registry.register_locked_persona(IDENTITY_ID_LOCKED);
         registry
+    }
+}
+
+impl P2PIdentityExt for IdentityRegistry {
+    fn p2p_node_id(&self) -> iroh::NodeId {
+        let resolution = self.resolve(IDENTITY_ID_P2P);
+        let Some(identity_key) = self.keys.get(&resolution.resolved_id) else {
+            return iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        };
+        let Some(signing_key) = identity_key.signing_key.as_ref() else {
+            return iroh::SecretKey::generate(&mut rand::thread_rng()).public();
+        };
+        iroh::SecretKey::from_bytes(&signing_key.to_bytes()).public()
+    }
+
+    fn sign_sync_payload(&self, payload: &[u8]) -> Vec<u8> {
+        let resolution = self.resolve(IDENTITY_ID_P2P);
+        self.keys
+            .get(&resolution.resolved_id)
+            .and_then(|key| key.sign(payload))
+            .map(|signature| signature.to_bytes().to_vec())
+            .unwrap_or_default()
+    }
+
+    fn verify_peer_signature(&self, peer: iroh::NodeId, payload: &[u8], sig: &[u8]) -> bool {
+        let Ok(verifying_key) = VerifyingKey::from_bytes(peer.as_bytes()) else {
+            return false;
+        };
+        let Ok(signature) = Signature::from_slice(sig) else {
+            return false;
+        };
+        verifying_key.verify(payload, &signature).is_ok()
+    }
+
+    fn get_trusted_peers(&self) -> Vec<TrustedPeer> {
+        self.trust_store.clone()
+    }
+
+    fn trust_peer(&mut self, peer: TrustedPeer) {
+        self.revoke_peer(peer.node_id);
+        self.trust_store.push(peer);
+    }
+
+    fn revoke_peer(&mut self, node_id: iroh::NodeId) {
+        self.trust_store.retain(|peer| peer.node_id != node_id);
+    }
+}
+
+fn parse_signature(signature: &str) -> Option<Signature> {
+    let encoded = signature.trim().strip_prefix("sig:")?;
+    let bytes = decode_hex(encoded).ok()?;
+    Signature::from_slice(&bytes).ok()
+}
+
+fn seed_path_for(store_root: &Path, identity_id: &str) -> PathBuf {
+    store_root.join(format!("{}.seed", identity_id.replace(':', "__")))
+}
+
+fn archive_path_for(store_root: &Path, identity_id: &str) -> PathBuf {
+    store_root.join(format!("{}.archive", identity_id.replace(':', "__")))
+}
+
+fn load_archived_verifying_keys(path: &Path) -> Result<Vec<VerifyingKey>, IdentityKeyError> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|error| IdentityKeyError::Io(format!("read archived identity keys: {error}")))?;
+    let mut keys = Vec::new();
+    for line in content.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let bytes = decode_hex(line).map_err(|_| IdentityKeyError::InvalidKeyMaterial)?;
+        if bytes.len() != 32 {
+            return Err(IdentityKeyError::InvalidKeyMaterial);
+        }
+        let mut array = [0u8; 32];
+        array.copy_from_slice(&bytes);
+        let verifying_key =
+            VerifyingKey::from_bytes(&array).map_err(|_| IdentityKeyError::InvalidKeyMaterial)?;
+        keys.push(verifying_key);
+    }
+    Ok(keys)
+}
+
+#[cfg(not(test))]
+fn default_identity_store_dir() -> Option<PathBuf> {
+    let mut dir = dirs::config_dir()?;
+    dir.push("graphshell");
+    dir.push("identity");
+    Some(dir)
+}
+
+#[cfg(test)]
+fn default_identity_store_dir() -> Option<PathBuf> {
+    None
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(nibble_to_hex(byte >> 4));
+        output.push(nibble_to_hex(byte & 0x0f));
+    }
+    output
+}
+
+fn decode_hex(encoded: &str) -> Result<Vec<u8>, ()> {
+    if encoded.len() % 2 != 0 {
+        return Err(());
+    }
+
+    let mut output = Vec::with_capacity(encoded.len() / 2);
+    let mut chars = encoded.as_bytes().iter().copied();
+    while let (Some(high), Some(low)) = (chars.next(), chars.next()) {
+        let high = hex_to_nibble(high)?;
+        let low = hex_to_nibble(low)?;
+        output.push((high << 4) | low);
+    }
+    Ok(output)
+}
+
+fn nibble_to_hex(value: u8) -> char {
+    match value {
+        0..=9 => (b'0' + value) as char,
+        10..=15 => (b'a' + (value - 10)) as char,
+        _ => unreachable!("nibble_to_hex only accepts 0..=15"),
+    }
+}
+
+fn hex_to_nibble(value: u8) -> Result<u8, ()> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => Err(()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
-    fn identity_registry_signs_with_default_persona() {
+    fn identity_registry_signs_and_verifies_with_default_persona() {
         let registry = IdentityRegistry::default();
         let result = registry.sign(IDENTITY_ID_DEFAULT, b"payload");
 
@@ -132,65 +548,61 @@ mod tests {
                 .as_deref()
                 .is_some_and(|sig| sig.starts_with("sig:"))
         );
+        let verify = registry.verify(
+            IDENTITY_ID_DEFAULT,
+            b"payload",
+            result.signature.as_deref().unwrap_or_default(),
+        );
+        assert!(verify.verified);
     }
 
     #[test]
-    fn identity_registry_falls_back_for_unknown_persona() {
+    fn identity_registry_verify_rejects_wrong_payload() {
         let registry = IdentityRegistry::default();
-        let result = registry.sign("identity:unknown", b"payload");
+        let signed = registry
+            .sign(IDENTITY_ID_DEFAULT, b"payload")
+            .signature
+            .expect("signature should be produced");
 
-        assert!(result.succeeded);
-        assert!(!result.resolution.matched);
-        assert_eq!(result.resolution.resolved_id, IDENTITY_ID_DEFAULT);
+        let verify = registry.verify(IDENTITY_ID_DEFAULT, b"wrong", &signed);
+        assert!(!verify.verified);
     }
 
     #[test]
-    fn identity_registry_reports_key_unavailable_when_empty() {
+    fn identity_registry_load_or_generate_persists_seed_material() {
+        let tempdir = TempDir::new().expect("temp dir should be created");
+        let (generated, created) = IdentityKey::load_or_generate(IDENTITY_ID_DEFAULT, tempdir.path())
+            .expect("identity key should be generated");
+        assert!(created);
+
+        let (reloaded, created_again) = IdentityKey::load_or_generate(IDENTITY_ID_DEFAULT, tempdir.path())
+            .expect("identity key should reload");
+        assert!(!created_again);
+        assert_eq!(
+            generated.verifying_key.as_bytes(),
+            reloaded.verifying_key.as_bytes()
+        );
+    }
+
+    #[test]
+    fn identity_registry_rotation_archives_previous_verifying_key() {
         let mut registry = IdentityRegistry::default();
-        registry.keys.clear();
-
-        let result = registry.sign(IDENTITY_ID_DEFAULT, b"payload");
-
-        assert!(!result.succeeded);
-        assert!(!result.resolution.key_available);
-        assert_eq!(result.signature, None);
+        let original = registry
+            .verifying_key_hex_for(IDENTITY_ID_DEFAULT)
+            .expect("verifying key should exist");
+        let rotated = registry
+            .rotate_key(IDENTITY_ID_DEFAULT)
+            .expect("key rotation should succeed");
+        assert_ne!(original, rotated);
     }
 
     #[test]
     fn identity_registry_reports_key_unavailable_for_locked_persona() {
         let registry = IdentityRegistry::default();
-        let result = registry.sign("identity:locked", b"payload");
+        let result = registry.sign(IDENTITY_ID_LOCKED, b"payload");
 
         assert!(!result.succeeded);
         assert!(!result.resolution.key_available);
-        assert_eq!(result.resolution.resolved_id, "identity:locked");
-    }
-}
-
-// ===== P2PIdentityExt Trait Implementation =====
-
-impl P2PIdentityExt for IdentityRegistry {
-    fn p2p_node_id(&self) -> iroh::NodeId {
-        crate::mods::native::verse::node_id()
-    }
-
-    fn sign_sync_payload(&self, payload: &[u8]) -> Vec<u8> {
-        crate::mods::native::verse::sign_sync_payload(payload)
-    }
-
-    fn verify_peer_signature(&self, peer: iroh::NodeId, payload: &[u8], sig: &[u8]) -> bool {
-        crate::mods::native::verse::verify_peer_signature(peer, payload, sig)
-    }
-
-    fn get_trusted_peers(&self) -> Vec<TrustedPeer> {
-        crate::mods::native::verse::get_trusted_peers()
-    }
-
-    fn trust_peer(&mut self, peer: TrustedPeer) {
-        crate::mods::native::verse::trust_peer(peer);
-    }
-
-    fn revoke_peer(&mut self, node_id: iroh::NodeId) {
-        crate::mods::native::verse::revoke_peer(node_id);
+        assert_eq!(result.resolution.resolved_id, IDENTITY_ID_LOCKED);
     }
 }
