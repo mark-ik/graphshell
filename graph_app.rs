@@ -43,7 +43,11 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_STARTUP_PERSISTENCE_OPEN_FAILED,
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED, CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
-    CHANNEL_UX_NAVIGATION_TRANSITION,
+    CHANNEL_UX_NAVIGATION_TRANSITION, phase2_apply_input_binding_remaps,
+    phase2_reset_input_binding_remaps,
+};
+use crate::shell::desktop::runtime::registries::input::{
+    InputBindingRemap, InputConflict as InputRemapConflict,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
@@ -1110,6 +1114,8 @@ impl GraphBrowserApp {
     pub const SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME: &'static str =
         "workspace:settings-camera-pan-inertia-damping";
     pub const SETTINGS_LASSO_BINDING_NAME: &'static str = "workspace:settings-lasso-binding";
+    pub const SETTINGS_INPUT_BINDING_REMAPS_NAME: &'static str =
+        "workspace:settings-input-binding-remaps";
     pub const SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME: &'static str =
         "workspace:settings-omnibar-preferred-scope";
     pub const SETTINGS_OMNIBAR_NON_AT_ORDER_NAME: &'static str =
@@ -2690,6 +2696,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME
             || name == Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME
             || name == Self::SETTINGS_LASSO_BINDING_NAME
+            || name == Self::SETTINGS_INPUT_BINDING_REMAPS_NAME
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
             || name == Self::SETTINGS_WRY_ENABLED_NAME
@@ -2786,6 +2793,15 @@ impl GraphBrowserApp {
         self.save_lasso_binding_preference();
     }
 
+    pub fn set_input_binding_remaps(
+        &mut self,
+        remaps: &[InputBindingRemap],
+    ) -> Result<(), InputRemapConflict> {
+        phase2_apply_input_binding_remaps(remaps)?;
+        self.save_input_binding_remaps(remaps);
+        Ok(())
+    }
+
     fn save_radial_menu_shortcut(&mut self) {
         self.save_workspace_layout_json(
             Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
@@ -2830,6 +2846,15 @@ impl GraphBrowserApp {
             Self::SETTINGS_LASSO_BINDING_NAME,
             &self.workspace.lasso_binding_preference.to_string(),
         );
+    }
+
+    fn save_input_binding_remaps(&mut self, remaps: &[InputBindingRemap]) {
+        let encoded = remaps
+            .iter()
+            .map(InputBindingRemap::encode)
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.save_workspace_layout_json(Self::SETTINGS_INPUT_BINDING_REMAPS_NAME, &encoded);
     }
 
     pub fn set_omnibar_preferred_scope(&mut self, scope: OmnibarPreferredScope) {
@@ -3028,6 +3053,7 @@ impl GraphBrowserApp {
                 warn!("Ignoring invalid persisted lasso binding preference: '{raw}'");
             }
         }
+        self.load_persisted_input_binding_remaps();
         if let Some(raw) =
             self.load_workspace_layout_json(Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME)
         {
@@ -3069,6 +3095,42 @@ impl GraphBrowserApp {
         crate::registries::atomic::diagnostics::apply_persisted_channel_configs(
             self.diagnostics_channel_configs(),
         );
+    }
+
+    fn load_persisted_input_binding_remaps(&mut self) {
+        let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_INPUT_BINDING_REMAPS_NAME)
+        else {
+            phase2_reset_input_binding_remaps();
+            return;
+        };
+
+        let remaps = match Self::decode_input_binding_remaps(&raw) {
+            Ok(remaps) => remaps,
+            Err(_) => {
+                warn!("Ignoring invalid persisted input binding remaps");
+                phase2_reset_input_binding_remaps();
+                return;
+            }
+        };
+
+        if phase2_apply_input_binding_remaps(&remaps).is_err() {
+            warn!("Ignoring persisted input binding remaps that conflict with defaults");
+            phase2_reset_input_binding_remaps();
+        }
+    }
+
+    fn decode_input_binding_remaps(raw: &str) -> Result<Vec<InputBindingRemap>, ()> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        trimmed
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(InputBindingRemap::decode)
+            .collect()
     }
 
     fn normalize_optional_registry_id(raw: Option<String>) -> Option<String> {

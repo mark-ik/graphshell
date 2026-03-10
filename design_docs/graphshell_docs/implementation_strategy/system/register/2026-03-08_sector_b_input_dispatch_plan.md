@@ -236,6 +236,11 @@ pub fn remap_binding(
 
 Persisted to user preferences via a `GraphIntent` carrier after rebind.
 
+Current status (2026-03-10): the runtime now supports conflict-aware `remap_binding()` replayed
+from defaults through the singleton `RegistryRuntime`, emits an Info diagnostic on successful
+rebind application, and persists serialized remap specs through workspace-layout settings so
+rebinds restore deterministically on restart.
+
 **Done gates:**
 - [ ] `remap_binding()` implemented with conflict detection.
 - [ ] Rebind emits `DIAG_INPUT_BINDING` at Info severity.

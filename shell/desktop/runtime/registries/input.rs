@@ -1,4 +1,5 @@
 use std::collections::{HashMap, hash_map::Entry};
+use std::str::FromStr;
 
 pub(crate) const INPUT_BINDING_TOOLBAR_SUBMIT: &str = "input.toolbar.submit";
 pub(crate) const ACTION_TOOLBAR_SUBMIT: &str = "action.toolbar.submit";
@@ -35,6 +36,18 @@ impl ModifierMask {
     }
 }
 
+impl FromStr for ModifierMask {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "none" => Ok(Self::NONE),
+            "alt" => Ok(Self::ALT),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum NamedKey {
     Enter,
@@ -54,6 +67,20 @@ impl NamedKey {
     }
 }
 
+impl FromStr for NamedKey {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "enter" => Ok(Self::Enter),
+            "arrow_left" => Ok(Self::ArrowLeft),
+            "arrow_right" => Ok(Self::ArrowRight),
+            "f5" => Ok(Self::F5),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Keycode {
     Named(NamedKey),
@@ -66,6 +93,23 @@ impl Keycode {
             Self::Named(named) => named.label().to_string(),
             Self::Char(ch) => format!("char:{}", ch.to_ascii_lowercase()),
         }
+    }
+}
+
+impl FromStr for Keycode {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        let normalized = raw.trim().to_ascii_lowercase();
+        if let Some(ch) = normalized.strip_prefix("char:") {
+            let mut chars = ch.chars();
+            if let (Some(value), None) = (chars.next(), chars.next()) {
+                return Ok(Self::Char(value));
+            }
+            return Err(());
+        }
+
+        Ok(Self::Named(normalized.parse()?))
     }
 }
 
@@ -100,6 +144,26 @@ impl GamepadButton {
     }
 }
 
+impl FromStr for GamepadButton {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "south" => Ok(Self::South),
+            "dpad_up" => Ok(Self::DPadUp),
+            "dpad_down" => Ok(Self::DPadDown),
+            "dpad_left" => Ok(Self::DPadLeft),
+            "dpad_right" => Ok(Self::DPadRight),
+            "left_bumper" => Ok(Self::LeftBumper),
+            "right_bumper" => Ok(Self::RightBumper),
+            "left_stick_press" => Ok(Self::LeftStickPress),
+            "east" => Ok(Self::East),
+            "start" => Ok(Self::Start),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum InputBinding {
     Key {
@@ -114,7 +178,7 @@ pub(crate) enum InputBinding {
 }
 
 impl InputBinding {
-    fn label(&self) -> String {
+    pub(crate) fn label(&self) -> String {
         match self {
             Self::Key { modifiers, keycode } => {
                 format!("key:{}:{}", modifiers.label(), keycode.label())
@@ -133,6 +197,44 @@ impl InputBinding {
     }
 }
 
+impl FromStr for InputBinding {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        let normalized = raw.trim().to_ascii_lowercase();
+        if let Some(rest) = normalized.strip_prefix("key:") {
+            let mut parts = rest.splitn(2, ':');
+            let modifiers = parts.next().ok_or(())?.parse()?;
+            let keycode = parts.next().ok_or(())?.parse()?;
+            return Ok(Self::Key { modifiers, keycode });
+        }
+
+        if let Some(rest) = normalized.strip_prefix("gamepad:") {
+            if let Some((modifier, button)) = rest.split_once('+') {
+                return Ok(Self::Gamepad {
+                    button: button.parse()?,
+                    modifier: Some(modifier.parse()?),
+                });
+            }
+
+            return Ok(Self::Gamepad {
+                button: rest.parse()?,
+                modifier: None,
+            });
+        }
+
+        if let Some(rest) = normalized.strip_prefix("chord:") {
+            let sequence = rest
+                .split('>')
+                .map(str::parse)
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Self::Chord(sequence));
+        }
+
+        Err(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum InputContext {
     GraphView,
@@ -143,7 +245,7 @@ pub(crate) enum InputContext {
 }
 
 impl InputContext {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::GraphView => "graph_view",
             Self::DetailView => "detail_view",
@@ -152,6 +254,62 @@ impl InputContext {
             Self::DialogOpen => "dialog_open",
         }
     }
+}
+
+impl FromStr for InputContext {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "graph_view" => Ok(Self::GraphView),
+            "detail_view" => Ok(Self::DetailView),
+            "omnibar_open" => Ok(Self::OmnibarOpen),
+            "radial_menu_open" => Ok(Self::RadialMenuOpen),
+            "dialog_open" => Ok(Self::DialogOpen),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InputBindingRemap {
+    pub(crate) old: InputBinding,
+    pub(crate) new: InputBinding,
+    pub(crate) context: InputContext,
+}
+
+impl InputBindingRemap {
+    pub(crate) fn encode(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.context.label(),
+            self.old.label(),
+            self.new.label()
+        )
+    }
+
+    pub(crate) fn decode(raw: &str) -> Result<Self, ()> {
+        let mut parts = raw.splitn(3, '|');
+        let context = parts.next().ok_or(())?.parse()?;
+        let old = parts.next().ok_or(())?.parse()?;
+        let new = parts.next().ok_or(())?.parse()?;
+        Ok(Self { old, new, context })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum InputConflict {
+    MissingBinding {
+        binding_label: String,
+    },
+    SourceConflict {
+        binding_label: String,
+        action_ids: Vec<String>,
+    },
+    TargetConflict {
+        binding_label: String,
+        action_ids: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -373,6 +531,77 @@ impl InputRegistry {
             matched: false,
             conflicted: false,
         }
+    }
+
+    pub(crate) fn remap_binding(
+        &mut self,
+        old: InputBinding,
+        new: InputBinding,
+        context: InputContext,
+    ) -> Result<(), InputConflict> {
+        if old == new {
+            return match self.bindings.get(&(context, old.clone())) {
+                Some(BindingSlot::Routed(_)) => Ok(()),
+                Some(BindingSlot::Conflict(action_ids)) => Err(InputConflict::SourceConflict {
+                    binding_label: binding_label(&old, context),
+                    action_ids: action_ids.clone(),
+                }),
+                None => Err(InputConflict::MissingBinding {
+                    binding_label: binding_label(&old, context),
+                }),
+            };
+        }
+
+        let old_key = (context, old.clone());
+        let new_key = (context, new.clone());
+        let old_slot = self.bindings.remove(&old_key).ok_or_else(|| InputConflict::MissingBinding {
+            binding_label: binding_label(&old, context),
+        })?;
+
+        let action_id = match old_slot {
+            BindingSlot::Routed(action_id) => action_id,
+            BindingSlot::Conflict(action_ids) => {
+                self.bindings.insert(old_key, BindingSlot::Conflict(action_ids.clone()));
+                return Err(InputConflict::SourceConflict {
+                    binding_label: binding_label(&old, context),
+                    action_ids,
+                });
+            }
+        };
+
+        match self.bindings.entry(new_key) {
+            Entry::Vacant(entry) => {
+                entry.insert(BindingSlot::Routed(action_id));
+                Ok(())
+            }
+            Entry::Occupied(entry) => {
+                let conflict = match entry.get() {
+                    BindingSlot::Routed(existing) if *existing == action_id => None,
+                    BindingSlot::Routed(existing) => Some(InputConflict::TargetConflict {
+                        binding_label: binding_label(&new, context),
+                        action_ids: vec![existing.clone(), action_id.clone()],
+                    }),
+                    BindingSlot::Conflict(action_ids) => Some(InputConflict::TargetConflict {
+                        binding_label: binding_label(&new, context),
+                        action_ids: action_ids.clone(),
+                    }),
+                };
+
+                self.bindings.insert(old_key, BindingSlot::Routed(action_id));
+                match conflict {
+                    Some(conflict) => Err(conflict),
+                    None => Ok(()),
+                }
+            }
+        }
+    }
+
+    pub(crate) fn with_remaps(remaps: &[InputBindingRemap]) -> Result<Self, InputConflict> {
+        let mut registry = Self::default();
+        for remap in remaps {
+            registry.remap_binding(remap.old.clone(), remap.new.clone(), remap.context)?;
+        }
+        Ok(registry)
     }
 }
 
@@ -653,5 +882,83 @@ mod tests {
         let cancel =
             registry.resolve(&gamepad_radial_cancel_binding(), InputContext::RadialMenuOpen);
         assert_eq!(cancel.action_id.as_deref(), Some(ACTION_RADIAL_MENU_CANCEL));
+    }
+
+    #[test]
+    fn input_binding_remap_round_trips_through_string_encoding() {
+        let remap = InputBindingRemap {
+            old: gamepad_radial_menu_binding(),
+            new: InputBinding::Gamepad {
+                button: GamepadButton::East,
+                modifier: Some(GamepadButton::LeftBumper),
+            },
+            context: InputContext::GraphView,
+        };
+
+        let decoded = InputBindingRemap::decode(&remap.encode()).expect("remap should decode");
+        assert_eq!(decoded, remap);
+    }
+
+    #[test]
+    fn input_registry_remap_binding_replaces_existing_binding() {
+        let mut registry = InputRegistry::default();
+        let old = gamepad_radial_menu_binding();
+        let new = InputBinding::Gamepad {
+            button: GamepadButton::East,
+            modifier: None,
+        };
+
+        registry
+            .remap_binding(old.clone(), new.clone(), InputContext::GraphView)
+            .expect("remap should succeed");
+
+        assert_eq!(
+            registry.resolve(&old, InputContext::GraphView).action_id,
+            None
+        );
+        assert_eq!(
+            registry.resolve(&new, InputContext::GraphView).action_id.as_deref(),
+            Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+        );
+    }
+
+    #[test]
+    fn input_registry_remap_binding_detects_target_conflicts() {
+        let mut registry = InputRegistry::default();
+        let result = registry.remap_binding(
+            gamepad_radial_menu_binding(),
+            gamepad_command_palette_binding(),
+            InputContext::GraphView,
+        );
+
+        assert!(matches!(result, Err(InputConflict::TargetConflict { .. })));
+        assert_eq!(
+            registry
+                .resolve(&gamepad_radial_menu_binding(), InputContext::GraphView)
+                .action_id
+                .as_deref(),
+            Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+        );
+    }
+
+    #[test]
+    fn input_registry_with_remaps_replays_on_top_of_defaults() {
+        let remaps = [InputBindingRemap {
+            old: gamepad_nav_back_binding(),
+            new: InputBinding::Gamepad {
+                button: GamepadButton::East,
+                modifier: Some(GamepadButton::LeftBumper),
+            },
+            context: InputContext::DetailView,
+        }];
+        let registry = InputRegistry::with_remaps(&remaps).expect("remaps should apply");
+
+        assert_eq!(
+            registry
+                .resolve(&remaps[0].new, InputContext::DetailView)
+                .action_id
+                .as_deref(),
+            Some(ACTION_TOOLBAR_NAV_BACK)
+        );
     }
 }

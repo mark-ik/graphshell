@@ -35,7 +35,10 @@ use action::{
 };
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
-use input::{INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputContext, InputRegistry};
+use input::{
+    INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputBindingRemap, InputContext,
+    InputConflict as InputRemapConflict, InputRegistry,
+};
 use knowledge::KnowledgeRegistry;
 use nostr_core::{
     NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
@@ -73,6 +76,7 @@ pub(crate) const CHANNEL_ACTION_EXECUTE_FAILED: &str = "registry.action.execute_
 pub(crate) const CHANNEL_INPUT_BINDING_RESOLVED: &str = "registry.input.binding_resolved";
 pub(crate) const CHANNEL_INPUT_BINDING_MISSING: &str = "registry.input.binding_missing";
 pub(crate) const CHANNEL_INPUT_BINDING_CONFLICT: &str = "registry.input.binding_conflict";
+pub(crate) const CHANNEL_INPUT_BINDING_REBOUND: &str = "registry.input.binding_rebound";
 pub(crate) const CHANNEL_RENDERER_ATTACH: &str = "registry.renderer.attach";
 pub(crate) const CHANNEL_RENDERER_DETACH: &str = "registry.renderer.detach";
 pub(crate) const CHANNEL_LENS_RESOLVE_SUCCEEDED: &str = "registry.lens.resolve_succeeded";
@@ -302,7 +306,7 @@ pub(crate) struct RegistryRuntime {
     signal_routing: SignalRoutingLayer,
     #[allow(dead_code)]
     identity: IdentityRegistry,
-    input: InputRegistry,
+    input: Mutex<InputRegistry>,
     lens: LensRegistry,
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
@@ -468,7 +472,7 @@ impl RegistryRuntime {
             diagnostics: DiagnosticsRegistry::default(),
             signal_routing: SignalRoutingLayer::default(),
             identity: IdentityRegistry::default(),
-            input: InputRegistry::default(),
+            input: Mutex::new(InputRegistry::default()),
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
@@ -522,7 +526,7 @@ impl RegistryRuntime {
             diagnostics: DiagnosticsRegistry::default(),
             signal_routing: SignalRoutingLayer::default(),
             identity: IdentityRegistry::default(),
-            input: InputRegistry::default(),
+            input: Mutex::new(InputRegistry::default()),
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
             protocol: protocol_registry,
@@ -680,7 +684,12 @@ impl RegistryRuntime {
     }
 
     pub(crate) fn resolve_input_binding(&self, binding_id: &str) -> bool {
-        self.resolve_input_binding_resolution(self.input.resolve_binding_id(binding_id))
+        let resolution = self
+            .input
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .resolve_binding_id(binding_id);
+        self.resolve_input_binding_resolution(resolution)
             .is_some()
     }
 
@@ -689,7 +698,37 @@ impl RegistryRuntime {
         binding: &InputBinding,
         context: InputContext,
     ) -> Option<String> {
-        self.resolve_input_binding_resolution(self.input.resolve(binding, context))
+        let resolution = self
+            .input
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .resolve(binding, context);
+        self.resolve_input_binding_resolution(resolution)
+    }
+
+    pub(crate) fn apply_input_binding_remaps(
+        &self,
+        remaps: &[InputBindingRemap],
+    ) -> Result<(), InputRemapConflict> {
+        let next_registry = InputRegistry::with_remaps(remaps)?;
+        *self
+            .input
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = next_registry;
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_INPUT_BINDING_REBOUND,
+            byte_len: remaps.len(),
+        });
+
+        Ok(())
+    }
+
+    pub(crate) fn reset_input_binding_remaps(&self) {
+        *self
+            .input
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = InputRegistry::default();
     }
 
     pub(crate) fn sign_identity_payload(
@@ -840,6 +879,18 @@ pub(crate) fn phase2_resolve_typed_input_action_id(
 ) -> Option<String> {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
     runtime().resolve_typed_input_action_id(binding, context)
+}
+
+pub(crate) fn phase2_apply_input_binding_remaps(
+    remaps: &[InputBindingRemap],
+) -> Result<(), InputRemapConflict> {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+    runtime().apply_input_binding_remaps(remaps)
+}
+
+pub(crate) fn phase2_reset_input_binding_remaps() {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+    runtime().reset_input_binding_remaps();
 }
 
 pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
@@ -1203,7 +1254,12 @@ pub(crate) fn phase2_resolve_input_binding_for_tests(
     diagnostics_state: &crate::shell::desktop::runtime::diagnostics::DiagnosticsState,
     binding_id: &str,
 ) -> bool {
-    let resolution = RegistryRuntime::default().input.resolve_binding_id(binding_id);
+    let runtime = RegistryRuntime::default();
+    let resolution = runtime
+        .input
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .resolve_binding_id(binding_id);
 
     if resolution.conflicted {
         diagnostics_state.emit_message_sent_for_tests(

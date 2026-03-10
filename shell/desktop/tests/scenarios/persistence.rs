@@ -8,6 +8,12 @@ use crate::app::ToastAnchorPreference;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
+use crate::shell::desktop::runtime::registries::input::{
+    ACTION_GRAPH_RADIAL_MENU_OPEN, GamepadButton, InputBinding, InputBindingRemap, InputContext,
+};
+use crate::shell::desktop::runtime::registries::{
+    phase2_reset_input_binding_remaps, phase2_resolve_typed_input_action_id,
+};
 use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -351,5 +357,44 @@ fn set_lasso_binding_preference_persists_across_restart() {
     assert_eq!(
         reopened.lasso_binding_preference(),
         CanvasLassoBinding::ShiftLeftDrag
+    );
+}
+
+#[test]
+fn set_input_binding_remaps_persist_across_restart() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let path = dir.path().to_path_buf();
+    let remaps = [InputBindingRemap {
+        old: InputBinding::Gamepad {
+            button: GamepadButton::South,
+            modifier: None,
+        },
+        new: InputBinding::Gamepad {
+            button: GamepadButton::East,
+            modifier: None,
+        },
+        context: InputContext::GraphView,
+    }];
+
+    let mut app = GraphBrowserApp::new_from_dir(path.clone());
+    app.set_input_binding_remaps(&remaps)
+        .expect("remaps should persist");
+    drop(app);
+
+    phase2_reset_input_binding_remaps();
+    assert_eq!(
+        phase2_resolve_typed_input_action_id(&remaps[0].new, InputContext::GraphView),
+        None
+    );
+
+    let _reopened = GraphBrowserApp::new_from_dir(path);
+    assert_eq!(
+        phase2_resolve_typed_input_action_id(&remaps[0].new, InputContext::GraphView)
+            .as_deref(),
+        Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+    );
+    assert_eq!(
+        phase2_resolve_typed_input_action_id(&remaps[0].old, InputContext::GraphView),
+        None
     );
 }
