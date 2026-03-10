@@ -81,6 +81,9 @@ Implemented:
 - Main GUI integration for control-panel worker lifecycle and intent draining
 - RegistryRuntime composition root for atomic/domain registries and mod/runtime services
 - RegistryRuntime provider-wired phase0 protocol/viewer dispatch paths and diagnostics coverage
+- Runtime-owned content-pipeline completion: URI-aware protocol MIME inference, cancellable
+  content-type probes, viewer capability description, viewer-surface profile resolution, and
+  content-aware lens composition
 - Folded viewer/surface capability-conformance declarations with runtime diagnostics inspection hooks
 - Runtime-owned canvas, physics, layout-domain, and presentation-domain profile resolution paths
 - Runtime-owned diagnostics, knowledge, and index authorities with semantic lifecycle signaling and
@@ -95,6 +98,8 @@ Gaps / active architectural work:
   stabilization, not missing authority structure
 - Omnibar suggestion-dropdown UI still has a legacy local candidate pipeline; only the submit/action
   path is currently unified through `IndexRegistry`
+- `index:timeline` remains future history work; the provider shape is planned, but no live timeline
+  index source exists yet
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 

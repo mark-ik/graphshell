@@ -988,6 +988,16 @@ These are intentionally scoped to small slices that can ship independently witho
 - Item 11 is now done (2026-03-10): overlay affordance policy is runtime-owned through `PresentationDomainRegistry`.
 - Items 12-13 remain architecture/infra gaps with written specs and no code yet.
 
+### Sector A Reality Note (2026-03-10)
+
+Sector A is now complete in the repo at the runtime authority level:
+- `ProtocolRegistry` now drives URI-aware MIME inference and cancellable HTTP content-type probes.
+- `ViewerRegistry` now exposes capability descriptions and the canonical fallback floor.
+- The existing layout-domain `ViewerSurfaceRegistry` is now the real viewer-surface authority,
+  resolving viewer-specific surface profiles for web, document, embedded, and native-overlay paths.
+- `LensRegistry` is no longer just an ID lookup; it now supports content-aware resolution,
+  composition, and a built-in semantic-overlay lens for tagged semantic content.
+
 ### Sector D Reality Note (2026-03-10)
 
 Sector D is now complete in the repo:
@@ -1009,6 +1019,7 @@ Sector F is now complete in the repo at the registry/runtime level:
 Residual non-blockers that should stay explicit:
 - the omnibar suggestion dropdown still uses a legacy candidate pipeline instead of `IndexRegistry`
 - semantic placement-anchor consumption still needs a node-spawn caller that already knows semantic tags
+- `index:timeline` remains a future history-coupled provider stub rather than a live index source
 
 ---
 

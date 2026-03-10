@@ -35,10 +35,10 @@ All registries in the system spec family are listed here. Implementation state i
 
 | Registry | Kind | Struct | API | Wired | Tested | Diag | Sector |
 |---|---|---|---|---|---|---|---|
-| `ProtocolRegistry` | Atomic | ✅ | ⚠️ partial | ✅ | ✅ | ✅ | [A](#sector-a) |
-| `ViewerRegistry` | Atomic | ✅ (atomic) | ⚠️ partial | ✅ | ⚠️ | ✅ | [A](#sector-a) |
-| `ViewerSurfaceRegistry` | Surface | ❌ | ❌ | ❌ | ❌ | ❌ | [A](#sector-a) |
-| `LensRegistry` | Cross-domain | ⚠️ stub | ❌ | ⚠️ | ❌ | ❌ | [A](#sector-a) |
+| `ProtocolRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [A](#sector-a) |
+| `ViewerRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [A](#sector-a) |
+| `ViewerSurfaceRegistry` | Surface | ✅ | ✅ | ✅ | ✅ | ✅ | [A](#sector-a) |
+| `LensRegistry` | Cross-domain | ✅ | ✅ | ✅ | ✅ | ✅ | [A](#sector-a) |
 | `InputRegistry` | Domain | ✅ | ⚠️ partial | ✅ | ✅ | ✅ | [B](#sector-b) |
 | `ActionRegistry` | Atomic | ✅ | ⚠️ partial | ✅ | ✅ | ✅ | [B](#sector-b) |
 | `RendererRegistry` | Atomic (new) | ❌ | ❌ | ❌ | ❌ | ❌ | [B](#sector-b) |
@@ -110,7 +110,12 @@ URI → ProtocolRegistry (scheme → MIME) → ViewerRegistry (MIME → ViewerId
 
 This is the core rendering contract. Every node that displays content depends on it.
 
-Current state: `ProtocolRegistry` has a good scaffold but lacks async MIME probing and mod-provided scheme handlers. `ViewerRegistry` exists in the atomic layer but lacks the domain surface wiring. `ViewerSurfaceRegistry` does not exist as a struct. `LensRegistry` is a one-line stub.
+Current state: Sector A is implemented. `ProtocolRegistry` now drives URI-aware MIME inference and
+cancellable content-type probes, `ViewerRegistry` exposes capability descriptions and canonical
+fallback behavior, the existing layout-domain `ViewerSurfaceRegistry` now resolves viewer-specific
+surface profiles at runtime, and `LensRegistry` now supports content-aware + semantic-overlay
+resolution/composition. Remaining work in this area is refinement, not missing authority
+existence.
 
 ---
 

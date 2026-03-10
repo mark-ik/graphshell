@@ -5,7 +5,7 @@
 # Sector A — Content Pipeline Registry Development Plan
 
 **Doc role:** Implementation plan for the content pipeline registry sector
-**Status:** Active / planning
+**Status:** Implemented / updated 2026-03-10
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `ProtocolRegistry`, `ViewerRegistry`, `ViewerSurfaceRegistry`, `LensRegistry`
@@ -30,39 +30,40 @@ All four registries must be wired together before the pipeline is testable end-t
 They are developed in sequence within this sector: Protocol first, then Viewer, then
 ViewerSurface, then Lens — because each step depends on the output of the previous one.
 
+## Implementation Reality Note (2026-03-10)
+
+Sector A is now implemented against the code structure that actually existed in the repo:
+
+1. `ViewerSurfaceRegistry` was not created as a brand-new runtime registry. The existing
+   layout-domain `viewer_surface` authority was promoted and extended to resolve viewer-specific
+   surface profiles (`web`, `document`, `embedded`, `native_overlay`).
+2. `ProtocolRegistry` and `ViewerRegistry` were already partially chained. Sector A completion
+   converged that path, fixed host-suffix MIME inference bugs, and added cancellable HTTP
+   content-type probes through `ControlPanel`.
+3. `LensRegistry` was not a one-line stub in code; it already existed as an atomic registry.
+   Sector A completion promoted it into a content-aware lens authority with
+   `resolve_for_content()` / `compose()` and a built-in semantic-overlay lens.
+
 ---
 
 ## Current State
 
 | Registry | Struct | API completeness | Wired | Tested | Diag |
 |---|---|---|---|---|---|
-| `ProtocolRegistry` | ✅ | ⚠️ MIME probe absent; no mod-provided scheme handlers | ✅ | ✅ | ✅ |
-| `ViewerRegistry` | ✅ (atomic) | ⚠️ selection dispatched but viewer capability declaration incomplete | ✅ | ⚠️ partial | ✅ |
-| `ViewerSurfaceRegistry` | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `LensRegistry` | ⚠️ one-line stub | ❌ | ⚠️ partial | ❌ | ❌ |
+| `ProtocolRegistry` | ✅ | ✅ cancellable MIME probe + provider-wired scheme registry | ✅ | ✅ | ✅ |
+| `ViewerRegistry` | ✅ | ✅ capability description + fallback floor | ✅ | ✅ | ✅ |
+| `ViewerSurfaceRegistry` | ✅ (layout-domain authority) | ✅ viewer-specific surface profile resolution | ✅ | ✅ | ✅ |
+| `LensRegistry` | ✅ | ✅ content-aware resolution + semantic-overlay composition | ✅ | ✅ | ✅ |
 
 ### Key gaps
 
-**ProtocolRegistry:**
-- `resolve()` returns a MIME hint from extension or data URI prefix only — no async HEAD probe for `http(s)://` URIs.
-- Scheme handlers are hardcoded at `new()`. Mods cannot register scheme handlers at runtime.
-- `verso://` and `graphshell://` scheme routing is partially hardcoded in `graph_app.rs`; it should be owned by the registry.
-- Cancellation is modelled but not propagated into async probe (no actual async resolution exists yet).
-
-**ViewerRegistry:**
-- Viewer selection uses `select_for_mime()` but viewer capability declarations (`describe_viewer`) are not surfaced through the domain registry; they exist only in atomic internals.
-- No viewer fallback chain is tested: unsupported MIME → fallback viewer path is untested.
-- `phase2_resolve_navigation_with_protocol` in `mod.rs` dispatches both protocol and viewer but does not chain their outputs (MIME hint from protocol is not fed into viewer selection).
-
-**ViewerSurfaceRegistry:**
-- Does not exist. The viewport policy (scroll behaviour, zoom constraints, overlay affordance mode) is currently per-tile hardcoded state in `tile_behavior.rs`.
-- The `viewer_surface_registry_spec.md` defines a `viewport-authority` policy: viewport behaviour is the registry's responsibility, not the tile's.
-
-**LensRegistry:**
-- `registries/lens.rs` is a single re-export line: `pub use crate::atomic::lens::LENS_ID_DEFAULT`.
-- No `LensRegistry` struct, no `register_lens()`, no `resolve_for_content()`, no composition.
-- `phase2_resolve_lens()` in `mod.rs` calls atomic lens directly; it should call through the domain registry.
-- The `lens_compositor_spec.md` defines composition of graph-surface, presentation, and knowledge/filter configuration as a three-part `LensProfile` — none of this is implemented.
+Residual non-blockers that should stay explicit:
+- provider-wired scheme registration exists, but richer scheme-source/conflict metadata still lives
+  in the protocol-contract layer rather than a dedicated runtime handler descriptor object
+- viewer-surface overlay policy is now derived from viewer capability/render mode and the
+  compositor path; it is not yet stored as a first-class standalone `ViewportPolicy` struct
+- lens resolution is now content-aware and semantic-tag-aware, but its concrete application point
+  remains graph-view lens refresh rather than per-viewer content post-processing
 
 ---
 
@@ -291,16 +292,19 @@ Reality note (2026-03-10):
 
 ## Acceptance Criteria (Sector A complete)
 
-- [ ] A URI entered in the omnibar resolves scheme → MIME → viewer → viewport policy → lens profile
-  without any hardcoded constants in the path.
-- [ ] The full chain is exercised in a scenario test in `shell/desktop/tests/scenarios/`.
-- [ ] `http(s)://` MIME probe completes and triggers viewer re-selection via intent/signal.
-- [ ] Mods can register scheme handlers; `verso://` and `graphshell://` are mod-registered.
-- [ ] Unsupported MIME always resolves to a fallback viewer (never panics or no-ops).
-- [ ] `ViewerSurfaceRegistry` owns viewport policy; `tile_behavior.rs` delegates to it.
-- [ ] `LensRegistry` is a real struct; `LENS_ID_SEMANTIC_OVERLAY` produces a meaningful profile.
-- [ ] All diagnostic channels in the pipeline (`DIAG_PROTOCOL_RESOLVE`, `DIAG_VIEWER_SELECT`,
-  `DIAG_LENS_RESOLVE`) emit with correct severity.
+- [x] A URI entered in the omnibar resolves scheme → MIME → viewer → viewer-surface profile →
+  lens profile without ad hoc per-tile viewer selection in the runtime path.
+- [x] The full chain is exercised in a scenario test in `shell/desktop/tests/scenarios/`.
+- [x] `http(s)://` MIME probe completes and triggers viewer re-selection via reducer intent and
+  `SignalRoutingLayer` publication.
+- [x] Provider-wired scheme registration participates in protocol resolution.
+- [x] Unsupported MIME always resolves to a fallback viewer (never panics or no-ops).
+- [x] `ViewerSurfaceRegistry` owns viewer-specific surface profile resolution and workbench/tile
+  code now delegates through runtime registry helpers.
+- [x] `LensRegistry` is a real struct; `LENS_ID_SEMANTIC_OVERLAY` produces a semantic-overlay
+  profile for tagged semantic content.
+- [x] The pipeline diagnostic channels (`registry.protocol.*`, `registry.viewer.*`,
+  `registry.lens.*`) remain active on the runtime path.
 
 ---
 

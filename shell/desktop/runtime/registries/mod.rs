@@ -1442,6 +1442,17 @@ pub(crate) fn phase2_resolve_lens_for_content(
     }
 }
 
+pub(crate) fn phase2_resolve_lens_for_node(
+    app: &GraphBrowserApp,
+    key: NodeKey,
+) -> crate::app::LensConfig {
+    let Some(node) = app.domain_graph().get_node(key) else {
+        return phase2_resolve_lens(crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT);
+    };
+    let has_semantic_context = !runtime().knowledge_tags_for_node(app, &key).is_empty();
+    phase2_resolve_lens_for_content(node.mime_hint.as_deref(), has_semantic_context)
+}
+
 fn emit_viewer_capability_diagnostics(viewer: &ViewerSelection) {
     for (level, reason) in [
         (
@@ -3130,6 +3141,25 @@ mod tests {
             Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
         );
         assert!(lens.filters.iter().any(|filter| filter == "semantic:overlay"));
+    }
+
+    #[test]
+    fn phase2_lens_registry_resolves_semantic_overlay_for_tagged_node() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let key = app.add_node_and_sync(
+            "file:///notes/topic.md".to_string(),
+            euclid::default::Point2D::new(0.0, 0.0),
+        );
+        app.apply_reducer_intents([GraphIntent::TagNode {
+            key,
+            tag: "udc:001".to_string(),
+        }]);
+
+        let lens = phase2_resolve_lens_for_node(&app, key);
+        assert_eq!(
+            lens.lens_id.as_deref(),
+            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
+        );
     }
 
     #[test]
