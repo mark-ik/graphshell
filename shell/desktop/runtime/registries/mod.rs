@@ -35,7 +35,7 @@ use action::{
 };
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
-use input::{INPUT_BINDING_TOOLBAR_SUBMIT, InputRegistry};
+use input::{INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputContext, InputRegistry};
 use knowledge::KnowledgeRegistry;
 use nostr_core::{
     NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
@@ -652,15 +652,16 @@ impl RegistryRuntime {
         Some((protocol, viewer))
     }
 
-    pub(crate) fn resolve_input_binding(&self, binding_id: &str) -> bool {
-        let resolution = self.input.resolve_binding_id(binding_id);
-
+    fn resolve_input_binding_resolution(
+        &self,
+        resolution: input::InputBindingResolution,
+    ) -> Option<String> {
         if resolution.conflicted {
             emit_event(DiagnosticEvent::MessageSent {
                 channel_id: CHANNEL_INPUT_BINDING_CONFLICT,
                 byte_len: resolution.binding_label.len(),
             });
-            return false;
+            return None;
         }
 
         if resolution.matched {
@@ -668,14 +669,27 @@ impl RegistryRuntime {
                 channel_id: CHANNEL_INPUT_BINDING_RESOLVED,
                 byte_len: resolution.action_id.as_deref().unwrap_or_default().len(),
             });
-            return true;
+            return resolution.action_id;
         }
 
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_INPUT_BINDING_MISSING,
             byte_len: resolution.binding_label.len(),
         });
-        false
+        None
+    }
+
+    pub(crate) fn resolve_input_binding(&self, binding_id: &str) -> bool {
+        self.resolve_input_binding_resolution(self.input.resolve_binding_id(binding_id))
+            .is_some()
+    }
+
+    pub(crate) fn resolve_typed_input_action_id(
+        &self,
+        binding: &InputBinding,
+        context: InputContext,
+    ) -> Option<String> {
+        self.resolve_input_binding_resolution(self.input.resolve(binding, context))
     }
 
     pub(crate) fn sign_identity_payload(
@@ -818,6 +832,14 @@ pub(crate) fn phase3_propagate_subsystem_health_memory_pressure(
 pub(crate) fn phase2_resolve_input_binding(binding_id: &str) -> bool {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
     runtime().resolve_input_binding(binding_id)
+}
+
+pub(crate) fn phase2_resolve_typed_input_action_id(
+    binding: &InputBinding,
+    context: InputContext,
+) -> Option<String> {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+    runtime().resolve_typed_input_action_id(binding, context)
 }
 
 pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {

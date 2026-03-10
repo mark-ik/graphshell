@@ -9,6 +9,9 @@ pub(crate) const ACTION_TOOLBAR_NAV_BACK: &str = "action.toolbar.nav.back";
 pub(crate) const ACTION_TOOLBAR_NAV_FORWARD: &str = "action.toolbar.nav.forward";
 pub(crate) const ACTION_TOOLBAR_NAV_RELOAD: &str = "action.toolbar.nav.reload";
 pub(crate) const ACTION_GRAPH_VIEW_CONFIRM: &str = "action.graph_view.confirm";
+pub(crate) const ACTION_GRAPH_CYCLE_FOCUS_REGION: &str = "action.graph.cycle_focus_region";
+pub(crate) const ACTION_GRAPH_COMMAND_PALETTE_OPEN: &str = "action.graph.command_palette_open";
+pub(crate) const ACTION_GRAPH_RADIAL_MENU_OPEN: &str = "action.graph.radial_menu_open";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModifierMask(u8);
@@ -62,6 +65,7 @@ impl Keycode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum GamepadButton {
+    South,
     DPadUp,
     DPadDown,
     DPadLeft,
@@ -76,6 +80,7 @@ pub(crate) enum GamepadButton {
 impl GamepadButton {
     fn label(self) -> &'static str {
         match self {
+            Self::South => "south",
             Self::DPadUp => "dpad_up",
             Self::DPadDown => "dpad_down",
             Self::DPadLeft => "dpad_left",
@@ -181,6 +186,41 @@ fn toolbar_nav_reload_binding() -> InputBinding {
     InputBinding::Key {
         modifiers: ModifierMask::NONE,
         keycode: Keycode::Named(NamedKey::F5),
+    }
+}
+
+fn gamepad_command_palette_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::Start,
+        modifier: None,
+    }
+}
+
+fn gamepad_radial_menu_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::South,
+        modifier: None,
+    }
+}
+
+fn gamepad_cycle_focus_binding(button: GamepadButton) -> InputBinding {
+    InputBinding::Gamepad {
+        button,
+        modifier: None,
+    }
+}
+
+fn gamepad_nav_back_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::LeftBumper,
+        modifier: None,
+    }
+}
+
+fn gamepad_nav_forward_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::RightBumper,
+        modifier: None,
     }
 }
 
@@ -318,6 +358,46 @@ impl Default for InputRegistry {
             ACTION_TOOLBAR_NAV_RELOAD,
             InputContext::DetailView,
         );
+        registry.register_binding(
+            gamepad_command_palette_binding(),
+            ACTION_GRAPH_COMMAND_PALETTE_OPEN,
+            InputContext::GraphView,
+        );
+        registry.register_binding(
+            gamepad_radial_menu_binding(),
+            ACTION_GRAPH_RADIAL_MENU_OPEN,
+            InputContext::GraphView,
+        );
+        registry.register_binding(
+            gamepad_cycle_focus_binding(GamepadButton::DPadUp),
+            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            InputContext::GraphView,
+        );
+        registry.register_binding(
+            gamepad_cycle_focus_binding(GamepadButton::DPadDown),
+            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            InputContext::GraphView,
+        );
+        registry.register_binding(
+            gamepad_cycle_focus_binding(GamepadButton::DPadLeft),
+            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            InputContext::GraphView,
+        );
+        registry.register_binding(
+            gamepad_cycle_focus_binding(GamepadButton::DPadRight),
+            ACTION_GRAPH_CYCLE_FOCUS_REGION,
+            InputContext::GraphView,
+        );
+        registry.register_binding(
+            gamepad_nav_back_binding(),
+            ACTION_TOOLBAR_NAV_BACK,
+            InputContext::DetailView,
+        );
+        registry.register_binding(
+            gamepad_nav_forward_binding(),
+            ACTION_TOOLBAR_NAV_FORWARD,
+            InputContext::DetailView,
+        );
         registry
     }
 }
@@ -410,5 +490,45 @@ mod tests {
         assert!(resolution.matched);
         assert_eq!(resolution.context, InputContext::DetailView);
         assert_eq!(resolution.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_RELOAD));
+    }
+
+    #[test]
+    fn input_registry_resolves_graph_view_gamepad_bindings() {
+        let registry = InputRegistry::default();
+
+        let command_palette = registry.resolve(
+            &gamepad_command_palette_binding(),
+            InputContext::GraphView,
+        );
+        assert_eq!(
+            command_palette.action_id.as_deref(),
+            Some(ACTION_GRAPH_COMMAND_PALETTE_OPEN)
+        );
+
+        let radial_menu = registry.resolve(&gamepad_radial_menu_binding(), InputContext::GraphView);
+        assert_eq!(
+            radial_menu.action_id.as_deref(),
+            Some(ACTION_GRAPH_RADIAL_MENU_OPEN)
+        );
+
+        let focus_cycle = registry.resolve(
+            &gamepad_cycle_focus_binding(GamepadButton::DPadLeft),
+            InputContext::GraphView,
+        );
+        assert_eq!(
+            focus_cycle.action_id.as_deref(),
+            Some(ACTION_GRAPH_CYCLE_FOCUS_REGION)
+        );
+    }
+
+    #[test]
+    fn input_registry_resolves_detail_view_gamepad_nav_bindings() {
+        let registry = InputRegistry::default();
+
+        let back = registry.resolve(&gamepad_nav_back_binding(), InputContext::DetailView);
+        assert_eq!(back.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_BACK));
+
+        let forward = registry.resolve(&gamepad_nav_forward_binding(), InputContext::DetailView);
+        assert_eq!(forward.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_FORWARD));
     }
 }

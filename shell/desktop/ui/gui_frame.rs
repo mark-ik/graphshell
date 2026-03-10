@@ -15,7 +15,8 @@ use servo::{DeviceIndependentPixel, OffscreenRenderingContext, WebViewId, Window
 use super::nav_targeting;
 use super::undo_boundary::record_workspace_undo_boundary_from_tiles_tree;
 use crate::app::{
-    GraphBrowserApp, GraphIntent, GraphViewId, LifecycleCause, PendingConnectedOpenScope,
+    BrowserCommand, BrowserCommandTarget, GraphBrowserApp, GraphIntent, GraphViewId,
+    LifecycleCause, PendingConnectedOpenScope,
     PendingNodeOpenRequest, PendingTileOpenMode, ReducerDispatchContext, UndoBoundaryReason,
     UnsavedFramePromptAction, UnsavedFramePromptRequest,
 };
@@ -32,7 +33,7 @@ use crate::shell::desktop::lifecycle::semantic_event_pipeline;
 use crate::shell::desktop::lifecycle::webview_backpressure::WebviewCreationBackpressureState;
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_NAVIGATION_TRANSITION,
+    self, CHANNEL_UX_NAVIGATION_TRANSITION,
 };
 use crate::shell::desktop::ui::persistence_ops;
 use crate::shell::desktop::ui::thumbnail_pipeline;
@@ -48,6 +49,11 @@ use crate::shell::desktop::workbench::tile_view_ops;
     not(any(target_os = "android", target_env = "ohos"))
 ))]
 use crate::shell::desktop::host::gamepad::GamepadUiCommand;
+#[cfg(all(
+    feature = "gamepad",
+    not(any(target_os = "android", target_env = "ohos"))
+))]
+use crate::shell::desktop::runtime::registries::input::{GamepadButton, InputBinding, InputContext};
 
 #[path = "gui_frame/pending_actions.rs"]
 mod pending_actions;
@@ -119,18 +125,96 @@ pub(crate) fn ingest_pre_frame(
             .explicit_input_webview_id()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id));
         for command in app_state.take_pending_gamepad_ui_commands() {
-            let action_id = match command {
-                GamepadUiCommand::CycleFocusRegion => {
-                    render::action_registry::ActionId::GraphCycleFocusRegion
-                }
-                GamepadUiCommand::ToggleCommandPalette => {
-                    render::action_registry::ActionId::GraphCommandPalette
-                }
-                GamepadUiCommand::ToggleRadialMenu => {
-                    render::action_registry::ActionId::GraphRadialMenu
-                }
+            let (binding, context) = match command {
+                GamepadUiCommand::CycleFocusRegion => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::DPadLeft,
+                        modifier: None,
+                    },
+                    InputContext::GraphView,
+                ),
+                GamepadUiCommand::ToggleCommandPalette => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::Start,
+                        modifier: None,
+                    },
+                    InputContext::GraphView,
+                ),
+                GamepadUiCommand::ToggleRadialMenu => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::South,
+                        modifier: None,
+                    },
+                    InputContext::GraphView,
+                ),
+                GamepadUiCommand::NavigateBack => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::LeftBumper,
+                        modifier: None,
+                    },
+                    InputContext::DetailView,
+                ),
+                GamepadUiCommand::NavigateForward => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::RightBumper,
+                        modifier: None,
+                    },
+                    InputContext::DetailView,
+                ),
             };
-            render::dispatch_action_id(graph_app, action_id, None, focused_node, focused_node, None);
+
+            let Some(action_id) = registries::phase2_resolve_typed_input_action_id(&binding, context)
+            else {
+                continue;
+            };
+
+            match action_id.as_str() {
+                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_CYCLE_FOCUS_REGION => {
+                    render::dispatch_action_id(
+                        graph_app,
+                        render::action_registry::ActionId::GraphCycleFocusRegion,
+                        None,
+                        focused_node,
+                        focused_node,
+                        None,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_COMMAND_PALETTE_OPEN => {
+                    render::dispatch_action_id(
+                        graph_app,
+                        render::action_registry::ActionId::GraphCommandPalette,
+                        None,
+                        focused_node,
+                        focused_node,
+                        None,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_GRAPH_RADIAL_MENU_OPEN => {
+                    render::dispatch_action_id(
+                        graph_app,
+                        render::action_registry::ActionId::GraphRadialMenu,
+                        None,
+                        focused_node,
+                        focused_node,
+                        None,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_TOOLBAR_NAV_BACK => {
+                    let target = BrowserCommandTarget::ChromeProjection {
+                        fallback_node: nav_targeting::chrome_projection_node(graph_app, window)
+                            .or(focused_node),
+                    };
+                    graph_app.request_browser_command(target, BrowserCommand::Back);
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_TOOLBAR_NAV_FORWARD => {
+                    let target = BrowserCommandTarget::ChromeProjection {
+                        fallback_node: nav_targeting::chrome_projection_node(graph_app, window)
+                            .or(focused_node),
+                    };
+                    graph_app.request_browser_command(target, BrowserCommand::Forward);
+                }
+                _ => {}
+            }
         }
     }
 

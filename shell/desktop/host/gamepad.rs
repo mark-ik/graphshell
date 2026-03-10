@@ -18,6 +18,8 @@ pub(crate) enum GamepadUiCommand {
     CycleFocusRegion,
     ToggleCommandPalette,
     ToggleRadialMenu,
+    NavigateBack,
+    NavigateForward,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +196,8 @@ impl AppGamepadProvider {
         match button {
             gilrs::Button::Start => Some(GamepadUiCommand::ToggleCommandPalette),
             gilrs::Button::South => Some(GamepadUiCommand::ToggleRadialMenu),
+            gilrs::Button::LeftTrigger => Some(GamepadUiCommand::NavigateBack),
+            gilrs::Button::RightTrigger => Some(GamepadUiCommand::NavigateForward),
             gilrs::Button::DPadUp
             | gilrs::Button::DPadDown
             | gilrs::Button::DPadLeft
@@ -309,6 +313,18 @@ mod tests {
         assert_eq!(
             AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::South),
             Some(GamepadUiCommand::ToggleRadialMenu)
+        );
+    }
+
+    #[test]
+    fn shoulder_buttons_map_to_navigation_actions() {
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::LeftTrigger),
+            Some(GamepadUiCommand::NavigateBack)
+        );
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::RightTrigger),
+            Some(GamepadUiCommand::NavigateForward)
         );
     }
 }
