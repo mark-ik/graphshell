@@ -286,6 +286,10 @@ These are sequenced by dependency and impact, not by calendar.
 
    This is required before the palette can be context-aware per the spec.
 
+   Status (2026-03-10): landed as a companion context map table in
+   `command_semantics_matrix.md`. The command matrix now makes summon-target
+   ownership explicit instead of leaving node/edge/canvas/pane availability implicit.
+
 2. **C2.2 — Edge context actions**
 
    Define the action set for edge context. At minimum:
@@ -295,6 +299,10 @@ These are sequenced by dependency and impact, not by calendar.
 
    Add a brief edge-management command section to
    `graph_node_edge_interaction_spec.md §4.3`.
+
+   Status (2026-03-10): landed for the minimum edge command set. The graph
+   interaction spec now defines edge-context palette behavior for remove/connect
+   commands and records the command-routing invariants explicitly.
 
 ### Phase C3 — Workflow and session mode commands
 

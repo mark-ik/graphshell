@@ -359,6 +359,7 @@ Default bindings are profile-configurable, but semantic action mapping is fixed:
 - Hover edge: inspect relationship or traversal information.
 - Single click edge: set the edge as the active inspection target.
 - Double click edge: invoke the edge's primary traversal action when that action is defined.
+- Context action on edge: expose edge-scoped commands through the canonical palette shell.
 
 **Who owns it**
 
@@ -385,6 +386,23 @@ Default bindings are profile-configurable, but semantic action mapping is fixed:
 | Edge single-click | Set highlighted edge for inspection | No traversal append |
 | Edge double-click with traversal action defined | Invoke traversal/open action | Append traversal through reducer path only |
 | Edge double-click with no traversal action | No-op beyond inspection continuity | No traversal append |
+
+**Edge-context command map (C2.2 closure)**
+
+Right-clicking an edge summons the canonical contextual shell with the **Edge**
+category first. The minimum edge-context command set is:
+
+| Action semantic | Default command/binding | Required behavior |
+|---|---|---|
+| Remove user edge | `Remove User Edge` command (default `Alt+G` for selected pair) | Remove user-grouped edge semantics for the active/selected pair |
+| Connect source -> target | `Connect Pair` command (default `G` for selected pair) | Create one directed user-grouped edge from ordered pair source to target |
+| Connect both directions | `Connect Both Directions` command (default `Shift+G` for selected pair) | Create user-grouped edges in both directions for the active/selected pair |
+
+Edge-context invariants:
+
+- Edge context is command-capable only when the resolved edge target maps to a valid pair context.
+- Inspection-only traversal edges must still expose disabled edge commands with explicit reasons rather than silently hiding the category.
+- Edge-context command invocation must route through the same `ActionRegistry` semantics used by keyboard and other palette modes.
 
 **Edge diagnostics assertions (normative)**
 

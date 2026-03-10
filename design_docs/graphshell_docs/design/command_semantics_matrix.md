@@ -117,6 +117,38 @@ Notes:
 
 ---
 
+## 3.2 Context Map (C2.1)
+
+Context-eligible summon targets are:
+
+- `node`
+- `edge`
+- `canvas_background`
+- `pane_header`
+- `tool_pane_body`
+
+This table defines which actions are first-class candidates for each contextual summon.
+Search Palette Mode may still expose broader fallback actions, but these are the
+normative context-owned entries.
+
+| Context | Primary action set |
+|---|---|
+| `node` | `NodePinToggle`, `NodePinSelected`, `NodeUnpinSelected`, `NodeDelete`, `NodeChooseFrame`, `NodeAddToFrame`, `NodeAddConnectedToFrame`, `NodeOpenFrame`, `NodeOpenNeighbors`, `NodeOpenConnected`, `NodeOpenSplit`, `NodeDetachToSplit`, `NodeMoveToActivePane`, `NodeCopyUrl`, `NodeCopyTitle` |
+| `edge` | `EdgeConnectPair`, `EdgeConnectBoth`, `EdgeRemoveUser` |
+| `canvas_background` | `NodeNew`, `GraphFit`, `GraphTogglePhysics`, `GraphReheatPhysics`, `GraphTogglePositionFitLock`, `GraphToggleZoomFitLock`, `GraphZoomIn`, `GraphZoomOut`, `GraphZoomReset`, `GraphSearchOpen`, `GraphCommandPalette`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `GraphClear` |
+| `pane_header` | `NodeNewAsTab`, `NodeOpenSplit`, `NodeDetachToSplit`, `NodeMoveToActivePane`, `PersistSaveSnapshot`, `PersistRestoreSession`, `PersistSaveGraph`, `PersistRestoreLatestGraph`, `PersistOpenHub` |
+| `tool_pane_body` | `GraphCommandPalette`, `WorkbenchHelpOpen`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `PersistOpenHub` |
+
+Context-ordering rule:
+
+- `node` summon => Node actions category first
+- `edge` summon => Edge actions category first
+- `canvas_background` summon => Graph actions category first
+- `pane_header` summon => Tile/Frame actions category first
+- `tool_pane_body` summon => Workbench actions category first
+
+---
+
 ## 4. Surface parity notes
 
 1. Palette and radial surfaces are semantically unified through shared `ActionId` dispatch.
