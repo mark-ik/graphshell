@@ -1021,6 +1021,31 @@ Residual non-blockers that should stay explicit:
 - semantic placement-anchor consumption still needs a node-spawn caller that already knows semantic tags
 - `index:timeline` remains a future history-coupled provider stub rather than a live index source
 
+### Sector G Reality Note (2026-03-10)
+
+Sector G is now implemented at the runtime authority level for `AgentRegistry` and `ThemeRegistry`:
+- `ThemeRegistry` now exists as a runtime-owned authority with built-in default/light/dark/high-contrast
+  themes, reducer-owned theme selection, persistence round-trip, and tokenized command/radial UI paths.
+- `AgentRegistry` now exists as a real runtime registry, `ControlPanel` supervises spawned agent
+  tasks, and the built-in `agent:tag_suggester` consumes Register navigation signals and emits the
+  display-only `GraphIntent::SuggestNodeTags` path.
+- GUI-owned runtime state and `phase3_*` helper surfaces now share one global `RegistryRuntime`
+  authority instead of constructing competing runtime instances.
+
+Residual blockers that keep Sector G and the registry master plan open:
+- `WasmModHost` / intent-bridge support is still absent; `ModType::Wasm` is only a manifest/model
+  marker today.
+- `GraphIntent::ModDeactivated` still does not exist as the reducer-carried unload receipt from the
+  original Sector G plan.
+- Startup OS-theme detection and mod-provided theme activation remain follow-on work.
+- Theme token migration is substantial but not absolute across all `render/` literals.
+
+### Registry Plan Archive Note (2026-03-10)
+
+Do not archive `2026-03-08_registry_development_plan.md` yet. The register body is materially
+further along, but `RendererRegistry` (Sector B), Sector C identity/Verse closure, and the
+remaining Sector G WASM/mod-theme follow-ons still keep the master plan active.
+
 ---
 
 ## 4. Historical Tail (Archived)

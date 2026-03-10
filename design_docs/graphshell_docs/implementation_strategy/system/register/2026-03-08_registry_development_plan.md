@@ -22,6 +22,10 @@ The goal is a fully operable Register layer in which every registry is:
 - Tested at the contract boundary via unit and scenario tests
 - Connected to other registries only through the `SignalRoutingLayer` or `ControlPanel`, never via direct inter-registry calls
 
+Archive note:
+- This master plan is not ready to archive. `RendererRegistry` (Sector B), Sector C identity/Verse
+  closure, and the remaining Sector G WASM/mod-theme follow-ons are still open.
+
 ---
 
 ## Registry Inventory
@@ -55,8 +59,8 @@ All registries in the system spec family are listed here. Implementation state i
 | `IndexRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [F](#sector-f) |
 | `DiagnosticsRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [F](#sector-f) |
 | `ModRegistry` | Atomic | ✅ (atomic) | ✅ | ✅ | ✅ | ✅ | [G](#sector-g) |
-| `AgentRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [G](#sector-g) |
-| `ThemeRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [G](#sector-g) |
+| `AgentRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [G](#sector-g) |
+| `ThemeRegistry` | Atomic | ✅ | ✅ | ✅ | ✅ | ✅ | [G](#sector-g) |
 | `SignalRoutingLayer` → `SignalBus` | Infrastructure | ✅ | ✅ | ✅ | ✅ | ✅ | [H](#sector-h) |
 
 ---
@@ -198,7 +202,18 @@ Residual follow-ons are now explicit rather than hidden sector blockers:
 **Registries:** `ModRegistry`, `AgentRegistry`, `ThemeRegistry`
 **Plan:** [2026-03-08_sector_g_mod_agent_plan.md](2026-03-08_sector_g_mod_agent_plan.md)
 
-`ModRegistry` is the most complete registry in the system (already wired, tested, discovery via `inventory`). The sector work is advancing the other two: `AgentRegistry` is the Register-owned version of supervised background capability, complementing the `ControlPanel`'s worker model. `ThemeRegistry` provides the visual token resolution that the presentation domain needs.
+Sector G now has real runtime-owned `AgentRegistry` and `ThemeRegistry` authorities. The GUI and
+phase-helper surfaces now share one global `RegistryRuntime` authority, `ControlPanel` supervises
+registered agents, and the built-in `agent:tag_suggester` uses the signal bus plus reducer intent
+ingress instead of direct app-state mutation.
+
+Remaining Sector G work is explicit rather than hidden:
+- `ModRegistry` still lacks a real WASM host / intent bridge.
+- `GraphIntent::ModDeactivated` still does not exist as the reducer-carried unload receipt from the
+  original plan.
+- Theme activation is runtime-owned, but startup OS-theme detection and mod-provided theme
+  activation remain follow-on work.
+- Theme token migration is substantial but not yet absolute across all `render/` literals.
 
 ---
 

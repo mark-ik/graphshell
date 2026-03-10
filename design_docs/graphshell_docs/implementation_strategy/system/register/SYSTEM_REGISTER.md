@@ -80,6 +80,7 @@ Implemented:
 - `ControlPanel` async worker supervision and multi-producer intent queueing
 - Main GUI integration for control-panel worker lifecycle and intent draining
 - RegistryRuntime composition root for atomic/domain registries and mod/runtime services
+- Shared `RegistryRuntime` authority across GUI-owned runtime state and `phase3_*` helper paths
 - RegistryRuntime provider-wired phase0 protocol/viewer dispatch paths and diagnostics coverage
 - Runtime-owned content-pipeline completion: URI-aware protocol MIME inference, cancellable
   content-type probes, viewer capability description, viewer-surface profile resolution, and
@@ -88,6 +89,9 @@ Implemented:
 - Runtime-owned canvas, physics, layout-domain, and presentation-domain profile resolution paths
 - Runtime-owned diagnostics, knowledge, and index authorities with semantic lifecycle signaling and
   omnibox submit-path search fanout
+- Runtime-owned theme activation, built-in theme descriptors, and tokenized command/radial surfaces
+- Register-owned `AgentRegistry` with `ControlPanel` supervision and built-in `agent:tag_suggester`
+  signal-driven suggestion ingress
 
 Gaps / active architectural work:
 - Canonical docs/terminology wording still needs tightening around `Signal` vs `Intent` vs direct calls (routing rules are defined here but not yet propagated everywhere)
@@ -99,6 +103,11 @@ Gaps / active architectural work:
   path is currently unified through `IndexRegistry`
 - `index:timeline` remains future history work; the provider shape is planned, but no live timeline
   index source exists yet
+- `ModRegistry` still lacks a real WASM host / intent bridge, so Sector G is not fully closed
+- Theme activation is runtime-owned, but startup OS-theme detection and mod-provided theme
+  activation remain open follow-ons
+- The registry development plan cannot be archived yet; `RendererRegistry` (Sector B), Sector C
+  identity/Verse closure, and the remaining Sector G mod follow-ons are still active work
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 

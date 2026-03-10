@@ -5,7 +5,7 @@
 # Sector G — Mod, Agent & Theme Registry Development Plan
 
 **Doc role:** Implementation plan for the mod, agent, and theme registry sector
-**Status:** Active / planning
+**Status:** Implemented at runtime level / residual follow-on
 **Date:** 2026-03-08
 **Parent:** [2026-03-08_registry_development_plan.md](2026-03-08_registry_development_plan.md)
 **Registries covered:** `ModRegistry`, `AgentRegistry`, `ThemeRegistry`
@@ -15,15 +15,16 @@
 
 ## Purpose
 
-`ModRegistry` is the most complete registry in the system — native mod discovery, dependency
-ordering, and lifecycle integration are all functional. Sector G work advances the two missing
-registries (`AgentRegistry`, `ThemeRegistry`) and completes `ModRegistry`'s WASM and runtime
-surface registration capabilities.
+`ModRegistry` remains the most complete registry in the system — native mod discovery, dependency
+ordering, lifecycle integration, runtime surface extension, and unload rollback are all functional.
+Sector G runtime work has now landed the two previously missing registries (`AgentRegistry`,
+`ThemeRegistry`) and normalized registry authority so GUI/runtime code consume one shared
+`RegistryRuntime` instance.
 
 ```
-ModRegistry     ← complete core; needs WASM + registry surface extension
-AgentRegistry   ← not started; supervised background capability declaration
-ThemeRegistry   ← not started; visual token sets; required by PresentationDomainRegistry (Sector D)
+ModRegistry     ← native/runtime extension + unload complete; WASM host still open
+AgentRegistry   ← implemented; supervised background capability declaration lives in runtime
+ThemeRegistry   ← implemented; runtime-owned token sets + activation; residual migration remains
 ```
 
 ---
@@ -32,9 +33,9 @@ ThemeRegistry   ← not started; visual token sets; required by PresentationDoma
 
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
-| `ModRegistry` | ✅ (atomic) | Most complete | No WASM mod support; mods cannot extend registry surfaces; no unload hot-path |
-| `AgentRegistry` | ❌ | Not started | No struct; background capability not declarative |
-| `ThemeRegistry` | ❌ | Not started | No struct; visual tokens hardcoded in render path |
+| `ModRegistry` | ✅ (atomic) | Mostly complete | No WASM mod host/intent bridge yet; no reducer-carried `ModDeactivated` event |
+| `AgentRegistry` | ✅ | Implemented | Built-in runtime agents only; no mod-provided agent extension path yet |
+| `ThemeRegistry` | ✅ | Implemented | Startup OS-theme detection and mod-provided theme activation remain partial |
 
 ---
 
@@ -81,9 +82,9 @@ Mods can register:
 The `ModRegistry` tracks which extensions each mod has registered; `unload_mod()` removes them.
 
 **Done gates:**
-- [ ] `ModExtensionRecord` tracks all registry extensions made by a mod.
-- [ ] `unload_mod()` calls the appropriate `unregister_*` on each extension type.
-- [ ] Test: load mod → extensions present; unload mod → extensions removed; fallback restored.
+- [x] `ModExtensionRecord` tracks all registry extensions made by a mod.
+- [x] `unload_mod()` calls the appropriate `unregister_*` on each extension type.
+- [x] Test: load mod → extensions present; unload mod → extensions removed; fallback restored.
 
 ### G1.3 — Unload hot-path
 
@@ -101,7 +102,7 @@ Unload:
 4. Emits `SignalKind::Lifecycle(ModUnloaded)` via `SignalRoutingLayer`.
 
 **Done gates:**
-- [ ] `unload_mod()` implemented with full extension cleanup.
+- [x] `unload_mod()` implemented with full extension cleanup.
 - [ ] `GraphIntent::ModDeactivated` defined and handled in reducer.
 - [ ] Test: unload a mod that registered a scheme handler → scheme handler removed.
 
@@ -154,11 +155,11 @@ pub struct ThemeRegistry {
 ```
 
 **Done gates:**
-- [ ] `ThemeRegistry` struct in `shell/desktop/runtime/registries/theme.rs`.
-- [ ] `DARK`, `LIGHT`, `HIGH_CONTRAST` built-in themes registered.
-- [ ] `HIGH_CONTRAST` theme verified WCAG AA (7:1 contrast ratio minimum).
-- [ ] Added to `RegistryRuntime`.
-- [ ] `DIAG_THEME` channel (Info severity).
+- [x] `ThemeRegistry` struct in `shell/desktop/runtime/registries/theme.rs`.
+- [x] `DARK`, `LIGHT`, `HIGH_CONTRAST` built-in themes registered.
+- [x] `HIGH_CONTRAST` theme verified WCAG AA (7:1 contrast ratio minimum).
+- [x] Added to `RegistryRuntime`.
+- [x] `DIAG_THEME` channel (Info severity).
 
 ### G2.2 — Replace hardcoded colour constants in `render/panels.rs`
 
@@ -172,8 +173,8 @@ let node_fill = tokens.node_default_fill;
 
 **Done gates:**
 - [ ] No hardcoded `Color32::from_rgb(...)` literals remain in `render/`.
-- [ ] `PresentationDomainRegistry::resolve_presentation_profile()` reads from `ThemeRegistry`.
-- [ ] Visual regression check: dark theme produces identical colours to before.
+- [x] `PresentationDomainRegistry::resolve_presentation_profile()` reads from `ThemeRegistry`.
+- [x] Visual regression check: dark theme produces identical colours to before.
 
 ### G2.3 — System theme detection
 
@@ -190,8 +191,8 @@ to user preferences via `GraphIntent::SetTheme`.
 
 **Done gates:**
 - [ ] `detect_system_theme()` implemented for Windows (primary target; others as best-effort).
-- [ ] `GraphIntent::SetTheme { theme_id }` defined and handled in reducer.
-- [ ] Theme persists across restart.
+- [x] `GraphIntent::SetTheme { theme_id }` defined and handled in reducer.
+- [x] Theme persists across restart.
 
 ### G2.4 — Mod-provided themes
 
@@ -199,7 +200,7 @@ Via `ModRegistry` extension mechanism (Phase G1.2), mods can register additional
 sets. Custom themes are validated for WCAG AA compliance on registration.
 
 **Done gates:**
-- [ ] `ThemeRegistry::register_theme()` validates WCAG AA contrast ratios.
+- [x] `ThemeRegistry::register_theme()` validates WCAG AA contrast ratios.
 - [ ] Non-compliant theme registration emits `DIAG_THEME` at `Warn` severity.
 - [ ] Test: register custom theme; activate it; render uses custom tokens.
 
@@ -254,11 +255,11 @@ Built-in agents (stubs for now):
 - `agent:tag_suggester` — suggests UDC tags for untagged nodes using heuristics.
 
 **Done gates:**
-- [ ] `AgentRegistry` struct in `shell/desktop/runtime/registries/agent.rs`.
-- [ ] `Agent` trait and `AgentContext` defined.
-- [ ] `GRAPH_SUMMARISER` and `TAG_SUGGESTER` stub agents registered.
-- [ ] Added to `RegistryRuntime`.
-- [ ] `DIAG_AGENT` channel (Info severity).
+- [x] `AgentRegistry` struct in `shell/desktop/runtime/registries/agent.rs`.
+- [x] `Agent` trait and `AgentContext` defined.
+- [x] `GRAPH_SUMMARISER` and `TAG_SUGGESTER` stub agents registered.
+- [x] Added to `RegistryRuntime`.
+- [x] `DIAG_AGENT` channel (Info severity).
 
 ### G3.2 — Agent supervision under `ControlPanel`
 
@@ -280,9 +281,9 @@ impl ControlPanel {
 ```
 
 **Done gates:**
-- [ ] `ControlPanel::spawn_agent()` implemented.
-- [ ] Agent tasks are included in `shutdown()` JoinSet drain.
-- [ ] Test: stub agent spawns, receives cancel, shuts down cleanly.
+- [x] `ControlPanel::spawn_agent()` implemented.
+- [x] Agent tasks are included in `shutdown()` JoinSet drain.
+- [x] Test: stub agent spawns, receives cancel, shuts down cleanly.
 
 ### G3.3 — `tag_suggester` agent (minimal implementation)
 
@@ -297,23 +298,29 @@ The `TAG_SUGGESTER` agent provides a concrete implementation of the agent model:
 committing them to the graph model. The user must explicitly confirm to create the tags.
 
 **Done gates:**
-- [ ] `GraphIntent::SuggestNodeTags` defined and handled (display-side only).
-- [ ] `TagSuggesterAgent` implementation in `app/agents/tag_suggester.rs`.
-- [ ] Agent subscribes to navigation signal and emits suggestion intents.
-- [ ] Test: agent suggests UDC tags for a URL with a known-category hostname.
+- [x] `GraphIntent::SuggestNodeTags` defined and handled (display-side only).
+- [x] `TagSuggesterAgent` implementation in `app/agents/tag_suggester.rs`.
+- [x] Agent subscribes to navigation signal and emits suggestion intents.
+- [x] Test: agent suggests UDC tags for a URL with a known-category hostname.
 
 ---
 
 ## Acceptance Criteria (Sector G complete)
 
 - [ ] WASM mod loader functional with intent bridge; isolated from host state.
-- [ ] Mods can register and unregister scheme handlers, viewers, search providers, and lenses.
+- [x] Mods can register and unregister scheme handlers, viewers, search providers, and lenses.
 - [ ] `ThemeRegistry` owns all visual tokens; no hardcoded colours in `render/`.
 - [ ] Dark/light/high-contrast themes built in; system theme detection works.
 - [ ] Custom mod themes validated for WCAG AA on registration.
-- [ ] `AgentRegistry` is a real registry; agents supervised by `ControlPanel`.
-- [ ] `TAG_SUGGESTER` agent provides end-to-end agent model example.
-- [ ] All three registries are in `RegistryRuntime` with diagnostics coverage.
+- [x] `AgentRegistry` is a real registry; agents supervised by `ControlPanel`.
+- [x] `TAG_SUGGESTER` agent provides end-to-end agent model example.
+- [x] All three registries are in `RegistryRuntime` with diagnostics coverage.
+
+Residual follow-ons that remain explicit rather than hidden:
+- `WasmModHost` / intent-bridge support is still absent; `ModType::Wasm` is a manifest/model marker only today.
+- Runtime `unload_mod()` now removes extension records and restores fallback mappings, but the reducer-carried `GraphIntent::ModDeactivated` path from the original plan has still not landed.
+- Theme activation is runtime-owned, but startup OS-theme detection and mod-provided theme activation are still follow-on work.
+- Theme token migration is substantial but not absolute; `render/` still contains some hardcoded color literals outside the command/radial paths already moved to runtime theme tokens.
 
 ---
 
