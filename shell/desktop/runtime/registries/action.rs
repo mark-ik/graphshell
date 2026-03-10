@@ -16,6 +16,7 @@ pub(crate) const ACTION_DETAIL_VIEW_SUBMIT: &str = "detail:view_submit";
 pub(crate) const ACTION_GRAPH_NODE_OPEN: &str = "graph:node_open";
 pub(crate) const ACTION_GRAPH_NODE_CLOSE: &str = "graph:node_close";
 pub(crate) const ACTION_GRAPH_EDGE_CREATE: &str = "graph:edge_create";
+pub(crate) const ACTION_GRAPH_SET_PHYSICS_PROFILE: &str = "graph:set_physics_profile";
 pub(crate) const ACTION_GRAPH_NAVIGATE_BACK: &str = "graph:navigate_back";
 pub(crate) const ACTION_GRAPH_NAVIGATE_FORWARD: &str = "graph:navigate_forward";
 pub(crate) const ACTION_GRAPH_SELECT_NODE: &str = "graph:select_node";
@@ -45,6 +46,9 @@ pub(crate) enum ActionPayload {
         from: NodeKey,
         to: NodeKey,
         label: Option<String>,
+    },
+    GraphSetPhysicsProfile {
+        profile_id: String,
     },
     GraphNavigateBack,
     GraphNavigateForward,
@@ -256,6 +260,11 @@ impl Default for ActionRegistry {
             execute_graph_edge_create_action,
         );
         registry.register(
+            ACTION_GRAPH_SET_PHYSICS_PROFILE,
+            ActionCapability::RequiresWritableWorkspace,
+            execute_graph_set_physics_profile_action,
+        );
+        registry.register(
             ACTION_GRAPH_NAVIGATE_BACK,
             ActionCapability::AlwaysAvailable,
             execute_graph_navigate_back_action,
@@ -429,6 +438,23 @@ fn execute_graph_edge_create_action(
         }
         .into(),
     ])
+}
+
+fn execute_graph_set_physics_profile_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::GraphSetPhysicsProfile { profile_id } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph:set_physics_profile requires GraphSetPhysicsProfile payload"
+                .to_string(),
+        });
+    };
+
+    ActionOutcome::Intents(vec![GraphIntent::SetPhysicsProfile {
+        profile_id: profile_id.clone(),
+    }])
 }
 
 fn execute_graph_navigate_back_action(
@@ -1088,6 +1114,26 @@ mod tests {
     }
 
     #[test]
+    fn action_registry_graph_set_physics_profile_emits_reducer_intent() {
+        let app = GraphBrowserApp::new_for_testing();
+        let registry = ActionRegistry::default();
+
+        let execution = registry.execute(
+            ACTION_GRAPH_SET_PHYSICS_PROFILE,
+            &app,
+            ActionPayload::GraphSetPhysicsProfile {
+                profile_id: crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
+            },
+        );
+
+        assert!(matches!(
+            execution.into_intents().first(),
+            Some(GraphIntent::SetPhysicsProfile { profile_id })
+                if profile_id == crate::registries::atomic::lens::PHYSICS_ID_GAS
+        ));
+    }
+
+    #[test]
     fn action_registry_graph_navigate_handlers_emit_traversal_intents() {
         let app = GraphBrowserApp::new_for_testing();
         let registry = ActionRegistry::default();
@@ -1249,6 +1295,7 @@ mod tests {
         assert!(is_namespaced_action_id(ACTION_DETAIL_VIEW_SUBMIT));
         assert!(is_namespaced_action_id(ACTION_GRAPH_NODE_OPEN));
         assert!(is_namespaced_action_id(ACTION_GRAPH_EDGE_CREATE));
+        assert!(is_namespaced_action_id(ACTION_GRAPH_SET_PHYSICS_PROFILE));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_SPLIT_HORIZONTAL));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_SPLIT_VERTICAL));
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_CLOSE_PANE));

@@ -29,43 +29,18 @@ fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::G
 }
 
 fn selected_node_dynamics_profile_id(app: &GraphBrowserApp) -> String {
-    if let Some(view_id) = camera_settings_target_view_id(app)
-        && let Some(view) = app.workspace.views.get(&view_id)
-    {
-        return crate::registries::atomic::lens::physics_profile_id(&view.lens.physics).to_string();
-    }
-
-    app.default_registry_physics_id()
-        .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT)
-        .to_string()
+    let _ = app;
+    crate::shell::desktop::runtime::registries::phase3_resolve_active_physics_profile()
+        .resolved_id
 }
 
 fn apply_node_dynamics_profile_selection(app: &mut GraphBrowserApp, physics_id: &str) {
-    app.set_default_registry_physics_id(Some(physics_id));
-
-    let profile = crate::registries::atomic::lens::resolve_physics_profile(physics_id).profile;
-    let mut resolved_profile = None;
-    if let Some(view_id) = camera_settings_target_view_id(app) {
-        let updated_lens = app.workspace.views.get(&view_id).map(|view| {
-            let mut lens = view.lens.clone();
-            lens.physics = profile.clone();
-            lens
-        });
-
-        if let Some(updated_lens) = updated_lens {
-            let profile = updated_lens.physics.clone();
-            if let Some(view) = app.workspace.views.get_mut(&view_id) {
-                view.lens = updated_lens;
-            }
-            resolved_profile = Some(profile);
-        }
-    }
-
-    let profile = resolved_profile.unwrap_or(profile);
-
-    let mut config = app.workspace.physics.clone();
-    profile.apply_to_state(&mut config);
-    app.update_physics_config(config);
+    apply_reducer_graph_intents_hardened(
+        app,
+        vec![GraphIntent::SetPhysicsProfile {
+            profile_id: physics_id.to_string(),
+        }],
+    );
 }
 
 pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {

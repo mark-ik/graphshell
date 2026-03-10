@@ -6,7 +6,7 @@ mod theme;
 pub(crate) use layout::LayoutMode;
 pub(crate) use physics::{
     PHYSICS_ID_DEFAULT, PHYSICS_ID_GAS, PHYSICS_ID_SOLID, PhysicsProfile, PhysicsProfileResolution,
-    physics_profile_id, resolve_physics_profile,
+    resolve_physics_profile,
 };
 pub(crate) use registry::{LENS_ID_DEFAULT, LensRegistry};
 pub(crate) use theme::{

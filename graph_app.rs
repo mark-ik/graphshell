@@ -2257,6 +2257,9 @@ impl GraphBrowserApp {
                     view.dimension = dimension;
                 }
             }
+            GraphIntent::SetPhysicsProfile { profile_id } => {
+                self.set_default_registry_physics_id(Some(&profile_id));
+            }
             GraphIntent::SetNodeUrl { key, new_url } => {
                 let _ = self.update_node_url_and_log(key, new_url);
             }
@@ -8831,6 +8834,36 @@ mod tests {
         assert_eq!(reopened.default_registry_lens_id(), Some("lens:default"));
         assert_eq!(reopened.default_registry_physics_id(), Some("physics:gas"));
         assert_eq!(reopened.default_registry_theme_id(), Some("theme:dark"));
+    }
+
+    #[test]
+    fn test_set_physics_profile_intent_updates_runtime_and_reheats() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        app.workspace.physics.base.is_running = false;
+
+        let view_id = GraphViewId::new();
+        app.workspace
+            .views
+            .insert(view_id, GraphViewState::new_with_id(view_id, "Physics Test"));
+
+        app.apply_reducer_intents([GraphIntent::SetPhysicsProfile {
+            profile_id: crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
+        }]);
+
+        assert_eq!(
+            app.default_registry_physics_id(),
+            Some(crate::registries::atomic::lens::PHYSICS_ID_GAS)
+        );
+        assert!(app.workspace.physics.base.is_running);
+        assert_eq!(
+            crate::shell::desktop::runtime::registries::phase3_resolve_active_physics_profile()
+                .resolved_id,
+            crate::registries::atomic::lens::PHYSICS_ID_GAS
+        );
+        assert_eq!(
+            app.workspace.views.get(&view_id).unwrap().lens.physics.name,
+            "Gas"
+        );
     }
 
     #[test]

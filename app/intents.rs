@@ -440,6 +440,9 @@ pub enum GraphIntent {
         view_id: GraphViewId,
         dimension: ViewDimension,
     },
+    SetPhysicsProfile {
+        profile_id: String,
+    },
     SetNodeUrl {
         key: NodeKey,
         new_url: String,

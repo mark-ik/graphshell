@@ -14,10 +14,7 @@ use crate::app::{
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
 use crate::graph::{NodeKey, NodeLifecycle};
-use crate::registries::domain::layout::LayoutDomainRegistry;
-use crate::registries::domain::layout::canvas::{CANVAS_PROFILE_DEFAULT, CanvasLassoBinding};
-use crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DEFAULT;
-use crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT;
+use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
@@ -30,7 +27,7 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_LAYOUT_SYNC_BLOCKED_NO_STATE, CHANNEL_UI_GRAPH_SELECTION_AMBIGUOUS_HIT,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
-    CHANNEL_UX_NAVIGATION_TRANSITION,
+    CHANNEL_UX_NAVIGATION_TRANSITION, phase3_resolve_active_canvas_profile,
 };
 use crate::util::CoordBridge;
 use egui::{Color32, Stroke, Ui, Vec2, Window};
@@ -268,13 +265,8 @@ pub fn render_graph_in_ui_collect_actions(
             None
         };
 
-    let layout_domain = LayoutDomainRegistry::default();
-    let layout_profile = layout_domain.resolve_profile(
-        CANVAS_PROFILE_DEFAULT,
-        WORKBENCH_SURFACE_DEFAULT,
-        VIEWER_SURFACE_DEFAULT,
-    );
-    let canvas_profile = &layout_profile.canvas.profile;
+    let active_canvas = phase3_resolve_active_canvas_profile();
+    let canvas_profile = &active_canvas.profile;
 
     // Viewport culling: compute visible node set from previous-frame camera
     // metadata and exclude off-screen nodes before rebuilding egui_state.
@@ -2984,13 +2976,8 @@ mod tests {
         ));
         let _ = ctx.run(raw, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
-                let layout_domain = LayoutDomainRegistry::default();
-                let layout_profile = layout_domain.resolve_profile(
-                    CANVAS_PROFILE_DEFAULT,
-                    WORKBENCH_SURFACE_DEFAULT,
-                    VIEWER_SURFACE_DEFAULT,
-                );
-                let canvas_profile = &layout_profile.canvas.profile;
+                let active_canvas = phase3_resolve_active_canvas_profile();
+                let canvas_profile = &active_canvas.profile;
 
                 ctx.data_mut(|data| {
                     let mut frame = MetadataFrame::default();
