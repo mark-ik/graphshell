@@ -4,6 +4,9 @@ use crate::app::{
     WorkbenchIntent,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
+use crate::shell::desktop::runtime::registries::input::{
+    GamepadButton, InputBinding, InputBindingRemap, InputContext,
+};
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::workbench::pane_model::ToolPaneState;
@@ -144,6 +147,49 @@ pub(super) fn render_settings_menu(
                 {
                     graph_app.set_lasso_binding_preference(binding);
                 }
+            }
+            let radial_open_east_preset = InputBindingRemap {
+                old: InputBinding::Gamepad {
+                    button: GamepadButton::South,
+                    modifier: None,
+                },
+                new: InputBinding::Gamepad {
+                    button: GamepadButton::East,
+                    modifier: None,
+                },
+                context: InputContext::GraphView,
+            };
+            let active_remaps = graph_app.input_binding_remaps();
+            let radial_profile_label = if active_remaps.is_empty() {
+                "South / A (Default)"
+            } else if active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset {
+                "East / B"
+            } else {
+                "Custom"
+            };
+            ui.label(format!("Gamepad Radial Open: {radial_profile_label}"));
+            if ui
+                .selectable_label(active_remaps.is_empty(), "South / A (Default)")
+                .clicked()
+                && let Err(error) = graph_app.set_input_binding_remaps(&[])
+            {
+                log::warn!("failed to restore default input remaps: {error:?}");
+            }
+            if ui
+                .selectable_label(
+                    active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset,
+                    "East / B",
+                )
+                .clicked()
+                && let Err(error) =
+                    graph_app.set_input_binding_remaps(&[radial_open_east_preset.clone()])
+            {
+                log::warn!("failed to apply radial-open remap preset: {error:?}");
+            }
+            if !active_remaps.is_empty()
+                && !(active_remaps.len() == 1 && active_remaps[0] == radial_open_east_preset)
+            {
+                ui.small("Stored remaps include custom bindings outside these presets.");
             }
             ui.separator();
             ui.label("Omnibar");

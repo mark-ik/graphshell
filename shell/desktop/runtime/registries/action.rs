@@ -50,13 +50,45 @@ pub(crate) enum PairingMode {
     LocalPeer { node_id: String },
 }
 
-type ActionHandler = fn(&GraphBrowserApp, &ActionPayload) -> Vec<GraphIntent>;
+type ActionHandler = fn(&GraphBrowserApp, &ActionPayload) -> ActionOutcome;
 
-#[derive(Debug)]
-pub(crate) struct ActionExecution {
-    pub(crate) action_id: String,
-    pub(crate) intents: Vec<GraphIntent>,
-    pub(crate) succeeded: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ActionFailureKind {
+    UnknownAction,
+    InvalidPayload,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActionFailure {
+    pub(crate) kind: ActionFailureKind,
+    pub(crate) reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ActionOutcome {
+    Intents(Vec<GraphIntent>),
+    Failure(ActionFailure),
+}
+
+impl ActionOutcome {
+    pub(crate) fn succeeded(&self) -> bool {
+        matches!(self, Self::Intents(_))
+    }
+
+    pub(crate) fn intent_len(&self) -> usize {
+        match self {
+            Self::Intents(intents) => intents.len(),
+            Self::Failure(_) => 0,
+        }
+    }
+
+    pub(crate) fn into_intents(self) -> Vec<GraphIntent> {
+        match self {
+            Self::Intents(intents) => intents,
+            Self::Failure(_) => Vec::new(),
+        }
+    }
 }
 
 pub(crate) struct ActionRegistry {
@@ -74,21 +106,16 @@ impl ActionRegistry {
         action_id: &str,
         app: &GraphBrowserApp,
         payload: ActionPayload,
-    ) -> ActionExecution {
+    ) -> ActionOutcome {
         let normalized_action_id = action_id.to_ascii_lowercase();
         if let Some(handler) = self.handlers.get(&normalized_action_id) {
-            return ActionExecution {
-                action_id: normalized_action_id,
-                intents: handler(app, &payload),
-                succeeded: true,
-            };
+            return handler(app, &payload);
         }
 
-        ActionExecution {
-            action_id: normalized_action_id,
-            intents: Vec::new(),
-            succeeded: false,
-        }
+        ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::UnknownAction,
+            reason: format!("unknown action: {normalized_action_id}"),
+        })
     }
 }
 
@@ -123,50 +150,66 @@ impl Default for ActionRegistry {
 fn execute_graph_view_submit_action(
     app: &GraphBrowserApp,
     payload: &ActionPayload,
-) -> Vec<GraphIntent> {
+) -> ActionOutcome {
     let ActionPayload::GraphViewSubmit { input } = payload else {
-        return Vec::new();
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "graph_view_submit requires GraphViewSubmit payload".to_string(),
+        });
     };
 
     let input = input.trim();
     if input.is_empty() {
-        return Vec::new();
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "graph_view_submit rejected empty input".to_string(),
+        });
     }
 
     if let Some(selected_node) = app.get_single_selected_node() {
-        vec![
+        ActionOutcome::Intents(vec![
             GraphMutation::SetNodeUrl {
                 key: selected_node,
                 new_url: input.to_string(),
             }
             .into(),
-        ]
+        ])
     } else {
         let position = new_node_position_for_context(app, app.focused_selection().primary());
-        vec![
+        ActionOutcome::Intents(vec![
             GraphMutation::CreateNodeAtUrl {
                 url: input.to_string(),
                 position,
             }
             .into(),
-        ]
+        ])
     }
 }
 
 fn execute_detail_view_submit_action(
     app: &GraphBrowserApp,
     payload: &ActionPayload,
-) -> Vec<GraphIntent> {
+) -> ActionOutcome {
     let ActionPayload::DetailViewSubmit {
         normalized_url,
         focused_node,
     } = payload
     else {
-        return Vec::new();
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "detail_view_submit requires DetailViewSubmit payload".to_string(),
+        });
     };
 
+    if normalized_url.trim().is_empty() {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "detail_view_submit rejected empty url".to_string(),
+        });
+    }
+
     if let Some(node_key) = focused_node {
-        return vec![
+        return ActionOutcome::Intents(vec![
             GraphMutation::SetNodeUrl {
                 key: *node_key,
                 new_url: normalized_url.clone(),
@@ -177,16 +220,16 @@ fn execute_detail_view_submit_action(
                 cause: LifecycleCause::Restore,
             }
             .into(),
-        ];
+        ]);
     }
 
-    vec![
+    ActionOutcome::Intents(vec![
         GraphMutation::CreateNodeAtUrl {
             url: normalized_url.clone(),
             position: new_node_position_for_context(app, app.focused_selection().primary()),
         }
         .into(),
-    ]
+    ])
 }
 
 fn graph_centroid_or_default(app: &GraphBrowserApp) -> Point2D<f32> {
@@ -210,19 +253,25 @@ fn new_node_position_for_context(app: &GraphBrowserApp, anchor: Option<NodeKey>)
 fn execute_omnibox_node_search_action(
     app: &GraphBrowserApp,
     payload: &ActionPayload,
-) -> Vec<GraphIntent> {
+) -> ActionOutcome {
     let ActionPayload::OmniboxNodeSearch { query } = payload else {
-        return Vec::new();
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "omnibox_node_search requires OmniboxNodeSearch payload".to_string(),
+        });
     };
 
     let matched_keys = fuzzy_match_node_keys(app.domain_graph(), query);
     if let Some(key) = matched_keys.first() {
-        return vec![GraphIntent::SelectNode {
+        return ActionOutcome::Intents(vec![GraphIntent::SelectNode {
             key: *key,
             multi_select: false,
-        }];
+        }]);
     }
-    Vec::new()
+    ActionOutcome::Failure(ActionFailure {
+        kind: ActionFailureKind::Rejected,
+        reason: format!("omnibox_node_search found no match for '{query}'"),
+    })
 }
 
 // ===== Verse Sync Action Handlers (Step 5.3) =====
@@ -230,106 +279,111 @@ fn execute_omnibox_node_search_action(
 fn execute_verse_pair_device_action(
     _app: &GraphBrowserApp,
     payload: &ActionPayload,
-) -> Vec<GraphIntent> {
+) -> ActionOutcome {
     let ActionPayload::VersePairDevice { mode } = payload else {
-        return Vec::new();
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "verse_pair_device requires VersePairDevice payload".to_string(),
+        });
     };
 
-    // For Step 5.3: Generate pairing code or initiate connection
-    // The actual UI dialog is handled by the GUI layer (Step 5.3 UI implementation)
-    // This action just triggers the pairing state machine
     match mode {
-        PairingMode::ShowCode => {
-            // Generate pairing code - the GUI will read this via verse::generate_pairing_code()
-            log::info!("Pairing code requested - UI will call verse::generate_pairing_code()");
-            Vec::new() // No intents emitted - this is a UI state change
-        }
-        PairingMode::EnterCode { code } => {
-            match crate::mods::native::verse::decode_pairing_code(code) {
-                Ok(node_id) => {
-                    crate::mods::native::verse::trust_peer(
-                        crate::mods::native::verse::TrustedPeer {
-                            node_id,
-                            display_name: format!("Paired {}", &node_id.to_string()[..8]),
-                            role: crate::mods::native::verse::PeerRole::Friend,
-                            added_at: std::time::SystemTime::now(),
-                            last_seen: Some(std::time::SystemTime::now()),
-                            workspace_grants: Vec::new(),
-                        },
-                    );
-                    log::info!("Pairing completed with code-derived peer {}", node_id);
-                }
-                Err(error) => {
-                    log::warn!("Pairing code decode failed: {error}");
-                }
-            }
-            Vec::new()
-        }
-        PairingMode::LocalPeer { node_id } => {
-            match node_id.parse::<iroh::NodeId>() {
-                Ok(parsed_node_id) => {
-                    crate::mods::native::verse::trust_peer(
-                        crate::mods::native::verse::TrustedPeer {
-                            node_id: parsed_node_id,
-                            display_name: format!("Local {}", &parsed_node_id.to_string()[..8]),
-                            role: crate::mods::native::verse::PeerRole::Friend,
-                            added_at: std::time::SystemTime::now(),
-                            last_seen: Some(std::time::SystemTime::now()),
-                            workspace_grants: Vec::new(),
-                        },
-                    );
-                    log::info!("Paired with discovered local peer: {}", parsed_node_id);
-                }
-                Err(error) => {
-                    log::warn!("Invalid local peer id '{node_id}': {error}");
-                }
-            }
-            Vec::new()
-        }
+        PairingMode::ShowCode => ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "verse_pair_device show-code is handled by the UI surface".to_string(),
+        }),
+        PairingMode::EnterCode { code } => match crate::mods::native::verse::decode_pairing_code(code)
+        {
+            Ok(node_id) => ActionOutcome::Intents(vec![GraphIntent::TrustPeer {
+                peer_id: node_id.to_string(),
+                display_name: format!("Paired {}", &node_id.to_string()[..8]),
+            }]),
+            Err(error) => ActionOutcome::Failure(ActionFailure {
+                kind: ActionFailureKind::Rejected,
+                reason: format!("pairing code decode failed: {error}"),
+            }),
+        },
+        PairingMode::LocalPeer { node_id } => match node_id.parse::<iroh::NodeId>() {
+            Ok(parsed_node_id) => ActionOutcome::Intents(vec![GraphIntent::TrustPeer {
+                peer_id: parsed_node_id.to_string(),
+                display_name: format!("Local {}", &parsed_node_id.to_string()[..8]),
+            }]),
+            Err(error) => ActionOutcome::Failure(ActionFailure {
+                kind: ActionFailureKind::Rejected,
+                reason: format!("invalid local peer id '{node_id}': {error}"),
+            }),
+        },
     }
 }
 
 fn execute_verse_sync_now_action(
     _app: &GraphBrowserApp,
     _payload: &ActionPayload,
-) -> Vec<GraphIntent> {
-    vec![crate::app::RuntimeEvent::SyncNow.into()]
+) -> ActionOutcome {
+    ActionOutcome::Intents(vec![crate::app::RuntimeEvent::SyncNow.into()])
 }
 
 fn execute_verse_share_workspace_action(
     _app: &GraphBrowserApp,
     payload: &ActionPayload,
-) -> Vec<GraphIntent> {
+) -> ActionOutcome {
     let ActionPayload::VerseShareWorkspace { workspace_id } = payload else {
-        return Vec::new();
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "verse_share_workspace requires VerseShareWorkspace payload".to_string(),
+        });
     };
 
-    let peers = crate::mods::native::verse::get_trusted_peers();
-    for peer in peers {
-        crate::mods::native::verse::grant_workspace_access(
-            peer.node_id,
-            workspace_id.clone(),
-            crate::mods::native::verse::AccessLevel::ReadWrite,
-        );
+    if workspace_id.trim().is_empty() {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "verse_share_workspace rejected empty workspace id".to_string(),
+        });
     }
-    log::info!("Share workspace requested for: {}", workspace_id);
-    Vec::new()
+
+    let peers = crate::mods::native::verse::get_trusted_peers();
+    if peers.is_empty() {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "verse_share_workspace has no trusted peers to share with".to_string(),
+        });
+    }
+
+    ActionOutcome::Intents(
+        peers
+            .into_iter()
+            .map(|peer| GraphIntent::GrantWorkspaceAccess {
+                peer_id: peer.node_id.to_string(),
+                workspace_id: workspace_id.clone(),
+            })
+            .collect(),
+    )
 }
 
 fn execute_verse_forget_device_action(
     _app: &GraphBrowserApp,
     payload: &ActionPayload,
-) -> Vec<GraphIntent> {
+) -> ActionOutcome {
     let ActionPayload::VerseForgetDevice { node_id } = payload else {
-        return Vec::new();
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "verse_forget_device requires VerseForgetDevice payload".to_string(),
+        });
     };
 
-    vec![
+    if node_id.trim().is_empty() {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::Rejected,
+            reason: "verse_forget_device rejected empty peer id".to_string(),
+        });
+    }
+
+    ActionOutcome::Intents(vec![
         GraphMutation::ForgetDevice {
             peer_id: node_id.clone(),
         }
         .into(),
-    ]
+    ])
 }
 
 // ===== Core Action Implementations (original) =====
@@ -360,11 +414,11 @@ mod tests {
             },
         );
 
-        assert!(execution.succeeded);
-        assert_eq!(execution.action_id, ACTION_OMNIBOX_NODE_SEARCH);
-        assert_eq!(execution.intents.len(), 1);
+        assert!(execution.succeeded());
+        let intents = execution.into_intents();
+        assert_eq!(intents.len(), 1);
         assert!(matches!(
-            execution.intents.first(),
+            intents.first(),
             Some(GraphIntent::SelectNode { key: selected, .. }) if *selected == key
         ));
     }
@@ -381,9 +435,13 @@ mod tests {
             },
         );
 
-        assert!(!execution.succeeded);
-        assert!(execution.intents.is_empty());
-        assert_eq!(execution.action_id, "action.unknown");
+        assert!(matches!(
+            execution,
+            ActionOutcome::Failure(ActionFailure {
+                kind: ActionFailureKind::UnknownAction,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -405,10 +463,10 @@ mod tests {
             },
         );
 
-        assert!(execution.succeeded);
-        assert_eq!(execution.action_id, ACTION_GRAPH_VIEW_SUBMIT);
+        assert!(execution.succeeded());
+        let intents = execution.into_intents();
         assert!(matches!(
-            execution.intents.first(),
+            intents.first(),
             Some(GraphIntent::SetNodeUrl { key: selected, new_url })
                 if *selected == key && new_url == "https://next.com"
         ));
@@ -433,18 +491,74 @@ mod tests {
             },
         );
 
-        assert!(execution.succeeded);
-        assert_eq!(execution.action_id, ACTION_DETAIL_VIEW_SUBMIT);
-        assert_eq!(execution.intents.len(), 2);
+        assert!(execution.succeeded());
+        let intents = execution.into_intents();
+        assert_eq!(intents.len(), 2);
         assert!(matches!(
-            execution.intents.first(),
+            intents.first(),
             Some(GraphIntent::SetNodeUrl { key: selected, new_url })
                 if *selected == key && new_url == "https://detail-next.com"
         ));
         assert!(matches!(
-            execution.intents.get(1),
+            intents.get(1),
             Some(GraphIntent::PromoteNodeToActive { key: selected, cause })
                 if *selected == key && *cause == LifecycleCause::Restore
         ));
+    }
+
+    #[test]
+    fn action_registry_pair_local_peer_emits_trust_peer_intent() {
+        let app = GraphBrowserApp::new_for_testing();
+        let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng())
+            .public()
+            .to_string();
+        let registry = ActionRegistry::default();
+
+        let execution = registry.execute(
+            ACTION_VERSE_PAIR_DEVICE,
+            &app,
+            ActionPayload::VersePairDevice {
+                mode: PairingMode::LocalPeer {
+                    node_id: peer_id.clone(),
+                },
+            },
+        );
+
+        let intents = execution.into_intents();
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::TrustPeer { peer_id: emitted, .. }) if emitted == &peer_id
+        ));
+    }
+
+    #[test]
+    fn action_registry_share_workspace_emits_grant_access_intents_for_trusted_peers() {
+        let app = GraphBrowserApp::new_for_testing();
+        let registry = ActionRegistry::default();
+
+        let execution = registry.execute(
+            ACTION_VERSE_SHARE_WORKSPACE,
+            &app,
+            ActionPayload::VerseShareWorkspace {
+                workspace_id: "workspace:test".to_string(),
+            },
+        );
+
+        match execution {
+            ActionOutcome::Intents(intents) => {
+                assert!(!intents.is_empty());
+                assert!(intents.iter().all(|intent| {
+                    matches!(
+                        intent,
+                        GraphIntent::GrantWorkspaceAccess { workspace_id, .. }
+                            if workspace_id == "workspace:test"
+                    )
+                }));
+            }
+            ActionOutcome::Failure(ActionFailure { kind, reason }) => {
+                assert_eq!(kind, ActionFailureKind::Rejected);
+                assert!(reason.contains("no trusted peers"));
+            }
+        }
     }
 }

@@ -296,6 +296,11 @@ pub enum ActionOutcome {
 }
 ```
 
+Current status (2026-03-10): the runtime `ActionRegistry` now returns explicit `ActionOutcome`
+values, existing handlers fail explicitly instead of silently no-oping on invalid or rejected
+input, and Verse pair/share actions now emit reducer-handled intents instead of mutating Verse
+state directly inside the action layer.
+
 **Done gates:**
 - [ ] All 7 existing handlers refactored to return `ActionOutcome`.
 - [ ] No handler directly mutates `GraphBrowserApp` fields.

@@ -335,6 +335,14 @@ pub enum RuntimeEvent {
         entries: Vec<u8>,
     },
     SyncNow,
+    TrustPeer {
+        peer_id: String,
+        display_name: String,
+    },
+    GrantWorkspaceAccess {
+        peer_id: String,
+        workspace_id: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -599,6 +607,14 @@ pub enum GraphIntent {
         entries: Vec<u8>,
     },
     SyncNow,
+    TrustPeer {
+        peer_id: String,
+        display_name: String,
+    },
+    GrantWorkspaceAccess {
+        peer_id: String,
+        workspace_id: String,
+    },
     ForgetDevice {
         peer_id: String,
     },
@@ -844,6 +860,20 @@ impl From<RuntimeEvent> for GraphIntent {
             RuntimeEvent::ModLoadFailed { mod_id, reason } => Self::ModLoadFailed { mod_id, reason },
             RuntimeEvent::ApplyRemoteDelta { entries } => Self::ApplyRemoteDelta { entries },
             RuntimeEvent::SyncNow => Self::SyncNow,
+            RuntimeEvent::TrustPeer {
+                peer_id,
+                display_name,
+            } => Self::TrustPeer {
+                peer_id,
+                display_name,
+            },
+            RuntimeEvent::GrantWorkspaceAccess {
+                peer_id,
+                workspace_id,
+            } => Self::GrantWorkspaceAccess {
+                peer_id,
+                workspace_id,
+            },
         }
     }
 }
@@ -1118,6 +1148,20 @@ impl GraphIntent {
                 entries: entries.clone(),
             }),
             Self::SyncNow => Some(RuntimeEvent::SyncNow),
+            Self::TrustPeer {
+                peer_id,
+                display_name,
+            } => Some(RuntimeEvent::TrustPeer {
+                peer_id: peer_id.clone(),
+                display_name: display_name.clone(),
+            }),
+            Self::GrantWorkspaceAccess {
+                peer_id,
+                workspace_id,
+            } => Some(RuntimeEvent::GrantWorkspaceAccess {
+                peer_id: peer_id.clone(),
+                workspace_id: workspace_id.clone(),
+            }),
             _ => None,
         }
     }

@@ -1015,17 +1015,19 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
             query: query.to_string(),
         },
     );
+    let succeeded = execution.succeeded();
+    let intent_len = execution.intent_len();
 
     log::debug!(
         "registry action '{}' executed for omnibox query '{}'; succeeded={} intents={}",
-        execution.action_id,
+        ACTION_OMNIBOX_NODE_SEARCH,
         query,
-        execution.succeeded,
-        execution.intents.len()
+        succeeded,
+        intent_len
     );
 
     emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: if execution.succeeded {
+        channel_id: if succeeded {
             CHANNEL_ACTION_EXECUTE_SUCCEEDED
         } else {
             CHANNEL_ACTION_EXECUTE_FAILED
@@ -1033,7 +1035,7 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
         latency_us: 1,
     });
 
-    execution.intents
+    execution.into_intents()
 }
 
 pub(crate) struct Phase2GraphViewSubmitResult {
@@ -1086,7 +1088,7 @@ pub(crate) fn phase5_execute_verse_sync_now_action(app: &GraphBrowserApp) -> Vec
         runtime()
             .action
             .execute(ACTION_VERSE_SYNC_NOW, app, ActionPayload::VerseSyncNow);
-    execution.intents
+    execution.into_intents()
 }
 
 pub(crate) fn phase5_execute_verse_pair_local_peer_action(
@@ -1103,7 +1105,7 @@ pub(crate) fn phase5_execute_verse_pair_local_peer_action(
             },
         },
     );
-    execution.intents
+    execution.into_intents()
 }
 
 pub(crate) fn phase5_execute_verse_pair_code_action(
@@ -1120,7 +1122,7 @@ pub(crate) fn phase5_execute_verse_pair_code_action(
             },
         },
     );
-    execution.intents
+    execution.into_intents()
 }
 
 pub(crate) fn phase5_execute_verse_share_workspace_action(
@@ -1135,7 +1137,7 @@ pub(crate) fn phase5_execute_verse_share_workspace_action(
             workspace_id: workspace_id.to_string(),
         },
     );
-    execution.intents
+    execution.into_intents()
 }
 
 pub(crate) fn phase5_execute_verse_forget_device_action(
@@ -1150,7 +1152,7 @@ pub(crate) fn phase5_execute_verse_forget_device_action(
             node_id: node_id.to_string(),
         },
     );
-    execution.intents
+    execution.into_intents()
 }
 
 #[allow(dead_code)]
@@ -1329,17 +1331,20 @@ pub(crate) fn phase2_execute_graph_view_submit_action(
             input: input.to_string(),
         },
     );
+    let succeeded = execution.succeeded();
+    let intent_len = execution.intent_len();
+    let intents = execution.into_intents();
 
     log::debug!(
         "registry action '{}' executed for graph-view submit '{}'; succeeded={} intents={}",
-        execution.action_id,
+        ACTION_GRAPH_VIEW_SUBMIT,
         input,
-        execution.succeeded,
-        execution.intents.len()
+        succeeded,
+        intent_len
     );
 
     emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: if execution.succeeded {
+        channel_id: if succeeded {
             CHANNEL_ACTION_EXECUTE_SUCCEEDED
         } else {
             CHANNEL_ACTION_EXECUTE_FAILED
@@ -1347,8 +1352,8 @@ pub(crate) fn phase2_execute_graph_view_submit_action(
         latency_us: 1,
     });
 
-    let mutations = expect_graph_mutations(execution.intents, execution.action_id.as_str());
-    let open_selected_tile = execution.succeeded && !mutations.is_empty();
+    let mutations = expect_graph_mutations(intents, ACTION_GRAPH_VIEW_SUBMIT);
+    let open_selected_tile = succeeded && !mutations.is_empty();
     Phase2GraphViewSubmitResult {
         open_selected_tile,
         mutations,
@@ -1375,17 +1380,20 @@ pub(crate) fn phase2_execute_detail_view_submit_action(
             focused_node,
         },
     );
+    let succeeded = execution.succeeded();
+    let intent_len = execution.intent_len();
+    let intents = execution.into_intents();
 
     log::debug!(
         "registry action '{}' executed for detail-view submit '{}'; succeeded={} intents={}",
-        execution.action_id,
+        ACTION_DETAIL_VIEW_SUBMIT,
         normalized_url,
-        execution.succeeded,
-        execution.intents.len()
+        succeeded,
+        intent_len
     );
 
     emit_event(DiagnosticEvent::MessageReceived {
-        channel_id: if execution.succeeded {
+        channel_id: if succeeded {
             CHANNEL_ACTION_EXECUTE_SUCCEEDED
         } else {
             CHANNEL_ACTION_EXECUTE_FAILED
@@ -1393,8 +1401,7 @@ pub(crate) fn phase2_execute_detail_view_submit_action(
         latency_us: 1,
     });
 
-    let (mutations, runtime_events) =
-        split_detail_submit_intents(execution.intents, execution.action_id.as_str());
+    let (mutations, runtime_events) = split_detail_submit_intents(intents, ACTION_DETAIL_VIEW_SUBMIT);
     let open_selected_tile = mutations
         .iter()
         .any(|mutation| matches!(mutation, GraphMutation::CreateNodeAtUrl { .. }));
@@ -1609,16 +1616,18 @@ pub(crate) fn phase2_execute_omnibox_node_search_action_for_tests(
             query: query.to_string(),
         },
     );
+    let succeeded = execution.succeeded();
+    let intent_len = execution.intent_len();
 
     log::debug!(
         "registry action '{}' executed in test flow; succeeded={} intents={}",
-        execution.action_id,
-        execution.succeeded,
-        execution.intents.len()
+        ACTION_OMNIBOX_NODE_SEARCH,
+        succeeded,
+        intent_len
     );
 
     diagnostics_state.emit_message_received_for_tests(
-        if execution.succeeded {
+        if succeeded {
             CHANNEL_ACTION_EXECUTE_SUCCEEDED
         } else {
             CHANNEL_ACTION_EXECUTE_FAILED
@@ -1626,7 +1635,7 @@ pub(crate) fn phase2_execute_omnibox_node_search_action_for_tests(
         1,
     );
 
-    execution.intents
+    execution.into_intents()
 }
 
 #[cfg(test)]
@@ -1644,9 +1653,11 @@ pub(crate) fn phase2_execute_graph_view_submit_action_for_tests(
             input: input.to_string(),
         },
     );
+    let succeeded = execution.succeeded();
+    let intents = execution.into_intents();
 
     diagnostics_state.emit_message_received_for_tests(
-        if execution.succeeded {
+        if succeeded {
             CHANNEL_ACTION_EXECUTE_SUCCEEDED
         } else {
             CHANNEL_ACTION_EXECUTE_FAILED
@@ -1654,8 +1665,8 @@ pub(crate) fn phase2_execute_graph_view_submit_action_for_tests(
         1,
     );
 
-    let mutations = expect_graph_mutations(execution.intents, execution.action_id.as_str());
-    let open_selected_tile = execution.succeeded && !mutations.is_empty();
+    let mutations = expect_graph_mutations(intents, ACTION_GRAPH_VIEW_SUBMIT);
+    let open_selected_tile = succeeded && !mutations.is_empty();
     Phase2GraphViewSubmitResult {
         open_selected_tile,
         mutations,
@@ -1680,9 +1691,11 @@ pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
             focused_node,
         },
     );
+    let succeeded = execution.succeeded();
+    let intents = execution.into_intents();
 
     diagnostics_state.emit_message_received_for_tests(
-        if execution.succeeded {
+        if succeeded {
             CHANNEL_ACTION_EXECUTE_SUCCEEDED
         } else {
             CHANNEL_ACTION_EXECUTE_FAILED
@@ -1690,8 +1703,7 @@ pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
         1,
     );
 
-    let (mutations, runtime_events) =
-        split_detail_submit_intents(execution.intents, execution.action_id.as_str());
+    let (mutations, runtime_events) = split_detail_submit_intents(intents, ACTION_DETAIL_VIEW_SUBMIT);
     let open_selected_tile = mutations
         .iter()
         .any(|mutation| matches!(mutation, GraphMutation::CreateNodeAtUrl { .. }));
@@ -2412,21 +2424,30 @@ mod tests {
     }
 
     #[test]
-    fn phase5_action_registry_pair_local_peer_returns_no_reducer_intents() {
+    fn phase5_action_registry_pair_local_peer_emits_trust_peer_intent() {
         let app = GraphBrowserApp::new_for_testing();
         let peer_id = iroh::SecretKey::generate(&mut rand::thread_rng())
             .public()
             .to_string();
 
         let intents = phase5_execute_verse_pair_local_peer_action(&app, &peer_id);
-        assert!(intents.is_empty());
+        assert!(matches!(
+            intents.first(),
+            Some(GraphIntent::TrustPeer { peer_id: emitted, .. }) if emitted == &peer_id
+        ));
     }
 
     #[test]
-    fn phase5_action_registry_share_workspace_returns_no_reducer_intents() {
+    fn phase5_action_registry_share_workspace_emits_grant_access_intents() {
         let app = GraphBrowserApp::new_for_testing();
         let intents = phase5_execute_verse_share_workspace_action(&app, "workspace:test");
-        assert!(intents.is_empty());
+        assert!(intents.is_empty() || intents.iter().all(|intent| {
+            matches!(
+                intent,
+                GraphIntent::GrantWorkspaceAccess { workspace_id, .. }
+                    if workspace_id == "workspace:test"
+            )
+        }));
     }
 
     #[test]

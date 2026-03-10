@@ -2416,6 +2416,49 @@ impl GraphBrowserApp {
                     }
                 }
             }
+            GraphIntent::TrustPeer {
+                peer_id,
+                display_name,
+            } => match peer_id.parse::<iroh::NodeId>() {
+                Ok(node_id) => {
+                    crate::mods::native::verse::trust_peer(
+                        crate::mods::native::verse::TrustedPeer {
+                            node_id,
+                            display_name,
+                            role: crate::mods::native::verse::PeerRole::Friend,
+                            added_at: std::time::SystemTime::now(),
+                            last_seen: Some(std::time::SystemTime::now()),
+                            workspace_grants: Vec::new(),
+                        },
+                    );
+                    log::info!("paired trusted peer: {peer_id}");
+                }
+                Err(error) => {
+                    log::warn!("invalid peer id for trust-peer '{peer_id}': {error}");
+                }
+            },
+            GraphIntent::GrantWorkspaceAccess {
+                peer_id,
+                workspace_id,
+            } => match peer_id.parse::<iroh::NodeId>() {
+                Ok(node_id) => {
+                    crate::mods::native::verse::grant_workspace_access(
+                        node_id,
+                        workspace_id.clone(),
+                        crate::mods::native::verse::AccessLevel::ReadWrite,
+                    );
+                    log::info!(
+                        "granting workspace access '{}' to peer {}",
+                        workspace_id,
+                        peer_id
+                    );
+                }
+                Err(error) => {
+                    log::warn!(
+                        "invalid peer id for grant-workspace-access '{peer_id}': {error}"
+                    );
+                }
+            },
             GraphIntent::ForgetDevice { peer_id } => match peer_id.parse::<iroh::NodeId>() {
                 Ok(node_id) => {
                     crate::mods::native::verse::revoke_peer(node_id);
@@ -2800,6 +2843,12 @@ impl GraphBrowserApp {
         phase2_apply_input_binding_remaps(remaps)?;
         self.save_input_binding_remaps(remaps);
         Ok(())
+    }
+
+    pub fn input_binding_remaps(&self) -> Vec<InputBindingRemap> {
+        self.load_workspace_layout_json(Self::SETTINGS_INPUT_BINDING_REMAPS_NAME)
+            .and_then(|raw| Self::decode_input_binding_remaps(&raw).ok())
+            .unwrap_or_default()
     }
 
     fn save_radial_menu_shortcut(&mut self) {
