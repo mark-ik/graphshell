@@ -5,6 +5,7 @@
 **Scope**: Defines the canonical submission, review, checkpoint, and payout surfaces for Verse FLora communities. This spec builds on the Engram spec and treats engrams as the submission payload, with adapter memories as the primary trainable component.
 **Related**:
 - `design_docs/verse_docs/implementation_strategy/engram_spec.md`
+- `design_docs/verse_docs/implementation_strategy/lineage_dag_spec.md`
 - `design_docs/verse_docs/implementation_strategy/proof_of_access_ledger_spec.md`
 - `design_docs/verse_docs/implementation_strategy/community_governance_spec.md`
 - `design_docs/verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`

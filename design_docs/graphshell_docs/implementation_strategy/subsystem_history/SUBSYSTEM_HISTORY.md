@@ -12,7 +12,7 @@
 - `2026-02-20_edge_traversal_model_research.md` (temporal model assumptions)
 - `2026-03-08_unified_history_architecture_plan.md` (top-level history taxonomy and sequencing)
 - `PLANNING_REGISTER.md` (temporal navigation adoption + Stage F append notes)
-**Related**: `SUBSYSTEM_STORAGE.md` (archive/WAL correctness), `SUBSYSTEM_DIAGNOSTICS.md` (timeline observability)
+**Related**: `SUBSYSTEM_STORAGE.md` (archive/WAL correctness), `SUBSYSTEM_DIAGNOSTICS.md` (timeline observability), `../../../verse_docs/implementation_strategy/lineage_dag_spec.md`, `../../../verse_docs/implementation_strategy/2026-03-09_agent_wal_and_distillery_architecture_plan.md`
 
 **Policy authority**: This file is the single canonical policy authority for the History subsystem.
 Supporting history docs may refine contracts, interfaces, and execution details, but must defer policy authority to this file.
@@ -30,6 +30,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Restoration policy**: Returning from temporal preview to present state must be deterministic and lossless.
 4. **Archive-fidelity policy**: Dissolved/archived traversal state must preserve identity and reconstructable timeline semantics.
 5. **Temporal-observability policy**: Timeline append/replay/restore failures must surface via explicit diagnostics and tests.
+6. **Separate-authorities policy**: History may share traversal semantics with `AWAL` and lineage DAGs, but it remains the authority only for graph temporal truth.
 
 ---
 
@@ -45,6 +46,14 @@ History in Graphshell is not just a pane. It is a temporal truth system spanning
 The dominant failure mode is **silent temporal integrity erosion**: traversal append order becomes incorrect, preview mode mutates live state, replay writes to WAL, dissolved/archive transfers lose entries, or "return to present" leaks preview state into the live graph.
 
 Without subsystem-level treatment, every traversal/UI/persistence change becomes an unaudited temporal correctness boundary crossing.
+
+History also now sits next to two adjacent append-only traversal-capable systems:
+
+- `AWAL`, which owns agent temporal truth
+- lineage DAGs, which own provenance truth for engrams and FLora checkpoints
+
+The subsystem must make that family resemblance clear without collapsing the
+three systems into one storage authority.
 
 ---
 
@@ -86,6 +95,35 @@ Without subsystem-level treatment, every traversal/UI/persistence change becomes
 
 1. **Focus/selection restoration** — Exiting Room/Map preview/history navigation restores focus/selection per the documented policy.
 2. **Timeline cursor validity** — Cursor/index references remain valid across archive compaction or emit explicit invalidation with fallback behavior.
+
+### 3.5 Shared Traversal Semantics
+
+History traversal is structurally similar to traversal in `AWAL` and lineage
+DAG systems:
+
+- all can use cursor-based walks
+- all can use cutoff/filter/replay-like policies
+- all can reconstruct a selected state from append-only records
+
+But the truth source differs:
+
+- History = graph/content state over time
+- `AWAL` = agent observation/action state over time
+- lineage DAG = provenance/derivation state over ancestry
+
+The shared primitive is traversal semantics, not one unified history store.
+
+### 3.6 Boundary Event Requirement
+
+When node-derived activity is distilled or promoted into intelligence
+artifacts, the operation should produce linked records across systems:
+
+- a history-side audit event
+- one or more `AWAL` entries
+- one or more lineage-DAG references
+
+History owns only the history-side audit/provenance event, not the downstream
+agent or lineage truth.
 
 ---
 
@@ -204,6 +242,8 @@ Required checks for PRs touching:
 | **Preview/replay controller** (future) | Detached replay state, isolation enforcement, clean return-to-present |
 | **Diagnostics subsystem** | History channel visibility, invariant violations, health summaries |
 
+History does **not** own `AWAL`, distillation policy, or lineage DAG truth.
+
 ---
 
 ## 9. Current Status & Gaps
@@ -221,6 +261,8 @@ Required checks for PRs touching:
 - Node navigation history and node audit history implementation/spec closure.
 - Final UI closure for Stage F replay controls, preview affordances, and
   user-facing return-to-present semantics.
+- Canonical history-side boundary-event schema for distillation/promotion links
+  into `AWAL` and lineage systems.
 
 ## 10. Dependencies / Blockers
 
@@ -247,6 +289,8 @@ Required checks for PRs touching:
 5. **Node navigation history design** — canonical per-node address-history
    track and WAL shape.
 6. **Node audit history design** — replace deferred stub with a concrete plan.
+7. **Boundary-event schema** — define the history-side audit event that links
+   node activity to distillation/promotion events in `AWAL` and lineage DAGs.
 
 ---
 
@@ -259,3 +303,5 @@ History is a guaranteed system property when:
 - Replay/preview isolation contracts are implemented and validated (when Stage F lands)
 - Return-to-present restoration is deterministic and tested
 - History degradation states are explicit, observable, and user-visible
+- The history subsystem's relationship to `AWAL` and lineage traversal is
+  explicit without blurring ownership

@@ -10,6 +10,8 @@
 - `../../technical_architecture/2026-02-18_universal_node_content_model.md`
 - `../../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`
 - `../2026-03-01_ux_migration_design_spec.md`
+- `../../../verse_docs/implementation_strategy/lineage_dag_spec.md`
+- `../../../verse_docs/implementation_strategy/2026-03-09_agent_wal_and_distillery_architecture_plan.md`
 
 ---
 
@@ -87,6 +89,8 @@ history track.
 - metadata changes (`title`, tags, address, notes, `mime_hint`, etc.)
 - node lifecycle events (tombstone, restore, delete)
 - workbench-affecting node events when they are semantically relevant
+- cross-system boundary events when node-derived activity is promoted into
+  intelligence artifacts
 
 **Current status**: Deferred stub only.
 
@@ -160,6 +164,50 @@ Rules:
 4. Undo/redo stays separate from the append-only history system, though some
    events may be described in audit surfaces for provenance.
 
+### 3.1 Shared Traversal Semantics, Separate Truths
+
+History now sits adjacent to two other append-only traversal-capable systems:
+
+- `AWAL`, which owns agent temporal truth
+- lineage DAGs, which own provenance truth for engrams and FLora checkpoints
+
+The connection is real, but it must be described precisely.
+
+Shared structure:
+
+- all three systems can support cursor-based walks
+- all three systems can support cutoff/filter/replay-like policies
+- all three systems can expose user-facing traversal controls over append-only
+  records
+
+Different truth sources:
+
+- **history traversal** = graph/content state over time
+- **`AWAL` replay** = agent observation/action state over time
+- **lineage traversal** = provenance/derivation state over ancestry
+
+History should therefore share traversal semantics with those systems where
+useful, but it must not be redefined as a universal DAG store for all three.
+
+### 3.2 NodeAuditHistory is the History-side boundary surface
+
+When a distillation or promotion step crosses from graph/node activity into
+intelligence artifacts, History should not try to absorb the whole downstream
+structure.
+
+Instead, one underlying operation may emit linked records into multiple
+authorities:
+
+1. a `NodeAuditHistory` event in the history subsystem
+2. one or more `AWAL` entries for the responsible agent/process
+3. one or more lineage-DAG nodes or edges in engram/FLora space
+
+Those records should be linked by shared identifiers or provenance references,
+not flattened into one universal node shared across subsystems.
+
+This is the missing cross-system boundary event that the future
+`NodeAuditHistory` spec needs to define.
+
 ---
 
 ## 4. Current Implementation Map
@@ -207,6 +255,7 @@ Graph/core should own:
 - node audit event types
 - traversal event types and edge payload truth
 - WAL entry schemas for all history tracks except renderer-local ephemeral state
+- history-side boundary events that describe node-to-intelligence promotions
 
 This aligns with `2026-03-08_graphshell_core_extraction_plan.md`.
 
@@ -229,6 +278,18 @@ Workbench owns:
 - return-to-focus behavior when leaving history/preview panes
 
 Workbench does **not** own history truth.
+
+### 5.4 Explicit non-ownership
+
+History does **not** own:
+
+- agent journals or `AWAL`
+- engram lineage DAGs
+- FLora checkpoint lineage DAGs
+- distillation policy
+
+History may describe boundary crossings into those systems through audit
+records, but those systems remain separate authorities.
 
 ---
 
@@ -278,6 +339,10 @@ Define canonical event shapes for:
 - `AppendTraversal`
 - `NavigateNode`
 - `AppendNodeAuditEvent`
+
+The `AppendNodeAuditEvent` family should reserve room for linked boundary-event
+references into `AWAL` and lineage/engram systems without making those systems
+part of history truth.
 
 Document which stay in core and which host paths merely adapt into them.
 
@@ -359,6 +424,10 @@ not closed.
    Replace the deferred stub with a real spec once traversal and replay
    contracts are stable.
 
+   That spec should explicitly define the history-side record for
+   distillation/promotion boundary events and how it links to `AWAL` and
+   lineage DAG references.
+
 6. **Mixed timeline decision**
    Only after 4 and 5 are specified should Graphshell decide whether History
    Manager becomes a multi-track timeline or remains a traversal-first surface
@@ -377,4 +446,5 @@ The overarching history architecture is coherent when:
 4. Node navigation history and node audit history each have a concrete plan or
    canonical spec rather than being implied by unrelated architecture docs.
 5. History Manager surface contracts match runtime behavior.
-
+6. The connection to `AWAL` and lineage traversal is clear at the semantic
+   level without collapsing those systems into history ownership.

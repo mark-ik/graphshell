@@ -6,6 +6,7 @@
 **Related**:
 - `design_docs/verse_docs/implementation_strategy/self_hosted_model_spec.md`
 - `design_docs/verse_docs/implementation_strategy/2026-02-26_intelligence_memory_architecture_stm_ltm_engrams_plan.md`
+- `design_docs/verse_docs/implementation_strategy/lineage_dag_spec.md`
 - `design_docs/verse_docs/technical_architecture/2026-02-23_verse_tier2_architecture.md`
 - `design_docs/verse_docs/technical_architecture/VERSE_AS_NETWORK.md`
 
