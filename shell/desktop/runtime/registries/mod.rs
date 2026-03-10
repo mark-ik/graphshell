@@ -1,9 +1,11 @@
 pub(crate) mod action;
+pub(crate) mod canvas;
 pub(crate) mod identity;
 pub(crate) mod input;
 pub(crate) mod knowledge;
 pub(crate) mod lens;
 pub(crate) mod nostr_core;
+pub(crate) mod physics_profile;
 pub(crate) mod protocol;
 pub(crate) mod renderer;
 pub(crate) mod signal_routing;
@@ -15,6 +17,9 @@ use std::sync::{Mutex, OnceLock};
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RendererId, RuntimeEvent,
     WorkbenchIntent,
+};
+use crate::registries::domain::layout::canvas::{
+    CanvasLassoBinding, CanvasSurfaceResolution,
 };
 use crate::graph::NodeKey;
 use crate::registries::atomic::ProtocolHandlerProviders;
@@ -36,6 +41,7 @@ use action::{
     ACTION_VERSE_FORGET_DEVICE, ACTION_VERSE_PAIR_DEVICE, ACTION_VERSE_SHARE_WORKSPACE,
     ACTION_VERSE_SYNC_NOW, ActionCapability, ActionPayload, ActionRegistry, PairingMode,
 };
+use canvas::CanvasRegistry;
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
 use input::{
@@ -47,6 +53,7 @@ use nostr_core::{
     NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
     NostrSubscriptionHandle, NostrUnsignedEvent,
 };
+use physics_profile::PhysicsProfileRegistry;
 use protocol::{
     ProtocolRegistry, ProtocolResolution, ProtocolResolveControl, ProtocolResolveOutcome,
 };
@@ -291,6 +298,9 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &s
     "register.signal_routing.subsystem_health_propagated";
 pub(crate) const CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED: &str =
     "registry.workbench_surface.profile_activated";
+pub(crate) const CHANNEL_CANVAS_PROFILE_ACTIVATED: &str = "registry.canvas.profile_activated";
+pub(crate) const CHANNEL_PHYSICS_PROFILE_ACTIVATED: &str =
+    "registry.physics_profile.activated";
 pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
@@ -319,6 +329,8 @@ pub(crate) struct RegistryRuntime {
     lens: LensRegistry,
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
+    canvas: Mutex<CanvasRegistry>,
+    physics_profile: Mutex<PhysicsProfileRegistry>,
     protocol: ProtocolRegistry,
     #[allow(dead_code)]
     renderer: Mutex<RendererRegistry>,
@@ -490,6 +502,8 @@ impl RegistryRuntime {
             input: Mutex::new(InputRegistry::default()),
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
+            canvas: Mutex::new(CanvasRegistry::default()),
+            physics_profile: Mutex::new(PhysicsProfileRegistry::default()),
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
@@ -546,6 +560,8 @@ impl RegistryRuntime {
             input: Mutex::new(InputRegistry::default()),
             lens: LensRegistry::default(),
             nostr_core: NostrCoreRegistry::default(),
+            canvas: Mutex::new(CanvasRegistry::default()),
+            physics_profile: Mutex::new(PhysicsProfileRegistry::default()),
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
@@ -560,6 +576,84 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .describe_workflow(workflow_id)
+    }
+
+    fn resolve_active_canvas_profile(&self) -> CanvasSurfaceResolution {
+        self.canvas
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_profile()
+    }
+
+    fn set_active_canvas_profile(&self, profile_id: &str) -> CanvasSurfaceResolution {
+        let resolution = self
+            .canvas
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_active_profile(profile_id);
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_CANVAS_PROFILE_ACTIVATED,
+            byte_len: resolution.resolved_id.len(),
+        });
+        resolution
+    }
+
+    fn set_active_canvas_lasso_binding(
+        &self,
+        binding: CanvasLassoBinding,
+    ) -> CanvasSurfaceResolution {
+        let resolution = self
+            .canvas
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_active_lasso_binding(binding);
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_CANVAS_PROFILE_ACTIVATED,
+            byte_len: 1,
+        });
+        resolution
+    }
+
+    fn set_active_canvas_keyboard_pan_step(&self, step: f32) -> CanvasSurfaceResolution {
+        let resolution = self
+            .canvas
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_active_keyboard_pan_step(step);
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_CANVAS_PROFILE_ACTIVATED,
+            byte_len: step.round().max(1.0) as usize,
+        });
+        resolution
+    }
+
+    fn resolve_active_physics_profile(
+        &self,
+    ) -> crate::registries::atomic::lens::PhysicsProfileResolution {
+        self.physics_profile
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .active_profile()
+    }
+
+    fn set_active_physics_profile(
+        &self,
+        profile_id: &str,
+    ) -> crate::registries::atomic::lens::PhysicsProfileResolution {
+        let resolution = self
+            .physics_profile
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_active_profile(profile_id);
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_PHYSICS_PROFILE_ACTIVATED,
+            byte_len: resolution.resolved_id.len(),
+        });
+        resolution
     }
 
     pub(crate) fn describe_workbench_surface(
@@ -603,6 +697,8 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .resolve_workflow(Some(workflow_id));
+        self.set_active_canvas_profile(&resolution.descriptor.canvas_profile);
+        self.set_active_physics_profile(&resolution.descriptor.physics_profile);
         let workbench_profile = self
             .workbench_surface
             .lock()
@@ -1570,9 +1666,11 @@ pub(crate) fn phase0_decide_navigation_with_control(
 
 pub(crate) fn phase3_resolve_viewer_surface_profile(_viewer_id: &str) -> ViewerSurfaceResolution {
     let layout_domain = LayoutDomainRegistry::default();
+    let active_canvas = runtime().resolve_active_canvas_profile();
+    let active_workbench = runtime().resolve_active_workbench_surface_profile();
     let profile_resolution = layout_domain.resolve_profile(
-        crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT,
-        crate::registries::domain::layout::workbench_surface::WORKBENCH_SURFACE_DEFAULT,
+        &active_canvas.resolved_id,
+        &active_workbench.resolved_id,
         VIEWER_SURFACE_DEFAULT,
     );
 
@@ -1625,6 +1723,35 @@ pub(crate) fn phase3_resolve_viewer_surface_profile(_viewer_id: &str) -> ViewerS
 
 pub(crate) fn phase3_resolve_active_workbench_surface_profile() -> WorkbenchSurfaceResolution {
     runtime().resolve_active_workbench_surface_profile()
+}
+
+pub(crate) fn phase3_resolve_active_canvas_profile() -> CanvasSurfaceResolution {
+    runtime().resolve_active_canvas_profile()
+}
+
+pub(crate) fn phase3_set_active_canvas_profile(profile_id: &str) -> CanvasSurfaceResolution {
+    runtime().set_active_canvas_profile(profile_id)
+}
+
+pub(crate) fn phase3_set_active_canvas_lasso_binding(
+    binding: CanvasLassoBinding,
+) -> CanvasSurfaceResolution {
+    runtime().set_active_canvas_lasso_binding(binding)
+}
+
+pub(crate) fn phase3_set_active_canvas_keyboard_pan_step(step: f32) -> CanvasSurfaceResolution {
+    runtime().set_active_canvas_keyboard_pan_step(step)
+}
+
+pub(crate) fn phase3_resolve_active_physics_profile(
+) -> crate::registries::atomic::lens::PhysicsProfileResolution {
+    runtime().resolve_active_physics_profile()
+}
+
+pub(crate) fn phase3_set_active_physics_profile(
+    profile_id: &str,
+) -> crate::registries::atomic::lens::PhysicsProfileResolution {
+    runtime().set_active_physics_profile(profile_id)
 }
 
 pub(crate) fn phase3_set_active_workbench_surface_profile(
@@ -2407,6 +2534,16 @@ mod tests {
         assert!(
             channels
                 .iter()
+                .any(|entry| entry.channel_id == CHANNEL_CANVAS_PROFILE_ACTIVATED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_PHYSICS_PROFILE_ACTIVATED)
+        );
+        assert!(
+            channels
+                .iter()
                 .any(|entry| entry.channel_id == CHANNEL_WORKFLOW_ACTIVATED)
         );
     }
@@ -2755,6 +2892,45 @@ mod tests {
         assert_eq!(
             resolution.resolved_id,
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT
+        );
+    }
+
+    #[test]
+    fn phase3_canvas_profile_switches_and_applies_workspace_preferences() {
+        let switched = phase3_set_active_canvas_profile(
+            crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT,
+        );
+        assert!(switched.matched);
+        assert_eq!(
+            switched.resolved_id,
+            crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT
+        );
+
+        let updated = phase3_set_active_canvas_keyboard_pan_step(36.0);
+        assert_eq!(updated.profile.navigation.keyboard_pan_step, 36.0);
+
+        let updated =
+            phase3_set_active_canvas_lasso_binding(CanvasLassoBinding::ShiftLeftDrag);
+        assert_eq!(
+            updated.profile.interaction.lasso_binding,
+            CanvasLassoBinding::ShiftLeftDrag
+        );
+    }
+
+    #[test]
+    fn phase3_physics_profile_switches_and_falls_back() {
+        let gas = phase3_set_active_physics_profile(physics_profile::PHYSICS_PROFILE_GAS);
+        assert!(gas.matched);
+        assert_eq!(
+            gas.resolved_id,
+            physics_profile::PHYSICS_PROFILE_GAS
+        );
+
+        let fallback = phase3_set_active_physics_profile("physics:missing");
+        assert!(fallback.fallback_used);
+        assert_eq!(
+            fallback.resolved_id,
+            physics_profile::PHYSICS_PROFILE_LIQUID
         );
     }
 

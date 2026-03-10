@@ -157,6 +157,9 @@ impl WorkflowRegistry {
         }
 
         let descriptor = resolution.descriptor;
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_profile(
+            &descriptor.canvas_profile,
+        );
         graph_app.set_default_registry_lens_id(Some(&descriptor.lens_profile));
         graph_app.set_default_registry_physics_id(Some(&descriptor.physics_profile));
         graph_app.set_default_registry_theme_id(descriptor.theme_profile.as_deref());

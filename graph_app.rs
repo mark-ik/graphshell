@@ -2824,12 +2824,18 @@ impl GraphBrowserApp {
     }
 
     pub fn keyboard_pan_step(&self) -> f32 {
-        self.workspace.keyboard_pan_step
+        crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
+            .profile
+            .navigation
+            .keyboard_pan_step
     }
 
     pub fn set_keyboard_pan_step(&mut self, step: f32) {
         let normalized = step.clamp(1.0, 200.0);
         self.workspace.keyboard_pan_step = normalized;
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
+            normalized,
+        );
         self.save_keyboard_pan_step();
     }
 
@@ -2862,11 +2868,17 @@ impl GraphBrowserApp {
     }
 
     pub fn lasso_binding_preference(&self) -> CanvasLassoBinding {
-        self.workspace.lasso_binding_preference
+        crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
+            .profile
+            .interaction
+            .lasso_binding
     }
 
     pub fn set_lasso_binding_preference(&mut self, binding: CanvasLassoBinding) {
         self.workspace.lasso_binding_preference = binding;
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
+            binding,
+        );
         self.save_lasso_binding_preference();
     }
 
@@ -2996,6 +3008,12 @@ impl GraphBrowserApp {
     pub fn set_default_registry_physics_id(&mut self, physics_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(physics_id.map(str::to_owned));
         self.workspace.default_registry_physics_id = normalized.clone();
+        let resolution = crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
+            normalized
+                .as_deref()
+                .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT),
+        );
+        self.apply_physics_profile(&resolution.profile);
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME,
             normalized.as_deref().unwrap_or(""),
@@ -3173,6 +3191,10 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
+        let canvas_profile_id = self
+            .load_workspace_layout_json(Self::SETTINGS_CANVAS_PROFILE_ID_NAME)
+            .map(|raw| raw.trim().to_ascii_lowercase())
+            .filter(|raw| !raw.is_empty());
         let workbench_surface_profile_id = self
             .load_workspace_layout_json(Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME)
             .map(|raw| raw.trim().to_ascii_lowercase())
@@ -3181,6 +3203,33 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME)
             .map(|raw| raw.trim().to_ascii_lowercase())
             .filter(|raw| !raw.is_empty());
+        if let Some(physics_id) = self.workspace.default_registry_physics_id.as_deref() {
+            let resolution =
+                crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
+                    physics_id,
+                );
+            self.apply_physics_profile(&resolution.profile);
+        } else {
+            let resolution = crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
+                crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
+            );
+            self.apply_physics_profile(&resolution.profile);
+        }
+        if let Some(profile_id) = canvas_profile_id.as_deref() {
+            crate::shell::desktop::runtime::registries::phase3_set_active_canvas_profile(
+                profile_id,
+            );
+        } else {
+            crate::shell::desktop::runtime::registries::phase3_set_active_canvas_profile(
+                crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT,
+            );
+        }
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
+            self.workspace.keyboard_pan_step,
+        );
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
+            self.workspace.lasso_binding_preference,
+        );
         if let Some(profile_id) = workbench_surface_profile_id.as_deref() {
             crate::shell::desktop::runtime::registries::phase3_set_active_workbench_surface_profile(
                 profile_id,
@@ -3194,6 +3243,12 @@ impl GraphBrowserApp {
         {
             warn!("Ignoring invalid persisted workflow activation '{workflow_id}': {error:?}");
         }
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_keyboard_pan_step(
+            self.workspace.keyboard_pan_step,
+        );
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
+            self.workspace.lasso_binding_preference,
+        );
         self.load_graph_view_layout_manager_state();
 
         crate::registries::atomic::diagnostics::apply_persisted_channel_configs(
@@ -3527,6 +3582,27 @@ impl GraphBrowserApp {
     /// Update force-directed layout configuration.
     pub fn update_physics_config(&mut self, config: FruchtermanReingoldWithCenterGravityState) {
         self.workspace.physics = config;
+    }
+
+    fn apply_physics_profile(&mut self, profile: &PhysicsProfile) {
+        let was_running = self.workspace.physics.base.is_running;
+        let mut config = Self::default_physics_state();
+        profile.apply_to_state(&mut config);
+        config.base.is_running = was_running || !self.workspace.is_interacting;
+        config.base.last_avg_displacement = None;
+        config.base.step_count = 0;
+        self.workspace.physics = config;
+        self.workspace.drag_release_frames_remaining = 0;
+
+        if self.workspace.is_interacting {
+            self.workspace.physics_running_before_interaction = Some(true);
+        } else {
+            self.workspace.physics.base.is_running = true;
+        }
+
+        for view in self.workspace.views.values_mut() {
+            view.lens.physics = profile.clone();
+        }
     }
 
     fn apply_graph_delta_and_sync(&mut self, delta: GraphDelta) -> GraphDeltaResult {
