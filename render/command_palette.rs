@@ -21,6 +21,9 @@ use crate::render::action_registry::{
 use crate::render::command_profile::{
     load_category_recency, load_pinned_categories, record_recent_category, toggle_category_pin,
 };
+use crate::shell::desktop::runtime::registries::{
+    self, action as runtime_action, workflow as runtime_workflow,
+};
 use crate::shell::desktop::workbench::pane_model::{PaneId, ToolPaneState, ViewerId};
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::{Key, Window};
@@ -704,6 +707,76 @@ pub(crate) fn execute_action(
         ActionId::PersistOpenHub => app.enqueue_workbench_intent(WorkbenchIntent::OpenToolPane {
             kind: ToolPaneState::Settings,
         }),
+        ActionId::PersistOpenHistoryManager => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+                runtime_action::ActionPayload::WorkbenchOpenHistoryManager,
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute '{}': {}",
+                    runtime_action::ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
+        ActionId::WorkbenchActivateWorkflowDefault => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
+                runtime_action::ActionPayload::WorkbenchActivateWorkflow {
+                    workflow_id: runtime_workflow::WORKFLOW_DEFAULT.to_string(),
+                },
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute workflow '{}': {}",
+                    runtime_workflow::WORKFLOW_DEFAULT,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
+        ActionId::WorkbenchActivateWorkflowResearch => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
+                runtime_action::ActionPayload::WorkbenchActivateWorkflow {
+                    workflow_id: runtime_workflow::WORKFLOW_RESEARCH.to_string(),
+                },
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute workflow '{}': {}",
+                    runtime_workflow::WORKFLOW_RESEARCH,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
+        ActionId::WorkbenchActivateWorkflowReading => {
+            let runtime_intents = registries::phase3_execute_registry_action(
+                app,
+                runtime_action::ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
+                runtime_action::ActionPayload::WorkbenchActivateWorkflow {
+                    workflow_id: runtime_workflow::WORKFLOW_READING.to_string(),
+                },
+            )
+            .unwrap_or_else(|error| {
+                log::warn!(
+                    "command palette failed to execute workflow '{}': {}",
+                    runtime_workflow::WORKFLOW_READING,
+                    error.reason
+                );
+                Vec::new()
+            });
+            intents.extend(runtime_intents);
+        }
     }
 }
 
@@ -787,6 +860,54 @@ mod tests {
                     && *node == target_node
                     && viewer_id_override.as_ref().map(|id| id.as_str()) == Some("viewer:wry")
         ));
+    }
+
+    #[test]
+    fn execute_action_history_manager_routes_through_runtime_dispatch() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::PersistOpenHistoryManager,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenToolPane {
+                kind: ToolPaneState::HistoryManager
+            }]
+        ));
+    }
+
+    #[test]
+    fn execute_action_activate_workflow_routes_through_runtime_dispatch() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut intents = Vec::new();
+
+        execute_action(
+            &mut app,
+            ActionId::WorkbenchActivateWorkflowResearch,
+            None,
+            None,
+            &mut intents,
+            None,
+            None,
+        );
+
+        assert!(intents.is_empty());
+        assert_eq!(
+            crate::shell::desktop::runtime::registries::phase3_resolve_active_workbench_surface_profile().resolved_id,
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
+        );
+        assert_eq!(app.default_registry_physics_id(), Some("physics:float"));
+        assert!(app.take_pending_workbench_intents().is_empty());
     }
 
     #[test]

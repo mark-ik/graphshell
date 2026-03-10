@@ -59,6 +59,8 @@ pub(crate) const ACTION_WORKBENCH_RESTORE_SESSION: &str = "workbench:restore_ses
 pub(crate) const ACTION_WORKBENCH_SAVE_GRAPH: &str = "workbench:save_graph";
 pub(crate) const ACTION_WORKBENCH_RESTORE_GRAPH: &str = "workbench:restore_graph";
 pub(crate) const ACTION_WORKBENCH_OPEN_PERSISTENCE_HUB: &str = "workbench:open_persistence_hub";
+pub(crate) const ACTION_WORKBENCH_OPEN_HISTORY_MANAGER: &str = "workbench:open_history_manager";
+pub(crate) const ACTION_WORKBENCH_ACTIVATE_WORKFLOW: &str = "workbench:activate_workflow";
 
 // Verse sync actions (Step 5.3)
 pub(crate) const ACTION_VERSE_PAIR_DEVICE: &str = "verse:pair_device";
@@ -137,6 +139,10 @@ pub(crate) enum ActionPayload {
         name: Option<String>,
     },
     WorkbenchOpenPersistenceHub,
+    WorkbenchOpenHistoryManager,
+    WorkbenchActivateWorkflow {
+        workflow_id: String,
+    },
     OmniboxNodeSearch {
         query: String,
     },
@@ -205,6 +211,7 @@ pub(crate) struct ActionDispatch {
     pub(crate) intents: Vec<GraphIntent>,
     pub(crate) workbench_intents: Vec<WorkbenchIntent>,
     pub(crate) app_commands: Vec<AppCommand>,
+    pub(crate) runtime_actions: Vec<RuntimeAction>,
 }
 
 impl ActionDispatch {
@@ -213,6 +220,7 @@ impl ActionDispatch {
             intents,
             workbench_intents: Vec::new(),
             app_commands: Vec::new(),
+            runtime_actions: Vec::new(),
         }
     }
 
@@ -221,6 +229,7 @@ impl ActionDispatch {
             intents: Vec::new(),
             workbench_intents: vec![intent],
             app_commands: Vec::new(),
+            runtime_actions: Vec::new(),
         }
     }
 
@@ -229,12 +238,32 @@ impl ActionDispatch {
             intents: Vec::new(),
             workbench_intents: Vec::new(),
             app_commands,
+            runtime_actions: Vec::new(),
+        }
+    }
+
+    fn runtime_action(action: RuntimeAction) -> Self {
+        Self {
+            intents: Vec::new(),
+            workbench_intents: Vec::new(),
+            app_commands: Vec::new(),
+            runtime_actions: vec![action],
         }
     }
 
     fn dispatch_len(&self) -> usize {
-        self.intents.len() + self.workbench_intents.len() + self.app_commands.len()
+        self.intents.len()
+            + self.workbench_intents.len()
+            + self.app_commands.len()
+            + self.runtime_actions.len()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RuntimeAction {
+    ActivateWorkflow {
+        workflow_id: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -278,6 +307,13 @@ impl ActionOutcome {
     pub(crate) fn into_app_commands(self) -> Vec<AppCommand> {
         match self {
             Self::Dispatch(dispatch) => dispatch.app_commands,
+            Self::Failure(_) => Vec::new(),
+        }
+    }
+
+    pub(crate) fn into_runtime_actions(self) -> Vec<RuntimeAction> {
+        match self {
+            Self::Dispatch(dispatch) => dispatch.runtime_actions,
             Self::Failure(_) => Vec::new(),
         }
     }
@@ -574,6 +610,16 @@ impl Default for ActionRegistry {
             ACTION_WORKBENCH_OPEN_PERSISTENCE_HUB,
             ActionCapability::AlwaysAvailable,
             execute_workbench_open_persistence_hub_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_open_history_manager_action,
+        );
+        registry.register(
+            ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
+            ActionCapability::AlwaysAvailable,
+            execute_workbench_activate_workflow_action,
         );
         registry.register(
             ACTION_DETAIL_VIEW_SUBMIT,
@@ -1425,6 +1471,46 @@ fn execute_workbench_open_persistence_hub_action(
     ))
 }
 
+fn execute_workbench_open_history_manager_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchOpenHistoryManager = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:open_history_manager requires WorkbenchOpenHistoryManager payload"
+                .to_string(),
+        });
+    };
+
+    ActionOutcome::Dispatch(ActionDispatch::workbench_intent(WorkbenchIntent::OpenToolPane {
+        kind: ToolPaneState::HistoryManager,
+    }))
+}
+
+fn execute_workbench_activate_workflow_action(
+    _app: &GraphBrowserApp,
+    payload: &ActionPayload,
+) -> ActionOutcome {
+    let ActionPayload::WorkbenchActivateWorkflow { workflow_id } = payload else {
+        return ActionOutcome::Failure(ActionFailure {
+            kind: ActionFailureKind::InvalidPayload,
+            reason: "workbench:activate_workflow requires WorkbenchActivateWorkflow payload"
+                .to_string(),
+        });
+    };
+    let workflow_id =
+        match require_named_payload("workflow id", workflow_id, ACTION_WORKBENCH_ACTIVATE_WORKFLOW)
+        {
+            Ok(workflow_id) => workflow_id,
+            Err(outcome) => return outcome,
+        };
+
+    ActionOutcome::Dispatch(ActionDispatch::runtime_action(RuntimeAction::ActivateWorkflow {
+        workflow_id,
+    }))
+}
+
 fn execute_graph_view_submit_action(
     app: &GraphBrowserApp,
     payload: &ActionPayload,
@@ -2262,6 +2348,30 @@ mod tests {
             Some(WorkbenchIntent::OpenSettingsUrl { url })
                 if url == VersoAddress::settings(GraphshellSettingsPath::Persistence).to_string()
         ));
+
+        let open_history_manager = registry.execute(
+            ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            &app,
+            ActionPayload::WorkbenchOpenHistoryManager,
+        );
+        assert!(matches!(
+            open_history_manager.into_workbench_intent(),
+            Some(WorkbenchIntent::OpenToolPane {
+                kind: ToolPaneState::HistoryManager
+            })
+        ));
+
+        let activate_workflow = registry.execute(
+            ACTION_WORKBENCH_ACTIVATE_WORKFLOW,
+            &app,
+            ActionPayload::WorkbenchActivateWorkflow {
+                workflow_id: "workflow:research".to_string(),
+            },
+        );
+        assert!(matches!(
+            activate_workflow.into_runtime_actions().as_slice(),
+            [RuntimeAction::ActivateWorkflow { workflow_id }] if workflow_id == "workflow:research"
+        ));
     }
 
     #[test]
@@ -2361,6 +2471,12 @@ mod tests {
         assert!(is_namespaced_action_id(ACTION_WORKBENCH_SETTINGS_OPEN));
         assert!(is_namespaced_action_id(
             ACTION_WORKBENCH_OPEN_PERSISTENCE_HUB
+        ));
+        assert!(is_namespaced_action_id(
+            ACTION_WORKBENCH_OPEN_HISTORY_MANAGER
+        ));
+        assert!(is_namespaced_action_id(
+            ACTION_WORKBENCH_ACTIVATE_WORKFLOW
         ));
         assert!(is_namespaced_action_id(ACTION_VERSE_PAIR_DEVICE));
         assert!(!is_namespaced_action_id("action.invalid.dot"));

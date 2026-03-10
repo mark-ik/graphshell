@@ -48,7 +48,8 @@ use crate::shell::desktop::workbench::pane_model::PaneId;
 use action::{
     ACTION_DETAIL_VIEW_SUBMIT, ACTION_GRAPH_VIEW_SUBMIT, ACTION_OMNIBOX_NODE_SEARCH,
     ACTION_VERSE_FORGET_DEVICE, ACTION_VERSE_PAIR_DEVICE, ACTION_VERSE_SHARE_WORKSPACE,
-    ACTION_VERSE_SYNC_NOW, ActionCapability, ActionPayload, ActionRegistry, PairingMode,
+    ACTION_VERSE_SYNC_NOW, ActionCapability, ActionDispatch, ActionFailure, ActionOutcome,
+    ActionPayload, ActionRegistry, PairingMode, RuntimeAction,
 };
 use agent::{Agent, AgentDescriptor, AgentRegistry};
 use canvas::CanvasRegistry;
@@ -2543,6 +2544,52 @@ pub(crate) fn phase3_activate_workflow(
     runtime().activate_workflow(graph_app, workflow_id)
 }
 
+pub(crate) fn phase3_apply_runtime_action_dispatch(
+    graph_app: &mut GraphBrowserApp,
+    dispatch: ActionDispatch,
+) -> Result<ActionDispatch, ActionFailure> {
+    for action in &dispatch.runtime_actions {
+        match action {
+            RuntimeAction::ActivateWorkflow { workflow_id } => {
+                runtime()
+                    .activate_workflow(graph_app, workflow_id)
+                    .map_err(|error| ActionFailure {
+                        kind: action::ActionFailureKind::Rejected,
+                        reason: match error {
+                            WorkflowActivationError::NotImplemented { workflow_id } => {
+                                format!("workflow '{workflow_id}' is not implemented")
+                            }
+                        },
+                    })?;
+            }
+        }
+    }
+
+    Ok(dispatch)
+}
+
+pub(crate) fn phase3_execute_registry_action(
+    graph_app: &mut GraphBrowserApp,
+    action_id: &str,
+    payload: ActionPayload,
+) -> Result<Vec<GraphIntent>, ActionFailure> {
+    let execution = runtime().dynamic().action.execute(action_id, graph_app, payload);
+    let dispatch = match execution {
+        ActionOutcome::Dispatch(dispatch) => dispatch,
+        ActionOutcome::Failure(failure) => return Err(failure),
+    };
+    let dispatch = phase3_apply_runtime_action_dispatch(graph_app, dispatch)?;
+
+    for intent in dispatch.workbench_intents {
+        graph_app.enqueue_workbench_intent(intent);
+    }
+    for command in dispatch.app_commands {
+        graph_app.enqueue_app_command(command);
+    }
+
+    Ok(dispatch.intents)
+}
+
 pub(crate) fn phase3_reconcile_semantics(
     graph_app: &mut GraphBrowserApp,
 ) -> SemanticReconcileReport {
@@ -4209,6 +4256,49 @@ mod tests {
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_FOCUS
         );
         assert_eq!(app.default_registry_physics_id(), Some("physics:solid"));
+    }
+
+    #[test]
+    fn phase3_apply_runtime_action_dispatch_activates_workflow() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let dispatch = ActionDispatch {
+            intents: Vec::new(),
+            workbench_intents: Vec::new(),
+            app_commands: Vec::new(),
+            runtime_actions: vec![RuntimeAction::ActivateWorkflow {
+                workflow_id: workflow::WORKFLOW_RESEARCH.to_string(),
+            }],
+        };
+
+        let applied =
+            phase3_apply_runtime_action_dispatch(&mut app, dispatch).expect("dispatch applies");
+
+        assert_eq!(applied.runtime_actions.len(), 1);
+        assert_eq!(
+            phase3_resolve_active_workbench_surface_profile().resolved_id,
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
+        );
+        assert_eq!(app.default_registry_physics_id(), Some("physics:float"));
+    }
+
+    #[test]
+    fn phase3_execute_registry_action_enqueues_workbench_intent() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        let intents = phase3_execute_registry_action(
+            &mut app,
+            action::ACTION_WORKBENCH_OPEN_HISTORY_MANAGER,
+            ActionPayload::WorkbenchOpenHistoryManager,
+        )
+        .expect("history manager action should execute");
+
+        assert!(intents.is_empty());
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::OpenToolPane {
+                kind: crate::shell::desktop::workbench::pane_model::ToolPaneState::HistoryManager
+            }]
+        ));
     }
 
     #[test]

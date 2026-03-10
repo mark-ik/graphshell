@@ -81,6 +81,10 @@ Canonical requirement: command surfaces may differ in presentation, but not in a
 | `PersistSaveGraph` | Save Graph Snapshot | Graph | per-Workbench | Graph state available | Requests timestamped graph snapshot save | No | Palette, Radial | Visible + disabled when graph unavailable | None |
 | `PersistRestoreLatestGraph` | Restore Latest Graph | Graph | per-Workbench | At least one graph snapshot exists | Requests latest graph snapshot restore | No | Palette, Radial | Visible + disabled when snapshot unavailable | None |
 | `PersistOpenHub` | Open Persistence Hub | Tool Pane | per-Workbench | None | `WorkbenchIntent::OpenToolPane { Settings }` | No | Palette, Radial, Toolbar | N/A | None |
+| `PersistOpenHistoryManager` | Open History Manager | Tool Pane | per-Workbench | None | `WorkbenchIntent::OpenToolPane { HistoryManager }` via runtime action dispatch | No | Palette | N/A | None |
+| `WorkbenchActivateWorkflowDefault` | Activate Default Workflow | Workflow Runtime | per-Workbench | Workflow runtime available | `workbench:activate_workflow { workflow:default }` -> workflow profile activation | No | Palette | N/A | None |
+| `WorkbenchActivateWorkflowResearch` | Activate Research Workflow | Workflow Runtime | per-Workbench | Workflow runtime available | `workbench:activate_workflow { workflow:research }` -> workflow profile activation | No | Palette | N/A | None |
+| `WorkbenchActivateWorkflowReading` | Activate Reading Workflow | Workflow Runtime | per-Workbench | Workflow runtime available | `workbench:activate_workflow { workflow:reading }` -> workflow profile activation | No | Palette | N/A | None |
 
 ---
 
@@ -136,8 +140,8 @@ normative context-owned entries.
 | `node` | `NodePinToggle`, `NodePinSelected`, `NodeUnpinSelected`, `NodeDelete`, `NodeChooseFrame`, `NodeAddToFrame`, `NodeAddConnectedToFrame`, `NodeOpenFrame`, `NodeOpenNeighbors`, `NodeOpenConnected`, `NodeOpenSplit`, `NodeDetachToSplit`, `NodeMoveToActivePane`, `NodeCopyUrl`, `NodeCopyTitle` |
 | `edge` | `EdgeConnectPair`, `EdgeConnectBoth`, `EdgeRemoveUser` |
 | `canvas_background` | `NodeNew`, `GraphFit`, `GraphTogglePhysics`, `GraphReheatPhysics`, `GraphTogglePositionFitLock`, `GraphToggleZoomFitLock`, `GraphZoomIn`, `GraphZoomOut`, `GraphZoomReset`, `GraphSearchOpen`, `GraphCommandPalette`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `GraphClear` |
-| `pane_header` | `NodeNewAsTab`, `NodeOpenSplit`, `NodeDetachToSplit`, `NodeMoveToActivePane`, `PersistSaveSnapshot`, `PersistRestoreSession`, `PersistSaveGraph`, `PersistRestoreLatestGraph`, `PersistOpenHub` |
-| `tool_pane_body` | `GraphCommandPalette`, `WorkbenchHelpOpen`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `PersistOpenHub` |
+| `pane_header` | `NodeNewAsTab`, `NodeOpenSplit`, `NodeDetachToSplit`, `NodeMoveToActivePane`, `PersistSaveSnapshot`, `PersistRestoreSession`, `PersistSaveGraph`, `PersistRestoreLatestGraph`, `PersistOpenHub`, `PersistOpenHistoryManager`, `WorkbenchActivateWorkflowDefault`, `WorkbenchActivateWorkflowResearch`, `WorkbenchActivateWorkflowReading` |
+| `tool_pane_body` | `GraphCommandPalette`, `WorkbenchHelpOpen`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `PersistOpenHub`, `PersistOpenHistoryManager`, `WorkbenchActivateWorkflowDefault`, `WorkbenchActivateWorkflowResearch`, `WorkbenchActivateWorkflowReading` |
 
 Context-ordering rule:
 
@@ -180,7 +184,7 @@ Action-class audit summary:
 | Frame | `NodeChooseFrame`, `NodeAddToFrame`, `NodeAddConnectedToFrame`, `NodeOpenFrame`, `NodeOpenNeighbors`, `NodeOpenConnected`, `PersistSaveSnapshot`, `PersistRestoreSession` |
 | Graph Camera | `GraphReheatPhysics`, `GraphTogglePositionFitLock`, `GraphToggleZoomFitLock`, `GraphZoomIn`, `GraphZoomOut`, `GraphZoomReset`, `GraphNavigateBack`, `GraphNavigateForward` |
 | View Surface | `GraphToggleDetailView`, `GraphSearchOpen` |
-| Workbench | `GraphCommandPalette`, `WorkbenchHelpOpen`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `GraphClear`, `PersistSaveGraph`, `PersistRestoreLatestGraph`, `PersistOpenHub` |
+| Workbench | `GraphCommandPalette`, `WorkbenchHelpOpen`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `GraphClear`, `PersistSaveGraph`, `PersistRestoreLatestGraph`, `PersistOpenHub`, `PersistOpenHistoryManager`, `WorkbenchActivateWorkflowDefault`, `WorkbenchActivateWorkflowResearch`, `WorkbenchActivateWorkflowReading` |
 
 Ambiguous-label audit (priority):
 

@@ -314,13 +314,17 @@ These are sequenced by dependency and impact, not by calendar.
    Built-in workflows (`workflow:default`, `workflow:research`, `workflow:reading`)
    appear in the palette as distinct command rows (one per workflow ID).
 
-   Blocked by: Sectors H and G (signal/mod runtime dependencies for full
-   workflow activation side-effects).
+   Status (2026-03-10): landed. The runtime registry now has a first-class
+   runtime-action lane for workflow activation, and the command palette exposes
+   distinct built-in workflow rows backed by `workbench:activate_workflow`.
 
 2. **C3.2 — History Manager open command**
 
    `workbench:open_history_manager` action that opens the history tool pane.
    Simple adapter to existing tool-pane routing.
+
+   Status (2026-03-10): landed. The command palette now routes this through
+   `ActionRegistry` / runtime dispatch instead of a direct UI-only branch.
 
 ### Phase C4 — Keybindings settings surface
 
@@ -507,7 +511,7 @@ Entries marked `(change)` differ from the current default.
 | Split horizontal | `Ctrl+\` | add |
 | Split vertical | `Ctrl+Shift+\` | add |
 | Close pane | `Ctrl+W` | add |
-| Activate workflow (future) | palette only initially | — |
+| Activate workflow | palette only initially | — |
 | Open History Manager | palette only initially | — |
 
 ### 6.4 Accessibility constraints
@@ -611,8 +615,8 @@ stable — it should not be designed as a workaround for missing action-level re
 | navigate_back/forward in registry but not matrix | command_semantics_matrix.md | C1.3 (now) |
 | No context-per-entity column in matrix | command_semantics_matrix.md | C2.1 |
 | Edge command context undefined in spec | graph_node_edge_interaction_spec.md | C2.2 |
-| No workflow activation command | ActionRegistry | C3.1 |
-| No history manager open command | ActionRegistry | C3.2 |
+| Workflow activation has no default keyboard shortcut yet | KEYBINDINGS.md / settings UX | follow-on after C4 |
+| History manager open has no default keyboard shortcut yet | KEYBINDINGS.md / settings UX | follow-on after C4 |
 | No keybindings settings surface | Settings UX | C4 |
 | Label entry UI for edge label (label-drop seam) | action.rs / reducer | B3.3 blocker |
 | Shortcut changes needed vs current defaults | KEYBINDINGS.md | §6.3 (pre-C1) |

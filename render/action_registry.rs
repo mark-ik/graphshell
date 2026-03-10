@@ -202,6 +202,10 @@ pub enum ActionId {
     PersistSaveGraph,
     PersistRestoreLatestGraph,
     PersistOpenHub,
+    PersistOpenHistoryManager,
+    WorkbenchActivateWorkflowDefault,
+    WorkbenchActivateWorkflowResearch,
+    WorkbenchActivateWorkflowReading,
 }
 
 impl ActionId {
@@ -243,6 +247,10 @@ impl ActionId {
             Self::PersistSaveGraph => "persistence:save_graph",
             Self::PersistRestoreLatestGraph => "persistence:restore_latest_graph",
             Self::PersistOpenHub => "persistence:open_hub",
+            Self::PersistOpenHistoryManager => "workbench:open_history_manager",
+            Self::WorkbenchActivateWorkflowDefault => "workbench:activate_workflow_default",
+            Self::WorkbenchActivateWorkflowResearch => "workbench:activate_workflow_research",
+            Self::WorkbenchActivateWorkflowReading => "workbench:activate_workflow_reading",
         }
     }
 
@@ -285,6 +293,10 @@ impl ActionId {
             Self::PersistSaveGraph => "Save G",
             Self::PersistRestoreLatestGraph => "Latest G",
             Self::PersistOpenHub => "Hub",
+            Self::PersistOpenHistoryManager => "History",
+            Self::WorkbenchActivateWorkflowDefault => "Workflow D",
+            Self::WorkbenchActivateWorkflowResearch => "Workflow R",
+            Self::WorkbenchActivateWorkflowReading => "Workflow Read",
         }
     }
 
@@ -327,6 +339,10 @@ impl ActionId {
             Self::PersistSaveGraph => "Save Graph Snapshot",
             Self::PersistRestoreLatestGraph => "Restore Latest Graph",
             Self::PersistOpenHub => "Open Persistence Hub",
+            Self::PersistOpenHistoryManager => "Open History Manager",
+            Self::WorkbenchActivateWorkflowDefault => "Activate Default Workflow",
+            Self::WorkbenchActivateWorkflowResearch => "Activate Research Workflow",
+            Self::WorkbenchActivateWorkflowReading => "Activate Reading Workflow",
         }
     }
 
@@ -368,7 +384,11 @@ impl ActionId {
             | Self::PersistRestoreSession
             | Self::PersistSaveGraph
             | Self::PersistRestoreLatestGraph
-            | Self::PersistOpenHub => ActionCategory::Persistence,
+            | Self::PersistOpenHub
+            | Self::PersistOpenHistoryManager
+            | Self::WorkbenchActivateWorkflowDefault
+            | Self::WorkbenchActivateWorkflowResearch
+            | Self::WorkbenchActivateWorkflowReading => ActionCategory::Persistence,
         }
     }
 }
@@ -430,6 +450,10 @@ fn all_action_ids() -> &'static [ActionId] {
         PersistSaveGraph,
         PersistRestoreLatestGraph,
         PersistOpenHub,
+        PersistOpenHistoryManager,
+        WorkbenchActivateWorkflowDefault,
+        WorkbenchActivateWorkflowResearch,
+        WorkbenchActivateWorkflowReading,
     ]
 }
 
@@ -535,6 +559,10 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (PersistSaveGraph, true),
         (PersistRestoreLatestGraph, true),
         (PersistOpenHub, true),
+        (PersistOpenHistoryManager, true),
+        (WorkbenchActivateWorkflowDefault, true),
+        (WorkbenchActivateWorkflowResearch, true),
+        (WorkbenchActivateWorkflowReading, true),
     ];
 
     all.iter()
@@ -823,6 +851,26 @@ mod tests {
     }
 
     #[test]
+    fn test_workflow_and_history_actions_are_listed_in_persistence_bucket() {
+        let ctx = default_context();
+        let entries = list_actions_for_context(&ctx);
+
+        for action_id in [
+            ActionId::PersistOpenHistoryManager,
+            ActionId::WorkbenchActivateWorkflowDefault,
+            ActionId::WorkbenchActivateWorkflowResearch,
+            ActionId::WorkbenchActivateWorkflowReading,
+        ] {
+            let entry = entries
+                .iter()
+                .find(|entry| entry.id == action_id)
+                .unwrap_or_else(|| panic!("missing action entry for {action_id:?}"));
+            assert!(entry.enabled);
+            assert_eq!(action_id.category(), ActionCategory::Persistence);
+        }
+    }
+
+    #[test]
     fn test_representative_action_labels_convey_purpose_in_context() {
         let cases = [
             (ActionId::NodeCopyUrl, ["Copy", "URL"].as_slice()),
@@ -833,6 +881,14 @@ mod tests {
             (
                 ActionId::PersistRestoreLatestGraph,
                 ["Restore", "Graph"].as_slice(),
+            ),
+            (
+                ActionId::PersistOpenHistoryManager,
+                ["Open", "History"].as_slice(),
+            ),
+            (
+                ActionId::WorkbenchActivateWorkflowResearch,
+                ["Activate", "Research"].as_slice(),
             ),
         ];
 
