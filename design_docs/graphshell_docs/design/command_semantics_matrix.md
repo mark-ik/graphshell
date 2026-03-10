@@ -59,10 +59,23 @@ Canonical requirement: command surfaces may differ in presentation, but not in a
 | `EdgeRemoveUser` | Remove User Edge | Edge | per-View | Pair context available | `GraphIntent::ExecuteEdgeCommand { RemoveUserEdgePair }` | Yes | Keyboard, Palette, Radial | Greyed + reason when selected pair unavailable | `Alt+G` |
 | `GraphFit` | Fit Graph to Screen | Graph | per-View | None | `GraphIntent::RequestFitToScreen` | No | Palette, Radial | N/A | None |
 | `GraphTogglePhysics` | Toggle Physics Simulation | Graph | per-View | None | `GraphIntent::TogglePhysics` | Yes | Keyboard, Palette, Radial | N/A | `T` |
+| `GraphReheatPhysics` | Reheat Physics Simulation | Graph | per-View | None | `GraphIntent::ReheatPhysics` | No | Keyboard, Palette, Radial | N/A | `R` |
+| `GraphToggleDetailView` | Toggle Graph / Detail View | View Surface | per-Frame | Focused view surface available | Toggles graph/detail projection for focused surface | No | Keyboard, Palette, Radial | Visible + disabled when no focusable view surface | `Home` / `Esc` |
+| `GraphSearchOpen` | Open Graph Search | Search surface | per-Frame | Graph view surface available | Opens graph search UI for current graph surface | No | Keyboard, Palette, Toolbar | Visible + disabled when graph search surface unavailable | `Ctrl+F` |
+| `GraphTogglePositionFitLock` | Toggle Position-Fit Lock | Graph Camera | per-View | None | `GraphIntent::ToggleCameraPositionFitLock` | No | Keyboard, Palette | N/A | `C` |
+| `GraphToggleZoomFitLock` | Toggle Zoom-Fit Lock | Graph Camera | per-View | None | `GraphIntent::ToggleCameraZoomFitLock` | No | Keyboard, Palette | N/A | `Z` |
+| `GraphZoomIn` | Zoom In | Graph Camera | per-View | Graph view focus or resolvable single graph view | `GraphIntent::RequestZoomIn` | No | Keyboard, Palette | Visible + disabled when no graph view target | `+` |
+| `GraphZoomOut` | Zoom Out | Graph Camera | per-View | Graph view focus or resolvable single graph view | `GraphIntent::RequestZoomOut` | No | Keyboard, Palette | Visible + disabled when no graph view target | `-` |
+| `GraphZoomReset` | Reset Zoom | Graph Camera | per-View | Graph view focus or resolvable single graph view | `GraphIntent::RequestZoomReset` | No | Keyboard, Palette | Visible + disabled when no graph view target | `0` |
+| `GraphNavigateBack` | Navigate Back | Node History | per-View | Focused input or active node/browser target available | `GraphIntent::TraverseBack` -> browser `Back` routing | No | Keyboard, Palette, Toolbar, Gamepad | Visible + disabled when no navigation target | `Back` |
+| `GraphNavigateForward` | Navigate Forward | Node History | per-View | Focused input or active node/browser target available | `GraphIntent::TraverseForward` -> browser `Forward` routing | No | Keyboard, Palette, Toolbar, Gamepad | Visible + disabled when no navigation target | `Forward` |
 | `GraphPhysicsConfig` | Open Physics Settings | Settings surface | per-Workbench | None | `WorkbenchIntent::OpenSettingsUrl { verso://settings/physics }` | No | Keyboard, Palette, Radial, Toolbar | N/A | `P` |
 | `GraphCommandPalette` | Open Command Palette | Command surface | Global | None | `GraphIntent::ToggleCommandPalette` | No | Keyboard, Palette, Radial, Toolbar | N/A | `F2` |
+| `WorkbenchHelpOpen` | Toggle Keyboard Shortcut Help | Help surface | per-Workbench | None | `GraphIntent::ToggleHelpPanel` | No | Keyboard, Palette, Toolbar | N/A | `F1` / `?` |
+| `WorkbenchRadialPaletteToggle` | Toggle Radial Palette Mode | Command surface | per-Workbench | None | `GraphIntent::ToggleRadialMenu` | No | Keyboard, Palette, Toolbar | N/A | `F3` |
 | `PersistUndo` | Undo | Graph/Workbench | per-Workbench | Undo stack available | `GraphIntent::Undo` | No | Keyboard, Palette, Radial | Visible + disabled when stack empty | `Ctrl+Z` |
 | `PersistRedo` | Redo | Graph/Workbench | per-Workbench | Redo stack available | `GraphIntent::Redo` | No | Keyboard, Palette, Radial | Visible + disabled when stack empty | `Ctrl+Y` |
+| `GraphClear` | Clear Graph | Graph | per-Workbench | Graph contains at least one node | `GraphIntent::ClearGraph` | Soft | Keyboard, Palette | Visible + disabled when graph empty | `Ctrl+Shift+Delete` |
 | `PersistSaveSnapshot` | Save Frame Snapshot | Frame | per-Workbench | Frame state available | Requests frame snapshot save | No | Palette, Radial | Visible + disabled when no frame state | None |
 | `PersistRestoreSession` | Restore Session Frame | Frame | per-Workbench | Session snapshot exists | Requests restore of session workspace layout | No | Palette, Radial | Visible + disabled when snapshot unavailable | None |
 | `PersistSaveGraph` | Save Graph Snapshot | Graph | per-Workbench | Graph state available | Requests timestamped graph snapshot save | No | Palette, Radial | Visible + disabled when graph unavailable | None |
@@ -120,6 +133,8 @@ Canonical scope classes:
 - **Node**: mutates or reads graph-node content identity/state.
 - **Tile**: mutates tile-tree presentation arrangement only.
 - **Graph**: mutates or controls graph-wide runtime behavior.
+- **Graph Camera**: mutates or controls focused graph viewport camera/navigation behavior.
+- **View Surface**: mutates or toggles the active graph/detail/search surface state.
 - **Frame**: mutates frame routing or frame-scoped arrangement context.
 - **Workbench**: mutates workbench/session-level persistence/control context.
 
@@ -131,7 +146,9 @@ Action-class audit summary:
 | Tile | `NodeOpenSplit`, `NodeDetachToSplit`, `NodeMoveToActivePane`, `NodeNewAsTab` |
 | Graph | `NodeNew`, `EdgeConnectPair`, `EdgeConnectBoth`, `EdgeRemoveUser`, `GraphFit`, `GraphTogglePhysics`, `GraphPhysicsConfig` |
 | Frame | `NodeChooseFrame`, `NodeAddToFrame`, `NodeAddConnectedToFrame`, `NodeOpenFrame`, `NodeOpenNeighbors`, `NodeOpenConnected`, `PersistSaveSnapshot`, `PersistRestoreSession` |
-| Workbench | `GraphCommandPalette`, `PersistUndo`, `PersistRedo`, `PersistSaveGraph`, `PersistRestoreLatestGraph`, `PersistOpenHub` |
+| Graph Camera | `GraphReheatPhysics`, `GraphTogglePositionFitLock`, `GraphToggleZoomFitLock`, `GraphZoomIn`, `GraphZoomOut`, `GraphZoomReset`, `GraphNavigateBack`, `GraphNavigateForward` |
+| View Surface | `GraphToggleDetailView`, `GraphSearchOpen` |
+| Workbench | `GraphCommandPalette`, `WorkbenchHelpOpen`, `WorkbenchRadialPaletteToggle`, `PersistUndo`, `PersistRedo`, `GraphClear`, `PersistSaveGraph`, `PersistRestoreLatestGraph`, `PersistOpenHub` |
 
 Ambiguous-label audit (priority):
 

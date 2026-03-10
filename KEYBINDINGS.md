@@ -34,6 +34,7 @@ Default keybinds are configurable in `Settings -> Input`.
 - `F3` (default): Toggle radial palette mode
 - `Ctrl+F`: Graph search
 - `Ctrl+Z` / `Ctrl+Y`: Undo / Redo
+- `Back` / `Forward`: Traverse active node/browser history
 - `F1` / `?` (default): Toggle keyboard shortcut help
 
 ## Node Context Menu

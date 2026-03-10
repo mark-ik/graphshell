@@ -261,11 +261,18 @@ These are sequenced by dependency and impact, not by calendar.
    Add action IDs for the 9 items in §3.2's "should be in the matrix" list.
    Each needs a matrix row with surface coverage, preconditions, and shortcut.
 
+   Status (2026-03-10): landed. `command_semantics_matrix.md` now includes the
+   command-class keybinding rows for detail-view toggle, graph search, help,
+   radial palette, physics reheat, fit-lock toggles, zoom commands, and clear graph.
+
 3. **C1.3 — Add traversal navigation actions to matrix**
 
    `graph:navigate_back` / `graph:navigate_forward` are already registered.
    Add them to the matrix and add `Back`/`Forward` to their shortcut column.
    KEYBINDINGS.md §History Scope Semantics already documents this behavior.
+
+   Status (2026-03-10): landed. The matrix and `KEYBINDINGS.md` now both account
+   for `Back` / `Forward` as semantic traversal commands.
 
 ### Phase C2 — Context-per-entity palette specification
 
