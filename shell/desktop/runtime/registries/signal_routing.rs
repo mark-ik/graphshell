@@ -185,6 +185,16 @@ pub(crate) struct ObserverId(u64);
 pub(crate) type SyncObserverCallback =
     Arc<dyn Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync>;
 
+pub(crate) trait SignalBus: Send + Sync {
+    fn publish(&self, envelope: SignalEnvelope) -> SignalPublishReport;
+    fn subscribe_sync(&self, topic: SignalTopic, callback: SyncObserverCallback) -> ObserverId;
+    fn unsubscribe(&self, topic: SignalTopic, id: ObserverId) -> bool;
+    fn subscribe_async(&self, topic: SignalTopic) -> AsyncSignalSubscription;
+    fn subscribe_all(&self) -> AsyncSignalSubscription;
+    fn diagnostics(&self) -> SignalRoutingDiagnostics;
+    fn dead_letters(&self) -> Vec<SignalDeadLetter>;
+}
+
 const DEAD_LETTER_LIMIT: usize = 64;
 const ASYNC_SIGNAL_BUFFER: usize = 64;
 
@@ -537,6 +547,41 @@ impl SignalRoutingLayer {
             .max()
             .unwrap_or(0);
         topic_depth.max(self.all_broadcast_tx.len())
+    }
+}
+
+impl SignalBus for SignalRoutingLayer {
+    fn publish(&self, envelope: SignalEnvelope) -> SignalPublishReport {
+        SignalRoutingLayer::publish(self, envelope)
+    }
+
+    fn subscribe_sync(&self, topic: SignalTopic, callback: SyncObserverCallback) -> ObserverId {
+        let mut guard = self.state.lock().expect("signal routing lock poisoned");
+        guard.next_observer_id = guard.next_observer_id.saturating_add(1);
+        let id = ObserverId(guard.next_observer_id);
+        let observer = SignalObserver { id, callback };
+        guard.observers.entry(topic).or_default().push(observer);
+        id
+    }
+
+    fn unsubscribe(&self, topic: SignalTopic, id: ObserverId) -> bool {
+        SignalRoutingLayer::unsubscribe(self, topic, id)
+    }
+
+    fn subscribe_async(&self, topic: SignalTopic) -> AsyncSignalSubscription {
+        SignalRoutingLayer::subscribe_async(self, topic)
+    }
+
+    fn subscribe_all(&self) -> AsyncSignalSubscription {
+        SignalRoutingLayer::subscribe_all(self)
+    }
+
+    fn diagnostics(&self) -> SignalRoutingDiagnostics {
+        SignalRoutingLayer::diagnostics_snapshot(self)
+    }
+
+    fn dead_letters(&self) -> Vec<SignalDeadLetter> {
+        SignalRoutingLayer::dead_letters_snapshot(self)
     }
 }
 

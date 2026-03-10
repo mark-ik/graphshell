@@ -48,7 +48,7 @@ This hub remains the navigation/index surface and historical implementation guid
 
 The **Control Panel** is the async adapter layer that allows concurrent background producers — network device sync, prefetch scheduler, memory monitor, mod loader lifecycle — to feed intents into the synchronous two-phase reducer without compromising determinism or testability.
 
-The Control Panel is a core component of **The Register** (implemented today as `RegistryRuntime` + `ControlPanel`, with a transitional signal-routing layer and a planned `SignalBus`-class abstraction).
+The Control Panel is a core component of **The Register** (implemented today as `RegistryRuntime` + `ControlPanel` + an explicit `SignalBus` trait backed by `SignalRoutingLayer`).
 
 **Key principle:** The reducer stays 100% synchronous and testable. All I/O and background work happens in supervised tokio tasks that communicate exclusively via the current intent queue. This is an async *adapter layer* around a deterministic sync core, not an async rewrite.
 
@@ -90,7 +90,6 @@ Implemented:
   omnibox submit-path search fanout
 
 Gaps / active architectural work:
-- Signal/event routing is still transitional (no dedicated `SignalBus` abstraction/API yet)
 - Canonical docs/terminology wording still needs tightening around `Signal` vs `Intent` vs direct calls (routing rules are defined here but not yet propagated everywhere)
 - Some authority-boundary misroutes are still too silent in fallback/no-op paths and should surface more explicitly during development
 - Layout execution still uses `egui_graphs` as the widget substrate, but algorithm ownership is now
@@ -105,7 +104,7 @@ Gaps / active architectural work:
 
 - **The Register**: Runtime composition root / infrastructure host (`RegistryRuntime`) that owns registries, mod/runtime wiring, and supervises the `ControlPanel`.
 - **Control Panel**: Async coordination/process host for workers that produce intents and background runtime tasks.
-- **SignalBus (or equivalent)**: Typed event distribution fabric for decoupled publish/subscribe between registries, mods, subsystems, and observers. Architectural role is expected; concrete API is future work.
+- **SignalBus**: Typed event distribution fabric for decoupled publish/subscribe between registries, mods, subsystems, and observers. Implemented today as a trait facade over `SignalRoutingLayer`.
 
 ## Routing Decision Rules (Signal vs Intent vs Call)
 
@@ -238,7 +237,7 @@ Core requirements:
 - Diagnostics hooks (queue depth, dropped signals, handler failures, latency)
 
 Done gates:
-- [x] Register signal bus/fabric implementation replaces transitional direct routing in selected paths (navigation path)
+- [x] Register signal bus/fabric implementation replaces transitional direct routing in selected paths (navigation + lifecycle + registry/input event paths)
 - [x] Diagnostics channels report signal routing health (`register.signal_routing.*`)
 - [x] Mod-triggered cross-registry workflow path uses signal routing instead of direct wiring (mod lifecycle route via `phase3_route_mod_lifecycle_event`)
 - [x] Subsystem health propagation path uses signal routing (or equivalent observer fabric) (`phase3_propagate_subsystem_health_memory_pressure`)
@@ -254,7 +253,7 @@ Done gates:
 - [x] Legacy dispatch callsites removed or wrapped behind Register APIs (phase0/phase2/phase3 runtime dispatch wrappers)
 - [x] Legacy dispatch callsites removed or wrapped behind Register APIs (phase0 navigation/provider-wired runtime dispatch slice; see `#82`)
 - [x] Internal settings workbench routes (`verso://settings/*` canonical, legacy `graphshell://settings/*` alias) are pane-authority and no longer reducer-panel owned
-- [x] `RegistryRuntime` + signal routing layer responsibilities are documented and tested (SR2/SR3 routing tests + runtime dispatch tests)
+- [x] `RegistryRuntime` + `SignalBus` responsibilities are documented and tested (SR2/SR3/SR4 routing tests + runtime dispatch tests)
 - [x] `ControlPanel` API surface reflects coordinator/process-host role only (queue internals private; coordination exposed via spawn/drain/shutdown and command/lifecycle policy APIs)
 
 ---

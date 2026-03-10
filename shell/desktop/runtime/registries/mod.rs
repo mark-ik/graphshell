@@ -14,7 +14,7 @@ pub(crate) mod signal_routing;
 pub(crate) mod workbench_surface;
 pub(crate) mod workflow;
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphMutation, MemoryPressureLevel, RendererId, RuntimeEvent,
@@ -71,7 +71,7 @@ use renderer::{PaneAttachment, RendererRegistry, RendererRegistryError};
 use servo::ServoUrl;
 use signal_routing::{
     AsyncSignalSubscription, InputEventSignal, LifecycleSignal, NavigationSignal, ObserverId,
-    RegistryEventSignal, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource,
+    RegistryEventSignal, SignalBus, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource,
     SignalTopic,
 };
 use workbench_surface::{
@@ -344,13 +344,12 @@ pub(crate) struct Phase0NavigationDecision {
     pub(crate) viewer: ViewerSelection,
 }
 
-#[derive(Default)]
 pub(crate) struct RegistryRuntime {
     action: ActionRegistry,
     #[allow(dead_code)]
     pub(crate) diagnostics: DiagnosticsRegistry,
     #[allow(dead_code)]
-    signal_routing: SignalRoutingLayer,
+    signal_bus: Arc<dyn SignalBus>,
     #[allow(dead_code)]
     identity: IdentityRegistry,
     input: Mutex<InputRegistry>,
@@ -370,6 +369,12 @@ pub(crate) struct RegistryRuntime {
     workbench_surface: Mutex<WorkbenchSurfaceRegistry>,
     pub(crate) knowledge: KnowledgeRegistry,
     index: IndexRegistry,
+}
+
+impl Default for RegistryRuntime {
+    fn default() -> Self {
+        Self::new_with_registries(ProtocolRegistry::default(), ViewerRegistry::default())
+    }
 }
 
 #[allow(dead_code)]
@@ -531,17 +536,11 @@ impl RegistryRuntime {
         (protocol_registry, viewer_registry)
     }
 
-    #[cfg(test)]
-    fn new_with_provider_registries_for_tests(
-        protocol_providers: ProtocolHandlerProviders,
-        viewer_providers: ViewerHandlerProviders,
-    ) -> Self {
-        let (protocol_registry, viewer_registry) =
-            Self::build_provider_wired_registries(&protocol_providers, &viewer_providers);
+    fn new_with_registries(protocol_registry: ProtocolRegistry, viewer_registry: ViewerRegistry) -> Self {
         Self {
             action: ActionRegistry::default(),
             diagnostics: DiagnosticsRegistry::default(),
-            signal_routing: SignalRoutingLayer::default(),
+            signal_bus: Arc::new(SignalRoutingLayer::default()),
             identity: IdentityRegistry::default(),
             input: Mutex::new(InputRegistry::default()),
             lens: LensRegistry::default(),
@@ -559,6 +558,16 @@ impl RegistryRuntime {
             knowledge: KnowledgeRegistry::default(),
             index: IndexRegistry::default(),
         }
+    }
+
+    #[cfg(test)]
+    fn new_with_provider_registries_for_tests(
+        protocol_providers: ProtocolHandlerProviders,
+        viewer_providers: ViewerHandlerProviders,
+    ) -> Self {
+        let (protocol_registry, viewer_registry) =
+            Self::build_provider_wired_registries(&protocol_providers, &viewer_providers);
+        Self::new_with_registries(protocol_registry, viewer_registry)
     }
 
     /// Create a new RegistryRuntime with mods discovered and their handlers registered.
@@ -600,27 +609,7 @@ impl RegistryRuntime {
             Self::build_provider_wired_registries(&protocol_providers, &viewer_providers);
 
         // Create the RegistryRuntime with provider-wired registries.
-        Self {
-            action: ActionRegistry::default(),
-            diagnostics: DiagnosticsRegistry::default(),
-            signal_routing: SignalRoutingLayer::default(),
-            identity: IdentityRegistry::default(),
-            input: Mutex::new(InputRegistry::default()),
-            lens: LensRegistry::default(),
-            layout: Mutex::new(LayoutRegistry::default()),
-            nostr_core: NostrCoreRegistry::default(),
-            canvas: Mutex::new(CanvasRegistry::default()),
-            layout_domain: LayoutDomainRegistry::default(),
-            presentation: PresentationDomainRegistry::default(),
-            physics_profile: Mutex::new(PhysicsProfileRegistry::default()),
-            protocol: protocol_registry,
-            renderer: Mutex::new(RendererRegistry::default()),
-            viewer: viewer_registry,
-            workflow: Mutex::new(WorkflowRegistry::default()),
-            workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
-            knowledge: KnowledgeRegistry::default(),
-            index: IndexRegistry::default(),
-        }
+        Self::new_with_registries(protocol_registry, viewer_registry)
     }
 
     pub(crate) fn describe_workflow(&self, workflow_id: Option<&str>) -> WorkflowCapability {
@@ -1285,33 +1274,33 @@ impl RegistryRuntime {
         topic: SignalTopic,
         callback: impl Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync + 'static,
     ) -> ObserverId {
-        self.signal_routing.subscribe(topic, callback)
+        self.signal_bus.subscribe_sync(topic, Arc::new(callback))
     }
 
     pub(crate) fn unsubscribe_signal(&self, topic: SignalTopic, observer_id: ObserverId) -> bool {
-        self.signal_routing.unsubscribe(topic, observer_id)
+        self.signal_bus.unsubscribe(topic, observer_id)
     }
 
     pub(crate) fn subscribe_signal_async(&self, topic: SignalTopic) -> AsyncSignalSubscription {
-        self.signal_routing.subscribe_async(topic)
+        self.signal_bus.subscribe_async(topic)
     }
 
     pub(crate) fn subscribe_all_signals_async(&self) -> AsyncSignalSubscription {
-        self.signal_routing.subscribe_all()
+        self.signal_bus.subscribe_all()
     }
 
     #[cfg(test)]
     fn signal_routing_diagnostics(&self) -> signal_routing::SignalRoutingDiagnostics {
-        self.signal_routing.diagnostics_snapshot()
+        self.signal_bus.diagnostics()
     }
 
     #[cfg(test)]
     fn signal_routing_dead_letters(&self) -> Vec<signal_routing::SignalDeadLetter> {
-        self.signal_routing.dead_letters_snapshot()
+        self.signal_bus.dead_letters()
     }
 
     fn publish_signal(&self, envelope: SignalEnvelope) {
-        let report = self.signal_routing.publish(envelope);
+        let report = self.signal_bus.publish(envelope);
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_REGISTER_SIGNAL_ROUTING_PUBLISHED,
             byte_len: report.observers_notified,

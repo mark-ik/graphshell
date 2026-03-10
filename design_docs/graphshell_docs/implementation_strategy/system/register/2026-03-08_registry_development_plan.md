@@ -57,7 +57,7 @@ All registries in the system spec family are listed here. Implementation state i
 | `ModRegistry` | Atomic | ✅ (atomic) | ✅ | ✅ | ✅ | ✅ | [G](#sector-g) |
 | `AgentRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [G](#sector-g) |
 | `ThemeRegistry` | Atomic | ❌ | ❌ | ❌ | ❌ | ❌ | [G](#sector-g) |
-| `SignalRoutingLayer` → `SignalBus` | Infrastructure | ✅ skeleton | ⚠️ narrow topics | ✅ | ✅ | ✅ | [H](#sector-h) |
+| `SignalRoutingLayer` → `SignalBus` | Infrastructure | ✅ | ✅ | ✅ | ✅ | ✅ | [H](#sector-h) |
 
 ---
 
@@ -207,7 +207,7 @@ Residual follow-ons are now explicit rather than hidden sector blockers:
 **Registries:** `SignalRoutingLayer` → `SignalBus`
 **Plan:** [2026-03-08_sector_h_signal_infrastructure_plan.md](2026-03-08_sector_h_signal_infrastructure_plan.md)
 
-The signal routing layer exists as a functional skeleton (SR2/SR3 done gates met) but is narrow in scope. The full `SignalBus` abstraction with typed topics, async observers, dead-letter visibility, and backpressure policy is the SR3 → SR4 migration target.
+Sector H is implemented. `SignalRoutingLayer` now backs an explicit `SignalBus` trait facade, the topic model includes navigation/lifecycle/sync/registry-event/input-event families, dead-letter and lag visibility are surfaced through diagnostics, and async subscribers are available through the runtime signal APIs. The main remaining follow-on is consumer adoption in Sector G, not missing signal-bus authority.
 
 ---
 
