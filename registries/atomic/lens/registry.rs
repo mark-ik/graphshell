@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::{LayoutMode, PhysicsProfile, THEME_ID_DEFAULT, ThemeData, resolve_theme_data};
 
 pub(crate) const LENS_ID_DEFAULT: &str = "lens:default";
+pub(crate) const LENS_ID_SEMANTIC_OVERLAY: &str = "lens:semantic_overlay";
 
 #[derive(Debug, Clone)]
 pub(crate) struct LensDefinition {
@@ -11,6 +12,20 @@ pub(crate) struct LensDefinition {
     pub(crate) layout: LayoutMode,
     pub(crate) theme: Option<ThemeData>,
     pub(crate) filters: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LensDescriptor {
+    pub(crate) applicable_mime_types: Vec<String>,
+    pub(crate) priority: u8,
+    pub(crate) requires_knowledge: bool,
+    pub(crate) requires_graph_context: bool,
+}
+
+#[derive(Debug, Clone)]
+struct RegisteredLens {
+    descriptor: LensDescriptor,
+    definition: LensDefinition,
 }
 
 #[derive(Debug, Clone)]
@@ -23,13 +38,28 @@ pub(crate) struct LensResolution {
 }
 
 pub(crate) struct LensRegistry {
-    lenses: HashMap<String, LensDefinition>,
+    lenses: HashMap<String, RegisteredLens>,
     fallback_id: String,
 }
 
 impl LensRegistry {
     pub(crate) fn register(&mut self, lens_id: &str, definition: LensDefinition) {
-        self.lenses.insert(lens_id.to_ascii_lowercase(), definition);
+        self.register_with_descriptor(lens_id, LensDescriptor::default(), definition);
+    }
+
+    pub(crate) fn register_with_descriptor(
+        &mut self,
+        lens_id: &str,
+        descriptor: LensDescriptor,
+        definition: LensDefinition,
+    ) {
+        self.lenses.insert(
+            lens_id.to_ascii_lowercase(),
+            RegisteredLens {
+                descriptor,
+                definition,
+            },
+        );
     }
 
     pub(crate) fn resolve(&self, lens_id: &str) -> LensResolution {
@@ -37,7 +67,7 @@ impl LensRegistry {
         let fallback_lens = self
             .lenses
             .get(&self.fallback_id)
-            .cloned()
+            .map(|registered| registered.definition.clone())
             .unwrap_or_else(default_lens_definition);
 
         if requested.is_empty() {
@@ -50,13 +80,13 @@ impl LensRegistry {
             };
         }
 
-        if let Some(lens) = self.lenses.get(&requested).cloned() {
+        if let Some(lens) = self.lenses.get(&requested) {
             return LensResolution {
                 requested_id: requested.clone(),
                 resolved_id: requested,
                 matched: true,
                 fallback_used: false,
-                definition: lens,
+                definition: lens.definition.clone(),
             };
         }
 
@@ -68,6 +98,71 @@ impl LensRegistry {
             definition: fallback_lens,
         }
     }
+
+    pub(crate) fn resolve_for_content(
+        &self,
+        mime_hint: Option<&str>,
+        has_semantic_context: bool,
+    ) -> Vec<String> {
+        let normalized_mime = mime_hint.map(|value| value.trim().to_ascii_lowercase());
+        let mut matches = self
+            .lenses
+            .iter()
+            .filter_map(|(lens_id, registered)| {
+                if registered.descriptor.requires_knowledge && !has_semantic_context {
+                    return None;
+                }
+
+                let mime_matches = registered.descriptor.applicable_mime_types.is_empty()
+                    || normalized_mime.as_deref().is_some_and(|mime| {
+                        registered
+                            .descriptor
+                            .applicable_mime_types
+                            .iter()
+                            .any(|candidate| candidate == mime)
+                    });
+                if !mime_matches {
+                    return None;
+                }
+
+                Some((registered.descriptor.priority, lens_id.clone()))
+            })
+            .collect::<Vec<_>>();
+        matches.sort_by(|(left_priority, left_id), (right_priority, right_id)| {
+            right_priority
+                .cmp(left_priority)
+                .then_with(|| left_id.cmp(right_id))
+        });
+
+        if matches.is_empty() {
+            return vec![self.fallback_id.clone()];
+        }
+
+        matches.into_iter().map(|(_, lens_id)| lens_id).collect()
+    }
+
+    pub(crate) fn compose(&self, lens_ids: &[String]) -> LensDefinition {
+        let mut iter = lens_ids.iter();
+        let base_id = iter
+            .next()
+            .cloned()
+            .unwrap_or_else(|| self.fallback_id.clone());
+        let mut composed = self.resolve(&base_id).definition;
+
+        for lens_id in iter {
+            let resolution = self.resolve(lens_id);
+            for filter in resolution.definition.filters {
+                if !composed.filters.contains(&filter) {
+                    composed.filters.push(filter);
+                }
+            }
+            if composed.theme.is_none() {
+                composed.theme = resolution.definition.theme;
+            }
+        }
+
+        composed
+    }
 }
 
 impl Default for LensRegistry {
@@ -77,7 +172,39 @@ impl Default for LensRegistry {
             fallback_id: LENS_ID_DEFAULT.to_string(),
         };
         registry.register(LENS_ID_DEFAULT, default_lens_definition());
+        registry.register_with_descriptor(
+            LENS_ID_SEMANTIC_OVERLAY,
+            LensDescriptor {
+                applicable_mime_types: vec![
+                    "text/html".to_string(),
+                    "text/markdown".to_string(),
+                    "application/pdf".to_string(),
+                    "text/plain".to_string(),
+                ],
+                priority: 10,
+                requires_knowledge: true,
+                requires_graph_context: true,
+            },
+            LensDefinition {
+                display_name: "Semantic Overlay".to_string(),
+                physics: PhysicsProfile::default(),
+                layout: LayoutMode::Free,
+                theme: Some(resolve_theme_data(THEME_ID_DEFAULT).theme),
+                filters: vec!["semantic:overlay".to_string()],
+            },
+        );
         registry
+    }
+}
+
+impl Default for LensDescriptor {
+    fn default() -> Self {
+        Self {
+            applicable_mime_types: Vec::new(),
+            priority: 0,
+            requires_knowledge: false,
+            requires_graph_context: false,
+        }
     }
 }
 
@@ -115,5 +242,23 @@ mod tests {
         assert!(resolution.fallback_used);
         assert_eq!(resolution.resolved_id, LENS_ID_DEFAULT);
         assert_eq!(resolution.definition.display_name, "Default");
+    }
+
+    #[test]
+    fn lens_registry_resolves_semantic_overlay_for_semantic_content() {
+        let registry = LensRegistry::default();
+        let resolved = registry.resolve_for_content(Some("text/markdown"), true);
+
+        assert_eq!(resolved.first().map(String::as_str), Some(LENS_ID_SEMANTIC_OVERLAY));
+        let composed = registry.compose(&resolved);
+        assert!(composed.filters.iter().any(|filter| filter == "semantic:overlay"));
+    }
+
+    #[test]
+    fn lens_registry_falls_back_to_default_without_semantic_context() {
+        let registry = LensRegistry::default();
+        let resolved = registry.resolve_for_content(Some("text/markdown"), false);
+
+        assert_eq!(resolved, vec![LENS_ID_DEFAULT.to_string()]);
     }
 }

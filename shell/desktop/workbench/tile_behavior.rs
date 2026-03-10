@@ -371,15 +371,16 @@ impl<'a> GraphshellTileBehavior<'a> {
         let total_nodes = graph_app.domain_graph().node_count();
         let selected_node = focused_selection.primary().and_then(|node_key| {
             let node = graph_app.domain_graph().get_node(node_key)?;
-            let viewer_registry = crate::registries::atomic::viewer::ViewerRegistry::default();
-            let viewer_id =
-                viewer_registry.select_for(node.mime_hint.as_deref(), node.address_kind);
-            let capabilities = viewer_registry.capabilities_for(viewer_id);
+            let selection = crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+                &node.url,
+                node.mime_hint.as_deref(),
+            );
+            let capabilities = selection.capabilities.clone();
 
             Some(AccessibilityInspectorSelectedNodeSnapshot {
                 node_key,
                 node_url: node.url.clone(),
-                viewer_id,
+                viewer_id: selection.viewer_id,
                 accessibility_level: format!("{:?}", capabilities.accessibility.level),
                 accessibility_reason: capabilities.accessibility.reason.clone(),
                 runtime_webview_mapped: graph_app.get_webview_for_node(node_key).is_some(),
@@ -805,7 +806,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             }
             TileKind::Node(state) => {
                 let node_key = state.node;
-                let Some((node_url, node_mime_hint, node_address_kind, node_lifecycle)) = self
+                let Some((node_url, node_mime_hint, node_lifecycle)) = self
                     .graph_app
                     .domain_graph()
                     .get_node(node_key)
@@ -813,7 +814,6 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                         (
                             node.url.clone(),
                             node.mime_hint.clone(),
-                            node.address_kind.clone(),
                             node.lifecycle,
                         )
                     })
@@ -829,8 +829,11 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     .as_ref()
                     .map(|viewer_id| viewer_id.as_str().to_string())
                     .unwrap_or_else(|| {
-                        crate::registries::atomic::viewer::ViewerRegistry::default()
-                            .select_for(node_mime_hint.as_deref(), node_address_kind)
+                        crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+                            &node_url,
+                            node_mime_hint.as_deref(),
+                        )
+                            .viewer_id
                             .to_string()
                     });
 

@@ -36,7 +36,7 @@ use crate::registries::atomic::viewer::{
 use crate::registries::domain::layout::ConformanceLevel;
 use crate::registries::domain::layout::LayoutDomainRegistry;
 use crate::registries::domain::layout::viewer_surface::{
-    VIEWER_SURFACE_DEFAULT, ViewerSurfaceResolution,
+    ViewerSurfaceResolution,
 };
 use crate::registries::domain::presentation::{
     PresentationDomainProfileResolution, PresentationDomainRegistry,
@@ -500,6 +500,14 @@ impl RegistryRuntime {
         self.viewer.describe_viewer(viewer_id)
     }
 
+    pub(crate) fn select_viewer_for_content(
+        &self,
+        uri: &str,
+        mime_hint: Option<&str>,
+    ) -> ViewerSelection {
+        self.viewer.select_for_uri(uri, mime_hint)
+    }
+
     fn build_provider_wired_registries(
         protocol_providers: &ProtocolHandlerProviders,
         viewer_providers: &ViewerHandlerProviders,
@@ -752,87 +760,56 @@ impl RegistryRuntime {
         resolution
     }
 
-    fn resolve_viewer_surface_profile(&self, _viewer_id: &str) -> ViewerSurfaceResolution {
+    fn resolve_viewer_surface_profile(&self, viewer_id: &str) -> ViewerSurfaceResolution {
         let active_canvas = self.resolve_active_canvas_profile();
         let active_workbench = self.resolve_active_workbench_surface_profile();
-        let profile_resolution = self.layout_domain.resolve_profile(
-            &active_canvas.resolved_id,
-            &active_workbench.resolved_id,
-            VIEWER_SURFACE_DEFAULT,
-        );
+        let viewer_capability = self.describe_viewer(viewer_id);
+        let canvas_resolution = self.layout_domain.canvas().resolve(&active_canvas.resolved_id);
+        let workbench_resolution = self
+            .layout_domain
+            .workbench_surface()
+            .resolve(&active_workbench.resolved_id);
+        let viewer_surface = self
+            .layout_domain
+            .viewer_surface()
+            .resolve_for_viewer(viewer_id, viewer_capability.as_ref());
 
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_LAYOUT_DOMAIN_PROFILE_RESOLVED,
-            byte_len: profile_resolution.viewer_surface.resolved_id.len(),
+            byte_len: viewer_surface.resolved_id.len(),
         });
         emit_surface_conformance_diagnostics(
-            profile_resolution
-                .canvas
+            canvas_resolution
                 .profile
                 .subsystems
                 .accessibility
                 .level,
-            profile_resolution.canvas.profile.subsystems.security.level,
-            profile_resolution.canvas.profile.subsystems.storage.level,
-            profile_resolution.canvas.profile.subsystems.history.level,
+            canvas_resolution.profile.subsystems.security.level,
+            canvas_resolution.profile.subsystems.storage.level,
+            canvas_resolution.profile.subsystems.history.level,
         );
         emit_surface_conformance_diagnostics(
-            profile_resolution
-                .workbench_surface
+            workbench_resolution
                 .profile
                 .subsystems
                 .accessibility
                 .level,
-            profile_resolution
-                .workbench_surface
-                .profile
-                .subsystems
-                .security
-                .level,
-            profile_resolution
-                .workbench_surface
-                .profile
-                .subsystems
-                .storage
-                .level,
-            profile_resolution
-                .workbench_surface
-                .profile
-                .subsystems
-                .history
-                .level,
+            workbench_resolution.profile.subsystems.security.level,
+            workbench_resolution.profile.subsystems.storage.level,
+            workbench_resolution.profile.subsystems.history.level,
         );
         emit_surface_conformance_diagnostics(
-            profile_resolution
-                .viewer_surface
+            viewer_surface
                 .profile
                 .subsystems
                 .accessibility
                 .level
                 .clone(),
-            profile_resolution
-                .viewer_surface
-                .profile
-                .subsystems
-                .security
-                .level
-                .clone(),
-            profile_resolution
-                .viewer_surface
-                .profile
-                .subsystems
-                .storage
-                .level
-                .clone(),
-            profile_resolution
-                .viewer_surface
-                .profile
-                .subsystems
-                .history
-                .level
-                .clone(),
+            viewer_surface.profile.subsystems.security.level.clone(),
+            viewer_surface.profile.subsystems.storage.level.clone(),
+            viewer_surface.profile.subsystems.history.level.clone(),
         );
-        profile_resolution.viewer_surface
+        viewer_surface
     }
 
     fn resolve_active_presentation_profile(
@@ -1341,6 +1318,14 @@ pub(crate) fn phase2_resolve_toolbar_submit_binding() -> bool {
     phase2_resolve_input_binding(INPUT_BINDING_TOOLBAR_SUBMIT)
 }
 
+pub(crate) fn phase0_select_viewer_for_content(uri: &str, mime_hint: Option<&str>) -> ViewerSelection {
+    runtime().select_viewer_for_content(uri, mime_hint)
+}
+
+pub(crate) fn phase0_describe_viewer(viewer_id: &str) -> Option<ViewerCapability> {
+    runtime().describe_viewer(viewer_id)
+}
+
 pub(crate) fn phase3_route_mod_lifecycle_event(mod_id: &str, activated: bool) {
     debug_assert!(!diagnostics::phase3_required_channels().is_empty());
     runtime().route_mod_lifecycle_event(mod_id, activated);
@@ -1428,6 +1413,32 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
         layout: resolution.definition.layout,
         theme: resolution.definition.theme,
         filters: resolution.definition.filters,
+    }
+}
+
+pub(crate) fn phase2_resolve_lens_for_content(
+    mime_hint: Option<&str>,
+    has_semantic_context: bool,
+) -> crate::app::LensConfig {
+    debug_assert!(!diagnostics::phase2_required_channels().is_empty());
+
+    let runtime = runtime();
+    let lens_ids = runtime
+        .lens
+        .resolve_for_content(mime_hint, has_semantic_context);
+    let primary_id = lens_ids
+        .first()
+        .cloned()
+        .unwrap_or_else(|| crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string());
+    let composed = runtime.lens.compose(&lens_ids);
+
+    crate::app::LensConfig {
+        name: composed.display_name,
+        lens_id: Some(primary_id),
+        physics: composed.physics,
+        layout: composed.layout,
+        theme: composed.theme,
+        filters: composed.filters,
     }
 }
 
@@ -3112,6 +3123,16 @@ mod tests {
     }
 
     #[test]
+    fn phase2_lens_registry_resolves_semantic_overlay_for_semantic_content() {
+        let lens = phase2_resolve_lens_for_content(Some("text/markdown"), true);
+        assert_eq!(
+            lens.lens_id.as_deref(),
+            Some(crate::shell::desktop::runtime::registries::lens::LENS_ID_SEMANTIC_OVERLAY)
+        );
+        assert!(lens.filters.iter().any(|filter| filter == "semantic:overlay"));
+    }
+
+    #[test]
     fn phase2_lens_resolution_preserves_direct_values() {
         let mut lens = crate::app::LensConfig::default();
         lens.physics = crate::registries::atomic::lens::PhysicsProfile::gas();
@@ -3335,11 +3356,25 @@ mod tests {
     }
 
     #[test]
-    fn phase3_viewer_surface_resolution_returns_default_profile() {
+    fn phase3_viewer_surface_resolution_returns_web_profile_for_webview() {
         let resolution = phase3_resolve_viewer_surface_profile("viewer:webview");
         assert!(resolution.matched);
         assert!(!resolution.fallback_used);
-        assert_eq!(resolution.resolved_id, VIEWER_SURFACE_DEFAULT);
+        assert_eq!(
+            resolution.resolved_id,
+            crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_WEB
+        );
+    }
+
+    #[test]
+    fn phase3_viewer_surface_resolution_returns_document_profile_for_markdown() {
+        let resolution = phase3_resolve_viewer_surface_profile("viewer:markdown");
+        assert!(resolution.matched);
+        assert!(!resolution.fallback_used);
+        assert_eq!(
+            resolution.resolved_id,
+            crate::registries::domain::layout::viewer_surface::VIEWER_SURFACE_DOCUMENT
+        );
     }
 
     #[test]

@@ -12,6 +12,7 @@ use crate::app::{GraphBrowserApp, GraphIntent, LifecycleCause, RuntimeEvent};
 use crate::graph::{NodeKey, NodeLifecycle};
 #[cfg(feature = "wry")]
 use crate::mods::native::verso;
+use crate::registries::atomic::viewer::ViewerRenderMode;
 use crate::shell::desktop::host::window::EmbedderWindow;
 use crate::shell::desktop::lifecycle::lifecycle_intents;
 use crate::shell::desktop::workbench::pane_model::{NodePaneState, TileRenderMode};
@@ -21,12 +22,17 @@ pub(crate) struct TileCoordinator;
 
 impl TileCoordinator {
     fn render_mode_for_viewer_id(viewer_id: &str) -> TileRenderMode {
-        match viewer_id {
-            "viewer:webview" => TileRenderMode::CompositedTexture,
-            "viewer:wry" => TileRenderMode::NativeOverlay,
-            "viewer:plaintext" | "viewer:markdown" | "viewer:pdf" | "viewer:csv"
-            | "viewer:settings" | "viewer:metadata" => TileRenderMode::EmbeddedEgui,
-            _ => TileRenderMode::Placeholder,
+        let Some(capability) =
+            crate::shell::desktop::runtime::registries::phase0_describe_viewer(viewer_id)
+        else {
+            return TileRenderMode::Placeholder;
+        };
+
+        match capability.render_mode {
+            ViewerRenderMode::CompositedTexture => TileRenderMode::CompositedTexture,
+            ViewerRenderMode::NativeOverlay => TileRenderMode::NativeOverlay,
+            ViewerRenderMode::EmbeddedEgui => TileRenderMode::EmbeddedEgui,
+            ViewerRenderMode::Placeholder => TileRenderMode::Placeholder,
         }
     }
 
@@ -34,18 +40,22 @@ impl TileCoordinator {
         Self::render_mode_for_viewer_id(viewer_id) == TileRenderMode::CompositedTexture
     }
 
-    fn node_pane_effective_viewer_id<'a>(
-        state: &'a NodePaneState,
+    fn node_pane_effective_viewer_id(
+        state: &NodePaneState,
         graph_app: &GraphBrowserApp,
-    ) -> Option<&'a str> {
+    ) -> Option<String> {
         if let Some(viewer_id_override) = state.viewer_id_override.as_ref() {
-            return Some(viewer_id_override.as_str());
+            return Some(viewer_id_override.as_str().to_string());
         }
 
         let node = graph_app.domain_graph().get_node(state.node)?;
         Some(
-            crate::registries::atomic::viewer::ViewerRegistry::default()
-                .select_for(node.mime_hint.as_deref(), node.address_kind),
+            crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+                &node.url,
+                node.mime_hint.as_deref(),
+            )
+            .viewer_id
+            .to_string(),
         )
     }
 
@@ -54,6 +64,7 @@ impl TileCoordinator {
         graph_app: &GraphBrowserApp,
     ) -> TileRenderMode {
         Self::node_pane_effective_viewer_id(state, graph_app)
+            .as_deref()
             .map(Self::render_mode_for_viewer_id)
             .unwrap_or(TileRenderMode::Placeholder)
     }
