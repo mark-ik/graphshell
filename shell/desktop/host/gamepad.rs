@@ -15,7 +15,12 @@ use servo::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GamepadUiCommand {
-    CycleFocusRegion,
+    NavigateUp,
+    NavigateDown,
+    NavigateLeft,
+    NavigateRight,
+    Confirm,
+    Cancel,
     ToggleCommandPalette,
     ToggleRadialMenu,
     NavigateBack,
@@ -194,14 +199,16 @@ impl AppGamepadProvider {
 
     fn map_gamepad_ui_command(button: gilrs::Button) -> Option<GamepadUiCommand> {
         match button {
+            gilrs::Button::DPadUp => Some(GamepadUiCommand::NavigateUp),
+            gilrs::Button::DPadDown => Some(GamepadUiCommand::NavigateDown),
+            gilrs::Button::DPadLeft => Some(GamepadUiCommand::NavigateLeft),
+            gilrs::Button::DPadRight => Some(GamepadUiCommand::NavigateRight),
+            gilrs::Button::LeftThumb => Some(GamepadUiCommand::Confirm),
+            gilrs::Button::East => Some(GamepadUiCommand::Cancel),
             gilrs::Button::Start => Some(GamepadUiCommand::ToggleCommandPalette),
             gilrs::Button::South => Some(GamepadUiCommand::ToggleRadialMenu),
             gilrs::Button::LeftTrigger => Some(GamepadUiCommand::NavigateBack),
             gilrs::Button::RightTrigger => Some(GamepadUiCommand::NavigateForward),
-            gilrs::Button::DPadUp
-            | gilrs::Button::DPadDown
-            | gilrs::Button::DPadLeft
-            | gilrs::Button::DPadRight => Some(GamepadUiCommand::CycleFocusRegion),
             _ => None,
         }
     }
@@ -293,14 +300,22 @@ mod tests {
     use super::{AppGamepadProvider, GamepadUiCommand};
 
     #[test]
-    fn dpad_maps_to_focus_cycle() {
+    fn dpad_maps_to_directional_navigation() {
         assert_eq!(
             AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::DPadLeft),
-            Some(GamepadUiCommand::CycleFocusRegion)
+            Some(GamepadUiCommand::NavigateLeft)
         );
         assert_eq!(
             AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::DPadUp),
-            Some(GamepadUiCommand::CycleFocusRegion)
+            Some(GamepadUiCommand::NavigateUp)
+        );
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::DPadRight),
+            Some(GamepadUiCommand::NavigateRight)
+        );
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::DPadDown),
+            Some(GamepadUiCommand::NavigateDown)
         );
     }
 
@@ -313,6 +328,18 @@ mod tests {
         assert_eq!(
             AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::South),
             Some(GamepadUiCommand::ToggleRadialMenu)
+        );
+    }
+
+    #[test]
+    fn east_and_left_thumb_map_to_radial_commands() {
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::East),
+            Some(GamepadUiCommand::Cancel)
+        );
+        assert_eq!(
+            AppGamepadProvider::map_gamepad_ui_command(gilrs::Button::LeftThumb),
+            Some(GamepadUiCommand::Confirm)
         );
     }
 

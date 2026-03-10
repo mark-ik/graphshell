@@ -198,6 +198,11 @@ pub fn resolve(&self, binding: &InputBinding, context: InputContext)
 Per CLAUDE.md: radial menu default in Gamepad mode; D-pad/stick navigation; 8-sector; no
 concentric rings; both menus work in both input modes; all routes through ActionRegistry.
 
+Current status (2026-03-09): the current host-surface gamepad path is now routed through the
+typed `InputRegistry` for radial-menu open, directional radial navigation, confirm, cancel,
+command palette open, and browser back/forward. This lands the context-aware binding layer for
+the existing gamepad path, but full per-sector action normalization remains future work.
+
 Register built-in gamepad bindings:
 
 | Gamepad input | Context | Action |

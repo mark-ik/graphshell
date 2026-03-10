@@ -44,6 +44,8 @@ const HOVER_LABEL_MAX_CHARS: usize = 22;
 const HOVER_LABEL_OFFSET: f32 = 34.0;
 const RADIAL_DISABLED_TEXT_COLOR: Color32 = Color32::from_rgb(165, 172, 178);
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
+const RADIAL_GAMEPAD_INPUTS_KEY: &str = "radial_menu_gamepad_inputs";
+const RADIAL_SELECTED_DOMAIN_KEY: &str = "radial_menu_selected_domain";
 const RAIL_OFFSET_STEP_RAD: f32 = 0.08;
 const RING_COLLISION_EPSILON: f32 = 2.0;
 const HUB_RADIUS_KEY: &str = "radial_hub_radius";
@@ -52,6 +54,16 @@ const TIER2_RING_RADIUS_KEY: &str = "radial_tier2_ring_radius";
 // Current radial UI does not enlarge button radius on hover yet.
 // Keep this explicit so the pre-check gate can be tightened when hover-size growth lands.
 const EFFECTIVE_HOVER_BUTTON_RADIUS: f32 = COMMAND_BUTTON_RADIUS;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RadialGamepadInput {
+    NavigateUp,
+    NavigateDown,
+    NavigateLeft,
+    NavigateRight,
+    Confirm,
+    Cancel,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RadialSectorSemanticMetadata {
@@ -166,6 +178,30 @@ fn persist_radial_geometry(
         d.insert_persisted(egui::Id::new(TIER1_RING_RADIUS_KEY), tier1_radius);
         d.insert_persisted(egui::Id::new(TIER2_RING_RADIUS_KEY), tier2_radius);
     });
+}
+
+pub(crate) fn queue_gamepad_input(ctx: &egui::Context, input: RadialGamepadInput) {
+    let queue_id = egui::Id::new(RADIAL_GAMEPAD_INPUTS_KEY);
+    ctx.data_mut(|d| {
+        let mut pending = d.get_temp::<Vec<RadialGamepadInput>>(queue_id).unwrap_or_default();
+        pending.push(input);
+        d.insert_temp(queue_id, pending);
+    });
+}
+
+fn take_gamepad_inputs(ctx: &egui::Context) -> Vec<RadialGamepadInput> {
+    ctx.data_mut(|d| {
+        let queue_id = egui::Id::new(RADIAL_GAMEPAD_INPUTS_KEY);
+        let pending = d
+            .get_temp::<Vec<RadialGamepadInput>>(queue_id)
+            .unwrap_or_default();
+        d.remove::<Vec<RadialGamepadInput>>(queue_id);
+        pending
+    })
+}
+
+fn radial_command_selection_state_id(category: ActionCategory) -> egui::Id {
+    egui::Id::new("radial_menu_selected_command").with(category_persisted_name(category))
 }
 
 /// Radial domain maps to `ActionCategory` for registry-backed content.
@@ -322,6 +358,7 @@ pub fn render_radial_command_menu(
         .or(pointer)
         .unwrap_or(egui::pos2(320.0, 220.0));
     ctx.data_mut(|d| d.insert_persisted(center_id, center));
+    let pending_gamepad_inputs = take_gamepad_inputs(ctx);
 
     if app.pending_node_context_target().is_some() {
         let mut group_idx = ctx
@@ -357,6 +394,56 @@ pub fn render_radial_command_menu(
         }
         if keyboard_slot_count > 0 && ctx.input(|i| i.key_pressed(Key::ArrowDown)) {
             command_idx = (command_idx + 1) % keyboard_slot_count;
+        }
+        for input in pending_gamepad_inputs.iter().copied() {
+            match input {
+                RadialGamepadInput::NavigateLeft => {
+                    group_idx = (group_idx + NodeContextGroup::ALL.len() - 1)
+                        % NodeContextGroup::ALL.len();
+                    command_idx = 0;
+                }
+                RadialGamepadInput::NavigateRight => {
+                    group_idx = (group_idx + 1) % NodeContextGroup::ALL.len();
+                    command_idx = 0;
+                }
+                RadialGamepadInput::NavigateUp => {
+                    let keyboard_commands = NodeContextGroup::ALL[group_idx].actions(&action_context);
+                    if !keyboard_commands.is_empty() {
+                        command_idx = (command_idx + keyboard_commands.len() - 1)
+                            % keyboard_commands.len();
+                    }
+                }
+                RadialGamepadInput::NavigateDown => {
+                    let keyboard_commands = NodeContextGroup::ALL[group_idx].actions(&action_context);
+                    if !keyboard_commands.is_empty() {
+                        command_idx = (command_idx + 1) % keyboard_commands.len();
+                    }
+                }
+                RadialGamepadInput::Confirm => {
+                    let keyboard_commands = NodeContextGroup::ALL[group_idx].actions(&action_context);
+                    if let Some(entry) = keyboard_commands.get(command_idx)
+                        && entry.enabled
+                    {
+                        record_recent_category(ctx, entry.id.category());
+                        super::command_palette::execute_action(
+                            app,
+                            entry.id,
+                            pair_context,
+                            source_context,
+                            &mut intents,
+                            focused_pane_node,
+                            focused_pane_id,
+                        );
+                        should_close = true;
+                    }
+                }
+                RadialGamepadInput::Cancel => {
+                    should_close = true;
+                }
+            }
+            if should_close {
+                break;
+            }
         }
         if ctx.input(|i| i.key_pressed(Key::Enter)) {
             if let Some(entry) = keyboard_commands.get(command_idx)
@@ -496,8 +583,14 @@ pub fn render_radial_command_menu(
 
         let mut hovered_domain = None;
         let mut hovered_entry: Option<ActionEntry> = None;
+        let mut clicked_entry: Option<ActionEntry> = None;
         let mut fallback_to_command_palette = false;
         let mut fallback_reason: Option<&'static str> = None;
+        let selected_domain_state_id = egui::Id::new(RADIAL_SELECTED_DOMAIN_KEY);
+        let mut selected_domain_idx = ctx
+            .data_mut(|d| d.get_persisted::<usize>(selected_domain_state_id))
+            .unwrap_or(0)
+            % RadialDomain::ALL.len();
         if let Some(pos) = pointer {
             let delta = pos - center;
             let r = delta.length();
@@ -563,6 +656,98 @@ pub fn render_radial_command_menu(
                 }
             }
         }
+        if let Some(domain) = hovered_domain {
+            selected_domain_idx = domain.index();
+        }
+
+        for input in pending_gamepad_inputs.iter().copied() {
+            match input {
+                RadialGamepadInput::NavigateLeft => {
+                    selected_domain_idx =
+                        (selected_domain_idx + RadialDomain::ALL.len() - 1) % RadialDomain::ALL.len();
+                }
+                RadialGamepadInput::NavigateRight => {
+                    selected_domain_idx = (selected_domain_idx + 1) % RadialDomain::ALL.len();
+                }
+                RadialGamepadInput::NavigateUp
+                | RadialGamepadInput::NavigateDown
+                | RadialGamepadInput::Confirm => {
+                    let category = ordered_categories[selected_domain_idx];
+                    let command_state_id = radial_command_selection_state_id(category);
+                    let commands = list_radial_actions_for_category(&action_context, category);
+                    let mut selected_command_idx = ctx
+                        .data_mut(|d| d.get_persisted::<usize>(command_state_id))
+                        .unwrap_or(0);
+                    if !commands.is_empty() {
+                        selected_command_idx %= commands.len();
+                        match input {
+                            RadialGamepadInput::NavigateUp => {
+                                selected_command_idx = (selected_command_idx + commands.len() - 1)
+                                    % commands.len();
+                            }
+                            RadialGamepadInput::NavigateDown => {
+                                selected_command_idx = (selected_command_idx + 1) % commands.len();
+                            }
+                            RadialGamepadInput::Confirm => {
+                                if let Some(entry) = commands.get(selected_command_idx).cloned()
+                                    && entry.enabled
+                                {
+                                    clicked_entry = Some(entry);
+                                    should_close = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        selected_command_idx = 0;
+                    }
+                    ctx.data_mut(|d| d.insert_persisted(command_state_id, selected_command_idx));
+                }
+                RadialGamepadInput::Cancel => {
+                    should_close = true;
+                }
+            }
+            if should_close {
+                break;
+            }
+        }
+        ctx.data_mut(|d| d.insert_persisted(selected_domain_state_id, selected_domain_idx));
+
+        let selected_domain = RadialDomain::ALL[selected_domain_idx];
+        let selected_category = ordered_categories[selected_domain.index()];
+        let selected_command_state_id = radial_command_selection_state_id(selected_category);
+        let selected_commands = list_radial_actions_for_category(&action_context, selected_category);
+        let mut selected_command_idx = ctx
+            .data_mut(|d| d.get_persisted::<usize>(selected_command_state_id))
+            .unwrap_or(0);
+        if !selected_commands.is_empty() {
+            selected_command_idx %= selected_commands.len();
+        } else {
+            selected_command_idx = 0;
+        }
+        ctx.data_mut(|d| d.insert_persisted(selected_command_state_id, selected_command_idx));
+        let selected_page = if selected_commands.is_empty() {
+            0
+        } else {
+            selected_command_idx / MAX_VISIBLE_ACTIONS_PER_RING
+        };
+        ctx.data_mut(|d| {
+            d.insert_persisted(
+                egui::Id::new("radial_menu_page").with(category_persisted_name(selected_category)),
+                selected_page,
+            )
+        });
+        let selected_visible_commands =
+            paged_ring_entries(&selected_commands, selected_page, MAX_VISIBLE_ACTIONS_PER_RING);
+        let selected_visible_idx = if selected_visible_commands.is_empty() {
+            0
+        } else {
+            selected_command_idx % MAX_VISIBLE_ACTIONS_PER_RING
+        };
+        if !pending_gamepad_inputs.is_empty() || hovered_domain.is_none() {
+            hovered_domain = Some(selected_domain);
+            hovered_entry = selected_visible_commands.get(selected_visible_idx).cloned();
+        }
 
         if let Some(domain) = hovered_domain {
             if ctx.input(|i| i.key_pressed(Key::ArrowLeft)) {
@@ -615,7 +800,6 @@ pub fn render_radial_command_menu(
         }
         persist_radial_geometry(ctx, hub_radius, tier1_ring_radius, tier2_ring_radius);
 
-        let mut clicked_entry: Option<ActionEntry> = None;
         if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
             clicked_entry = hovered_entry.clone();
             should_close = true;
@@ -909,6 +1093,10 @@ pub fn render_radial_command_menu(
             d.remove::<egui::Pos2>(center_id);
             d.remove::<usize>(node_context_group_state_id);
             d.remove::<usize>(node_context_command_state_id);
+            d.remove::<usize>(egui::Id::new(RADIAL_SELECTED_DOMAIN_KEY));
+            for category in default_category_order() {
+                d.remove::<usize>(radial_command_selection_state_id(category));
+            }
         });
     } else if app.pending_node_context_target().is_some() {
         // Context-window mode has no radial sector geometry to publish.

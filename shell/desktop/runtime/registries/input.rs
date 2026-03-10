@@ -12,6 +12,12 @@ pub(crate) const ACTION_GRAPH_VIEW_CONFIRM: &str = "action.graph_view.confirm";
 pub(crate) const ACTION_GRAPH_CYCLE_FOCUS_REGION: &str = "action.graph.cycle_focus_region";
 pub(crate) const ACTION_GRAPH_COMMAND_PALETTE_OPEN: &str = "action.graph.command_palette_open";
 pub(crate) const ACTION_GRAPH_RADIAL_MENU_OPEN: &str = "action.graph.radial_menu_open";
+pub(crate) const ACTION_RADIAL_MENU_CATEGORY_PREVIOUS: &str = "action.radial_menu.category_previous";
+pub(crate) const ACTION_RADIAL_MENU_CATEGORY_NEXT: &str = "action.radial_menu.category_next";
+pub(crate) const ACTION_RADIAL_MENU_SELECTION_PREVIOUS: &str = "action.radial_menu.selection_previous";
+pub(crate) const ACTION_RADIAL_MENU_SELECTION_NEXT: &str = "action.radial_menu.selection_next";
+pub(crate) const ACTION_RADIAL_MENU_CONFIRM: &str = "action.radial_menu.confirm";
+pub(crate) const ACTION_RADIAL_MENU_CANCEL: &str = "action.radial_menu.cancel";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModifierMask(u8);
@@ -224,6 +230,48 @@ fn gamepad_nav_forward_binding() -> InputBinding {
     }
 }
 
+fn gamepad_radial_category_previous_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::DPadLeft,
+        modifier: None,
+    }
+}
+
+fn gamepad_radial_category_next_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::DPadRight,
+        modifier: None,
+    }
+}
+
+fn gamepad_radial_selection_previous_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::DPadUp,
+        modifier: None,
+    }
+}
+
+fn gamepad_radial_selection_next_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::DPadDown,
+        modifier: None,
+    }
+}
+
+fn gamepad_radial_confirm_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::LeftStickPress,
+        modifier: None,
+    }
+}
+
+fn gamepad_radial_cancel_binding() -> InputBinding {
+    InputBinding::Gamepad {
+        button: GamepadButton::East,
+        modifier: None,
+    }
+}
+
 fn binding_label(binding: &InputBinding, context: InputContext) -> String {
     format!("{}@{}", binding.label(), context.label())
 }
@@ -398,6 +446,36 @@ impl Default for InputRegistry {
             ACTION_TOOLBAR_NAV_FORWARD,
             InputContext::DetailView,
         );
+        registry.register_binding(
+            gamepad_radial_category_previous_binding(),
+            ACTION_RADIAL_MENU_CATEGORY_PREVIOUS,
+            InputContext::RadialMenuOpen,
+        );
+        registry.register_binding(
+            gamepad_radial_category_next_binding(),
+            ACTION_RADIAL_MENU_CATEGORY_NEXT,
+            InputContext::RadialMenuOpen,
+        );
+        registry.register_binding(
+            gamepad_radial_selection_previous_binding(),
+            ACTION_RADIAL_MENU_SELECTION_PREVIOUS,
+            InputContext::RadialMenuOpen,
+        );
+        registry.register_binding(
+            gamepad_radial_selection_next_binding(),
+            ACTION_RADIAL_MENU_SELECTION_NEXT,
+            InputContext::RadialMenuOpen,
+        );
+        registry.register_binding(
+            gamepad_radial_confirm_binding(),
+            ACTION_RADIAL_MENU_CONFIRM,
+            InputContext::RadialMenuOpen,
+        );
+        registry.register_binding(
+            gamepad_radial_cancel_binding(),
+            ACTION_RADIAL_MENU_CANCEL,
+            InputContext::RadialMenuOpen,
+        );
         registry
     }
 }
@@ -530,5 +608,50 @@ mod tests {
 
         let forward = registry.resolve(&gamepad_nav_forward_binding(), InputContext::DetailView);
         assert_eq!(forward.action_id.as_deref(), Some(ACTION_TOOLBAR_NAV_FORWARD));
+    }
+
+    #[test]
+    fn input_registry_resolves_radial_menu_gamepad_bindings() {
+        let registry = InputRegistry::default();
+
+        let category_previous =
+            registry.resolve(&gamepad_radial_category_previous_binding(), InputContext::RadialMenuOpen);
+        assert_eq!(
+            category_previous.action_id.as_deref(),
+            Some(ACTION_RADIAL_MENU_CATEGORY_PREVIOUS)
+        );
+
+        let category_next =
+            registry.resolve(&gamepad_radial_category_next_binding(), InputContext::RadialMenuOpen);
+        assert_eq!(
+            category_next.action_id.as_deref(),
+            Some(ACTION_RADIAL_MENU_CATEGORY_NEXT)
+        );
+
+        let selection_previous = registry.resolve(
+            &gamepad_radial_selection_previous_binding(),
+            InputContext::RadialMenuOpen,
+        );
+        assert_eq!(
+            selection_previous.action_id.as_deref(),
+            Some(ACTION_RADIAL_MENU_SELECTION_PREVIOUS)
+        );
+
+        let selection_next = registry.resolve(
+            &gamepad_radial_selection_next_binding(),
+            InputContext::RadialMenuOpen,
+        );
+        assert_eq!(
+            selection_next.action_id.as_deref(),
+            Some(ACTION_RADIAL_MENU_SELECTION_NEXT)
+        );
+
+        let confirm =
+            registry.resolve(&gamepad_radial_confirm_binding(), InputContext::RadialMenuOpen);
+        assert_eq!(confirm.action_id.as_deref(), Some(ACTION_RADIAL_MENU_CONFIRM));
+
+        let cancel =
+            registry.resolve(&gamepad_radial_cancel_binding(), InputContext::RadialMenuOpen);
+        assert_eq!(cancel.action_id.as_deref(), Some(ACTION_RADIAL_MENU_CANCEL));
     }
 }

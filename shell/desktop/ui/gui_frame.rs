@@ -124,14 +124,66 @@ pub(crate) fn ingest_pre_frame(
         let focused_node = window
             .explicit_input_webview_id()
             .and_then(|webview_id| graph_app.get_node_for_webview(webview_id));
+        let radial_menu_open = graph_app.workspace.show_radial_menu;
         for command in app_state.take_pending_gamepad_ui_commands() {
             let (binding, context) = match command {
-                GamepadUiCommand::CycleFocusRegion => (
+                GamepadUiCommand::NavigateUp => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::DPadUp,
+                        modifier: None,
+                    },
+                    if radial_menu_open {
+                        InputContext::RadialMenuOpen
+                    } else {
+                        InputContext::GraphView
+                    },
+                ),
+                GamepadUiCommand::NavigateDown => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::DPadDown,
+                        modifier: None,
+                    },
+                    if radial_menu_open {
+                        InputContext::RadialMenuOpen
+                    } else {
+                        InputContext::GraphView
+                    },
+                ),
+                GamepadUiCommand::NavigateLeft => (
                     InputBinding::Gamepad {
                         button: GamepadButton::DPadLeft,
                         modifier: None,
                     },
-                    InputContext::GraphView,
+                    if radial_menu_open {
+                        InputContext::RadialMenuOpen
+                    } else {
+                        InputContext::GraphView
+                    },
+                ),
+                GamepadUiCommand::NavigateRight => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::DPadRight,
+                        modifier: None,
+                    },
+                    if radial_menu_open {
+                        InputContext::RadialMenuOpen
+                    } else {
+                        InputContext::GraphView
+                    },
+                ),
+                GamepadUiCommand::Confirm => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::LeftStickPress,
+                        modifier: None,
+                    },
+                    InputContext::RadialMenuOpen,
+                ),
+                GamepadUiCommand::Cancel => (
+                    InputBinding::Gamepad {
+                        button: GamepadButton::East,
+                        modifier: None,
+                    },
+                    InputContext::RadialMenuOpen,
                 ),
                 GamepadUiCommand::ToggleCommandPalette => (
                     InputBinding::Gamepad {
@@ -212,6 +264,42 @@ pub(crate) fn ingest_pre_frame(
                             .or(focused_node),
                     };
                     graph_app.request_browser_command(target, BrowserCommand::Forward);
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CATEGORY_PREVIOUS => {
+                    render::radial_menu::queue_gamepad_input(
+                        ctx,
+                        render::radial_menu::RadialGamepadInput::NavigateLeft,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CATEGORY_NEXT => {
+                    render::radial_menu::queue_gamepad_input(
+                        ctx,
+                        render::radial_menu::RadialGamepadInput::NavigateRight,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_SELECTION_PREVIOUS => {
+                    render::radial_menu::queue_gamepad_input(
+                        ctx,
+                        render::radial_menu::RadialGamepadInput::NavigateUp,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_SELECTION_NEXT => {
+                    render::radial_menu::queue_gamepad_input(
+                        ctx,
+                        render::radial_menu::RadialGamepadInput::NavigateDown,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CONFIRM => {
+                    render::radial_menu::queue_gamepad_input(
+                        ctx,
+                        render::radial_menu::RadialGamepadInput::Confirm,
+                    );
+                }
+                crate::shell::desktop::runtime::registries::input::ACTION_RADIAL_MENU_CANCEL => {
+                    render::radial_menu::queue_gamepad_input(
+                        ctx,
+                        render::radial_menu::RadialGamepadInput::Cancel,
+                    );
                 }
                 _ => {}
             }
