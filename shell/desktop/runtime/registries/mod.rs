@@ -41,7 +41,7 @@ use crate::registries::domain::layout::viewer_surface::{
 use crate::registries::domain::presentation::{
     PresentationDomainProfileResolution, PresentationDomainRegistry,
 };
-use crate::registries::infrastructure::ModRegistry;
+use crate::registries::infrastructure::{ModExtensionRecord, ModRegistry, ModUnloadError};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::workbench::pane_model::PaneId;
 use action::{
@@ -345,15 +345,14 @@ pub(crate) struct Phase0NavigationDecision {
 }
 
 pub(crate) struct RegistryRuntime {
-    action: ActionRegistry,
     #[allow(dead_code)]
     pub(crate) diagnostics: DiagnosticsRegistry,
     #[allow(dead_code)]
     signal_bus: Arc<dyn SignalBus>,
     #[allow(dead_code)]
     identity: IdentityRegistry,
+    dynamic: Mutex<DynamicRegistrySurfaces>,
     input: Mutex<InputRegistry>,
-    lens: LensRegistry,
     layout: Mutex<LayoutRegistry>,
     #[allow(dead_code)]
     nostr_core: NostrCoreRegistry,
@@ -361,14 +360,202 @@ pub(crate) struct RegistryRuntime {
     layout_domain: LayoutDomainRegistry,
     presentation: PresentationDomainRegistry,
     physics_profile: Mutex<PhysicsProfileRegistry>,
-    protocol: ProtocolRegistry,
     #[allow(dead_code)]
     renderer: Mutex<RendererRegistry>,
-    viewer: ViewerRegistry,
     workflow: Mutex<WorkflowRegistry>,
     workbench_surface: Mutex<WorkbenchSurfaceRegistry>,
     pub(crate) knowledge: KnowledgeRegistry,
+    mod_registry: Mutex<ModRegistry>,
+}
+
+struct DynamicRegistrySurfaces {
+    action: ActionRegistry,
+    lens: LensRegistry,
+    protocol: ProtocolRegistry,
+    viewer: ViewerRegistry,
     index: IndexRegistry,
+}
+
+impl DynamicRegistrySurfaces {
+    fn apply_extension(&mut self, record: &ModExtensionRecord) -> Result<(), String> {
+        match record {
+            ModExtensionRecord::ProtocolScheme { scheme, .. } => {
+                self.protocol.register_scheme(scheme);
+            }
+            ModExtensionRecord::ViewerMime {
+                mime,
+                previous_viewer_id: _,
+            } => {
+                let viewer_id = static_viewer_id_for_runtime_mime(mime)
+                    .ok_or_else(|| format!("unsupported viewer mapping for mime {mime}"))?;
+                self.viewer.register_mime(mime, viewer_id);
+            }
+            ModExtensionRecord::ViewerExtension {
+                extension,
+                previous_viewer_id: _,
+            } => {
+                let viewer_id = static_viewer_id_for_runtime_extension(extension)
+                    .ok_or_else(|| format!("unsupported viewer mapping for extension {extension}"))?;
+                self.viewer.register_extension(extension, viewer_id);
+            }
+            ModExtensionRecord::ViewerCapabilities {
+                viewer_id,
+                previous_capabilities: _,
+            } => {
+                let static_viewer_id = static_viewer_id(viewer_id)
+                    .ok_or_else(|| format!("unsupported viewer capabilities for {viewer_id}"))?;
+                self.viewer.register_capabilities(
+                    static_viewer_id,
+                    self.viewer.capabilities_for(static_viewer_id),
+                );
+            }
+            ModExtensionRecord::Action { .. }
+            | ModExtensionRecord::IndexProvider { .. }
+            | ModExtensionRecord::Lens { .. }
+            | ModExtensionRecord::Theme { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn remove_extension(&mut self, record: ModExtensionRecord) -> Result<(), String> {
+        match record {
+            ModExtensionRecord::ProtocolScheme {
+                scheme,
+                previously_present,
+            } => {
+                if !previously_present {
+                    self.protocol.unregister_scheme(&scheme);
+                }
+            }
+            ModExtensionRecord::ViewerMime {
+                mime,
+                previous_viewer_id,
+            } => match previous_viewer_id.as_deref().and_then(static_viewer_id) {
+                Some(previous) => {
+                    self.viewer.register_mime(&mime, previous);
+                }
+                None => {
+                    self.viewer.unregister_mime(&mime);
+                }
+            },
+            ModExtensionRecord::ViewerExtension {
+                extension,
+                previous_viewer_id,
+            } => match previous_viewer_id.as_deref().and_then(static_viewer_id) {
+                Some(previous) => {
+                    self.viewer.register_extension(&extension, previous);
+                }
+                None => {
+                    self.viewer.unregister_extension(&extension);
+                }
+            },
+            ModExtensionRecord::ViewerCapabilities {
+                viewer_id,
+                previous_capabilities,
+            } => {
+                let static_viewer_id = static_viewer_id(&viewer_id)
+                    .ok_or_else(|| format!("unsupported viewer capability rollback for {viewer_id}"))?;
+                if let Some(previous) = previous_capabilities {
+                    self.viewer.register_capabilities(static_viewer_id, previous);
+                } else {
+                    self.viewer.unregister_capabilities(static_viewer_id);
+                }
+            }
+            ModExtensionRecord::Action { action_id } => {
+                self.action.unregister(&action_id);
+            }
+            ModExtensionRecord::IndexProvider { provider_id } => {
+                self.index.unregister_provider(&provider_id);
+            }
+            ModExtensionRecord::Lens { lens_id } => {
+                self.lens.unregister(&lens_id);
+            }
+            ModExtensionRecord::Theme { theme_id: _ } => {}
+        }
+        Ok(())
+    }
+}
+
+fn static_viewer_id(viewer_id: &str) -> Option<&'static str> {
+    match viewer_id {
+        "viewer:webview" => Some("viewer:webview"),
+        "viewer:wry" => Some("viewer:wry"),
+        "viewer:plaintext" => Some("viewer:plaintext"),
+        "viewer:markdown" => Some("viewer:markdown"),
+        "viewer:pdf" => Some("viewer:pdf"),
+        "viewer:csv" => Some("viewer:csv"),
+        "viewer:settings" => Some("viewer:settings"),
+        "viewer:metadata" => Some("viewer:metadata"),
+        _ => None,
+    }
+}
+
+fn static_viewer_id_for_runtime_mime(mime: &str) -> Option<&'static str> {
+    match mime {
+        "text/html" | "application/pdf" | "image/svg+xml" | "text/css"
+        | "application/javascript" => Some("viewer:webview"),
+        "application/x-graphshell-wry" => Some("viewer:wry"),
+        _ => None,
+    }
+}
+
+fn static_viewer_id_for_runtime_extension(extension: &str) -> Option<&'static str> {
+    match extension {
+        "html" | "htm" | "pdf" | "svg" => Some("viewer:webview"),
+        _ => None,
+    }
+}
+
+fn register_verso_mod_extensions(dynamic: &mut DynamicRegistrySurfaces) -> Vec<ModExtensionRecord> {
+    let mut records = Vec::new();
+
+    for scheme in ["http", "https", "data"] {
+        records.push(ModExtensionRecord::ProtocolScheme {
+            scheme: scheme.to_string(),
+            previously_present: dynamic.protocol.has_scheme(scheme),
+        });
+        dynamic.protocol.register_scheme(scheme);
+    }
+
+    for (mime, viewer_id) in [
+        ("text/html", "viewer:webview"),
+        ("application/pdf", "viewer:webview"),
+        ("image/svg+xml", "viewer:webview"),
+        ("text/css", "viewer:webview"),
+        ("application/javascript", "viewer:webview"),
+    ] {
+        let previous = dynamic.viewer.register_mime(mime, viewer_id);
+        records.push(ModExtensionRecord::ViewerMime {
+            mime: mime.to_string(),
+            previous_viewer_id: previous.map(str::to_string),
+        });
+    }
+
+    for (extension, viewer_id) in [
+        ("html", "viewer:webview"),
+        ("htm", "viewer:webview"),
+        ("pdf", "viewer:webview"),
+        ("svg", "viewer:webview"),
+    ] {
+        let previous = dynamic.viewer.register_extension(extension, viewer_id);
+        records.push(ModExtensionRecord::ViewerExtension {
+            extension: extension.to_string(),
+            previous_viewer_id: previous.map(str::to_string),
+        });
+    }
+
+    #[cfg(feature = "wry")]
+    {
+        let previous = dynamic
+            .viewer
+            .register_mime("application/x-graphshell-wry", "viewer:wry");
+        records.push(ModExtensionRecord::ViewerMime {
+            mime: "application/x-graphshell-wry".to_string(),
+            previous_viewer_id: previous.map(str::to_string),
+        });
+    }
+
+    records
 }
 
 impl Default for RegistryRuntime {
@@ -503,12 +690,18 @@ pub(crate) fn phase1_detach_renderer(renderer_id: RendererId) -> Option<PaneAtta
 }
 
 impl RegistryRuntime {
+    fn dynamic(&self) -> std::sync::MutexGuard<'_, DynamicRegistrySurfaces> {
+        self.dynamic
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub(crate) fn describe_action(&self, action_id: &str) -> Option<ActionCapability> {
-        self.action.describe_action(action_id)
+        self.dynamic().action.describe_action(action_id)
     }
 
     pub(crate) fn describe_viewer(&self, viewer_id: &str) -> Option<ViewerCapability> {
-        self.viewer.describe_viewer(viewer_id)
+        self.dynamic().viewer.describe_viewer(viewer_id)
     }
 
     pub(crate) fn select_viewer_for_content(
@@ -516,7 +709,7 @@ impl RegistryRuntime {
         uri: &str,
         mime_hint: Option<&str>,
     ) -> ViewerSelection {
-        self.viewer.select_for_uri(uri, mime_hint)
+        self.dynamic().viewer.select_for_uri(uri, mime_hint)
     }
 
     fn build_provider_wired_registries(
@@ -536,27 +729,40 @@ impl RegistryRuntime {
         (protocol_registry, viewer_registry)
     }
 
+    fn build_dynamic_surfaces(
+        protocol_registry: ProtocolRegistry,
+        viewer_registry: ViewerRegistry,
+    ) -> DynamicRegistrySurfaces {
+        DynamicRegistrySurfaces {
+            action: ActionRegistry::default(),
+            lens: LensRegistry::default(),
+            protocol: protocol_registry,
+            viewer: viewer_registry,
+            index: IndexRegistry::default(),
+        }
+    }
+
     fn new_with_registries(protocol_registry: ProtocolRegistry, viewer_registry: ViewerRegistry) -> Self {
         Self {
-            action: ActionRegistry::default(),
             diagnostics: DiagnosticsRegistry::default(),
             signal_bus: Arc::new(SignalRoutingLayer::default()),
             identity: IdentityRegistry::default(),
+            dynamic: Mutex::new(Self::build_dynamic_surfaces(
+                protocol_registry,
+                viewer_registry,
+            )),
             input: Mutex::new(InputRegistry::default()),
-            lens: LensRegistry::default(),
             layout: Mutex::new(LayoutRegistry::default()),
             nostr_core: NostrCoreRegistry::default(),
             canvas: Mutex::new(CanvasRegistry::default()),
             layout_domain: LayoutDomainRegistry::default(),
             presentation: PresentationDomainRegistry::default(),
             physics_profile: Mutex::new(PhysicsProfileRegistry::default()),
-            protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
-            viewer: viewer_registry,
             workflow: Mutex::new(WorkflowRegistry::default()),
             workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
-            index: IndexRegistry::default(),
+            mod_registry: Mutex::new(ModRegistry::new()),
         }
     }
 
@@ -577,39 +783,71 @@ impl RegistryRuntime {
     /// registries returned by this constructor.
     #[allow(dead_code)]
     pub(crate) fn new_with_mods() -> Self {
-        // Discover and resolve mod dependencies
-        let mut mod_registry = ModRegistry::new();
-        if let Err(e) = mod_registry.resolve_dependencies() {
+        let runtime = Self::new_with_registries(ProtocolRegistry::default(), ViewerRegistry::default());
+        {
+            let mut mod_registry = runtime
+                .mod_registry
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Err(e) = mod_registry.resolve_dependencies() {
+                log::error!(
+                    "Failed to resolve mod dependencies: {:?}. Using core seed only.",
+                    e
+                );
+            }
+        }
+        if let Err(reason) = runtime.reload_dynamic_registries_from_mods() {
             log::error!(
-                "Failed to resolve mod dependencies: {:?}. Using core seed only.",
-                e
+                "Failed to load runtime mod registries: {reason}. Falling back to core seed.",
             );
         }
-        let _loaded_mods = mod_registry.load_all();
+        runtime
+    }
 
-        // Wire up handler providers from active mods.
-        let mut protocol_providers = ProtocolHandlerProviders::new();
-        let mut viewer_providers = ViewerHandlerProviders::new();
-
-        // Register handlers from active mods
-        if mod_registry.get_status("mod:verso").is_some() {
-            crate::mods::verso::register_protocol_handlers(&mut protocol_providers);
-            crate::mods::verso::register_viewer_handlers(&mut viewer_providers);
-            log::debug!("registries: verso mod handlers registered into provider registries");
+    fn reload_dynamic_registries_from_mods(&self) -> Result<(), String> {
+        let mut mod_registry = self
+            .mod_registry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut dynamic = self.dynamic();
+        *dynamic = Self::build_dynamic_surfaces(ProtocolRegistry::default(), ViewerRegistry::default());
+        let loaded =
+            mod_registry.load_all_with_extensions(|mod_id| Self::activate_mod_into_runtime(&mut dynamic, mod_id));
+        for mod_id in loaded {
+            self.route_mod_lifecycle_event(&mod_id, true);
         }
+        Ok(())
+    }
 
-        if mod_registry.get_status("mod:verse").is_some()
-            || mod_registry.get_status("verse").is_some()
-        {
-            crate::mods::verse::register_protocol_handlers(&mut protocol_providers);
-            log::debug!("registries: verse mod handlers registered into provider registries");
+    fn activate_mod_into_runtime(
+        dynamic: &mut DynamicRegistrySurfaces,
+        mod_id: &str,
+    ) -> Result<Vec<ModExtensionRecord>, String> {
+        match mod_id {
+            "mod:verso" | "verso" => Ok(register_verso_mod_extensions(dynamic)),
+            "mod:verse" | "verse" => {
+                crate::mods::native::verse::activate()?;
+                Ok(Vec::new())
+            }
+            _ => {
+                let activations = crate::registries::infrastructure::mod_activation::NativeModActivations::new();
+                activations.activate(mod_id)?;
+                Ok(Vec::new())
+            }
         }
+    }
 
-        let (protocol_registry, viewer_registry) =
-            Self::build_provider_wired_registries(&protocol_providers, &viewer_providers);
-
-        // Create the RegistryRuntime with provider-wired registries.
-        Self::new_with_registries(protocol_registry, viewer_registry)
+    pub(crate) fn unload_mod(&self, mod_id: &str) -> Result<(), ModUnloadError> {
+        let mut mod_registry = self
+            .mod_registry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut dynamic = self.dynamic();
+        let result = mod_registry.unload_mod_with(mod_id, |record| dynamic.remove_extension(record));
+        if result.is_ok() {
+            self.route_mod_lifecycle_event(mod_id, false);
+        }
+        result
     }
 
     pub(crate) fn describe_workflow(&self, workflow_id: Option<&str>) -> WorkflowCapability {
@@ -1006,7 +1244,7 @@ impl RegistryRuntime {
         query: &str,
         limit: usize,
     ) -> Vec<SearchResult> {
-        let results = self.index.search(app, &self.knowledge, query, limit);
+        let results = self.dynamic().index.search(app, &self.knowledge, query, limit);
         emit_event(DiagnosticEvent::MessageSent {
             channel_id: CHANNEL_INDEX_SEARCH,
             byte_len: query.len().saturating_add(results.len()),
@@ -1087,7 +1325,7 @@ impl RegistryRuntime {
             channel_id: CHANNEL_PROTOCOL_RESOLVE_STARTED,
             byte_len: uri.len(),
         });
-        let protocol = match self.protocol.resolve_with_control(uri, control) {
+        let protocol = match self.dynamic().protocol.resolve_with_control(uri, control) {
             ProtocolResolveOutcome::Resolved(resolution) => resolution,
             ProtocolResolveOutcome::Cancelled => {
                 emit_event(DiagnosticEvent::MessageReceived {
@@ -1120,7 +1358,7 @@ impl RegistryRuntime {
             channel_id: CHANNEL_VIEWER_SELECT_STARTED,
             byte_len: effective_mime_hint.unwrap_or(uri).len(),
         });
-        let viewer = self.viewer.select_for_uri(uri, effective_mime_hint);
+        let viewer = self.dynamic().viewer.select_for_uri(uri, effective_mime_hint);
         emit_event(DiagnosticEvent::MessageReceived {
             channel_id: CHANNEL_VIEWER_SELECT_SUCCEEDED,
             latency_us: 1,
@@ -1383,7 +1621,7 @@ impl RegistryRuntime {
         uri: &str,
         mime_hint: Option<&str>,
     ) {
-        let viewer = self.viewer.select_for_uri(uri, mime_hint);
+        let viewer = self.dynamic().viewer.select_for_uri(uri, mime_hint);
         self.publish_signal(SignalEnvelope::new(
             SignalKind::Navigation(NavigationSignal::MimeResolved {
                 key,
@@ -1471,7 +1709,7 @@ pub(crate) fn phase2_resolve_lens(lens_id: &str) -> crate::app::LensConfig {
     debug_assert!(!diagnostics::phase2_required_channels().is_empty());
 
     let runtime = runtime();
-    let resolution = runtime.lens.resolve(lens_id);
+    let resolution = runtime.dynamic().lens.resolve(lens_id);
     log::debug!(
         "registry lens resolve requested='{}' resolved='{}' matched={} fallback={}",
         resolution.requested_id,
@@ -1517,13 +1755,14 @@ pub(crate) fn phase2_resolve_lens_for_content(
 
     let runtime = runtime();
     let lens_ids = runtime
+        .dynamic()
         .lens
         .resolve_for_content(mime_hint, has_semantic_context);
     let primary_id = lens_ids
         .first()
         .cloned()
         .unwrap_or_else(|| crate::shell::desktop::runtime::registries::lens::LENS_ID_DEFAULT.to_string());
-    let composed = runtime.lens.compose(&lens_ids);
+    let composed = runtime.dynamic().lens.compose(&lens_ids);
 
     crate::app::LensConfig {
         name: composed.display_name,
@@ -1619,7 +1858,7 @@ pub(crate) fn phase2_execute_omnibox_node_search_action(
         byte_len: query.len(),
     });
 
-    let execution = runtime().action.execute(
+    let execution = runtime().dynamic().action.execute(
         ACTION_OMNIBOX_NODE_SEARCH,
         app,
         ActionPayload::OmniboxNodeSearch {
@@ -1697,6 +1936,7 @@ pub(crate) fn phase5_execute_verse_sync_now_action(app: &GraphBrowserApp) -> Vec
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
     let execution =
         runtime()
+            .dynamic()
             .action
             .execute(ACTION_VERSE_SYNC_NOW, app, ActionPayload::VerseSyncNow);
     execution.into_intents()
@@ -1707,7 +1947,7 @@ pub(crate) fn phase5_execute_verse_pair_local_peer_action(
     node_id: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = runtime().action.execute(
+    let execution = runtime().dynamic().action.execute(
         ACTION_VERSE_PAIR_DEVICE,
         app,
         ActionPayload::VersePairDevice {
@@ -1724,7 +1964,7 @@ pub(crate) fn phase5_execute_verse_pair_code_action(
     code: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = runtime().action.execute(
+    let execution = runtime().dynamic().action.execute(
         ACTION_VERSE_PAIR_DEVICE,
         app,
         ActionPayload::VersePairDevice {
@@ -1741,7 +1981,7 @@ pub(crate) fn phase5_execute_verse_share_workspace_action(
     workspace_id: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = runtime().action.execute(
+    let execution = runtime().dynamic().action.execute(
         ACTION_VERSE_SHARE_WORKSPACE,
         app,
         ActionPayload::VerseShareWorkspace {
@@ -1756,7 +1996,7 @@ pub(crate) fn phase5_execute_verse_forget_device_action(
     node_id: &str,
 ) -> Vec<GraphIntent> {
     debug_assert!(!diagnostics::phase5_required_channels().is_empty());
-    let execution = runtime().action.execute(
+    let execution = runtime().dynamic().action.execute(
         ACTION_VERSE_FORGET_DEVICE,
         app,
         ActionPayload::VerseForgetDevice {
@@ -1907,7 +2147,7 @@ pub(crate) fn phase2_resolve_lens_for_tests(
     lens_id: &str,
 ) -> crate::app::LensConfig {
     let runtime = RegistryRuntime::default();
-    let resolution = runtime.lens.resolve(lens_id);
+    let resolution = runtime.dynamic().lens.resolve(lens_id);
 
     if resolution.matched {
         diagnostics_state.emit_message_received_for_tests(CHANNEL_LENS_RESOLVE_SUCCEEDED, 1);
@@ -1941,7 +2181,7 @@ pub(crate) fn phase2_execute_graph_view_submit_action(
         byte_len: input.len(),
     });
 
-    let execution = runtime().action.execute(
+    let execution = runtime().dynamic().action.execute(
         ACTION_GRAPH_VIEW_SUBMIT,
         app,
         ActionPayload::GraphViewSubmit {
@@ -1989,7 +2229,7 @@ pub(crate) fn phase2_execute_detail_view_submit_action(
         byte_len: normalized_url.len(),
     });
 
-    let execution = runtime().action.execute(
+    let execution = runtime().dynamic().action.execute(
         ACTION_DETAIL_VIEW_SUBMIT,
         app,
         ActionPayload::DetailViewSubmit {
@@ -2247,7 +2487,7 @@ fn phase0_observe_navigation_url_for_tests_with_control(
     let runtime = RegistryRuntime::default();
 
     diagnostics_state.emit_message_sent_for_tests(CHANNEL_PROTOCOL_RESOLVE_STARTED, uri.len());
-    let protocol = match runtime.protocol.resolve_with_control(uri, control) {
+    let protocol = match runtime.dynamic().protocol.resolve_with_control(uri, control) {
         ProtocolResolveOutcome::Resolved(resolution) => resolution,
         ProtocolResolveOutcome::Cancelled => {
             diagnostics_state.emit_message_received_for_tests(CHANNEL_PROTOCOL_RESOLVE_FAILED, 1);
@@ -2270,7 +2510,7 @@ fn phase0_observe_navigation_url_for_tests_with_control(
         CHANNEL_VIEWER_SELECT_STARTED,
         effective_mime_hint.unwrap_or(uri).len(),
     );
-    let viewer = runtime.viewer.select_for_uri(uri, effective_mime_hint);
+    let viewer = runtime.dynamic().viewer.select_for_uri(uri, effective_mime_hint);
     diagnostics_state.emit_message_received_for_tests(CHANNEL_VIEWER_SELECT_SUCCEEDED, 1);
     for (level, reason) in [
         (
@@ -2333,7 +2573,7 @@ pub(crate) fn phase2_execute_omnibox_node_search_action_for_tests(
 ) -> Vec<GraphIntent> {
     diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, query.len());
 
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = RegistryRuntime::default().dynamic().action.execute(
         ACTION_OMNIBOX_NODE_SEARCH,
         app,
         ActionPayload::OmniboxNodeSearch {
@@ -2370,7 +2610,7 @@ pub(crate) fn phase2_execute_graph_view_submit_action_for_tests(
 ) -> Phase2GraphViewSubmitResult {
     diagnostics_state.emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, input.len());
 
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = RegistryRuntime::default().dynamic().action.execute(
         ACTION_GRAPH_VIEW_SUBMIT,
         app,
         ActionPayload::GraphViewSubmit {
@@ -2407,7 +2647,7 @@ pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
     diagnostics_state
         .emit_message_sent_for_tests(CHANNEL_ACTION_EXECUTE_STARTED, normalized_url.len());
 
-    let execution = RegistryRuntime::default().action.execute(
+    let execution = RegistryRuntime::default().dynamic().action.execute(
         ACTION_DETAIL_VIEW_SUBMIT,
         app,
         ActionPayload::DetailViewSubmit {
@@ -2748,6 +2988,43 @@ mod tests {
         assert_eq!(viewer.viewer_id, "viewer:webview");
         assert!(!viewer.fallback_used);
         assert_ne!(viewer.matched_by, "fallback");
+    }
+
+    #[test]
+    fn runtime_owned_mod_registry_can_unload_verso_and_restore_pdf_viewer_mapping() {
+        let runtime = RegistryRuntime::new_with_mods();
+        let before = runtime
+            .observe_navigation_url_with_control(
+                "https://example.com/reference.pdf",
+                Some("application/pdf"),
+                ProtocolResolveControl::default(),
+            )
+            .expect("verso-backed runtime should resolve navigation")
+            .1;
+        assert_eq!(before.viewer_id, "viewer:webview");
+
+        let extension_count = runtime
+            .mod_registry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extension_records_for("mod:verso")
+            .map(|records| records.len())
+            .unwrap_or_default();
+        assert!(extension_count > 0);
+
+        runtime
+            .unload_mod("mod:verso")
+            .expect("verso should unload cleanly");
+
+        let after = runtime
+            .observe_navigation_url_with_control(
+                "https://example.com/reference.pdf",
+                Some("application/pdf"),
+                ProtocolResolveControl::default(),
+            )
+            .expect("runtime should still resolve after unload")
+            .1;
+        assert_eq!(after.viewer_id, "viewer:pdf");
     }
 
     #[test]

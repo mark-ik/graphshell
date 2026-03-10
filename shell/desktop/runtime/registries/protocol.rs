@@ -71,6 +71,14 @@ impl ProtocolRegistry {
             .register(RegistrySchemeHandler { scheme: normalized });
     }
 
+    pub(crate) fn unregister_scheme(&mut self, scheme: &str) -> bool {
+        self.scaffold.remove(&scheme.to_ascii_lowercase()).is_some()
+    }
+
+    pub(crate) fn has_scheme(&self, scheme: &str) -> bool {
+        self.scaffold.get(&scheme.to_ascii_lowercase()).is_some()
+    }
+
     pub(crate) fn resolve(&self, uri: &str) -> ProtocolResolution {
         let scheme = uri
             .split_once(':')

@@ -62,6 +62,14 @@ impl LensRegistry {
         );
     }
 
+    pub(crate) fn unregister(&mut self, lens_id: &str) -> bool {
+        let normalized = lens_id.trim().to_ascii_lowercase();
+        if normalized == self.fallback_id {
+            return false;
+        }
+        self.lenses.remove(&normalized).is_some()
+    }
+
     pub(crate) fn resolve(&self, lens_id: &str) -> LensResolution {
         let requested = lens_id.trim().to_ascii_lowercase();
         let fallback_lens = self

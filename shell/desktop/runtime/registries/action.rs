@@ -200,6 +200,10 @@ impl ActionRegistry {
             .map(|descriptor| descriptor.required_capability)
     }
 
+    pub(crate) fn unregister(&mut self, action_id: &str) -> bool {
+        self.handlers.remove(&action_id.to_ascii_lowercase()).is_some()
+    }
+
     pub(crate) fn execute(
         &self,
         action_id: &str,

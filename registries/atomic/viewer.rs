@@ -84,8 +84,8 @@ impl ViewerRegistry {
         &mut self,
         viewer_id: &'static str,
         capabilities: ViewerSubsystemCapabilities,
-    ) {
-        self.capabilities.insert(viewer_id, capabilities);
+    ) -> Option<ViewerSubsystemCapabilities> {
+        self.capabilities.insert(viewer_id, capabilities)
     }
 
     pub(crate) fn capabilities_for(&self, viewer_id: &'static str) -> ViewerSubsystemCapabilities {
@@ -157,14 +157,34 @@ impl ViewerRegistry {
         }
     }
 
-    pub(crate) fn register_mime(&mut self, mime: &str, viewer_id: &'static str) {
+    pub(crate) fn register_mime(&mut self, mime: &str, viewer_id: &'static str) -> Option<&'static str> {
         self.mime_handlers
-            .insert(mime.to_ascii_lowercase(), viewer_id);
+            .insert(mime.to_ascii_lowercase(), viewer_id)
     }
 
-    pub(crate) fn register_extension(&mut self, extension: &str, viewer_id: &'static str) {
+    pub(crate) fn unregister_mime(&mut self, mime: &str) -> Option<&'static str> {
+        self.mime_handlers.remove(&mime.to_ascii_lowercase())
+    }
+
+    pub(crate) fn register_extension(
+        &mut self,
+        extension: &str,
+        viewer_id: &'static str,
+    ) -> Option<&'static str> {
         self.extension_handlers
-            .insert(extension.to_ascii_lowercase(), viewer_id);
+            .insert(extension.to_ascii_lowercase(), viewer_id)
+    }
+
+    pub(crate) fn unregister_extension(&mut self, extension: &str) -> Option<&'static str> {
+        self.extension_handlers
+            .remove(&extension.to_ascii_lowercase())
+    }
+
+    pub(crate) fn unregister_capabilities(
+        &mut self,
+        viewer_id: &'static str,
+    ) -> Option<ViewerSubsystemCapabilities> {
+        self.capabilities.remove(viewer_id)
     }
 
     pub(crate) fn select_for_uri(&self, uri: &str, mime_hint: Option<&str>) -> ViewerSelection {

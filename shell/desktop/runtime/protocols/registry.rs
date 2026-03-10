@@ -60,6 +60,10 @@ impl ProtocolRegistry {
         self.handlers.get(scheme).cloned()
     }
 
+    pub fn remove(&mut self, scheme: &str) -> Option<Arc<dyn ProtocolHandler>> {
+        self.handlers.remove(scheme)
+    }
+
     pub fn resolve(&self, uri: &str) -> ProtocolResult {
         let Some((scheme, _)) = uri.split_once(':') else {
             return ProtocolResult::Error("Invalid URI format".to_string());

@@ -64,6 +64,46 @@ pub(crate) enum ModDependencyError {
     DependencyCycle(Vec<String>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModExtensionRecord {
+    ProtocolScheme {
+        scheme: String,
+        previously_present: bool,
+    },
+    ViewerMime {
+        mime: String,
+        previous_viewer_id: Option<String>,
+    },
+    ViewerExtension {
+        extension: String,
+        previous_viewer_id: Option<String>,
+    },
+    ViewerCapabilities {
+        viewer_id: String,
+        previous_capabilities: Option<crate::registries::atomic::viewer::ViewerSubsystemCapabilities>,
+    },
+    Action {
+        action_id: String,
+    },
+    IndexProvider {
+        provider_id: String,
+    },
+    Lens {
+        lens_id: String,
+    },
+    Theme {
+        theme_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModUnloadError {
+    UnknownMod(String),
+    NotActive(String),
+    DependencyActive { mod_id: String, dependent_id: String },
+    ExtensionRemovalFailed { mod_id: String, reason: String },
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct NativeModRegistration {
     pub(crate) manifest: fn() -> ModManifest,
@@ -180,6 +220,8 @@ pub(crate) struct ModRegistry {
     load_order: Vec<String>,
     /// Disabled mods for this registry instance.
     disabled_mod_ids: HashSet<String>,
+    /// Registry surface extensions installed by each active mod.
+    extension_records: HashMap<String, Vec<ModExtensionRecord>>,
 }
 
 static ACTIVE_CAPABILITIES: OnceLock<HashSet<String>> = OnceLock::new();
@@ -253,6 +295,7 @@ impl ModRegistry {
             status,
             load_order: Vec::new(),
             disabled_mod_ids: disabled_mod_ids.clone(),
+            extension_records: HashMap::new(),
         }
     }
 
@@ -300,6 +343,16 @@ impl ModRegistry {
     /// Load all mods in dependency order.
     /// Emits lifecycle diagnostics for each mod.
     pub(crate) fn load_all(&mut self) -> Vec<String> {
+        self.load_all_with_extensions(|mod_id| {
+            Self::activate_native_mod(mod_id)?;
+            Ok(Vec::new())
+        })
+    }
+
+    pub(crate) fn load_all_with_extensions<F>(&mut self, mut activate: F) -> Vec<String>
+    where
+        F: FnMut(&str) -> Result<Vec<ModExtensionRecord>, String>,
+    {
         use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
         use crate::shell::desktop::runtime::registries::{
             CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED,
@@ -324,13 +377,13 @@ impl ModRegistry {
 
             self.status.insert(mod_id.clone(), ModStatus::Loading);
 
-            // For Phase 2.1, native mods are already "loaded" via inventory
-            // In Phase 2.2/2.3, we'll add actual protocol/viewer registration here
-            let load_result = self.activate_native_mod(mod_id);
+            let load_result = activate(mod_id);
 
             match load_result {
-                Ok(()) => {
+                Ok(extension_records) => {
                     self.status.insert(mod_id.clone(), ModStatus::Active);
+                    self.extension_records
+                        .insert(mod_id.clone(), extension_records);
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_MOD_LOAD_SUCCEEDED,
                         byte_len: mod_id.len()
@@ -355,11 +408,80 @@ impl ModRegistry {
         loaded
     }
 
+    pub(crate) fn unload_mod_with<F>(
+        &mut self,
+        mod_id: &str,
+        mut remove_extension: F,
+    ) -> Result<(), ModUnloadError>
+    where
+        F: FnMut(ModExtensionRecord) -> Result<(), String>,
+    {
+        let normalized = mod_id.trim().to_ascii_lowercase();
+        let Some(status) = self.status.get(&normalized).copied() else {
+            return Err(ModUnloadError::UnknownMod(normalized));
+        };
+        if status != ModStatus::Active {
+            return Err(ModUnloadError::NotActive(normalized));
+        }
+
+        let Some(manifest) = self.manifests.get(&normalized).cloned() else {
+            return Err(ModUnloadError::UnknownMod(normalized));
+        };
+        for dependent in self.active_dependents_of(&manifest.mod_id) {
+            return Err(ModUnloadError::DependencyActive {
+                mod_id: manifest.mod_id,
+                dependent_id: dependent,
+            });
+        }
+
+        for record in self
+            .extension_records
+            .remove(&manifest.mod_id)
+            .unwrap_or_default()
+            .into_iter()
+            .rev()
+        {
+            if let Err(reason) = remove_extension(record) {
+                self.status.insert(manifest.mod_id.clone(), ModStatus::Failed);
+                return Err(ModUnloadError::ExtensionRemovalFailed {
+                    mod_id: manifest.mod_id,
+                    reason,
+                });
+            }
+        }
+
+        self.status.insert(manifest.mod_id, ModStatus::Unloaded);
+        Ok(())
+    }
+
     /// Activate a native mod by dispatching to its activation function.
     /// Phase 2.2/2.3: Calls the mod's activation hook to register capabilities.
-    fn activate_native_mod(&self, mod_id: &str) -> Result<(), String> {
+    fn activate_native_mod(mod_id: &str) -> Result<(), String> {
         let activations = super::NativeModActivations::new();
         activations.activate(mod_id)
+    }
+
+    fn active_dependents_of(&self, mod_id: &str) -> Vec<String> {
+        let Some(manifest) = self.manifests.get(mod_id) else {
+            return Vec::new();
+        };
+        self.manifests
+            .values()
+            .filter(|candidate| candidate.mod_id != mod_id)
+            .filter(|candidate| {
+                self.status
+                    .get(&candidate.mod_id)
+                    .copied()
+                    .is_some_and(|status| status == ModStatus::Active)
+            })
+            .filter(|candidate| {
+                candidate
+                    .requires
+                    .iter()
+                    .any(|requirement| manifest.provides.iter().any(|provided| provided == requirement))
+            })
+            .map(|candidate| candidate.mod_id.clone())
+            .collect()
     }
 
     /// Get the status of a mod
@@ -375,6 +497,10 @@ impl ModRegistry {
     /// List all mod IDs in load order
     pub(crate) fn list_mods(&self) -> &[String] {
         &self.load_order
+    }
+
+    pub(crate) fn extension_records_for(&self, mod_id: &str) -> Option<&[ModExtensionRecord]> {
+        self.extension_records.get(mod_id).map(Vec::as_slice)
     }
 
     /// Check if a specific capability is provided by any loaded mod

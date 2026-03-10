@@ -45,6 +45,24 @@ pub(crate) struct IndexRegistry {
 }
 
 impl IndexRegistry {
+    pub(crate) fn register_provider(
+        &mut self,
+        provider: Box<dyn SearchProvider>,
+    ) -> Result<(), String> {
+        let provider_id = provider.id().to_ascii_lowercase();
+        if self.providers.contains_key(&provider_id) {
+            return Err(format!("search provider already registered: {provider_id}"));
+        }
+        self.providers.insert(provider_id, provider);
+        Ok(())
+    }
+
+    pub(crate) fn unregister_provider(&mut self, provider_id: &str) -> bool {
+        self.providers
+            .remove(&provider_id.trim().to_ascii_lowercase())
+            .is_some()
+    }
+
     pub(crate) fn search(
         &self,
         app: &GraphBrowserApp,
@@ -89,18 +107,15 @@ impl Default for IndexRegistry {
         let mut registry = Self {
             providers: HashMap::new(),
         };
-        registry.providers.insert(
-            INDEX_PROVIDER_LOCAL.to_string(),
-            Box::new(LocalSearchProvider),
-        );
-        registry.providers.insert(
-            INDEX_PROVIDER_HISTORY.to_string(),
-            Box::new(HistorySearchProvider),
-        );
-        registry.providers.insert(
-            INDEX_PROVIDER_KNOWLEDGE.to_string(),
-            Box::new(KnowledgeSearchProvider),
-        );
+        registry
+            .register_provider(Box::new(LocalSearchProvider))
+            .expect("local provider registration should succeed");
+        registry
+            .register_provider(Box::new(HistorySearchProvider))
+            .expect("history provider registration should succeed");
+        registry
+            .register_provider(Box::new(KnowledgeSearchProvider))
+            .expect("knowledge provider registration should succeed");
         registry
     }
 }
