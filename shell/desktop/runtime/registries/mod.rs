@@ -8,6 +8,7 @@ pub(crate) mod protocol;
 pub(crate) mod renderer;
 pub(crate) mod signal_routing;
 pub(crate) mod workbench_surface;
+pub(crate) mod workflow;
 
 use std::sync::{Mutex, OnceLock};
 
@@ -38,8 +39,8 @@ use action::{
 use diagnostics::DiagnosticsRegistry;
 use identity::IdentityRegistry;
 use input::{
-    INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputBindingRemap, InputContext,
-    InputConflict as InputRemapConflict, InputRegistry,
+    INPUT_BINDING_TOOLBAR_SUBMIT, InputBinding, InputBindingRemap,
+    InputConflict as InputRemapConflict, InputContext, InputRegistry,
 };
 use knowledge::KnowledgeRegistry;
 use nostr_core::{
@@ -57,6 +58,7 @@ use signal_routing::{
 use workbench_surface::{
     WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
 };
+use workflow::{WorkflowActivation, WorkflowActivationError, WorkflowCapability, WorkflowRegistry};
 
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_STARTED: &str = "registry.protocol.resolve_started";
 pub(crate) const CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED: &str = "registry.protocol.resolve_succeeded";
@@ -198,8 +200,7 @@ pub(crate) const CHANNEL_COMPOSITOR_CONTENT_PASS_REGISTERED: &str =
     "compositor.content_pass_registered";
 pub(crate) const CHANNEL_COMPOSITOR_OVERLAY_PASS_REGISTERED: &str =
     "compositor.overlay_pass_registered";
-pub(crate) const CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION: &str =
-    "compositor.pass_order_violation";
+pub(crate) const CHANNEL_COMPOSITOR_PASS_ORDER_VIOLATION: &str = "compositor.pass_order_violation";
 pub(crate) const CHANNEL_COMPOSITOR_INVALID_TILE_RECT: &str = "compositor.invalid_tile_rect";
 pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS: &str = "diagnostics.compositor_chaos";
 pub(crate) const CHANNEL_DIAGNOSTICS_COMPOSITOR_CHAOS_PASS: &str =
@@ -290,6 +291,7 @@ pub(crate) const CHANNEL_REGISTER_SIGNAL_ROUTING_SUBSYSTEM_HEALTH_PROPAGATED: &s
     "register.signal_routing.subsystem_health_propagated";
 pub(crate) const CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED: &str =
     "registry.workbench_surface.profile_activated";
+pub(crate) const CHANNEL_WORKFLOW_ACTIVATED: &str = "registry.workflow.activated";
 
 static REGISTRY_RUNTIME: OnceLock<RegistryRuntime> = OnceLock::new();
 
@@ -321,6 +323,7 @@ pub(crate) struct RegistryRuntime {
     #[allow(dead_code)]
     renderer: Mutex<RendererRegistry>,
     viewer: ViewerRegistry,
+    workflow: Mutex<WorkflowRegistry>,
     workbench_surface: Mutex<WorkbenchSurfaceRegistry>,
     pub(crate) knowledge: KnowledgeRegistry,
 }
@@ -490,6 +493,7 @@ impl RegistryRuntime {
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
+            workflow: Mutex::new(WorkflowRegistry::default()),
             workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
         }
@@ -545,9 +549,17 @@ impl RegistryRuntime {
             protocol: protocol_registry,
             renderer: Mutex::new(RendererRegistry::default()),
             viewer: viewer_registry,
+            workflow: Mutex::new(WorkflowRegistry::default()),
             workbench_surface: Mutex::new(WorkbenchSurfaceRegistry::default()),
             knowledge: KnowledgeRegistry::default(),
         }
+    }
+
+    pub(crate) fn describe_workflow(&self, workflow_id: Option<&str>) -> WorkflowCapability {
+        self.workflow
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .describe_workflow(workflow_id)
     }
 
     pub(crate) fn describe_workbench_surface(
@@ -579,6 +591,41 @@ impl RegistryRuntime {
             byte_len: resolution.resolved_id.len(),
         });
         resolution
+    }
+
+    fn activate_workflow(
+        &self,
+        graph_app: &mut GraphBrowserApp,
+        workflow_id: &str,
+    ) -> Result<WorkflowActivation, WorkflowActivationError> {
+        let resolution = self
+            .workflow
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .resolve_workflow(Some(workflow_id));
+        let workbench_profile = self
+            .workbench_surface
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_active_profile(&resolution.descriptor.workbench_profile);
+        let activation = self
+            .workflow
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .activate(graph_app, workbench_profile.resolved_id.clone(), resolution)?;
+
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_WORKFLOW_ACTIVATED,
+            byte_len: activation.workflow_id.len(),
+        });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::WorkflowChanged {
+                workflow_id: activation.workflow_id.clone(),
+            },
+            SignalSource::ControlPanel,
+            None,
+        ));
+        Ok(activation)
     }
 
     fn dispatch_workbench_surface_intent(
@@ -746,8 +793,7 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .resolve_binding_id(binding_id);
-        self.resolve_input_binding_resolution(resolution)
-            .is_some()
+        self.resolve_input_binding_resolution(resolution).is_some()
     }
 
     pub(crate) fn resolve_typed_input_action_id(
@@ -1340,8 +1386,10 @@ pub(crate) fn phase2_resolve_input_binding_for_tests(
         return true;
     }
 
-    diagnostics_state
-        .emit_message_sent_for_tests(CHANNEL_INPUT_BINDING_MISSING, resolution.binding_label.len());
+    diagnostics_state.emit_message_sent_for_tests(
+        CHANNEL_INPUT_BINDING_MISSING,
+        resolution.binding_label.len(),
+    );
     false
 }
 
@@ -1462,7 +1510,8 @@ pub(crate) fn phase2_execute_detail_view_submit_action(
         latency_us: 1,
     });
 
-    let (mutations, runtime_events) = split_detail_submit_intents(intents, ACTION_DETAIL_VIEW_SUBMIT);
+    let (mutations, runtime_events) =
+        split_detail_submit_intents(intents, ACTION_DETAIL_VIEW_SUBMIT);
     let open_selected_tile = mutations
         .iter()
         .any(|mutation| matches!(mutation, GraphMutation::CreateNodeAtUrl { .. }));
@@ -1588,6 +1637,18 @@ pub(crate) fn phase3_describe_workbench_surface(
     profile_id: Option<&str>,
 ) -> WorkbenchSurfaceDescription {
     runtime().describe_workbench_surface(profile_id)
+}
+
+pub(crate) fn phase3_describe_workflow(workflow_id: Option<&str>) -> WorkflowCapability {
+    runtime().describe_workflow(workflow_id)
+}
+
+pub(crate) fn phase3_activate_workflow(
+    graph_app: &mut GraphBrowserApp,
+    workflow_id: &str,
+) -> Result<WorkflowActivation, WorkflowActivationError> {
+    debug_assert!(!diagnostics::phase3_required_channels().is_empty());
+    runtime().activate_workflow(graph_app, workflow_id)
 }
 
 pub(crate) fn dispatch_workbench_surface_intent(
@@ -1788,7 +1849,8 @@ pub(crate) fn phase2_execute_detail_view_submit_action_for_tests(
         1,
     );
 
-    let (mutations, runtime_events) = split_detail_submit_intents(intents, ACTION_DETAIL_VIEW_SUBMIT);
+    let (mutations, runtime_events) =
+        split_detail_submit_intents(intents, ACTION_DETAIL_VIEW_SUBMIT);
     let open_selected_tile = mutations
         .iter()
         .any(|mutation| matches!(mutation, GraphMutation::CreateNodeAtUrl { .. }));
@@ -2112,6 +2174,36 @@ mod tests {
     }
 
     #[test]
+    fn phase3_workflow_activation_routes_through_lifecycle_signal_observers() {
+        let runtime = RegistryRuntime::default();
+        let mut app = GraphBrowserApp::new_for_testing();
+        let observer_count = Arc::new(AtomicUsize::new(0));
+
+        {
+            let observer_count = Arc::clone(&observer_count);
+            runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+                if let SignalKind::WorkflowChanged { workflow_id } = &signal.kind
+                    && workflow_id == workflow::WORKFLOW_RESEARCH
+                {
+                    observer_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            });
+        }
+
+        let activation = runtime
+            .activate_workflow(&mut app, workflow::WORKFLOW_RESEARCH)
+            .expect("workflow activation should succeed");
+
+        assert_eq!(activation.workflow_id, workflow::WORKFLOW_RESEARCH);
+        assert_eq!(observer_count.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            runtime.resolve_active_workbench_surface_profile().resolved_id,
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_COMPARE
+        );
+    }
+
+    #[test]
     fn phase3_subsystem_health_memory_pressure_routes_through_lifecycle_signals() {
         let runtime = RegistryRuntime::default();
         let seen_warning = Arc::new(AtomicUsize::new(0));
@@ -2311,6 +2403,11 @@ mod tests {
             channels
                 .iter()
                 .any(|entry| entry.channel_id == CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED)
+        );
+        assert!(
+            channels
+                .iter()
+                .any(|entry| entry.channel_id == CHANNEL_WORKFLOW_ACTIVATED)
         );
     }
 
@@ -2545,13 +2642,16 @@ mod tests {
     fn phase5_action_registry_share_workspace_emits_grant_access_intents() {
         let app = GraphBrowserApp::new_for_testing();
         let intents = phase5_execute_verse_share_workspace_action(&app, "workspace:test");
-        assert!(intents.is_empty() || intents.iter().all(|intent| {
-            matches!(
-                intent,
-                GraphIntent::GrantWorkspaceAccess { workspace_id, .. }
-                    if workspace_id == "workspace:test"
-            )
-        }));
+        assert!(
+            intents.is_empty()
+                || intents.iter().all(|intent| {
+                    matches!(
+                        intent,
+                        GraphIntent::GrantWorkspaceAccess { workspace_id, .. }
+                            if workspace_id == "workspace:test"
+                    )
+                })
+        );
     }
 
     #[test]
@@ -2679,6 +2779,24 @@ mod tests {
             fallback.resolved_id,
             crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_DEFAULT
         );
+    }
+
+    #[test]
+    fn phase3_workflow_describes_stub_and_activates_runtime_defaults() {
+        let capability = phase3_describe_workflow(Some(workflow::WORKFLOW_HISTORY));
+        assert_eq!(capability.display_name, "History");
+        assert!(!capability.implemented);
+
+        let mut app = GraphBrowserApp::new_for_testing();
+        let activation = phase3_activate_workflow(&mut app, workflow::WORKFLOW_READING)
+            .expect("workflow activation should succeed");
+
+        assert_eq!(activation.workflow_id, workflow::WORKFLOW_READING);
+        assert_eq!(
+            phase3_resolve_active_workbench_surface_profile().resolved_id,
+            crate::shell::desktop::runtime::registries::workbench_surface::WORKBENCH_PROFILE_FOCUS
+        );
+        assert_eq!(app.default_registry_physics_id(), Some("physics:solid"));
     }
 
     #[test]

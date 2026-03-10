@@ -21,6 +21,9 @@ pub(crate) enum SignalKind {
         mod_id: String,
         activated: bool,
     },
+    WorkflowChanged {
+        workflow_id: String,
+    },
     LifecycleMemoryPressureChanged,
     SubsystemHealthMemoryPressure {
         level: String,
@@ -35,6 +38,7 @@ impl SignalKind {
         match self {
             Self::NavigationResolved { .. } => SignalTopic::Navigation,
             Self::ModLifecycleChanged { .. } => SignalTopic::Lifecycle,
+            Self::WorkflowChanged { .. } => SignalTopic::Lifecycle,
             Self::LifecycleMemoryPressureChanged => SignalTopic::Lifecycle,
             Self::SubsystemHealthMemoryPressure { .. } => SignalTopic::Lifecycle,
             Self::SyncRemoteEntriesQueued => SignalTopic::Sync,

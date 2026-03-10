@@ -8,11 +8,10 @@ use crate::graph::{EdgeType, NodeKey};
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand,
     FileTreeContainmentRelationSource, FileTreeSortMode, GraphViewId, GraphViewLayoutDirection,
-    HostOpenRequest, KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel,
-    NoteId,
+    HostOpenRequest, KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel, NoteId,
     PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode, RendererId,
-    SelectionUpdateMode, ToolSurfaceReturnTarget,
-    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
+    SelectionUpdateMode, ToolSurfaceReturnTarget, UnsavedFramePromptAction,
+    UnsavedFramePromptRequest, ViewDimension,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,9 +25,7 @@ pub enum BrowserCommand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserCommandTarget {
     FocusedInput,
-    ChromeProjection {
-        fallback_node: Option<NodeKey>,
-    },
+    ChromeProjection { fallback_node: Option<NodeKey> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -594,6 +591,9 @@ pub enum GraphIntent {
     HistoryTimelineReturnToPresentFailed {
         detail: String,
     },
+    WorkflowActivated {
+        workflow_id: String,
+    },
     Noop,
     SetMemoryPressureStatus {
         level: MemoryPressureLevel,
@@ -861,7 +861,9 @@ impl From<RuntimeEvent> for GraphIntent {
                 total_mib,
             },
             RuntimeEvent::ModActivated { mod_id } => Self::ModActivated { mod_id },
-            RuntimeEvent::ModLoadFailed { mod_id, reason } => Self::ModLoadFailed { mod_id, reason },
+            RuntimeEvent::ModLoadFailed { mod_id, reason } => {
+                Self::ModLoadFailed { mod_id, reason }
+            }
             RuntimeEvent::ApplyRemoteDelta { entries } => Self::ApplyRemoteDelta { entries },
             RuntimeEvent::SyncNow => Self::SyncNow,
             RuntimeEvent::TrustPeer {

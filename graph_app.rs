@@ -28,10 +28,15 @@ use crate::registries::atomic::lens::{
     LayoutMode, PhysicsProfile, ThemeData, deserialize_optional_theme_data,
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
-use crate::services::persistence::types::{LogEntry, PersistedEdgeType, PersistedNavigationTrigger};
+use crate::services::persistence::types::{
+    LogEntry, PersistedEdgeType, PersistedNavigationTrigger,
+};
 use crate::services::persistence::{GraphStore, TimelineIndexEntry};
-use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::caches::{CachePolicy, RuntimeCaches};
+use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::input::{
+    InputBindingRemap, InputConflict as InputRemapConflict,
+};
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_HISTORY_ARCHIVE_CLEAR_FAILED, CHANNEL_HISTORY_ARCHIVE_DISSOLVED_APPENDED,
     CHANNEL_HISTORY_ARCHIVE_EXPORT_FAILED, CHANNEL_HISTORY_TIMELINE_PREVIEW_ENTERED,
@@ -45,9 +50,6 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_REQUEST_BLOCKED, CHANNEL_UI_GRAPH_KEYBOARD_ZOOM_BLOCKED,
     CHANNEL_UX_NAVIGATION_TRANSITION, phase2_apply_input_binding_remaps,
     phase2_reset_input_binding_remaps,
-};
-use crate::shell::desktop::runtime::registries::input::{
-    InputBindingRemap, InputConflict as InputRemapConflict,
 };
 #[cfg(not(test))]
 use crate::shell::desktop::runtime::registries::{
@@ -201,9 +203,7 @@ pub struct HostOpenRequest {
 
 #[path = "app/selection.rs"]
 mod selection;
-pub use selection::{
-    ClipboardCopyKind, ClipboardCopyRequest, SelectionState, SelectionUpdateMode,
-};
+pub use selection::{ClipboardCopyKind, ClipboardCopyRequest, SelectionState, SelectionUpdateMode};
 pub(crate) use selection::{SelectionScope, UndoRedoSnapshot};
 
 #[path = "app/history.rs"]
@@ -1132,6 +1132,12 @@ impl GraphBrowserApp {
         "workspace:settings-registry-physics-id";
     pub const SETTINGS_REGISTRY_THEME_ID_NAME: &'static str =
         "workspace:settings-registry-theme-id";
+    pub const SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME: &'static str =
+        "workspace:settings-workbench-surface-profile-id";
+    pub const SETTINGS_CANVAS_PROFILE_ID_NAME: &'static str =
+        "workspace:settings-canvas-profile-id";
+    pub const SETTINGS_ACTIVE_WORKFLOW_ID_NAME: &'static str =
+        "workspace:settings-active-workflow-id";
     pub const SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME: &'static str =
         "workspace:settings-graph-view-layout-manager";
     pub const SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX: &'static str =
@@ -2403,6 +2409,7 @@ impl GraphBrowserApp {
             | GraphIntent::HistoryTimelineReturnToPresentFailed { .. } => {
                 self.apply_history_runtime_intent(intent)
             }
+            GraphIntent::WorkflowActivated { .. } => {}
             GraphIntent::Noop => {}
             GraphIntent::SetMemoryPressureStatus {
                 level,
@@ -2480,9 +2487,7 @@ impl GraphBrowserApp {
                     );
                 }
                 Err(error) => {
-                    log::warn!(
-                        "invalid peer id for grant-workspace-access '{peer_id}': {error}"
-                    );
+                    log::warn!("invalid peer id for grant-workspace-access '{peer_id}': {error}");
                 }
             },
             GraphIntent::ForgetDevice { peer_id } => match peer_id.parse::<iroh::NodeId>() {
@@ -2769,6 +2774,9 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_OMNIBAR_PREFERRED_SCOPE_NAME
             || name == Self::SETTINGS_OMNIBAR_NON_AT_ORDER_NAME
             || name == Self::SETTINGS_WRY_ENABLED_NAME
+            || name == Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME
+            || name == Self::SETTINGS_CANVAS_PROFILE_ID_NAME
+            || name == Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME
             || name == Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
             || name.starts_with(Self::SESSION_WORKSPACE_PREV_PREFIX)
@@ -3165,6 +3173,27 @@ impl GraphBrowserApp {
             .load_workspace_layout_json(Self::SETTINGS_REGISTRY_THEME_ID_NAME)
             .map(|raw| Self::normalize_optional_registry_id(Some(raw)))
             .unwrap_or(None);
+        let workbench_surface_profile_id = self
+            .load_workspace_layout_json(Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME)
+            .map(|raw| raw.trim().to_ascii_lowercase())
+            .filter(|raw| !raw.is_empty());
+        let active_workflow_id = self
+            .load_workspace_layout_json(Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME)
+            .map(|raw| raw.trim().to_ascii_lowercase())
+            .filter(|raw| !raw.is_empty());
+        if let Some(profile_id) = workbench_surface_profile_id.as_deref() {
+            crate::shell::desktop::runtime::registries::phase3_set_active_workbench_surface_profile(
+                profile_id,
+            );
+        }
+        if let Some(workflow_id) = active_workflow_id.as_deref()
+            && let Err(error) = crate::shell::desktop::runtime::registries::phase3_activate_workflow(
+                self,
+                workflow_id,
+            )
+        {
+            warn!("Ignoring invalid persisted workflow activation '{workflow_id}': {error:?}");
+        }
         self.load_graph_view_layout_manager_state();
 
         crate::registries::atomic::diagnostics::apply_persisted_channel_configs(
@@ -3803,7 +3832,8 @@ impl GraphBrowserApp {
             warn!("Failed to deserialize graph from undo checkpoint");
             return false;
         };
-        let Some(redo_snapshot) = self.build_undo_redo_snapshot(current_workspace_layout_json) else {
+        let Some(redo_snapshot) = self.build_undo_redo_snapshot(current_workspace_layout_json)
+        else {
             warn!("Failed to serialize graph for redo checkpoint");
             return false;
         };
@@ -3825,7 +3855,8 @@ impl GraphBrowserApp {
             warn!("Failed to deserialize graph from redo checkpoint");
             return false;
         };
-        let Some(undo_snapshot) = self.build_undo_redo_snapshot(current_workspace_layout_json) else {
+        let Some(undo_snapshot) = self.build_undo_redo_snapshot(current_workspace_layout_json)
+        else {
             warn!("Failed to serialize graph for undo checkpoint during redo");
             return false;
         };
@@ -3939,9 +3970,7 @@ impl GraphBrowserApp {
         self.workspace.domain.next_placeholder_id += 1;
         url
     }
-
 }
-
 
 fn parse_diagnostics_channel_config(raw: &str) -> Option<ChannelConfig> {
     let mut parts = raw.split('|');
@@ -6179,7 +6208,10 @@ mod tests {
             .expect("back traversal edge");
         let back_payload = app.workspace.domain.graph.get_edge(back_edge_key).unwrap();
         assert_eq!(back_payload.traversals().len(), 1);
-        assert_eq!(back_payload.traversals()[0].trigger, NavigationTrigger::Back);
+        assert_eq!(
+            back_payload.traversals()[0].trigger,
+            NavigationTrigger::Back
+        );
 
         let forward_edge_key = app
             .workspace
@@ -6207,7 +6239,10 @@ mod tests {
 
         let back_payload = app.workspace.domain.graph.get_edge(back_edge_key).unwrap();
         assert_eq!(back_payload.traversals().len(), 2);
-        assert_eq!(back_payload.traversals()[1].trigger, NavigationTrigger::Back);
+        assert_eq!(
+            back_payload.traversals()[1].trigger,
+            NavigationTrigger::Back
+        );
     }
 
     #[test]
@@ -6789,7 +6824,10 @@ mod tests {
         app.select_node(first, false);
         app.select_node(second, true);
 
-        assert_eq!(app.focused_selection().ordered_pair(), Some((first, second)));
+        assert_eq!(
+            app.focused_selection().ordered_pair(),
+            Some((first, second))
+        );
     }
 
     #[test]
@@ -7982,11 +8020,10 @@ mod tests {
         use crate::graph::NodeLifecycle;
 
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app
-            .workspace
-            .domain
-            .graph
-            .add_node("https://cache-lifecycle.example".to_string(), Point2D::new(0.0, 0.0));
+        let key = app.workspace.domain.graph.add_node(
+            "https://cache-lifecycle.example".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
 
         for idx in 0..32 {
             app.workspace.runtime_caches.insert_parsed_metadata(
@@ -7997,7 +8034,10 @@ mod tests {
                 .runtime_caches
                 .insert_suggestions(format!("lifecycle:suggest:{idx}"), vec![format!("q{idx}")]);
         }
-        let _ = app.workspace.runtime_caches.get_parsed_metadata("lifecycle:meta:0");
+        let _ = app
+            .workspace
+            .runtime_caches
+            .get_parsed_metadata("lifecycle:meta:0");
         let _ = app
             .workspace
             .runtime_caches
