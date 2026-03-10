@@ -10,51 +10,114 @@ pub(crate) enum SignalTopic {
     Navigation,
     Lifecycle,
     Sync,
+    RegistryEvent,
+    InputEvent,
 }
 
-/// Typed signal kinds emitted through Register-owned routing.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SignalKind {
-    NavigationResolved {
+pub(crate) enum NavigationSignal {
+    Resolved {
         uri: String,
         viewer_id: String,
     },
-    NavigationMimeResolved {
+    MimeResolved {
         key: NodeKey,
         uri: String,
         mime_hint: Option<String>,
         viewer_id: String,
     },
-    ModLifecycleChanged {
-        mod_id: String,
-        activated: bool,
-    },
-    WorkflowChanged {
-        workflow_id: String,
-    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LifecycleSignal {
     SemanticIndexUpdated {
         indexed_nodes: usize,
     },
-    LifecycleMemoryPressureChanged,
-    SubsystemHealthMemoryPressure {
+    MimeResolved {
+        node_key: NodeKey,
+        mime: String,
+    },
+    WorkflowActivated {
+        workflow_id: String,
+    },
+    MemoryPressureChanged {
         level: String,
         available_mib: u64,
         total_mib: u64,
     },
-    SyncRemoteEntriesQueued,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SyncSignal {
+    RemoteEntriesQueued,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RegistryEventSignal {
+    ThemeChanged {
+        new_theme_id: String,
+    },
+    LensChanged {
+        new_lens_id: String,
+    },
+    WorkflowChanged {
+        new_workflow_id: String,
+    },
+    PhysicsProfileChanged {
+        new_profile_id: String,
+    },
+    CanvasProfileChanged {
+        new_profile_id: String,
+    },
+    WorkbenchSurfaceChanged {
+        new_profile_id: String,
+    },
+    SemanticIndexUpdated {
+        indexed_nodes: usize,
+    },
+    ModLoaded {
+        mod_id: String,
+    },
+    ModUnloaded {
+        mod_id: String,
+    },
+    AgentSpawned {
+        agent_id: String,
+    },
+    IdentityRotated {
+        identity_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum InputEventSignal {
+    ContextChanged {
+        new_context: String,
+    },
+    BindingRemapped {
+        action_id: String,
+    },
+    BindingsReset,
+}
+
+/// Typed signal kinds emitted through Register-owned routing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SignalKind {
+    Navigation(NavigationSignal),
+    Lifecycle(LifecycleSignal),
+    Sync(SyncSignal),
+    RegistryEvent(RegistryEventSignal),
+    InputEvent(InputEventSignal),
 }
 
 impl SignalKind {
     pub(crate) fn topic(&self) -> SignalTopic {
         match self {
-            Self::NavigationResolved { .. } => SignalTopic::Navigation,
-            Self::NavigationMimeResolved { .. } => SignalTopic::Navigation,
-            Self::ModLifecycleChanged { .. } => SignalTopic::Lifecycle,
-            Self::WorkflowChanged { .. } => SignalTopic::Lifecycle,
-            Self::SemanticIndexUpdated { .. } => SignalTopic::Lifecycle,
-            Self::LifecycleMemoryPressureChanged => SignalTopic::Lifecycle,
-            Self::SubsystemHealthMemoryPressure { .. } => SignalTopic::Lifecycle,
-            Self::SyncRemoteEntriesQueued => SignalTopic::Sync,
+            Self::Navigation(..) => SignalTopic::Navigation,
+            Self::Lifecycle(..) => SignalTopic::Lifecycle,
+            Self::Sync(..) => SignalTopic::Sync,
+            Self::RegistryEvent(..) => SignalTopic::RegistryEvent,
+            Self::InputEvent(..) => SignalTopic::InputEvent,
         }
     }
 }
@@ -94,12 +157,13 @@ impl SignalEnvelope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ObserverId(u64);
 
-type ObserverCallback = Arc<dyn Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync>;
+pub(crate) type SyncObserverCallback =
+    Arc<dyn Fn(&SignalEnvelope) -> Result<(), String> + Send + Sync>;
 
 #[derive(Clone)]
 struct SignalObserver {
     id: ObserverId,
-    callback: ObserverCallback,
+    callback: SyncObserverCallback,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -236,10 +300,10 @@ mod tests {
         }
 
         let report = layer.publish(SignalEnvelope::new(
-            SignalKind::NavigationResolved {
+            SignalKind::Navigation(NavigationSignal::Resolved {
                 uri: "https://example.com".to_string(),
                 viewer_id: "viewer:webview".to_string(),
-            },
+            }),
             SignalSource::RegistryRuntime,
             Some(7),
         ));
@@ -261,7 +325,11 @@ mod tests {
         let layer = SignalRoutingLayer::default();
 
         let unrouted = layer.publish(SignalEnvelope::new(
-            SignalKind::LifecycleMemoryPressureChanged,
+            SignalKind::Lifecycle(LifecycleSignal::MemoryPressureChanged {
+                level: "warning".to_string(),
+                available_mib: 512,
+                total_mib: 2048,
+            }),
             SignalSource::ControlPanel,
             None,
         ));
@@ -269,7 +337,7 @@ mod tests {
 
         layer.subscribe(SignalTopic::Sync, |_| Err("forced failure".to_string()));
         let failed = layer.publish(SignalEnvelope::new(
-            SignalKind::SyncRemoteEntriesQueued,
+            SignalKind::Sync(SyncSignal::RemoteEntriesQueued),
             SignalSource::ControlPanel,
             None,
         ));

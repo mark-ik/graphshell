@@ -70,7 +70,8 @@ use protocol::{
 use renderer::{PaneAttachment, RendererRegistry, RendererRegistryError};
 use servo::ServoUrl;
 use signal_routing::{
-    ObserverId, SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource, SignalTopic,
+    InputEventSignal, LifecycleSignal, NavigationSignal, ObserverId, RegistryEventSignal,
+    SignalEnvelope, SignalKind, SignalRoutingLayer, SignalSource, SignalTopic,
 };
 use workbench_surface::{
     WorkbenchSurfaceDescription, WorkbenchSurfaceRegistry, WorkbenchSurfaceResolution,
@@ -700,6 +701,13 @@ impl RegistryRuntime {
             channel_id: CHANNEL_CANVAS_PROFILE_ACTIVATED,
             byte_len: resolution.resolved_id.len(),
         });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::CanvasProfileChanged {
+                new_profile_id: resolution.resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
         resolution
     }
 
@@ -717,6 +725,13 @@ impl RegistryRuntime {
             channel_id: CHANNEL_CANVAS_PROFILE_ACTIVATED,
             byte_len: 1,
         });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::CanvasProfileChanged {
+                new_profile_id: resolution.resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
         resolution
     }
 
@@ -731,6 +746,13 @@ impl RegistryRuntime {
             channel_id: CHANNEL_CANVAS_PROFILE_ACTIVATED,
             byte_len: step.round().max(1.0) as usize,
         });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::CanvasProfileChanged {
+                new_profile_id: resolution.resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
         resolution
     }
 
@@ -757,6 +779,13 @@ impl RegistryRuntime {
             channel_id: CHANNEL_PHYSICS_PROFILE_ACTIVATED,
             byte_len: resolution.resolved_id.len(),
         });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::PhysicsProfileChanged {
+                new_profile_id: resolution.resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
         resolution
     }
 
@@ -856,6 +885,13 @@ impl RegistryRuntime {
             channel_id: CHANNEL_WORKBENCH_SURFACE_PROFILE_ACTIVATED,
             byte_len: resolution.resolved_id.len(),
         });
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::RegistryEvent(RegistryEventSignal::WorkbenchSurfaceChanged {
+                new_profile_id: resolution.resolved_id.clone(),
+            }),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
         resolution
     }
 
@@ -887,9 +923,16 @@ impl RegistryRuntime {
             byte_len: activation.workflow_id.len(),
         });
         self.publish_signal(SignalEnvelope::new(
-            SignalKind::WorkflowChanged {
+            SignalKind::RegistryEvent(RegistryEventSignal::WorkflowChanged {
+                new_workflow_id: activation.workflow_id.clone(),
+            }),
+            SignalSource::ControlPanel,
+            None,
+        ));
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::Lifecycle(LifecycleSignal::WorkflowActivated {
                 workflow_id: activation.workflow_id.clone(),
-            },
+            }),
             SignalSource::ControlPanel,
             None,
         ));
@@ -904,9 +947,16 @@ impl RegistryRuntime {
                 byte_len: report.indexed_nodes.max(1),
             });
             self.publish_signal(SignalEnvelope::new(
-                SignalKind::SemanticIndexUpdated {
+                SignalKind::RegistryEvent(RegistryEventSignal::SemanticIndexUpdated {
                     indexed_nodes: report.indexed_nodes,
-                },
+                }),
+                SignalSource::RegistryRuntime,
+                None,
+            ));
+            self.publish_signal(SignalEnvelope::new(
+                SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
+                    indexed_nodes: report.indexed_nodes,
+                }),
                 SignalSource::RegistryRuntime,
                 None,
             ));
@@ -1083,10 +1133,10 @@ impl RegistryRuntime {
         });
 
         self.publish_signal(SignalEnvelope::new(
-            SignalKind::NavigationResolved {
+            SignalKind::Navigation(NavigationSignal::Resolved {
                 uri: uri.to_string(),
                 viewer_id: viewer.viewer_id.to_string(),
-            },
+            }),
             SignalSource::RegistryRuntime,
             None,
         ));
@@ -1156,6 +1206,10 @@ impl RegistryRuntime {
         remaps: &[InputBindingRemap],
     ) -> Result<(), InputRemapConflict> {
         let next_registry = InputRegistry::with_remaps(remaps)?;
+        let action_ids = remaps
+            .iter()
+            .filter_map(|remap| next_registry.resolve(&remap.new, remap.context).action_id)
+            .collect::<Vec<_>>();
         *self
             .input
             .lock()
@@ -1165,6 +1219,13 @@ impl RegistryRuntime {
             channel_id: CHANNEL_INPUT_BINDING_REBOUND,
             byte_len: remaps.len(),
         });
+        for action_id in action_ids {
+            self.publish_signal(SignalEnvelope::new(
+                SignalKind::InputEvent(InputEventSignal::BindingRemapped { action_id }),
+                SignalSource::RegistryRuntime,
+                None,
+            ));
+        }
 
         Ok(())
     }
@@ -1174,6 +1235,11 @@ impl RegistryRuntime {
             .input
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = InputRegistry::default();
+        self.publish_signal(SignalEnvelope::new(
+            SignalKind::InputEvent(InputEventSignal::BindingsReset),
+            SignalSource::RegistryRuntime,
+            None,
+        ));
     }
 
     pub(crate) fn sign_identity_payload(
@@ -1250,10 +1316,15 @@ impl RegistryRuntime {
 
     pub(crate) fn route_mod_lifecycle_event(&self, mod_id: &str, activated: bool) {
         self.publish_signal(SignalEnvelope::new(
-            SignalKind::ModLifecycleChanged {
-                mod_id: mod_id.to_string(),
-                activated,
-            },
+            SignalKind::RegistryEvent(if activated {
+                RegistryEventSignal::ModLoaded {
+                    mod_id: mod_id.to_string(),
+                }
+            } else {
+                RegistryEventSignal::ModUnloaded {
+                    mod_id: mod_id.to_string(),
+                }
+            }),
             SignalSource::ControlPanel,
             None,
         ));
@@ -1278,11 +1349,11 @@ impl RegistryRuntime {
         };
 
         self.publish_signal(SignalEnvelope::new(
-            SignalKind::SubsystemHealthMemoryPressure {
+            SignalKind::Lifecycle(LifecycleSignal::MemoryPressureChanged {
                 level: level_name.to_string(),
                 available_mib,
                 total_mib,
-            },
+            }),
             SignalSource::ControlPanel,
             None,
         ));
@@ -1302,15 +1373,25 @@ impl RegistryRuntime {
     ) {
         let viewer = self.viewer.select_for_uri(uri, mime_hint);
         self.publish_signal(SignalEnvelope::new(
-            SignalKind::NavigationMimeResolved {
+            SignalKind::Navigation(NavigationSignal::MimeResolved {
                 key,
                 uri: uri.to_string(),
                 mime_hint: mime_hint.map(str::to_string),
                 viewer_id: viewer.viewer_id.to_string(),
-            },
+            }),
             SignalSource::RegistryRuntime,
             None,
         ));
+        if let Some(mime) = mime_hint {
+            self.publish_signal(SignalEnvelope::new(
+                SignalKind::Lifecycle(LifecycleSignal::MimeResolved {
+                    node_key: key,
+                    mime: mime.to_string(),
+                }),
+                SignalSource::RegistryRuntime,
+                None,
+            ));
+        }
     }
 }
 
@@ -2454,14 +2535,102 @@ mod tests {
         let observed = observed.lock().expect("observer lock poisoned");
         assert!(observed.iter().any(|signal| matches!(
             signal,
-            SignalKind::NavigationMimeResolved {
+            SignalKind::Navigation(NavigationSignal::MimeResolved {
                 key,
                 mime_hint,
                 viewer_id,
                 ..
-            } if *key == NodeKey::new(17)
+            }) if *key == NodeKey::new(17)
                 && mime_hint.as_deref() == Some("text/csv")
                 && viewer_id == "viewer:csv"
+        )));
+    }
+
+    #[test]
+    fn publish_navigation_mime_resolved_routes_lifecycle_signal() {
+        let runtime = RegistryRuntime::default();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+            seen.lock()
+                .expect("observer lock poisoned")
+                .push(signal.kind.clone());
+            Ok(())
+        });
+
+        runtime.publish_navigation_mime_resolved(
+            NodeKey::new(23),
+            "https://example.com/data.csv",
+            Some("text/csv"),
+        );
+
+        let observed = observed.lock().expect("observer lock poisoned");
+        assert!(observed.iter().any(|signal| matches!(
+            signal,
+            SignalKind::Lifecycle(LifecycleSignal::MimeResolved { node_key, mime })
+                if *node_key == NodeKey::new(23) && mime == "text/csv"
+        )));
+    }
+
+    #[test]
+    fn set_active_physics_profile_routes_registry_event_signal() {
+        let runtime = RegistryRuntime::default();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        runtime.subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
+            seen.lock()
+                .expect("observer lock poisoned")
+                .push(signal.kind.clone());
+            Ok(())
+        });
+
+        let resolution = runtime.set_active_physics_profile(physics_profile::PHYSICS_PROFILE_SOLID);
+        assert_eq!(resolution.resolved_id, physics_profile::PHYSICS_PROFILE_SOLID);
+
+        let observed = observed.lock().expect("observer lock poisoned");
+        assert!(observed.iter().any(|signal| matches!(
+            signal,
+            SignalKind::RegistryEvent(RegistryEventSignal::PhysicsProfileChanged {
+                new_profile_id,
+            }) if new_profile_id == physics_profile::PHYSICS_PROFILE_SOLID
+        )));
+    }
+
+    #[test]
+    fn apply_input_binding_remaps_routes_input_event_signal() {
+        let runtime = RegistryRuntime::default();
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&observed);
+        runtime.subscribe_signal(SignalTopic::InputEvent, move |signal| {
+            seen.lock()
+                .expect("observer lock poisoned")
+                .push(signal.kind.clone());
+            Ok(())
+        });
+
+        let remap = InputBindingRemap {
+            old: "gamepad:left_bumper"
+                .parse::<InputBinding>()
+                .expect("old binding should parse"),
+            new: "gamepad:left_bumper+east"
+                .parse::<InputBinding>()
+                .expect("new binding should parse"),
+            context: InputContext::DetailView,
+        };
+        runtime
+            .apply_input_binding_remaps(&[remap])
+            .expect("remap should succeed");
+        runtime.reset_input_binding_remaps();
+
+        let observed = observed.lock().expect("observer lock poisoned");
+        assert!(observed.iter().any(|signal| matches!(
+            signal,
+            SignalKind::InputEvent(InputEventSignal::BindingRemapped { action_id })
+                if action_id == crate::shell::desktop::runtime::registries::input::ACTION_TOOLBAR_NAV_BACK
+        )));
+        assert!(observed.iter().any(|signal| matches!(
+            signal,
+            SignalKind::InputEvent(InputEventSignal::BindingsReset)
         )));
     }
 
@@ -2653,20 +2822,17 @@ mod tests {
     }
 
     #[test]
-    fn phase3_mod_workflow_path_routes_through_lifecycle_signal_observers() {
+    fn phase3_mod_workflow_path_routes_through_registry_event_signal_observers() {
         let runtime = RegistryRuntime::default();
         let observer_a = Arc::new(AtomicUsize::new(0));
         let observer_b = Arc::new(AtomicUsize::new(0));
 
         {
             let observer_a = Arc::clone(&observer_a);
-            runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
+            runtime.subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
                 if matches!(
                     signal.kind,
-                    SignalKind::ModLifecycleChanged {
-                        activated: true,
-                        ..
-                    }
+                    SignalKind::RegistryEvent(RegistryEventSignal::ModLoaded { .. })
                 ) {
                     observer_a.fetch_add(1, Ordering::Relaxed);
                 }
@@ -2676,9 +2842,9 @@ mod tests {
 
         {
             let observer_b = Arc::clone(&observer_b);
-            runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
-                if let SignalKind::ModLifecycleChanged { mod_id, activated } = &signal.kind
-                    && *activated
+            runtime.subscribe_signal(SignalTopic::RegistryEvent, move |signal| {
+                if let SignalKind::RegistryEvent(RegistryEventSignal::ModLoaded { mod_id }) =
+                    &signal.kind
                     && mod_id == "mod:test"
                 {
                     observer_b.fetch_add(1, Ordering::Relaxed);
@@ -2702,7 +2868,8 @@ mod tests {
         {
             let observer_count = Arc::clone(&observer_count);
             runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
-                if let SignalKind::WorkflowChanged { workflow_id } = &signal.kind
+                if let SignalKind::Lifecycle(LifecycleSignal::WorkflowActivated { workflow_id }) =
+                    &signal.kind
                     && workflow_id == workflow::WORKFLOW_RESEARCH
                 {
                     observer_count.fetch_add(1, Ordering::Relaxed);
@@ -2740,7 +2907,9 @@ mod tests {
         {
             let observer_count = Arc::clone(&observer_count);
             runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
-                if let SignalKind::SemanticIndexUpdated { indexed_nodes } = &signal.kind
+                if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
+                    indexed_nodes,
+                }) = &signal.kind
                     && *indexed_nodes == 1
                 {
                     observer_count.fetch_add(1, Ordering::Relaxed);
@@ -2813,11 +2982,11 @@ mod tests {
         {
             let seen_warning = Arc::clone(&seen_warning);
             runtime.subscribe_signal(SignalTopic::Lifecycle, move |signal| {
-                if let SignalKind::SubsystemHealthMemoryPressure {
+                if let SignalKind::Lifecycle(LifecycleSignal::MemoryPressureChanged {
                     level,
                     available_mib,
                     total_mib,
-                } = &signal.kind
+                }) = &signal.kind
                     && level == "warning"
                     && *available_mib == 512
                     && *total_mib == 4096

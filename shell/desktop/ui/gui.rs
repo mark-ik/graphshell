@@ -55,7 +55,7 @@ use crate::shell::desktop::runtime::registries::{
     phase3_unsubscribe_signal,
 };
 use crate::shell::desktop::runtime::registries::signal_routing::{
-    ObserverId, SignalKind, SignalTopic,
+    LifecycleSignal, ObserverId, SignalKind, SignalTopic,
 };
 use crate::shell::desktop::ui::thumbnail_pipeline::{
     RendererFaviconTextureCache, ThumbnailCaptureResult,
@@ -292,7 +292,10 @@ impl Gui {
         let (semantic_index_signal_tx, semantic_index_signal_rx) = channel();
         let semantic_index_signal_observer =
             phase3_subscribe_signal(SignalTopic::Lifecycle, move |signal| {
-                if let SignalKind::SemanticIndexUpdated { indexed_nodes } = &signal.kind {
+                if let SignalKind::Lifecycle(LifecycleSignal::SemanticIndexUpdated {
+                    indexed_nodes,
+                }) = &signal.kind
+                {
                     let _ = semantic_index_signal_tx.send(*indexed_nodes);
                 }
                 Ok(())
