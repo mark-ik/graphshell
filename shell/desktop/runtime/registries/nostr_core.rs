@@ -14,7 +14,7 @@ use super::{
     CHANNEL_NOSTR_SECURITY_VIOLATION, CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NostrFilterSet {
     pub(crate) kinds: Vec<u16>,
     pub(crate) authors: Vec<String>,
@@ -48,6 +48,13 @@ pub(crate) struct NostrSignedEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NostrSubscriptionHandle {
     pub(crate) id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PersistedNostrSubscription {
+    pub(crate) caller_id: String,
+    pub(crate) requested_id: Option<String>,
+    pub(crate) filters: NostrFilterSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,6 +211,7 @@ struct NostrCoreState {
     relay_policy: NostrRelayPolicy,
     caller_subscription_count: HashMap<String, usize>,
     caller_publish_count: HashMap<String, usize>,
+    active_subscriptions: HashMap<String, PersistedNostrSubscription>,
 }
 
 impl Default for NostrCoreState {
@@ -214,6 +222,7 @@ impl Default for NostrCoreState {
             relay_policy: NostrRelayPolicy::default(),
             caller_subscription_count: HashMap::new(),
             caller_publish_count: HashMap::new(),
+            active_subscriptions: HashMap::new(),
         }
     }
 }
@@ -400,6 +409,7 @@ impl NostrCoreRegistry {
         }
 
         let resolved_relays = self.resolve_and_validate_relays(&state.relay_policy, &filters)?;
+        let persisted_filters = filters.clone();
         let handle = state
             .relay_service
             .subscribe(
@@ -418,8 +428,16 @@ impl NostrCoreRegistry {
 
         *state
             .caller_subscription_count
-            .entry(caller_id)
+            .entry(caller_id.clone())
             .or_insert(0usize) += 1;
+        state.active_subscriptions.insert(
+            handle.id.clone(),
+            PersistedNostrSubscription {
+                caller_id: caller_id.clone(),
+                requested_id: requested_id.map(str::to_string),
+                filters: persisted_filters,
+            },
+        );
         Ok(handle)
     }
 
@@ -434,7 +452,64 @@ impl NostrCoreRegistry {
         if removed && let Some(count) = state.caller_subscription_count.get_mut(&caller_id) {
             *count = count.saturating_sub(1);
         }
+        if removed {
+            state.active_subscriptions.remove(&handle.id);
+        }
         removed
+    }
+
+    pub(crate) fn persisted_subscriptions(&self) -> Vec<PersistedNostrSubscription> {
+        self.state
+            .lock()
+            .expect("nostr core lock poisoned")
+            .active_subscriptions
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    pub(crate) fn restore_persisted_subscriptions(
+        &self,
+        subscriptions: &[PersistedNostrSubscription],
+    ) -> Result<usize, NostrCoreError> {
+        let mut state = self.state.lock().expect("nostr core lock poisoned");
+        state.relay_service = InProcessRelayService::default();
+        state.caller_subscription_count.clear();
+        state.active_subscriptions.clear();
+
+        let mut restored = 0usize;
+        for entry in subscriptions {
+            let caller_id = entry.caller_id.trim().to_ascii_lowercase();
+            if caller_id.is_empty() {
+                continue;
+            }
+            if entry.filters.is_empty() {
+                continue;
+            }
+            let resolved_relays =
+                self.resolve_and_validate_relays(&state.relay_policy, &entry.filters)?;
+            let handle = state.relay_service.subscribe(
+                &caller_id,
+                entry.requested_id.as_deref(),
+                entry.filters.clone(),
+                &resolved_relays,
+                &self.next_subscription_id,
+            )?;
+            *state
+                .caller_subscription_count
+                .entry(caller_id.clone())
+                .or_insert(0usize) += 1;
+            state.active_subscriptions.insert(
+                handle.id,
+                PersistedNostrSubscription {
+                    caller_id,
+                    requested_id: entry.requested_id.clone(),
+                    filters: entry.filters.clone(),
+                },
+            );
+            restored += 1;
+        }
+        Ok(restored)
     }
 
     pub(crate) fn relay_publish(
@@ -950,5 +1025,50 @@ mod tests {
             channel_message_count(&snapshot, CHANNEL_NOSTR_SECURITY_VIOLATION) >= 1,
             "expected security violation channel to be emitted"
         );
+    }
+
+    #[test]
+    fn nostr_core_restore_persisted_subscriptions_roundtrip() {
+        let registry = NostrCoreRegistry::default();
+        let _first = registry
+            .relay_subscribe(
+                "test:alpha",
+                Some("timeline"),
+                NostrFilterSet {
+                    kinds: vec![1],
+                    authors: vec!["npub1alpha".to_string()],
+                    hashtags: vec![],
+                    relay_urls: vec!["wss://relay.damus.io".to_string()],
+                },
+            )
+            .expect("first subscription should succeed");
+        let _second = registry
+            .relay_subscribe(
+                "test:beta",
+                Some("mentions"),
+                NostrFilterSet {
+                    kinds: vec![42],
+                    authors: vec![],
+                    hashtags: vec!["graphshell".to_string()],
+                    relay_urls: vec![],
+                },
+            )
+            .expect("second subscription should succeed");
+
+        let persisted = registry.persisted_subscriptions();
+        assert_eq!(persisted.len(), 2);
+
+        let restored_registry = NostrCoreRegistry::default();
+        let restored = restored_registry
+            .restore_persisted_subscriptions(&persisted)
+            .expect("restoring persisted subscriptions should succeed");
+        assert_eq!(restored, 2);
+
+        let mut restored_persisted = restored_registry.persisted_subscriptions();
+        restored_persisted.sort_by(|left, right| left.requested_id.cmp(&right.requested_id));
+
+        let mut expected = persisted;
+        expected.sort_by(|left, right| left.requested_id.cmp(&right.requested_id));
+        assert_eq!(restored_persisted, expected);
     }
 }

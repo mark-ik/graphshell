@@ -1152,6 +1152,8 @@ impl GraphBrowserApp {
         "workspace:settings-canvas-profile-id";
     pub const SETTINGS_ACTIVE_WORKFLOW_ID_NAME: &'static str =
         "workspace:settings-active-workflow-id";
+    pub const SETTINGS_NOSTR_SUBSCRIPTIONS_NAME: &'static str =
+        "workspace:settings-nostr-subscriptions";
     pub const SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME: &'static str =
         "workspace:settings-graph-view-layout-manager";
     pub const SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX: &'static str =
@@ -2495,6 +2497,9 @@ impl GraphBrowserApp {
                 self.apply_history_runtime_intent(intent)
             }
             GraphIntent::WorkflowActivated { .. } => {}
+            GraphIntent::PersistNostrSubscriptions => {
+                self.save_persisted_nostr_subscriptions();
+            }
             GraphIntent::Noop => {}
             GraphIntent::SetMemoryPressureStatus {
                 level,
@@ -2871,6 +2876,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME
             || name == Self::SETTINGS_CANVAS_PROFILE_ID_NAME
             || name == Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME
+            || name == Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME
             || name == Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
             || name.starts_with(Self::SESSION_WORKSPACE_PREV_PREFIX)
@@ -3097,6 +3103,38 @@ impl GraphBrowserApp {
             .collect::<Vec<_>>()
             .join("\n");
         self.save_workspace_layout_json(Self::SETTINGS_INPUT_BINDING_REMAPS_NAME, &encoded);
+    }
+
+    pub fn save_persisted_nostr_subscriptions(&mut self) {
+        let encoded = serde_json::to_string(
+            &crate::shell::desktop::runtime::registries::phase3_nostr_persisted_subscriptions(),
+        )
+        .unwrap_or_else(|_| "[]".to_string());
+        self.save_workspace_layout_json(Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME, &encoded);
+    }
+
+    fn load_persisted_nostr_subscriptions(&mut self) {
+        let subscriptions = self
+            .load_workspace_layout_json(Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME)
+            .and_then(|raw| {
+                serde_json::from_str::<
+                    Vec<crate::shell::desktop::runtime::registries::PersistedNostrSubscription>,
+                >(&raw)
+                .map_err(|error| {
+                    warn!("Ignoring invalid persisted nostr subscriptions: {error}");
+                    error
+                })
+                .ok()
+            })
+            .unwrap_or_default();
+
+        if let Err(error) =
+            crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(
+                &subscriptions,
+            )
+        {
+            warn!("Ignoring persisted nostr subscriptions restore failure: {error:?}");
+        }
     }
 
     pub fn set_omnibar_preferred_scope(&mut self, scope: OmnibarPreferredScope) {
@@ -3405,6 +3443,7 @@ impl GraphBrowserApp {
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
             self.workspace.lasso_binding_preference,
         );
+        self.load_persisted_nostr_subscriptions();
         self.load_graph_view_layout_manager_state();
 
         crate::registries::atomic::diagnostics::apply_persisted_channel_configs(
@@ -8973,6 +9012,48 @@ mod tests {
         let mut app = GraphBrowserApp::new_for_testing();
         assert!(app.set_snapshot_interval_secs(45).is_err());
         assert_eq!(app.snapshot_interval_secs(), None);
+    }
+
+    #[test]
+    fn test_nostr_subscriptions_persist_across_restart() {
+        static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        let _guard = LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("nostr persistence test lock poisoned");
+
+        crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(&[])
+            .expect("nostr subscriptions should clear before test");
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        {
+            let mut app = GraphBrowserApp::new_from_dir(path.clone());
+            crate::shell::desktop::runtime::registries::phase3_nostr_relay_subscribe_for_caller(
+                "workspace:test",
+                Some("timeline"),
+                crate::shell::desktop::runtime::registries::nostr_core::NostrFilterSet {
+                    kinds: vec![1],
+                    authors: vec!["npub1example".to_string()],
+                    hashtags: vec![],
+                    relay_urls: vec!["wss://relay.damus.io".to_string()],
+                },
+            )
+            .expect("subscription should succeed");
+            app.apply_reducer_intents([GraphIntent::PersistNostrSubscriptions]);
+        }
+
+        crate::shell::desktop::runtime::registries::phase3_restore_nostr_subscriptions(&[])
+            .expect("nostr subscriptions should clear before reopen");
+
+        let _reopened = GraphBrowserApp::new_from_dir(path);
+        let persisted =
+            crate::shell::desktop::runtime::registries::phase3_nostr_persisted_subscriptions();
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].caller_id, "workspace:test");
+        assert_eq!(persisted[0].requested_id.as_deref(), Some("timeline"));
+        assert_eq!(persisted[0].filters.kinds, vec![1]);
     }
 
     #[test]

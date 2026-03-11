@@ -608,6 +608,7 @@ pub enum GraphIntent {
     WorkflowActivated {
         workflow_id: String,
     },
+    PersistNostrSubscriptions,
     Noop,
     SetMemoryPressureStatus {
         level: MemoryPressureLevel,

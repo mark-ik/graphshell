@@ -62,6 +62,7 @@ use input::{
 };
 use knowledge::{KnowledgeRegistry, SemanticReconcileReport, TagValidationResult};
 use layout::LayoutRegistry;
+pub(crate) use nostr_core::PersistedNostrSubscription;
 use nostr_core::{
     NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
     NostrSubscriptionHandle, NostrUnsignedEvent,
@@ -682,6 +683,18 @@ pub(crate) fn phase3_nostr_relay_unsubscribe_for_caller(
     handle: &NostrSubscriptionHandle,
 ) -> bool {
     runtime().nostr_core.relay_unsubscribe(caller_id, handle)
+}
+
+pub(crate) fn phase3_nostr_persisted_subscriptions() -> Vec<PersistedNostrSubscription> {
+    runtime().nostr_core.persisted_subscriptions()
+}
+
+pub(crate) fn phase3_restore_nostr_subscriptions(
+    subscriptions: &[PersistedNostrSubscription],
+) -> Result<usize, NostrCoreError> {
+    runtime()
+        .nostr_core
+        .restore_persisted_subscriptions(subscriptions)
 }
 
 #[allow(dead_code)]
