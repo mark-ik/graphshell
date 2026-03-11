@@ -137,6 +137,7 @@ Project status source: [../README.md](../README.md)
 
 - [graphshell_docs/design/KEYBINDINGS.md](graphshell_docs/design/KEYBINDINGS.md) - Keyboard interaction reference.
 - [graphshell_docs/design/command_semantics_matrix.md](graphshell_docs/design/command_semantics_matrix.md) - Canonical D1 command semantics matrix across keyboard, palette, radial, toolbar, and omnibar surfaces.
+- [graphshell_docs/design/2026-03-10_command_keybinding_accounting_plan.md](graphshell_docs/design/2026-03-10_command_keybinding_accounting_plan.md) - Gap analysis and phased plan for aligning command matrix, keybinding docs, and ActionRegistry; establishes C1–C4 usability work sequence post-Sector-H/G.
 - [graphshell_docs/design/surface_behavior_spec.md](graphshell_docs/design/surface_behavior_spec.md) - Canonical D3 surface behavior policy for scroll, overflow, resize, empty/loading/error states, and floating lifecycle.
 - [graphshell_docs/design/accessibility_baseline_checklist.md](graphshell_docs/design/accessibility_baseline_checklist.md) - Canonical D4 WCAG 2.2 A/AA checklist by surface, with initial screen-reader test matrix.
 - [graphshell_docs/design/ux_telemetry_plan.md](graphshell_docs/design/ux_telemetry_plan.md) - Canonical D5 UX telemetry metric register with diagnostics/probe mapping and baseline targets.
