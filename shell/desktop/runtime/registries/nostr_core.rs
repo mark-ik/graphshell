@@ -13,6 +13,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+use url::Url;
 
 use crate::registries::infrastructure::mod_loader::runtime_has_capability;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
@@ -104,11 +105,67 @@ impl std::error::Error for NostrCoreError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Nip46DelegateConfig {
-    pub(crate) relay_url: String,
+    pub(crate) relay_urls: Vec<String>,
     pub(crate) signer_pubkey: String,
+    pub(crate) shared_secret: Option<String>,
+    pub(crate) requested_permissions: Vec<String>,
+    pub(crate) permission_grants: Vec<Nip46PermissionGrant>,
     session_key: Option<UserSessionKey>,
     signer_user_pubkey: Option<String>,
     connected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Nip46PermissionDecision {
+    Pending,
+    Allow,
+    Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Nip46PermissionGrant {
+    pub(crate) permission: String,
+    pub(crate) decision: Nip46PermissionDecision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PersistedNip46SignerSettings {
+    pub(crate) relay_urls: Vec<String>,
+    pub(crate) signer_pubkey: String,
+    #[serde(default)]
+    pub(crate) requested_permissions: Vec<String>,
+    #[serde(default)]
+    pub(crate) permission_grants: Vec<Nip46PermissionGrant>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "backend", rename_all = "snake_case")]
+pub(crate) enum PersistedNostrSignerSettings {
+    LocalHostKey,
+    Nip46Delegated(PersistedNip46SignerSettings),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NostrSignerBackendSnapshot {
+    LocalHostKey,
+    Nip46Delegated {
+        relay_urls: Vec<String>,
+        signer_pubkey: String,
+        has_ephemeral_secret: bool,
+        requested_permissions: Vec<String>,
+        permission_grants: Vec<Nip46PermissionGrant>,
+        signer_user_pubkey: Option<String>,
+        connected: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ParsedNip46BunkerUri {
+    pub(crate) relay_urls: Vec<String>,
+    pub(crate) signer_pubkey: String,
+    pub(crate) shared_secret: Option<String>,
+    pub(crate) requested_permissions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,8 +302,10 @@ pub(crate) struct RelaySubscriptionRequest {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Nip46RpcRequest {
-    relay_url: String,
+    relay_urls: Vec<String>,
     signer_pubkey: String,
+    shared_secret: Option<String>,
+    requested_permissions: Vec<String>,
     session_key: UserSessionKey,
     request_id: String,
     method: String,
@@ -406,6 +465,23 @@ impl TungsteniteRelayService {
         &mut self,
         request: Nip46RpcRequest,
     ) -> Result<Nip46RpcResponse, NostrCoreError> {
+        let mut last_error = None;
+        for relay_url in &request.relay_urls {
+            match self.nip46_rpc_on_relay(relay_url, &request).await {
+                Ok(response) => return Ok(response),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            NostrCoreError::BackendUnavailable("nip46 relay list was empty".to_string())
+        }))
+    }
+
+    async fn nip46_rpc_on_relay(
+        &mut self,
+        relay_url: &str,
+        request: &Nip46RpcRequest,
+    ) -> Result<Nip46RpcResponse, NostrCoreError> {
         let signer_pubkey = parse_nostr_public_key(&request.signer_pubkey)?;
         let signer_pubkey_hex = signer_pubkey.to_hex();
         let session_secret = parse_nostr_secret_key(&request.session_key.secret_key_hex)?;
@@ -425,7 +501,7 @@ impl TungsteniteRelayService {
 
         let subscription_id = format!("nip46-{}", request.request_id);
         self.send_json(
-            &request.relay_url,
+            relay_url,
             serde_json::json!([
                 "REQ",
                 subscription_id,
@@ -449,14 +525,14 @@ impl TungsteniteRelayService {
         )?;
 
         self.send_json(
-            &request.relay_url,
+            relay_url,
             serde_json::json!(["EVENT", signed_event_json(&signed_request)]),
         )
         .await?;
 
         let response_event = self
             .recv_nip46_response(
-                &request.relay_url,
+                relay_url,
                 &subscription_id,
                 &signer_pubkey_hex,
                 &request.session_key.public_key,
@@ -465,7 +541,7 @@ impl TungsteniteRelayService {
 
         let _ = self
             .send_json(
-                &request.relay_url,
+                relay_url,
                 serde_json::json!(["CLOSE", subscription_id]),
             )
             .await;
@@ -774,27 +850,151 @@ impl NostrCoreRegistry {
         state.signer_backend = NostrSignerBackend::LocalHostKey;
     }
 
+    pub(crate) fn persisted_signer_settings(&self) -> PersistedNostrSignerSettings {
+        let state = self.state.lock().expect("nostr core lock poisoned");
+        match &state.signer_backend {
+            NostrSignerBackend::LocalHostKey => PersistedNostrSignerSettings::LocalHostKey,
+            NostrSignerBackend::Nip46Delegated(config) => {
+                PersistedNostrSignerSettings::Nip46Delegated(PersistedNip46SignerSettings {
+                    relay_urls: config.relay_urls.clone(),
+                    signer_pubkey: config.signer_pubkey.clone(),
+                    requested_permissions: config.requested_permissions.clone(),
+                    permission_grants: config.permission_grants.clone(),
+                })
+            }
+        }
+    }
+
+    pub(crate) fn signer_backend_snapshot(&self) -> NostrSignerBackendSnapshot {
+        let state = self.state.lock().expect("nostr core lock poisoned");
+        match &state.signer_backend {
+            NostrSignerBackend::LocalHostKey => NostrSignerBackendSnapshot::LocalHostKey,
+            NostrSignerBackend::Nip46Delegated(config) => {
+                NostrSignerBackendSnapshot::Nip46Delegated {
+                    relay_urls: config.relay_urls.clone(),
+                    signer_pubkey: config.signer_pubkey.clone(),
+                    has_ephemeral_secret: config.shared_secret.is_some(),
+                    requested_permissions: config.requested_permissions.clone(),
+                    permission_grants: config.permission_grants.clone(),
+                    signer_user_pubkey: config.signer_user_pubkey.clone(),
+                    connected: config.connected,
+                }
+            }
+        }
+    }
+
+    pub(crate) fn apply_persisted_signer_settings(
+        &self,
+        settings: &PersistedNostrSignerSettings,
+    ) -> Result<(), NostrCoreError> {
+        match settings {
+            PersistedNostrSignerSettings::LocalHostKey => {
+                self.use_local_signer();
+                Ok(())
+            }
+            PersistedNostrSignerSettings::Nip46Delegated(config) => {
+                let relay_urls = normalize_relays(config.relay_urls.clone());
+                if relay_urls.is_empty() {
+                    return Err(NostrCoreError::ValidationFailed(
+                        "persisted nip46 config requires at least one valid relay".to_string(),
+                    ));
+                }
+                let signer_pubkey = parse_nostr_public_key(&config.signer_pubkey)?.to_hex();
+                let mut state = self.state.lock().expect("nostr core lock poisoned");
+                state.signer_backend = NostrSignerBackend::Nip46Delegated(Nip46DelegateConfig {
+                    relay_urls,
+                    signer_pubkey,
+                    shared_secret: None,
+                    requested_permissions: normalize_requested_permissions(
+                        config.requested_permissions.clone(),
+                    ),
+                    permission_grants: normalize_permission_grants(
+                        config.permission_grants.clone(),
+                    ),
+                    session_key: None,
+                    signer_user_pubkey: None,
+                    connected: false,
+                });
+                Ok(())
+            }
+        }
+    }
+
     pub(crate) fn use_nip46_signer(
         &self,
         relay_url: &str,
         signer_pubkey: &str,
     ) -> Result<(), NostrCoreError> {
-        let relay_url = relay_url.trim();
+        let relay_urls = normalize_relays(vec![relay_url.to_string()]);
         let signer_pubkey = signer_pubkey.trim();
-        if relay_url.is_empty() || signer_pubkey.is_empty() {
+        if relay_urls.is_empty() || signer_pubkey.is_empty() {
             return Err(NostrCoreError::ValidationFailed(
                 "relay_url and signer_pubkey must be non-empty".to_string(),
             ));
         }
+        let signer_pubkey = parse_nostr_public_key(signer_pubkey)?.to_hex();
 
         let mut state = self.state.lock().expect("nostr core lock poisoned");
         state.signer_backend = NostrSignerBackend::Nip46Delegated(Nip46DelegateConfig {
-            relay_url: relay_url.to_string(),
-            signer_pubkey: signer_pubkey.to_string(),
+            relay_urls,
+            signer_pubkey,
+            shared_secret: None,
+            requested_permissions: Vec::new(),
+            permission_grants: Vec::new(),
             session_key: None,
             signer_user_pubkey: None,
             connected: false,
         });
+        Ok(())
+    }
+
+    pub(crate) fn use_nip46_bunker_uri(
+        &self,
+        bunker_uri: &str,
+    ) -> Result<ParsedNip46BunkerUri, NostrCoreError> {
+        let parsed = parse_nip46_bunker_uri(bunker_uri)?;
+        let mut state = self.state.lock().expect("nostr core lock poisoned");
+        state.signer_backend = NostrSignerBackend::Nip46Delegated(Nip46DelegateConfig {
+            relay_urls: parsed.relay_urls.clone(),
+            signer_pubkey: parsed.signer_pubkey.clone(),
+            shared_secret: parsed.shared_secret.clone(),
+            requested_permissions: parsed.requested_permissions.clone(),
+            permission_grants: seed_permission_grants(&parsed.requested_permissions),
+            session_key: None,
+            signer_user_pubkey: None,
+            connected: false,
+        });
+        Ok(parsed)
+    }
+
+    pub(crate) fn set_nip46_permission(
+        &self,
+        permission: &str,
+        decision: Nip46PermissionDecision,
+    ) -> Result<(), NostrCoreError> {
+        let permission = normalize_permission(permission)
+            .ok_or_else(|| NostrCoreError::ValidationFailed("permission must be non-empty".to_string()))?;
+        let mut state = self.state.lock().expect("nostr core lock poisoned");
+        let NostrSignerBackend::Nip46Delegated(config) = &mut state.signer_backend else {
+            return Err(NostrCoreError::ValidationFailed(
+                "nip46 permission updates require delegated signer backend".to_string(),
+            ));
+        };
+        if let Some(existing) = config
+            .permission_grants
+            .iter_mut()
+            .find(|grant| grant.permission == permission)
+        {
+            existing.decision = decision;
+        } else {
+            config.permission_grants.push(Nip46PermissionGrant {
+                permission,
+                decision,
+            });
+            config
+                .permission_grants
+                .sort_by(|left, right| left.permission.cmp(&right.permission));
+        }
         Ok(())
     }
 
@@ -965,11 +1165,16 @@ impl NostrCoreRegistry {
         if config.connected {
             return Ok(());
         }
-        self.perform_nip46_rpc(
-            config,
-            "connect",
-            vec![serde_json::Value::String(config.signer_pubkey.clone())],
-        )?;
+        let mut params = vec![serde_json::Value::String(config.signer_pubkey.clone())];
+        if let Some(secret) = config.shared_secret.as_ref() {
+            params.push(serde_json::Value::String(secret.clone()));
+        }
+        if !config.requested_permissions.is_empty() {
+            params.push(serde_json::Value::String(
+                config.requested_permissions.join(","),
+            ));
+        }
+        self.perform_nip46_rpc(config, "connect", params)?;
         config.connected = true;
         Ok(())
     }
@@ -992,8 +1197,10 @@ impl NostrCoreRegistry {
             .clone()
             .ok_or_else(|| NostrCoreError::BackendUnavailable("nip46 session key missing".to_string()))?;
         let request = Nip46RpcRequest {
-            relay_url: config.relay_url.clone(),
+            relay_urls: config.relay_urls.clone(),
             signer_pubkey: config.signer_pubkey.clone(),
+            shared_secret: config.shared_secret.clone(),
+            requested_permissions: config.requested_permissions.clone(),
             session_key,
             request_id: format!("nip46-rpc-{}", self.next_subscription_id.fetch_add(1, Ordering::Relaxed)),
             method: method.to_string(),
@@ -1017,7 +1224,7 @@ impl NostrCoreRegistry {
     fn update_nip46_config(&self, config: Nip46DelegateConfig) {
         let mut state = self.state.lock().expect("nostr core lock poisoned");
         if let NostrSignerBackend::Nip46Delegated(current) = &mut state.signer_backend
-            && current.relay_url == config.relay_url
+            && current.relay_urls == config.relay_urls
             && current.signer_pubkey == config.signer_pubkey
         {
             *current = config;
@@ -1598,6 +1805,124 @@ impl NostrCoreRegistry {
     }
 }
 
+fn parse_nip46_bunker_uri(bunker_uri: &str) -> Result<ParsedNip46BunkerUri, NostrCoreError> {
+    let parsed = Url::parse(bunker_uri.trim()).map_err(|error| {
+        NostrCoreError::ValidationFailed(format!("invalid bunker uri: {error}"))
+    })?;
+    match parsed.scheme() {
+        "bunker" | "nostrconnect" => {}
+        scheme => {
+            return Err(NostrCoreError::ValidationFailed(format!(
+                "unsupported bunker uri scheme '{scheme}'"
+            )));
+        }
+    }
+
+    let authority = parsed.host_str().unwrap_or_default().trim();
+    let path_identity = parsed.path().trim_matches('/');
+    let signer_pubkey = if !authority.is_empty() {
+        authority.to_string()
+    } else if !path_identity.is_empty() {
+        path_identity.to_string()
+    } else if let Some((_, value)) = parsed
+        .query_pairs()
+        .find(|(key, _)| key == "pubkey" || key == "remote-signer-pubkey")
+    {
+        value.into_owned()
+    } else {
+        return Err(NostrCoreError::ValidationFailed(
+            "bunker uri missing remote signer pubkey".to_string(),
+        ));
+    };
+    let signer_pubkey = parse_nostr_public_key(&signer_pubkey)?.to_hex();
+
+    let mut relay_urls = Vec::new();
+    let mut shared_secret = None;
+    let mut requested_permissions = Vec::new();
+    for (key, value) in parsed.query_pairs() {
+        match key.as_ref() {
+            "relay" => relay_urls.push(value.into_owned()),
+            "secret" => {
+                let secret = value.trim().to_string();
+                if !secret.is_empty() {
+                    shared_secret = Some(secret);
+                }
+            }
+            "perms" => {
+                requested_permissions.extend(
+                    value
+                        .split(',')
+                        .filter_map(normalize_permission),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    let relay_urls = normalize_relays(relay_urls);
+    if relay_urls.is_empty() {
+        return Err(NostrCoreError::ValidationFailed(
+            "bunker uri requires at least one valid relay".to_string(),
+        ));
+    }
+
+    Ok(ParsedNip46BunkerUri {
+        relay_urls,
+        signer_pubkey,
+        shared_secret,
+        requested_permissions: normalize_requested_permissions(requested_permissions),
+    })
+}
+
+fn normalize_permission(permission: impl AsRef<str>) -> Option<String> {
+    let normalized = permission.as_ref().trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn normalize_requested_permissions(permissions: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for permission in permissions {
+        if let Some(permission) = normalize_permission(permission)
+            && !normalized.iter().any(|existing| existing == &permission)
+        {
+            normalized.push(permission);
+        }
+    }
+    normalized
+}
+
+fn normalize_permission_grants(grants: Vec<Nip46PermissionGrant>) -> Vec<Nip46PermissionGrant> {
+    let mut normalized = Vec::new();
+    for grant in grants {
+        if let Some(permission) = normalize_permission(&grant.permission)
+            && !normalized
+                .iter()
+                .any(|existing: &Nip46PermissionGrant| existing.permission == permission)
+        {
+            normalized.push(Nip46PermissionGrant {
+                permission,
+                decision: grant.decision,
+            });
+        }
+    }
+    normalized.sort_by(|left, right| left.permission.cmp(&right.permission));
+    normalized
+}
+
+fn seed_permission_grants(requested_permissions: &[String]) -> Vec<Nip46PermissionGrant> {
+    normalize_requested_permissions(requested_permissions.to_vec())
+        .into_iter()
+        .map(|permission| Nip46PermissionGrant {
+            permission,
+            decision: Nip46PermissionDecision::Pending,
+        })
+        .collect()
+}
+
 fn canonical_event_hash(pubkey: &str, unsigned: &NostrUnsignedEvent) -> [u8; 32] {
     let canonical = serde_json::json!([
         0,
@@ -1848,6 +2173,76 @@ mod tests {
         assert_eq!(signed.event_id.len(), 64);
         assert_eq!(signed.kind, 1);
         assert_eq!(signed.content, "hello nostr");
+    }
+
+    #[test]
+    fn nostr_core_parses_bunker_uri_and_seeds_pending_permissions() {
+        let registry = NostrCoreRegistry::default();
+        let signer_secret = SecretKey::new(&mut secp256k1::rand::rng());
+        let signer_keypair = Keypair::from_secret_key(&Secp256k1::new(), &signer_secret);
+        let (signer_pubkey, _) = XOnlyPublicKey::from_keypair(&signer_keypair);
+
+        let parsed = registry
+            .use_nip46_bunker_uri(&format!(
+                "bunker://{}?relay=wss://relay.one&relay=wss://relay.two&secret=shared-secret&perms=sign_event,get_public_key",
+                signer_pubkey
+            ))
+            .expect("bunker uri should parse");
+
+        assert_eq!(parsed.relay_urls.len(), 2);
+        assert_eq!(parsed.shared_secret.as_deref(), Some("shared-secret"));
+        assert_eq!(
+            parsed.requested_permissions,
+            vec!["sign_event".to_string(), "get_public_key".to_string()]
+        );
+        match registry.signer_backend_snapshot() {
+            NostrSignerBackendSnapshot::Nip46Delegated {
+                has_ephemeral_secret,
+                permission_grants,
+                ..
+            } => {
+                assert!(has_ephemeral_secret);
+                assert_eq!(permission_grants.len(), 2);
+                assert!(permission_grants.iter().all(|grant| matches!(
+                    grant.decision,
+                    Nip46PermissionDecision::Pending
+                )));
+            }
+            other => panic!("expected delegated snapshot, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nostr_core_persisted_settings_omit_ephemeral_secret() {
+        let registry = NostrCoreRegistry::default();
+        let signer_secret = SecretKey::new(&mut secp256k1::rand::rng());
+        let signer_keypair = Keypair::from_secret_key(&Secp256k1::new(), &signer_secret);
+        let (signer_pubkey, _) = XOnlyPublicKey::from_keypair(&signer_keypair);
+
+        registry
+            .use_nip46_bunker_uri(&format!(
+                "bunker://{}?relay=wss://relay.one&secret=shared-secret&perms=sign_event",
+                signer_pubkey
+            ))
+            .expect("bunker uri should parse");
+
+        let persisted = registry.persisted_signer_settings();
+        match persisted {
+            PersistedNostrSignerSettings::Nip46Delegated(settings) => {
+                assert_eq!(settings.relay_urls, vec!["wss://relay.one".to_string()]);
+                assert_eq!(settings.signer_pubkey, signer_pubkey.to_string());
+                assert_eq!(settings.requested_permissions, vec!["sign_event".to_string()]);
+                assert_eq!(settings.permission_grants.len(), 1);
+            }
+            other => panic!("expected nip46 persisted settings, got {other:?}"),
+        }
+        match registry.signer_backend_snapshot() {
+            NostrSignerBackendSnapshot::Nip46Delegated {
+                has_ephemeral_secret,
+                ..
+            } => assert!(has_ephemeral_secret),
+            other => panic!("expected delegated snapshot, got {other:?}"),
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

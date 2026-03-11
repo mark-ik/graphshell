@@ -62,10 +62,11 @@ use input::{
 };
 use knowledge::{KnowledgeRegistry, SemanticReconcileReport, TagValidationResult};
 use layout::LayoutRegistry;
-pub(crate) use nostr_core::PersistedNostrSubscription;
+pub(crate) use nostr_core::{NostrSignerBackendSnapshot, PersistedNostrSignerSettings, PersistedNostrSubscription};
 use nostr_core::{
-    NostrCoreError, NostrCoreRegistry, NostrFilterSet, NostrPublishReceipt, NostrSignedEvent,
-    NostrSubscriptionHandle, NostrUnsignedEvent,
+    Nip46PermissionDecision, NostrCoreError, NostrCoreRegistry, NostrFilterSet,
+    NostrPublishReceipt, NostrSignedEvent, NostrSubscriptionHandle, NostrUnsignedEvent,
+    ParsedNip46BunkerUri,
 };
 use physics_profile::PhysicsProfileRegistry;
 use protocol::{
@@ -660,6 +661,23 @@ pub(crate) fn phase3_nostr_use_local_signer() {
 }
 
 #[allow(dead_code)]
+pub(crate) fn phase3_nostr_persisted_signer_settings() -> PersistedNostrSignerSettings {
+    runtime().nostr_core.persisted_signer_settings()
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_signer_backend_snapshot() -> NostrSignerBackendSnapshot {
+    runtime().nostr_core.signer_backend_snapshot()
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_apply_persisted_signer_settings(
+    settings: &PersistedNostrSignerSettings,
+) -> Result<(), NostrCoreError> {
+    runtime().nostr_core.apply_persisted_signer_settings(settings)
+}
+
+#[allow(dead_code)]
 pub(crate) fn phase3_nostr_use_nip46_signer(
     relay_url: &str,
     signer_pubkey: &str,
@@ -667,6 +685,23 @@ pub(crate) fn phase3_nostr_use_nip46_signer(
     runtime()
         .nostr_core
         .use_nip46_signer(relay_url, signer_pubkey)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_use_nip46_bunker_uri(
+    bunker_uri: &str,
+) -> Result<ParsedNip46BunkerUri, NostrCoreError> {
+    runtime().nostr_core.use_nip46_bunker_uri(bunker_uri)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_set_nip46_permission(
+    permission: &str,
+    decision: Nip46PermissionDecision,
+) -> Result<(), NostrCoreError> {
+    runtime()
+        .nostr_core
+        .set_nip46_permission(permission, decision)
 }
 
 #[allow(dead_code)]

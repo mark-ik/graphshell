@@ -1534,8 +1534,173 @@ pub fn render_sync_settings_in_ui(
         ui.label(format!("Connected peers: {}", peers.len()));
     }
 
+    render_nostr_sync_settings_in_ui(ui, app);
+
     if let Some(message) = ctx.data_mut(|d| d.get_temp::<String>(sync_status_id)) {
         ui.separator();
+        ui.small(message);
+    }
+}
+
+fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
+    let ctx = ui.ctx().clone();
+    let bunker_uri_input_id = egui::Id::new("nostr_bunker_uri_input");
+    let nostr_status_id = egui::Id::new("nostr_signer_status");
+
+    ui.separator();
+    ui.label(egui::RichText::new("Nostr Signer").strong());
+
+    if ui.button("Use Local Signer").clicked() {
+        crate::shell::desktop::runtime::registries::phase3_nostr_use_local_signer();
+        app.save_persisted_nostr_signer_settings();
+        ctx.data_mut(|d| {
+            d.insert_temp(
+                nostr_status_id,
+                "Using local secp256k1 user signer".to_string(),
+            )
+        });
+    }
+
+    let mut bunker_uri_input = ctx
+        .data_mut(|d| d.get_temp::<String>(bunker_uri_input_id))
+        .unwrap_or_default();
+    ui.group(|ui| {
+        ui.label(egui::RichText::new("Remote Signer (NIP-46)").strong());
+        ui.small(
+            "Paste a bunker URI to configure a delegated signer. Shared secrets are applied for the current session only and are not persisted.",
+        );
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut bunker_uri_input)
+                    .desired_width(420.0)
+                    .password(true)
+                    .hint_text("bunker://<pubkey>?relay=wss://...&secret=...&perms=sign_event"),
+            );
+            if ui.button("Apply Bunker URI").clicked() {
+                match crate::shell::desktop::runtime::registries::phase3_nostr_use_nip46_bunker_uri(
+                    bunker_uri_input.trim(),
+                ) {
+                    Ok(parsed) => {
+                        app.save_persisted_nostr_signer_settings();
+                        bunker_uri_input.clear();
+                        ctx.data_mut(|d| {
+                            d.insert_temp(
+                                nostr_status_id,
+                                format!(
+                                    "Configured NIP-46 signer {} on {} relay(s)",
+                                    &parsed.signer_pubkey[..parsed.signer_pubkey.len().min(16)],
+                                    parsed.relay_urls.len()
+                                ),
+                            )
+                        });
+                    }
+                    Err(error) => {
+                        ctx.data_mut(|d| {
+                            d.insert_temp(
+                                nostr_status_id,
+                                format!("Bunker URI rejected: {error}"),
+                            )
+                        });
+                    }
+                }
+            }
+        });
+    });
+    ctx.data_mut(|d| d.insert_temp(bunker_uri_input_id, bunker_uri_input));
+
+    match crate::shell::desktop::runtime::registries::phase3_nostr_signer_backend_snapshot() {
+        crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::LocalHostKey => {
+            ui.small("Current backend: local secp256k1 user signer.");
+        }
+        crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::Nip46Delegated {
+            relay_urls,
+            signer_pubkey,
+            has_ephemeral_secret,
+            requested_permissions,
+            permission_grants,
+            signer_user_pubkey,
+            connected,
+        } => {
+            ui.small(format!(
+                "Current backend: NIP-46 delegated signer {}",
+                &signer_pubkey[..signer_pubkey.len().min(16)]
+            ));
+            ui.small(format!("Relays: {}", relay_urls.join(", ")));
+            ui.small(if connected {
+                "Connection status: connected"
+            } else {
+                "Connection status: pending connect on first use"
+            });
+            ui.small(if has_ephemeral_secret {
+                "Session secret: loaded for this run only"
+            } else {
+                "Session secret: none loaded"
+            });
+            if let Some(user_pubkey) = signer_user_pubkey {
+                ui.small(format!("Signer user pubkey: {user_pubkey}"));
+            }
+
+            let mut grants = permission_grants;
+            if grants.is_empty() {
+                grants.push(
+                    crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionGrant {
+                        permission: "sign_event".to_string(),
+                        decision: crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Pending,
+                    },
+                );
+            }
+
+            ui.separator();
+            ui.label("Local permission memory");
+            if requested_permissions.is_empty() {
+                ui.small("No permissions were declared in the bunker URI. Local approval still gates delegated signing.");
+            } else {
+                ui.small(format!(
+                    "Bunker-declared permissions: {}",
+                    requested_permissions.join(", ")
+                ));
+            }
+            for grant in grants {
+                ui.horizontal(|ui| {
+                    ui.label(&grant.permission);
+                    ui.small(match grant.decision {
+                        crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Pending => "pending",
+                        crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Allow => "allowed",
+                        crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Deny => "denied",
+                    });
+                    if ui.small_button("Allow").clicked()
+                        && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip46_permission(
+                            &grant.permission,
+                            crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Allow,
+                        )
+                        .is_ok()
+                    {
+                        app.save_persisted_nostr_signer_settings();
+                    }
+                    if ui.small_button("Deny").clicked()
+                        && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip46_permission(
+                            &grant.permission,
+                            crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Deny,
+                        )
+                        .is_ok()
+                    {
+                        app.save_persisted_nostr_signer_settings();
+                    }
+                    if ui.small_button("Reset").clicked()
+                        && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip46_permission(
+                            &grant.permission,
+                            crate::shell::desktop::runtime::registries::nostr_core::Nip46PermissionDecision::Pending,
+                        )
+                        .is_ok()
+                    {
+                        app.save_persisted_nostr_signer_settings();
+                    }
+                });
+            }
+        }
+    }
+
+    if let Some(message) = ctx.data_mut(|d| d.get_temp::<String>(nostr_status_id)) {
         ui.small(message);
     }
 }

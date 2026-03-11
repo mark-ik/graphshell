@@ -1152,6 +1152,8 @@ impl GraphBrowserApp {
         "workspace:settings-canvas-profile-id";
     pub const SETTINGS_ACTIVE_WORKFLOW_ID_NAME: &'static str =
         "workspace:settings-active-workflow-id";
+    pub const SETTINGS_NOSTR_SIGNER_SETTINGS_NAME: &'static str =
+        "workspace:settings-nostr-signer-settings";
     pub const SETTINGS_NOSTR_SUBSCRIPTIONS_NAME: &'static str =
         "workspace:settings-nostr-subscriptions";
     pub const SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME: &'static str =
@@ -2876,6 +2878,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_WORKBENCH_SURFACE_PROFILE_ID_NAME
             || name == Self::SETTINGS_CANVAS_PROFILE_ID_NAME
             || name == Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME
+            || name == Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME
             || name == Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME
             || name == Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
@@ -3103,6 +3106,38 @@ impl GraphBrowserApp {
             .collect::<Vec<_>>()
             .join("\n");
         self.save_workspace_layout_json(Self::SETTINGS_INPUT_BINDING_REMAPS_NAME, &encoded);
+    }
+
+    pub fn save_persisted_nostr_signer_settings(&mut self) {
+        let encoded = serde_json::to_string(
+            &crate::shell::desktop::runtime::registries::phase3_nostr_persisted_signer_settings(),
+        )
+        .unwrap_or_else(|_| "{\"backend\":\"local_host_key\"}".to_string());
+        self.save_workspace_layout_json(Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME, &encoded);
+    }
+
+    fn load_persisted_nostr_signer_settings(&mut self) {
+        let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME)
+        else {
+            return;
+        };
+        let Some(settings) = serde_json::from_str::<
+            crate::shell::desktop::runtime::registries::PersistedNostrSignerSettings,
+        >(&raw)
+        .map_err(|error| {
+            warn!("Ignoring invalid persisted nostr signer settings: {error}");
+            error
+        })
+        .ok() else {
+            return;
+        };
+        if let Err(error) =
+            crate::shell::desktop::runtime::registries::phase3_nostr_apply_persisted_signer_settings(
+                &settings,
+            )
+        {
+            warn!("Ignoring persisted nostr signer settings restore failure: {error:?}");
+        }
     }
 
     pub fn save_persisted_nostr_subscriptions(&mut self) {
@@ -3443,6 +3478,7 @@ impl GraphBrowserApp {
         crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
             self.workspace.lasso_binding_preference,
         );
+        self.load_persisted_nostr_signer_settings();
         self.load_persisted_nostr_subscriptions();
         self.load_graph_view_layout_manager_state();
 
@@ -9054,6 +9090,51 @@ mod tests {
         assert_eq!(persisted[0].caller_id, "workspace:test");
         assert_eq!(persisted[0].requested_id.as_deref(), Some("timeline"));
         assert_eq!(persisted[0].filters.kinds, vec![1]);
+    }
+
+    #[test]
+    fn test_nostr_signer_settings_persist_across_restart_without_secret() {
+        static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        let _guard = LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("nostr signer persistence test lock poisoned");
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+        let signer_secret = secp256k1::SecretKey::new(&mut secp256k1::rand::rng());
+        let signer_keypair =
+            secp256k1::Keypair::from_secret_key(&secp256k1::Secp256k1::new(), &signer_secret);
+        let (signer_pubkey, _) = secp256k1::XOnlyPublicKey::from_keypair(&signer_keypair);
+
+        {
+            let mut app = GraphBrowserApp::new_from_dir(path.clone());
+            crate::shell::desktop::runtime::registries::phase3_nostr_use_nip46_bunker_uri(
+                &format!(
+                    "bunker://{}?relay=wss://relay.one&secret=shared-secret&perms=sign_event",
+                    signer_pubkey
+                ),
+            )
+            .expect("bunker uri should parse");
+            app.save_persisted_nostr_signer_settings();
+        }
+
+        let _reopened = GraphBrowserApp::new_from_dir(path);
+        match crate::shell::desktop::runtime::registries::phase3_nostr_signer_backend_snapshot() {
+            crate::shell::desktop::runtime::registries::NostrSignerBackendSnapshot::Nip46Delegated {
+                relay_urls,
+                signer_pubkey: restored_pubkey,
+                has_ephemeral_secret,
+                requested_permissions,
+                ..
+            } => {
+                assert_eq!(relay_urls, vec!["wss://relay.one".to_string()]);
+                assert_eq!(restored_pubkey, signer_pubkey.to_string());
+                assert!(!has_ephemeral_secret);
+                assert_eq!(requested_permissions, vec!["sign_event".to_string()]);
+            }
+            other => panic!("expected delegated signer snapshot, got {other:?}"),
+        }
     }
 
     #[test]
