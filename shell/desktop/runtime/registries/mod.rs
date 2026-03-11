@@ -4630,6 +4630,11 @@ mod tests {
         let (signer_pubkey, _) = secp256k1::XOnlyPublicKey::from_keypair(&signer_keypair);
         phase3_nostr_use_nip46_signer("wss://relay.example", &signer_pubkey.to_string())
             .expect("nip46 config should be accepted");
+        phase3_nostr_set_nip46_permission(
+            "sign_event",
+            Nip46PermissionDecision::Allow,
+        )
+        .expect("nip46 permission should be stored");
 
         let result = phase3_nostr_sign_event(
             "default",

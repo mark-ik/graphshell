@@ -1100,6 +1100,7 @@ impl NostrCoreRegistry {
         if config.session_key.is_none() {
             config.session_key = Some(identity.generate_user_session_key(persona));
         }
+        self.ensure_nip46_permission_allowed(&config, &format!("sign_event:{}", unsigned.kind))?;
 
         self.ensure_nip46_connected(&mut config)?;
 
@@ -1156,6 +1157,38 @@ impl NostrCoreRegistry {
         self.update_nip46_config(config.clone());
 
         Ok((signed_event.event_id, signed_event.signature, signed_event.pubkey))
+    }
+
+    fn ensure_nip46_permission_allowed(
+        &self,
+        config: &Nip46DelegateConfig,
+        permission: &str,
+    ) -> Result<(), NostrCoreError> {
+        match resolve_nip46_permission_decision(config, permission) {
+            Nip46PermissionDecision::Allow => Ok(()),
+            Nip46PermissionDecision::Pending => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
+                    byte_len: permission.len().max(1),
+                });
+                Err(NostrCoreError::ValidationFailed(format!(
+                    "nip46 permission pending for '{permission}'; allow it in Settings -> Sync"
+                )))
+            }
+            Nip46PermissionDecision::Deny => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
+                    byte_len: permission.len().max(1),
+                });
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_SECURITY_VIOLATION,
+                    byte_len: permission.len().max(1),
+                });
+                Err(NostrCoreError::ValidationFailed(format!(
+                    "nip46 permission denied for '{permission}'"
+                )))
+            }
+        }
     }
 
     fn ensure_nip46_connected(
@@ -1923,6 +1956,31 @@ fn seed_permission_grants(requested_permissions: &[String]) -> Vec<Nip46Permissi
         .collect()
 }
 
+fn resolve_nip46_permission_decision(
+    config: &Nip46DelegateConfig,
+    requested_permission: &str,
+) -> Nip46PermissionDecision {
+    let Some(requested_permission) = normalize_permission(requested_permission) else {
+        return Nip46PermissionDecision::Pending;
+    };
+    if let Some(grant) = config
+        .permission_grants
+        .iter()
+        .find(|grant| grant.permission == requested_permission)
+    {
+        return grant.decision.clone();
+    }
+    if let Some((base_permission, _)) = requested_permission.split_once(':')
+        && let Some(grant) = config
+            .permission_grants
+            .iter()
+            .find(|grant| grant.permission == base_permission)
+    {
+        return grant.decision.clone();
+    }
+    Nip46PermissionDecision::Pending
+}
+
 fn canonical_event_hash(pubkey: &str, unsigned: &NostrUnsignedEvent) -> [u8; 32] {
     let canonical = serde_json::json!([
         0,
@@ -2245,6 +2303,49 @@ mod tests {
         }
     }
 
+    #[test]
+    fn nostr_core_nip46_sign_event_requires_local_permission_allow() {
+        let registry = NostrCoreRegistry::default();
+        let identity = IdentityRegistry::default();
+        let signer_secret = SecretKey::new(&mut secp256k1::rand::rng());
+        let signer_keypair = Keypair::from_secret_key(&Secp256k1::new(), &signer_secret);
+        let (signer_pubkey, _) = XOnlyPublicKey::from_keypair(&signer_keypair);
+
+        registry
+            .use_nip46_signer("wss://relay.example", &signer_pubkey.to_string())
+            .expect("nip46 config should be accepted");
+
+        let result = registry.sign_event(
+            &identity,
+            "default",
+            &NostrUnsignedEvent {
+                created_at: 1_710_000_010,
+                kind: 1,
+                content: "permission check".to_string(),
+                tags: Vec::new(),
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(NostrCoreError::ValidationFailed(message))
+                if message.contains("permission pending")
+        ));
+
+        registry
+            .set_nip46_permission("sign_event", Nip46PermissionDecision::Allow)
+            .expect("setting permission should succeed");
+        match registry.signer_backend_snapshot() {
+            NostrSignerBackendSnapshot::Nip46Delegated {
+                permission_grants,
+                ..
+            } => assert!(permission_grants.iter().any(|grant| {
+                grant.permission == "sign_event"
+                    && matches!(grant.decision, Nip46PermissionDecision::Allow)
+            })),
+            other => panic!("expected delegated snapshot, got {other:?}"),
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn nostr_core_nip46_sign_event_roundtrip_with_local_bunker_mock() {
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -2383,6 +2484,9 @@ mod tests {
         registry
             .use_nip46_signer(&relay_url, &signer_app_pubkey.to_string())
             .expect("nip46 config should be accepted");
+        registry
+            .set_nip46_permission("sign_event", Nip46PermissionDecision::Allow)
+            .expect("nip46 permission should be stored");
         let identity = IdentityRegistry::default();
 
         let unsigned = NostrUnsignedEvent {
