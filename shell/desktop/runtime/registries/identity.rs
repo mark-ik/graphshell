@@ -42,6 +42,12 @@ pub(crate) struct PresenceBindingAssertion {
     pub(crate) signature: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UserSessionKey {
+    pub(crate) secret_key_hex: String,
+    pub(crate) public_key: String,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityResolution {
     pub(crate) requested_id: String,
@@ -495,6 +501,16 @@ impl IdentityRegistry {
             .get(&resolved_id)
             .and_then(|key| key.sign_digest(digest))
             .map(|signature| format!("sig:{}", encode_hex(signature.as_ref())))
+    }
+
+    pub(crate) fn generate_user_session_key(&self, _identity_id: &str) -> UserSessionKey {
+        let secret_key = SecretKey::new(&mut secp256k1::rand::rng());
+        let keypair = Keypair::from_secret_key(&Secp256k1::new(), &secret_key);
+        let (public_key, _) = XOnlyPublicKey::from_keypair(&keypair);
+        UserSessionKey {
+            secret_key_hex: encode_hex(&secret_key.secret_bytes()),
+            public_key: public_key.to_string(),
+        }
     }
 
     pub(crate) fn create_presence_binding_assertion(

@@ -23,9 +23,8 @@ The goal is a fully operable Register layer in which every registry is:
 - Connected to other registries only through the `SignalRoutingLayer` or `ControlPanel`, never via direct inter-registry calls
 
 Archive note:
-- This master plan is not ready to archive. `RendererRegistry` (Sector B), Sector C's remaining
-  real `UserIdentity` closure (`secp256k1` / NIP-46 after the new `UserIdentity`/`NodeId`
-  split), and the remaining Sector G WASM/mod-theme follow-ons are still open.
+- This master plan is not ready to archive. `RendererRegistry` (Sector B) and the remaining Sector
+  G WASM/mod-theme follow-ons are still open.
 
 ---
 
@@ -156,8 +155,8 @@ trust and `NodeId` stay in `IdentityRegistry`, while public/user signing remains
 Current state: `IdentityRegistry` now owns real Ed25519 node signing, key persistence, Verse trust
 state, and signed presence-binding assertions. `NostrCoreRegistry` now has a supervised websocket
 relay backend, restart-safe subscription persistence, relay connection diagnostics, and a local
-secp256k1 user-signing lane. The remaining work in Sector C is delegated NIP-46 signing without
-collapsing that `UserIdentity` lane back into the transport `NodeId` key.
+secp256k1 user-signing lane. NIP-46 delegated signing is now landed on top of that lane, so the
+remaining work in Sector C is policy/UX follow-on depth rather than registry-runtime closure.
 
 ---
 

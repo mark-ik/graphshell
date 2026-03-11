@@ -156,6 +156,7 @@ ed25519-dalek = { version = "2.2", features = ["serde"] }
 secp256k1 = { version = "0.31", features = ["rand", "global-context"] }
 sha2 = "0.10"
 keyring = "3"
+nostr = { version = "0.44.2", features = ["nip44"] }
 zstd = "0.13"
 iroh = "0.30"
 qrcode = "0.14"

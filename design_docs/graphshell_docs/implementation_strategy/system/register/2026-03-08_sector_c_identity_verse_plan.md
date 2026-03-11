@@ -39,7 +39,7 @@ Track 3: Cross-registry wiring — bind UserIdentity to NodeId without shared ke
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
 | `IdentityRegistry` | ✅ | Runtime authority | Real Ed25519 node-signing, persistence, rotation/revocation, Verse trust wiring, and signed presence-binding assertions are landed; NIP-07 remains deferred |
-| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend, subscription persistence, relay diagnostics, and local secp256k1 user signing are landed; real NIP-46 delegated signing is still open |
+| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend, subscription persistence, relay diagnostics, local secp256k1 user signing, and NIP-46 delegated signing are landed |
 
 ### Implementation note — 2026-03-10 correction
 
@@ -59,8 +59,10 @@ Current implementation note:
 - The presence-binding carrier is landed and signed by the local default user-claim key.
 - That local user-claim now uses a dedicated secp256k1 signer, separate from the `NodeId`
   transport key.
-- The remaining honest blocker for full Sector C closure is NIP-46 delegated signing for the
-  user-signing lane, while keeping the `NodeId` lane separate.
+- `SignerBackend::Nip46` now routes through the supervised relay worker with an encrypted
+  request/response path and a local bunker-mock contract test.
+- Remaining follow-ons are policy/UX depth items such as bunker-URI parsing, permission lifecycle,
+  and NIP-07, not a registry/runtime correctness blocker.
 
 ---
 
@@ -248,14 +250,15 @@ This is a medium-complexity async RPC over Nostr relay. It enables hardware sign
 and NIP-07 browser extension bridges.
 
 **Done gates:**
-- [ ] `Nip46Signer` struct with `sign_event()` async implementation.
-- [ ] `SignerBackend::Nip46` variant wired into `NostrCoreRegistry::sign_event()`.
-- [ ] Session key is generated from the user-identity lane without reusing the P2P `NodeId` key store.
-- [ ] Integration test: NIP-46 sign round-trip with a local bunker mock.
+- [x] `Nip46Signer`-equivalent relay RPC path with `sign_event()` implementation.
+- [x] `SignerBackend::Nip46` variant wired into `NostrCoreRegistry::sign_event()`.
+- [x] Session key is generated from the user-identity lane without reusing the P2P `NodeId` key store.
+- [x] Integration test: NIP-46 sign round-trip with a local bunker mock.
 
 Current implementation note:
 - Local signing now uses canonical Nostr event hashes with `created_at`, and the relay backend is a supervised worker under `ControlPanel`.
-- `SignerBackend::Nip46` still returns explicit `BackendUnavailable`; delegated signing is now the remaining Sector C blocker on top of the landed local secp256k1 user-signing lane.
+- `SignerBackend::Nip46` is now implemented over the relay worker using encrypted NIP-46 RPC.
+- Bunker URI parsing, permission UX, and NIP-07/browser-extension parity remain follow-on work.
 
 ---
 
@@ -327,7 +330,7 @@ Track as a prospective capability; no implementation in this sector.
 - [ ] `NostrCoreRegistry` has no local key store; all signing delegates to `IdentityRegistry`.
 - [x] `TungsteniteRelayService` enables real Nostr event publish/subscribe.
 - [x] Nostr subscriptions persist across app restarts.
-- [ ] NIP-46 remote signer is implemented and wired to `SignerBackend::Nip46`.
+- [x] NIP-46 remote signer is implemented and wired to `SignerBackend::Nip46`.
 - [ ] `DIAG_IDENTITY_SIGN` and `DIAG_NOSTR_RELAY` channels emit with correct severity.
 - [ ] No duplicate key material exists anywhere in the codebase.
 

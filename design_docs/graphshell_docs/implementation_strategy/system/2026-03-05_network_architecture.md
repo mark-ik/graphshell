@@ -258,8 +258,9 @@ Implementation note as of 2026-03-10:
 - That assertion binds the transport `NodeId` to a user-identity claim for a scoped audience/TTL.
 - The current local user-identity signer is now a dedicated secp256k1 lane, separate from the
   Ed25519 transport identity.
-- Full closure still requires NIP-46 delegated signing so the `UserIdentity` lane can move out of
-  local key custody while keeping the `NodeId` lane separate.
+- NIP-46 delegated signing is now wired through the relay worker for remote signer flows.
+- Remaining follow-ons are bunker-URI/policy UX and other signer-surface integrations, not the
+  underlying two-layer identity model.
 
 ### libp2p-iroh bridge
 

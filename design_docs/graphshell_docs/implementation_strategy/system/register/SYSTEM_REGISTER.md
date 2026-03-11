@@ -106,9 +106,8 @@ Gaps / active architectural work:
 - `ModRegistry` still lacks a real WASM host / intent bridge, so Sector G is not fully closed
 - Theme activation is runtime-owned, but startup OS-theme detection and mod-provided theme
   activation remain open follow-ons
-- The registry development plan cannot be archived yet; `RendererRegistry` (Sector B), Sector C's
-  remaining real `UserIdentity` closure (`secp256k1` / NIP-46 after the new `UserIdentity` /
-  `NodeId` split), and the remaining Sector G mod follow-ons are still active work
+- The registry development plan cannot be archived yet; `RendererRegistry` (Sector B) and the
+  remaining Sector G mod follow-ons are still active work
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 

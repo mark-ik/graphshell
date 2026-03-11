@@ -4590,7 +4590,10 @@ mod tests {
     #[test]
     fn phase3_nostr_nip46_backend_reports_unavailable() {
         let _guard = nostr_backend_test_guard();
-        phase3_nostr_use_nip46_signer("wss://relay.example", "npub1delegate")
+        let signer_secret = secp256k1::SecretKey::new(&mut secp256k1::rand::rng());
+        let signer_keypair = secp256k1::Keypair::from_secret_key(&secp256k1::Secp256k1::new(), &signer_secret);
+        let (signer_pubkey, _) = secp256k1::XOnlyPublicKey::from_keypair(&signer_keypair);
+        phase3_nostr_use_nip46_signer("wss://relay.example", &signer_pubkey.to_string())
             .expect("nip46 config should be accepted");
 
         let result = phase3_nostr_sign_event(

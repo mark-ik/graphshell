@@ -1,8 +1,13 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
+use nostr::nips::nip44::{self, Version as Nip44Version};
+use nostr::{PublicKey as NostrPublicKey, SecretKey as NostrSecretKey};
+use secp256k1::schnorr::Signature as SchnorrSignature;
+use secp256k1::{Keypair, Secp256k1, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -12,7 +17,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use crate::registries::infrastructure::mod_loader::runtime_has_capability;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 
-use super::identity::IdentityRegistry;
+use super::identity::{IdentityRegistry, UserSessionKey};
 use super::{
     CHANNEL_NOSTR_CAPABILITY_DENIED, CHANNEL_NOSTR_INTENT_REJECTED,
     CHANNEL_NOSTR_RELAY_CONNECT_FAILED, CHANNEL_NOSTR_RELAY_CONNECT_STARTED,
@@ -101,6 +106,9 @@ impl std::error::Error for NostrCoreError {}
 pub(crate) struct Nip46DelegateConfig {
     pub(crate) relay_url: String,
     pub(crate) signer_pubkey: String,
+    session_key: Option<UserSessionKey>,
+    signer_user_pubkey: Option<String>,
+    connected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,6 +243,21 @@ pub(crate) struct RelaySubscriptionRequest {
     resolved_relays: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Nip46RpcRequest {
+    relay_url: String,
+    signer_pubkey: String,
+    session_key: UserSessionKey,
+    request_id: String,
+    method: String,
+    params: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Nip46RpcResponse {
+    result: serde_json::Value,
+}
+
 type RelayResponse<T> = std::sync::mpsc::Sender<T>;
 
 #[derive(Debug)]
@@ -257,6 +280,10 @@ pub(crate) enum RelayWorkerCommand {
     ReplaceSubscriptions {
         subscriptions: Vec<RelaySubscriptionRequest>,
         response: RelayResponse<Result<usize, NostrCoreError>>,
+    },
+    Nip46Rpc {
+        request: Nip46RpcRequest,
+        response: RelayResponse<Result<Nip46RpcResponse, NostrCoreError>>,
     },
 }
 
@@ -375,6 +402,98 @@ impl TungsteniteRelayService {
         Ok(restored)
     }
 
+    async fn nip46_rpc(
+        &mut self,
+        request: Nip46RpcRequest,
+    ) -> Result<Nip46RpcResponse, NostrCoreError> {
+        let signer_pubkey = parse_nostr_public_key(&request.signer_pubkey)?;
+        let signer_pubkey_hex = signer_pubkey.to_hex();
+        let session_secret = parse_nostr_secret_key(&request.session_key.secret_key_hex)?;
+        let payload = serde_json::json!({
+            "id": request.request_id,
+            "method": request.method,
+            "params": request.params,
+        })
+        .to_string();
+        let encrypted = nip44::encrypt(
+            &session_secret,
+            &signer_pubkey,
+            payload,
+            Nip44Version::V2,
+        )
+        .map_err(|error| NostrCoreError::BackendUnavailable(format!("nip44 encrypt failed: {error}")))?;
+
+        let subscription_id = format!("nip46-{}", request.request_id);
+        self.send_json(
+            &request.relay_url,
+            serde_json::json!([
+                "REQ",
+                subscription_id,
+                {
+                    "kinds": [24133],
+                    "authors": [signer_pubkey_hex.clone()],
+                    "#p": [request.session_key.public_key.clone()],
+                }
+            ]),
+        )
+        .await?;
+
+        let signed_request = sign_client_event(
+            &request.session_key.secret_key_hex,
+            NostrUnsignedEvent {
+                created_at: current_unix_secs(),
+                kind: 24133,
+                content: encrypted,
+                tags: vec![("p".to_string(), signer_pubkey_hex.clone())],
+            },
+        )?;
+
+        self.send_json(
+            &request.relay_url,
+            serde_json::json!(["EVENT", signed_event_json(&signed_request)]),
+        )
+        .await?;
+
+        let response_event = self
+            .recv_nip46_response(
+                &request.relay_url,
+                &subscription_id,
+                &signer_pubkey_hex,
+                &request.session_key.public_key,
+            )
+            .await;
+
+        let _ = self
+            .send_json(
+                &request.relay_url,
+                serde_json::json!(["CLOSE", subscription_id]),
+            )
+            .await;
+
+        let response_event = response_event?;
+        let decrypted = nip44::decrypt(&session_secret, &signer_pubkey, &response_event.content)
+            .map_err(|error| NostrCoreError::BackendUnavailable(format!("nip44 decrypt failed: {error}")))?;
+        let rpc: serde_json::Value = serde_json::from_str(&decrypted)
+            .map_err(|error| NostrCoreError::ValidationFailed(format!("invalid nip46 response payload: {error}")))?;
+        if rpc.get("id").and_then(|value| value.as_str()) != Some(request.request_id.as_str()) {
+            return Err(NostrCoreError::ValidationFailed(
+                "nip46 response id mismatch".to_string(),
+            ));
+        }
+        if let Some(error) = rpc.get("error") {
+            return Err(NostrCoreError::BackendUnavailable(format!(
+                "nip46 signer error: {}",
+                error
+            )));
+        }
+        let Some(result) = rpc.get("result").cloned() else {
+            return Err(NostrCoreError::ValidationFailed(
+                "nip46 response missing result".to_string(),
+            ));
+        };
+        Ok(Nip46RpcResponse { result })
+    }
+
     async fn send_json(
         &mut self,
         relay_url: &str,
@@ -451,6 +570,64 @@ impl TungsteniteRelayService {
         self.connections.insert(relay_url.to_string(), socket);
         Ok(())
     }
+
+    async fn recv_nip46_response(
+        &mut self,
+        relay_url: &str,
+        subscription_id: &str,
+        signer_pubkey: &str,
+        session_pubkey: &str,
+    ) -> Result<NostrSignedEvent, NostrCoreError> {
+        let socket = self
+            .connections
+            .get_mut(relay_url)
+            .ok_or_else(|| NostrCoreError::BackendUnavailable("relay connection missing".to_string()))?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let Some(frame) = socket.next().await else {
+                    return Err(NostrCoreError::BackendUnavailable(
+                        "relay closed before nip46 response".to_string(),
+                    ));
+                };
+                let frame = frame.map_err(|error| {
+                    NostrCoreError::BackendUnavailable(format!(
+                        "relay receive failed during nip46 rpc: {error}"
+                    ))
+                })?;
+                let Message::Text(text) = frame else {
+                    continue;
+                };
+                let payload: serde_json::Value = match serde_json::from_str(&text) {
+                    Ok(payload) => payload,
+                    Err(_) => continue,
+                };
+                if payload.get(0).and_then(|value| value.as_str()) != Some("EVENT")
+                    || payload.get(1).and_then(|value| value.as_str()) != Some(subscription_id)
+                {
+                    continue;
+                }
+                let Some(signed) = payload.get(2).and_then(parse_signed_event_json) else {
+                    continue;
+                };
+                if signed.pubkey != signer_pubkey {
+                    continue;
+                }
+                if !signed
+                    .tags
+                    .iter()
+                    .any(|(name, value)| name == "p" && value == session_pubkey)
+                {
+                    continue;
+                }
+                if !verify_signed_event_signature(&signed, signer_pubkey) {
+                    continue;
+                }
+                return Ok(signed);
+            }
+        })
+        .await
+        .map_err(|_| NostrCoreError::BackendUnavailable("nip46 response timed out".to_string()))?
+    }
 }
 
 pub(crate) struct NostrRelayWorker {
@@ -519,6 +696,9 @@ impl NostrRelayWorker {
                 response,
             } => {
                 let _ = response.send(self.backend.replace_subscriptions(subscriptions).await);
+            }
+            RelayWorkerCommand::Nip46Rpc { request, response } => {
+                let _ = response.send(self.backend.nip46_rpc(request).await);
             }
         }
     }
@@ -611,6 +791,9 @@ impl NostrCoreRegistry {
         state.signer_backend = NostrSignerBackend::Nip46Delegated(Nip46DelegateConfig {
             relay_url: relay_url.to_string(),
             signer_pubkey: signer_pubkey.to_string(),
+            session_key: None,
+            signer_user_pubkey: None,
+            connected: false,
         });
         Ok(())
     }
@@ -656,8 +839,14 @@ impl NostrCoreRegistry {
             ));
         }
 
-        let state = self.state.lock().expect("nostr core lock poisoned");
-        let (event_id, signature, pubkey) = match &state.signer_backend {
+        let signer_backend = {
+            self.state
+                .lock()
+                .expect("nostr core lock poisoned")
+                .signer_backend
+                .clone()
+        };
+        let (event_id, signature, pubkey) = match signer_backend {
             NostrSignerBackend::LocalHostKey => {
                 let Some(pubkey) = identity.nostr_public_key_hex_for(persona) else {
                     emit_event(DiagnosticEvent::MessageSent {
@@ -686,13 +875,7 @@ impl NostrCoreRegistry {
                 )
             }
             NostrSignerBackend::Nip46Delegated(config) => {
-                emit_event(DiagnosticEvent::MessageSent {
-                    channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
-                    byte_len: config.relay_url.len() + config.signer_pubkey.len(),
-                });
-                return Err(NostrCoreError::BackendUnavailable(
-                    "NIP-46 delegated signer not implemented yet".to_string(),
-                ));
+                self.sign_event_via_nip46(identity, persona, unsigned, config)?
             }
         };
 
@@ -705,6 +888,140 @@ impl NostrCoreRegistry {
             content: unsigned.content.clone(),
             tags: unsigned.tags.clone(),
         })
+    }
+
+    fn sign_event_via_nip46(
+        &self,
+        identity: &IdentityRegistry,
+        persona: &str,
+        unsigned: &NostrUnsignedEvent,
+        mut config: Nip46DelegateConfig,
+    ) -> Result<(String, String, String), NostrCoreError> {
+        if config.session_key.is_none() {
+            config.session_key = Some(identity.generate_user_session_key(persona));
+        }
+
+        self.ensure_nip46_connected(&mut config)?;
+
+        if config.signer_user_pubkey.is_none() {
+            let response = self.perform_nip46_rpc(
+                &config,
+                "get_public_key",
+                Vec::new(),
+            )?;
+            let Some(user_pubkey) = response.result.as_str() else {
+                return Err(NostrCoreError::ValidationFailed(
+                    "nip46 get_public_key returned non-string result".to_string(),
+                ));
+            };
+            config.signer_user_pubkey = Some(parse_nostr_public_key(user_pubkey)?.to_hex());
+        }
+
+        let signer_user_pubkey = config
+            .signer_user_pubkey
+            .clone()
+            .ok_or_else(|| NostrCoreError::BackendUnavailable("nip46 signer user pubkey missing".to_string()))?;
+        let unsigned_json = serde_json::json!({
+            "created_at": unsigned.created_at,
+            "kind": unsigned.kind,
+            "content": unsigned.content,
+            "tags": unsigned.tags,
+        });
+        let response = self.perform_nip46_rpc(
+            &config,
+            "sign_event",
+            vec![unsigned_json],
+        )?;
+        let signed_event = parse_nip46_signed_event_response(&response.result)?;
+        if signed_event.pubkey != signer_user_pubkey {
+            return Err(NostrCoreError::ValidationFailed(
+                "nip46 signer returned mismatched user pubkey".to_string(),
+            ));
+        }
+        if !verify_signed_event_signature(&signed_event, &signer_user_pubkey) {
+            return Err(NostrCoreError::ValidationFailed(
+                "nip46 signer returned invalid event signature".to_string(),
+            ));
+        }
+        if signed_event.created_at != unsigned.created_at
+            || signed_event.kind != unsigned.kind
+            || signed_event.content != unsigned.content
+            || signed_event.tags != unsigned.tags
+        {
+            return Err(NostrCoreError::ValidationFailed(
+                "nip46 signer mutated unsigned event payload".to_string(),
+            ));
+        }
+
+        self.update_nip46_config(config.clone());
+
+        Ok((signed_event.event_id, signed_event.signature, signed_event.pubkey))
+    }
+
+    fn ensure_nip46_connected(
+        &self,
+        config: &mut Nip46DelegateConfig,
+    ) -> Result<(), NostrCoreError> {
+        if config.connected {
+            return Ok(());
+        }
+        self.perform_nip46_rpc(
+            config,
+            "connect",
+            vec![serde_json::Value::String(config.signer_pubkey.clone())],
+        )?;
+        config.connected = true;
+        Ok(())
+    }
+
+    fn perform_nip46_rpc(
+        &self,
+        config: &Nip46DelegateConfig,
+        method: &str,
+        params: Vec<serde_json::Value>,
+    ) -> Result<Nip46RpcResponse, NostrCoreError> {
+        let relay_worker_tx = {
+            self.state
+                .lock()
+                .expect("nostr core lock poisoned")
+                .relay_worker_tx
+                .clone()
+        };
+        let session_key = config
+            .session_key
+            .clone()
+            .ok_or_else(|| NostrCoreError::BackendUnavailable("nip46 session key missing".to_string()))?;
+        let request = Nip46RpcRequest {
+            relay_url: config.relay_url.clone(),
+            signer_pubkey: config.signer_pubkey.clone(),
+            session_key,
+            request_id: format!("nip46-rpc-{}", self.next_subscription_id.fetch_add(1, Ordering::Relaxed)),
+            method: method.to_string(),
+            params,
+        };
+
+        if let Some(relay_worker_tx) = relay_worker_tx {
+            self.request_worker_nip46_rpc(&relay_worker_tx, request)
+        } else {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| NostrCoreError::BackendUnavailable(format!("failed to build nip46 runtime: {error}")))?;
+            runtime.block_on(async move {
+                let mut backend = TungsteniteRelayService::default();
+                backend.nip46_rpc(request).await
+            })
+        }
+    }
+
+    fn update_nip46_config(&self, config: Nip46DelegateConfig) {
+        let mut state = self.state.lock().expect("nostr core lock poisoned");
+        if let NostrSignerBackend::Nip46Delegated(current) = &mut state.signer_backend
+            && current.relay_url == config.relay_url
+            && current.signer_pubkey == config.signer_pubkey
+        {
+            *current = config;
+        }
     }
 
     pub(crate) fn relay_subscribe(
@@ -1156,6 +1473,29 @@ impl NostrCoreRegistry {
         })?
     }
 
+    fn request_worker_nip46_rpc(
+        &self,
+        relay_worker_tx: &mpsc::UnboundedSender<RelayWorkerCommand>,
+        request: Nip46RpcRequest,
+    ) -> Result<Nip46RpcResponse, NostrCoreError> {
+        let (response_tx, response_rx) = std::sync::mpsc::channel();
+        relay_worker_tx
+            .send(RelayWorkerCommand::Nip46Rpc {
+                request,
+                response: response_tx,
+            })
+            .map_err(|_| {
+                NostrCoreError::BackendUnavailable(
+                    "nostr relay worker unavailable for nip46 rpc".to_string(),
+                )
+            })?;
+        response_rx.recv().map_err(|_| {
+            NostrCoreError::BackendUnavailable(
+                "nostr relay worker did not respond to nip46 rpc".to_string(),
+            )
+        })?
+    }
+
     fn within_subscription_quota(&self, state: &NostrCoreState, caller_id: &str) -> bool {
         state
             .caller_subscription_count
@@ -1270,6 +1610,129 @@ fn canonical_event_hash(pubkey: &str, unsigned: &NostrUnsignedEvent) -> [u8; 32]
     Sha256::digest(canonical.to_string().as_bytes()).into()
 }
 
+fn current_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn parse_nostr_public_key(pubkey: &str) -> Result<NostrPublicKey, NostrCoreError> {
+    NostrPublicKey::parse(pubkey.trim()).map_err(|error| {
+        NostrCoreError::ValidationFailed(format!("invalid nostr public key '{pubkey}': {error}"))
+    })
+}
+
+fn parse_nostr_secret_key(secret_key: &str) -> Result<NostrSecretKey, NostrCoreError> {
+    NostrSecretKey::from_hex(secret_key.trim()).map_err(|error| {
+        NostrCoreError::ValidationFailed(format!("invalid nostr secret key: {error}"))
+    })
+}
+
+fn sign_client_event(
+    secret_key_hex: &str,
+    unsigned: NostrUnsignedEvent,
+) -> Result<NostrSignedEvent, NostrCoreError> {
+    let secret_bytes = decode_hex(secret_key_hex)
+        .map_err(|_| NostrCoreError::ValidationFailed("invalid nip46 session secret hex".to_string()))?;
+    if secret_bytes.len() != 32 {
+        return Err(NostrCoreError::ValidationFailed(
+            "invalid nip46 session secret length".to_string(),
+        ));
+    }
+    let mut array = [0u8; 32];
+    array.copy_from_slice(&secret_bytes);
+    let secret_key = SecretKey::from_byte_array(array)
+        .map_err(|_| NostrCoreError::ValidationFailed("invalid nip46 session secret".to_string()))?;
+    let keypair = Keypair::from_secret_key(&Secp256k1::new(), &secret_key);
+    let (pubkey, _) = XOnlyPublicKey::from_keypair(&keypair);
+    let pubkey_hex = pubkey.to_string();
+    let event_hash = canonical_event_hash(&pubkey_hex, &unsigned);
+    let signature = Secp256k1::new().sign_schnorr_no_aux_rand(&event_hash, &keypair);
+
+    Ok(NostrSignedEvent {
+        event_id: to_hex(&event_hash),
+        pubkey: pubkey_hex,
+        signature: to_hex(signature.as_ref()),
+        created_at: unsigned.created_at,
+        kind: unsigned.kind,
+        content: unsigned.content,
+        tags: unsigned.tags,
+    })
+}
+
+fn signed_event_json(signed: &NostrSignedEvent) -> serde_json::Value {
+    serde_json::json!({
+        "id": signed.event_id,
+        "pubkey": signed.pubkey,
+        "created_at": signed.created_at,
+        "kind": signed.kind,
+        "tags": signed.tags,
+        "content": signed.content,
+        "sig": signed.signature,
+    })
+}
+
+fn parse_signed_event_json(value: &serde_json::Value) -> Option<NostrSignedEvent> {
+    Some(NostrSignedEvent {
+        event_id: value.get("id")?.as_str()?.to_string(),
+        pubkey: value.get("pubkey")?.as_str()?.to_string(),
+        signature: value.get("sig")?.as_str()?.to_string(),
+        created_at: value.get("created_at")?.as_u64()?,
+        kind: value.get("kind")?.as_u64()? as u16,
+        content: value.get("content")?.as_str()?.to_string(),
+        tags: serde_json::from_value(value.get("tags")?.clone()).ok()?,
+    })
+}
+
+fn verify_signed_event_signature(signed: &NostrSignedEvent, expected_pubkey: &str) -> bool {
+    if signed.pubkey != expected_pubkey {
+        return false;
+    }
+    let Ok(signature_bytes) = decode_hex(&signed.signature) else {
+        return false;
+    };
+    if signature_bytes.len() != 64 {
+        return false;
+    }
+    let mut signature_array = [0u8; 64];
+    signature_array.copy_from_slice(&signature_bytes);
+    let signature = SchnorrSignature::from_byte_array(signature_array);
+    let Ok(public_key) = signed.pubkey.parse::<XOnlyPublicKey>() else {
+        return false;
+    };
+    let digest = canonical_event_hash(
+        &signed.pubkey,
+        &NostrUnsignedEvent {
+            created_at: signed.created_at,
+            kind: signed.kind,
+            content: signed.content.clone(),
+            tags: signed.tags.clone(),
+        },
+    );
+    if signed.event_id != to_hex(&digest) {
+        return false;
+    }
+    Secp256k1::verification_only()
+        .verify_schnorr(&signature, &digest, &public_key)
+        .is_ok()
+}
+
+fn parse_nip46_signed_event_response(
+    result: &serde_json::Value,
+) -> Result<NostrSignedEvent, NostrCoreError> {
+    let object = if result.is_string() {
+        serde_json::from_str::<serde_json::Value>(result.as_str().unwrap_or_default()).map_err(
+            |error| NostrCoreError::ValidationFailed(format!("invalid nip46 sign_event result: {error}")),
+        )?
+    } else {
+        result.clone()
+    };
+    parse_signed_event_json(&object).ok_or_else(|| {
+        NostrCoreError::ValidationFailed("nip46 sign_event result missing event fields".to_string())
+    })
+}
+
 fn nostr_filter_json(filters: &NostrFilterSet) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     if !filters.kinds.is_empty() {
@@ -1291,6 +1754,28 @@ fn to_hex(bytes: &[u8]) -> String {
         let _ = write!(&mut out, "{byte:02x}");
     }
     out
+}
+
+fn decode_hex(encoded: &str) -> Result<Vec<u8>, ()> {
+    let encoded = encoded.trim();
+    if encoded.len() % 2 != 0 {
+        return Err(());
+    }
+    let mut output = Vec::with_capacity(encoded.len() / 2);
+    let mut chars = encoded.as_bytes().iter().copied();
+    while let (Some(high), Some(low)) = (chars.next(), chars.next()) {
+        output.push((hex_to_nibble(high)? << 4) | hex_to_nibble(low)?);
+    }
+    Ok(output)
+}
+
+fn hex_to_nibble(value: u8) -> Result<u8, ()> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        b'A'..=b'F' => Ok(value - b'A' + 10),
+        _ => Err(()),
+    }
 }
 
 fn normalize_relays(relays: Vec<String>) -> Vec<String> {
@@ -1365,23 +1850,164 @@ mod tests {
         assert_eq!(signed.content, "hello nostr");
     }
 
-    #[test]
-    fn nostr_core_nip46_backend_is_explicit_stub() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nostr_core_nip46_sign_event_roundtrip_with_local_bunker_mock() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test websocket listener should bind");
+        let relay_url = format!("ws://{}", listener.local_addr().unwrap());
+        let signer_app_secret = SecretKey::new(&mut secp256k1::rand::rng());
+        let signer_app_secret_hex = to_hex(&signer_app_secret.secret_bytes());
+        let signer_app_keypair = Keypair::from_secret_key(&Secp256k1::new(), &signer_app_secret);
+        let (signer_app_pubkey, _) = XOnlyPublicKey::from_keypair(&signer_app_keypair);
+        let signer_user_secret = SecretKey::new(&mut secp256k1::rand::rng());
+        let signer_user_secret_hex = to_hex(&signer_user_secret.secret_bytes());
+        let signer_user_keypair =
+            Keypair::from_secret_key(&Secp256k1::new(), &signer_user_secret);
+        let (signer_user_pubkey, _) = XOnlyPublicKey::from_keypair(&signer_user_keypair);
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("server should accept");
+            let mut websocket = accept_async(stream)
+                .await
+                .expect("server should upgrade websocket");
+            let mut active_subscription = String::new();
+
+            while let Some(frame) = websocket.next().await {
+                let Ok(frame) = frame else {
+                    break;
+                };
+                let Message::Text(text) = frame else {
+                    continue;
+                };
+                let payload: serde_json::Value =
+                    serde_json::from_str(&text).expect("frame should contain json");
+                match payload.get(0).and_then(|value| value.as_str()) {
+                    Some("REQ") => {
+                        active_subscription = payload[1]
+                            .as_str()
+                            .expect("subscription id should exist")
+                            .to_string();
+                    }
+                    Some("EVENT") => {
+                        let request_event =
+                            parse_signed_event_json(&payload[1]).expect("request event should parse");
+                        let client_pubkey = request_event.pubkey.clone();
+                        let signer_app_secret =
+                            parse_nostr_secret_key(&signer_app_secret_hex)
+                                .expect("signer app secret should parse");
+                        let decrypted = nip44::decrypt(
+                            &signer_app_secret,
+                            &parse_nostr_public_key(&client_pubkey)
+                                .expect("client pubkey should parse"),
+                            &request_event.content,
+                        )
+                        .expect("request should decrypt");
+                        let rpc: serde_json::Value =
+                            serde_json::from_str(&decrypted).expect("rpc payload should parse");
+                        let request_id = rpc["id"]
+                            .as_str()
+                            .expect("rpc id should exist")
+                            .to_string();
+                        let method = rpc["method"]
+                            .as_str()
+                            .expect("rpc method should exist")
+                            .to_string();
+                        let result = match method.as_str() {
+                            "connect" => serde_json::Value::String("ack".to_string()),
+                            "get_public_key" => {
+                                serde_json::Value::String(signer_user_pubkey.to_string())
+                            }
+                            "sign_event" => {
+                                let unsigned = rpc["params"][0].clone();
+                                let signed = sign_client_event(
+                                    &signer_user_secret_hex,
+                                    NostrUnsignedEvent {
+                                        created_at: unsigned["created_at"].as_u64().unwrap_or(0),
+                                        kind: unsigned["kind"].as_u64().unwrap_or(0) as u16,
+                                        content: unsigned["content"]
+                                            .as_str()
+                                            .unwrap_or_default()
+                                            .to_string(),
+                                        tags: serde_json::from_value(unsigned["tags"].clone())
+                                            .unwrap_or_default(),
+                                    },
+                                )
+                                .expect("sign_event should succeed");
+                                signed_event_json(&signed)
+                            }
+                            other => serde_json::json!({"unsupported": other}),
+                        };
+                        let response_payload = serde_json::json!({
+                            "id": request_id,
+                            "result": result,
+                        })
+                        .to_string();
+                        let encrypted = nip44::encrypt(
+                            &signer_app_secret,
+                            &parse_nostr_public_key(&client_pubkey)
+                                .expect("client pubkey should parse"),
+                            response_payload,
+                            Nip44Version::V2,
+                        )
+                        .expect("response should encrypt");
+                        let response_event = sign_client_event(
+                            &signer_app_secret_hex,
+                            NostrUnsignedEvent {
+                                created_at: current_unix_secs(),
+                                kind: 24133,
+                                content: encrypted,
+                                tags: vec![("p".to_string(), client_pubkey)],
+                            },
+                        )
+                        .expect("response event should sign");
+                        websocket
+                            .send(Message::Text(
+                                serde_json::json!([
+                                    "EVENT",
+                                    active_subscription,
+                                    signed_event_json(&response_event)
+                                ])
+                                .to_string()
+                                .into(),
+                            ))
+                            .await
+                            .expect("response frame should send");
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn(NostrRelayWorker::new(command_rx, cancel.clone()).run());
+
         let registry = NostrCoreRegistry::default();
-        let identity = IdentityRegistry::default();
+        registry.attach_supervised_relay_worker(command_tx);
         registry
-            .use_nip46_signer("wss://relay.example", "npub1delegate")
+            .use_nip46_signer(&relay_url, &signer_app_pubkey.to_string())
             .expect("nip46 config should be accepted");
+        let identity = IdentityRegistry::default();
 
         let unsigned = NostrUnsignedEvent {
             created_at: 1_710_000_002,
             kind: 1,
             content: "hello".to_string(),
-            tags: Vec::new(),
+            tags: vec![("t".to_string(), "graphshell".to_string())],
         };
 
-        let result = registry.sign_event(&identity, "default", &unsigned);
-        assert!(matches!(result, Err(NostrCoreError::BackendUnavailable(_))));
+        let signed = registry
+            .sign_event(&identity, "default", &unsigned)
+            .expect("nip46 sign_event should succeed");
+        assert_eq!(signed.pubkey, signer_user_pubkey.to_string());
+        assert_eq!(signed.content, "hello");
+        assert_eq!(signed.tags, unsigned.tags);
+        assert!(verify_signed_event_signature(&signed, &signer_user_pubkey.to_string()));
+
+        cancel.cancel();
+        worker.await.expect("worker should shut down cleanly");
+        server.await.expect("server should shut down cleanly");
     }
 
     #[test]
