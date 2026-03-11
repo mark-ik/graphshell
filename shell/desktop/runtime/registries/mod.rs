@@ -54,7 +54,7 @@ use action::{
 use agent::{Agent, AgentDescriptor, AgentRegistry};
 use canvas::CanvasRegistry;
 use diagnostics::DiagnosticsRegistry;
-use identity::IdentityRegistry;
+use identity::{IdentityRegistry, PresenceBindingAssertion};
 use index::{IndexRegistry, SearchResult};
 use input::{
     InputActionBindingDescriptor, InputBinding,
@@ -623,6 +623,19 @@ pub(crate) fn phase3_grant_workspace_access(
 
 pub(crate) fn phase3_revoke_workspace_access(node_id: iroh::NodeId, workspace_id: &str) {
     runtime().revoke_workspace_access(node_id, workspace_id);
+}
+
+pub(crate) fn phase3_create_presence_binding_assertion(
+    audience: &str,
+    ttl_secs: u64,
+) -> Option<PresenceBindingAssertion> {
+    runtime().create_presence_binding_assertion(audience, ttl_secs)
+}
+
+pub(crate) fn phase3_verify_presence_binding_assertion(
+    assertion: &PresenceBindingAssertion,
+) -> bool {
+    runtime().verify_presence_binding_assertion(assertion)
 }
 
 #[allow(dead_code)]
@@ -1748,6 +1761,27 @@ impl RegistryRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .revoke_workspace_access(node_id, workspace_id);
+    }
+
+    pub(crate) fn create_presence_binding_assertion(
+        &self,
+        audience: &str,
+        ttl_secs: u64,
+    ) -> Option<PresenceBindingAssertion> {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .create_presence_binding_assertion("identity:default", audience, ttl_secs)
+    }
+
+    pub(crate) fn verify_presence_binding_assertion(
+        &self,
+        assertion: &PresenceBindingAssertion,
+    ) -> bool {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .verify_presence_binding_assertion(assertion)
     }
 
     pub(crate) fn subscribe_signal(

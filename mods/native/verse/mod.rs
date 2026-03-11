@@ -11,6 +11,7 @@ use crate::registries::infrastructure::mod_loader::{
 use crate::services::persistence::types::LogEntry;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
+    identity::{PresenceBindingAssertion, UserIdentityClaim, UserIdentityProtocol},
     CHANNEL_VERSE_PREINIT_CALL, CHANNEL_VERSE_SYNC_CONFLICT_DETECTED,
     CHANNEL_VERSE_SYNC_CONFLICT_RESOLVED,
 };
@@ -296,7 +297,12 @@ pub(crate) fn init() -> Result<(), VerseInitError> {
     let trusted_peers = load_trust_store().unwrap_or_default();
 
     // Start mDNS advertisement (non-blocking)
-    let mdns_daemon = start_mdns_advertisement(&endpoint, &identity.device_name);
+    let presence_binding =
+        crate::shell::desktop::runtime::registries::phase3_create_presence_binding_assertion(
+            "local:mdns",
+            300,
+        );
+    let mdns_daemon = start_mdns_advertisement(&endpoint, &identity.device_name, presence_binding);
 
     // Store in global state
     VERSE_STATE
@@ -1176,6 +1182,7 @@ pub(crate) fn generate_qr_code_png(phrase: &str) -> Result<Vec<u8>, String> {
 fn start_mdns_advertisement(
     endpoint: &iroh::Endpoint,
     device_name: &str,
+    presence_binding: Option<PresenceBindingAssertion>,
 ) -> Option<mdns_sd::ServiceDaemon> {
     match mdns_sd::ServiceDaemon::new() {
         Ok(daemon) => {
@@ -1190,6 +1197,9 @@ fn start_mdns_advertisement(
             // TXT records: node_id (as hex string)
             let mut properties = std::collections::HashMap::new();
             properties.insert("node_id".to_string(), node_id.to_string());
+            if let Some(binding) = presence_binding.as_ref() {
+                insert_presence_binding_properties(&mut properties, binding);
+            }
 
             // Note: We'll add relay URL in Step 5.4 when we handle full NodeAddr encoding
             // For Step 5.3, just advertise NodeId for local network discovery
@@ -1248,6 +1258,8 @@ pub struct DiscoveredPeer {
     pub device_name: String,
     pub node_id: iroh::NodeId,
     pub relay_url: Option<url::Url>,
+    pub presence_binding: Option<PresenceBindingAssertion>,
+    pub presence_binding_verified: bool,
 }
 
 /// Browse for nearby devices on the local network (blocking for up to timeout_secs)
@@ -1274,11 +1286,17 @@ pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, S
                             let relay_url = info
                                 .get_property_val_str("relay")
                                 .and_then(|s| s.parse::<url::Url>().ok());
+                            let presence_binding = parse_presence_binding_properties(&info);
+                            let presence_binding_verified = presence_binding.as_ref().is_some_and(
+                                crate::shell::desktop::runtime::registries::phase3_verify_presence_binding_assertion,
+                            );
 
                             discovered.push(DiscoveredPeer {
                                 device_name: info.get_fullname().to_string(),
                                 node_id,
                                 relay_url,
+                                presence_binding,
+                                presence_binding_verified,
                             });
                         }
                     }
@@ -1300,6 +1318,79 @@ pub fn discover_nearby_peers(timeout_secs: u64) -> Result<Vec<DiscoveredPeer>, S
 const CHANNEL_MOD_LOAD_SUCCEEDED: &str = "registry.mod.load_succeeded";
 const CHANNEL_IDENTITY_GENERATED: &str = "verse.sync.identity_generated";
 const CHANNEL_P2P_KEY_LOADED: &str = "registry.identity.p2p_key_loaded";
+
+fn insert_presence_binding_properties(
+    properties: &mut std::collections::HashMap<String, String>,
+    assertion: &PresenceBindingAssertion,
+) {
+    properties.insert("user_identity_id".to_string(), assertion.user_identity.identity_id.clone());
+    properties.insert(
+        "user_identity_protocol".to_string(),
+        presence_protocol_label(assertion.user_identity.protocol).to_string(),
+    );
+    properties.insert(
+        "user_identity_public_key".to_string(),
+        assertion.user_identity.public_key.clone(),
+    );
+    properties.insert(
+        "binding_issued_at".to_string(),
+        assertion.issued_at_secs.to_string(),
+    );
+    properties.insert(
+        "binding_expires_at".to_string(),
+        assertion.expires_at_secs.to_string(),
+    );
+    properties.insert("binding_audience".to_string(), assertion.audience.clone());
+    properties.insert("binding_sig".to_string(), assertion.signature.clone());
+}
+
+fn parse_presence_binding_properties(info: &mdns_sd::ServiceInfo) -> Option<PresenceBindingAssertion> {
+    let identity_id = info.get_property_val_str("user_identity_id")?.to_string();
+    let protocol = parse_presence_protocol(info.get_property_val_str("user_identity_protocol")?)?;
+    let public_key = info
+        .get_property_val_str("user_identity_public_key")?
+        .to_string();
+    let issued_at_secs = info
+        .get_property_val_str("binding_issued_at")?
+        .parse::<u64>()
+        .ok()?;
+    let expires_at_secs = info
+        .get_property_val_str("binding_expires_at")?
+        .parse::<u64>()
+        .ok()?;
+    let audience = info.get_property_val_str("binding_audience")?.to_string();
+    let signature = info.get_property_val_str("binding_sig")?.to_string();
+
+    Some(PresenceBindingAssertion {
+        node_id: info.get_property_val_str("node_id")?.to_string(),
+        user_identity: UserIdentityClaim {
+            identity_id,
+            protocol,
+            public_key,
+        },
+        issued_at_secs,
+        expires_at_secs,
+        audience,
+        signature,
+    })
+}
+
+fn presence_protocol_label(protocol: UserIdentityProtocol) -> &'static str {
+    match protocol {
+        UserIdentityProtocol::LocalEd25519 => "local-ed25519",
+        UserIdentityProtocol::NostrPubkey => "nostr-pubkey",
+        UserIdentityProtocol::DidPlc => "did-plc",
+    }
+}
+
+fn parse_presence_protocol(protocol: &str) -> Option<UserIdentityProtocol> {
+    match protocol.trim() {
+        "local-ed25519" => Some(UserIdentityProtocol::LocalEd25519),
+        "nostr-pubkey" => Some(UserIdentityProtocol::NostrPubkey),
+        "did-plc" => Some(UserIdentityProtocol::DidPlc),
+        _ => None,
+    }
+}
 
 fn emit_mod_loaded() {
     emit_event(DiagnosticEvent::MessageSent {

@@ -373,8 +373,12 @@ mod step_5_4_tests {
 #[cfg(test)]
 mod step_5_3_tests {
     use super::super::{
-        DiscoveredPeer, PAIRING_WORDLIST, decode_pairing_code, generate_qr_code_ascii,
-        generate_qr_code_png, sanitize_service_name,
+        DiscoveredPeer, PAIRING_WORDLIST, PresenceBindingAssertion, decode_pairing_code,
+        generate_qr_code_ascii, generate_qr_code_png, parse_presence_protocol,
+        presence_protocol_label, sanitize_service_name,
+    };
+    use crate::shell::desktop::runtime::registries::identity::{
+        UserIdentityClaim, UserIdentityProtocol,
     };
 
     #[test]
@@ -488,15 +492,49 @@ mod step_5_3_tests {
     fn discovered_peer_contains_required_fields() {
         let node_id = iroh::SecretKey::generate(&mut rand::thread_rng()).public();
         let relay_url = "https://relay.example.com".parse::<url::Url>().ok();
+        let presence_binding = Some(PresenceBindingAssertion {
+            node_id: node_id.to_string(),
+            user_identity: UserIdentityClaim {
+                identity_id: "identity:default".to_string(),
+                protocol: UserIdentityProtocol::LocalEd25519,
+                public_key: "abcd".to_string(),
+            },
+            issued_at_secs: 1,
+            expires_at_secs: 2,
+            audience: "local:mdns".to_string(),
+            signature: "sig:deadbeef".to_string(),
+        });
 
         let peer = DiscoveredPeer {
             device_name: "Test-Device".to_string(),
             node_id,
             relay_url: relay_url.clone(),
+            presence_binding: presence_binding.clone(),
+            presence_binding_verified: false,
         };
 
         assert_eq!(peer.device_name, "Test-Device");
         assert_eq!(peer.node_id, node_id);
         assert_eq!(peer.relay_url, relay_url);
+        assert_eq!(peer.presence_binding, presence_binding);
+        assert!(!peer.presence_binding_verified);
+    }
+
+    #[test]
+    fn presence_protocol_labels_roundtrip() {
+        assert_eq!(
+            parse_presence_protocol(presence_protocol_label(
+                UserIdentityProtocol::LocalEd25519
+            )),
+            Some(UserIdentityProtocol::LocalEd25519)
+        );
+        assert_eq!(
+            parse_presence_protocol(presence_protocol_label(UserIdentityProtocol::NostrPubkey)),
+            Some(UserIdentityProtocol::NostrPubkey)
+        );
+        assert_eq!(
+            parse_presence_protocol(presence_protocol_label(UserIdentityProtocol::DidPlc)),
+            Some(UserIdentityProtocol::DidPlc)
+        );
     }
 }
