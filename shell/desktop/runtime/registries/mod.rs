@@ -4448,6 +4448,7 @@ mod tests {
         let _guard = nostr_backend_test_guard();
         phase3_nostr_use_local_signer();
         let unsigned = NostrUnsignedEvent {
+            created_at: 1_710_000_101,
             kind: 1,
             content: "hello".to_string(),
             tags: vec![("t".to_string(), "graphshell".to_string())],
@@ -4508,6 +4509,7 @@ mod tests {
                 event_id: "evt-typed-caller".to_string(),
                 pubkey: "pk".to_string(),
                 signature: "sig".to_string(),
+                created_at: 1_710_000_102,
                 kind: 1,
                 content: "hello".to_string(),
                 tags: Vec::new(),
@@ -4528,6 +4530,7 @@ mod tests {
             event_id: "evt".to_string(),
             pubkey: "pk".to_string(),
             signature: String::new(),
+            created_at: 1_710_000_103,
             kind: 1,
             content: "bad".to_string(),
             tags: Vec::new(),
@@ -4545,6 +4548,7 @@ mod tests {
         let result = phase3_nostr_sign_event(
             "default",
             &NostrUnsignedEvent {
+                created_at: 1_710_000_104,
                 kind: 1,
                 content: "hello".to_string(),
                 tags: Vec::new(),

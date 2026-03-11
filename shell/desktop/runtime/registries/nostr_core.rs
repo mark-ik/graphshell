@@ -28,18 +28,20 @@ impl NostrFilterSet {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NostrUnsignedEvent {
+    pub(crate) created_at: u64,
     pub(crate) kind: u16,
     pub(crate) content: String,
     pub(crate) tags: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NostrSignedEvent {
     pub(crate) event_id: String,
     pub(crate) pubkey: String,
     pub(crate) signature: String,
+    pub(crate) created_at: u64,
     pub(crate) kind: u16,
     pub(crate) content: String,
     pub(crate) tags: Vec<(String, String)>,
@@ -327,13 +329,21 @@ impl NostrCoreRegistry {
             ));
         }
 
-        let canonical = canonical_event_bytes(unsigned);
-        let event_id = to_hex(Sha256::digest(&canonical).as_slice());
-
         let state = self.state.lock().expect("nostr core lock poisoned");
-        let (signature, pubkey) = match &state.signer_backend {
+        let (event_id, signature, pubkey) = match &state.signer_backend {
             NostrSignerBackend::LocalHostKey => {
-                let signed = identity.sign(persona, &canonical);
+                let Some(pubkey) = identity.verifying_key_hex_for(persona) else {
+                    emit_event(DiagnosticEvent::MessageSent {
+                        channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
+                        byte_len: persona.len(),
+                    });
+                    return Err(NostrCoreError::ValidationFailed(format!(
+                        "verifying key unavailable for persona '{persona}'"
+                    )));
+                };
+
+                let event_hash = canonical_event_hash(&pubkey, unsigned);
+                let signed = identity.sign(persona, &event_hash);
                 let Some(signature) = signed.signature else {
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
@@ -343,16 +353,11 @@ impl NostrCoreRegistry {
                         "identity key unavailable for persona '{persona}'"
                     )));
                 };
-                let Some(pubkey) = signed.verifying_key else {
-                    emit_event(DiagnosticEvent::MessageSent {
-                        channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
-                        byte_len: persona.len(),
-                    });
-                    return Err(NostrCoreError::ValidationFailed(format!(
-                        "verifying key unavailable for persona '{persona}'"
-                    )));
-                };
-                (signature.trim_start_matches("sig:").to_string(), pubkey)
+                (
+                    to_hex(&event_hash),
+                    signature.trim_start_matches("sig:").to_string(),
+                    pubkey,
+                )
             }
             NostrSignerBackend::Nip46Delegated(config) => {
                 emit_event(DiagnosticEvent::MessageSent {
@@ -369,6 +374,7 @@ impl NostrCoreRegistry {
             event_id,
             pubkey,
             signature,
+            created_at: unsigned.created_at,
             kind: unsigned.kind,
             content: unsigned.content.clone(),
             tags: unsigned.tags.clone(),
@@ -693,14 +699,16 @@ impl NostrCoreRegistry {
     }
 }
 
-fn canonical_event_bytes(unsigned: &NostrUnsignedEvent) -> Vec<u8> {
-    let mut buf = Vec::new();
-    buf.extend_from_slice(format!("kind:{}\n", unsigned.kind).as_bytes());
-    buf.extend_from_slice(format!("content:{}\n", unsigned.content).as_bytes());
-    for (k, v) in &unsigned.tags {
-        buf.extend_from_slice(format!("tag:{}={}\n", k, v).as_bytes());
-    }
-    buf
+fn canonical_event_hash(pubkey: &str, unsigned: &NostrUnsignedEvent) -> [u8; 32] {
+    let canonical = serde_json::json!([
+        0,
+        pubkey,
+        unsigned.created_at,
+        unsigned.kind,
+        unsigned.tags,
+        unsigned.content,
+    ]);
+    Sha256::digest(canonical.to_string().as_bytes()).into()
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -760,6 +768,7 @@ mod tests {
         let registry = NostrCoreRegistry::default();
         let identity = IdentityRegistry::default();
         let unsigned = NostrUnsignedEvent {
+            created_at: 1_710_000_001,
             kind: 1,
             content: "hello nostr".to_string(),
             tags: vec![("t".to_string(), "graph".to_string())],
@@ -783,6 +792,7 @@ mod tests {
             .expect("nip46 config should be accepted");
 
         let unsigned = NostrUnsignedEvent {
+            created_at: 1_710_000_002,
             kind: 1,
             content: "hello".to_string(),
             tags: Vec::new(),
@@ -890,6 +900,7 @@ mod tests {
             event_id: "evt-1".to_string(),
             pubkey: "pk".to_string(),
             signature: String::new(),
+            created_at: 1_710_000_003,
             kind: 1,
             content: "hello".to_string(),
             tags: Vec::new(),
@@ -913,6 +924,7 @@ mod tests {
             event_id: "evt-2".to_string(),
             pubkey: "pk".to_string(),
             signature: "sig".to_string(),
+            created_at: 1_710_000_004,
             kind: 1,
             content: "hello".to_string(),
             tags: Vec::new(),
@@ -1004,6 +1016,7 @@ mod tests {
                 event_id: "evt-3".to_string(),
                 pubkey: "pk".to_string(),
                 signature: "sig".to_string(),
+                created_at: 1_710_000_005,
                 kind: 1,
                 content: "hello".to_string(),
                 tags: Vec::new(),
