@@ -265,7 +265,8 @@ Current implementation note:
 - `SignerBackend::Nip46` is now implemented over the relay worker using encrypted NIP-46 RPC.
 - Bunker URI parsing, session-only bunker secret handling, and local pending/allow/deny permission
   memory now exist on the Sync settings surface and persist non-secret policy state across restart.
-- NIP-07/browser-extension parity remains follow-on work.
+- The core NIP-07 bridge is now landed; remaining follow-on depth is optional method coverage and
+  approval UX polish.
 
 ---
 
