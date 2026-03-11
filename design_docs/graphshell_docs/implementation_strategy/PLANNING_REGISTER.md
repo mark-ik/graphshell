@@ -882,6 +882,12 @@ Positioning note:
 - No API path returns raw secret bytes.
 - Contract tests cover allowed signing and denied key-export behavior.
 
+**Implementation note (2026-03-10):**
+- The runtime now has local secp256k1 signing, NIP-46 delegated signing, bunker-URI parsing,
+  session-only bunker secret handling, and local delegated-signer permission memory.
+- Remaining follow-on depth in this lane is NIP-07/browser-extension parity rather than registry
+  closure.
+
 **Lane**: `lane:subsystem-hardening` (`#96`)
 **Labels**: `security`, `identity`, `nostr`, `lane:subsystem-hardening`
 

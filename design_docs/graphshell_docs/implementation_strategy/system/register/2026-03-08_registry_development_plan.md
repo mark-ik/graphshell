@@ -156,7 +156,9 @@ Current state: `IdentityRegistry` now owns real Ed25519 node signing, key persis
 state, and signed presence-binding assertions. `NostrCoreRegistry` now has a supervised websocket
 relay backend, restart-safe subscription persistence, relay connection diagnostics, and a local
 secp256k1 user-signing lane. NIP-46 delegated signing is now landed on top of that lane, so the
-remaining work in Sector C is policy/UX follow-on depth rather than registry-runtime closure.
+remaining work in Sector C is signer-surface follow-on depth rather than registry-runtime closure.
+Bunker URI parsing, session-only secret handling, and local permission memory are already landed;
+the main remaining depth item is NIP-07/browser-extension parity.
 
 ---
 

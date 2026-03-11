@@ -259,8 +259,10 @@ Implementation note as of 2026-03-10:
 - The current local user-identity signer is now a dedicated secp256k1 lane, separate from the
   Ed25519 transport identity.
 - NIP-46 delegated signing is now wired through the relay worker for remote signer flows.
-- Remaining follow-ons are bunker-URI/policy UX and other signer-surface integrations, not the
-  underlying two-layer identity model.
+- Bunker URI parsing, session-only bunker secret handling, and local delegated-signer permission
+  memory are now wired into the runtime-owned Sync settings path.
+- Remaining follow-ons are other signer-surface integrations such as NIP-07/browser-extension
+  parity, not the underlying two-layer identity model.
 
 ### libp2p-iroh bridge
 

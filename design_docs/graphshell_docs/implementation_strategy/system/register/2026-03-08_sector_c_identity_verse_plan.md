@@ -61,8 +61,10 @@ Current implementation note:
   transport key.
 - `SignerBackend::Nip46` now routes through the supervised relay worker with an encrypted
   request/response path and a local bunker-mock contract test.
-- Remaining follow-ons are policy/UX depth items such as bunker-URI parsing, permission lifecycle,
-  and NIP-07, not a registry/runtime correctness blocker.
+- Bunker URI parsing, session-only secret handling, and local permission memory are now landed on
+  top of the delegated signer path.
+- Remaining follow-ons are signer-surface integrations such as NIP-07/browser-extension parity and
+  richer approval UX, not a registry/runtime correctness blocker.
 
 ---
 
@@ -258,7 +260,9 @@ and NIP-07 browser extension bridges.
 Current implementation note:
 - Local signing now uses canonical Nostr event hashes with `created_at`, and the relay backend is a supervised worker under `ControlPanel`.
 - `SignerBackend::Nip46` is now implemented over the relay worker using encrypted NIP-46 RPC.
-- Bunker URI parsing, permission UX, and NIP-07/browser-extension parity remain follow-on work.
+- Bunker URI parsing, session-only bunker secret handling, and local pending/allow/deny permission
+  memory now exist on the Sync settings surface and persist non-secret policy state across restart.
+- NIP-07/browser-extension parity remains follow-on work.
 
 ---
 
