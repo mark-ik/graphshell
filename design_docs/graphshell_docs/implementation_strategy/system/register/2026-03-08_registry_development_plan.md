@@ -157,8 +157,9 @@ state, and signed presence-binding assertions. `NostrCoreRegistry` now has a sup
 relay backend, restart-safe subscription persistence, relay connection diagnostics, and a local
 secp256k1 user-signing lane. NIP-46 delegated signing is now landed on top of that lane, so the
 remaining work in Sector C is signer-surface follow-on depth rather than registry-runtime closure.
-Bunker URI parsing, session-only secret handling, and local permission memory are already landed;
-the main remaining depth item is NIP-07/browser-extension parity.
+Bunker URI parsing, session-only secret handling, local permission memory, and the host-owned
+NIP-07 bridge are already landed. Remaining depth is optional browser-wallet method coverage and
+approval UX polish, not missing registry authority.
 
 ---
 

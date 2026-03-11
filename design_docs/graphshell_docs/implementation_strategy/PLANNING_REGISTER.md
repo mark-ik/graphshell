@@ -884,9 +884,10 @@ Positioning note:
 
 **Implementation note (2026-03-10):**
 - The runtime now has local secp256k1 signing, NIP-46 delegated signing, bunker-URI parsing,
-  session-only bunker secret handling, and local delegated-signer permission memory.
-- Remaining follow-on depth in this lane is NIP-07/browser-extension parity rather than registry
-  closure.
+  session-only bunker secret handling, local delegated-signer permission memory, and a host-owned
+  NIP-07 bridge with per-origin permission memory.
+- Remaining follow-on depth in this lane is optional browser-wallet method coverage and approval
+  UX polish rather than registry closure.
 
 **Lane**: `lane:subsystem-hardening` (`#96`)
 **Labels**: `security`, `identity`, `nostr`, `lane:subsystem-hardening`
@@ -938,6 +939,13 @@ Positioning note:
 - Eligible app nodes can execute approved NIP-07 methods.
 - Non-granted methods are denied deterministically and logged.
 - Bridge behavior is covered by at least one scenario-level test path.
+
+**Implementation note (2026-03-10):**
+- Landed for core methods (`getPublicKey`, `signEvent`, `getRelays`) through a host-injected
+  `window.nostr` bridge and `NostrCoreRegistry::nip07_request(...)`.
+- Per-origin permission memory is persisted and manageable through Settings -> Sync.
+- Remaining follow-on depth is optional method coverage (`nip04`/`nip44`) rather than missing
+  bridge authority.
 
 **Lane**: `lane:viewer-platform` (`#92`)
 **Labels**: `viewer`, `security`, `nostr`, `lane:viewer-platform`

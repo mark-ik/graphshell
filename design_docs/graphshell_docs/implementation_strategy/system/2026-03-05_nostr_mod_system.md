@@ -190,6 +190,16 @@ For existing web-based Nostr clients, Graphshell supports a compatibility mode:
 
 This path optimizes adoption speed for existing clients and does not replace the WASM-first path.
 
+Current implementation note:
+
+- The host now injects a built-in `window.nostr` bootstrap through the shared webview
+  `UserContentManager`.
+- `getPublicKey`, `signEvent`, and `getRelays` route through the host-owned `NostrCoreRegistry`
+  rather than page-local secrets or direct sockets.
+- Sensitive methods are denied by default until the origin is allowed in Settings -> Sync.
+- The current bridge intentionally stops at core NIP-07 methods; optional browser-wallet parity
+  methods such as `nip04`/`nip44` remain follow-on depth.
+
 ### 8.1 Policy constraints for NIP-07 bridge
 
 - Inject only when mod declares `identity:nostr-sign` and at least one relay capability.
@@ -253,9 +263,10 @@ Severity values follow canonical diagnostics policy: use `Error` for explicit se
 
 **Goal**: Compatibility lane for existing web clients.
 
-- Inject controlled `window.nostr` bridge.
-- Enforce method-level capability checks.
-- Record bridge usage metrics and denied-call diagnostics.
+- [x] Inject controlled `window.nostr` bridge.
+- [x] Enforce method-level capability checks.
+- [ ] Record bridge usage metrics and denied-call diagnostics beyond the existing Nostr denial
+  channels.
 
 ---
 

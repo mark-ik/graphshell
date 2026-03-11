@@ -38,8 +38,8 @@ Track 3: Cross-registry wiring — bind UserIdentity to NodeId without shared ke
 
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
-| `IdentityRegistry` | ✅ | Runtime authority | Real Ed25519 node-signing, persistence, rotation/revocation, Verse trust wiring, and signed presence-binding assertions are landed; NIP-07 remains deferred |
-| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend, subscription persistence, relay diagnostics, local secp256k1 user signing, and NIP-46 delegated signing are landed |
+| `IdentityRegistry` | ✅ | Runtime authority | Real Ed25519 node-signing, persistence, rotation/revocation, Verse trust wiring, and signed presence-binding assertions are landed |
+| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend, subscription persistence, relay diagnostics, local secp256k1 user signing, NIP-46 delegated signing, and a host-owned NIP-07 bridge are landed |
 
 ### Implementation note — 2026-03-10 correction
 
@@ -63,8 +63,11 @@ Current implementation note:
   request/response path and a local bunker-mock contract test.
 - Bunker URI parsing, session-only secret handling, and local permission memory are now landed on
   top of the delegated signer path.
-- Remaining follow-ons are signer-surface integrations such as NIP-07/browser-extension parity and
-  richer approval UX, not a registry/runtime correctness blocker.
+- The host-owned NIP-07 bridge is now landed with injected `window.nostr`, prompt-bridge request
+  routing, per-origin permission memory, Sync settings management, and core methods
+  (`getPublicKey`, `signEvent`, `getRelays`).
+- Remaining follow-ons are richer browser-signer UX and optional method depth (`nip04`/`nip44`),
+  not a registry/runtime correctness blocker.
 
 ---
 
@@ -316,14 +319,25 @@ impl IdentityRegistry {
 - [ ] `p2p_verify()` implemented; peer public key comes from `PeerRegistry` (CP4).
 - [ ] Verse verse module calls replaced with direct `IdentityRegistry` calls.
 
-### C3.3 — NIP-07 bridge (deferred, prospective)
+### C3.3 — NIP-07 bridge
 
-The `nostr_core_registry_spec.md` lists NIP-07 (browser extension signer) as a prospective
-capability. This involves injecting a signing bridge into embedded web content contexts.
-Track as a prospective capability; no implementation in this sector.
+The NIP-07 host bridge is now implemented on top of the shared webview/runtime authority split:
+
+- `UserContentManager` injects a host-owned `window.nostr` bootstrap when `nostr:nip07-bridge`
+  capability is active.
+- Reserved prompt RPCs cross the Servo/embedder boundary without creating ad hoc reducer access.
+- `NostrCoreRegistry::nip07_request()` is the authority surface for `getPublicKey`, `signEvent`,
+  and `getRelays`.
+- Sensitive methods are gated by per-origin permission memory, persisted across restart, and
+  managed from Settings -> Sync.
+- The Nostr event carrier now stores full tag arrays so browser `signEvent` requests do not get
+  collapsed into pair-only tags.
 
 **Done gate:**
-- [ ] Spec entry in `nostr_core_registry_spec.md` updated to mark NIP-07 as deferred.
+- [x] Host-controlled `window.nostr` injection exists for app-node webviews.
+- [x] `getPublicKey`, `signEvent`, and `getRelays` route through `NostrCoreRegistry`.
+- [x] Per-origin NIP-07 permission memory persists across restart.
+- [x] At least one capability-checked bridge path is covered by targeted tests.
 
 ---
 
@@ -335,6 +349,7 @@ Track as a prospective capability; no implementation in this sector.
 - [x] `TungsteniteRelayService` enables real Nostr event publish/subscribe.
 - [x] Nostr subscriptions persist across app restarts.
 - [x] NIP-46 remote signer is implemented and wired to `SignerBackend::Nip46`.
+- [x] Core NIP-07 host bridge methods are implemented with per-origin permission memory.
 - [ ] `DIAG_IDENTITY_SIGN` and `DIAG_NOSTR_RELAY` channels emit with correct severity.
 - [ ] No duplicate key material exists anywhere in the codebase.
 

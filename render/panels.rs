@@ -1700,6 +1700,83 @@ fn render_nostr_sync_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
         }
     }
 
+    ui.separator();
+    ui.label(egui::RichText::new("NIP-07 Web Origins").strong());
+    ui.small(
+        "Graphshell injects a host-owned window.nostr bridge. Sensitive methods are gated per origin.",
+    );
+    let nip07_grants =
+        crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants();
+    if nip07_grants.is_empty() {
+        ui.small("No web origins have requested NIP-07 access yet.");
+    } else {
+        for grant in nip07_grants {
+            ui.horizontal_wrapped(|ui| {
+                ui.monospace(&grant.origin);
+                ui.label(&grant.method);
+                ui.small(match grant.decision {
+                    crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Pending => {
+                        "pending"
+                    }
+                    crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow => {
+                        "allowed"
+                    }
+                    crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Deny => {
+                        "denied"
+                    }
+                });
+                if ui.small_button("Allow").clicked()
+                    && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip07_permission(
+                        &grant.origin,
+                        &grant.method,
+                        crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
+                    )
+                    .is_ok()
+                {
+                    app.save_persisted_nostr_nip07_permissions();
+                    ctx.data_mut(|d| {
+                        d.insert_temp(
+                            nostr_status_id,
+                            format!("Allowed {} for {}", grant.method, grant.origin),
+                        )
+                    });
+                }
+                if ui.small_button("Deny").clicked()
+                    && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip07_permission(
+                        &grant.origin,
+                        &grant.method,
+                        crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Deny,
+                    )
+                    .is_ok()
+                {
+                    app.save_persisted_nostr_nip07_permissions();
+                    ctx.data_mut(|d| {
+                        d.insert_temp(
+                            nostr_status_id,
+                            format!("Denied {} for {}", grant.method, grant.origin),
+                        )
+                    });
+                }
+                if ui.small_button("Reset").clicked()
+                    && crate::shell::desktop::runtime::registries::phase3_nostr_set_nip07_permission(
+                        &grant.origin,
+                        &grant.method,
+                        crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Pending,
+                    )
+                    .is_ok()
+                {
+                    app.save_persisted_nostr_nip07_permissions();
+                    ctx.data_mut(|d| {
+                        d.insert_temp(
+                            nostr_status_id,
+                            format!("Reset {} for {}", grant.method, grant.origin),
+                        )
+                    });
+                }
+            });
+        }
+    }
+
     if let Some(message) = ctx.data_mut(|d| d.get_temp::<String>(nostr_status_id)) {
         ui.small(message);
     }

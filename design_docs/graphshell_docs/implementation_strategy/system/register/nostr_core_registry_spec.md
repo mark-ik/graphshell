@@ -138,8 +138,19 @@ Severity rule: denial/degraded/fallback channels use `Warn`; security/failure ch
 
 - NIP-46 delegated signer provider abstraction
 - relay policy profiles (strict/private/community)
-- per-origin NIP-07 permission memory and revocation
+- richer NIP-07/browser-wallet method depth beyond the landed core bridge
 - action registry bindings for caller-scoped command palette routes (`action.nostr.*`)
+
+## Implementation Note — 2026-03-10
+
+The host-owned NIP-07 bridge is now live:
+
+- `window.nostr` is injected by the webview host when `nostr:nip07-bridge` capability is active.
+- Bridge requests cross the embedder boundary through a reserved prompt RPC namespace and route to
+  `NostrCoreRegistry::nip07_request(...)`.
+- The landed method surface is `getPublicKey`, `signEvent`, and `getRelays`.
+- Sensitive methods are gated by per-origin permission memory persisted through workspace settings.
+- Existing denial and security-violation diagnostics are used for blocked or malformed requests.
 
 ## Acceptance Criteria
 
@@ -148,4 +159,4 @@ Severity rule: denial/degraded/fallback channels use `Warn`; security/failure ch
 - Signing interface exposes operation-level signing only; no raw key path exists.
 - Relay subscribe/publish calls are capability-gated and diagnosable.
 - Diagnostics descriptors for declared channels include explicit severity values.
-- At least one scenario path verifies NIP-07 bridge calls are capability-checked.
+- At least one scenario or targeted integration path verifies NIP-07 bridge calls are capability-checked.

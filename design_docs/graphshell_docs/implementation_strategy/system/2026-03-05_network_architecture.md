@@ -261,8 +261,9 @@ Implementation note as of 2026-03-10:
 - NIP-46 delegated signing is now wired through the relay worker for remote signer flows.
 - Bunker URI parsing, session-only bunker secret handling, and local delegated-signer permission
   memory are now wired into the runtime-owned Sync settings path.
-- Remaining follow-ons are other signer-surface integrations such as NIP-07/browser-extension
-  parity, not the underlying two-layer identity model.
+- The host-owned NIP-07 bridge is now landed on top of that split user-identity lane.
+- Remaining follow-ons are optional browser-wallet methods and approval UX polish, not the
+  underlying two-layer identity model.
 
 ### libp2p-iroh bridge
 

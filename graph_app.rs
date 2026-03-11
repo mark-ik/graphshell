@@ -9174,6 +9174,39 @@ mod tests {
     }
 
     #[test]
+    fn test_nostr_nip07_permissions_persist_across_restart() {
+        static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        let _guard = LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("nostr nip07 persistence test lock poisoned");
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_path_buf();
+
+        {
+            let mut app = GraphBrowserApp::new_from_dir(path.clone());
+            crate::shell::desktop::runtime::registries::phase3_nostr_set_nip07_permission(
+                "https://example.com/path",
+                "signEvent",
+                crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
+            )
+            .expect("nip07 permission should be accepted");
+            app.save_persisted_nostr_nip07_permissions();
+        }
+
+        let _reopened = GraphBrowserApp::new_from_dir(path);
+        assert_eq!(
+            crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants(),
+            vec![crate::shell::desktop::runtime::registries::Nip07PermissionGrant {
+                origin: "https://example.com".to_string(),
+                method: "signEvent".to_string(),
+                decision: crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
+            }]
+        );
+    }
+
+    #[test]
     fn test_registry_component_defaults_persist_across_restart() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().to_path_buf();
