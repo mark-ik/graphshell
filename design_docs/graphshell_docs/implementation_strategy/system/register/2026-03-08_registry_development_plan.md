@@ -24,8 +24,8 @@ The goal is a fully operable Register layer in which every registry is:
 
 Archive note:
 - This master plan is not ready to archive. `RendererRegistry` (Sector B), Sector C's remaining
-  NIP-46 / relay diagnostics closure, and the remaining Sector G WASM/mod-theme follow-ons are
-  still open.
+  real `UserIdentity` closure (`secp256k1` / NIP-46 after the new `UserIdentity`/`NodeId`
+  split), and the remaining Sector G WASM/mod-theme follow-ons are still open.
 
 ---
 
@@ -149,9 +149,15 @@ Current state: Both `InputRegistry` and `ActionRegistry` have functional cores b
 **Registries:** `IdentityRegistry`, `NostrCoreRegistry`
 **Plan:** [2026-03-08_sector_c_identity_verse_plan.md](2026-03-08_sector_c_identity_verse_plan.md)
 
-Identity and Verse are co-dependent: Nostr event signing draws on the identity keypair, device sync requires trusted peer identity, and NIP-46 delegation bridges the two registries.
+Identity and Verse are co-dependent, but they no longer share one cryptographic lane: transport
+trust and `NodeId` stay in `IdentityRegistry`, while public/user signing remains the unfinished
+`UserIdentity` lane on the Nostr side.
 
-Current state: `IdentityRegistry` now owns real ed25519 signing, key persistence, and Verse trust state. `NostrCoreRegistry` now has a supervised websocket relay backend plus restart-safe subscription persistence. The remaining work in Sector C is the NIP-46 delegated signer path and dedicated relay connection diagnostics.
+Current state: `IdentityRegistry` now owns real Ed25519 node signing, key persistence, Verse trust
+state, and signed presence-binding assertions. `NostrCoreRegistry` now has a supervised websocket
+relay backend, restart-safe subscription persistence, and relay connection diagnostics. The
+remaining work in Sector C is closing the real `UserIdentity` lane via secp256k1 / NIP-46 without
+collapsing it back into the transport `NodeId` key.
 
 ---
 

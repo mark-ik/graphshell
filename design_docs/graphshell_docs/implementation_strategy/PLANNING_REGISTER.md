@@ -1043,9 +1043,9 @@ Residual blockers that keep Sector G and the registry master plan open:
 ### Registry Plan Archive Note (2026-03-10)
 
 Do not archive `2026-03-08_registry_development_plan.md` yet. The register body is materially
-further along, but `RendererRegistry` (Sector B), Sector C's remaining NIP-46 / relay
-diagnostics closure, and the remaining Sector G WASM/mod-theme follow-ons still keep the master
-plan active.
+further along, but `RendererRegistry` (Sector B), Sector C's remaining real `UserIdentity`
+closure (`secp256k1` / NIP-46 after the new `UserIdentity`/`NodeId` split), and the remaining
+Sector G WASM/mod-theme follow-ons still keep the master plan active.
 
 ---
 

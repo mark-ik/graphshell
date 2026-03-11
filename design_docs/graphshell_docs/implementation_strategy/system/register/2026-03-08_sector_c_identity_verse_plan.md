@@ -16,17 +16,20 @@
 
 ## Purpose
 
-`IdentityRegistry` and `NostrCoreRegistry` are co-dependent: Nostr event signing requires an
-ed25519 keypair that belongs to the identity layer; device sync requires trusted peer identity
-managed by the identity layer; NIP-46 remote signer delegation bridges the two registries. Both
-registries must advance together to avoid duplicating key material and trust logic.
+`IdentityRegistry` and `NostrCoreRegistry` are co-dependent, but they no longer describe one
+cryptographic lane. `IdentityRegistry` owns the transport/device identity (`NodeId`, Ed25519) and
+the local user-signing claim surface used to bind session presence. `NostrCoreRegistry` owns the
+relay/signer lane for `UserIdentity`, which must eventually become real Nostr-compatible
+secp256k1/NIP-46 signing. Device sync requires trusted peer identity managed by the identity
+layer; public/user identity is bridged onto that transport identity through a short-lived signed
+presence assertion rather than a shared keypair.
 
 The sector proceeds in three tracks:
 
 ```
-Track 1: IdentityRegistry — real ed25519 signing
-Track 2: NostrCoreRegistry — real relay backend + NIP-46
-Track 3: Cross-registry wiring — unified keypair ownership, CP4 sync identity
+Track 1: IdentityRegistry — real node identity + presence binding assertions
+Track 2: NostrCoreRegistry — real relay backend + NIP-46/secp256k1 user signing
+Track 3: Cross-registry wiring — bind UserIdentity to NodeId without shared key material
 ```
 
 ---
@@ -35,14 +38,35 @@ Track 3: Cross-registry wiring — unified keypair ownership, CP4 sync identity
 
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
-| `IdentityRegistry` | ✅ | Runtime authority | Real ed25519 signing, persistence, rotation/revocation, and Verse trust wiring are landed; NIP-07 remains deferred |
-| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend and subscription persistence are landed; NIP-46 signer and relay connection diagnostics are still open |
+| `IdentityRegistry` | ✅ | Runtime authority | Real Ed25519 node-signing, persistence, rotation/revocation, Verse trust wiring, and signed presence-binding assertions are landed; NIP-07 remains deferred |
+| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend, subscription persistence, and relay diagnostics are landed; real NIP-46/secp256k1 user signing is still open |
+
+### Implementation note — 2026-03-10 correction
+
+The original Sector C plan incorrectly assumed that Nostr signing could reuse the same Ed25519 key
+lane as Verse/i roh transport identity. The runtime now explicitly models a two-layer identity
+shape:
+
+- `NodeId` / transport identity: Ed25519, owned by `IdentityRegistry`, used for Verse/iroh trust
+  and sync payloads.
+- `UserIdentity`: public/user signing identity for Nostr and future AT Protocol-style surfaces.
+- Binding seam: a short-lived signed presence assertion carried by Verse discovery/presence so the
+  two layers can be linked when the user explicitly participates, without collapsing them into one
+  persistent keypair.
+
+Current implementation note:
+
+- The presence-binding carrier is landed and signed by the local default user-claim key.
+- That local user-claim is still an internal Ed25519 persona today; it is a transitional
+  implementation, not interoperable Nostr identity.
+- The remaining honest blocker for full Sector C closure is migrating the user-signing lane to
+  real secp256k1/NIP-46 while keeping the `NodeId` lane separate.
 
 ---
 
-## Phase C1 — IdentityRegistry: Real ed25519 signing
+## Phase C1 — IdentityRegistry: Real node identity + binding assertions
 
-**Unlocks:** Nostr event signing from identity keypair; CP4 peer trust.
+**Unlocks:** Transport/node identity, signed presence binding, CP4 peer trust.
 
 ### C1.1 — Replace SHA256 stub with `ed25519-dalek` keypair
 
@@ -83,11 +107,11 @@ impl IdentityKey {
 `IdentityRegistry::verify()` (new, required by spec) uses `VerifyingKey::verify()`.
 
 **Done gates:**
-- [ ] `ed25519-dalek` added to `Cargo.toml` with `rand_core` + `getrandom` features.
-- [ ] `IdentityKey` struct replaces raw bytes in the identity store.
-- [ ] `sign()` uses ed25519; `verify()` implemented.
-- [ ] `IDENTITY_ID_DEFAULT` key generated at first run and persisted to user data dir.
-- [ ] Unit tests: sign + verify round-trip; verify with wrong key returns Err.
+- [x] `ed25519-dalek` added to `Cargo.toml` with `rand_core` + `getrandom` features.
+- [x] `IdentityKey` struct replaces raw bytes in the identity store.
+- [x] `sign()` uses ed25519; `verify()` implemented.
+- [x] `IDENTITY_ID_DEFAULT` and `IDENTITY_ID_P2P` keys generated at first run and persisted to user data dir.
+- [x] Unit tests: sign + verify round-trip; verify with wrong key returns Err.
 
 ### C1.2 — Key persistence
 
@@ -104,9 +128,9 @@ passphrase encryption in the initial implementation; a `KeyProtection::Unprotect
 marks this as a known gap until a keychain integration phase.
 
 **Done gates:**
-- [ ] `load_or_generate()` implemented for the default and P2P identity slots.
-- [ ] Key files are not checked into version control (`.gitignore` rule).
-- [ ] `DIAG_IDENTITY_SIGN` emits at `Warn` if key file is missing and a new key is generated.
+- [x] `load_or_generate()` implemented for the default and P2P identity slots.
+- [x] Key files are not checked into version control (`.gitignore` rule).
+- [x] `DIAG_IDENTITY_SIGN` emits at `Warn` if key file is missing and a new key is generated.
 
 ### C1.3 — Key rotation and revocation
 
@@ -120,9 +144,31 @@ signatures). Revocation removes the signing key but retains the verifying key fo
 Both operations emit `DIAG_IDENTITY_SIGN` at `Info` severity.
 
 **Done gates:**
-- [ ] `rotate_key()` and `revoke_key()` implemented.
-- [ ] Rotated keys are archived, not discarded.
+- [x] `rotate_key()` and `revoke_key()` implemented.
+- [x] Rotated keys are archived, not discarded.
 - [ ] Diagnostics emit on rotation and revocation.
+
+### C1.4 — Presence binding assertion carrier
+
+`IdentityRegistry` now needs an explicit cross-layer binding carrier so Verse discovery/presence can
+link a `UserIdentity` claim to a transport `NodeId` without sharing key material.
+
+```rust
+pub struct PresenceBindingAssertion {
+    pub node_id: String,
+    pub user_identity: UserIdentityClaim,
+    pub issued_at_secs: u64,
+    pub expires_at_secs: u64,
+    pub audience: String,
+    pub signature: String,
+}
+```
+
+**Done gates:**
+- [x] `IdentityRegistry::create_presence_binding_assertion()` implemented.
+- [x] `IdentityRegistry::verify_presence_binding_assertion()` implemented.
+- [x] Verse mDNS discovery/presence carries the binding assertion.
+- [x] Discovery surfaces whether the binding verified successfully.
 
 ---
 
@@ -181,7 +227,9 @@ writes the active filter set to workspace state through the WAL.
 ### C2.3 — NIP-46 remote signer
 
 `SignerBackend::Nip46` is typed in `nostr_core.rs` but has no implementation. NIP-46 (Nostr
-Connect / "bunker") delegates signing to a remote signer process via a Nostr relay.
+Connect / "bunker") delegates signing to a remote signer process via a Nostr relay. This is also
+the cleanest way to finish the `UserIdentity` lane without collapsing it back into the Ed25519
+transport identity.
 
 ```rust
 pub struct Nip46Signer {
@@ -202,23 +250,25 @@ and NIP-07 browser extension bridges.
 **Done gates:**
 - [ ] `Nip46Signer` struct with `sign_event()` async implementation.
 - [ ] `SignerBackend::Nip46` variant wired into `NostrCoreRegistry::sign_event()`.
-- [ ] Session key is generated from `IdentityRegistry` (not a separate key store).
+- [ ] Session key is generated from the user-identity lane without reusing the P2P `NodeId` key store.
 - [ ] Integration test: NIP-46 sign round-trip with a local bunker mock.
 
 Current implementation note:
 - Local signing now uses canonical Nostr event hashes with `created_at`, and the relay backend is a supervised worker under `ControlPanel`.
-- `SignerBackend::Nip46` still returns explicit `BackendUnavailable`; this is the remaining Sector C blocker.
+- `SignerBackend::Nip46` still returns explicit `BackendUnavailable`; migrating the user-signing lane to real Nostr-compatible secp256k1/NIP-46 is the remaining Sector C blocker.
 
 ---
 
 ## Phase C3 — Unified keypair ownership and CP4 wiring
 
-**Unlocks:** No duplicated key material; CP4 peer trust; identity-based Nostr signing.
+**Unlocks:** No duplicated node key material; CP4 peer trust; explicit cross-layer identity binding.
 
-### C3.1 — Single keypair owner: `IdentityRegistry`
+### C3.1 — Single node-key owner: `IdentityRegistry`
 
-Currently `NostrCoreRegistry` maintains its own local key store separate from
-`IdentityRegistry`. This is duplication that violates the `identity-integrity` policy.
+Currently `NostrCoreRegistry` delegates its local host signing path into `IdentityRegistry`, but
+that path is still transitional and not a real Nostr key. The invariant here is narrower: the
+transport/node key owner must stay singular, and user-signing must not silently reuse it once
+secp256k1/NIP-46 lands.
 
 Refactor `NostrCoreRegistry::sign_event()` to delegate to `IdentityRegistry`:
 
@@ -228,14 +278,14 @@ let verifying_key = registries.identity.verifying_key_for(&self.signer_config.id
 let signature = registries.identity.sign(&event_hash, &self.signer_config.identity_id)?;
 ```
 
-`IdentityRegistry` is the only key owner. `NostrCoreRegistry` holds only an `IdentityId`
-reference.
+`IdentityRegistry` is the only `NodeId`/transport key owner. `NostrCoreRegistry` may reference a
+user-signing handle, but it must not store or mint a second transport key.
 
 **Done gates:**
-- [ ] `NostrCoreRegistry` key store removed; only `IdentityId` reference remains.
-- [ ] `NostrCoreRegistry::sign_event()` calls `IdentityRegistry::sign()`.
-- [ ] Unit test: event signed via NostrCore validates against IdentityRegistry verifying key.
-- [ ] No raw key bytes stored in `NostrCoreRegistry`.
+- [x] `NostrCoreRegistry` transport key store removed; only identity references remain.
+- [x] `NostrCoreRegistry::sign_event()` calls `IdentityRegistry::sign()` on the current transitional local-host path.
+- [x] Unit test: event signed via NostrCore validates against IdentityRegistry verifying key.
+- [x] No raw transport key bytes stored in `NostrCoreRegistry`.
 
 ### C3.2 — CP4 peer identity wiring
 

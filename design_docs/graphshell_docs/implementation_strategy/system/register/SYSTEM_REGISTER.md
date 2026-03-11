@@ -107,8 +107,8 @@ Gaps / active architectural work:
 - Theme activation is runtime-owned, but startup OS-theme detection and mod-provided theme
   activation remain open follow-ons
 - The registry development plan cannot be archived yet; `RendererRegistry` (Sector B), Sector C's
-  remaining NIP-46 / relay diagnostics closure, and the remaining Sector G mod follow-ons are
-  still active work
+  remaining real `UserIdentity` closure (`secp256k1` / NIP-46 after the new `UserIdentity` /
+  `NodeId` split), and the remaining Sector G mod follow-ons are still active work
 
 ## Architecture Roles (Register vs Control Panel vs SignalBus)
 

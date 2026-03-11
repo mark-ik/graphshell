@@ -252,6 +252,15 @@ A self-hosted relay is a single process with SQLite backing (strfry, nostr-rs-re
 
 These cannot be unified into a single keypair without a protocol change. The two-layer model (`UserIdentity` / `NodeId`) is the correct response — bind them via a signed assertion in the presence broadcast rather than trying to use one keypair for both purposes.
 
+Implementation note as of 2026-03-10:
+
+- Graphshell now carries a short-lived signed presence-binding assertion on the Verse discovery path.
+- That assertion binds the transport `NodeId` to a user-identity claim for a scoped audience/TTL.
+- The current local user-identity signer is still an internal Ed25519 persona, which is acceptable
+  for the transport-binding shape but not a real interoperable Nostr identity.
+- Full closure still requires migrating the `UserIdentity` lane to secp256k1/NIP-46 while keeping
+  the `NodeId` lane separate.
+
 ### libp2p-iroh bridge
 
 The `libp2p-iroh` crate allows iroh's QUIC transport and NAT traversal to be used by a libp2p host. This means Verse's libp2p swarm can use iroh's superior hole-punching without reimplementing it. Use this bridge when implementing Verse — do not run iroh and libp2p as completely separate stacks.
