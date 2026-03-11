@@ -277,7 +277,9 @@ impl ControlPanel {
         self.discovery_result_rx = Some(discovery_result_rx);
 
         self.workers.spawn(async move {
-            let resources = match verse::sync_worker_resources() {
+            let resources = match verse::sync_worker_resources(
+                crate::shell::desktop::runtime::registries::phase3_trusted_peers_handle(),
+            ) {
                 Ok(r) => r,
                 Err(e) => {
                     log::warn!("control_panel: verse sync not available ({e})");

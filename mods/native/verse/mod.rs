@@ -878,14 +878,16 @@ pub(crate) struct SyncWorkerResources {
     pub sync_logs: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SyncLog>>>,
 }
 
-pub(crate) fn sync_worker_resources() -> Result<SyncWorkerResources, String> {
+pub(crate) fn sync_worker_resources(
+    trusted_peers: std::sync::Arc<std::sync::RwLock<Vec<TrustedPeer>>>,
+) -> Result<SyncWorkerResources, String> {
     let Some(state) = VERSE_STATE.get() else {
         return Err("verse not initialized".to_string());
     };
     Ok(SyncWorkerResources {
         endpoint: state.endpoint.clone(),
         secret_key: state.identity.secret_key.clone(),
-        trusted_peers: state.trusted_peers.clone(),
+        trusted_peers,
         sync_logs: state.sync_logs.clone(),
     })
 }

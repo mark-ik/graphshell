@@ -129,7 +129,7 @@ fn render_sync_status_indicator(ui: &mut egui::Ui) {
             "Sync: Not available".to_string(),
         )
     } else {
-        let peers = verse::get_trusted_peers();
+        let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
         if !peers.is_empty() {
             // Has peers - show green dot
             (

@@ -1753,7 +1753,7 @@ fn execute_verse_share_workspace_action(
         });
     }
 
-    let peers = crate::mods::native::verse::get_trusted_peers();
+    let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
     if peers.is_empty() {
         return ActionOutcome::Failure(ActionFailure {
             kind: ActionFailureKind::Rejected,

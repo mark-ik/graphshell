@@ -2539,7 +2539,7 @@ impl GraphBrowserApp {
                 display_name,
             } => match peer_id.parse::<iroh::NodeId>() {
                 Ok(node_id) => {
-                    crate::mods::native::verse::trust_peer(
+                    crate::shell::desktop::runtime::registries::phase3_trust_peer(
                         crate::mods::native::verse::TrustedPeer {
                             node_id,
                             display_name,
@@ -2560,9 +2560,9 @@ impl GraphBrowserApp {
                 workspace_id,
             } => match peer_id.parse::<iroh::NodeId>() {
                 Ok(node_id) => {
-                    crate::mods::native::verse::grant_workspace_access(
+                    crate::shell::desktop::runtime::registries::phase3_grant_workspace_access(
                         node_id,
-                        workspace_id.clone(),
+                        &workspace_id,
                         crate::mods::native::verse::AccessLevel::ReadWrite,
                     );
                     log::info!(
@@ -2577,7 +2577,7 @@ impl GraphBrowserApp {
             },
             GraphIntent::ForgetDevice { peer_id } => match peer_id.parse::<iroh::NodeId>() {
                 Ok(node_id) => {
-                    crate::mods::native::verse::revoke_peer(node_id);
+                    crate::shell::desktop::runtime::registries::phase3_revoke_peer(node_id);
                     log::info!("forgetting device: {peer_id}");
                 }
                 Err(error) => {
@@ -2589,9 +2589,9 @@ impl GraphBrowserApp {
                 workspace_id,
             } => match peer_id.parse::<iroh::NodeId>() {
                 Ok(node_id) => {
-                    crate::mods::native::verse::revoke_workspace_access(
+                    crate::shell::desktop::runtime::registries::phase3_revoke_workspace_access(
                         node_id,
-                        workspace_id.clone(),
+                        &workspace_id,
                     );
                     log::info!(
                         "revoking workspace access '{}' for peer {}",
@@ -2727,7 +2727,7 @@ impl GraphBrowserApp {
         let Some(tx) = self.services.sync_command_tx.clone() else {
             return Err("sync worker command channel unavailable".to_string());
         };
-        let peers = crate::mods::native::verse::get_trusted_peers();
+        let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
         let mut enqueued = 0usize;
         for peer in peers {
             if tx

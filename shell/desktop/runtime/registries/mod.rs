@@ -365,7 +365,7 @@ pub(crate) struct RegistryRuntime {
     #[allow(dead_code)]
     signal_bus: Arc<dyn SignalBus>,
     #[allow(dead_code)]
-    identity: IdentityRegistry,
+    identity: Mutex<IdentityRegistry>,
     dynamic: Mutex<DynamicRegistrySurfaces>,
     input: Mutex<InputRegistry>,
     layout: Mutex<LayoutRegistry>,
@@ -588,13 +588,49 @@ pub(crate) fn phase3_sign_identity_payload(identity_id: &str, payload: &[u8]) ->
     runtime().sign_identity_payload(identity_id, payload)
 }
 
+pub(crate) fn phase3_trusted_peers() -> Vec<crate::mods::native::verse::TrustedPeer> {
+    runtime().trusted_peers()
+}
+
+pub(crate) fn phase3_trusted_peers_handle(
+) -> std::sync::Arc<std::sync::RwLock<Vec<crate::mods::native::verse::TrustedPeer>>> {
+    runtime().trusted_peers_handle()
+}
+
+pub(crate) fn phase3_trust_peer(peer: crate::mods::native::verse::TrustedPeer) {
+    runtime().trust_peer(peer);
+}
+
+pub(crate) fn phase3_revoke_peer(node_id: iroh::NodeId) {
+    runtime().revoke_peer(node_id);
+}
+
+pub(crate) fn phase3_grant_workspace_access(
+    node_id: iroh::NodeId,
+    workspace_id: &str,
+    access: crate::mods::native::verse::AccessLevel,
+) {
+    runtime().grant_workspace_access(node_id, workspace_id, access);
+}
+
+pub(crate) fn phase3_revoke_workspace_access(node_id: iroh::NodeId, workspace_id: &str) {
+    runtime().revoke_workspace_access(node_id, workspace_id);
+}
+
 #[allow(dead_code)]
 pub(crate) fn phase3_nostr_sign_event(
     persona: &str,
     unsigned: &NostrUnsignedEvent,
 ) -> Result<NostrSignedEvent, NostrCoreError> {
     let runtime = runtime();
-    runtime.nostr_core.sign_event(&runtime.identity, persona, unsigned)
+    runtime.nostr_core.sign_event(
+        &runtime
+            .identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        persona,
+        unsigned,
+    )
 }
 
 #[allow(dead_code)]
@@ -814,7 +850,7 @@ impl RegistryRuntime {
         Self {
             diagnostics: DiagnosticsRegistry::default(),
             signal_bus: Arc::new(SignalRoutingLayer::default()),
-            identity: IdentityRegistry::default(),
+            identity: Mutex::new(IdentityRegistry::default()),
             dynamic: Mutex::new(Self::build_dynamic_surfaces(
                 protocol_registry,
                 viewer_registry,
@@ -1598,7 +1634,11 @@ impl RegistryRuntime {
             byte_len: identity_id.len().saturating_add(payload.len()),
         });
 
-        let result = self.identity.sign(identity_id, payload);
+        let result = self
+            .identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .sign(identity_id, payload);
         if result.succeeded {
             emit_event(DiagnosticEvent::MessageReceived {
                 channel_id: CHANNEL_IDENTITY_SIGN_SUCCEEDED,
@@ -1627,7 +1667,60 @@ impl RegistryRuntime {
         payload: &[u8],
         signature: &str,
     ) -> bool {
-        self.identity.verify(identity_id, payload, signature).verified
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .verify(identity_id, payload, signature)
+            .verified
+    }
+
+    pub(crate) fn trusted_peers(&self) -> Vec<crate::mods::native::verse::TrustedPeer> {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .trusted_peers()
+    }
+
+    pub(crate) fn trusted_peers_handle(
+        &self,
+    ) -> std::sync::Arc<std::sync::RwLock<Vec<crate::mods::native::verse::TrustedPeer>>> {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .trusted_peers_handle()
+    }
+
+    pub(crate) fn trust_peer(&self, peer: crate::mods::native::verse::TrustedPeer) {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .trust_peer_record(peer);
+    }
+
+    pub(crate) fn revoke_peer(&self, node_id: iroh::NodeId) {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .revoke_peer_record(node_id);
+    }
+
+    pub(crate) fn grant_workspace_access(
+        &self,
+        node_id: iroh::NodeId,
+        workspace_id: &str,
+        access: crate::mods::native::verse::AccessLevel,
+    ) {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .grant_workspace_access(node_id, workspace_id, access);
+    }
+
+    pub(crate) fn revoke_workspace_access(&self, node_id: iroh::NodeId, workspace_id: &str) {
+        self.identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .revoke_workspace_access(node_id, workspace_id);
     }
 
     pub(crate) fn subscribe_signal(
@@ -2239,6 +2332,8 @@ pub(crate) fn phase3_sign_identity_payload_for_tests(
 
     let result = RegistryRuntime::default()
         .identity
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .sign(identity_id, payload);
     diagnostics_state.emit_message_received_for_tests(
         if result.succeeded {

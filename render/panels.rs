@@ -1418,7 +1418,9 @@ pub fn render_sync_settings_in_ui(
                             d.insert_temp(sync_status_id, "Enter a pairing code first".to_string())
                         });
                     } else {
-                        let before = crate::mods::native::verse::get_trusted_peers().len();
+                        let before =
+                            crate::shell::desktop::runtime::registries::phase3_trusted_peers()
+                                .len();
                         let intents = crate::shell::desktop::runtime::registries::phase5_execute_verse_pair_code_action(
                             app,
                             &code,
@@ -1426,7 +1428,9 @@ pub fn render_sync_settings_in_ui(
                         if !intents.is_empty() {
                             apply_reducer_graph_intents_hardened(app, intents);
                         }
-                        let after = crate::mods::native::verse::get_trusted_peers().len();
+                        let after =
+                            crate::shell::desktop::runtime::registries::phase3_trusted_peers()
+                                .len();
                         let status = if after > before {
                             "Pairing succeeded".to_string()
                         } else {
@@ -1468,7 +1472,7 @@ pub fn render_sync_settings_in_ui(
             });
         }
 
-        let peers = crate::mods::native::verse::get_trusted_peers();
+        let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
         if peers.is_empty() {
             ui.label("No paired devices yet.");
         } else {
@@ -1526,7 +1530,7 @@ pub fn render_sync_settings_in_ui(
     if !verse_initialized {
         ui.label("Initializing Verse networking...");
     } else {
-        let peers = crate::mods::native::verse::get_trusted_peers();
+        let peers = crate::shell::desktop::runtime::registries::phase3_trusted_peers();
         ui.label(format!("Connected peers: {}", peers.len()));
     }
 

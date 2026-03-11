@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
@@ -205,7 +206,7 @@ impl IdentityKey {
 pub(crate) struct IdentityRegistry {
     keys: HashMap<String, IdentityKey>,
     fallback_id: String,
-    trust_store: Vec<TrustedPeer>,
+    trust_store: Arc<RwLock<Vec<TrustedPeer>>>,
 }
 
 impl IdentityRegistry {
@@ -363,6 +364,65 @@ impl IdentityRegistry {
         let resolution = self.resolve(identity_id);
         self.keys.get(&resolution.resolved_id).map(|key| key.protection)
     }
+
+    pub(crate) fn trusted_peers(&self) -> Vec<TrustedPeer> {
+        self.trust_store
+            .read()
+            .expect("trust store lock poisoned")
+            .clone()
+    }
+
+    pub(crate) fn trusted_peers_handle(&self) -> Arc<RwLock<Vec<TrustedPeer>>> {
+        Arc::clone(&self.trust_store)
+    }
+
+    pub(crate) fn trust_peer_record(&mut self, peer: TrustedPeer) {
+        self.trust_peer(peer);
+    }
+
+    pub(crate) fn revoke_peer_record(&mut self, node_id: iroh::NodeId) {
+        self.revoke_peer(node_id);
+    }
+
+    pub(crate) fn grant_workspace_access(
+        &mut self,
+        node_id: iroh::NodeId,
+        workspace_id: &str,
+        access: crate::mods::native::verse::AccessLevel,
+    ) {
+        let mut peers = self
+            .trust_store
+            .write()
+            .expect("trust store lock poisoned");
+        if let Some(peer) = peers.iter_mut().find(|peer| peer.node_id == node_id) {
+            peer.workspace_grants
+                .retain(|grant| grant.workspace_id != workspace_id);
+            peer.workspace_grants
+                .push(crate::mods::native::verse::WorkspaceGrant {
+                    workspace_id: workspace_id.to_string(),
+                    access,
+                });
+        }
+        drop(peers);
+        persist_trust_store(&self.trust_store);
+    }
+
+    pub(crate) fn revoke_workspace_access(
+        &mut self,
+        node_id: iroh::NodeId,
+        workspace_id: &str,
+    ) {
+        let mut peers = self
+            .trust_store
+            .write()
+            .expect("trust store lock poisoned");
+        if let Some(peer) = peers.iter_mut().find(|peer| peer.node_id == node_id) {
+            peer.workspace_grants
+                .retain(|grant| grant.workspace_id != workspace_id);
+        }
+        drop(peers);
+        persist_trust_store(&self.trust_store);
+    }
 }
 
 impl Default for IdentityRegistry {
@@ -370,7 +430,7 @@ impl Default for IdentityRegistry {
         let mut registry = Self {
             keys: HashMap::new(),
             fallback_id: IDENTITY_ID_DEFAULT.to_string(),
-            trust_store: Vec::new(),
+            trust_store: Arc::new(RwLock::new(load_trust_store())),
         };
 
         #[cfg(test)]
@@ -426,16 +486,27 @@ impl P2PIdentityExt for IdentityRegistry {
     }
 
     fn get_trusted_peers(&self) -> Vec<TrustedPeer> {
-        self.trust_store.clone()
+        self.trust_store
+            .read()
+            .expect("trust store lock poisoned")
+            .clone()
     }
 
     fn trust_peer(&mut self, peer: TrustedPeer) {
         self.revoke_peer(peer.node_id);
-        self.trust_store.push(peer);
+        self.trust_store
+            .write()
+            .expect("trust store lock poisoned")
+            .push(peer);
+        persist_trust_store(&self.trust_store);
     }
 
     fn revoke_peer(&mut self, node_id: iroh::NodeId) {
-        self.trust_store.retain(|peer| peer.node_id != node_id);
+        self.trust_store
+            .write()
+            .expect("trust store lock poisoned")
+            .retain(|peer| peer.node_id != node_id);
+        persist_trust_store(&self.trust_store);
     }
 }
 
@@ -487,6 +558,53 @@ fn default_identity_store_dir() -> Option<PathBuf> {
 fn default_identity_store_dir() -> Option<PathBuf> {
     None
 }
+
+fn trust_store_path() -> Option<PathBuf> {
+    let mut path = dirs::config_dir()?;
+    path.push("graphshell");
+    path.push("verse_trusted_peers.json");
+    Some(path)
+}
+
+#[cfg(not(test))]
+fn load_trust_store() -> Vec<TrustedPeer> {
+    let Some(path) = trust_store_path() else {
+        return Vec::new();
+    };
+    if !path.exists() {
+        return Vec::new();
+    }
+    let Ok(content) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&content).unwrap_or_default()
+}
+
+#[cfg(test)]
+fn load_trust_store() -> Vec<TrustedPeer> {
+    Vec::new()
+}
+
+#[cfg(not(test))]
+fn persist_trust_store(trust_store: &Arc<RwLock<Vec<TrustedPeer>>>) {
+    let Some(path) = trust_store_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let peers = trust_store
+        .read()
+        .expect("trust store lock poisoned")
+        .clone();
+    let Ok(content) = serde_json::to_string_pretty(&peers) else {
+        return;
+    };
+    let _ = fs::write(path, content);
+}
+
+#[cfg(test)]
+fn persist_trust_store(_trust_store: &Arc<RwLock<Vec<TrustedPeer>>>) {}
 
 fn encode_hex(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
