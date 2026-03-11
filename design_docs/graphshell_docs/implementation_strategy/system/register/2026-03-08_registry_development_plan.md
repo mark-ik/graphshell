@@ -23,8 +23,9 @@ The goal is a fully operable Register layer in which every registry is:
 - Connected to other registries only through the `SignalRoutingLayer` or `ControlPanel`, never via direct inter-registry calls
 
 Archive note:
-- This master plan is not ready to archive. `RendererRegistry` (Sector B), Sector C identity/Verse
-  closure, and the remaining Sector G WASM/mod-theme follow-ons are still open.
+- This master plan is not ready to archive. `RendererRegistry` (Sector B), Sector C's remaining
+  NIP-46 / relay diagnostics closure, and the remaining Sector G WASM/mod-theme follow-ons are
+  still open.
 
 ---
 
@@ -150,7 +151,7 @@ Current state: Both `InputRegistry` and `ActionRegistry` have functional cores b
 
 Identity and Verse are co-dependent: Nostr event signing draws on the identity keypair, device sync requires trusted peer identity, and NIP-46 delegation bridges the two registries.
 
-Current state: `IdentityRegistry` is functional but uses SHA256 stub signing (no real ed25519 keypair). `NostrCoreRegistry` is the most complete registry in the system but lacks a real relay backend and NIP-46 signer implementation. Keypair ownership is duplicated across both registries.
+Current state: `IdentityRegistry` now owns real ed25519 signing, key persistence, and Verse trust state. `NostrCoreRegistry` now has a supervised websocket relay backend plus restart-safe subscription persistence. The remaining work in Sector C is the NIP-46 delegated signer path and dedicated relay connection diagnostics.
 
 ---
 

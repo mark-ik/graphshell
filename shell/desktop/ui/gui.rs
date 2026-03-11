@@ -283,6 +283,7 @@ impl Gui {
             panel.spawn_prefetch_scheduler();
             // Spawn sync worker if Verse mod is available.
             panel.spawn_p2p_sync_worker();
+            panel.spawn_nostr_relay_worker(Arc::clone(&registry_runtime));
             if let Err(error) = panel.spawn_registered_agent(
                 "agent:tag_suggester",
                 Arc::clone(&registry_runtime),

@@ -791,6 +791,13 @@ impl RegistryRuntime {
             .instantiate(agent_id)
     }
 
+    pub(crate) fn attach_nostr_relay_worker(
+        &self,
+        relay_worker_tx: tokio::sync::mpsc::UnboundedSender<nostr_core::RelayWorkerCommand>,
+    ) {
+        self.nostr_core.attach_supervised_relay_worker(relay_worker_tx);
+    }
+
     pub(crate) fn select_viewer_for_content(
         &self,
         uri: &str,

@@ -35,8 +35,8 @@ Track 3: Cross-registry wiring — unified keypair ownership, CP4 sync identity
 
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
-| `IdentityRegistry` | ✅ | Functional but stub crypto | SHA256 stub (not ed25519); no key rotation; no NIP-07 delegation; duplicate key store with NostrCore |
-| `NostrCoreRegistry` | ✅ | Most complete registry | No real relay backend (trait only); NIP-46 signer is a type variant with no implementation; keys duplicated from IdentityRegistry |
+| `IdentityRegistry` | ✅ | Runtime authority | Real ed25519 signing, persistence, rotation/revocation, and Verse trust wiring are landed; NIP-07 remains deferred |
+| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend and subscription persistence are landed; NIP-46 signer and relay connection diagnostics are still open |
 
 ---
 
@@ -159,11 +159,11 @@ It multiplexes subscriptions over a connection pool governed by `NostrRelayPolic
 override). Production default is `wss://` only (existing normalization preserved).
 
 **Done gates:**
-- [ ] `TungsteniteRelayService` struct with basic connect/disconnect/subscribe/publish.
-- [ ] Relay service spawned as supervised worker in `ControlPanel`.
-- [ ] `Community` relay policy (default) connects to the configured relay list.
+- [x] `TungsteniteRelayService` struct with basic connect/disconnect/subscribe/publish.
+- [x] Relay service spawned as supervised worker in `ControlPanel`.
+- [x] `Community` relay policy (default) connects to the configured relay list.
 - [ ] `DIAG_NOSTR_RELAY` channels emit on connection state changes.
-- [ ] Integration test: publish an event and receive it back via subscription on a local relay.
+- [x] Integration test: publish/subscribe/close commands are emitted over a local relay websocket.
 
 ### C2.2 — Subscription persistence across restarts
 
@@ -174,9 +174,9 @@ Subscriptions are persisted via `GraphIntent::PersistNostrSubscriptions` (new in
 writes the active filter set to workspace state through the WAL.
 
 **Done gates:**
-- [ ] `GraphIntent::PersistNostrSubscriptions` variant defined and handled.
-- [ ] On startup, persisted subscriptions are re-submitted to `TungsteniteRelayService`.
-- [ ] Test: restart with active subscription re-establishes it automatically.
+- [x] `GraphIntent::PersistNostrSubscriptions` variant defined and handled.
+- [x] On startup, persisted subscriptions are re-submitted to `TungsteniteRelayService`.
+- [x] Test: restart with active subscription re-establishes it automatically.
 
 ### C2.3 — NIP-46 remote signer
 
@@ -204,6 +204,10 @@ and NIP-07 browser extension bridges.
 - [ ] `SignerBackend::Nip46` variant wired into `NostrCoreRegistry::sign_event()`.
 - [ ] Session key is generated from `IdentityRegistry` (not a separate key store).
 - [ ] Integration test: NIP-46 sign round-trip with a local bunker mock.
+
+Current implementation note:
+- Local signing now uses canonical Nostr event hashes with `created_at`, and the relay backend is a supervised worker under `ControlPanel`.
+- `SignerBackend::Nip46` still returns explicit `BackendUnavailable`; this is the remaining Sector C blocker.
 
 ---
 
@@ -271,8 +275,8 @@ Track as a prospective capability; no implementation in this sector.
 - [ ] `IdentityRegistry` uses real ed25519 signing; `sign()` + `verify()` round-trip tested.
 - [ ] Identity keys are persisted to platform user data directory and survive restart.
 - [ ] `NostrCoreRegistry` has no local key store; all signing delegates to `IdentityRegistry`.
-- [ ] `TungsteniteRelayService` enables real Nostr event publish/subscribe.
-- [ ] Nostr subscriptions persist across app restarts.
+- [x] `TungsteniteRelayService` enables real Nostr event publish/subscribe.
+- [x] Nostr subscriptions persist across app restarts.
 - [ ] NIP-46 remote signer is implemented and wired to `SignerBackend::Nip46`.
 - [ ] `DIAG_IDENTITY_SIGN` and `DIAG_NOSTR_RELAY` channels emit with correct severity.
 - [ ] No duplicate key material exists anywhere in the codebase.

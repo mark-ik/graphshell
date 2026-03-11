@@ -87,8 +87,10 @@ raw-window-handle = "0.6"
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "aws-lc-rs"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "net"] }
 tokio-util = "0.7"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
 # Runtime caches are currently reducer-thread/short lookup paths.
 # If async task paths begin doing cache population directly, prefer `moka` `future` feature there.
 moka = { version = "0.12", features = ["sync"] }

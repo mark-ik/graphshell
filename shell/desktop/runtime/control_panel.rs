@@ -31,6 +31,7 @@ use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
 use crate::shell::desktop::runtime::registries::agent::{Agent, AgentContext};
+use crate::shell::desktop::runtime::registries::nostr_core::NostrRelayWorker;
 use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
 
 /// Capacity of the intent channel — limits flooding from async producers.
@@ -302,6 +303,16 @@ impl ControlPanel {
         });
 
         log::debug!("control_panel: sync worker spawned");
+    }
+
+    pub(crate) fn spawn_nostr_relay_worker(&mut self, registries: Arc<RegistryRuntime>) {
+        let cancel = self.cancel.clone();
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        registries.attach_nostr_relay_worker(command_tx);
+        self.workers.spawn(async move {
+            NostrRelayWorker::new(command_rx, cancel.clone()).run().await;
+        });
+        log::debug!("control_panel: nostr relay worker spawned");
     }
 
     pub(crate) fn spawn_agent(
@@ -854,6 +865,21 @@ mod tests {
         assert!(panel.sync_command_sender().is_some());
 
         panel.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn spawn_nostr_relay_worker_is_supervised() {
+        let runtime = phase3_shared_runtime();
+        let mut panel = ControlPanel::new();
+        assert_eq!(panel.worker_count(), 0);
+
+        panel.spawn_nostr_relay_worker(runtime);
+        tokio::task::yield_now().await;
+
+        assert_eq!(panel.worker_count(), 1);
+
+        panel.shutdown().await;
+        assert_eq!(panel.worker_count(), 0);
     }
 
     #[tokio::test]
