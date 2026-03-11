@@ -578,6 +578,10 @@ impl Gui {
         window: &EmbedderWindow,
         headed_window: &headed_window::HeadedWindow,
     ) {
+        // Hold the Tokio runtime guard for the entire frame so that any
+        // JoinSet::spawn calls (protocol probes, future Nostr relay ops, etc.)
+        // made during the render/post-render phases have an active handle.
+        let _rt_guard = self.tokio_runtime.enter();
         let _ = self.run_update(GuiUpdateInput {
             state,
             window,

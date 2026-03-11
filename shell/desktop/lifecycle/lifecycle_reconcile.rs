@@ -239,6 +239,21 @@ pub(crate) fn reconcile_runtime(args: RuntimeReconcileArgs<'_>) {
         let _ = verso::destroy_wry_overlay_for_node(node_key);
     }
 
+    // Ensure wry child WebViews exist for all active NativeOverlay panes.
+    // Creation is idempotent: `ensure_wry_overlay_for_node` no-ops if the WebView exists.
+    #[cfg(feature = "wry")]
+    if let Some(parent_handle) = args.window.raw_window_handle_for_child() {
+        for node_key in active_native_overlay_nodes.iter().copied() {
+            let url = args
+                .graph_app
+                .domain_graph()
+                .get_node(node_key)
+                .map(|node| node.url.as_str())
+                .unwrap_or("about:blank");
+            verso::ensure_wry_overlay_for_node(node_key, url, parent_handle);
+        }
+    }
+
     // Emit lifecycle promotion intents for active tiles (intents applied after reconcile).
     // Runtime viewer creation happens in tile_render_pass after these intents are applied.
     for node_key in active_tile_nodes.iter().copied() {
@@ -524,6 +539,10 @@ mod tests {
         assert!(
             production_source.contains("destroy_wry_overlay_for_node"),
             "reconcile should destroy stale Wry overlays when a pane swaps away from NativeOverlay"
+        );
+        assert!(
+            production_source.contains("ensure_wry_overlay_for_node"),
+            "reconcile should create Wry overlays for active NativeOverlay nodes"
         );
     }
 }

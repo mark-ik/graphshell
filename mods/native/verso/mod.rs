@@ -22,7 +22,9 @@ use crate::{
     mods::native::verso::wry_manager::{OverlayRect, WryManager},
 };
 #[cfg(feature = "wry")]
-use std::sync::{Mutex, OnceLock};
+use raw_window_handle::RawWindowHandle;
+#[cfg(feature = "wry")]
+use std::cell::RefCell;
 
 #[cfg(feature = "wry")]
 pub(crate) mod wry_manager;
@@ -31,70 +33,82 @@ pub(crate) mod wry_types;
 #[cfg(feature = "wry")]
 pub(crate) mod wry_viewer;
 
+// WryManager is not Send (wry::WebView is !Send on Windows/macOS due to COM/Obj-C constraints).
+// Access is always from the main thread; a thread-local RefCell provides safe single-threaded access.
 #[cfg(feature = "wry")]
-fn shared_wry_manager() -> &'static Mutex<WryManager> {
-    static MANAGER: OnceLock<Mutex<WryManager>> = OnceLock::new();
-    MANAGER.get_or_init(|| Mutex::new(WryManager::new()))
+thread_local! {
+    static WRY_MANAGER: RefCell<WryManager> = RefCell::new(WryManager::new());
+}
+
+#[cfg(feature = "wry")]
+fn with_wry_manager<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut WryManager) -> R,
+{
+    WRY_MANAGER.with(|cell| f(&mut cell.borrow_mut()))
+}
+
+/// Ensure a wry child WebView exists for `node_key`, creating it if needed.
+///
+/// Must be called before `sync_wry_overlay_for_node`.  `url` is the initial URL
+/// to load; `parent_handle` is the OS window handle from
+/// `EmbedderWindow::raw_window_handle_for_child`.
+#[cfg(feature = "wry")]
+pub(crate) fn ensure_wry_overlay_for_node(
+    node_key: NodeKey,
+    url: &str,
+    parent_handle: RawWindowHandle,
+) {
+    let node_id = node_key.index() as u64;
+    with_wry_manager(|manager| {
+        if !manager.has_webview(node_id) {
+            manager.create_webview(node_id, url, parent_handle);
+        }
+    });
 }
 
 #[cfg(feature = "wry")]
 pub(crate) fn sync_wry_overlay_for_node(node_key: NodeKey, rect: OverlayRect, visible: bool) {
     let node_id = node_key.index() as u64;
-    let mut manager = shared_wry_manager()
-        .lock()
-        .expect("wry manager lock poisoned");
-    if !manager.has_webview(node_id) {
-        manager.create_webview(node_id);
-    }
-    manager.sync_overlay(node_id, rect, visible);
+    with_wry_manager(|manager| manager.sync_overlay(node_id, rect, visible));
 }
 
 #[cfg(feature = "wry")]
 pub(crate) fn hide_wry_overlay_for_node(node_key: NodeKey) -> bool {
     let node_id = node_key.index() as u64;
-    let mut manager = shared_wry_manager()
-        .lock()
-        .expect("wry manager lock poisoned");
-    if !manager.has_webview(node_id) {
-        return false;
-    }
-
-    if let Some(last_state) = manager.last_sync_state(node_id) {
-        manager.sync_overlay(node_id, last_state.rect, false);
-    }
-    true
+    with_wry_manager(|manager| {
+        if !manager.has_webview(node_id) {
+            return false;
+        }
+        if let Some(last_state) = manager.last_sync_state(node_id) {
+            manager.sync_overlay(node_id, last_state.rect, false);
+        }
+        true
+    })
 }
 
 #[cfg(feature = "wry")]
 pub(crate) fn destroy_wry_overlay_for_node(node_key: NodeKey) -> bool {
     let node_id = node_key.index() as u64;
-    let mut manager = shared_wry_manager()
-        .lock()
-        .expect("wry manager lock poisoned");
-    if !manager.has_webview(node_id) {
-        return false;
-    }
-
-    manager.destroy_webview(node_id);
-    true
+    with_wry_manager(|manager| {
+        if !manager.has_webview(node_id) {
+            return false;
+        }
+        manager.destroy_webview(node_id);
+        true
+    })
 }
 
 #[cfg(all(test, feature = "wry"))]
 pub(crate) fn last_wry_overlay_sync_for_node_for_tests(
     node_key: NodeKey,
 ) -> Option<OverlaySyncState> {
-    shared_wry_manager()
-        .lock()
-        .expect("wry manager lock poisoned")
-        .last_sync_state(node_key.index() as u64)
+    with_wry_manager(|manager| manager.last_sync_state(node_key.index() as u64))
 }
 
 #[cfg(all(test, feature = "wry"))]
 pub(crate) fn reset_wry_manager_for_tests() {
-    let mut manager = shared_wry_manager()
-        .lock()
-        .expect("wry manager lock poisoned");
-    *manager = WryManager::new();
+    with_wry_manager(|manager| *manager = WryManager::new());
 }
 
 /// Verso mod manifest - registered at compile time via inventory
@@ -253,44 +267,44 @@ mod tests {
 
     #[cfg(feature = "wry")]
     #[test]
-    fn wry_overlay_hide_updates_existing_slot_visibility() {
+    fn wry_overlay_hide_no_ops_for_missing_slot() {
         reset_wry_manager_for_tests();
         let node_key = NodeKey::new(600);
-        sync_wry_overlay_for_node(
-            node_key,
-            OverlayRect {
-                x: 2.0,
-                y: 4.0,
-                width: 120.0,
-                height: 80.0,
-            },
-            true,
-        );
-
-        assert!(hide_wry_overlay_for_node(node_key));
-        let state =
-            last_wry_overlay_sync_for_node_for_tests(node_key).expect("expected wry overlay state");
-        assert!(!state.visible);
+        // hide returns false when no slot exists (no WebView was created).
+        assert!(!hide_wry_overlay_for_node(node_key));
+        // No sync state should exist.
+        assert!(last_wry_overlay_sync_for_node_for_tests(node_key).is_none());
     }
 
     #[cfg(feature = "wry")]
     #[test]
-    fn wry_overlay_destroy_removes_existing_slot() {
+    fn wry_overlay_destroy_returns_false_for_missing_slot() {
         reset_wry_manager_for_tests();
         let node_key = NodeKey::new(601);
+        // destroy returns false when no slot exists.
+        assert!(!destroy_wry_overlay_for_node(node_key));
+        // Double-destroy is safe and also returns false.
+        assert!(!destroy_wry_overlay_for_node(node_key));
+        assert!(last_wry_overlay_sync_for_node_for_tests(node_key).is_none());
+    }
+
+    #[cfg(feature = "wry")]
+    #[test]
+    fn wry_overlay_sync_no_ops_for_missing_slot() {
+        reset_wry_manager_for_tests();
+        let node_key = NodeKey::new(602);
+        // sync_wry_overlay_for_node silently no-ops when no slot exists.
         sync_wry_overlay_for_node(
             node_key,
             OverlayRect {
                 x: 0.0,
                 y: 0.0,
-                width: 10.0,
-                height: 10.0,
+                width: 200.0,
+                height: 100.0,
             },
             true,
         );
-
-        assert!(destroy_wry_overlay_for_node(node_key));
-        assert!(!destroy_wry_overlay_for_node(node_key));
+        // Still no state because no WebView was created.
         assert!(last_wry_overlay_sync_for_node_for_tests(node_key).is_none());
     }
 }

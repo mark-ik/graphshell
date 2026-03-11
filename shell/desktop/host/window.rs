@@ -19,6 +19,8 @@ use servo::{
     WebViewBuilder, WebViewDelegate, WebViewId,
 };
 use url::Url;
+#[cfg(feature = "wry")]
+use raw_window_handle::RawWindowHandle;
 
 use crate::app::{HostOpenRequest, OpenSurfaceSource, PendingCreateToken, RendererId};
 use crate::shell::desktop::host::running_app_state::{RunningAppState, WebViewCollection};
@@ -174,6 +176,12 @@ impl EmbedderWindow {
 
     pub(crate) fn id(&self) -> EmbedderWindowId {
         self.platform_window().id()
+    }
+
+    /// Returns the raw OS window handle for use with native child-window creation (e.g. wry overlays).
+    #[cfg(feature = "wry")]
+    pub(crate) fn raw_window_handle_for_child(&self) -> Option<RawWindowHandle> {
+        self.platform_window.raw_window_handle_for_child()
     }
 
     pub(crate) fn create_toplevel_webview<T>(&self, state: Rc<T>, url: Url) -> WebView
@@ -897,6 +905,14 @@ pub(crate) trait PlatformWindow {
     }
 
     fn notify_accessibility_tree_update(&self, _: WebView, _: accesskit::TreeUpdate) {}
+
+    /// Returns the raw OS window handle for use with native child-window creation (e.g. wry).
+    ///
+    /// Only available for headed windows; headless windows return `None`.
+    #[cfg(feature = "wry")]
+    fn raw_window_handle_for_child(&self) -> Option<RawWindowHandle> {
+        None
+    }
 }
 
 #[cfg(test)]

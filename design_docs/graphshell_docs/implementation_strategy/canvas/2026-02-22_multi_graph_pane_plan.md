@@ -56,6 +56,46 @@ It should host a pane whose payload determines rendering and input behavior.
 This keeps the workbench layer backend-agnostic and aligns with `GRAPHSHELL_AS_BROWSER.md`:
 semantic truth in graph/intents, tile tree as layout authority, viewers reconciled as runtime instances.
 
+### Classification Axes (authoritative separation)
+
+To avoid collapsing semantic pane identity into implementation detail, Graphshell should classify a
+promoted tile along four independent axes:
+
+1. **Pane Kind** — what kind of surface the tile is hosting.
+    - `GraphPane`
+    - `NodeViewerPane`
+    - `ToolPane`
+
+2. **Content Kind** — what sort of thing is being shown or edited.
+    - `WebDocument`
+    - `Directory`
+    - `Clip`
+    - `GraphshellInternalSurface`
+    - future: `Note`, `Media`, `Dataset`, etc.
+
+3. **Viewer Backend** — which provider is responsible for rendering the content.
+    - `viewer:webview`
+    - `viewer:wry`
+    - `viewer:plaintext`
+    - `viewer:pdf`
+    - `viewer:image`
+
+4. **Render Mode** — what runtime composition path owns pixels for the pane.
+    - `CompositedTexture`
+    - `NativeOverlay`
+    - `EmbeddedEgui`
+    - `Placeholder`
+
+This separation is deliberate:
+
+- **Pane Kind** is graph-visible semantics and should be stable under backend swaps.
+- **Viewer Backend** is a runtime/provider choice and may change without changing graph identity.
+- **Render Mode** is compositor/runtime policy derived from the backend and platform constraints.
+- **Content Kind** helps graph visualization, badges, viewer routing, and future policy.
+
+Therefore: a web node opened in Servo and then switched to Wry is still the same `NodeViewerPane`
+showing the same graph node. The backend and render mode changed; the pane kind did not.
+
 ---
 
 ## Semantic Model: One Graph, Many Pane Projections
@@ -181,6 +221,17 @@ Consequences:
 - Graph canvas rendering of Wry-backed nodes remains thumbnail/placeholder fallback.
 - Overlay tracking is a pane/compositor concern, not a graph-pane concern.
 
+Non-goal:
+
+- Do not model Servo and Wry as distinct promoted node kinds in the graph.
+- Do not make backend swaps create a new graph node identity.
+
+Preferred direction:
+
+- Represent pane kind explicitly in graph-facing metadata and graph visualization.
+- Preserve backend choice as a property of the node viewer pane/runtime attachment.
+- Allow graph view styling to reflect both pane kind and selected backend without conflating them.
+
 ### 5. Tile/Persistence Model
 
 The existing `TileKind` representation should evolve toward pane identity carrying a generic pane
@@ -201,7 +252,30 @@ Persistence must serialize:
 - pane view payload (`Graph`, `Node`, `Tool`)
 - graph-pane references (`GraphViewId`) where applicable
 
+Graph-facing metadata should additionally preserve enough semantics for graph view representation:
+
+- `pane_kind`
+- `content_kind` when applicable
+- effective `viewer_id` or explicit override
+- effective `render_mode` as diagnostics/runtime metadata, not semantic identity
+
 This avoids proliferating content-specific tile variants (for example legacy `TileKind::WebView` / `TileKind::History`) now that pane identity and pane payload carry the semantic type.
+
+### 5.1 Graph Representation of Promoted Tiles
+
+Every promoted tile should be representable in the graph as a node whose visual treatment reflects
+its pane kind.
+
+Recommended policy:
+
+- **Graph Pane** nodes should remain visually distinct from document/content nodes.
+- **Tool Pane** nodes should read as subsystem or utility surfaces, not as ordinary documents.
+- **Node Viewer Pane** nodes should show both the underlying content kind and a pane-kind badge.
+- Backend/runtime state such as `viewer:wry` or `NativeOverlay` should appear as secondary badges,
+  border treatments, or diagnostics overlays rather than replacing the node's semantic class.
+
+This gives the graph view the user-facing clarity of “what sort of pane is this?” while preserving
+the architectural rule that backend/render mode are attachment-time properties, not graph identity.
 
 ### 6. Intent Model (View- and Pane-Targeted)
 

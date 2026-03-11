@@ -477,6 +477,15 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
             focused_node_hint,
         );
 
+        // If the focused pane's webview is not yet mapped (created this frame or pending),
+        // request another repaint so focus activation is re-evaluated once the webview arrives.
+        // Without this, the blank-viewport state persists until user input drives a new frame.
+        if let Some(node_key) = *focused_node_hint {
+            if graph_app.get_webview_for_node(node_key).is_none() {
+                ctx.request_repaint();
+            }
+        }
+
         let active_tile_violations = tile_invariants::collect_active_tile_mapping_violations(
             tiles_tree,
             graph_app,

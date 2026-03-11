@@ -2,14 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Wry manager scaffold.
-//!
-//! First slice responsibilities:
-//! - centralize ownership over Wry lifecycle records,
-//! - provide a compile-safe API for compositor/lifecycle wiring,
-//! - avoid direct `wry::WebView` plumbing until the next milestone.
+//! Wry manager — owns real `wry::WebView` instances for NativeOverlay panes.
 
 use std::collections::HashMap;
+
+use raw_window_handle::RawWindowHandle;
 
 use super::wry_types::{WryPlatform, WryRenderMode};
 
@@ -27,12 +24,11 @@ pub(crate) struct OverlaySyncState {
     pub visible: bool,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
 struct WebviewSlot {
+    webview: wry::WebView,
     last_sync: Option<OverlaySyncState>,
 }
 
-#[derive(Debug)]
 pub(crate) struct WryManager {
     platform: WryPlatform,
     default_mode: WryRenderMode,
@@ -57,8 +53,46 @@ impl WryManager {
         self.default_mode
     }
 
-    pub(crate) fn create_webview(&mut self, node_id: u64) {
-        self.webviews.entry(node_id).or_default();
+    /// Create a wry child WebView for the given node at the given URL.
+    ///
+    /// `parent_handle` is the OS window handle from
+    /// `EmbedderWindow::raw_window_handle_for_child`.  The caller guarantees
+    /// the underlying OS handle remains valid for the lifetime of this `WryManager`.
+    ///
+    /// The created WebView starts hidden; call `sync_overlay` to position and show it.
+    pub(crate) fn create_webview(
+        &mut self,
+        node_id: u64,
+        url: &str,
+        parent_handle: RawWindowHandle,
+    ) {
+        if self.webviews.contains_key(&node_id) {
+            return;
+        }
+
+        // SAFETY: The caller holds the OS window alive for the duration of this
+        // WryManager (the winit window owns the HWND and lives for the app lifetime).
+        let borrowed = unsafe { raw_window_handle::WindowHandle::borrow_raw(parent_handle) };
+
+        let result = wry::WebViewBuilder::new()
+            .with_url(url)
+            .with_visible(false)
+            .build_as_child(&borrowed);
+
+        match result {
+            Ok(webview) => {
+                self.webviews.insert(
+                    node_id,
+                    WebviewSlot {
+                        webview,
+                        last_sync: None,
+                    },
+                );
+            }
+            Err(e) => {
+                log::warn!("wry: failed to create WebView for node {node_id}: {e}");
+            }
+        }
     }
 
     pub(crate) fn destroy_webview(&mut self, node_id: u64) {
@@ -70,8 +104,20 @@ impl WryManager {
     }
 
     pub(crate) fn sync_overlay(&mut self, node_id: u64, rect: OverlayRect, visible: bool) {
-        if let Some(slot) = self.webviews.get_mut(&node_id) {
-            slot.last_sync = Some(OverlaySyncState { rect, visible });
+        let Some(slot) = self.webviews.get_mut(&node_id) else {
+            return;
+        };
+        slot.last_sync = Some(OverlaySyncState { rect, visible });
+
+        let bounds = wry::Rect {
+            position: wry::dpi::LogicalPosition::new(rect.x as f64, rect.y as f64).into(),
+            size: wry::dpi::LogicalSize::new(rect.width as f64, rect.height as f64).into(),
+        };
+        if let Err(e) = slot.webview.set_bounds(bounds) {
+            log::warn!("wry: set_bounds failed for node {node_id}: {e}");
+        }
+        if let Err(e) = slot.webview.set_visible(visible) {
+            log::warn!("wry: set_visible({visible}) failed for node {node_id}: {e}");
         }
     }
 
@@ -84,35 +130,10 @@ impl WryManager {
 mod tests {
     use super::*;
 
+    /// Smoke test: WryManager is constructable and reports no webviews.
     #[test]
-    fn create_and_destroy_webview_slot() {
-        let mut manager = WryManager::new();
-        manager.create_webview(7);
-        assert!(manager.has_webview(7));
-        manager.destroy_webview(7);
-        assert!(!manager.has_webview(7));
-    }
-
-    #[test]
-    fn sync_overlay_records_last_state() {
-        let mut manager = WryManager::new();
-        manager.create_webview(11);
-        manager.sync_overlay(
-            11,
-            OverlayRect {
-                x: 10.0,
-                y: 20.0,
-                width: 300.0,
-                height: 200.0,
-            },
-            true,
-        );
-
-        let state = manager
-            .last_sync_state(11)
-            .expect("expected recorded sync state");
-        assert!(state.visible);
-        assert_eq!(state.rect.width, 300.0);
-        assert_eq!(state.rect.height, 200.0);
+    fn new_manager_has_no_webviews() {
+        let manager = WryManager::new();
+        assert!(!manager.has_webview(0));
     }
 }

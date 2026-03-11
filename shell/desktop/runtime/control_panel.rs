@@ -31,7 +31,7 @@ use crate::mods::native::verse::{self, SyncCommand, SyncWorker};
 use crate::registries::infrastructure::mod_loader::{discover_native_mods, resolve_mod_load_order};
 use crate::shell::desktop::runtime::registries::RegistryRuntime;
 use crate::shell::desktop::runtime::registries::agent::{Agent, AgentContext};
-use crate::shell::desktop::runtime::registries::nostr_core::NostrRelayWorker;
+use crate::shell::desktop::runtime::registries::nostr_core::{NostrRelayWorker, RelayWorkerCommand};
 use crate::shell::desktop::runtime::protocol_probe::ContentTypeProber;
 
 /// Capacity of the intent channel — limits flooding from async producers.
@@ -100,6 +100,8 @@ pub(crate) enum IntentSource {
     /// Restore/replay from persistence.
     #[allow(dead_code)]
     Restore,
+    /// Inbound event from a Nostr relay subscription.
+    NostrRelay,
 }
 
 fn intent_source_priority(source: IntentSource) -> u8 {
@@ -112,6 +114,7 @@ fn intent_source_priority(source: IntentSource) -> u8 {
         IntentSource::ModLoader => 5,
         IntentSource::PrefetchScheduler => 6,
         IntentSource::P2pSync => 7,
+        IntentSource::NostrRelay => 7,
         IntentSource::Restore => 8,
     }
 }
@@ -308,10 +311,53 @@ impl ControlPanel {
     pub(crate) fn spawn_nostr_relay_worker(&mut self, registries: Arc<RegistryRuntime>) {
         let cancel = self.cancel.clone();
         let (command_tx, command_rx) = mpsc::unbounded_channel();
-        registries.attach_nostr_relay_worker(command_tx);
-        self.workers.spawn(async move {
-            NostrRelayWorker::new(command_rx, cancel.clone()).run().await;
+
+        // Create the inbound event sink. The relay worker sends
+        // (subscription_id, NostrSignedEvent) pairs; this task translates them
+        // into GraphIntent::NostrEventReceived and queues them for the reducer.
+        let (event_sink_tx, mut event_sink_rx) =
+            tokio::sync::mpsc::unbounded_channel::<(String, crate::shell::desktop::runtime::registries::nostr_core::NostrSignedEvent)>();
+
+        // Register the event sink with the worker before it starts.
+        let _ = command_tx.send(RelayWorkerCommand::SetEventSink {
+            sink: Some(event_sink_tx),
         });
+
+        registries.attach_nostr_relay_worker(command_tx);
+
+        // Relay worker task.
+        let worker_cancel = cancel.clone();
+        self.workers.spawn(async move {
+            NostrRelayWorker::new(command_rx, worker_cancel).run().await;
+        });
+
+        // Event dispatch task: translates inbound relay events into intents.
+        let intent_tx = self.intent_tx.clone();
+        self.workers.spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    item = event_sink_rx.recv() => {
+                        let Some((subscription_id, event)) = item else { break };
+                        let intent = GraphIntent::NostrEventReceived {
+                            subscription_id,
+                            event_id: event.event_id,
+                            pubkey: event.pubkey,
+                            created_at: event.created_at,
+                            kind: event.kind,
+                            content: event.content,
+                            tags: event.tags,
+                        };
+                        let _ = intent_tx.send(QueuedIntent {
+                            intent,
+                            queued_at: std::time::Instant::now(),
+                            source: IntentSource::NostrRelay,
+                        }).await;
+                    }
+                }
+            }
+        });
+
         log::debug!("control_panel: nostr relay worker spawned");
     }
 
@@ -876,7 +922,9 @@ mod tests {
         panel.spawn_nostr_relay_worker(runtime);
         tokio::task::yield_now().await;
 
-        assert_eq!(panel.worker_count(), 1);
+        // spawn_nostr_relay_worker spawns two tasks: the relay worker and the
+        // event dispatch bridge that translates inbound events into intents.
+        assert_eq!(panel.worker_count(), 2);
 
         panel.shutdown().await;
         assert_eq!(panel.worker_count(), 0);

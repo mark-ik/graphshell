@@ -512,3 +512,112 @@ A functional Nostr client layer exists when:
 - [ ] NIP-17 DMs can be sent and received (gift-wrap / sealed inbox)
 - [ ] All new event kinds route through `relay_publish` / `relay_subscribe` capability gates
 - [ ] `npub1example` placeholder strings in tests are replaced with valid bech32 test fixtures
+
+---
+
+## 8. Full NIP Universe Matrix (Upstream Inventory + Difficulty/Utility)
+
+This section answers the "all possible NIPs" request using the upstream `nostr-protocol/nips`
+repository inventory at authoring time (85 NIP markdown files).
+
+Scoring legend:
+
+- Difficulty: `Low` / `Medium` / `High` implementation cost for Graphshell.
+- Graphshell Utility: `Low` / `Medium` / `High` / `Critical` relative product value.
+- Rationale: one-line project-specific reason, not protocol-generic value.
+
+| NIP | Title | Difficulty | Graphshell Utility | Rationale |
+| --- | --- | --- | --- | --- |
+| NIP-01 | Events and signatures | Medium | Critical | Core relay event protocol + signing baseline. |
+| NIP-02 | Uses | Medium | High | Follow graph is core to social discovery and graph seeding. |
+| NIP-03 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-04 | Security Warning | Medium | Medium | Identity/linking semantics improve browser and graph routing UX. |
+| NIP-05 | Finding users from their NIP-05 identifier | Low | High | Human identity resolution improves usability in browser-like flows. |
+| NIP-06 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-07 | Unknown | Low | High | Already landed host bridge surface for web-app interoperability. |
+| NIP-08 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-09 | Client Usage | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-10 | Abstract | Medium | Medium | Threading conventions needed for coherent note/reply graph rendering. |
+| NIP-11 | Unknown | Low | High | Relay capability discovery needed for policy and diagnostics. |
+| NIP-12 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-13 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-14 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-15 | Terms | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-16 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-17 | Kind Definitions | High | High | Modern DM support is a major user expectation. |
+| NIP-18 | Quote Reposts | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-19 | Bare keys and ids | Medium | Critical | bech32 identity and entity handling is required for user-facing interoperability. |
+| NIP-20 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-21 | Unknown | Medium | Critical | nostr: URI support is essential for browser routing and in-content links. |
+| NIP-22 | Examples | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-23 | Example Event | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-24 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-25 | Unknown | Low | Medium | Reactions are expected social interaction baseline. |
+| NIP-26 | Delegator: | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-27 | Example of a profile mention process | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-28 | Kind 40: Create channel | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-29 | Relay-generated events | Low | Medium | Relay interoperability/ops NIP; useful for transport reliability. |
+| NIP-30 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-31 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-32 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-33 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-34 | Repository announcements | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-35 | Tags | Medium | Medium | Content organization semantics may map to graph labeling/workbench views. |
+| NIP-36 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-37 | Relay List for Private Content | Low | Medium | Relay interoperability/ops NIP; useful for transport reliability. |
+| NIP-38 | Abstract | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-39 | Abstract | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-40 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-42 | Motivation | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-43 | Membership Lists | Medium | Medium | Content organization semantics may map to graph labeling/workbench views. |
+| NIP-44 | Versions | Medium | High | Encryption primitive required for secure messaging and signer envelopes. |
+| NIP-45 | Motivation | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-46 | Changes | High | High | Remote signer compatibility broadens wallet/signer interop. |
+| NIP-47 | Rationale | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-48 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-49 | Password Unicode Normalization | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-50 | Abstract | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-51 | Types of lists | Medium | High | Lists support organization, mute/bookmark safety and productivity. |
+| NIP-52 | Calendar Events | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-53 | Live Streaming | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-54 | Articles | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-55 | Usage for Android applications | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-56 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-57 | Protocol flow | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-58 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-59 | Overview | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-60 | High-level flow | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-61 | High-level flow | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-62 | Request to Vanish from Relay | Low | Medium | Relay interoperability/ops NIP; useful for transport reliability. |
+| NIP-64 | Note | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-65 | Unknown | Medium | High | Relay-list metadata is needed for correct relay targeting. |
+| NIP-66 | Relay Discovery Events | Low | Medium | Relay interoperability/ops NIP; useful for transport reliability. |
+| NIP-68 | Picture Events | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-69 | Abstract | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-70 | The tag | Medium | Medium | Content organization semantics may map to graph labeling/workbench views. |
+| NIP-71 | Video Events | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-72 | Community Definition | Medium | Medium | Community semantics are useful for Verse/community-layer integration. |
+| NIP-73 | Supported IDs | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-75 | Nostr Event | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-77 | High-Level Protocol Description | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-78 | Nostr event | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-84 | Format | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-85 | Assertion Events | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-86 | Unknown | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-87 | Rationale | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-88 | Events | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-89 | Rationale | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-90 | Kinds | High | Medium | DVM jobs are strategic but not required for baseline client usability. |
+| NIP-92 | Example | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-94 | Event format | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-96 | Introduction | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-98 | Nostr event | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+| NIP-99 | Example Event | Medium | Low | Long-tail NIP; no direct Graphshell core dependency identified yet. |
+
+### 8.1 Notes on interpretation
+
+- This is an execution-planning matrix, not a standards-committee value judgment.
+- Several long-tail NIPs may move up in utility if product scope changes (for example,
+    payments, commerce, media-first workflows, or heavy community moderation).
+- Keep this matrix versioned in this file; if upstream adds new NIPs, append rows and assign
+    rank fields before implementation starts.

@@ -1117,6 +1117,14 @@ impl PlatformWindow for HeadedWindow {
         Some(self)
     }
 
+    #[cfg(feature = "wry")]
+    fn raw_window_handle_for_child(&self) -> Option<RawWindowHandle> {
+        self.winit_window
+            .window_handle()
+            .ok()
+            .map(|h| h.as_raw())
+    }
+
     fn screen_geometry(&self) -> ScreenGeometry {
         let hidpi_factor = self.hidpi_scale_factor();
         let toolbar_size = Size2D::new(0.0, (self.toolbar_height() * self.hidpi_scale_factor()).0);

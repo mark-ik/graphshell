@@ -2504,6 +2504,21 @@ impl GraphBrowserApp {
             GraphIntent::PersistNostrSubscriptions => {
                 self.save_persisted_nostr_subscriptions();
             }
+            GraphIntent::NostrEventReceived {
+                subscription_id,
+                event_id,
+                pubkey,
+                created_at,
+                kind,
+                content,
+                tags,
+            } => {
+                log::trace!(
+                    "nostr event received: sub={subscription_id} kind={kind} id={event_id} from={pubkey} at={created_at} content_len={} tags={}",
+                    content.len(),
+                    tags.len(),
+                );
+            }
             GraphIntent::Noop => {}
             GraphIntent::SetMemoryPressureStatus {
                 level,

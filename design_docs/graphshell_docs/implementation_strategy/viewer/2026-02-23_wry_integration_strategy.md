@@ -27,6 +27,15 @@ splitting user-facing configuration or duplicating shared infrastructure.
 In the pane-hosted multi-view model, this is specifically the **Node Viewer pane** backend path.
 It should not introduce a separate pane category or bypass pane/compositor routing.
 
+Architectural clarification:
+
+- `viewer:wry` is a **viewer backend** choice for a `Node Viewer pane`, not a distinct semantic
+  pane kind.
+- A node viewed through Servo and the same node viewed through Wry remain the same promoted node
+  and the same pane kind.
+- The graph-visible distinction should be pane kind and content kind first; backend/render mode are
+  secondary runtime traits that may be surfaced as badges or diagnostics metadata.
+
 ---
 
 ## The Critical Distinction: Texture vs Overlay
@@ -53,6 +62,9 @@ displayed in the graph canvas (not in a workbench tile), render the node's last 
 instead of a live webview. The user must open the node in a workbench pane to interact with it.
 This is consistent with the existing thumbnail pipeline — no new mechanism needed.
 
+This rule does **not** imply a separate “Wry node” class. It means that the same node viewer pane
+has a backend whose runtime constraints limit live interaction to stable pane regions.
+
 ---
 
 ## Mod Structure
@@ -75,6 +87,13 @@ Verso mod `ModManifest` additions (appended to existing Phase 2 manifest):
 
 `viewer:webview` is the canonical default web viewer ID. Users can still set frame-level or
 node-level defaults/overrides to `viewer:wry`.
+
+Non-goal:
+
+- Do not split workbench node-viewer semantics into `ServoPane` vs `WryPane` categories.
+- Do not encode backend swaps as graph-node identity changes.
+- Do not duplicate node-viewer lifecycle/selection logic per backend when the distinction belongs
+  in viewer selection and render mode.
 
 ---
 
@@ -108,6 +127,12 @@ layout effect with no semantic meaning, analogous to how egui passes rects to ch
 
 Pane-hosted interpretation: this applies to overlay-backed **node viewer panes** (or transitional
 tile equivalents during migration), not graph-pane render paths.
+
+Graph/UI representation guideline:
+
+- graph view should be allowed to show that a promoted node is a `Node Viewer pane`,
+- graph view may additionally badge that the effective backend is `viewer:wry`,
+- graph view should not treat Wry as a different pane category from Servo.
 
 ```rust
 // tile_compositor.rs::compose_frame()

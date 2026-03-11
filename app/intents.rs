@@ -609,6 +609,20 @@ pub enum GraphIntent {
         workflow_id: String,
     },
     PersistNostrSubscriptions,
+    /// Inbound Nostr event received from a relay subscription.
+    ///
+    /// Carries the subscription handle ID and the signed event so consumers
+    /// can route or persist the event through intent authorities rather than
+    /// mutating graph state directly from the relay worker.
+    NostrEventReceived {
+        subscription_id: String,
+        event_id: String,
+        pubkey: String,
+        created_at: u64,
+        kind: u16,
+        content: String,
+        tags: Vec<Vec<String>>,
+    },
     Noop,
     SetMemoryPressureStatus {
         level: MemoryPressureLevel,
