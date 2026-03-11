@@ -369,6 +369,12 @@ struct RelaySubscriptionRecord {
     relays: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct RelayPublishAck {
+    accepted: bool,
+    message: Option<String>,
+}
+
 #[derive(Default)]
 struct TungsteniteRelayService {
     connections: HashMap<String, RelaySocket>,
@@ -397,6 +403,8 @@ impl TungsteniteRelayService {
                 serde_json::json!(["REQ", handle.id, filter_json.clone()]),
             )
             .await?;
+            self.observe_subscription_confirmation(relay_url, &handle.id)
+                .await?;
         }
         self.subscriptions.insert(
             handle.id.clone(),
@@ -449,15 +457,43 @@ impl TungsteniteRelayService {
             "content": signed.content,
             "sig": signed.signature,
         });
+        let mut accepted_relays = 0usize;
+        let mut failure_notes = Vec::new();
         for relay_url in resolved_relays {
             self.send_json(relay_url, serde_json::json!(["EVENT", event.clone()]))
                 .await?;
+
+            match self
+                .await_publish_ack(relay_url, signed.event_id.as_str())
+                .await?
+            {
+                Some(ack) if ack.accepted => {
+                    accepted_relays += 1;
+                }
+                Some(ack) => {
+                    let note = ack
+                        .message
+                        .unwrap_or_else(|| "relay rejected publish".to_string());
+                    failure_notes.push(format!("{relay_url}: {note}"));
+                }
+                None => {
+                    // Timeout waiting for relay ack; treat as indeterminate but not fatal.
+                    accepted_relays += 1;
+                }
+            }
         }
 
+        let accepted = failure_notes.is_empty();
+        let note = if accepted {
+            "accepted by websocket relay backend".to_string()
+        } else {
+            format!("relay rejected publish: {}", failure_notes.join("; "))
+        };
+
         Ok(NostrPublishReceipt {
-            accepted: true,
-            relay_count: resolved_relays.len(),
-            note: "accepted by websocket relay backend".to_string(),
+            accepted,
+            relay_count: accepted_relays,
+            note,
         })
     }
 
@@ -660,6 +696,150 @@ impl TungsteniteRelayService {
             })?;
         self.connections.insert(relay_url.to_string(), socket);
         Ok(())
+    }
+
+    async fn recv_json(
+        &mut self,
+        relay_url: &str,
+        timeout: std::time::Duration,
+    ) -> Result<Option<serde_json::Value>, NostrCoreError> {
+        let socket = self
+            .connections
+            .get_mut(relay_url)
+            .ok_or_else(|| NostrCoreError::BackendUnavailable("relay connection missing".to_string()))?;
+
+        let frame = tokio::time::timeout(timeout, socket.next())
+            .await
+            .map_err(|_| NostrCoreError::BackendUnavailable("relay response timed out".to_string()))?;
+
+        let Some(frame) = frame else {
+            return Err(NostrCoreError::BackendUnavailable(
+                "relay closed before response".to_string(),
+            ));
+        };
+
+        let frame = frame.map_err(|error| {
+            NostrCoreError::BackendUnavailable(format!("relay receive failed: {error}"))
+        })?;
+
+        let Message::Text(text) = frame else {
+            return Ok(None);
+        };
+
+        let payload: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(payload) => payload,
+            Err(_) => return Ok(None),
+        };
+        Ok(Some(payload))
+    }
+
+    async fn observe_subscription_confirmation(
+        &mut self,
+        relay_url: &str,
+        subscription_id: &str,
+    ) -> Result<(), NostrCoreError> {
+        let timeout = std::time::Duration::from_millis(75);
+        for _ in 0..4 {
+            let payload = match self.recv_json(relay_url, timeout).await {
+                Ok(Some(payload)) => payload,
+                Ok(None) => continue,
+                Err(NostrCoreError::BackendUnavailable(message))
+                    if message.contains("timed out") =>
+                {
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            };
+
+            let Some(kind) = payload.get(0).and_then(|value| value.as_str()) else {
+                continue;
+            };
+            match kind {
+                "EOSE" => {
+                    if payload.get(1).and_then(|value| value.as_str()) == Some(subscription_id) {
+                        return Ok(());
+                    }
+                }
+                "NOTICE" => {
+                    let message = payload
+                        .get(1)
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("relay notice while subscribing");
+                    return Err(NostrCoreError::BackendUnavailable(format!(
+                        "relay notice for subscription '{subscription_id}': {message}"
+                    )));
+                }
+                "CLOSED" => {
+                    if payload.get(1).and_then(|value| value.as_str()) == Some(subscription_id) {
+                        let reason = payload
+                            .get(2)
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("subscription closed");
+                        return Err(NostrCoreError::BackendUnavailable(format!(
+                            "relay closed subscription '{subscription_id}': {reason}"
+                        )));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn await_publish_ack(
+        &mut self,
+        relay_url: &str,
+        event_id: &str,
+    ) -> Result<Option<RelayPublishAck>, NostrCoreError> {
+        let timeout = std::time::Duration::from_millis(200);
+        for _ in 0..8 {
+            let payload = match self.recv_json(relay_url, timeout).await {
+                Ok(Some(payload)) => payload,
+                Ok(None) => continue,
+                Err(NostrCoreError::BackendUnavailable(message))
+                    if message.contains("timed out") =>
+                {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
+
+            let Some(kind) = payload.get(0).and_then(|value| value.as_str()) else {
+                continue;
+            };
+
+            match kind {
+                "OK" => {
+                    if payload.get(1).and_then(|value| value.as_str()) != Some(event_id) {
+                        continue;
+                    }
+                    let accepted = payload
+                        .get(2)
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false);
+                    let message = payload
+                        .get(3)
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string);
+                    return Ok(Some(RelayPublishAck { accepted, message }));
+                }
+                "NOTICE" => {
+                    let message = payload
+                        .get(1)
+                        .and_then(|value| value.as_str())
+                        .map(str::to_string)
+                        .or_else(|| Some("relay notice while publishing".to_string()));
+                    return Ok(Some(RelayPublishAck {
+                        accepted: false,
+                        message,
+                    }));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(None)
     }
 
     async fn recv_nip46_response(
@@ -3279,6 +3459,147 @@ mod tests {
         assert_eq!(second[1]["created_at"], 1_710_000_111u64);
         assert_eq!(third[0], "CLOSE");
         assert_eq!(third[1], "timeline");
+
+        cancel.cancel();
+        worker.await.expect("worker should shut down cleanly");
+        server.await.expect("server should shut down cleanly");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nostr_relay_worker_publish_observes_ok_ack() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test websocket listener should bind");
+        let relay_url = format!("ws://{}", listener.local_addr().unwrap());
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("server should accept");
+            let mut websocket = accept_async(stream)
+                .await
+                .expect("server should upgrade websocket");
+            while let Some(frame) = websocket.next().await {
+                let Ok(frame) = frame else {
+                    break;
+                };
+                let Message::Text(text) = frame else {
+                    continue;
+                };
+                let payload: serde_json::Value =
+                    serde_json::from_str(&text).expect("frame should contain json");
+                if payload.get(0).and_then(|value| value.as_str()) == Some("EVENT") {
+                    let event_id = payload[1]["id"]
+                        .as_str()
+                        .expect("event id should exist")
+                        .to_string();
+                    websocket
+                        .send(Message::Text(
+                            serde_json::json!(["OK", event_id, true, "accepted"])
+                                .to_string()
+                                .into(),
+                        ))
+                        .await
+                        .expect("ok ack should send");
+                }
+            }
+        });
+
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn(NostrRelayWorker::new(command_rx, cancel.clone()).run());
+
+        let (publish_tx, publish_rx) = std::sync::mpsc::channel();
+        command_tx
+            .send(RelayWorkerCommand::Publish {
+                caller_id: "test:relay".to_string(),
+                signed: NostrSignedEvent {
+                    event_id: "evt-ack".to_string(),
+                    pubkey: "pk".to_string(),
+                    signature: "sig".to_string(),
+                    created_at: 1_710_000_222,
+                    kind: 1,
+                    content: "hello".to_string(),
+                    tags: vec![],
+                },
+                resolved_relays: vec![relay_url.clone()],
+                response: publish_tx,
+            })
+            .expect("publish command should send");
+
+        let publish = publish_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("publish response should arrive")
+            .expect("publish should succeed");
+        assert!(publish.accepted);
+        assert_eq!(publish.relay_count, 1);
+
+        cancel.cancel();
+        worker.await.expect("worker should shut down cleanly");
+        server.await.expect("server should shut down cleanly");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nostr_relay_worker_publish_notice_marks_receipt_rejected() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test websocket listener should bind");
+        let relay_url = format!("ws://{}", listener.local_addr().unwrap());
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("server should accept");
+            let mut websocket = accept_async(stream)
+                .await
+                .expect("server should upgrade websocket");
+            while let Some(frame) = websocket.next().await {
+                let Ok(frame) = frame else {
+                    break;
+                };
+                let Message::Text(text) = frame else {
+                    continue;
+                };
+                let payload: serde_json::Value =
+                    serde_json::from_str(&text).expect("frame should contain json");
+                if payload.get(0).and_then(|value| value.as_str()) == Some("EVENT") {
+                    websocket
+                        .send(Message::Text(
+                            serde_json::json!(["NOTICE", "rejected by relay policy"])
+                                .to_string()
+                                .into(),
+                        ))
+                        .await
+                        .expect("notice should send");
+                }
+            }
+        });
+
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn(NostrRelayWorker::new(command_rx, cancel.clone()).run());
+
+        let (publish_tx, publish_rx) = std::sync::mpsc::channel();
+        command_tx
+            .send(RelayWorkerCommand::Publish {
+                caller_id: "test:relay".to_string(),
+                signed: NostrSignedEvent {
+                    event_id: "evt-notice".to_string(),
+                    pubkey: "pk".to_string(),
+                    signature: "sig".to_string(),
+                    created_at: 1_710_000_333,
+                    kind: 1,
+                    content: "hello".to_string(),
+                    tags: vec![],
+                },
+                resolved_relays: vec![relay_url.clone()],
+                response: publish_tx,
+            })
+            .expect("publish command should send");
+
+        let publish = publish_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("publish response should arrive")
+            .expect("publish should still return receipt");
+        assert!(!publish.accepted);
+        assert_eq!(publish.relay_count, 0);
+        assert!(publish.note.contains("rejected"));
 
         cancel.cancel();
         worker.await.expect("worker should shut down cleanly");
