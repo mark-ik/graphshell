@@ -394,9 +394,23 @@ impl Gui {
             .or(request.href);
 
         let context = resolved_url.unwrap_or_else(|| "<unknown>".to_string());
-        nip07_bridge::Nip07BridgeResponse::error(format!(
-            "Graphshell NIP-07 host bridge is not fully enabled yet for {context}"
-        ))
+        let grants_before =
+            crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants();
+        let result = crate::shell::desktop::runtime::registries::phase3_nostr_nip07_request(
+            &context,
+            &request.method,
+            &request.params,
+        );
+        let grants_after =
+            crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants();
+        if grants_before != grants_after {
+            self.graph_app.save_persisted_nostr_nip07_permissions();
+        }
+
+        match result {
+            Ok(value) => nip07_bridge::Nip07BridgeResponse::success(value),
+            Err(error) => nip07_bridge::Nip07BridgeResponse::error(error.to_string()),
+        }
     }
 
     #[cfg(test)]

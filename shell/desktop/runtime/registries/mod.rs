@@ -62,7 +62,10 @@ use input::{
 };
 use knowledge::{KnowledgeRegistry, SemanticReconcileReport, TagValidationResult};
 use layout::LayoutRegistry;
-pub(crate) use nostr_core::{NostrSignerBackendSnapshot, PersistedNostrSignerSettings, PersistedNostrSubscription};
+pub(crate) use nostr_core::{
+    Nip07PermissionDecision, Nip07PermissionGrant, NostrSignerBackendSnapshot,
+    PersistedNostrSignerSettings, PersistedNostrSubscription,
+};
 use nostr_core::{
     Nip46PermissionDecision, NostrCoreError, NostrCoreRegistry, NostrFilterSet,
     NostrPublishReceipt, NostrSignedEvent, NostrSubscriptionHandle, NostrUnsignedEvent,
@@ -702,6 +705,54 @@ pub(crate) fn phase3_nostr_set_nip46_permission(
     runtime()
         .nostr_core
         .set_nip46_permission(permission, decision)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_persisted_nip07_permissions() -> Vec<Nip07PermissionGrant> {
+    runtime().nostr_core.persisted_nip07_permissions()
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_apply_persisted_nip07_permissions(
+    permissions: &[Nip07PermissionGrant],
+) -> Result<(), NostrCoreError> {
+    runtime()
+        .nostr_core
+        .apply_persisted_nip07_permissions(permissions)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_nip07_permission_grants() -> Vec<Nip07PermissionGrant> {
+    runtime().nostr_core.nip07_permission_grants()
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_set_nip07_permission(
+    origin: &str,
+    method: &str,
+    decision: Nip07PermissionDecision,
+) -> Result<(), NostrCoreError> {
+    runtime()
+        .nostr_core
+        .set_nip07_permission(origin, method, decision)
+}
+
+#[allow(dead_code)]
+pub(crate) fn phase3_nostr_nip07_request(
+    origin: &str,
+    method: &str,
+    payload: &serde_json::Value,
+) -> Result<serde_json::Value, NostrCoreError> {
+    let runtime = runtime();
+    runtime.nostr_core.nip07_request(
+        &runtime
+            .identity
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        origin,
+        method,
+        payload,
+    )
 }
 
 #[allow(dead_code)]
@@ -4534,7 +4585,7 @@ mod tests {
             created_at: 1_710_000_101,
             kind: 1,
             content: "hello".to_string(),
-            tags: vec![("t".to_string(), "graphshell".to_string())],
+            tags: vec![vec!["t".to_string(), "graphshell".to_string()]],
         };
 
         let signed = phase3_nostr_sign_event("default", &unsigned)

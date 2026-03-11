@@ -46,7 +46,7 @@ pub(crate) struct NostrUnsignedEvent {
     pub(crate) created_at: u64,
     pub(crate) kind: u16,
     pub(crate) content: String,
-    pub(crate) tags: Vec<(String, String)>,
+    pub(crate) tags: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -57,7 +57,7 @@ pub(crate) struct NostrSignedEvent {
     pub(crate) created_at: u64,
     pub(crate) kind: u16,
     pub(crate) content: String,
-    pub(crate) tags: Vec<(String, String)>,
+    pub(crate) tags: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +127,21 @@ pub(crate) enum Nip46PermissionDecision {
 pub(crate) struct Nip46PermissionGrant {
     pub(crate) permission: String,
     pub(crate) decision: Nip46PermissionDecision,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Nip07PermissionDecision {
+    Pending,
+    Allow,
+    Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Nip07PermissionGrant {
+    pub(crate) origin: String,
+    pub(crate) method: String,
+    pub(crate) decision: Nip07PermissionDecision,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -520,7 +535,7 @@ impl TungsteniteRelayService {
                 created_at: current_unix_secs(),
                 kind: 24133,
                 content: encrypted,
-                tags: vec![("p".to_string(), signer_pubkey_hex.clone())],
+                tags: vec![vec!["p".to_string(), signer_pubkey_hex.clone()]],
             },
         )?;
 
@@ -691,7 +706,7 @@ impl TungsteniteRelayService {
                 if !signed
                     .tags
                     .iter()
-                    .any(|(name, value)| name == "p" && value == session_pubkey)
+                    .any(|tag| tag.len() >= 2 && tag[0] == "p" && tag[1] == session_pubkey)
                 {
                     continue;
                 }
@@ -788,6 +803,7 @@ struct NostrCoreState {
     caller_subscription_count: HashMap<String, usize>,
     caller_publish_count: HashMap<String, usize>,
     active_subscriptions: HashMap<String, PersistedNostrSubscription>,
+    nip07_permission_grants: Vec<Nip07PermissionGrant>,
 }
 
 impl Default for NostrCoreState {
@@ -800,6 +816,7 @@ impl Default for NostrCoreState {
             caller_subscription_count: HashMap::new(),
             caller_publish_count: HashMap::new(),
             active_subscriptions: HashMap::new(),
+            nip07_permission_grants: Vec::new(),
         }
     }
 }
@@ -848,6 +865,80 @@ impl NostrCoreRegistry {
     pub(crate) fn use_local_signer(&self) {
         let mut state = self.state.lock().expect("nostr core lock poisoned");
         state.signer_backend = NostrSignerBackend::LocalHostKey;
+    }
+
+    pub(crate) fn persisted_nip07_permissions(&self) -> Vec<Nip07PermissionGrant> {
+        let state = self.state.lock().expect("nostr core lock poisoned");
+        state.nip07_permission_grants.clone()
+    }
+
+    pub(crate) fn apply_persisted_nip07_permissions(
+        &self,
+        permissions: &[Nip07PermissionGrant],
+    ) -> Result<(), NostrCoreError> {
+        let mut normalized = Vec::new();
+        for grant in permissions {
+            let Some(origin) = normalize_nip07_origin(&grant.origin) else {
+                continue;
+            };
+            let method = normalize_nip07_method(&grant.method)?;
+            if let Some(existing) = normalized
+                .iter_mut()
+                .find(|existing: &&mut Nip07PermissionGrant| {
+                    existing.origin == origin && existing.method == method
+                })
+            {
+                existing.decision = grant.decision.clone();
+            } else {
+                normalized.push(Nip07PermissionGrant {
+                    origin,
+                    method,
+                    decision: grant.decision.clone(),
+                });
+            }
+        }
+
+        let mut state = self.state.lock().expect("nostr core lock poisoned");
+        state.nip07_permission_grants = normalized;
+        Ok(())
+    }
+
+    pub(crate) fn nip07_permission_grants(&self) -> Vec<Nip07PermissionGrant> {
+        let state = self.state.lock().expect("nostr core lock poisoned");
+        let mut grants = state.nip07_permission_grants.clone();
+        grants.sort_by(|left, right| {
+            left.origin
+                .cmp(&right.origin)
+                .then(left.method.cmp(&right.method))
+        });
+        grants
+    }
+
+    pub(crate) fn set_nip07_permission(
+        &self,
+        origin: &str,
+        method: &str,
+        decision: Nip07PermissionDecision,
+    ) -> Result<(), NostrCoreError> {
+        let origin = normalize_nip07_origin(origin).ok_or_else(|| {
+            NostrCoreError::ValidationFailed("nip07 origin must be an http(s) origin".to_string())
+        })?;
+        let method = normalize_nip07_method(method)?;
+        let mut state = self.state.lock().expect("nostr core lock poisoned");
+        if let Some(existing) = state
+            .nip07_permission_grants
+            .iter_mut()
+            .find(|grant| grant.origin == origin && grant.method == method)
+        {
+            existing.decision = decision;
+        } else {
+            state.nip07_permission_grants.push(Nip07PermissionGrant {
+                origin,
+                method,
+                decision,
+            });
+        }
+        Ok(())
     }
 
     pub(crate) fn persisted_signer_settings(&self) -> PersistedNostrSignerSettings {
@@ -996,6 +1087,49 @@ impl NostrCoreRegistry {
                 .sort_by(|left, right| left.permission.cmp(&right.permission));
         }
         Ok(())
+    }
+
+    pub(crate) fn nip07_request(
+        &self,
+        identity: &IdentityRegistry,
+        origin: &str,
+        method: &str,
+        payload: &serde_json::Value,
+    ) -> Result<serde_json::Value, NostrCoreError> {
+        self.ensure_capability("nostr:nip07-bridge", CHANNEL_NOSTR_CAPABILITY_DENIED)?;
+        let origin = normalize_nip07_origin(origin).ok_or_else(|| {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_NOSTR_SECURITY_VIOLATION,
+                byte_len: origin.len(),
+            });
+            NostrCoreError::ValidationFailed("nip07 origin must be an http(s) origin".to_string())
+        })?;
+        let method = normalize_nip07_method(method)?;
+
+        match method.as_str() {
+            "getRelays" => {
+                let state = self.state.lock().expect("nostr core lock poisoned");
+                Ok(nip07_relays_json(&state.relay_policy))
+            }
+            "getPublicKey" => {
+                self.ensure_nip07_permission_allowed(&origin, &method)?;
+                let pubkey = identity.nostr_public_key_hex_for("default").ok_or_else(|| {
+                    NostrCoreError::BackendUnavailable(
+                        "default user identity is unavailable for nip07".to_string(),
+                    )
+                })?;
+                Ok(serde_json::Value::String(pubkey))
+            }
+            "signEvent" => {
+                self.ensure_nip07_permission_allowed(&origin, &method)?;
+                let unsigned = parse_nip07_unsigned_event(payload)?;
+                let signed = self.sign_event(identity, "default", &unsigned)?;
+                Ok(signed_event_json(&signed))
+            }
+            _ => Err(NostrCoreError::ValidationFailed(format!(
+                "unsupported nip07 method '{method}'"
+            ))),
+        }
     }
 
     fn ensure_capability(
@@ -1186,6 +1320,39 @@ impl NostrCoreRegistry {
                 });
                 Err(NostrCoreError::ValidationFailed(format!(
                     "nip46 permission denied for '{permission}'"
+                )))
+            }
+        }
+    }
+
+    fn ensure_nip07_permission_allowed(
+        &self,
+        origin: &str,
+        method: &str,
+    ) -> Result<(), NostrCoreError> {
+        let mut state = self.state.lock().expect("nostr core lock poisoned");
+        match resolve_nip07_permission_decision(&mut state.nip07_permission_grants, origin, method) {
+            Nip07PermissionDecision::Allow => Ok(()),
+            Nip07PermissionDecision::Pending => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
+                    byte_len: origin.len() + method.len(),
+                });
+                Err(NostrCoreError::ValidationFailed(format!(
+                    "nip07 permission pending for {origin}::{method}; allow it in Settings -> Sync"
+                )))
+            }
+            Nip07PermissionDecision::Deny => {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
+                    byte_len: origin.len() + method.len(),
+                });
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_SECURITY_VIOLATION,
+                    byte_len: origin.len() + method.len(),
+                });
+                Err(NostrCoreError::ValidationFailed(format!(
+                    "nip07 permission denied for {origin}::{method}"
                 )))
             }
         }
@@ -1981,6 +2148,25 @@ fn resolve_nip46_permission_decision(
     Nip46PermissionDecision::Pending
 }
 
+fn resolve_nip07_permission_decision(
+    grants: &mut Vec<Nip07PermissionGrant>,
+    origin: &str,
+    method: &str,
+) -> Nip07PermissionDecision {
+    if let Some(grant) = grants
+        .iter()
+        .find(|grant| grant.origin == origin && grant.method == method)
+    {
+        return grant.decision.clone();
+    }
+    grants.push(Nip07PermissionGrant {
+        origin: origin.to_string(),
+        method: method.to_string(),
+        decision: Nip07PermissionDecision::Pending,
+    });
+    Nip07PermissionDecision::Pending
+}
+
 fn canonical_event_hash(pubkey: &str, unsigned: &NostrUnsignedEvent) -> [u8; 32] {
     let canonical = serde_json::json!([
         0,
@@ -1998,6 +2184,94 @@ fn current_unix_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
+}
+
+fn normalize_nip07_origin(raw: &str) -> Option<String> {
+    let parsed = Url::parse(raw.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = parsed.host_str()?;
+    let mut origin = format!("{}://{}", parsed.scheme(), host);
+    if let Some(port) = parsed.port()
+        && Some(port) != default_port_for_scheme(parsed.scheme())
+    {
+        origin.push(':');
+        origin.push_str(&port.to_string());
+    }
+    Some(origin)
+}
+
+fn default_port_for_scheme(scheme: &str) -> Option<u16> {
+    match scheme {
+        "http" => Some(80),
+        "https" => Some(443),
+        _ => None,
+    }
+}
+
+fn normalize_nip07_method(method: &str) -> Result<String, NostrCoreError> {
+    let normalized = method.trim();
+    if normalized.is_empty() {
+        return Err(NostrCoreError::ValidationFailed(
+            "nip07 method must not be empty".to_string(),
+        ));
+    }
+    Ok(normalized.to_string())
+}
+
+fn parse_nip07_unsigned_event(
+    value: &serde_json::Value,
+) -> Result<NostrUnsignedEvent, NostrCoreError> {
+    let object = value.as_object().ok_or_else(|| {
+        NostrCoreError::ValidationFailed("nip07 signEvent payload must be an object".to_string())
+    })?;
+    let kind = object
+        .get("kind")
+        .and_then(|value| value.as_u64())
+        .ok_or_else(|| NostrCoreError::ValidationFailed("nip07 signEvent payload missing kind".to_string()))?;
+    let content = object
+        .get("content")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| NostrCoreError::ValidationFailed("nip07 signEvent payload missing content".to_string()))?;
+    let tags = object
+        .get("tags")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+    let tags: Vec<Vec<String>> = serde_json::from_value(tags).map_err(|error| {
+        NostrCoreError::ValidationFailed(format!("invalid nip07 tag array: {error}"))
+    })?;
+    let created_at = object
+        .get("created_at")
+        .and_then(|value| value.as_u64())
+        .unwrap_or_else(current_unix_secs);
+    Ok(NostrUnsignedEvent {
+        created_at,
+        kind: kind as u16,
+        content: content.to_string(),
+        tags,
+    })
+}
+
+fn nip07_relays_json(policy: &NostrRelayPolicy) -> serde_json::Value {
+    let mut relay_map = serde_json::Map::new();
+    for relay in normalize_relays(
+        policy
+            .default_relays
+            .iter()
+            .chain(policy.allowlist.iter())
+            .cloned()
+            .collect(),
+    ) {
+        relay_map.insert(
+            relay,
+            serde_json::json!({
+                "read": true,
+                "write": true,
+            }),
+        );
+    }
+    serde_json::Value::Object(relay_map)
 }
 
 fn parse_nostr_public_key(pubkey: &str) -> Result<NostrPublicKey, NostrCoreError> {
@@ -2221,7 +2495,7 @@ mod tests {
             created_at: 1_710_000_001,
             kind: 1,
             content: "hello nostr".to_string(),
-            tags: vec![("t".to_string(), "graph".to_string())],
+            tags: vec![vec!["t".to_string(), "graph".to_string()]],
         };
 
         let signed = registry.sign_event(&identity, "default", &unsigned);
@@ -2453,7 +2727,7 @@ mod tests {
                                 created_at: current_unix_secs(),
                                 kind: 24133,
                                 content: encrypted,
-                                tags: vec![("p".to_string(), client_pubkey)],
+                                tags: vec![vec!["p".to_string(), client_pubkey]],
                             },
                         )
                         .expect("response event should sign");
@@ -2493,7 +2767,7 @@ mod tests {
             created_at: 1_710_000_002,
             kind: 1,
             content: "hello".to_string(),
-            tags: vec![("t".to_string(), "graphshell".to_string())],
+            tags: vec![vec!["t".to_string(), "graphshell".to_string()]],
         };
 
         let signed = registry
@@ -2507,6 +2781,110 @@ mod tests {
         cancel.cancel();
         worker.await.expect("worker should shut down cleanly");
         server.await.expect("server should shut down cleanly");
+    }
+
+    #[test]
+    fn nostr_core_nip07_get_public_key_seeds_pending_permission() {
+        let registry = NostrCoreRegistry::default();
+        let identity = IdentityRegistry::default();
+
+        let result = registry.nip07_request(
+            &identity,
+            "https://example.com/path?q=1",
+            "getPublicKey",
+            &serde_json::Value::Null,
+        );
+        assert!(matches!(
+            result,
+            Err(NostrCoreError::ValidationFailed(message))
+                if message.contains("permission pending")
+        ));
+        assert_eq!(
+            registry.nip07_permission_grants(),
+            vec![Nip07PermissionGrant {
+                origin: "https://example.com".to_string(),
+                method: "getPublicKey".to_string(),
+                decision: Nip07PermissionDecision::Pending,
+            }]
+        );
+    }
+
+    #[test]
+    fn nostr_core_nip07_get_public_key_returns_user_pubkey_after_allow() {
+        let registry = NostrCoreRegistry::default();
+        let identity = IdentityRegistry::default();
+        registry
+            .set_nip07_permission(
+                "https://example.com/path?q=1",
+                "getPublicKey",
+                Nip07PermissionDecision::Allow,
+            )
+            .expect("nip07 permission should be stored");
+
+        let result = registry
+            .nip07_request(
+                &identity,
+                "https://example.com/path?q=1",
+                "getPublicKey",
+                &serde_json::Value::Null,
+            )
+            .expect("allowed getPublicKey should succeed");
+        assert_eq!(
+            result,
+            serde_json::Value::String(
+                identity
+                    .nostr_public_key_hex_for("default")
+                    .expect("default user pubkey should exist")
+            )
+        );
+    }
+
+    #[test]
+    fn nostr_core_nip07_sign_event_accepts_full_tag_arrays() {
+        let registry = NostrCoreRegistry::default();
+        let identity = IdentityRegistry::default();
+        registry
+            .set_nip07_permission(
+                "https://example.com",
+                "signEvent",
+                Nip07PermissionDecision::Allow,
+            )
+            .expect("nip07 permission should be stored");
+
+        let signed = registry
+            .nip07_request(
+                &identity,
+                "https://example.com/thread",
+                "signEvent",
+                &serde_json::json!({
+                    "kind": 1u16,
+                    "created_at": 1_710_000_111u64,
+                    "content": "hello from nip07",
+                    "tags": [
+                        ["e", "event-ref", "wss://relay.example"],
+                        ["p", "peer-pubkey"]
+                    ]
+                }),
+            )
+            .expect("allowed signEvent should succeed");
+
+        let signed_event =
+            parse_signed_event_json(&signed).expect("nip07 signEvent should return a signed event");
+        assert_eq!(
+            signed_event.tags,
+            vec![
+                vec![
+                    "e".to_string(),
+                    "event-ref".to_string(),
+                    "wss://relay.example".to_string()
+                ],
+                vec!["p".to_string(), "peer-pubkey".to_string()],
+            ]
+        );
+        assert!(verify_signed_event_signature(
+            &signed_event,
+            &signed_event.pubkey.clone()
+        ));
     }
 
     #[test]
@@ -2855,7 +3233,7 @@ mod tests {
                     created_at: 1_710_000_111,
                     kind: 1,
                     content: "hello".to_string(),
-                    tags: vec![("t".to_string(), "graphshell".to_string())],
+                    tags: vec![vec!["t".to_string(), "graphshell".to_string()]],
                 },
                 resolved_relays: vec![relay_url.clone()],
                 response: publish_tx,

@@ -1154,6 +1154,8 @@ impl GraphBrowserApp {
         "workspace:settings-active-workflow-id";
     pub const SETTINGS_NOSTR_SIGNER_SETTINGS_NAME: &'static str =
         "workspace:settings-nostr-signer-settings";
+    pub const SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME: &'static str =
+        "workspace:settings-nostr-nip07-permissions";
     pub const SETTINGS_NOSTR_SUBSCRIPTIONS_NAME: &'static str =
         "workspace:settings-nostr-subscriptions";
     pub const SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME: &'static str =
@@ -2879,6 +2881,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_CANVAS_PROFILE_ID_NAME
             || name == Self::SETTINGS_ACTIVE_WORKFLOW_ID_NAME
             || name == Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME
+            || name == Self::SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME
             || name == Self::SETTINGS_NOSTR_SUBSCRIPTIONS_NAME
             || name == Self::SETTINGS_GRAPH_VIEW_LAYOUT_MANAGER_NAME
             || name.starts_with(Self::SETTINGS_DIAGNOSTICS_CHANNEL_CONFIG_PREFIX)
@@ -3116,6 +3119,14 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME, &encoded);
     }
 
+    pub fn save_persisted_nostr_nip07_permissions(&mut self) {
+        let encoded = serde_json::to_string(
+            &crate::shell::desktop::runtime::registries::phase3_nostr_persisted_nip07_permissions(),
+        )
+        .unwrap_or_else(|_| "[]".to_string());
+        self.save_workspace_layout_json(Self::SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME, &encoded);
+    }
+
     fn load_persisted_nostr_signer_settings(&mut self) {
         let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_NOSTR_SIGNER_SETTINGS_NAME)
         else {
@@ -3137,6 +3148,30 @@ impl GraphBrowserApp {
             )
         {
             warn!("Ignoring persisted nostr signer settings restore failure: {error:?}");
+        }
+    }
+
+    fn load_persisted_nostr_nip07_permissions(&mut self) {
+        let permissions = self
+            .load_workspace_layout_json(Self::SETTINGS_NOSTR_NIP07_PERMISSIONS_NAME)
+            .and_then(|raw| {
+                serde_json::from_str::<
+                    Vec<crate::shell::desktop::runtime::registries::Nip07PermissionGrant>,
+                >(&raw)
+                .map_err(|error| {
+                    warn!("Ignoring invalid persisted nostr nip07 permissions: {error}");
+                    error
+                })
+                .ok()
+            })
+            .unwrap_or_default();
+
+        if let Err(error) =
+            crate::shell::desktop::runtime::registries::phase3_nostr_apply_persisted_nip07_permissions(
+                &permissions,
+            )
+        {
+            warn!("Ignoring persisted nostr nip07 permissions restore failure: {error:?}");
         }
     }
 
@@ -3479,6 +3514,7 @@ impl GraphBrowserApp {
             self.workspace.lasso_binding_preference,
         );
         self.load_persisted_nostr_signer_settings();
+        self.load_persisted_nostr_nip07_permissions();
         self.load_persisted_nostr_subscriptions();
         self.load_graph_view_layout_manager_state();
 
