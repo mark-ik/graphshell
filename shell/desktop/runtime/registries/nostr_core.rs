@@ -15,6 +15,8 @@ use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use super::identity::IdentityRegistry;
 use super::{
     CHANNEL_NOSTR_CAPABILITY_DENIED, CHANNEL_NOSTR_INTENT_REJECTED,
+    CHANNEL_NOSTR_RELAY_CONNECT_FAILED, CHANNEL_NOSTR_RELAY_CONNECT_STARTED,
+    CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED, CHANNEL_NOSTR_RELAY_DISCONNECTED,
     CHANNEL_NOSTR_RELAY_PUBLISH_FAILED, CHANNEL_NOSTR_RELAY_SUBSCRIPTION_FAILED,
     CHANNEL_NOSTR_SECURITY_VIOLATION, CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
 };
@@ -381,11 +383,23 @@ impl TungsteniteRelayService {
         let text = payload.to_string();
 
         if !self.connections.contains_key(relay_url) {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_NOSTR_RELAY_CONNECT_STARTED,
+                byte_len: relay_url.len().max(1),
+            });
             let (socket, _) = connect_async(relay_url).await.map_err(|error| {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_RELAY_CONNECT_FAILED,
+                    byte_len: relay_url.len().max(1),
+                });
                 NostrCoreError::BackendUnavailable(format!(
                     "relay connect failed for '{relay_url}': {error}"
                 ))
             })?;
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED,
+                byte_len: relay_url.len().max(1),
+            });
             self.connections.insert(relay_url.to_string(), socket);
         }
 
@@ -401,15 +415,35 @@ impl TungsteniteRelayService {
         }
 
         self.connections.remove(relay_url);
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_NOSTR_RELAY_DISCONNECTED,
+            byte_len: relay_url.len().max(1),
+        });
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_NOSTR_RELAY_CONNECT_STARTED,
+            byte_len: relay_url.len().max(1),
+        });
         let (mut socket, _) = connect_async(relay_url).await.map_err(|error| {
+            emit_event(DiagnosticEvent::MessageSent {
+                channel_id: CHANNEL_NOSTR_RELAY_CONNECT_FAILED,
+                byte_len: relay_url.len().max(1),
+            });
             NostrCoreError::BackendUnavailable(format!(
                 "relay reconnect failed for '{relay_url}': {error}"
             ))
         })?;
+        emit_event(DiagnosticEvent::MessageSent {
+            channel_id: CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED,
+            byte_len: relay_url.len().max(1),
+        });
         socket
             .send(Message::Text(text.into()))
             .await
             .map_err(|error| {
+                emit_event(DiagnosticEvent::MessageSent {
+                    channel_id: CHANNEL_NOSTR_RELAY_DISCONNECTED,
+                    byte_len: relay_url.len().max(1),
+                });
                 NostrCoreError::BackendUnavailable(format!(
                     "relay send failed for '{relay_url}': {error}"
                 ))
@@ -1747,5 +1781,81 @@ mod tests {
         cancel.cancel();
         worker.await.expect("worker should shut down cleanly");
         server.await.expect("server should shut down cleanly");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nostr_relay_worker_emits_connect_diagnostics_on_success() {
+        let mut diagnostics = DiagnosticsState::new();
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test websocket listener should bind");
+        let relay_url = format!("ws://{}", listener.local_addr().unwrap());
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("server should accept");
+            let _ = accept_async(stream)
+                .await
+                .expect("server should upgrade websocket");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn(NostrRelayWorker::new(command_rx, cancel.clone()).run());
+
+        let (subscribe_tx, subscribe_rx) = std::sync::mpsc::channel();
+        command_tx
+            .send(RelayWorkerCommand::Subscribe {
+                request: RelaySubscriptionRequest {
+                    caller_id: "test:relay".to_string(),
+                    subscription_id: "timeline".to_string(),
+                    filters: NostrFilterSet {
+                        kinds: vec![1],
+                        authors: vec!["npub1example".to_string()],
+                        hashtags: vec![],
+                        relay_urls: vec![relay_url.clone()],
+                    },
+                    resolved_relays: vec![relay_url.clone()],
+                },
+                response: subscribe_tx,
+            })
+            .expect("subscribe command should send");
+        subscribe_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("subscribe response should arrive")
+            .expect("subscribe should succeed");
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert!(
+            channel_message_count(&snapshot, CHANNEL_NOSTR_RELAY_CONNECT_STARTED) >= 1,
+            "expected relay connect started diagnostic"
+        );
+        assert!(
+            channel_message_count(&snapshot, CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED) >= 1,
+            "expected relay connect succeeded diagnostic"
+        );
+
+        cancel.cancel();
+        worker.await.expect("worker should shut down cleanly");
+        server.await.expect("server should shut down cleanly");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn nostr_relay_worker_emits_connect_failed_diagnostic() {
+        let mut diagnostics = DiagnosticsState::new();
+        let relay_url = "ws://localhost:abc".to_string();
+        let mut backend = TungsteniteRelayService::default();
+        let result = backend
+            .send_json(&relay_url, serde_json::json!(["REQ", "timeline", {}]))
+            .await;
+        assert!(matches!(result, Err(NostrCoreError::BackendUnavailable(_))));
+
+        diagnostics.force_drain_for_tests();
+        let snapshot = diagnostics.snapshot_json_for_tests();
+        assert!(
+            channel_message_count(&snapshot, CHANNEL_NOSTR_RELAY_CONNECT_FAILED) >= 1,
+            "expected relay connect failed diagnostic"
+        );
     }
 }

@@ -45,6 +45,8 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_KNOWLEDGE_INDEX_UPDATED, CHANNEL_KNOWLEDGE_TAG_VALIDATION_WARN,
     CHANNEL_LENS_RESOLVE_FAILED, CHANNEL_LENS_RESOLVE_SUCCEEDED, CHANNEL_MOD_DEPENDENCY_MISSING,
     CHANNEL_MOD_LOAD_FAILED, CHANNEL_MOD_LOAD_STARTED, CHANNEL_MOD_LOAD_SUCCEEDED,
+    CHANNEL_NOSTR_RELAY_CONNECT_FAILED, CHANNEL_NOSTR_RELAY_CONNECT_STARTED,
+    CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED, CHANNEL_NOSTR_RELAY_DISCONNECTED,
     CHANNEL_PERSISTENCE_RECOVER_FAILED, CHANNEL_PERSISTENCE_RECOVER_SUCCEEDED,
     CHANNEL_PROTOCOL_RESOLVE_FAILED, CHANNEL_PROTOCOL_RESOLVE_FALLBACK_USED,
     CHANNEL_PROTOCOL_RESOLVE_STARTED, CHANNEL_PROTOCOL_RESOLVE_SUCCEEDED,
@@ -392,6 +394,19 @@ const IDENTITY_SIGN_FIELDS: [PayloadField; 2] = [
     },
 ];
 
+const NOSTR_RELAY_CONNECT_FIELDS: [PayloadField; 2] = [
+    PayloadField {
+        name: "relay_url",
+        field_type: DiagnosticFieldType::String,
+        required: true,
+    },
+    PayloadField {
+        name: "attempt",
+        field_type: DiagnosticFieldType::Integer,
+        required: false,
+    },
+];
+
 const RENDERER_ATTACH_FIELDS: [PayloadField; 2] = [
     PayloadField {
         name: "pane_id",
@@ -531,7 +546,7 @@ const PHASE2_CHANNELS: [DiagnosticChannelDescriptor; 10] = [
     },
 ];
 
-const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 115] = [
+const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 119] = [
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_IDENTITY_SIGN_STARTED,
         schema_version: 1,
@@ -551,6 +566,26 @@ const PHASE3_CHANNELS: [DiagnosticChannelDescriptor; 115] = [
         channel_id: CHANNEL_IDENTITY_KEY_UNAVAILABLE,
         schema_version: 1,
         severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_NOSTR_RELAY_CONNECT_STARTED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED,
+        schema_version: 1,
+        severity: ChannelSeverity::Info,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_NOSTR_RELAY_CONNECT_FAILED,
+        schema_version: 1,
+        severity: ChannelSeverity::Error,
+    },
+    DiagnosticChannelDescriptor {
+        channel_id: CHANNEL_NOSTR_RELAY_DISCONNECTED,
+        schema_version: 1,
+        severity: ChannelSeverity::Warn,
     },
     DiagnosticChannelDescriptor {
         channel_id: CHANNEL_DIAGNOSTICS_CHANNEL_REGISTERED,
@@ -1664,6 +1699,12 @@ fn channel_payload_schema(channel_id: &str) -> DiagnosticPayloadSchema {
         | CHANNEL_IDENTITY_SIGN_FAILED => {
             DiagnosticPayloadSchema::Structured(IDENTITY_SIGN_FIELDS.to_vec())
         }
+        CHANNEL_NOSTR_RELAY_CONNECT_STARTED
+        | CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED
+        | CHANNEL_NOSTR_RELAY_CONNECT_FAILED
+        | CHANNEL_NOSTR_RELAY_DISCONNECTED => {
+            DiagnosticPayloadSchema::Structured(NOSTR_RELAY_CONNECT_FIELDS.to_vec())
+        }
         CHANNEL_RENDERER_ATTACH | CHANNEL_RENDERER_DETACH => {
             DiagnosticPayloadSchema::Structured(RENDERER_ATTACH_FIELDS.to_vec())
         }
@@ -1676,7 +1717,8 @@ fn channel_retention_policy(channel_id: &str) -> RetentionPolicy {
         CHANNEL_ACTION_EXECUTE_FAILED
         | CHANNEL_IDENTITY_SIGN_FAILED
         | CHANNEL_PROTOCOL_RESOLVE_FAILED
-        | CHANNEL_VIEWER_CAPABILITY_NONE => RetentionPolicy::KeepRecent(500),
+        | CHANNEL_VIEWER_CAPABILITY_NONE
+        | CHANNEL_NOSTR_RELAY_CONNECT_FAILED => RetentionPolicy::KeepRecent(500),
         _ => RetentionPolicy::Session,
     }
 }

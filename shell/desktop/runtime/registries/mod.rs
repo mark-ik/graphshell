@@ -217,6 +217,13 @@ pub(crate) const CHANNEL_NOSTR_SIGN_REQUEST_DENIED: &str = "mod.nostrcore.sign_r
 pub(crate) const CHANNEL_NOSTR_RELAY_PUBLISH_FAILED: &str = "mod.nostrcore.relay_publish_failed";
 pub(crate) const CHANNEL_NOSTR_RELAY_SUBSCRIPTION_FAILED: &str =
     "mod.nostrcore.relay_subscription_failed";
+pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_STARTED: &str =
+    "mod.nostrcore.relay_connect_started";
+pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_SUCCEEDED: &str =
+    "mod.nostrcore.relay_connect_succeeded";
+pub(crate) const CHANNEL_NOSTR_RELAY_CONNECT_FAILED: &str =
+    "mod.nostrcore.relay_connect_failed";
+pub(crate) const CHANNEL_NOSTR_RELAY_DISCONNECTED: &str = "mod.nostrcore.relay_disconnected";
 pub(crate) const CHANNEL_NOSTR_INTENT_REJECTED: &str = "mod.nostrcore.intent_rejected";
 pub(crate) const CHANNEL_NOSTR_SECURITY_VIOLATION: &str = "mod.nostrcore.security_violation";
 pub(crate) const CHANNEL_COMPOSITOR_GL_STATE_VIOLATION: &str = "compositor.gl_state_violation";
