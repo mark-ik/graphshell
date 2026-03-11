@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
@@ -11,6 +12,32 @@ use crate::mods::native::verse::{P2PIdentityExt, TrustedPeer};
 pub(crate) const IDENTITY_ID_DEFAULT: &str = "identity:default";
 pub(crate) const IDENTITY_ID_P2P: &str = "identity:p2p";
 const IDENTITY_ID_LOCKED: &str = "identity:locked";
+const PRESENCE_BINDING_VERSION: &str = "graphshell.presence_binding.v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum UserIdentityProtocol {
+    LocalEd25519,
+    NostrPubkey,
+    DidPlc,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct UserIdentityClaim {
+    pub(crate) identity_id: String,
+    pub(crate) protocol: UserIdentityProtocol,
+    pub(crate) public_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PresenceBindingAssertion {
+    pub(crate) node_id: String,
+    pub(crate) user_identity: UserIdentityClaim,
+    pub(crate) issued_at_secs: u64,
+    pub(crate) expires_at_secs: u64,
+    pub(crate) audience: String,
+    pub(crate) signature: String,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityResolution {
@@ -341,6 +368,99 @@ impl IdentityRegistry {
             .map(|key| encode_hex(key.verifying_key.as_bytes()))
     }
 
+    pub(crate) fn user_identity_claim_for(&self, identity_id: &str) -> Option<UserIdentityClaim> {
+        let resolution = self.resolve(identity_id);
+        self.keys
+            .get(&resolution.resolved_id)
+            .map(|key| UserIdentityClaim {
+                identity_id: resolution.resolved_id,
+                protocol: UserIdentityProtocol::LocalEd25519,
+                public_key: encode_hex(key.verifying_key.as_bytes()),
+            })
+    }
+
+    pub(crate) fn default_user_identity_claim(&self) -> Option<UserIdentityClaim> {
+        self.user_identity_claim_for(IDENTITY_ID_DEFAULT)
+    }
+
+    pub(crate) fn create_presence_binding_assertion(
+        &self,
+        user_identity_id: &str,
+        audience: &str,
+        ttl_secs: u64,
+    ) -> Option<PresenceBindingAssertion> {
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        self.create_presence_binding_assertion_at(user_identity_id, audience, ttl_secs, now_secs)
+    }
+
+    fn create_presence_binding_assertion_at(
+        &self,
+        user_identity_id: &str,
+        audience: &str,
+        ttl_secs: u64,
+        now_secs: u64,
+    ) -> Option<PresenceBindingAssertion> {
+        let user_identity = self.user_identity_claim_for(user_identity_id)?;
+        let audience = audience.trim().to_string();
+        if audience.is_empty() {
+            return None;
+        }
+
+        let assertion = PresenceBindingAssertion {
+            node_id: self.p2p_node_id().to_string(),
+            user_identity,
+            issued_at_secs: now_secs,
+            expires_at_secs: now_secs.saturating_add(ttl_secs.max(1)),
+            audience,
+            signature: String::new(),
+        };
+        let payload = canonical_presence_binding_bytes(&assertion);
+        let signed = self.sign(user_identity_id, &payload);
+        let signature = signed.signature?;
+
+        Some(PresenceBindingAssertion {
+            signature,
+            ..assertion
+        })
+    }
+
+    pub(crate) fn verify_presence_binding_assertion(
+        &self,
+        assertion: &PresenceBindingAssertion,
+    ) -> bool {
+        if assertion.signature.trim().is_empty() || assertion.audience.trim().is_empty() {
+            return false;
+        }
+        if assertion.expires_at_secs < assertion.issued_at_secs {
+            return false;
+        }
+
+        let payload = canonical_presence_binding_bytes(assertion);
+        match assertion.user_identity.protocol {
+            UserIdentityProtocol::LocalEd25519 => {
+                let Ok(bytes) = decode_hex(&assertion.user_identity.public_key) else {
+                    return false;
+                };
+                if bytes.len() != 32 {
+                    return false;
+                }
+                let mut array = [0u8; 32];
+                array.copy_from_slice(&bytes);
+                let Ok(verifying_key) = VerifyingKey::from_bytes(&array) else {
+                    return false;
+                };
+                let Some(signature) = parse_signature(&assertion.signature) else {
+                    return false;
+                };
+                verifying_key.verify(&payload, &signature).is_ok()
+            }
+            UserIdentityProtocol::NostrPubkey | UserIdentityProtocol::DidPlc => false,
+        }
+    }
+
     pub(crate) fn rotate_key(&mut self, identity_id: &str) -> Result<String, IdentityKeyError> {
         let resolution = self.resolve(identity_id);
         let identity_key = self
@@ -514,6 +634,29 @@ fn parse_signature(signature: &str) -> Option<Signature> {
     let encoded = signature.trim().strip_prefix("sig:")?;
     let bytes = decode_hex(encoded).ok()?;
     Signature::from_slice(&bytes).ok()
+}
+
+fn canonical_presence_binding_bytes(assertion: &PresenceBindingAssertion) -> Vec<u8> {
+    format!(
+        "{}|{}|{}|{}|{}|{}|{}|{}",
+        PRESENCE_BINDING_VERSION,
+        assertion.user_identity.identity_id,
+        user_identity_protocol_label(assertion.user_identity.protocol),
+        assertion.user_identity.public_key,
+        assertion.node_id,
+        assertion.issued_at_secs,
+        assertion.expires_at_secs,
+        assertion.audience,
+    )
+    .into_bytes()
+}
+
+fn user_identity_protocol_label(protocol: UserIdentityProtocol) -> &'static str {
+    match protocol {
+        UserIdentityProtocol::LocalEd25519 => "local-ed25519",
+        UserIdentityProtocol::NostrPubkey => "nostr-pubkey",
+        UserIdentityProtocol::DidPlc => "did-plc",
+    }
 }
 
 fn seed_path_for(store_root: &Path, identity_id: &str) -> PathBuf {
@@ -722,5 +865,39 @@ mod tests {
         assert!(!result.succeeded);
         assert!(!result.resolution.key_available);
         assert_eq!(result.resolution.resolved_id, IDENTITY_ID_LOCKED);
+    }
+
+    #[test]
+    fn identity_registry_builds_signed_presence_binding_assertion() {
+        let registry = IdentityRegistry::default();
+
+        let assertion = registry
+            .create_presence_binding_assertion_at(IDENTITY_ID_DEFAULT, "local:mdns", 60, 100)
+            .expect("presence binding should be created");
+
+        assert_eq!(assertion.node_id, registry.p2p_node_id().to_string());
+        assert_eq!(assertion.user_identity.identity_id, IDENTITY_ID_DEFAULT);
+        assert_eq!(
+            assertion.user_identity.protocol,
+            UserIdentityProtocol::LocalEd25519
+        );
+        assert_eq!(assertion.issued_at_secs, 100);
+        assert_eq!(assertion.expires_at_secs, 160);
+        assert!(assertion.signature.starts_with("sig:"));
+        assert!(registry.verify_presence_binding_assertion(&assertion));
+    }
+
+    #[test]
+    fn identity_registry_rejects_tampered_presence_binding_assertion() {
+        let registry = IdentityRegistry::default();
+        let mut assertion = registry
+            .create_presence_binding_assertion_at(IDENTITY_ID_DEFAULT, "local:mdns", 60, 100)
+            .expect("presence binding should be created");
+
+        assertion.node_id = iroh::SecretKey::generate(&mut rand::thread_rng())
+            .public()
+            .to_string();
+
+        assert!(!registry.verify_presence_binding_assertion(&assertion));
     }
 }
