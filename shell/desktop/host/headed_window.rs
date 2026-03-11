@@ -1362,7 +1362,26 @@ impl PlatformWindow for HeadedWindow {
                 self.add_dialog(webview_id, Dialog::new_file_dialog(file_picker));
             }
             EmbedderControl::SimpleDialog(simple_dialog) => {
-                self.add_dialog(webview_id, Dialog::new_simple_dialog(simple_dialog));
+                match simple_dialog {
+                    servo::SimpleDialog::Prompt(mut prompt_dialog) => {
+                        let bridge_response = {
+                            let mut gui = self.gui.borrow_mut();
+                            gui.try_handle_nip07_prompt(webview_id, prompt_dialog.message())
+                        };
+                        if let Some(response_json) = bridge_response {
+                            prompt_dialog.set_current_value(&response_json);
+                            prompt_dialog.confirm();
+                        } else {
+                            self.add_dialog(
+                                webview_id,
+                                Dialog::new_simple_dialog(servo::SimpleDialog::Prompt(
+                                    prompt_dialog,
+                                )),
+                            );
+                        }
+                    }
+                    other => self.add_dialog(webview_id, Dialog::new_simple_dialog(other)),
+                }
             }
             EmbedderControl::ContextMenu(prompt) => {
                 let offset = self.gui.borrow().toolbar_height();

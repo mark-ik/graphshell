@@ -21,6 +21,7 @@ use winit::window::WindowId;
 use super::event_loop::AppEvent;
 use crate::parser::get_default_url;
 use crate::prefs::AppPreferences;
+use crate::registries::infrastructure::mod_loader::runtime_has_capability;
 use crate::shell::desktop::host::event_loop::AppEventLoop;
 use crate::shell::desktop::host::headed_window::HeadedWindow;
 use crate::shell::desktop::host::headless_window::HeadlessWindow;
@@ -28,6 +29,7 @@ use crate::shell::desktop::host::headless_window::HeadlessWindow;
 use crate::shell::desktop::host::running_app_state::AppGamepadProvider;
 use crate::shell::desktop::host::running_app_state::RunningAppState;
 use crate::shell::desktop::host::window::{EmbedderWindowId, PlatformWindow};
+use crate::shell::desktop::runtime::nip07_bridge;
 use crate::shell::desktop::runtime::protocols;
 use crate::shell::desktop::runtime::tracing::trace_winit_event;
 
@@ -105,6 +107,12 @@ impl App {
         servo.setup_logging();
 
         let user_content_manager = Rc::new(UserContentManager::new(&servo));
+        if runtime_has_capability("nostr:nip07-bridge") {
+            user_content_manager.add_script(UserScript {
+                script: nip07_bridge::builtin_userscript_source().to_string(),
+                source_file: None,
+            });
+        }
         for script in load_userscripts(self.app_preferences.userscripts_directory.as_deref())
             .expect("Loading userscripts failed")
         {

@@ -51,6 +51,7 @@ use crate::shell::desktop::runtime::control_panel::ControlPanel;
 #[cfg(feature = "diagnostics")]
 use crate::shell::desktop::runtime::diagnostics;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::nip07_bridge;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UX_NAVIGATION_TRANSITION, RegistryRuntime, phase3_shared_runtime,
     phase3_subscribe_signal_async,
@@ -362,6 +363,40 @@ impl Gui {
             tokio_runtime,
             control_panel,
         }
+    }
+
+    pub(crate) fn try_handle_nip07_prompt(
+        &mut self,
+        webview_id: WebViewId,
+        message: &str,
+    ) -> Option<String> {
+        nip07_bridge::try_handle_prompt_message(message, |request| {
+            self.handle_nip07_bridge_request(webview_id, request)
+        })
+    }
+
+    fn handle_nip07_bridge_request(
+        &mut self,
+        webview_id: WebViewId,
+        request: nip07_bridge::Nip07BridgeRequest,
+    ) -> nip07_bridge::Nip07BridgeResponse {
+        let resolved_url = self
+            .graph_app
+            .get_node_for_webview(webview_id)
+            .and_then(|node_key| {
+                self.graph_app
+                    .workspace
+                    .domain
+                    .graph
+                    .get_node(node_key)
+                    .map(|node| node.url.clone())
+            })
+            .or(request.href);
+
+        let context = resolved_url.unwrap_or_else(|| "<unknown>".to_string());
+        nip07_bridge::Nip07BridgeResponse::error(format!(
+            "Graphshell NIP-07 host bridge is not fully enabled yet for {context}"
+        ))
     }
 
     #[cfg(test)]
