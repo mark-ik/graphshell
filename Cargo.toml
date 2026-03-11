@@ -153,6 +153,7 @@ redb = "3"
 rkyv = { version = "0.8", features = ["std"] }
 aes-gcm = "0.10.3"
 ed25519-dalek = { version = "2.2", features = ["serde"] }
+secp256k1 = { version = "0.31", features = ["rand", "global-context"] }
 sha2 = "0.10"
 keyring = "3"
 zstd = "0.13"

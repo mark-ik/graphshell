@@ -1377,7 +1377,7 @@ fn parse_presence_binding_properties(info: &mdns_sd::ServiceInfo) -> Option<Pres
 
 fn presence_protocol_label(protocol: UserIdentityProtocol) -> &'static str {
     match protocol {
-        UserIdentityProtocol::LocalEd25519 => "local-ed25519",
+        UserIdentityProtocol::LocalNostrSecp256k1 => "local-nostr-secp256k1",
         UserIdentityProtocol::NostrPubkey => "nostr-pubkey",
         UserIdentityProtocol::DidPlc => "did-plc",
     }
@@ -1385,7 +1385,7 @@ fn presence_protocol_label(protocol: UserIdentityProtocol) -> &'static str {
 
 fn parse_presence_protocol(protocol: &str) -> Option<UserIdentityProtocol> {
     match protocol.trim() {
-        "local-ed25519" => Some(UserIdentityProtocol::LocalEd25519),
+        "local-nostr-secp256k1" => Some(UserIdentityProtocol::LocalNostrSecp256k1),
         "nostr-pubkey" => Some(UserIdentityProtocol::NostrPubkey),
         "did-plc" => Some(UserIdentityProtocol::DidPlc),
         _ => None,

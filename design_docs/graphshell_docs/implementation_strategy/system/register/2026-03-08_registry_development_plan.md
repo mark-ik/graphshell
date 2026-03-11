@@ -155,9 +155,9 @@ trust and `NodeId` stay in `IdentityRegistry`, while public/user signing remains
 
 Current state: `IdentityRegistry` now owns real Ed25519 node signing, key persistence, Verse trust
 state, and signed presence-binding assertions. `NostrCoreRegistry` now has a supervised websocket
-relay backend, restart-safe subscription persistence, and relay connection diagnostics. The
-remaining work in Sector C is closing the real `UserIdentity` lane via secp256k1 / NIP-46 without
-collapsing it back into the transport `NodeId` key.
+relay backend, restart-safe subscription persistence, relay connection diagnostics, and a local
+secp256k1 user-signing lane. The remaining work in Sector C is delegated NIP-46 signing without
+collapsing that `UserIdentity` lane back into the transport `NodeId` key.
 
 ---
 

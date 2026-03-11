@@ -659,7 +659,7 @@ impl NostrCoreRegistry {
         let state = self.state.lock().expect("nostr core lock poisoned");
         let (event_id, signature, pubkey) = match &state.signer_backend {
             NostrSignerBackend::LocalHostKey => {
-                let Some(pubkey) = identity.verifying_key_hex_for(persona) else {
+                let Some(pubkey) = identity.nostr_public_key_hex_for(persona) else {
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
                         byte_len: persona.len(),
@@ -670,8 +670,7 @@ impl NostrCoreRegistry {
                 };
 
                 let event_hash = canonical_event_hash(&pubkey, unsigned);
-                let signed = identity.sign(persona, &event_hash);
-                let Some(signature) = signed.signature else {
+                let Some(signature) = identity.sign_user_digest(persona, &event_hash) else {
                     emit_event(DiagnosticEvent::MessageSent {
                         channel_id: CHANNEL_NOSTR_SIGN_REQUEST_DENIED,
                         byte_len: persona.len(),

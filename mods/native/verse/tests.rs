@@ -496,7 +496,7 @@ mod step_5_3_tests {
             node_id: node_id.to_string(),
             user_identity: UserIdentityClaim {
                 identity_id: "identity:default".to_string(),
-                protocol: UserIdentityProtocol::LocalEd25519,
+                protocol: UserIdentityProtocol::LocalNostrSecp256k1,
                 public_key: "abcd".to_string(),
             },
             issued_at_secs: 1,
@@ -524,9 +524,9 @@ mod step_5_3_tests {
     fn presence_protocol_labels_roundtrip() {
         assert_eq!(
             parse_presence_protocol(presence_protocol_label(
-                UserIdentityProtocol::LocalEd25519
+                UserIdentityProtocol::LocalNostrSecp256k1
             )),
-            Some(UserIdentityProtocol::LocalEd25519)
+            Some(UserIdentityProtocol::LocalNostrSecp256k1)
         );
         assert_eq!(
             parse_presence_protocol(presence_protocol_label(UserIdentityProtocol::NostrPubkey)),

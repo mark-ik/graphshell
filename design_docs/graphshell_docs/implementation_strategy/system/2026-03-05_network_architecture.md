@@ -256,10 +256,10 @@ Implementation note as of 2026-03-10:
 
 - Graphshell now carries a short-lived signed presence-binding assertion on the Verse discovery path.
 - That assertion binds the transport `NodeId` to a user-identity claim for a scoped audience/TTL.
-- The current local user-identity signer is still an internal Ed25519 persona, which is acceptable
-  for the transport-binding shape but not a real interoperable Nostr identity.
-- Full closure still requires migrating the `UserIdentity` lane to secp256k1/NIP-46 while keeping
-  the `NodeId` lane separate.
+- The current local user-identity signer is now a dedicated secp256k1 lane, separate from the
+  Ed25519 transport identity.
+- Full closure still requires NIP-46 delegated signing so the `UserIdentity` lane can move out of
+  local key custody while keeping the `NodeId` lane separate.
 
 ### libp2p-iroh bridge
 

@@ -39,7 +39,7 @@ Track 3: Cross-registry wiring — bind UserIdentity to NodeId without shared ke
 | Registry | Struct | Completeness | Key gaps |
 |---|---|---|---|
 | `IdentityRegistry` | ✅ | Runtime authority | Real Ed25519 node-signing, persistence, rotation/revocation, Verse trust wiring, and signed presence-binding assertions are landed; NIP-07 remains deferred |
-| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend, subscription persistence, and relay diagnostics are landed; real NIP-46/secp256k1 user signing is still open |
+| `NostrCoreRegistry` | ✅ | Runtime authority | Supervised `tokio-tungstenite` relay backend, subscription persistence, relay diagnostics, and local secp256k1 user signing are landed; real NIP-46 delegated signing is still open |
 
 ### Implementation note — 2026-03-10 correction
 
@@ -57,10 +57,10 @@ shape:
 Current implementation note:
 
 - The presence-binding carrier is landed and signed by the local default user-claim key.
-- That local user-claim is still an internal Ed25519 persona today; it is a transitional
-  implementation, not interoperable Nostr identity.
-- The remaining honest blocker for full Sector C closure is migrating the user-signing lane to
-  real secp256k1/NIP-46 while keeping the `NodeId` lane separate.
+- That local user-claim now uses a dedicated secp256k1 signer, separate from the `NodeId`
+  transport key.
+- The remaining honest blocker for full Sector C closure is NIP-46 delegated signing for the
+  user-signing lane, while keeping the `NodeId` lane separate.
 
 ---
 
@@ -255,7 +255,7 @@ and NIP-07 browser extension bridges.
 
 Current implementation note:
 - Local signing now uses canonical Nostr event hashes with `created_at`, and the relay backend is a supervised worker under `ControlPanel`.
-- `SignerBackend::Nip46` still returns explicit `BackendUnavailable`; migrating the user-signing lane to real Nostr-compatible secp256k1/NIP-46 is the remaining Sector C blocker.
+- `SignerBackend::Nip46` still returns explicit `BackendUnavailable`; delegated signing is now the remaining Sector C blocker on top of the landed local secp256k1 user-signing lane.
 
 ---
 
