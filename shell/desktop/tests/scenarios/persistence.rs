@@ -2,15 +2,26 @@ use super::super::harness::TestRegistry;
 use crate::app::CommandPaletteShortcut;
 use crate::app::GraphBrowserApp;
 use crate::app::GraphIntent;
+use crate::app::GraphViewId;
 use crate::app::HelpPanelShortcut;
 use crate::app::RadialMenuShortcut;
+use crate::app::SelectionUpdateMode;
 use crate::app::ToastAnchorPreference;
+use crate::app::WorkbenchIntent;
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::services::persistence::GraphStore;
 use crate::services::persistence::types::LogEntry;
+use crate::shell::desktop::runtime::registries::workbench_surface::WorkbenchSurfaceRegistry;
+use crate::shell::desktop::ui::persistence_ops::{
+    load_named_workspace_bundle, restore_runtime_tree_from_workspace_bundle,
+    save_named_workspace_bundle,
+};
+use crate::shell::desktop::workbench::pane_model::{GraphPaneRef, NodePaneState};
+use crate::shell::desktop::workbench::tile_kind::TileKind;
 use crate::shell::desktop::runtime::registries::input::{
     GamepadButton, InputBinding, InputBindingRemap, InputContext, action_id,
 };
+use egui_tiles::{Container, Tile, Tiles, Tree};
 use crate::shell::desktop::runtime::registries::{
     phase2_reset_input_binding_remaps, phase2_resolve_typed_input_action_id,
 };
@@ -395,5 +406,91 @@ fn set_input_binding_remaps_persist_across_restart() {
     assert_eq!(
         phase2_resolve_typed_input_action_id(&remaps[0].old, InputContext::GraphView),
         None
+    );
+}
+
+#[test]
+fn grouped_tiles_frame_bundle_round_trip_restores_group_and_members() {
+    let dir = TempDir::new().expect("temp dir should be created");
+    let mut app = GraphBrowserApp::new_from_dir(dir.path().to_path_buf());
+    let registry = WorkbenchSurfaceRegistry::default();
+    let view_id = GraphViewId::new();
+
+    let left_node = app.add_node_and_sync(
+        "https://group-left.example".into(),
+        euclid::default::Point2D::new(0.0, 0.0),
+    );
+    let right_node = app.add_node_and_sync(
+        "https://group-right.example".into(),
+        euclid::default::Point2D::new(80.0, 0.0),
+    );
+
+    let mut tiles = Tiles::default();
+    let graph_tile = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(view_id)));
+    let left_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(left_node)));
+    let right_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(right_node)));
+    let graph_leaf = tiles.insert_tab_tile(vec![graph_tile]);
+    let left_leaf = tiles.insert_tab_tile(vec![left_tile]);
+    let right_leaf = tiles.insert_tab_tile(vec![right_tile]);
+    let root = tiles.insert_horizontal_tile(vec![graph_leaf, left_leaf, right_leaf]);
+    let mut tree = Tree::new("grouped_tiles_round_trip", root, tiles);
+
+    registry.dispatch_intent(
+        &mut app,
+        &mut tree,
+        WorkbenchIntent::UpdateTileSelection {
+            tile_id: graph_tile,
+            mode: SelectionUpdateMode::Replace,
+        },
+    );
+    registry.dispatch_intent(
+        &mut app,
+        &mut tree,
+        WorkbenchIntent::UpdateTileSelection {
+            tile_id: left_tile,
+            mode: SelectionUpdateMode::Add,
+        },
+    );
+    registry.dispatch_intent(
+        &mut app,
+        &mut tree,
+        WorkbenchIntent::UpdateTileSelection {
+            tile_id: right_tile,
+            mode: SelectionUpdateMode::Add,
+        },
+    );
+    registry.dispatch_intent(&mut app, &mut tree, WorkbenchIntent::GroupSelectedTiles);
+
+    let frame_name = "workspace-grouped-roundtrip";
+    save_named_workspace_bundle(&mut app, frame_name, &tree)
+        .expect("grouped frame bundle should save");
+    let bundle = load_named_workspace_bundle(&app, frame_name)
+        .expect("saved grouped frame bundle should load");
+    let (restored, restored_nodes) = restore_runtime_tree_from_workspace_bundle(&app, &bundle)
+        .expect("grouped frame bundle should restore runtime tree");
+
+    assert!(restored.root().is_some(), "restored tree should have a root");
+    assert!(restored_nodes.contains(&left_node));
+    assert!(restored_nodes.contains(&right_node));
+
+    let graph_panes = restored
+        .tiles
+        .iter()
+        .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Graph(_))))
+        .count();
+    let node_panes = restored
+        .tiles
+        .iter()
+        .filter(|(_, tile)| matches!(tile, Tile::Pane(TileKind::Node(_))))
+        .count();
+    let grouped_tabs = restored.tiles.iter().any(|(_, tile)| {
+        matches!(tile, Tile::Container(Container::Tabs(tabs)) if tabs.children.len() >= 3)
+    });
+
+    assert_eq!(graph_panes, 1, "restored tree should retain one graph pane");
+    assert_eq!(node_panes, 2, "restored tree should retain grouped node panes");
+    assert!(
+        grouped_tabs,
+        "restored tree should include a grouped tabs container with selected members"
     );
 }

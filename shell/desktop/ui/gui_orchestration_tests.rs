@@ -2500,7 +2500,7 @@ fn command_palette_toggle_emits_focus_capture_enter_and_exit_channels() {
 
 #[cfg(feature = "diagnostics")]
 #[test]
-fn transient_surface_restore_invalid_target_emits_focus_return_fallback() {
+fn transient_surface_restore_invalid_target_emits_focus_return_fallback_and_mismatch() {
     let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
     let graph_view = GraphViewId::new();
     let node_key = crate::graph::NodeKey::new(91);
@@ -2528,6 +2528,10 @@ fn transient_surface_restore_invalid_target_emits_focus_return_fallback() {
     assert!(
         snapshot.contains(CHANNEL_UX_FOCUS_RETURN_FALLBACK),
         "expected focus return fallback diagnostics when the stored transient return target is stale"
+    );
+    assert!(
+        snapshot.contains(CHANNEL_UX_FOCUS_REALIZATION_MISMATCH),
+        "expected focus realization mismatch diagnostics when stale target cannot be realized"
     );
     assert_eq!(
         active_node_key(&tree),
