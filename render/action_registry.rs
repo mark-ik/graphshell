@@ -4,7 +4,7 @@
 
 //! ActionRegistry: unified action catalogue for command surfaces.
 //!
-//! Both the command palette and the radial menu draw their content from
+//! Both the command palette and the radial palette draw their content from
 //! [`list_actions_for_context`] rather than from hardcoded enums.  Each
 //! returned [`ActionEntry`] carries enough metadata for any surface to
 //! render the action and decide whether it is currently enabled.
@@ -29,7 +29,7 @@ pub enum InputMode {
 }
 
 /// Logical grouping of actions, used for separators and ordering in the
-/// command palette and as sector grouping in the radial menu.
+/// command palette and as sector grouping in the radial palette.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ActionCategory {
     Node,
@@ -195,6 +195,7 @@ pub enum ActionId {
     GraphPhysicsConfig,
     GraphCommandPalette,
     GraphRadialMenu,
+    WorkbenchGroupSelectedTiles,
     // Persistence actions
     PersistUndo,
     PersistRedo,
@@ -272,6 +273,7 @@ impl ActionId {
             Self::GraphPhysicsConfig => "graph:physics_config",
             Self::GraphCommandPalette => "workbench:command_palette_open",
             Self::GraphRadialMenu => "workbench:radial_menu_open",
+            Self::WorkbenchGroupSelectedTiles => "workbench:group_selected_tiles",
             Self::PersistUndo => "persistence:undo",
             Self::PersistRedo => "persistence:redo",
             Self::PersistSaveSnapshot => "persistence:save_snapshot",
@@ -318,6 +320,7 @@ impl ActionId {
             Self::GraphPhysicsConfig => "Config",
             Self::GraphCommandPalette => "Cmd",
             Self::GraphRadialMenu => "Radial",
+            Self::WorkbenchGroupSelectedTiles => "Group Tiles",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
             Self::PersistSaveSnapshot => "Save W",
@@ -362,8 +365,9 @@ impl ActionId {
             Self::GraphCycleFocusRegion => "Cycle Focus Region",
             Self::GraphTogglePhysics => "Toggle Physics Simulation",
             Self::GraphPhysicsConfig => "Open Physics Settings",
-            Self::GraphCommandPalette => "Open Interaction Menu",
-            Self::GraphRadialMenu => "Open Radial Menu",
+            Self::GraphCommandPalette => "Open Command Palette",
+            Self::GraphRadialMenu => "Open Radial Palette",
+            Self::WorkbenchGroupSelectedTiles => "Group Selected Tiles",
             Self::PersistUndo => "Undo",
             Self::PersistRedo => "Redo",
             Self::PersistSaveSnapshot => "Save Frame Snapshot",
@@ -409,7 +413,8 @@ impl ActionId {
             | Self::GraphTogglePhysics
             | Self::GraphPhysicsConfig
             | Self::GraphCommandPalette
-            | Self::GraphRadialMenu => ActionCategory::Graph,
+            | Self::GraphRadialMenu
+            | Self::WorkbenchGroupSelectedTiles => ActionCategory::Graph,
             Self::PersistUndo
             | Self::PersistRedo
             | Self::PersistSaveSnapshot
@@ -475,6 +480,7 @@ fn all_action_ids() -> &'static [ActionId] {
         GraphPhysicsConfig,
         GraphCommandPalette,
         GraphRadialMenu,
+        WorkbenchGroupSelectedTiles,
         PersistUndo,
         PersistRedo,
         PersistSaveSnapshot,
@@ -583,6 +589,7 @@ pub fn list_actions_for_context(context: &ActionContext) -> Vec<ActionEntry> {
         (GraphTogglePhysics, true),
         (GraphPhysicsConfig, true),
         (GraphCommandPalette, true),
+        (WorkbenchGroupSelectedTiles, true),
         // Persistence
         (PersistUndo, context.undo_available),
         (PersistRedo, context.redo_available),

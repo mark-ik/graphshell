@@ -2,11 +2,18 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Interaction menu panel — keyboard-first, `ActionRegistry`-backed.
+//! Command palette / context palette list surface — `ActionRegistry`-backed.
 //!
 //! Content is populated via [`super::action_registry::list_actions_for_context`]
-//! rather than a hardcoded enum.  The radial menu reuses [`execute_action`]
-//! for its own dispatch, ensuring both surfaces share a single execution path.
+//! rather than a hardcoded enum.
+//!
+//! Terminology:
+//! - "Command Palette" = the search-first global list surface.
+//! - "Context Palette" = the contextual list mode of the same authority.
+//! - "Radial Palette" = the radial contextual presentation over the same action backend.
+//!
+//! The radial palette reuses [`execute_action`] for its own dispatch, ensuring both
+//! surfaces share a single execution path.
 
 use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, PendingConnectedOpenScope,
@@ -31,7 +38,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 
-fn active_theme_tokens(app: &GraphBrowserApp) -> crate::shell::desktop::runtime::registries::theme::ThemeTokenSet {
+fn active_theme_tokens(
+    app: &GraphBrowserApp,
+) -> crate::shell::desktop::runtime::registries::theme::ThemeTokenSet {
     crate::shell::desktop::runtime::registries::phase3_resolve_active_theme(
         app.default_registry_theme_id(),
     )
@@ -240,7 +249,7 @@ fn render_action_entry_button(
     }
 }
 
-/// Render the interaction menu panel.
+/// Render the list-based command surface.
 ///
 /// Content is driven by [`list_actions_for_context`]; no hardcoded action
 /// enum exists in this module.
@@ -294,7 +303,8 @@ pub fn render_command_palette_panel(
         &load_category_recency(ctx),
         &load_pinned_categories(ctx),
     );
-    let contextual_mode = app.pending_node_context_target().is_some();
+    let contextual_mode = app.workspace.command_palette_contextual_mode
+        || app.pending_node_context_target().is_some();
     let search_query_id = egui::Id::new("command_palette_search_query");
     let search_scope_id = egui::Id::new("command_palette_search_scope");
 
@@ -302,7 +312,13 @@ pub fn render_command_palette_panel(
         should_close = true;
     }
 
-    Window::new("Interaction Menu")
+    let window_title = if contextual_mode {
+        "Context Palette"
+    } else {
+        "Command Palette"
+    };
+
+    Window::new(window_title)
         .open(&mut open)
         .default_width(320.0)
         .default_height(420.0)
@@ -318,7 +334,7 @@ pub fn render_command_palette_panel(
                     if fallback_notice {
                         ui.colored_label(
                             theme_tokens.command_notice,
-                            "Radial layout constrained; opened interaction menu for reliable selection.",
+                            "Radial palette constrained; opened context palette for reliable selection.",
                         );
                         ctx.data_mut(|d| d.remove::<bool>(fallback_notice_id));
                     }
@@ -492,20 +508,17 @@ pub fn render_command_palette_panel(
                 });
         });
 
-    let next_open = open && !should_close;
-    if next_open {
-        app.open_command_palette();
-    } else {
-        app.close_command_palette();
+    if !open || should_close {
+        app.enqueue_workbench_intent(crate::app::WorkbenchIntent::ToggleCommandPalette);
     }
     super::apply_ui_intents_with_checkpoint(app, intents);
 }
 
 /// Dispatch an [`ActionId`] to the appropriate [`GraphIntent`]s or app call.
 ///
-/// This is the single dispatch function shared by both the interaction menu
-/// and the radial menu, eliminating the duplicate execution paths that
-/// existed when each surface had its own hardcoded `match` arm set.
+/// This is the single dispatch function shared by the list-based command
+/// surface and the radial menu, eliminating the duplicate execution paths
+/// that existed when each surface had its own hardcoded `match` arm set.
 pub(crate) fn execute_action(
     app: &mut GraphBrowserApp,
     action_id: ActionId,
@@ -694,6 +707,9 @@ pub(crate) fn execute_action(
             app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
         }
         ActionId::GraphRadialMenu => intents.push(GraphIntent::ToggleRadialMenu),
+        ActionId::WorkbenchGroupSelectedTiles => {
+            app.enqueue_workbench_intent(WorkbenchIntent::GroupSelectedTiles);
+        }
         ActionId::PersistUndo => intents.push(GraphIntent::Undo),
         ActionId::PersistRedo => intents.push(GraphIntent::Redo),
         ActionId::PersistSaveSnapshot => app.request_save_frame_snapshot(),

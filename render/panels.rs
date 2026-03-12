@@ -12,12 +12,11 @@ use crate::app::{
 };
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
-use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UI_HISTORY_MANAGER_LIMIT, CHANNEL_UX_NAVIGATION_TRANSITION,
-    phase2_describe_input_bindings,
-};
 use crate::shell::desktop::runtime::registries::input::{
     InputBinding, InputBindingSection, InputContext, action_id,
+};
+use crate::shell::desktop::runtime::registries::{
+    CHANNEL_UI_HISTORY_MANAGER_LIMIT, phase2_describe_input_bindings,
 };
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 
@@ -35,8 +34,7 @@ fn camera_settings_target_view_id(app: &GraphBrowserApp) -> Option<crate::app::G
 
 fn selected_node_dynamics_profile_id(app: &GraphBrowserApp) -> String {
     let _ = app;
-    crate::shell::desktop::runtime::registries::phase3_resolve_active_physics_profile()
-        .resolved_id
+    crate::shell::desktop::runtime::registries::phase3_resolve_active_physics_profile().resolved_id
 }
 
 fn apply_node_dynamics_profile_selection(app: &mut GraphBrowserApp, physics_id: &str) {
@@ -46,6 +44,33 @@ fn apply_node_dynamics_profile_selection(app: &mut GraphBrowserApp, physics_id: 
             profile_id: physics_id.to_string(),
         }],
     );
+}
+
+fn selected_dynamic_layout_algorithm_id(app: &GraphBrowserApp) -> String {
+    if let Some(view_id) = camera_settings_target_view_id(app)
+        && let Some(view) = app.workspace.views.get(&view_id)
+    {
+        return view.lens.layout_algorithm_id.clone();
+    }
+
+    crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
+        .profile
+        .layout_algorithm
+        .algorithm_id
+}
+
+fn apply_dynamic_layout_algorithm_selection(app: &mut GraphBrowserApp, algorithm_id: &str) {
+    let Some(view_id) = camera_settings_target_view_id(app) else {
+        return;
+    };
+    let Some(view) = app.workspace.views.get(&view_id) else {
+        return;
+    };
+
+    let mut lens = view.lens.clone();
+    lens.layout_algorithm_id = algorithm_id.to_string();
+    lens.layout = crate::registries::atomic::lens::LayoutMode::Free;
+    apply_reducer_graph_intents_hardened(app, vec![GraphIntent::SetViewLens { view_id, lens }]);
 }
 
 pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
@@ -91,6 +116,29 @@ pub(crate) fn render_physics_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserA
     ui.separator();
     ui.label("Physics Engine Settings");
     ui.small("Fruchterman-Reingold + center-gravity coefficients for the active simulation.");
+
+    let mut layout_algorithm_id = selected_dynamic_layout_algorithm_id(app);
+    let previous_layout_algorithm_id = layout_algorithm_id.clone();
+    ui.label("Dynamic Layout Algorithm");
+    ui.small("Choose the active force-directed engine for the focused graph view.");
+    ui.horizontal_wrapped(|ui| {
+        ui.radio_value(
+            &mut layout_algorithm_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED.to_string(),
+            "Force Directed",
+        );
+        ui.radio_value(
+            &mut layout_algorithm_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT.to_string(),
+            "Barnes-Hut",
+        );
+    });
+    if camera_settings_target_view_id(app).is_none() {
+        ui.small("Select or focus a graph view to persist a layout-engine override.");
+    }
+    if layout_algorithm_id != previous_layout_algorithm_id {
+        apply_dynamic_layout_algorithm_selection(app, &layout_algorithm_id);
+    }
 
     let mut config = app.workspace.physics.clone();
     let mut config_changed = false;
@@ -365,12 +413,10 @@ pub fn render_help_panel(ctx: &egui::Context, app: &mut GraphBrowserApp) {
                         });
                 });
         });
-    app.workspace.show_help_panel = open;
-    if app.workspace.show_help_panel != was_open {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
+    if was_open && !open {
+        app.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
+    } else {
+        app.workspace.show_help_panel = open;
     }
 }
 
@@ -1156,7 +1202,8 @@ fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
         .ctx()
         .data_mut(|data| data.get_persisted::<String>(capture_error_id));
 
-    if let (Some(action_id), Some(context_raw)) = (capture_action.as_deref(), capture_context.as_deref())
+    if let (Some(action_id), Some(context_raw)) =
+        (capture_action.as_deref(), capture_context.as_deref())
         && let Ok(context) = InputContext::from_str(context_raw)
     {
         let captured = ui.ctx().input(|input| {
@@ -1254,7 +1301,11 @@ fn render_keybindings_settings_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
                     ui.small(entry.context.label());
                     ui.horizontal(|ui| {
                         if ui
-                            .button(if is_capturing { "Press Key..." } else { "Rebind" })
+                            .button(if is_capturing {
+                                "Press Key..."
+                            } else {
+                                "Rebind"
+                            })
                             .clicked()
                         {
                             capture_action = Some(entry.action_id.clone());

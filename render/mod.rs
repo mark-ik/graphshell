@@ -8,16 +8,23 @@
 //! which provides built-in navigation (zoom/pan), node dragging, and selection.
 
 use crate::app::{
-    graph_layout::{GRAPH_LAYOUT_FORCE_DIRECTED, layout_algorithm_id_for_mode},
-    CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, KeyboardPanInputMode,
-    KeyboardZoomRequest, SearchDisplayMode, SelectionUpdateMode, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest, ViewAction,
+    CameraCommand, ChooseFramePickerMode, GraphBrowserApp, GraphIntent, GraphSearchHistoryEntry,
+    GraphSearchOrigin, KeyboardPanInputMode, KeyboardZoomRequest, SearchDisplayMode,
+    SelectionUpdateMode, UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewAction,
+    WorkbenchIntent,
+    graph_layout::{
+        GRAPH_LAYOUT_FORCE_DIRECTED, GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT,
+        layout_algorithm_id_for_mode,
+    },
 };
 use crate::graph::egui_adapter::{EguiGraphState, GraphEdgeShape, GraphNodeShape};
+use crate::graph::layouts::{ActiveLayout, ActiveLayoutKind, ActiveLayoutState};
+use crate::graph::physics::apply_graph_physics_extensions;
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::registries::domain::layout::canvas::CanvasLassoBinding;
 use crate::registries::domain::presentation::PresentationProfile;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::input::action_id;
 use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_CAMERA_COMMAND_BLOCKED_MISSING_TARGET_VIEW,
     CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_NO_BOUNDS, CHANNEL_UI_GRAPH_CAMERA_FIT_BLOCKED_ZERO_VIEW,
@@ -30,16 +37,14 @@ use crate::shell::desktop::runtime::registries::{
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_BLOCKED_INVALID_FACTOR,
     CHANNEL_UI_GRAPH_WHEEL_ZOOM_DEFERRED_NO_METADATA, CHANNEL_UI_GRAPH_WHEEL_ZOOM_NOT_CAPTURED,
     CHANNEL_UX_NAVIGATION_TRANSITION, phase3_apply_layout_algorithm_to_graph,
-    phase3_resolve_active_canvas_profile, phase3_resolve_layout_algorithm,
-    phase3_resolve_active_presentation_profile,
+    phase3_resolve_active_canvas_profile, phase3_resolve_active_presentation_profile,
+    phase3_resolve_layout_algorithm,
 };
-use crate::shell::desktop::runtime::registries::input::action_id;
 use crate::util::CoordBridge;
 use egui::{Color32, Stroke, Ui, Vec2, Window};
 use egui_graphs::events::Event;
 use egui_graphs::{
-    FruchtermanReingoldWithCenterGravity, FruchtermanReingoldWithCenterGravityState, GraphView,
-    LayoutForceDirected, MetadataFrame, SettingsInteraction, SettingsNavigation, SettingsStyle,
+    GraphView, MetadataFrame, SettingsInteraction, SettingsNavigation, SettingsStyle,
     get_layout_state, set_layout_state,
 };
 use euclid::default::Point2D;
@@ -173,8 +178,44 @@ fn node_key_or_emit_ambiguous_hit(node_key: Option<NodeKey>) -> Option<NodeKey> 
     node_key
 }
 
+fn handle_hovered_node_secondary_click(
+    ctx: &egui::Context,
+    app: &mut GraphBrowserApp,
+    view_id: crate::app::GraphViewId,
+    target: NodeKey,
+    pointer: Option<egui::Pos2>,
+) {
+    match app.context_command_surface_preference() {
+        crate::app::ContextCommandSurfacePreference::RadialPalette => {
+            app.set_pending_node_context_target(None);
+            if app.pending_transient_surface_return_target().is_none() {
+                app.set_pending_transient_surface_return_target(Some(
+                    crate::app::ToolSurfaceReturnTarget::Graph(view_id),
+                ));
+            }
+            if !app.workspace.show_radial_menu {
+                app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+            }
+            if let Some(pointer) = pointer {
+                ctx.data_mut(|d| {
+                    d.insert_persisted(egui::Id::new("radial_menu_center"), pointer);
+                });
+            }
+        }
+        crate::app::ContextCommandSurfacePreference::ContextPalette => {
+            app.set_pending_node_context_target(Some(target));
+            if app.pending_command_surface_return_target().is_none() {
+                app.set_pending_command_surface_return_target(Some(
+                    crate::app::ToolSurfaceReturnTarget::Graph(view_id),
+                ));
+            }
+            app.open_context_palette();
+        }
+    }
+}
+
 /// Render graph info and controls hint overlay text into the current UI.
-pub fn render_graph_info_in_ui(ui: &mut Ui, app: &GraphBrowserApp) {
+pub fn render_graph_info_in_ui(ui: &mut Ui, app: &mut GraphBrowserApp) {
     draw_graph_info(ui, app);
 }
 
@@ -274,11 +315,15 @@ pub fn render_graph_in_ui_collect_actions(
     let canvas_profile = &active_canvas.profile;
     let requested_layout_id = requested_layout_algorithm_id(app, view_id, canvas_profile);
     let resolved_layout = phase3_resolve_layout_algorithm(Some(&requested_layout_id));
-    let dynamic_layout = resolved_layout.resolved_id == GRAPH_LAYOUT_FORCE_DIRECTED;
+    let dynamic_layout = matches!(
+        resolved_layout.resolved_id.as_str(),
+        GRAPH_LAYOUT_FORCE_DIRECTED | GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+    );
     if should_apply_layout_algorithm(app, view_id, &resolved_layout.resolved_id) {
-        if let Ok(execution) =
-            phase3_apply_layout_algorithm_to_graph(app.domain_graph_mut(), Some(&requested_layout_id))
-        {
+        if let Ok(execution) = phase3_apply_layout_algorithm_to_graph(
+            app.domain_graph_mut(),
+            Some(&requested_layout_id),
+        ) {
             if execution.changed_positions > 0 {
                 app.workspace.egui_state_dirty = true;
             }
@@ -341,6 +386,7 @@ pub fn render_graph_in_ui_collect_actions(
             view_selection.primary(),
             &crashed_nodes,
             &memberships_by_uuid,
+            &semantic_badges_by_key(app, graph_for_render),
             filtered_graph.is_none() && culled_graph.is_none(),
         ));
         app.workspace.egui_state_dirty = false;
@@ -383,7 +429,20 @@ pub fn render_graph_in_ui_collect_actions(
     }
 
     // Keep egui_graphs layout cache aligned with app-owned FR state.
-    set_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, physics_state, None);
+    let active_layout_kind =
+        if resolved_layout.resolved_id == GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT {
+            ActiveLayoutKind::BarnesHut
+        } else {
+            ActiveLayoutKind::ForceDirected
+        };
+    set_layout_state::<ActiveLayoutState>(
+        ui,
+        ActiveLayoutState {
+            kind: active_layout_kind,
+            physics: physics_state,
+        },
+        None,
+    );
 
     // Intercept wheel input before GraphView renders so parent scroll handling
     // cannot consume the delta first.
@@ -438,8 +497,8 @@ pub fn render_graph_in_ui_collect_actions(
                 _,
                 GraphNodeShape,
                 GraphEdgeShape,
-                FruchtermanReingoldWithCenterGravityState,
-                LayoutForceDirected<FruchtermanReingoldWithCenterGravity>,
+                ActiveLayoutState,
+                ActiveLayout,
             >::new(&mut state.graph)
             .with_navigations(&nav)
             .with_interactions(&interaction)
@@ -458,19 +517,18 @@ pub fn render_graph_in_ui_collect_actions(
     });
 
     // Pull latest FR state from egui_graphs after this frame's layout step.
-    let new_physics = get_layout_state::<FruchtermanReingoldWithCenterGravityState>(ui, None);
+    let new_physics = get_layout_state::<ActiveLayoutState>(ui, None).physics;
     if dynamic_layout {
         app.workspace.physics = new_physics;
     }
 
     // Apply semantic clustering forces if enabled (UDC Phase 2)
-    let semantic_config = app.workspace.views.get(&view_id).map(|v| {
-        (
-            v.lens.physics.semantic_clustering,
-            v.lens.physics.semantic_strength,
-        )
-    });
-    apply_semantic_clustering_forces(app, semantic_config);
+    let physics_extensions = app
+        .workspace
+        .views
+        .get(&view_id)
+        .map(|v| v.lens.physics.graph_physics_extensions());
+    apply_graph_physics_extensions(app, physics_extensions);
 
     app.workspace.hovered_graph_node = app.workspace.egui_state.as_ref().and_then(|state| {
         state
@@ -496,20 +554,13 @@ pub fn render_graph_in_ui_collect_actions(
         && !lasso.suppress_context_menu
         && let Some(target) = app.workspace.hovered_graph_node
     {
-        let was_open = app.workspace.show_radial_menu;
-        app.set_pending_node_context_target(Some(target));
-        app.workspace.show_radial_menu = true;
-        if app.workspace.show_radial_menu != was_open {
-            emit_event(DiagnosticEvent::MessageReceived {
-                channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-                latency_us: 0,
-            });
-        }
-        if let Some(pointer) = ui.input(|i| i.pointer.latest_pos()) {
-            ui.ctx().data_mut(|d| {
-                d.insert_persisted(egui::Id::new("radial_menu_center"), pointer);
-            });
-        }
+        handle_hovered_node_secondary_click(
+            ui.ctx(),
+            app,
+            view_id,
+            target,
+            ui.input(|i| i.pointer.latest_pos()),
+        );
     }
     if ui.input(|i| i.pointer.primary_clicked())
         && let Some(target) = app.workspace.hovered_graph_node
@@ -757,10 +808,16 @@ fn draw_highlighted_edge_overlay(
         Stroke::new(5.0, presentation.edge_highlight_foreground.to_color32()),
     );
     // Draw endpoint markers so edge-search selection is obvious even on dense graphs.
-    ui.painter()
-        .circle_filled(from_screen, 6.0, presentation.edge_highlight_foreground.to_color32());
-    ui.painter()
-        .circle_filled(to_screen, 6.0, presentation.edge_highlight_foreground.to_color32());
+    ui.painter().circle_filled(
+        from_screen,
+        6.0,
+        presentation.edge_highlight_foreground.to_color32(),
+    );
+    ui.painter().circle_filled(
+        to_screen,
+        6.0,
+        presentation.edge_highlight_foreground.to_color32(),
+    );
 }
 
 fn draw_hovered_node_tooltip(
@@ -2445,142 +2502,8 @@ pub(crate) fn sync_graph_positions_from_layout(app: &mut GraphBrowserApp) {
     }
 }
 
-/// Apply semantic clustering forces based on UDC tag similarity (Phase 2).
-/// Nodes with similar UDC codes attract each other, creating "library shelves"
-/// where content clusters by subject (math, physics, history, etc.).
-///
-/// Force model: F = k * similarity * (pos_b - pos_a)
-/// where similarity = 1.0 - distance(code_a, code_b)
-fn apply_semantic_clustering_forces(
-    app: &mut GraphBrowserApp,
-    semantic_config: Option<(bool, f32)>,
-) {
-    // Check if semantic clustering is enabled
-    let (enabled, strength) = if let Some((enabled, strength)) = semantic_config {
-        (enabled, strength)
-    } else {
-        // No lens active, semantic clustering is disabled by default
-        // TODO: Add global semantic clustering setting when settings panel is implemented
-        (false, 0.05)
-    };
-
-    if !enabled || strength < 1e-6 {
-        return;
-    }
-
-    if !app.workspace.physics.base.is_running {
-        return;
-    }
-
-    if app.workspace.semantic_index.is_empty() {
-        return;
-    }
-
-    // Collect nodes with semantic tags
-    let tagged_nodes: Vec<(
-        crate::graph::NodeKey,
-        crate::registries::atomic::knowledge::SemanticClassVector,
-    )> = app
-        .workspace
-        .semantic_index
-        .iter()
-        .map(|(&key, vector)| (key, vector.clone()))
-        .collect();
-
-    if tagged_nodes.len() < 2 {
-        return; // Need at least 2 nodes to cluster
-    }
-
-    // Calculate pairwise semantic attractions
-    // For efficiency, we use O(n²) for now; could optimize with clustering/sampling later
-    let mut position_deltas: HashMap<crate::graph::NodeKey, egui::Vec2> = HashMap::new();
-
-    for i in 0..tagged_nodes.len() {
-        for j in (i + 1)..tagged_nodes.len() {
-            let (key_a, vector_a) = &tagged_nodes[i];
-            let (key_b, vector_b) = &tagged_nodes[j];
-
-            // Multi-class similarity: strongest overlap across all class pairs.
-            let similarity = semantic_pair_similarity(vector_a, vector_b);
-
-            // Skip weak similarities to reduce noise
-            if similarity < 0.1 {
-                continue;
-            }
-
-            // Get node positions
-            let pos_a = app.domain_graph().node_projected_position(*key_a);
-            let pos_b = app.domain_graph().node_projected_position(*key_b);
-
-            if let (Some(pa), Some(pb)) = (pos_a, pos_b) {
-                // Calculate attraction vector
-                let delta = egui::Vec2::new(pb.x - pa.x, pb.y - pa.y);
-                let force = delta * similarity * strength;
-
-                // Apply force to both nodes (Newton's 3rd law)
-                *position_deltas.entry(*key_a).or_insert(egui::Vec2::ZERO) += force;
-                *position_deltas.entry(*key_b).or_insert(egui::Vec2::ZERO) -= force;
-            }
-        }
-    }
-
-    // Apply position deltas to app.workspace.domain.graph and sync to egui_state
-    for (key, delta) in &position_deltas {
-        if let Some(node) = app.domain_graph().get_node(*key)
-            && !node.is_pinned
-            && let Some(position) = app.domain_graph().node_projected_position(*key)
-        {
-            let next_pos =
-                euclid::default::Point2D::new(position.x + delta.x, position.y + delta.y);
-            let _ = app
-                .domain_graph_mut()
-                .set_node_projected_position(*key, next_pos);
-        }
-    }
-
-    // Sync updated positions back to egui_state
-    let projected_positions: Vec<_> = position_deltas
-        .iter()
-        .filter_map(|(key, _delta)| {
-            let node = app.domain_graph().get_node(*key)?;
-            if node.is_pinned {
-                return None;
-            }
-            let position = app.domain_graph().node_projected_position(*key)?;
-            Some((*key, position))
-        })
-        .collect();
-    if let Some(state_mut) = app.workspace.egui_state.as_mut() {
-        for (key, position) in projected_positions {
-            if let Some(egui_node) = state_mut.graph.node_mut(key) {
-                egui_node.set_location(position.to_pos2());
-            }
-        }
-    }
-}
-
-fn semantic_pair_similarity(
-    a: &crate::registries::atomic::knowledge::SemanticClassVector,
-    b: &crate::registries::atomic::knowledge::SemanticClassVector,
-) -> f32 {
-    if a.classes.is_empty() || b.classes.is_empty() {
-        return 0.0;
-    }
-
-    let mut best = 0.0_f32;
-    for ca in &a.classes {
-        for cb in &b.classes {
-            let similarity = 1.0 - ca.distance(cb);
-            if similarity > best {
-                best = similarity;
-            }
-        }
-    }
-    best
-}
-
 /// Draw graph information overlay
-fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
+fn draw_graph_info(ui: &mut egui::Ui, app: &mut GraphBrowserApp) {
     let presentation = active_presentation_profile(app);
     let info_text = format!(
         "Nodes: {} | Edges: {} | Physics: {} | Zoom: {:.1}x",
@@ -2602,33 +2525,303 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
         presentation.info_text.to_color32(),
     );
 
+    let mut top_left_overlay_y = 28.0;
+    if !app.workspace.active_graph_search_query.is_empty() {
+        let query = app.workspace.active_graph_search_query.clone();
+        let filter_mode = matches!(app.workspace.search_display_mode, SearchDisplayMode::Filter);
+        let match_count = app.workspace.active_graph_search_match_count;
+        let current_entry = GraphSearchHistoryEntry {
+            query: query.clone(),
+            filter_mode,
+            origin: app.workspace.active_graph_search_origin.clone(),
+            neighborhood_anchor: app.workspace.active_graph_search_neighborhood_anchor,
+            neighborhood_depth: app.workspace.active_graph_search_neighborhood_depth,
+        };
+        let pinned_entry = app.workspace.pinned_graph_search.clone();
+        let is_pinned = pinned_entry.as_ref() == Some(&current_entry);
+        let area_rect = ui.available_rect_before_wrap();
+        egui::Area::new(egui::Id::new("graph_active_search_status"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(area_rect.left_top() + Vec2::new(10.0, 26.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::window(ui.style())
+                    .inner_margin(egui::Margin::same(8))
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            render_graph_search_origin_badge(
+                                ui,
+                                &app.workspace.active_graph_search_origin,
+                            );
+                            let scope_label = graph_search_scope_label(
+                                app.workspace.active_graph_search_neighborhood_anchor,
+                                app.workspace.active_graph_search_neighborhood_depth,
+                            );
+                            ui.small(format!(
+                                "Search: {query} | {match_count} matches{scope_label}"
+                            ));
+                            if !app.workspace.graph_search_history.is_empty()
+                                && ui.small_button("Back").clicked()
+                            {
+                                if let Some(entry) = app.workspace.graph_search_history.pop() {
+                                    request_graph_search_entry(app, entry, false, None);
+                                }
+                            }
+                            if ui
+                                .small_button(if is_pinned { "Unpin" } else { "Pin" })
+                                .clicked()
+                            {
+                                if is_pinned {
+                                    app.workspace.pinned_graph_search = None;
+                                } else {
+                                    app.workspace.pinned_graph_search = Some(current_entry.clone());
+                                }
+                                app.workspace.egui_state_dirty = true;
+                            }
+                            if ui.selectable_label(!filter_mode, "Highlight").clicked() {
+                                app.request_graph_search_with_options(
+                                    query.clone(),
+                                    false,
+                                    app.workspace.active_graph_search_origin.clone(),
+                                    app.workspace.active_graph_search_neighborhood_anchor,
+                                    app.workspace.active_graph_search_neighborhood_depth,
+                                    true,
+                                    None,
+                                );
+                            }
+                            if ui.selectable_label(filter_mode, "Filter").clicked() {
+                                app.request_graph_search_with_options(
+                                    query.clone(),
+                                    true,
+                                    app.workspace.active_graph_search_origin.clone(),
+                                    app.workspace.active_graph_search_neighborhood_anchor,
+                                    app.workspace.active_graph_search_neighborhood_depth,
+                                    true,
+                                    None,
+                                );
+                            }
+                            if app
+                                .workspace
+                                .active_graph_search_neighborhood_anchor
+                                .is_some()
+                            {
+                                let depth = app.workspace.active_graph_search_neighborhood_depth;
+                                if ui.selectable_label(depth == 1, "1-hop").clicked() {
+                                    app.request_graph_search_with_options(
+                                        query.clone(),
+                                        filter_mode,
+                                        app.workspace.active_graph_search_origin.clone(),
+                                        app.workspace.active_graph_search_neighborhood_anchor,
+                                        1,
+                                        false,
+                                        None,
+                                    );
+                                }
+                                if ui.selectable_label(depth == 2, "2-hop").clicked() {
+                                    app.request_graph_search_with_options(
+                                        query.clone(),
+                                        filter_mode,
+                                        app.workspace.active_graph_search_origin.clone(),
+                                        app.workspace.active_graph_search_neighborhood_anchor,
+                                        2,
+                                        false,
+                                        None,
+                                    );
+                                }
+                            }
+                            if ui.small_button("Clear").clicked() {
+                                app.request_graph_search(String::new(), false);
+                            }
+                        });
+                        if let Some(entry) = pinned_entry.filter(|entry| entry != &current_entry) {
+                            ui.separator();
+                            ui.horizontal_wrapped(|ui| {
+                                ui.small("Pinned:");
+                                if ui
+                                    .small_button(graph_search_history_label(&entry))
+                                    .clicked()
+                                {
+                                    request_graph_search_entry(app, entry, false, None);
+                                }
+                            });
+                        }
+                        if !app.workspace.graph_search_history.is_empty() {
+                            ui.separator();
+                            ui.horizontal_wrapped(|ui| {
+                                ui.small("Recent:");
+                                let recent_entries = app
+                                    .workspace
+                                    .graph_search_history
+                                    .iter()
+                                    .rev()
+                                    .take(3)
+                                    .cloned()
+                                    .collect::<Vec<_>>();
+                                for entry in recent_entries {
+                                    let label = graph_search_history_label(&entry);
+                                    if ui.small_button(label).clicked() {
+                                        request_graph_search_entry(app, entry, false, None);
+                                    }
+                                }
+                            });
+                        }
+                    });
+            });
+        top_left_overlay_y = 58.0;
+    } else if let Some(entry) = app.workspace.pinned_graph_search.clone() {
+        let area_rect = ui.available_rect_before_wrap();
+        egui::Area::new(egui::Id::new("graph_pinned_search_status"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(area_rect.left_top() + Vec2::new(10.0, 26.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::window(ui.style())
+                    .inner_margin(egui::Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(egui::RichText::new("PIN").small().strong());
+                            render_graph_search_origin_badge(ui, &entry.origin);
+                            ui.small(graph_search_history_label(&entry));
+                            if ui.small_button("Restore").clicked() {
+                                request_graph_search_entry(app, entry.clone(), false, None);
+                            }
+                            if ui.small_button("X").clicked() {
+                                app.workspace.pinned_graph_search = None;
+                                app.workspace.egui_state_dirty = true;
+                            }
+                        });
+                    });
+            });
+        top_left_overlay_y = 54.0;
+    }
+
     if let Some(selected_key) = app.get_single_selected_node() {
         let suggestions = app.suggested_semantic_tags_for_node(selected_key);
         if !suggestions.is_empty() {
             ui.painter().text(
-                ui.available_rect_before_wrap().left_top() + Vec2::new(10.0, 28.0),
+                ui.available_rect_before_wrap().left_top() + Vec2::new(10.0, top_left_overlay_y),
                 egui::Align2::LEFT_TOP,
                 format!("Suggested tags: {}", suggestions.join(", ")),
                 egui::FontId::proportional(11.0),
                 presentation.controls_text.to_color32(),
             );
         }
+
+        if let Some(summary) = selected_node_enrichment_summary(app, selected_key) {
+            let area_rect = ui.available_rect_before_wrap();
+            egui::Area::new(egui::Id::new("graph_selected_node_enrichment"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(area_rect.right_top() + Vec2::new(-288.0, 12.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::window(ui.style())
+                        .inner_margin(egui::Margin::same(10))
+                        .show(ui, |ui| {
+                            ui.set_width(276.0);
+                            ui.heading("Selected Node");
+                            ui.small(&summary.title);
+                            if summary.show_url {
+                                ui.small(&summary.url);
+                            }
+                            ui.separator();
+                            ui.small(format!("Lifecycle: {}", summary.lifecycle));
+                            if let Some(anchor) = summary.placement_anchor.as_ref() {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.small(format!("Semantic anchor: {}", anchor.label));
+                                    if ui.small_button("Jump").clicked() {
+                                        apply_ui_intents_with_checkpoint(
+                                            app,
+                                            vec![
+                                                GraphIntent::SelectNode {
+                                                    key: anchor.key,
+                                                    multi_select: false,
+                                                },
+                                                ViewAction::RequestZoomToSelected.into(),
+                                            ],
+                                        );
+                                    }
+                                    if let Some(tag) = anchor.slice_tag.as_ref()
+                                        && ui.small_button("Anchor Slice").clicked()
+                                    {
+                                        app.request_graph_search_with_options(
+                                            tag.clone(),
+                                            true,
+                                            GraphSearchOrigin::AnchorSlice,
+                                            None,
+                                            1,
+                                            true,
+                                            Some(
+                                                crate::shell::desktop::ui::gui_orchestration::graph_search_toast_message(
+                                                    GraphSearchOrigin::AnchorSlice,
+                                                    tag,
+                                                    0,
+                                                ),
+                                            ),
+                                        );
+                                    }
+                                    if let Some(tag) = anchor.slice_tag.as_ref()
+                                        && ui.small_button("Slice + Neighborhood").clicked()
+                                    {
+                                        app.request_graph_search_with_options(
+                                            tag.clone(),
+                                            true,
+                                            GraphSearchOrigin::AnchorSlice,
+                                            Some(anchor.key),
+                                            1,
+                                            true,
+                                            Some(
+                                                crate::shell::desktop::ui::gui_orchestration::graph_search_toast_message(
+                                                    GraphSearchOrigin::AnchorSlice,
+                                                    tag,
+                                                    1,
+                                                ),
+                                            ),
+                                        );
+                                    }
+                                });
+                            }
+                            if !summary.workspace_memberships.is_empty() {
+                                ui.small(format!(
+                                    "Frames: {}",
+                                    summary.workspace_memberships.join(", ")
+                                ));
+                            }
+                            ui.separator();
+                            ui.small("Semantic tags");
+                            if summary.display_tags.is_empty() {
+                                ui.small("No semantic tags on this node yet.");
+                            } else {
+                                render_semantic_tag_buttons(ui, app, &summary.display_tags);
+                                if summary.hidden_tag_count > 0 {
+                                    ui.small(format!("+{} more", summary.hidden_tag_count));
+                                }
+                            }
+                            if !summary.suggested_tags.is_empty() {
+                                ui.separator();
+                                ui.small("Suggestions");
+                                render_semantic_tag_buttons(ui, app, &summary.suggested_tags);
+                            }
+                            ui.separator();
+                            ui.small("Click a tag to filter the graph by that semantic slice.");
+                        });
+                });
+        }
     }
 
     // Draw controls hint
     let lasso_hint = canvas_lasso_binding_label(app.lasso_binding_preference());
-    let command_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-        action_id::graph::COMMAND_PALETTE_OPEN,
-    )
-    .join(" / ");
-    let radial_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-        action_id::graph::RADIAL_MENU_OPEN,
-    )
-    .join(" / ");
-    let help_hint = crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
-        action_id::workbench::HELP_OPEN,
-    )
-    .join(" / ");
+    let command_hint =
+        crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+            action_id::graph::COMMAND_PALETTE_OPEN,
+        )
+        .join(" / ");
+    let radial_hint =
+        crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+            action_id::graph::RADIAL_MENU_OPEN,
+        )
+        .join(" / ");
+    let help_hint =
+        crate::shell::desktop::runtime::registries::phase2_binding_display_labels_for_action(
+            action_id::workbench::HELP_OPEN,
+        )
+        .join(" / ");
     let controls_text = format!(
         "Shortcuts: Ctrl+Click Multi-select | {lasso_hint} | Double-click Open | Drag tab out to split | N New Node | Del Remove | T Physics | R Reheat | +/-/0 Zoom | C Position-Lock | Z Zoom-Lock | WASD/Arrows Pan | F9 Camera Controls | L Toggle Pin | Ctrl+F Search | G Edge Ops | {command_hint} Commands | {radial_hint} Radial | Ctrl+Z/Y Undo/Redo | {help_hint} Help"
     );
@@ -2641,6 +2834,228 @@ fn draw_graph_info(ui: &mut egui::Ui, app: &GraphBrowserApp) {
     );
 }
 
+fn semantic_badges_by_key(
+    app: &GraphBrowserApp,
+    graph: &crate::graph::Graph,
+) -> HashMap<NodeKey, Vec<String>> {
+    graph
+        .nodes()
+        .filter_map(|(key, _)| {
+            let badges =
+                crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &key)
+                    .into_iter()
+                    .map(|tag| compact_semantic_badge_label(&tag))
+                    .collect::<Vec<_>>();
+            (!badges.is_empty()).then_some((key, badges))
+        })
+        .collect()
+}
+
+fn compact_semantic_badge_label(tag: &str) -> String {
+    tag.strip_prefix("udc:").unwrap_or(tag).to_string()
+}
+
+fn semantic_tag_display_label(tag: &str) -> String {
+    if let Some(code) = tag.strip_prefix("udc:") {
+        return match crate::shell::desktop::runtime::registries::phase3_validate_knowledge_tag(code)
+        {
+            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Valid {
+                canonical_code,
+                display_label,
+            } => format!("{display_label} (udc:{canonical_code})"),
+            crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Unknown { .. }
+            | crate::shell::desktop::runtime::registries::knowledge::TagValidationResult::Malformed { .. } => {
+                format!("udc:{code}")
+            }
+        };
+    }
+
+    tag.to_string()
+}
+
+struct SelectedNodeEnrichmentSummary {
+    title: String,
+    url: String,
+    show_url: bool,
+    lifecycle: &'static str,
+    workspace_memberships: Vec<String>,
+    display_tags: Vec<SemanticTagChip>,
+    hidden_tag_count: usize,
+    suggested_tags: Vec<SemanticTagChip>,
+    placement_anchor: Option<PlacementAnchorSummary>,
+}
+
+struct PlacementAnchorSummary {
+    key: NodeKey,
+    label: String,
+    slice_tag: Option<String>,
+}
+
+struct SemanticTagChip {
+    query: String,
+    label: String,
+}
+
+fn semantic_tag_chip(tag: String) -> SemanticTagChip {
+    SemanticTagChip {
+        label: semantic_tag_display_label(&tag),
+        query: tag,
+    }
+}
+
+fn render_semantic_tag_buttons(
+    ui: &mut egui::Ui,
+    app: &mut GraphBrowserApp,
+    chips: &[SemanticTagChip],
+) {
+    ui.horizontal_wrapped(|ui| {
+        for chip in chips {
+            let button = egui::Button::new(egui::RichText::new(&chip.label).small());
+            if ui.add(button).clicked() {
+                app.request_graph_search_with_options(
+                    chip.query.clone(),
+                    true,
+                    GraphSearchOrigin::SemanticTag,
+                    None,
+                    1,
+                    true,
+                    Some(
+                        crate::shell::desktop::ui::gui_orchestration::graph_search_toast_message(
+                            GraphSearchOrigin::SemanticTag,
+                            &chip.query,
+                            0,
+                        ),
+                    ),
+                );
+            }
+        }
+    });
+}
+
+fn graph_search_history_label(entry: &GraphSearchHistoryEntry) -> String {
+    let origin = match entry.origin {
+        GraphSearchOrigin::Manual => "manual",
+        GraphSearchOrigin::SemanticTag => "tag",
+        GraphSearchOrigin::AnchorSlice => "anchor",
+    };
+    let scope_suffix = if entry.neighborhood_anchor.is_some() && entry.neighborhood_depth > 1 {
+        " + 2-hop"
+    } else if entry.neighborhood_anchor.is_some() {
+        " + nbr"
+    } else {
+        ""
+    };
+    format!("{origin}{scope_suffix}: {}", entry.query)
+}
+
+fn request_graph_search_entry(
+    app: &mut GraphBrowserApp,
+    entry: GraphSearchHistoryEntry,
+    record_history: bool,
+    toast_message: Option<String>,
+) {
+    app.request_graph_search_with_options(
+        entry.query,
+        entry.filter_mode,
+        entry.origin,
+        entry.neighborhood_anchor,
+        entry.neighborhood_depth,
+        record_history,
+        toast_message,
+    );
+}
+
+fn graph_search_scope_label(
+    neighborhood_anchor: Option<NodeKey>,
+    neighborhood_depth: u8,
+) -> String {
+    if neighborhood_anchor.is_none() {
+        return String::new();
+    }
+    if neighborhood_depth > 1 {
+        return format!(" | {}-hop neighborhood", neighborhood_depth);
+    }
+    " | 1-hop neighborhood".to_string()
+}
+
+fn render_graph_search_origin_badge(ui: &mut egui::Ui, origin: &GraphSearchOrigin) {
+    let (label, color) = match origin {
+        GraphSearchOrigin::Manual => ("manual", egui::Color32::from_rgb(120, 170, 255)),
+        GraphSearchOrigin::SemanticTag => ("semantic", egui::Color32::from_rgb(76, 175, 80)),
+        GraphSearchOrigin::AnchorSlice => ("anchor", egui::Color32::from_rgb(255, 167, 38)),
+    };
+    ui.label(egui::RichText::new("●").small().color(color));
+    ui.small(label);
+}
+
+fn selected_node_enrichment_summary(
+    app: &GraphBrowserApp,
+    selected_key: NodeKey,
+) -> Option<SelectedNodeEnrichmentSummary> {
+    let node = app.domain_graph().get_node(selected_key)?;
+    let mut display_tags =
+        crate::shell::desktop::runtime::registries::knowledge::tags_for_node(app, &selected_key)
+            .into_iter()
+            .map(semantic_tag_chip)
+            .collect::<Vec<_>>();
+    let hidden_tag_count = display_tags.len().saturating_sub(4);
+    display_tags.truncate(4);
+
+    let suggested_tags = app
+        .suggested_semantic_tags_for_node(selected_key)
+        .into_iter()
+        .map(semantic_tag_chip)
+        .collect::<Vec<_>>();
+
+    let placement_anchor =
+        crate::shell::desktop::runtime::registries::phase3_suggest_semantic_placement_anchor(
+            app,
+            selected_key,
+        )
+        .and_then(|anchor_key| {
+            app.domain_graph().get_node(anchor_key).map(|anchor| {
+                let label = if anchor.title.is_empty() {
+                    anchor.url.clone()
+                } else {
+                    anchor.title.clone()
+                };
+                let slice_tag =
+                    crate::shell::desktop::runtime::registries::knowledge::tags_for_node(
+                        app,
+                        &anchor_key,
+                    )
+                    .into_iter()
+                    .next();
+                PlacementAnchorSummary {
+                    key: anchor_key,
+                    label,
+                    slice_tag,
+                }
+            })
+        });
+
+    Some(SelectedNodeEnrichmentSummary {
+        title: if node.title.is_empty() {
+            node.url.clone()
+        } else {
+            node.title.clone()
+        },
+        url: node.url.clone(),
+        show_url: !node.title.is_empty() && node.title != node.url,
+        lifecycle: match node.lifecycle {
+            NodeLifecycle::Active => "Active",
+            NodeLifecycle::Warm => "Warm",
+            NodeLifecycle::Cold => "Cold",
+            NodeLifecycle::Tombstone => "Ghost Node",
+        },
+        workspace_memberships: app.membership_for_node(node.id).iter().cloned().collect(),
+        display_tags,
+        hidden_tag_count,
+        suggested_tags,
+        placement_anchor,
+    })
+}
+
 fn requested_layout_algorithm_id(
     app: &GraphBrowserApp,
     view_id: crate::app::GraphViewId,
@@ -2649,8 +3064,12 @@ fn requested_layout_algorithm_id(
     app.workspace
         .views
         .get(&view_id)
-        .filter(|view| view.lens.lens_id.is_some())
-        .map(|view| layout_algorithm_id_for_mode(&view.lens.layout).to_string())
+        .map(|view| match view.lens.layout {
+            crate::registries::atomic::lens::LayoutMode::Free => {
+                view.lens.layout_algorithm_id.clone()
+            }
+            _ => layout_algorithm_id_for_mode(&view.lens.layout).to_string(),
+        })
         .unwrap_or_else(|| canvas_profile.layout_algorithm.algorithm_id.clone())
 }
 
@@ -2930,10 +3349,9 @@ mod tests {
         view.lens.layout = LayoutMode::Grid { gap: 24.0 };
         app.workspace.views.insert(view_id, view);
 
-        let canvas_profile =
-            crate::registries::domain::layout::canvas::CanvasRegistry::default()
-                .resolve(crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT)
-                .profile;
+        let canvas_profile = crate::registries::domain::layout::canvas::CanvasRegistry::default()
+            .resolve(crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT)
+            .profile;
 
         let requested = requested_layout_algorithm_id(&app, view_id, &canvas_profile);
 
@@ -2941,11 +3359,34 @@ mod tests {
     }
 
     #[test]
+    fn requested_layout_algorithm_prefers_free_layout_algorithm_override() {
+        let mut app = test_app();
+        let view_id = crate::app::GraphViewId::new();
+        let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
+        view.lens.layout = LayoutMode::Free;
+        view.lens.layout_algorithm_id =
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT.to_string();
+        app.workspace.views.insert(view_id, view);
+
+        let canvas_profile = crate::registries::domain::layout::canvas::CanvasRegistry::default()
+            .resolve(crate::registries::domain::layout::canvas::CANVAS_PROFILE_DEFAULT)
+            .profile;
+
+        let requested = requested_layout_algorithm_id(&app, view_id, &canvas_profile);
+
+        assert_eq!(
+            requested,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+        );
+    }
+
+    #[test]
     fn should_apply_layout_algorithm_detects_view_layout_change() {
         let mut app = test_app();
         let view_id = crate::app::GraphViewId::new();
         let mut view = crate::app::GraphViewState::new_with_id(view_id, "Layout");
-        view.last_layout_algorithm_id = Some(crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED.to_string());
+        view.last_layout_algorithm_id =
+            Some(crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED.to_string());
         app.workspace.views.insert(view_id, view);
         app.workspace.egui_state = Some(EguiGraphState::from_graph(
             app.domain_graph(),
@@ -3800,6 +4241,57 @@ mod tests {
     }
 
     #[test]
+    fn secondary_click_on_node_opens_radial_palette_when_preferred() {
+        let mut app = test_app();
+        let ctx = egui::Context::default();
+        let view_id = crate::app::GraphViewId::new();
+        let target = NodeKey::new(21);
+        let pointer = egui::pos2(144.0, 233.0);
+        app.set_context_command_surface_preference(
+            crate::app::ContextCommandSurfacePreference::RadialPalette,
+        );
+        app.workspace.show_command_palette = true;
+        app.workspace.command_palette_contextual_mode = true;
+
+        handle_hovered_node_secondary_click(&ctx, &mut app, view_id, target, Some(pointer));
+
+        assert!(!app.workspace.show_radial_menu);
+        assert!(app.workspace.show_command_palette);
+        assert!(app.pending_node_context_target().is_none());
+        assert!(app.workspace.command_palette_contextual_mode);
+        assert!(matches!(
+            app.take_pending_workbench_intents().as_slice(),
+            [WorkbenchIntent::ToggleRadialMenu]
+        ));
+        let stored_center =
+            ctx.data_mut(|d| d.get_persisted::<egui::Pos2>(egui::Id::new("radial_menu_center")));
+        assert_eq!(stored_center, Some(pointer));
+    }
+
+    #[test]
+    fn secondary_click_on_node_opens_context_palette_when_preferred() {
+        let mut app = test_app();
+        let ctx = egui::Context::default();
+        let view_id = crate::app::GraphViewId::new();
+        let target = NodeKey::new(22);
+        app.set_context_command_surface_preference(
+            crate::app::ContextCommandSurfacePreference::ContextPalette,
+        );
+        app.workspace.show_radial_menu = true;
+
+        handle_hovered_node_secondary_click(&ctx, &mut app, view_id, target, None);
+
+        assert!(app.workspace.show_command_palette);
+        assert!(!app.workspace.show_radial_menu);
+        assert!(app.workspace.command_palette_contextual_mode);
+        assert_eq!(app.pending_node_context_target(), Some(target));
+        assert_eq!(
+            app.pending_command_surface_return_target(),
+            Some(crate::app::ToolSurfaceReturnTarget::Graph(view_id))
+        );
+    }
+
+    #[test]
     fn test_format_elapsed_ago_units() {
         assert_eq!(format_elapsed_ago(Duration::from_secs(2)), "just now");
         assert_eq!(format_elapsed_ago(Duration::from_secs(12)), "12s ago");
@@ -3873,6 +4365,57 @@ mod tests {
         let filtered = filtered_graph_for_search(&app, &matches);
         assert!(filtered.get_node(a).is_some());
         assert!(filtered.get_node(b).is_none());
+    }
+
+    #[test]
+    fn selected_node_enrichment_summary_includes_tags_suggestions_and_anchor() {
+        let mut app = test_app();
+        let math = app.add_node_and_sync("https://example.com/math".into(), Point2D::new(0.0, 0.0));
+        let numerical = app.add_node_and_sync(
+            "https://example.com/numerical".into(),
+            Point2D::new(10.0, 0.0),
+        );
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(math) {
+            node.title = "Mathematics".into();
+        }
+        if let Some(node) = app.workspace.domain.graph.get_node_mut(numerical) {
+            node.title = "Numerical Methods".into();
+        }
+
+        app.workspace
+            .semantic_tags
+            .insert(math, ["udc:51".to_string()].into_iter().collect());
+        app.workspace
+            .semantic_tags
+            .insert(numerical, ["udc:519.6".to_string()].into_iter().collect());
+        app.workspace
+            .suggested_semantic_tags
+            .insert(numerical, vec!["udc:519.8".to_string()]);
+        app.workspace.semantic_index_dirty = true;
+        let _ = crate::shell::desktop::runtime::registries::knowledge::reconcile_semantics(
+            &mut app,
+            &crate::shell::desktop::runtime::registries::knowledge::KnowledgeRegistry::default(),
+        );
+
+        let summary = selected_node_enrichment_summary(&app, numerical).expect("summary");
+
+        assert!(
+            summary
+                .display_tags
+                .iter()
+                .any(|tag| tag.label.contains("Computational mathematics"))
+        );
+        assert!(
+            summary
+                .suggested_tags
+                .iter()
+                .any(|tag| tag.label.contains("Control"))
+                || !summary.suggested_tags.is_empty()
+        );
+        let anchor = summary.placement_anchor.expect("placement anchor");
+        assert_eq!(anchor.key, math);
+        assert_eq!(anchor.label, "Mathematics");
+        assert_eq!(anchor.slice_tag.as_deref(), Some("udc:51"));
     }
 
     /// Simulate the sync conditions for group drag:

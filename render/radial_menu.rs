@@ -2,12 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-//! Radial command menu — directional, `ActionRegistry`-backed.
+//! Radial palette — directional, `ActionRegistry`-backed.
 //!
 //! Content is populated via [`super::action_registry::list_radial_actions_for_category`]
 //! rather than the old hardcoded `RadialCommand` / `RadialDomain` enums.
 //! Action dispatch is handled by [`super::command_palette::execute_action`],
-//! which is shared with the command palette so both surfaces use a single
+//! which is shared with the command/context palette so both surfaces use a single
 //! execution path.
 
 use crate::app::{GraphBrowserApp, SelectionUpdateMode, ViewAction, WorkbenchIntent};
@@ -21,27 +21,27 @@ use crate::render::command_profile::{
 };
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
-    CHANNEL_UX_NAVIGATION_TRANSITION, CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT,
-    CHANNEL_UX_RADIAL_MODE_FALLBACK, CHANNEL_UX_RADIAL_OVERFLOW,
+    CHANNEL_UX_RADIAL_LABEL_COLLISION, CHANNEL_UX_RADIAL_LAYOUT, CHANNEL_UX_RADIAL_MODE_FALLBACK,
+    CHANNEL_UX_RADIAL_OVERFLOW,
 };
 use egui::{Color32, Key, Stroke, Window};
 use std::sync::{Mutex, OnceLock};
 
 const MAX_VISIBLE_ACTIONS_PER_RING: usize = 8;
-const COMMAND_RING_RADIUS: f32 = 165.0;
-const HUB_RADIUS_DEFAULT: f32 = 36.0;
-const TIER1_RING_RADIUS_DEFAULT: f32 = 92.0;
+const COMMAND_RING_RADIUS: f32 = 112.0;
+const HUB_RADIUS_DEFAULT: f32 = 24.0;
+const TIER1_RING_RADIUS_DEFAULT: f32 = 64.0;
 const TIER2_RING_RADIUS_DEFAULT: f32 = COMMAND_RING_RADIUS;
 const HUB_RADIUS_MIN: f32 = 24.0;
-const HUB_RADIUS_MAX: f32 = 72.0;
-const TIER1_RING_RADIUS_MIN: f32 = 64.0;
-const TIER1_RING_RADIUS_MAX: f32 = 180.0;
-const TIER2_RING_RADIUS_MIN: f32 = 120.0;
-const TIER2_RING_RADIUS_MAX: f32 = 280.0;
-const COMMAND_BUTTON_RADIUS: f32 = 22.0;
+const HUB_RADIUS_MAX: f32 = 56.0;
+const TIER1_RING_RADIUS_MIN: f32 = 56.0;
+const TIER1_RING_RADIUS_MAX: f32 = 144.0;
+const TIER2_RING_RADIUS_MIN: f32 = 96.0;
+const TIER2_RING_RADIUS_MAX: f32 = 224.0;
+const COMMAND_BUTTON_RADIUS: f32 = 18.0;
 const MIN_COMMAND_CENTER_SPACING: f32 = (COMMAND_BUTTON_RADIUS * 2.0) + 4.0;
-const HOVER_LABEL_MAX_CHARS: usize = 22;
-const HOVER_LABEL_OFFSET: f32 = 34.0;
+const HOVER_LABEL_MAX_CHARS: usize = 18;
+const HOVER_LABEL_OFFSET: f32 = 28.0;
 const RADIAL_FALLBACK_NOTICE_KEY: &str = "radial_mode_fallback_notice";
 const RADIAL_GAMEPAD_INPUTS_KEY: &str = "radial_menu_gamepad_inputs";
 const RADIAL_SELECTED_DOMAIN_KEY: &str = "radial_menu_selected_domain";
@@ -320,7 +320,7 @@ impl NodeContextGroup {
     }
 }
 
-/// Render the radial command menu.
+/// Render the radial palette.
 ///
 /// Content is driven by [`list_radial_actions_for_category`]; no hardcoded
 /// `RadialCommand` enum exists in this module.
@@ -481,7 +481,7 @@ pub fn render_radial_command_menu(
             d.insert_persisted(node_context_command_state_id, command_idx);
         });
 
-        let window_response = Window::new("Node Context")
+        let window_response = Window::new("Context Palette")
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
@@ -826,11 +826,16 @@ pub fn render_radial_command_menu(
             should_close = true;
         }
 
+        let radial_surface_extent =
+            tier2_ring_radius + HOVER_LABEL_OFFSET + COMMAND_BUTTON_RADIUS + 36.0;
         egui::Area::new("radial_command_menu".into())
-            .fixed_pos(center - egui::vec2(220.0, 220.0))
+            .fixed_pos(center - egui::vec2(radial_surface_extent, radial_surface_extent))
             .interactable(false)
             .show(ctx, |ui| {
-                ui.set_min_size(egui::vec2(440.0, 440.0));
+                ui.set_min_size(egui::vec2(
+                    radial_surface_extent * 2.0,
+                    radial_surface_extent * 2.0,
+                ));
                 let painter = ui.painter();
                 painter.circle_filled(center, hub_radius, theme_tokens.radial_hub_fill);
                 painter.circle_stroke(
@@ -845,7 +850,7 @@ pub fn render_radial_command_menu(
                     center,
                     egui::Align2::CENTER_CENTER,
                     hub_label,
-                    egui::FontId::proportional(16.0),
+                    egui::FontId::proportional(14.0),
                     theme_tokens.radial_hub_text,
                 );
 
@@ -876,7 +881,7 @@ pub fn render_radial_command_menu(
                     } else {
                         theme_tokens.radial_domain_idle_fill
                     };
-                    painter.circle_filled(base, 26.0, color);
+                    painter.circle_filled(base, 22.0, color);
                     painter.text(
                         base,
                         egui::Align2::CENTER_CENTER,
@@ -1003,7 +1008,7 @@ pub fn render_radial_command_menu(
                         } else {
                             theme_tokens.radial_command_disabled_fill
                         };
-                        painter.circle_filled(anchor, 22.0, color);
+                        painter.circle_filled(anchor, COMMAND_BUTTON_RADIUS, color);
                         painter.text(
                             anchor,
                             egui::Align2::CENTER_CENTER,
@@ -1059,7 +1064,7 @@ pub fn render_radial_command_menu(
                     painter.text(
                         center + egui::vec2(0.0, 76.0),
                         egui::Align2::CENTER_CENTER,
-                        "Radial layout constrained. Switching to command palette.",
+                        "Radial palette constrained. Switching to context palette.",
                         egui::FontId::proportional(11.0),
                         theme_tokens.radial_warning_text,
                     );
@@ -1073,10 +1078,13 @@ pub fn render_radial_command_menu(
         }
 
         if fallback_to_command_palette {
-            if app.pending_node_context_target().is_none() {
-                app.set_pending_node_context_target(source_context);
+            app.set_pending_node_context_target(source_context);
+            if app.pending_command_surface_return_target().is_none() {
+                app.set_pending_command_surface_return_target(Some(
+                    crate::app::ToolSurfaceReturnTarget::Graph(action_context.view_id),
+                ));
             }
-            app.enqueue_workbench_intent(WorkbenchIntent::OpenCommandPalette);
+            app.open_context_palette();
             ctx.data_mut(|d| d.insert_persisted(egui::Id::new(RADIAL_FALLBACK_NOTICE_KEY), true));
             should_close = true;
         }
@@ -1097,12 +1105,10 @@ pub fn render_radial_command_menu(
         }
     }
 
-    app.workspace.show_radial_menu = !should_close;
-    if app.workspace.show_radial_menu != was_open {
-        emit_event(DiagnosticEvent::MessageReceived {
-            channel_id: CHANNEL_UX_NAVIGATION_TRANSITION,
-            latency_us: 0,
-        });
+    if should_close {
+        app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+    } else {
+        app.workspace.show_radial_menu = true;
     }
     if !app.workspace.show_radial_menu {
         clear_semantic_snapshot();
@@ -1117,7 +1123,7 @@ pub fn render_radial_command_menu(
             }
         });
     } else if app.pending_node_context_target().is_some() {
-        // Context-window mode has no radial sector geometry to publish.
+        // Context-palette mode has no radial sector geometry to publish.
         clear_semantic_snapshot();
     }
     super::apply_ui_intents_with_checkpoint(app, intents);
@@ -1837,7 +1843,10 @@ mod tests {
         let tokens = crate::shell::desktop::runtime::registries::theme::ThemeRegistry::default()
             .active_theme()
             .tokens;
-        let ratio = contrast_ratio(tokens.radial_disabled_text, tokens.radial_command_disabled_fill);
+        let ratio = contrast_ratio(
+            tokens.radial_disabled_text,
+            tokens.radial_command_disabled_fill,
+        );
         assert!(
             ratio >= 4.5,
             "expected disabled text contrast >= 4.5:1, got {ratio:.2}:1"
