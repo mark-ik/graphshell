@@ -158,6 +158,56 @@ No new mechanism is needed. The existing thumbnail pipeline in `Node.thumbnail_d
 
 ---
 
+## Storage Continuity and Backend Switching
+
+Switching between Servo and Wry is a backend transition, not proof that both
+backends share one physical storage implementation.
+
+Rules:
+
+- Servo remains the canonical target for browser-origin storage semantics.
+- Wry is a compatibility backend with its own native profile/session handling.
+- Graphshell may coordinate transitions between the two, but should not invent a
+  rival browser-storage hierarchy to do so.
+- Backend switching must be routed through a host-side policy layer rather than
+  through ad hoc assumptions in viewer lifecycle code.
+
+Recommended authority split:
+
+- browser storage truth belongs to a Servo-compatible `ClientStorageManager`
+  (or backend-native equivalent while Wry remains fallback-only)
+- Graphshell-owned app durability remains in `GraphStore`
+- backend-switch policy belongs to a thin host/runtime orchestration layer
+  (`StorageInteropCoordinator`)
+
+Transition policy classes:
+
+| Class | Meaning | Default use |
+| --- | --- | --- |
+| Shared logical context | Preserve the same logical storage context id across backends | Only when semantics and implementation are known compatible |
+| Cloned compatibility context | Copy or approximate relevant state into a backend-specific context | When continuity is desirable but exact sharing is unsafe |
+| Isolated fallback context | Start the target backend with a fresh isolated context/profile | Default when compatibility is uncertain |
+
+Default posture for Wry fallback:
+
+- cookies and permissions may be clonable backend-by-backend
+- `localStorage` / `sessionStorage` may be clonable, but are not assumed to be
+  physically shareable
+- IndexedDB, Cache API, OPFS, and service-worker state are not assumed shareable
+  between Servo and Wry
+
+This means a command such as "Try in Wry" should be understood as a backend
+transition with explicit continuity policy, not as a guarantee that Servo and
+Wry are reading the same underlying site-data store.
+
+Node lifecycle also remains separate from site-data lifecycle:
+
+- deleting a node does not implicitly clear site data
+- clearing site data is an explicit storage-context action
+- Graphshell may expose a compound action that does both, but only explicitly
+
+---
+
 ## Implementation Plan
 
 ### Foundation-first sequencing note (2026-02-26)
@@ -251,6 +301,12 @@ Users can set a backend preference per node or per frame:
 
 Done gate: setting `viewer_id_override` on a node to `viewer:wry` causes the next lifecycle
 reconcile to use `WryManager` for that node. Contract test covers resolution order.
+
+Clarification:
+
+`viewer_id_override = viewer:wry` selects a viewer backend. It does not, by
+itself, define whether the transition is shared-context, cloned-context, or
+isolated-fallback. That decision belongs to runtime storage interop policy.
 
 ### Step 7: Settings UI
 

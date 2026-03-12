@@ -11,7 +11,7 @@
 
 **Related docs**:
 
-- [`2026-03-05_cp4_p2p_sync_plan.md`](system/2026-03-05_cp4_p2p_sync_plan.md) — Device Sync boundary (distinct from Coop)
+- [`2026-03-05_cp4_p2p_sync_plan.md`](2026-03-05_cp4_p2p_sync_plan.md) — Device Sync boundary (distinct from Coop)
 - [`2026-02-23_verse_tier1_sync_plan.md`](../../../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) — iroh transport authority
 - [`2026-03-05_network_architecture.md`](2026-03-05_network_architecture.md) — iroh / Nostr / libp2p layer assignments, Verse protocol mapping, relay posture
 

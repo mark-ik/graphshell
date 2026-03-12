@@ -97,4 +97,3 @@ The Register is not the reducer, not the workbench, and not the graph authority.
 - Registry composition and async ingress are documented as separate concerns.
 - Each major Register component has its own canonical spec.
 - Registry specs in `system/register/` can be read as children of this layer without ambiguity.
-

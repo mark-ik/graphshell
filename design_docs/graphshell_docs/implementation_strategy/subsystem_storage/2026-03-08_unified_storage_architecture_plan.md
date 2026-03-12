@@ -7,6 +7,7 @@
 **Related**:
 - `SUBSYSTEM_STORAGE.md`
 - `storage_and_persistence_integrity_spec.md`
+- `2026-03-11_graphstore_vs_client_storage_manager_note.md`
 - `../subsystem_history/2026-03-08_unified_history_architecture_plan.md`
 - `../subsystem_security/2026-03-08_unified_security_architecture_plan.md`
 - `../system/2026-03-03_graphshell_address_scheme_implementation_plan.md`
@@ -28,6 +29,12 @@ The remaining problem is architectural clarity:
 - and they understate the runtime split between graph durability, workspace persistence, archive persistence, and recovery/degradation behavior.
 
 This plan reorganizes the subsystem around the storage tracks that actually exist.
+
+It is also explicitly scoped to the landed `GraphStore` side of the subsystem.
+It does not treat future WHATWG-style browser-origin storage coordination as the
+same problem. If Graphshell later adds a Servo-compatible `ClientStorageManager`,
+that should be modeled as a parallel storage authority for site data rather than
+as a re-description of Graphshell app durability.
 
 ---
 

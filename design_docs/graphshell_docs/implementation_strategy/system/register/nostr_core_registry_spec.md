@@ -119,12 +119,12 @@ ModManifest {
 
 `nostr_core` should declare these channels with explicit severity:
 
-- `mod.nostr.capability_denied` - `Warn`
-- `mod.nostr.sign_request_denied` - `Warn`
-- `mod.nostr.relay_subscription_failed` - `Warn`
-- `mod.nostr.relay_publish_failed` - `Warn`
-- `mod.nostr.intent_rejected` - `Warn`
-- `mod.nostr.security_violation` - `Error`
+- `mod:nostr:capability_denied` — `Warn`
+- `mod:nostr:sign_request_denied` — `Warn`
+- `mod:nostr:relay_subscription_failed` — `Warn`
+- `mod:nostr:relay_publish_failed` — `Warn`
+- `mod:nostr:intent_rejected` — `Warn`
+- `mod:nostr:security_violation` — `Error`
 
 Severity rule: denial/degraded/fallback channels use `Warn`; security/failure channels use `Error`.
 

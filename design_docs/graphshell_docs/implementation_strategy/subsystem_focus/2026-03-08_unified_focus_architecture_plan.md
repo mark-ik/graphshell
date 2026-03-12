@@ -340,3 +340,46 @@ The Focus subsystem architecture is coherent when:
 - graph-view focus remains graph-owned and does not collapse into pane identity
 - capture and return semantics are backed by explicit state
 - subsystem diagnostics can describe focus failures and fallbacks coherently
+
+---
+
+## 10. Implementation Delta (2026-03-12)
+
+This section records what has been implemented since the original plan write-up.
+
+### 10.1 Landed In Code
+
+- `RuntimeFocusAuthorityState` now includes an explicit `capture_stack` (`Vec<FocusCaptureEntry>`), making capture/return state part of focus authority.
+- `FocusCommand` now includes explicit capture commands:
+   - `Capture { surface, return_anchor }`
+   - `RestoreCapturedFocus { surface }`
+- `apply_focus_command(...)` was extended so command-surface capture transitions mutate authority state directly (including stack push/pop behavior) instead of relying only on UI flags.
+- Authority-handled workbench intents now use a realization reconciliation pass that compares desired semantic region against observed runtime state.
+- A dedicated diagnostics channel was added for reconciliation mismatch reporting:
+   - `ux:focus_realization_mismatch`
+
+### 10.2 Why This Matters
+
+This is the first concrete inversion toward authority-first focus flow:
+
+- reducer writes authority state first
+- realization attempts to project that onto tiles/app runtime state
+- reconciliation emits diagnostics when realization diverges from authority
+
+This addresses the previous blind spot where post-intent refresh could silently overwrite authority with observed state, masking realization failures.
+
+### 10.3 Still Outstanding
+
+- Full separation of `desired` vs `realized` fields inside `RuntimeFocusAuthorityState` is still pending.
+- The frame-level sync path still contains mirror-style refresh behavior outside the authority-handled intent slice.
+- Region cycle, command palette, and transient restore are only partially migrated to strict reducer+realizer ownership; broader path consolidation remains.
+- Embedded-content focus and webview preference heuristic cleanup remains in follow-on work.
+
+### 10.4 Updated Near-Term Next Slice
+
+The next implementation slice should complete strict authority ownership for the existing high-impact path:
+
+1. keep `CycleFocusRegion` planning in orchestration, but ensure semantic region authority is never overwritten by observed state on that path
+2. fully route command palette open/close through reducer + realizer + reconciliation without mirror fallback writes
+3. extend reconciliation checks to transient restore and tool-pane return semantics
+4. add focused tests that assert mismatch diagnostics when realization cannot satisfy authority intent

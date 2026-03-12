@@ -307,5 +307,3 @@ Compatibility note:
 5. Missing or deferred pages are explicit.
 6. Control surfaces remain accessible and diagnosable.
 7. WorkbenchProfile and workflow preset routes, scope boundaries, and persistence rules are explicit.
-
-

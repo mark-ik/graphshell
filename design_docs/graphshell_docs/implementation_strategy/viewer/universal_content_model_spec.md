@@ -8,9 +8,9 @@
 
 - `VIEWER.md`
 - `viewer_presentation_and_fallback_spec.md`
-- `viewer/2026-02-24_universal_content_model_plan.md` — implementation plan with done gates
-- `viewer/2026-03-08_servo_text_editor_architecture_plan.md` — `viewer:text-editor` selection rule and edit-intent policy
-- `viewer/2026-03-08_simple_document_engine_target_spec.md` — `SimpleDocument` / `EngineTarget` / `RenderPolicy` canonical contract (UCM Steps 11–12)
+- `2026-02-24_universal_content_model_plan.md` — implementation plan with done gates
+- `2026-03-08_servo_text_editor_architecture_plan.md` — `viewer:text-editor` selection rule and edit-intent policy
+- `2026-03-08_simple_document_engine_target_spec.md` — `SimpleDocument` / `EngineTarget` / `RenderPolicy` canonical contract (UCM Steps 11–12)
 - `../system/register/canvas_registry_spec.md`
 - `../../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md` — core/host split for node fields (§ below)
 - `../../TERMINOLOGY.md` — `Viewer`, `ViewerRegistry`, `TileRenderMode`, `AddressKind`
@@ -44,7 +44,7 @@ remain the source of truth.
 
 Every graph node carries an optional `mime_hint: Option<MimeType>` field.
 
-```
+```text
 MimeType = String  -- e.g. "text/plain", "image/png", "application/pdf"
 ```
 
@@ -58,7 +58,7 @@ MimeType = String  -- e.g. "text/plain", "image/png", "application/pdf"
 
 Every graph node carries an `address_kind: AddressKind` field.
 
-```
+```text
 AddressKind =
   | Http           -- http:// or https:// URL
   | File           -- file:// URL or local path
@@ -80,7 +80,7 @@ AddressKind =
 
 All viewer backends implement the `Viewer` trait. The trait defines the minimal shared interface for rendering and lifecycle participation.
 
-```
+```rust
 trait Viewer {
     fn viewer_id(&self) -> ViewerId;
     fn tile_render_mode(&self) -> TileRenderMode;
@@ -291,7 +291,7 @@ When access is denied (either by `out_of_scope_policy = Deny` or user selecting 
 
 - The requesting viewer receives `Err(FilePermissionDenied)` from `FilePermissionGuard::check()`.
 - The viewer falls back to `FallbackViewer` with message: **"Access denied — \<address\>"**. It does not show partial content or a loading state.
-- The denial is emitted as a diagnostic event on the `viewer.permission.denied` channel (severity: `Warn`).
+- The denial is emitted as a diagnostic event on the `viewer:permission_denied` channel (severity: `Warn`).
 - Denied addresses are not cached or persisted (each new viewer attachment re-runs the check).
 
 **Invariant**: No viewer backend may call filesystem APIs directly. All file access goes through `FilePermissionGuard::check()` before any read is attempted.

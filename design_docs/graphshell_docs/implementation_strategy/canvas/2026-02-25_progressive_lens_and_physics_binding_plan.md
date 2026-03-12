@@ -1,6 +1,6 @@
 # Progressive Lens Switching & Lens/Physics Binding Policy (2026-02-25)
 
-**Status**: Strategy / Design-Resolved
+**Status**: Design-Resolved — **superseded by `layout_behaviors_and_physics_spec.md §§5–6`** (Lens/Physics Binding Contract §5 and Progressive Lens Switching §6). This document is the original design resolution; the canonical contract is now in the spec. Do not implement from this plan directly — refer to the spec.
 **Relates to**:
 - `2026-02-24_interaction_and_semantic_design_schemes.md` §1 (Progressive Lenses open design question resolved here)
 - `2026-02-24_physics_engine_extensibility_plan.md` §User Configuration Surface (Lens-physics binding preference)

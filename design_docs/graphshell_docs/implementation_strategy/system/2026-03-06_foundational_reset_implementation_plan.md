@@ -618,7 +618,9 @@ Targeted commands vary by slice.
 
 ## 10. Immediate Next Execution Steps
 
-The best next implementation slice is:
+> **Execution note (2026-03-07):** Steps 1–4 below are complete. CLAT-1 has landed (`DomainState` extracted, workbench consumer family migrated, contract test guard in place). Current next execution steps are in §5.2 (Phase B follow-on CLATs) and §5.3 (Phase C prerequisites). This section is retained as a historical record of the sequencing rationale.
+
+The best next implementation slice was:
 
 1. treat the ownership map as a backlog of CLATs, not as one giant migration ticket
 2. land `DomainState { graph, notes, next_placeholder_id }` as the first state-layer CLAT

@@ -60,4 +60,3 @@ The Input aspect feeds both the **Command aspect** (action dispatch) and the **F
 ## 5. Architectural Rule
 
 If a behavior answers "how does a hardware or software input event become a routed intent?" it belongs to the **Input aspect**.
-

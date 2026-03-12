@@ -5,7 +5,8 @@
 **Priority**: Immediate implementation guidance
 
 **Related**:
-- `PLANNING_REGISTER.md`
+
+- `../system/register/PLANNING_REGISTER.md`
 - `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `2026-02-28_ux_contract_register.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
@@ -16,7 +17,7 @@
 - `../aspect_control/settings_and_control_surfaces_spec.md`
 - `workbench_profile_and_workflow_composition_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
-- `SYSTEM_REGISTER.md`
+- `../system/register/SYSTEM_REGISTER.md`
 - `../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
 - `../../TERMINOLOGY.md`
 - `../design/KEYBINDINGS.md`
@@ -184,73 +185,36 @@ This section defines the stable target behavior for the current workbench layer.
 
 ### 4.1 Workbench Creation and Switching
 
-**What this domain is for**
+Create and select persistent arrangement contexts for the active graph.
 
-- Create and select persistent arrangement contexts for the active graph.
+**Core controls**: Workbench bar exposes explicit `Create Tile` and `Create Frame` actions. Bar shows frame order, active frame, and compact context metadata (e.g. tile count). Selecting a frame changes the active frame context without changing graph identity.
 
-**Core controls**
+**Owner**: Graphshell workbench controller owns frame creation semantics, active-frame state, and persistence. `egui_tiles` may render tab strips and layout chrome, but it does not define frame meaning.
 
-- Workbench bar exposes explicit `Create Tile` and `Create Frame` actions.
-- Workbench bar shows:
-  - frame order,
-  - active frame,
-  - compact context metadata (for example tile count).
-- Selecting a frame changes the active frame context without changing graph identity.
+**State transitions**: `Create Tile` adds a new tile in the active frame context or declared destination. `Create Frame` creates a new persistent frame context. Switching frame changes active-frame focus and visible arrangement context only.
 
-**Who owns it**
+**Visual feedback**: Active frame state must be obvious. Newly created frames and tiles must be visible immediately. Frame selection changes must be legible even when underlying content is similar.
 
-- Graphshell workbench controller owns frame creation semantics, active-frame state, and persistence.
-- `egui_tiles` may render tab strips and layout chrome, but it does not define frame meaning.
-
-**State transitions**
-
-- `Create Tile` adds a new tile in the active frame context or declared destination.
-- `Create Frame` creates a new persistent frame context and makes it available as a destination.
-- Switching frame changes active-frame focus and visible arrangement context only.
-
-**Visual feedback**
-
-- Active frame state must be obvious.
-- Newly created frames and tiles must be visible as soon as they are created.
-- Frame selection changes must be legible even when the underlying content is similar.
-
-**Fallback / degraded behavior**
-
-- If a frame or tile cannot be created, the failure must be explicit.
-- Blank or ambiguous frame-switch outcomes are forbidden.
+**Fallback**: If a frame or tile cannot be created, the failure must be explicit. Blank or ambiguous frame-switch outcomes are forbidden.
 
 ### 4.1A Inter-Workbench Switch, Open, and Restore Contract
 
 This section defines cross-workbench behavior across `WorkbenchId` boundaries.
 
-**Canonical semantics**
+**Canonical semantics**:
 
 1. `SwitchWorkbench(target_workbench_id)` changes active arrangement authority to target workbench without mutating graph truth.
 2. `OpenInWorkbench(target_workbench_id, open_payload)` routes the open action into target workbench authority, then focuses resulting destination pane/tile.
 3. `RestoreWorkbench(target_workbench_id)` restores persisted frame/tile arrangement for the target workbench before focus assignment.
 4. Cross-workbench close/return paths must restore focus to a deterministic source anchor when return policy requests it.
 
-**Target resolution order for open routing**
+**Target resolution order** (open routing): (1) Explicit `target_workbench_id` from command/route intent; (2) last-active workbench for the current graph context; (3) current active workbench. If no target can be resolved, Graphshell must stay in current workbench and emit route/focus diagnostics — no silent no-op.
 
-1. Explicit `target_workbench_id` from command/route intent.
-2. Last-active workbench for the current graph context.
-3. Current active workbench.
+**Persistence boundaries**: Workbench arrangement state (`frames`, `tiles`, split tree) persists per `WorkbenchId`. Active workbench selection persists per workspace session boundary. Graph content identity and traversal truth do not move ownership when switching workbenches.
 
-If no target can be resolved, Graphshell must stay in current workbench and emit route/focus diagnostics (no silent no-op).
+**Cross-workbench focus return**: On `OpenInWorkbench` with source context capture enabled, runtime records `(source_workbench_id, source_frame_id, source_tile_id, source_focus_region)`. On closing the routed pane (or explicit return command), focus router restores to the captured source anchor when still valid. If captured anchor is invalid, fallback order is: source frame root → source workbench root → active graph pane in current workbench.
 
-**Persistence boundaries**
-
-- Workbench arrangement state (`frames`, `tiles`, split tree) persists per `WorkbenchId`.
-- Active workbench selection persists per workspace session boundary.
-- Graph content identity and traversal truth do not move ownership when switching workbenches.
-
-**Cross-workbench focus return**
-
-- On `OpenInWorkbench` with source context capture enabled, runtime records `(source_workbench_id, source_frame_id, source_tile_id, source_focus_region)`.
-- On closing the routed pane (or explicit return command), focus router restores to the captured source anchor when still valid.
-- If captured anchor is invalid, fallback order is: source frame root -> source workbench root -> active graph pane in current workbench.
-
-**Route/focus diagnostics assertions (normative)**
+**Route/focus diagnostics assertions (normative)**:
 
 | Flow | Required diagnostics assertions |
 | --- | --- |
@@ -261,43 +225,17 @@ If no target can be resolved, Graphshell must stay in current workbench and emit
 
 ### 4.2 Tile Open, Focus, and Routing
 
-**What this domain is for**
+Route graph content into the workbench and preserve one clear default open path.
 
-- Route graph content into the workbench and preserve one clear default open path.
+**Core controls**: Double-clicking a graph node opens or focuses the node's Tile first. No mandatory frame picker on the default path. The command palette is the explicit power path for routing a node to a specific frame.
 
-**Core controls**
+**Owner**: Graphshell routing + lifecycle authority owns the open path and duplicate policy. The framework may only host the destination tile UI once Graphshell has chosen the destination.
 
-- Double-clicking a graph node opens or focuses the node's Tile first.
-- There is no mandatory frame picker on the default path.
-- The command palette remains the explicit power path for routing a node to a specific frame.
+**State transitions**: Node activation triggers a routing decision. If a matching tile already exists in the chosen destination, that tile is focused; otherwise a new tile is created. Explicit routing priority: (1) if the node exists in exactly one frame, open or focus it there; (2) if the node exists in multiple frames, default to the last-active frame; (3) provide explicit override in the command palette; (4) if the node has no frame membership, create a new frame seeded with that node tile.
 
-**Who owns it**
+**Visual feedback**: Opening must visibly land the user in the destination tile. If the target is in a non-active frame, the destination jump must be legible. If routing creates a new frame or tile, creation must be visible.
 
-- Graphshell routing + lifecycle authority owns the open path and duplicate policy.
-- The framework may only host the destination tile UI once Graphshell has chosen the destination.
-
-**State transitions**
-
-- Node activation triggers a routing decision.
-- If a matching tile already exists in the chosen destination, that tile is focused.
-- Otherwise, a new tile is created in the default destination.
-- Explicit routing follows these rules:
-  1. If the node exists in exactly one frame, open or focus it there.
-  2. If the node exists in multiple frames, default to the last-active frame.
-  3. Provide explicit override in the command palette to select another frame.
-  4. If the node has no frame membership, create a new frame seeded with that node tile.
-
-**Visual feedback**
-
-- Opening must visibly land the user in the destination tile.
-- If the target is in a non-active frame, the destination jump must be legible.
-- If routing creates a new frame or tile, creation must be visible.
-
-**Fallback / degraded behavior**
-
-- Silent duplication is forbidden.
-- If routing falls back to creation, the fallback must be explicit and deterministic.
-- If a preferred destination is unavailable, Graphshell may choose a safe default, but it must not hide that decision.
+**Fallback**: Silent duplication is forbidden. If routing falls back to creation, the fallback must be explicit and deterministic. If a preferred destination is unavailable, Graphshell may choose a safe default but must not hide that decision.
 
 ### 4.2A Cross-tree focus and selection integration
 
@@ -318,175 +256,74 @@ Implementation/test anchor (non-exhaustive):
 
 ### 4.3 Tile Arrangement: Group, Reorder, Split
 
-**What this domain is for**
+Rearrange presentation structure without changing graph identity.
 
-- Rearrange presentation structure without changing graph identity.
+**Core controls**: Drag Tile → tile handle to group into the same frame branch; drag Tile → tile viewport to enter split-arrangement targeting UI; drag Tile between tile selectors to reorder.
 
-**Core controls**
+**Owner**: Graphshell workbench controller owns grouping, splitting, and reorder semantics. The framework may provide split geometry, drag surfaces, and tab-strip visuals.
 
-- Drag Tile -> tile handle: group into the same frame branch.
-- Drag Tile -> tile viewport: enter split-arrangement targeting UI.
-- Drag Tile between tile selectors: reorder selectors.
-
-**Who owns it**
-
-- Graphshell workbench controller owns the meaning of grouping, splitting, and reorder effects.
-- The framework may provide split geometry, drag surfaces, and tab-strip visuals.
-
-**State transitions**
+**State transitions**:
 
 - Reorder changes tile order only.
 - Group changes branch membership within the frame.
 - Split creates or mutates a structural split container in the frame tree.
 
-**Split orientation and drop-zone semantics**
+**Split orientation and drop-zone semantics**:
 
 - Vertical divider produces left/right regions.
 - Horizontal divider produces top/bottom regions.
 - Viewport drop-zones must preview target outcome before commit:
-  - left/right edge zone -> vertical split
-  - top/bottom edge zone -> horizontal split
-  - center zone -> group or stack in the same frame branch
+  - left/right edge zone → vertical split
+  - top/bottom edge zone → horizontal split
+  - center zone → group or stack in the same frame branch
 
-**Visual feedback**
+**Visual feedback**: Drop targets must preview the resulting structure before commit. Group, reorder, and split outcomes must remain legible after commit. Invalid drops must visibly cancel.
 
-- Drop targets must preview the resulting structure before commit.
-- Group, reorder, and split outcomes must remain legible after commit.
-- Invalid drops must visibly cancel.
-
-**Fallback / degraded behavior**
-
-- Unsupported targets or surfaces cancel safely with explicit feedback.
-- Invalid structural operations must not leave behind ambiguous half-state.
+**Fallback**: Unsupported targets or surfaces cancel safely with explicit feedback. Invalid structural operations must not leave behind ambiguous half-state.
 
 ### 4.4 Close, Empty-State, and Recovery
 
-**What this domain is for**
+Preserve usability and context integrity when presentation surfaces disappear.
 
-- Preserve usability and context integrity when presentation surfaces disappear.
+**Core controls**: Close Tile, Close Frame, and empty-state actions (create tile, open node, close frame).
 
-**Core controls**
+**Owner**: Graphshell workbench/pane controller owns close semantics, handoff rules, and empty-state meaning. The framework may render empty-state surfaces but does not define the recovery path.
 
-- Close Tile
-- Close Frame
-- Empty-state actions:
-  - create tile
-  - open node
-  - close frame
+**State transitions**: Tile close removes a presentation instance, not graph identity. Frame close removes an arrangement context, not graph identity. `Close` is reserved for presentation containers (tile/frame) — graph content mutation uses `Delete` semantics and is not a tile-close alias. Closing the last tile in a frame routes deterministically to: the next frame context, or an explicit empty workbench state. Focus is reassigned deterministically.
 
-**Who owns it**
+**Visual feedback**: The resulting target context must be immediately visible and usable. Empty-state surfaces must be visible and actionable.
 
-- Graphshell workbench/pane controller owns close semantics, handoff rules, and empty-state meaning.
-- The framework may render empty-state surfaces, but it does not define the recovery path.
-
-**State transitions**
-
-- Tile close removes a presentation instance, not graph identity.
-- Frame close removes an arrangement context, not graph identity.
-- `Close` in workbench interactions is reserved for presentation containers (tile/frame).
-- Graph content mutation uses `Delete` semantics (`Delete Selected Node(s)`) and is not a tile-close alias.
-- Closing the last tile in a frame must route deterministically to:
-  - the next frame context, or
-  - an explicit empty workbench state.
-- Focus is reassigned deterministically.
-
-**Visual feedback**
-
-- The resulting target context must be immediately visible and usable.
-- Empty-state surfaces must be visible and actionable.
-
-**Fallback / degraded behavior**
-
-- Blank ambiguous regions are forbidden.
-- If no successor context exists, show an explicit empty-state surface.
+**Fallback**: Blank ambiguous regions are forbidden. If no successor context exists, show an explicit empty-state surface.
 
 ### 4.5 History and Undo Semantics
 
-**What this domain is for**
+Preserve both navigation meaning and structural editing meaning without conflating them.
 
-- Preserve both navigation meaning and structural editing meaning without conflating them.
+**Core controls**: Back/Forward for tile navigation history (traversal-driven); Undo/Redo for workbench structural edits (global within the active workbench context).
 
-**Core controls**
+**Owner**: Graphshell history authority owns event capture, scope, merge policy, and undo semantics. The framework may only surface history UI and preview affordances.
 
-- **Back / Forward**: tile navigation history (traversal-driven)
-- **Undo / Redo**: workbench structural edits (global within the active workbench context)
+**State transitions**: Frame history is derived from two streams — Traversal Stream (edge-attached navigation events, graph semantics) and Workbench Stream (tile/frame/split/reorder/open/close operations, arrangement semantics). Merged history uses monotonic event time plus deterministic tie-breaker policy.
 
-**Who owns it**
+**Undo interaction contract**: Hold `Ctrl+Z` to show undo preview indicator (non-committed). While holding `Ctrl`, release `Z` to commit one undo step. Releasing `Ctrl+Z` without commit cancels preview. Holding `Ctrl` and re-pressing `Z` steps preview backward one operation per repeat. If key-event limitations require adaptation, preserve the same user-visible semantics through the nearest equivalent interaction.
 
-- Graphshell history authority owns event capture, scope, merge policy, and undo semantics.
-- The framework may only surface history UI and preview affordances.
+**Visual feedback**: History scope and preview state must be legible. Users must be able to tell whether they are previewing or committing.
 
-**State transitions**
-
-Frame history is derived from two streams:
-
-- **Traversal Stream**: edge-attached navigation events (graph semantics)
-- **Workbench Stream**: tile/frame/split/reorder/open/close operations (arrangement semantics)
-
-Merged history uses monotonic event time plus deterministic tie-breaker policy.
-
-**Undo interaction contract**
-
-- Hold `Ctrl+Z`: show undo preview indicator (non-committed).
-- While holding `Ctrl`, release `Z`: commit one undo step.
-- Releasing `Ctrl+Z` without the commit path cancels preview.
-- Holding `Ctrl` and re-pressing `Z` steps preview backward one additional operation per repeat.
-
-If key-event limitations require adaptation, preserve the same user-visible semantics through the nearest equivalent interaction.
-
-**Visual feedback**
-
-- History scope and preview state must be legible.
-- Users must be able to tell whether they are previewing or committing.
-
-**Fallback / degraded behavior**
-
-- If merged history details are unavailable, Graphshell may show reduced history detail, but scope separation must remain explicit.
-- Silent scope collapse between traversal and structural history is forbidden.
+**Fallback**: If merged history details are unavailable, Graphshell may show reduced detail, but scope separation must remain explicit. Silent scope collapse between traversal and structural history is forbidden.
 
 ### 4.6 Workbench Boundaries, Visual Feedback, and Accessibility
 
-**What this domain is for**
+Make the workbench trustworthy, teachable, and usable under normal and degraded conditions.
 
-- Make the workbench trustworthy, teachable, and usable under normal and degraded conditions.
+**Semantic boundaries**: (1) Edges and Traversals are graph truth (global within a `GraphId`). (2) Frames and Tiles are arrangement truth (workbench-local context). (3) Connected nodes are not required to co-exist in one frame. (4) A node may appear in multiple frames without duplicating graph identity.
 
-**Core semantic boundaries**
+**Frame identity**: Each frame has a stable identity (`Frame N`) and editable display label. Auto-suggest labels may be derived from member tiles, but the user label is authoritative.
 
-1. Edges and Traversals are graph truth (global within a `GraphId`).
-2. Frames and Tiles are arrangement truth (workbench-local context).
-3. Connected nodes are not required to co-exist in one frame.
-4. A node may appear in multiple frames without duplicating graph identity.
+**Visual feedback**: Active frame and tile states must be legible. Split-drop previews must be visible before commit. Invalid drops must be explicit. Empty-state surfaces must be visible and actionable. Creation, routing, and recovery fallbacks must be visible.
 
-**Frame identity**
+**Accessibility**: Every drag operation must have keyboard-equivalent commands. Selection and activation state changes must be clearly announced and visible. History previews and undo-scope indicators must be keyboard-accessible. Keyboard-only users must be able to: create tile and frame, group tiles into frames, split by orientation, reorder tiles, and switch frames.
 
-- Each frame has a stable identity (`Frame N`) and editable display label.
-- Auto-suggest labels may be derived from member tiles, but the user label is authoritative.
-
-**Visual feedback**
-
-- Active frame and active tile states must be legible.
-- Split-drop previews must be visible before commit.
-- Invalid drops must be explicit.
-- Empty-state surfaces must be visible and actionable.
-- Creation, routing, and recovery fallbacks must be visible.
-
-**Accessibility**
-
-- Every drag operation must have keyboard-equivalent commands.
-- Selection and activation state changes must be clearly announced and visible.
-- History previews and undo-scope indicators must be keyboard-accessible.
-- Keyboard-only users must be able to:
-  - create tile and frame,
-  - group tiles into frames,
-  - split by orientation,
-  - reorder tiles,
-  - switch frames.
-
-**Performance**
-
-- Frame switches and tile open should remain responsive under quick smoke workloads.
-- Inactive tile content may degrade (`Warm` / `Cold`) with explicit user-visible state.
-- Degradation and fallback reasons must be observable in diagnostics.
+**Performance**: Frame switches and tile open should remain responsive under quick smoke workloads. Inactive tile content may degrade (`Warm` / `Cold`) with explicit user-visible state. Degradation and fallback reasons must be observable in diagnostics.
 
 ---
 
@@ -560,5 +397,3 @@ These are exploratory design directions. They are informative only and should no
 11. Inter-workbench switch/open/restore semantics are explicitly defined for `WorkbenchId` routing.
 12. Cross-workbench focus return path and fallback order are deterministic and documented.
 13. Route/focus diagnostics assertions for inter-workbench flows are defined and testable.
-
-

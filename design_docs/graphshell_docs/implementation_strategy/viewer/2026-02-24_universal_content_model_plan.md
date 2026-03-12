@@ -72,7 +72,7 @@ pub address_kind: AddressKind,
 superseded by the spec. Use the spec's variants: `Http`, `File`, `Data`, `GraphshellClip`,
 `Directory`, `Unknown`.
 
-**What does NOT change:**
+### What does NOT change
 
 - `Node.url: String` — remains the stable address field. `file://` paths use URL encoding.
 - `Node.id: Uuid` — stable UUID identity. Already implemented and aligned.
@@ -81,7 +81,7 @@ superseded by the spec. Use the spec's variants: `Http`, `File`, `Data`, `Graphs
   `UpdateNodeMetadata` log entry pattern. These are semantic graph facts; they belong in the WAL.
   Both fields are **core types** (live in `graphshell-core`); see spec §9 for the core/host split.
 
-**Why not the full `Address` enum from the research document?**
+### Why not the full `Address` enum from the research document?
 
 The `Address` enum in the research doc and the core extraction plan (`Http(Url)`, `File(PathBuf)`,
 `Onion`, `Ipfs(Cid)`, `Gemini`, `Custom`) is the long-term target for `graphshell-core`. The

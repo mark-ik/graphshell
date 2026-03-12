@@ -5,11 +5,19 @@
 # Workbench Tab Semantics Overlay and Restore/Collapse Plan
 
 **Date**: 2026-02-22
-**Status**: Implementation-Ready (updated 2026-02-23)
+**Status**: Implementation-Ready — Stage 8A complete; Stages 8B–8E pending implementation
+
+**Canonical specs that absorbed design decisions from this plan**:
+
+- `pane_chrome_and_promotion_spec.md §7` — `FrameTabSemantics` data model, hoist/unhoist contract, simplification repair (**canonical authority** for those contracts; this plan is the execution guide)
+- `canvas/multi_view_pane_spec.md §7` — `FrameTabSemantics` cross-reference
+- `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — `PaneOpeningMode`, `SimplificationSuppressed`, and promotion semantics (**canonical authority** for those concerns)
+
 **Relates to**:
 
 - `../../archive_docs/checkpoint_2026-02-22/2026-02-22_workbench_workspace_manifest_persistence_plan.md` — completed manifest migration foundation (archived 2026-02-24); `PaneId` and `FrameManifest` types defined there, plus frame membership/routing context lineage
-- `2026-02-22_registry_layer_plan.md` — `WorkbenchSurfaceRegistry` (Phase 3, complete) owns layout and interaction policy for tile containers; `GraphWorkspace`/`AppServices` split (Phase 6) is the future home of `FrameTabSemantics`
+- `../system/register/workbench_surface_registry_spec.md` — `WorkbenchSurfaceRegistry` owns layout/interaction policy for tile containers, including simplification options; overlay restore/collapse logic must read those options (the former `2026-02-22_registry_layer_plan.md` Phase 3 is now canonicalized here)
+- `../system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md` — current `GraphWorkspace`/`AppServices` field-ownership status; `FrameTabSemantics` target home after state-ownership migration
 
 ---
 
@@ -58,18 +66,13 @@ Resolved semantics:
 
 ## Architecture Integration Points
 
-### WorkbenchSurfaceRegistry (Phase 3 — complete)
+### WorkbenchSurfaceRegistry
 
-The `WorkbenchSurfaceRegistry` layout policy section owns simplification options and tab container
-rules. When `egui_tiles::simplify()` runs, it should consult the registry's `SimplificationOptions`
-rather than using hardcoded defaults. The overlay's restore/collapse operations must remain consistent
-with whatever simplification policy is active.
+The `WorkbenchSurfaceRegistry` layout policy section (see `../system/register/workbench_surface_registry_spec.md`) owns simplification options and tab container rules. When `egui_tiles::simplify()` runs, it should consult the registry's `SimplificationOptions` rather than using hardcoded defaults. The overlay's restore/collapse operations must remain consistent with whatever simplification policy is active.
 
-### GraphWorkspace / AppServices (Phase 6 — planned)
+### GraphWorkspace / AppServices state ownership
 
-`FrameTabSemantics` is pure data and belongs in `GraphWorkspace` after Phase 6. Until then it
-lives alongside the frame manifest. The overlay must not depend on runtime handles (`AppServices`
-fields) — it is serializable state only.
+`FrameTabSemantics` is pure data and belongs in `GraphWorkspace`. Until the state-ownership migration in `../system/2026-03-06_foundational_reset_graphbrowserapp_field_ownership_map.md` is complete, it lives alongside the frame manifest. The overlay must not depend on runtime handles (`AppServices` fields) — it is serializable state only.
 
 ### Intent Boundary
 
@@ -232,9 +235,11 @@ Example: `Frame 'research-1': repaired tab group g42 (missing active pane p9). P
 
 ## Stage 8 Execution Plan
 
-Stage 8A (design lock) is complete. The following stages are implementation work.
+Stage 8A (design lock) is complete — the design output is this document plus `pane_chrome_and_promotion_spec.md §7`. Stages 8B–8E are pending implementation; no stage beyond 8A has landed.
 
 ### Stage 8B: Overlay Persistence + Validation
+
+**Status**: Not started
 
 Goal: persist optional tab semantics metadata in the frame bundle and validate/repair it on load.
 
@@ -251,6 +256,8 @@ deterministic and test-covered. Repair emits structured log entries.
 
 ### Stage 8C: Overlay-First Query APIs + Consumer Migration
 
+**Status**: Not started — blocked on Stage 8B done gate
+
 Goal: route all tab-aware features through shared semantic queries; eliminate direct tree-shape
 inference from consumers.
 
@@ -265,6 +272,8 @@ direct `Tree<TileKind>` access outside `desktop/workbench_semantics.rs` returns 
 for tab-semantic queries.
 
 ### Stage 8D: Restore / Collapse + Pane Rest State
+
+**Status**: Not started — blocked on Stage 8B done gate
 
 Goal: implement semantic lifecycle transitions and on-demand rewrap affordance.
 
@@ -282,6 +291,8 @@ is usable while runtime content is suspended or resuming. Restore/collapse opera
 repeated application.
 
 ### Stage 8E: Simplify-Safe Restore Integration
+
+**Status**: Not started — blocked on Stage 8D done gate
 
 Goal: allow `egui_tiles::simplify()` to run without losing Graphshell tab semantics.
 

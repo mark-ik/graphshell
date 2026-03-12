@@ -9,7 +9,7 @@
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
-- `../2026-02-24_control_ui_ux_plan.md`
+- `../aspect_control/2026-02-24_control_ui_ux_plan.md`
 - `../research/2026-02-24_interaction_and_semantic_design_schemes.md`
 - `../../design/KEYBINDINGS.md`
 
@@ -79,6 +79,19 @@ Context Palette Mode and Radial Palette Mode are not separate semantic systems; 
 
 - The term `Context Menu` is retired as a first-class Graphshell concept.
 - Servo's native webview context menu may still exist as an embedder surface, but it is not a Graphshell command authority.
+
+### 2.2A Naming note
+
+To avoid ambiguity in implementation and UI copy:
+
+- **Command Palette** = the search-first, global list surface (for example `F2`).
+- **Context Palette** = the list-based contextual mode of that same command authority.
+- **Radial Menu** = the radial contextual mode over the same command authority.
+- **Context Menu** = only the legacy/browser-native menu term, not a canonical Graphshell command surface.
+
+`Interaction Menu` should not be used as the primary canonical name for the list-based command
+surface because it blurs the distinction between the search-first command palette and the
+contextual list/radial presentations.
 
 ### 2.3 Ownership model
 
@@ -165,65 +178,43 @@ Canonical wording rules:
 
 ### 4.1 Semantic Command Authority
 
-**What this domain is for**
+**What this domain is for**: - Keep command meaning unified across all command-entry surfaces.
 
-- Keep command meaning unified across all command-entry surfaces.
-
-**Core rule**
-
-- Every command surface must route through the same Graphshell command authority.
+**Core rule**: - Every command surface must route through the same Graphshell command authority.
 - `ActionRegistry::list_actions_for_context(...)` defines what the user can see.
 - `ActionRegistry::execute(...)` defines what the user actually runs.
 
-**Who owns it**
-
-- Graphshell command dispatcher and action registry.
+**Who owns it**: - Graphshell command dispatcher and action registry.
 - UI surfaces are render and input adapters only.
 
-**State transitions**
-
-- Command invocation may mutate graph state, workbench state, selection state, or settings state according to the action's semantic definition.
+**State transitions**: - Command invocation may mutate graph state, workbench state, selection state, or settings state according to the action's semantic definition.
 - Opening a command surface does not mutate semantic state by itself.
 
-**Visual feedback**
-
-- The active command surface must be visibly distinct.
+**Visual feedback**: - The active command surface must be visibly distinct.
 - Target context and disabled-state explanation must be legible.
 
-**Fallback / degraded behavior**
-
-- If a command cannot execute, Graphshell must provide a blocked-state reason.
+**Fallback / degraded behavior**: - If a command cannot execute, Graphshell must provide a blocked-state reason.
 - Silent command no-op behavior is forbidden.
 
 ### 4.2 Command Palette (Search + Context Palette Mode)
 
-**What this domain is for**
+**What this domain is for**: - Provide the canonical searchable list of actions.
 
-- Provide the canonical searchable list of actions.
-
-**Core controls**
-
-- `Ctrl+K` or equivalent opens Search Palette Mode.
+**Core controls**: - `Ctrl+K` or equivalent opens Search Palette Mode.
 - `F2` (default shortcut) toggles the same Search Palette Mode shell.
 - Contextual invocation opens the same palette component in Context Palette Mode.
 - Arrow keys move focus.
 - Enter confirms.
 - Escape dismisses.
 
-**Who owns it**
-
-- Graphshell command system owns the action set and ranking rules.
+**Who owns it**: - Graphshell command system owns the action set and ranking rules.
 - The palette UI owns rendering, focus movement within the list, and search text capture.
 
-**State transitions**
-
-- Opening the palette enters a command-browse state.
+**State transitions**: - Opening the palette enters a command-browse state.
 - Choosing an action dispatches the selected `ActionId` against the current context.
 - Dismissing the palette returns focus to the prior region.
 
-**Visual feedback**
-
-- Group actions by `ActionCategory`.
+**Visual feedback**: - Group actions by `ActionCategory`.
 - Disabled actions remain visible and explain why they are unavailable.
 - Search Palette Mode shows search input plus scope dropdown; Context Palette Mode shows target-scoped results.
 - Search Palette Mode and Context Palette Mode must share the same context-aware category ordering policy.
@@ -231,20 +222,14 @@ Canonical wording rules:
 - Tier 1 categories can be pinned and reordered by user customization.
 - Context Palette Mode Tier 2 is a vertically scrollable command list for the selected Tier 1 category.
 
-**Fallback / degraded behavior**
-
-- If no actions are available, show an explicit empty state.
+**Fallback / degraded behavior**: - If no actions are available, show an explicit empty state.
 - If contextual resolution fails, Graphshell may fall back to Search Palette Mode, but that fallback must be explicit.
 
 ### 4.3 Radial Palette Mode
 
-**What this domain is for**
+**What this domain is for**: - Provide the radial presentation mode of the canonical command palette for low-travel contextual selection.
 
-- Provide the radial presentation mode of the canonical command palette for low-travel contextual selection.
-
-**Core controls**
-
-- Radial Palette Mode is summonable from right-click contextual invocation.
+**Core controls**: - Radial Palette Mode is summonable from right-click contextual invocation.
 - It supports gesture and non-gesture operation:
    - non-gesture: click/hover/select,
    - gesture: directional drag/flick.
@@ -253,21 +238,15 @@ Canonical wording rules:
 - Confirm executes.
 - Cancel or click-away dismisses.
 
-**Who owns it**
-
-- Graphshell command system owns category/command assignment, ordering, pinning, and paging.
+**Who owns it**: - Graphshell command system owns category/command assignment, ordering, pinning, and paging.
 - The radial UI owns ring rendering, radial label behavior, hover growth, and directional focus presentation.
 
-**State transitions**
-
-- Opening Radial Palette Mode draws a hub-circle outline at pointer origin.
+**State transitions**: - Opening Radial Palette Mode draws a hub-circle outline at pointer origin.
 - Tier 1 category buttons appear on the periphery rail.
 - Selecting a Tier 1 category activates Tier 2 option ring for that category.
 - Confirming a Tier 2 option dispatches action and dismisses the palette shell.
 
-**Visual feedback**
-
-- Active sector highlight must be obvious.
+**Visual feedback**: - Active sector highlight must be obvious.
 - Tier 1/Tier 2 circular buttons sit on periphery rails and are user-repositionable along each rail.
 - Default button size is compact; hovered buttons expand up to half the hub-circle radius for clickability.
 - Non-hovered buttons return to compact size.
@@ -279,108 +258,70 @@ Canonical wording rules:
 - Tier 2 option labels follow the same bounded radial text-field rule.
 - Empty sector positions should not render placeholder arcs.
 
-**Fallback / degraded behavior**
-
-- If more than 8 actions are available, overflow must page predictably.
+**Fallback / degraded behavior**: - If more than 8 actions are available, overflow must page predictably.
 - If no valid actions exist, Radial Palette Mode must not open silently into an empty shell.
 - If radial layout cannot satisfy non-overlap constraints at current diameters, degrade to Context Palette Mode with explicit notice.
 
 ### 4.4 Keyboard Commands
 
-**What this domain is for**
+**What this domain is for**: - Provide the fastest path for known actions.
 
-- Provide the fastest path for known actions.
-
-**Core controls**
-
-- Keybindings invoke semantic app actions, not widget-local shortcuts with divergent meaning.
+**Core controls**: - Keybindings invoke semantic app actions, not widget-local shortcuts with divergent meaning.
 - Keyboard commands target the active semantic context.
 
-**Who owns it**
-
-- Graphshell input and command layers own binding-to-action resolution.
+**Who owns it**: - Graphshell input and command layers own binding-to-action resolution.
 - Widgets may capture text input where appropriate, but must not redefine global command semantics.
 
-**State transitions**
-
-- Valid keybinding resolution dispatches a semantic action.
+**State transitions**: - Valid keybinding resolution dispatches a semantic action.
 - Conflicting text-entry contexts may defer a command when the focused surface owns text input.
 
-**Visual feedback**
-
-- Global command surfaces should expose shortcut hints.
+**Visual feedback**: - Global command surfaces should expose shortcut hints.
 - Command execution should visibly affect the target surface or emit explicit blocked-state feedback.
 
-**Fallback / degraded behavior**
-
-- If a command is unavailable in the current context, the user must receive an explicit explanation.
+**Fallback / degraded behavior**: - If a command is unavailable in the current context, the user must receive an explicit explanation.
 - Hidden suppression is forbidden.
 
 ### 4.5 Omnibar-Initiated Commands and Contextual Invocation
 
-**What this domain is for**
+**What this domain is for**: - Allow command execution from search/navigation and target-scoped entry points.
 
-- Allow command execution from search/navigation and target-scoped entry points.
-
-**Core controls**
-
-- The omnibar may invoke commands as well as navigation and search.
+**Core controls**: - The omnibar may invoke commands as well as navigation and search.
 - Contextual invocation from a node, pane, edge, or canvas must use the same action system as Search Palette Mode.
 
-**Who owns it**
-
-- Graphshell search and command authorities jointly own query parsing and action dispatch.
+**Who owns it**: - Graphshell search and command authorities jointly own query parsing and action dispatch.
 - The omnibar UI owns text capture and result presentation.
 
-**State transitions**
-
-- Query mode determines whether the user is navigating, searching, or invoking a command.
+**State transitions**: - Query mode determines whether the user is navigating, searching, or invoking a command.
 - Executing an omnibar command dispatches the same `ActionId` that other command surfaces would invoke.
 
-**Canonical parity contract (normative)**
-
-- Omnibar command rows must resolve to the same `ActionId` semantic meaning used by keyboard, Search Palette Mode, Context Palette Mode, and Radial Palette Mode.
+**Canonical parity contract (normative)**: - Omnibar command rows must resolve to the same `ActionId` semantic meaning used by keyboard, Search Palette Mode, Context Palette Mode, and Radial Palette Mode.
 - Target scope resolution for omnibar-invoked `ActionId`s must use the same `ActionContext` authority path as other command surfaces.
 - Disabled command rows in omnibar must remain visible with the same precondition explanation text used by other command surfaces; silent suppression is forbidden.
 - If omnibar cannot resolve command target scope deterministically, it must degrade to explicit blocked-state feedback (or clarification UI), not implicit retargeting.
 
-**Visual feedback**
-
-- Result rows must clearly distinguish navigation targets from commands.
+**Visual feedback**: - Result rows must clearly distinguish navigation targets from commands.
 - Contextual invocations must clearly indicate the current target scope.
 
-**Focus ownership and identification (normative)**
-
-- Omnibar/search text fields must expose explicit focus ownership state even when caret rendering is unavailable (for example: focus ring, field highlight, focus badge, or equivalent deterministic indicator).
+**Focus ownership and identification (normative)**: - Omnibar/search text fields must expose explicit focus ownership state even when caret rendering is unavailable (for example: focus ring, field highlight, focus badge, or equivalent deterministic indicator).
 - Focus must be applied to omnibar/search fields only through explicit user selection actions (pointer selection, `Ctrl+L`/platform equivalent, or explicit command intent).
 - On app/frame open, command-surface open, and context-menu summon paths, focus must not default to omnibar.
 - Keyboard command handling must remain owned by the currently focused semantic region unless omnibar focus has been explicitly requested.
 
-**Fallback / degraded behavior**
-
-- Ambiguous queries must resolve predictably or ask for clarification through UI, not silent guesswork.
+**Fallback / degraded behavior**: - Ambiguous queries must resolve predictably or ask for clarification through UI, not silent guesswork.
 - If no command matches, the user must remain in a recoverable browse state.
 
 ### 4.6 Accessibility, Diagnostics, and Surface Boundaries
 
-**What this domain is for**
+**What this domain is for**: - Keep command surfaces understandable, inspectable, and usable across input modes.
 
-- Keep command surfaces understandable, inspectable, and usable across input modes.
-
-**Accessibility**
-
-- Every command surface must be dismissible without pointer input.
+**Accessibility**: - Every command surface must be dismissible without pointer input.
 - Focus return after dismissal must be deterministic.
 - Command surfaces must expose actionable labels and disabled-state reasons.
 
-**Diagnostics**
-
-- Failed command dispatch, missing context, and blocked execution must be observable.
+**Diagnostics**: - Failed command dispatch, missing context, and blocked execution must be observable.
 - Surface divergence is a correctness bug and should be diagnosable.
 
-**Boundary rule**
-
-- Native embedder menus may exist, but they do not define Graphshell command semantics.
+**Boundary rule**: - Native embedder menus may exist, but they do not define Graphshell command semantics.
 
 ---
 
@@ -415,5 +356,3 @@ Canonical wording rules:
 8. Blocked command execution is explicit and diagnosable.
 9. Omnibar command rows execute the same `ActionId` semantics and target-scope resolution as keyboard/palette/radial surfaces.
 10. Omnibar and search fields do not capture keyboard commands by default; focus is explicit and visibly identifiable.
-
-

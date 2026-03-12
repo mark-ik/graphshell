@@ -145,7 +145,7 @@ Add user affordances for restoring or permanently deleting tombstone nodes.
 **Restore Action**:
 1. Restore `TombstoneNodeData` to `NodeState::Active` with cleared timestamp.
 2. Re-fetch or re-queue the node's web content (if content materialization is lazy).
-3. Emit diagnostics event: `graph.tombstone_restored(node_id, restore_timestamp)`.
+3. Emit diagnostics event: `graph:tombstone_restored` with `node_id` and `restore_timestamp`.
 
 **Edge Restoration**:
 - All preserved edges are restored as active relationships.
@@ -156,7 +156,7 @@ Add user affordances for restoring or permanently deleting tombstone nodes.
 - ✅ Right-click on tombstone shows "Restore" / "Permanently Delete" options.
 - ✅ Restore converts `Tombstone` → `Active` and re-materializes content.
 - ✅ Permanent Delete removes node + edges from graph and persistence.
-- ✅ Diagnostics emit `graph.tombstone_restored` and `graph.tombstone_deleted` events.
+- ✅ Diagnostics emit `graph:tombstone_restored` and `graph:tombstone_deleted` events.
 - ✅ No regressions in active graph operations.
 
 ---
@@ -212,7 +212,7 @@ Confirmation dialog:
 - ✅ Retention policy is configurable via prefs (max age, GC enabled/disabled).
 - ✅ GC runs on startup; aged tombstones are removed silently.
 - ✅ "Clear All Deleted" button offers explicit cleanup with confirmation.
-- ✅ Diagnostics emit `graph.tombstones_garbage_collected(count, age_threshold)` events.
+- ✅ Diagnostics emit `graph:tombstones_garbage_collected` with `count` and `age_threshold`.
 - ✅ No performance regression from GC operations on large graphs (1000+ nodes).
 
 ---
@@ -234,10 +234,10 @@ New diagnostics channels (to be registered in `registries/atomic/diagnostics.rs`
 
 | Channel | Severity | Trigger |
 | --- | --- | --- |
-| `graph.tombstone_created` | Info | User deletes a node |
-| `graph.tombstone_restored` | Info | User restores a tombstone |
-| `graph.tombstone_deleted` | Info | User permanently deletes a tombstone |
-| `graph.tombstones_garbage_collected` | Info | GC removes aged tombstones |
+| `graph:tombstone_created` | Info | User deletes a node |
+| `graph:tombstone_restored` | Info | User restores a tombstone |
+| `graph:tombstone_deleted` | Info | User permanently deletes a tombstone |
+| `graph:tombstones_garbage_collected` | Info | GC removes aged tombstones |
 
 ### Edge Cases
 

@@ -56,9 +56,7 @@ Residual NIP-01 follow-on (still open):
     follow-on work (current closure is message-type acknowledgment and receipt semantics in the
     relay transport contract).
 
-**Not landed — confirmed by grep across codebase:**
-
-- No `bech32` encode/decode, no `npub`/`nsec`/`nprofile`/`nevent`/`naddr` codec (NIP-19)
+**Not landed — confirmed by grep across codebase:**: - No `bech32` encode/decode, no `npub`/`nsec`/`nprofile`/`nevent`/`naddr` codec (NIP-19)
 - No `nostr:` URI scheme handler (NIP-21)
 - No kind `3` contact list publish/fetch (NIP-02)
 - No kind `10002` relay list metadata (NIP-65)
@@ -75,7 +73,7 @@ Residual NIP-01 follow-on (still open):
 
 ### Tier 1 — Blocking (client is broken without these)
 
-**NIP-19: `bech32`-encoded identifiers**
+#### NIP-19: `bech32`-encoded identifiers
 
 Every user-facing identity representation in Nostr uses bech32. Without it:
 - `authors` filter fields cannot accept user input (they must be raw hex pubkeys)
@@ -87,7 +85,7 @@ Entities: `npub1` (public key), `nsec1` (secret — display-only decode for impo
 `note1` (event ID), `nprofile1` (pubkey + relay hints), `nevent1` (event + relay hints),
 `naddr1` (replaceable event address).
 
-**NIP-21: `nostr:` URI scheme**
+#### NIP-21: `nostr:` URI scheme
 
 For a browser, this is as fundamental as `http://`. Nostr-aware web content embeds
 `nostr:npub1...` and `nostr:nevent1...` links. Without a `nostr:` protocol handler,
@@ -96,21 +94,21 @@ handles custom schemes — `nostr:` must be registered there.
 
 ### Tier 2 — Required for social graph functionality
 
-**NIP-65: Relay list metadata (kind `10002`)**
+#### NIP-65: Relay list metadata (kind `10002`)
 
 A user's canonical list of read/write relays, published as a replaceable event.
 Without it, Graphshell can only find events on hardcoded relays. With it, relay
 selection becomes portable — you follow someone and automatically know where their
 events appear. This is how the Nostr social graph works at scale.
 
-**NIP-02: Follow lists (kind `3`)**
+#### NIP-02: Follow lists (kind `3`)
 
 The contact list. A set of pubkeys (and optional relay hints and petnames) the user
 follows. Without NIP-02, there is no social graph — you cannot subscribe to a
 user's feed or know who they follow. This is required before any social timeline
 surface can exist.
 
-**NIP-11: Relay information document**
+#### NIP-11: Relay information document
 
 HTTP `GET` to a relay URL returns JSON: supported NIPs, name, description, pubkey,
 limitations. Required for intelligent relay selection — before connecting to a relay
@@ -119,18 +117,18 @@ support a required NIP.
 
 ### Tier 3 — Required for content interaction
 
-**NIP-25: Reactions (kind `7`)**
+#### NIP-25: Reactions (kind `7`)
 
 Likes, `+`/`-`, emoji reactions. Users expect to react to notes. Without NIP-25
 the client is fully read-only from a social perspective.
 
-**NIP-05: Nostr address (internet identifier)**
+#### NIP-05: Nostr address (internet identifier)
 
 Maps `user@domain` to a pubkey via a `.well-known/nostr.json` HTTP endpoint.
 For a browser, DNS-based identity is a natural fit. Users expect to type a human
 address rather than a 64-char hex string.
 
-**NIP-51: Lists (kind `30000`-range)**
+#### NIP-51: Lists (kind `30000`-range)
 
 Bookmark lists, mute lists, pinned notes, categorized follow sets. Required for
 any content organization feature. Mute lists in particular are a basic trust/safety
@@ -141,7 +139,7 @@ tool — without them users cannot suppress spam or unwanted content.
 **NIP-44: Versioned encryption** — already landed as a primitive (used in NIP-46).
 The encryption function itself exists; it just needs wiring to DM send/receive.
 
-**NIP-17: Private direct messages (sealed, gift-wrapped)**
+#### NIP-17: Private direct messages (sealed, gift-wrapped)
 
 The modern DM standard using NIP-44 + kind `1059` gift wrap. Preferable over
 NIP-04 for new implementation since metadata leakage is much lower. NIP-44 being
@@ -154,7 +152,7 @@ are the remaining work.
 
 ### Phase N1 — Codec foundation (unblocks everything)
 
-**N1.1 — NIP-19 bech32 codec in `NostrCoreRegistry`**
+#### N1.1 — NIP-19 bech32 codec in `NostrCoreRegistry`
 
 The `nostr` crate (already a dependency via NIP-44 import) includes NIP-19 types.
 Expose them through `NostrCoreRegistry` as a codec surface rather than re-implementing.
@@ -188,7 +186,7 @@ filter construction path should accept bech32 and decode internally before sendi
 - [ ] NIP-07 `getPublicKey` response available in both hex and npub forms
 - [ ] Unit tests: encode/decode round-trip for all five entity types; invalid input returns `Err`
 
-**N1.2 — NIP-21 `nostr:` URI protocol handler**
+#### N1.2 — NIP-21 `nostr:` URI protocol handler
 
 Register `nostr:` in `ProtocolRegistry`. The handler decodes the entity using N1.1,
 then routes to the appropriate graph action:
@@ -213,7 +211,7 @@ unsupported entity types return an explicit unsupported state, not a silent fail
 
 ### Phase N2 — Relay and identity metadata
 
-**N2.1 — NIP-11 relay information fetch**
+#### N2.1 — NIP-11 relay information fetch
 
 HTTP `GET` to a relay's base URL with `Accept: application/nostr+json` returns relay
 info. Implement as a one-shot async fetch in `NostrCoreRegistry`:
@@ -249,7 +247,7 @@ Surface in Settings → Sync relay list view so users can see what each relay su
 - [ ] `NostrRelayPolicy` can gate connection to relays that don't support required NIPs
 - [ ] Relay list in Settings → Sync displays relay name and NIP-11 status
 
-**N2.2 — NIP-05 identifier resolution**
+#### N2.2 — NIP-05 identifier resolution
 
 Fetch `https://<domain>/.well-known/nostr.json?name=<local>`, parse the `names`
 object, return the hex pubkey. Used at two points:
@@ -272,7 +270,7 @@ pub(crate) struct Nip05Resolution {
 - [ ] Cache resolution TTL (session-local, 10 min default)
 - [ ] Invalid/non-resolving identifiers return `Err` with an explicit reason
 
-**N2.3 — NIP-65 relay list metadata (kind `10002`)**
+#### N2.3 — NIP-65 relay list metadata (kind `10002`)
 
 Publish and fetch a user's canonical read/write relay list.
 
@@ -308,7 +306,7 @@ no kind `10002` event exists.
 
 ### Phase N3 — Social graph
 
-**N3.1 — NIP-02 follow list (kind `3`)**
+#### N3.1 — NIP-02 follow list (kind `3`)
 
 Publish and fetch the user's contact list. Kind `3` events contain `p` tags:
 `["p", "<hex-pubkey>", "<relay-hint>", "<petname>"]`.
@@ -341,7 +339,7 @@ surface.
 - [ ] Graph intent proposal: `NostrFetchFollows` creates graph nodes from contact list
 - [ ] Publishing always replaces: API enforces full-list-on-publish invariant
 
-**N3.2 — NIP-51 lists (kind `30000`-range)**
+#### N3.2 — NIP-51 lists (kind `30000`-range)
 
 Parameterized replaceable events for user-curated lists. Most immediately useful:
 
@@ -382,7 +380,7 @@ should be filtered out in `NostrFilterSet` construction and in event rendering.
 
 ### Phase N4 — Content interaction
 
-**N4.1 — NIP-25 reactions (kind `7`)**
+#### N4.1 — NIP-25 reactions (kind `7`)
 
 Reactions are kind `7` events with an `e` tag (event being reacted to), a `p` tag
 (author of that event), and content `+`, `-`, or an emoji.
@@ -404,7 +402,7 @@ unique emoji reactions.
 - [ ] Reaction subscription filter uses `#e` tag filter correctly
 - [ ] Reaction aggregation helper: `count_reactions(events: &[NostrSignedEvent]) -> ReactionSummary`
 
-**N4.2 — NIP-17 private direct messages**
+#### N4.2 — NIP-17 private direct messages
 
 Gift-wrapped sealed DMs using NIP-44 encryption. The crypto is already landed
 (NIP-44). The remaining work is the event kind structure:

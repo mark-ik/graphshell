@@ -487,7 +487,7 @@ None of these require a new crate dependency; all are in petgraph.
 
 ---
 
-### 2.10 Dominators (`petgraph::algo::dominators`)
+### 2.9 Dominators (`petgraph::algo::dominators`)
 
 **Function:** `dominators::simple_fast(&graph, root)` — computes the dominator tree rooted at a
 given node for a directed graph.
@@ -509,7 +509,7 @@ Restrict to `TraversalDerived` edge subgraph for pure browsing analysis.
 
 ---
 
-### 2.11 Isomorphism / Subgraph Matching (`petgraph::algo::is_isomorphic_matching`)
+### 2.10 Isomorphism / Subgraph Matching (`petgraph::algo::is_isomorphic_matching`)
 
 **Graphshell application: Pattern-Based Workspace Templates**
 
@@ -597,11 +597,15 @@ impl Graph {
     }
 
     /// Weakly connected components. Returns each component as a Vec of NodeKeys.
+    /// Uses `kosaraju_scc` on an undirected view: treating all edges as bidirectional
+    /// makes every SCC a weakly-connected component of the original directed graph.
+    /// (Alternatively, `petgraph::algo::connected_components` counts components without
+    /// returning membership; use this function when membership is needed.)
     pub fn weakly_connected_components(&self) -> Vec<Vec<NodeKey>> {
         petgraph::algo::kosaraju_scc(&petgraph::visit::AsUndirected(&self.inner))
     }
 
-    /// Strongly connected components (directed).
+    /// Strongly connected components (directed graph, Kosaraju's algorithm).
     pub fn strongly_connected_components(&self) -> Vec<Vec<NodeKey>> {
         petgraph::algo::kosaraju_scc(&self.inner)
     }

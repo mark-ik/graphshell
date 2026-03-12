@@ -1,6 +1,6 @@
 # Graph Enrichment Plan (2026-03-11)
 
-**Status**: Active umbrella plan
+**Status**: Active umbrella plan (revised for prototype UX reset)
 **Lane**: `lane:knowledge-capture` (`#98`)
 **Goal**: unify node tagging, badges, UDC classification, import/clip enrichment, and visible graph effects into one authoritative capture-to-surface pipeline.
 
@@ -10,6 +10,8 @@
 * `2026-02-20_node_badge_and_tagging_plan.md`
 * `2026-02-24_layout_behaviors_plan.md`
 * `2026-02-22_multi_graph_pane_plan.md`
+* `faceted_filter_surface_spec.md`
+* `../workbench/graph_first_frame_semantics_spec.md`
 * `../system/2026-03-06_reducer_only_mutation_enforcement_plan.md`
 * `../../TERMINOLOGY.md`
 
@@ -26,13 +28,59 @@ Graphshell already has partial plans for:
 
 Those plans are related enough that they should be executed as one semantic lane, not as isolated UI or physics slices.
 
+## Prototype Reality Check (2026-03-11)
+
+Current code is ahead in semantic plumbing and behind in user-facing payoff.
+
+What already exists in some form:
+
+* runtime tag transport,
+* `KnowledgeRegistry` UDC parsing and label-first search,
+* semantic index reconciliation,
+* semantic clustering force,
+* semantic placement-anchor suggestion,
+* tag suggestion scaffolding.
+
+What is still largely missing from the actual product experience:
+
+* a graph inspector that explains a selected node's enrichment,
+* a persistent filter/facet surface or omnibar-first filter flow,
+* a tested badge budget and overflow policy,
+* a user-facing minimap/navigation aid instead of diagnostics-only navigation,
+* durable provenance/confidence/status storage for inferred metadata.
+
+That mismatch matters. A prototype does not get better by capturing more hidden semantics that users cannot see, trust, filter, or navigate.
+
+## Prototype UX Reset
+
+For this lane, Graphshell should optimize for prototype legibility before semantic breadth.
+
+Priority rules:
+
+1. **Explain before automate**
+   * It does not make sense to expand agent suggestions or sync semantics before the UI can show why a node is tagged/classified and let the user accept, reject, or ignore that state.
+
+2. **Filter before decorate**
+   * It does not make sense to add more badge types if the same metadata cannot drive real find/filter/group actions.
+
+3. **Navigate before densify**
+   * It does not make sense to increase graph density through enrichment if users still lack a first-class minimap, inspector-driven focus flow, and predictable spawn behavior near the source context.
+
+4. **Use canonical workbench semantics**
+   * Enrichment-triggered organization must follow `Frame` / `Frame membership` / `Frame-affinity region` authority, not drift back into treating `MagneticZone` as a separate semantic object.
+
+5. **Do not deepen runtime-only transport**
+   * The current runtime tag carrier is acceptable as a transition path. It is not acceptable as the long-term carrier for provenance-bearing import, suggestion, or community-synced enrichment.
+
 The canonical pipeline for this lane is:
 
 ### Canonical Pipeline
 
-Capture -> Classify -> Store -> Surface -> Affect graph behavior
+Capture -> Classify -> Store -> Surface -> Filter/Explain -> Affect graph behavior
 
 The lane is about making the graph progressively more meaningful without collapsing semantic identity, presentation, and runtime/backend state into a single undifferentiated metadata blob.
+
+If a slice reaches `Capture` or `Classify` but does not reach `Filter/Explain`, it should be treated as partial rather than product-meaningful.
 
 ## Scope
 
@@ -58,6 +106,7 @@ This umbrella plan covers five tightly related concerns:
    * graph badges
    * tab/pane badges
    * filter/search facets
+   * graph inspector / sidecar explanation surface
    * inspector and explanation UI
 
 5. **Behavioral consumption**
@@ -72,6 +121,7 @@ This plan does not:
 * redefine pane identity or backend selection semantics,
 * make viewer backend or render mode part of graph-semantic classification,
 * permit silent direct writes from UI widgets or background agents to graph metadata,
+* treat badge count growth as proof of semantic progress while explanation/filter surfaces remain absent,
 * replace dedicated plans for Verse publication, community governance, or model execution.
 
 ## Canonical Separation of Concerns
@@ -163,7 +213,76 @@ Required invariants:
 * no background agent can commit enrichment silently without explicit acceptance policy,
 * enrichment changes are replayable and sync-safe.
 
+## Current Baseline and Blocking Gaps
+
+This plan should assume the following baseline until code says otherwise:
+
+### Already present in code
+
+* runtime tag transport and reducer-owned tag intents,
+* UDC parsing and fuzzy lookup through `KnowledgeRegistry`,
+* semantic clustering force and semantic placement-anchor suggestion,
+* initial suggestion scaffolding.
+
+### Still missing or insufficient
+
+* durable `NodeClassification`-style records with provenance/confidence/status,
+* a first-class graph inspector for selected-node enrichment,
+* filter/facet surfaces that query enrichment metadata,
+* badge overflow/priority behavior beyond isolated one-off badges,
+* a user-facing minimap/navigation aid outside diagnostics surfaces.
+
+Any stage claiming product-level enrichment should be read against this baseline.
+
 ## Stages
+
+### Stage 0: Prototype legibility reset
+
+Purpose: make enrichment visible, explorable, and navigable before scaling capture breadth.
+
+Include:
+
+* graph inspector or sidecar showing selected-node tags/classifications and "why" explanation,
+* omnibar and command-surface routing into the canonical faceted-filter contract,
+* a persistent or summonable filter surface for enrichment metadata,
+* badge budget/overflow policy before adding more semantic badge density,
+* user-facing minimap/navigation surface promotion or explicit rejection of minimap as a product direction,
+* node spawn behavior that prefers source-context or semantic placement anchors over center-spawn where possible,
+* graph-search provenance/history/pinning controls so semantic slices are inspectable and reversible,
+* bounded neighborhood expansion controls for anchor-driven slices.
+
+Rules:
+
+* Stage 0 may use current transport only for read-only explanation/filter scaffolding.
+* Stage 0 must not justify new provenance-bearing capture paths staying on runtime-only transport.
+
+Done gate:
+
+* a user can answer "why is this node tagged/classified and why is it here?",
+* a user can isolate nodes by enrichment metadata without opening diagnostics-only tooling,
+* dense graph navigation no longer depends on a diagnostics pane,
+* badge growth is capped by explicit priority and overflow behavior,
+* semantic slices can be revisited, pinned, and distinguished by provenance without relying on transient memory.
+
+### Stage 0 implementation snapshot (prototype status as of 2026-03-11)
+
+Landed in the prototype:
+
+* selected-node enrichment inspector with semantic tags, suggestions, and placement-anchor explanation,
+* runtime-index-backed graph search that matches semantic tags and UDC-style queries,
+* graph node semantic badge budget with overflow coverage,
+* semantic-aware node spawn placement from the current source/anchor context,
+* clickable semantic tag chips that drive graph slices directly,
+* active graph-search status pill with provenance, highlight/filter toggles, clear, back history, and recent restore,
+* pinnable semantic slices plus a compact pinned-slice canvas badge,
+* anchor-driven slice actions including bounded neighborhood expansion (1-hop and 2-hop),
+* transient semantic-slice feedback via toasts.
+
+Still incomplete relative to Stage 0 intent:
+
+* there is still no real persistent facet surface beyond the search/slice path,
+* navigation support is better but still not a true product-grade minimap or overview surface,
+* provenance/confidence/status are still UI-level slice semantics, not durable node-level enrichment records.
 
 ### Stage A: Schema and intent closure
 
@@ -176,6 +295,10 @@ Include:
 * reducer intents and validation rules
 * persistence roundtrip coverage
 * sync/merge policy for tags and classifications
+
+Blocking note:
+
+* import, suggestion, and sync-facing enrichment must not be treated as done while provenance-bearing metadata still depends on runtime-only carriers.
 
 Done gate:
 
@@ -195,6 +318,10 @@ Include:
 * inspector surface showing tags, classifications, provenance, and confidence
 * minimal explanation UI for inferred metadata
 
+Blocking note:
+
+* Stage B is not honestly done if badges exist but the user still cannot inspect or filter the same metadata through a canonical surface.
+
 Done gate:
 
 * a user can see and explain why a node is classified/tagged,
@@ -213,6 +340,10 @@ Include:
 * clip inheritance from source node and extracted text
 * suggestion queue for future agent/model proposals
 
+Blocking note:
+
+* new capture paths must terminate in the same visible explanation/filter surfaces landed in Stage 0 and Stage B, not in hidden metadata only.
+
 Done gate:
 
 * at least one end-to-end import or clip path produces visible enrichment,
@@ -228,7 +359,11 @@ Include:
 * semantic placement anchor consumption at spawn time
 * semantic gravity / clustering
 * optional lens hooks consuming enrichment
-* grouping and organization actions based on shared classification prefixes
+* grouping and organization actions based on shared classification prefixes and canonical `Frame` semantics
+
+Terminology rule:
+
+* When this stage touches spatial organization, use `Frame membership` / `Frame-affinity region` authority from `graph_first_frame_semantics_spec.md`. Do not reintroduce `MagneticZone` as a separate semantic authority.
 
 Done gate:
 
@@ -318,16 +453,19 @@ Required validation paths:
 3. search/filter can find by enrichment metadata
 4. semantic placement or clustering consumes enrichment
 5. suggestion acceptance updates provenance and status correctly
+6. selected-node inspector explains the active tag/classification state without diagnostics-only tooling
+7. badge overflow remains legible when semantic and runtime badges coexist
 
 ## Immediate Execution Order
 
 Recommended order for the next concrete slices:
 
-1. durable tag/classification schema + reducer intents
-2. visible badge/filter/inspector surface using persisted metadata
-3. one capture path: clip or import -> enrichment -> visible graph effect
-4. semantic placement-anchor path consuming enrichment on spawn
-5. suggestion workflow scaffolding after the trust boundary is proven
+1. Stage 0 prototype legibility reset: inspector + filter route + badge budget + minimap/navigation decision + spawn behavior cleanup
+2. durable tag/classification schema + reducer intents
+3. visible badge/filter/inspector surface using persisted metadata
+4. one capture path: clip or import -> enrichment -> visible graph effect
+5. semantic placement-anchor path consuming enrichment on spawn
+6. suggestion workflow scaffolding after the trust boundary is proven
 
 ## Relationship to Existing Plans
 
@@ -338,5 +476,6 @@ Subsidiary plan responsibilities:
 * `2026-02-20_node_badge_and_tagging_plan.md`: badge visuals and tag assignment UI.
 * `2026-02-23_udc_semantic_tagging_plan.md`: UDC parsing, semantic distance, and label-first classification.
 * `2026-02-24_layout_behaviors_plan.md`: semantic placement, semantic gravity, and downstream layout behaviors.
+* `faceted_filter_surface_spec.md`: canonical filter semantics and authority boundaries for enrichment queries.
 
 When these plans disagree, this umbrella document should be updated to resolve the conflict rather than allowing silent drift.

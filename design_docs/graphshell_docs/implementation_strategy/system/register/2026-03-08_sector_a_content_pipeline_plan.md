@@ -303,8 +303,8 @@ Reality note (2026-03-10):
   code now delegates through runtime registry helpers.
 - [x] `LensRegistry` is a real struct; `LENS_ID_SEMANTIC_OVERLAY` produces a semantic-overlay
   profile for tagged semantic content.
-- [x] The pipeline diagnostic channels (`registry.protocol.*`, `registry.viewer.*`,
-  `registry.lens.*`) remain active on the runtime path.
+- [x] The pipeline diagnostic channels (`registry:protocol:*`, `registry:viewer:*`,
+  `registry:lens:*`) remain active on the runtime path.
 
 ---
 

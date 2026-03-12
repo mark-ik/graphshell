@@ -5,7 +5,10 @@
 **Priority**: Immediate implementation guidance
 
 **Related**:
+
 - `viewer_presentation_and_fallback_spec.md`
+- `webview_lifecycle_and_crash_recovery_spec.md`
+- `wry_integration_spec.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../workbench/2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md`
@@ -143,9 +146,9 @@ When `RuntimeBlocked` is set:
 Required channels:
 
 - `lifecycle:transition` (Info)
-- `lifecycle:runtime_blocked` (Warn/Error by cause)
+- `lifecycle:runtime_blocked` (Warn)
 - `lifecycle:recovery_attempt` (Info)
-- `lifecycle:recovery_failed` (Warn/Error)
+- `lifecycle:recovery_failed` (Error)
 - `lifecycle:recovery_succeeded` (Info)
 
 Minimum event payload:

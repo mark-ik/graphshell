@@ -8,7 +8,7 @@
 
 - `VIEWER.md`
 - `universal_content_model_spec.md`
-- `viewer/2026-02-11_clipping_dom_extraction_plan.md`
+- `2026-02-11_clipping_dom_extraction_plan.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
 - `../canvas/node_badge_and_tagging_spec.md`
 - `../../TERMINOLOGY.md` — `Clip Node`, `GraphSemanticEvent`, `EmbedderApi`
@@ -49,7 +49,7 @@ DOM extraction is initiated from the viewer's context menu. When the user right-
 
 ### 2.2 GraphSemanticEvent::ContextMenu
 
-```
+```text
 GraphSemanticEvent::ContextMenu {
     node_key: NodeKey,         -- the node whose viewer was right-clicked
     position: PhysicalPoint,   -- screen position of the right-click
@@ -71,7 +71,7 @@ The Graphshell context menu includes a "Clip selection" item when `ContextMenuHi
 
 Activating a clip action emits a `ClipContent` intent:
 
-```
+```text
 GraphIntent::ClipContent {
     source_node_key: NodeKey,
     clip_kind: ClipKind,
@@ -93,7 +93,7 @@ For `FullPage` clip kind and for cases where richer DOM structure is needed beyo
 
 ### 3.1 EmbedderApi::inject_script
 
-```
+```text
 EmbedderApi::inject_script(
     node_key: NodeKey,
     script: &str,
@@ -155,7 +155,7 @@ pub trait ViewerClipProvider {
 A clip node is an ordinary graph node with:
 
 - `node_state: NodeState::Active` (clip nodes are active nodes, not a special lifecycle state)
-- Tag: `#clip` (system-managed; see `node_badge_and_tagging_spec.md §2.1`)
+- Tag: `#clip` (system-managed; see `../canvas/node_badge_and_tagging_spec.md §2.1`)
 - `address_kind: AddressKind::GraphshellClip`
 - `address: "graphshell://clip/<uuid>"`
 
@@ -179,7 +179,7 @@ Clip content is stored at the `graphshell://clip/<uuid>` address in the local gr
 
 When a clip node is created from a source node, a `UserGrouped` edge is created between the clip node and the source node:
 
-```
+```text
 Edge {
     kind: EdgeKind::UserGrouped,
     source: clip_node_key,

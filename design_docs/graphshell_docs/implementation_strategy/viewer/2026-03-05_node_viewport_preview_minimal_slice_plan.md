@@ -5,6 +5,7 @@
 **Scope**: First shippable slice of in-canvas viewport previews with anti-flicker behavior
 
 **Related**:
+
 - `node_viewport_preview_spec.md`
 - `viewer_presentation_and_fallback_spec.md`
 - `2026-02-23_wry_integration_strategy.md`
@@ -148,11 +149,11 @@ If refresh stays render-driven, keep only mode/margin intents and mark-dirty via
 
 ## 7. Diagnostics (Minimal)
 
-- `viewer.preview.refresh_requested`
-- `viewer.preview.refresh_succeeded`
-- `viewer.preview.refresh_failed`
-- `viewer.preview.last_good_frame_used`
-- `viewer.viewport.open_in_workbench`
+- `viewer:preview_refresh_requested` (Info)
+- `viewer:preview_refresh_succeeded` (Info)
+- `viewer:preview_refresh_failed` (Warn)
+- `viewer:preview_last_good_frame_used` (Warn)
+- `viewer:viewport_open_in_workbench` (Info)
 
 ---
 

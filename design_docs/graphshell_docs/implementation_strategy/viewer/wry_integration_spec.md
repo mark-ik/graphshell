@@ -9,7 +9,7 @@
 - `VIEWER.md`
 - `viewer_presentation_and_fallback_spec.md`
 - `universal_content_model_spec.md`
-- `viewer/2026-02-23_wry_integration_strategy.md`
+- `2026-02-23_wry_integration_strategy.md`
 - `../aspect_render/frame_assembly_and_compositor_spec.md`
 - `../../TERMINOLOGY.md` — `TileRenderMode`, `NativeOverlay`, `CompositorAdapter`, `Viewer`
 
@@ -34,9 +34,9 @@ Implementation status note (2026-03-06): runtime currently contains scaffold-lev
 
 Wry renders web content in one of two modes, determined at viewer attachment time:
 
-```
+```text
 WryRenderMode =
-  | NativeOverlay   -- Wry webview is a native child window; owns its own region
+  | NativeOverlay      -- Wry webview is a native child window; owns its own region
   | CompositedTexture  -- Wry renders to an offscreen texture composited into egui
 ```
 
@@ -68,7 +68,7 @@ The `WryManager` selects `WryRenderMode` at viewer attachment time based on:
 
 `WryViewer` is the viewer backend for non-Servo web content. It implements the `Viewer` trait.
 
-```
+```text
 WryViewer {
     webview: wry::WebView,
     wry_render_mode: WryRenderMode,
@@ -108,7 +108,7 @@ Calls `webview.load_url(address)`. For `NativeOverlay` mode this is a direct web
 
 `WryManager` owns the Wry webview pool and coordinates lifecycle across all active `WryViewer` instances.
 
-```
+```text
 WryManager {
     webviews: HashMap<NodeKey, wry::WebView>,
     platform: WryPlatform,   -- Windows | macOS | Linux
@@ -138,7 +138,7 @@ WryManager {
 
 Wry webviews emit navigation events (load started, load complete, title changed, URL changed). `WryManager` translates these into `GraphSemanticEvent` emissions:
 
-```
+```text
 GraphSemanticEvent::WryNavigation {
     node_key: NodeKey,
     event: WryNavigationEvent,   -- LoadStarted | LoadComplete | UrlChanged | TitleChanged

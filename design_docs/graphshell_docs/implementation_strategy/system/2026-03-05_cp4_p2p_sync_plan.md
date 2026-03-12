@@ -192,7 +192,7 @@ GraphIntent::ApplyRemoteDelta { workspace_id, from_peer, peer_vv, intents } => {
 
 **Undo-stack bypass**: `IntentSource::RemotePeer` is checked in the undo-stack push path. Remote intents are not pushed to the local undo stack — they are in the remote peer's log and the remote can replay them.
 
-**Error handling**: If `apply_single_intent` returns an error for a specific `SyncedIntent` (e.g., referencing a node that doesn't exist), the intent is skipped with a `verse.sync.intent_rejected` diagnostics event (severity: `Warn`). The VV is NOT advanced for rejected intents — the gap will be re-synced on next connection.
+**Error handling**: If `apply_single_intent` returns an error for a specific `SyncedIntent` (e.g., referencing a node that doesn't exist), the intent is skipped with a `verse:sync:intent_rejected` diagnostics event (severity: `Warn`). The VV is NOT advanced for rejected intents — the gap will be re-synced on next connection.
 
 ### 4.2 MarkPeerOffline
 
@@ -257,12 +257,12 @@ CP4 registers the following diagnostics channels (all under the `verse.sync` nam
 
 | Channel | Severity | Description |
 | --- | --- | --- |
-| `verse.sync.intent_applied` | `Info` | Remote intent successfully applied; payload: `(peer_id, sequence, intent_kind)` |
-| `verse.sync.intent_rejected` | `Warn` | Remote intent skipped due to apply error; payload: `(peer_id, sequence, error)` |
-| `verse.sync.peer_offline` | `Warn` | Peer became unreachable; payload: `(peer_id, reason)` |
-| `verse.sync.vv_gap_detected` | `Warn` | Received delta with a sequence gap (intents out of order or lost); payload: `(peer_id, expected, got)` |
-| `verse.sync.full_snapshot_applied` | `Info` | Full workspace snapshot received and applied (device-sync catchup) |
-| `verse.sync.worker_crash` | `Error` | `P2PSyncWorker` exited unexpectedly; `MarkPeerOffline { peer_id: None }` enqueued |
+| `verse:sync:intent_applied` | `Info` | Remote intent successfully applied; payload: `(peer_id, sequence, intent_kind)` |
+| `verse:sync:intent_rejected` | `Warn` | Remote intent skipped due to apply error; payload: `(peer_id, sequence, error)` |
+| `verse:sync:peer_offline` | `Warn` | Peer became unreachable; payload: `(peer_id, reason)` |
+| `verse:sync:vv_gap_detected` | `Warn` | Received delta with a sequence gap (intents out of order or lost); payload: `(peer_id, expected, got)` |
+| `verse:sync:full_snapshot_applied` | `Info` | Full workspace snapshot received and applied (device-sync catchup) |
+| `verse:sync:worker_crash` | `Error` | `P2PSyncWorker` exited unexpectedly; `MarkPeerOffline { peer_id: None }` enqueued |
 
 All channels must include a `severity` field per `CLAUDE.md` guidelines.
 
@@ -276,7 +276,7 @@ All channels must include a `severity` field per `CLAUDE.md` guidelines.
 - [ ] Version vector loaded from persistence on workspace init; persisted on `vv_dirty` flag
 - [ ] Deduplication: already-seen sequences are skipped without applying or erroring
 - [ ] Undo-stack bypass: `IntentSource::RemotePeer` intents are not pushed to local undo history
-- [ ] `verse.sync.*` diagnostics channels registered with correct severities
+- [ ] `verse:sync:*` diagnostics channels registered with correct severities
 - [ ] Worker crash surfaces non-silent offline state (`MarkPeerOffline` target behavior or equivalent reducer-owned offline status path)
 - [ ] `cargo check --package graphshell` clean; targeted tests for: (a) deduplication, (b) VV advancement, (c) peer-offline state update
 
@@ -287,7 +287,7 @@ All channels must include a `severity` field per `CLAUDE.md` guidelines.
 1. **Converge sync intent naming** — either: (a) rename runtime carrier from `ApplyRemoteLogEntries` to `ApplyRemoteDelta`, or (b) keep alias with explicit mapping docs. Add exhaustive match arms in `apply_intents()` (stubs returning `Ok(())` first to unblock compile).
 2. **Add `WorkspaceSyncState`** — add field to workspace runtime struct; wire to persistence load/save.
 3. **Implement reducer logic** — deduplication check, `apply_single_intent` call, VV update, undo bypass.
-4. **Add diagnostics channels** — register `verse.sync.*` channels with correct severity in the diagnostics registry.
+4. **Add diagnostics channels** — register `verse:sync:*` channels with correct severity in the diagnostics registry.
 5. **Implement `spawn_p2p_sync_worker()`** — stub implementation first (worker that immediately returns); Verso mod wires the real `P2PSyncWorker` in its activation sequence.
 6. **Wire worker crash detection** — detect unexpected `JoinSet` exit; enqueue `MarkPeerOffline` with `SyncWorkerCrash` reason.
 7. **Tests** — deduplication invariant, VV advancement correctness, peer-offline state transition.

@@ -136,7 +136,8 @@ We organize the registries into **Atomic Primitives** (The Vocabulary) and **Dom
 
 These manage specific, isolated resources or algorithms. Mods can extend these directly.
 
-**Persistence & I/O**
+#### Persistence & I/O
+
 *   **Protocol Registry**:
     *   **Role**: Maps URL schemes (`ipfs://`, `file://`) to handlers. **(The Persistence Layer)**. Core seeds: `file://`, `about:`. Verso mod adds `http://`, `https://`, `data:`. Verse Tier 2 (future) adds `ipfs://`, `activitypub://` for community swarms.
     *   **Interface**: `resolve(uri) -> Result<ContentStream>`
@@ -147,7 +148,8 @@ These manage specific, isolated resources or algorithms. Mods can extend these d
     *   **Role**: Maps MIME types/extensions to renderers (PDF, Markdown, CSV). Core seeds: `viewer:plaintext`, `viewer:metadata`. Verso mod adds `viewer:webview`.
     *   **Interface**: `render(ui, content)`
 
-**Layout & Presentation Primitives**
+#### Layout & Presentation Primitives
+
 *   **Layout Registry** (Atomic):
     *   **Role**: Positioning algorithms (`LayoutId` → `Algorithm`). Used by `CanvasRegistry` to resolve the active algorithm.
     *   **Interface**: `compute_layout(graph) -> Positions`
@@ -158,7 +160,8 @@ These manage specific, isolated resources or algorithms. Mods can extend these d
     *   **Role**: Manages named force simulation parameter presets (`PhysicsId` → `PhysicsProfile`). Semantic labels (Liquid/Gas/Solid) over numeric force params. Engine *execution* is in `CanvasRegistry` (Layout Domain); these are *parameters only*.
     *   **Interface**: `get_profile(id)`
 
-**Logic & Security**
+#### Logic & Security
+
 *   **Action Registry** (Atomic):
     *   **Role**: Definitions of executable actions (`ActionId` → `Handler`).
     *   **Interface**: `execute(context) -> Vec<GraphIntent>` (current reducer bridge carrier)
@@ -175,7 +178,8 @@ These manage specific, isolated resources or algorithms. Mods can extend these d
     *   **Role**: Central definition of diagnostic channels, schemas, and configuration (sampling/retention).
     *   **Interface**: `register_channel(def)`, `get_config(channel_id)`, `set_config(channel_id, config)`
 
-**Knowledge**
+#### Knowledge
+
 *   **Knowledge Registry** (formerly Ontology Registry):
     *   **Role**: UDC tagging, semantic definitions, validation, and runtime indexing (`NodeKey` → `CompactCode`).
     *   **Interface**: `validate(tag)`, `distance(a, b)`, `get_label(code)`, `get_color_hint(code)`
@@ -255,7 +259,7 @@ Each registry ships with two test layers:
 
 Before a registry is marked complete, all items below must be defined and validated:
 
-- [ ] **Channel Naming**: Channels follow `registry.<name>.<event>` naming convention.
+- [ ] **Channel Naming**: Channels follow `registry:<name>:<event>` naming convention.
 - [ ] **Schema Version**: Every emitted diagnostic payload includes `schema_version`.
 - [ ] **Field Stability**: Required fields are documented; optional fields are explicitly marked nullable/optional.
 - [ ] **Compatibility Policy**: Additive changes are allowed; removals/renames require deprecation for at least one release cycle.
@@ -267,20 +271,20 @@ Before a registry is marked complete, all items below must be defined and valida
 
 | Registry | Owner | Primary Interface | Required Diagnostics Channels | Minimum Tests |
 |---|---|---|---|---|
-| ProtocolRegistry | Platform/Networking | `resolve(uri)` | `registry.protocol.resolve_started`, `.resolve_succeeded`, `.resolve_failed`, `.fallback_used` | 2 contract tests (lookup/fallback, error path), 1 harness scenario |
-| ViewerRegistry | Desktop/Rendering | `render(ui, content)` | `registry.viewer.render_started`, `.render_succeeded`, `.render_failed`, `.fallback_used` | 2 contract tests (mime resolution, fallback), 1 harness scenario |
-| ActionRegistry | App/Core | `execute(action, context)` | `registry.action.execute_started`, `.execute_succeeded`, `.execute_failed` | 2 contract tests (registration/conflict, intent emission), 1 harness scenario |
-| InputRegistry | App/Input | `map_input(event)` | `registry.input.binding_resolved`, `.binding_missing`, `.binding_conflict` | 2 contract tests (mapping/override, missing binding), 1 harness scenario |
-| LayoutRegistry | App/Layout | `compute_layout(graph)` | `registry.layout.compute_started`, `.compute_succeeded`, `.compute_failed`, `.fallback_used` | 2 contract tests (algorithm lookup, fallback), 1 harness scenario |
-| ThemeRegistry | Desktop/UI | `get_theme(id)` | `registry.theme.lookup_succeeded`, `.lookup_failed`, `.fallback_used` | 2 contract tests (lookup/fallback, missing theme), 1 harness scenario |
-| PhysicsProfileRegistry | App/Presentation | `get_profile(id)` | `registry.physics.lookup_succeeded`, `.lookup_failed`, `.fallback_used` | 2 contract tests (lookup/fallback, profile validation), 1 harness scenario |
-| IdentityRegistry | Core/Security | `sign(payload, persona)` | `registry.identity.sign_started`, `.sign_succeeded`, `.sign_failed`, `.key_unavailable` | 2 contract tests (persona resolution, signing failure), 1 harness scenario |
-| IndexRegistry | Search/Recall | `query(text)` | `registry.index.query_started`, `.query_succeeded`, `.query_failed`, `.fallback_used` | 2 contract tests (provider selection, failure fallback), 1 harness scenario |
-| KnowledgeRegistry | Knowledge/Semantics | `validate(tag)`, `get_label(code)` | `registry.knowledge.lookup_succeeded`, `.lookup_failed`, `.fallback_used` | 2 contract tests (schema lookup/versioning, fallback), 1 harness scenario |
-| DiagnosticsRegistry | System/Observability | `register_channel(def)` | `registry.diagnostics.channel_registered`, `.config_changed` | 2 contract tests (registration, config override), 1 harness scenario |
-| ModRegistry | Platform/Extensibility | `load_mod(path)`, `unload_mod(id)`, `resolve_dependencies()` | `registry.mod.load_started`, `.load_succeeded`, `.load_failed`, `.dependency_missing`, `.security_violation`, `.quarantine` | 3 contract tests (load/unload, denied capability, dependency resolution), 1 harness scenario |
-| LensCompositor | App/Cross-Domain | `resolve_lens(id)` | `registry.lens.resolve_succeeded`, `.resolve_failed`, `.fallback_used` | 2 contract tests (composition resolution, fallback), 1 harness scenario |
-| WorkflowRegistry (future) | App/WorkbenchProfile | `activate_workflow(id)` | `registry.workflow.activate_started`, `.activate_succeeded`, `.activate_failed` | 2 contract tests (activation/switching, fallback), 1 harness scenario |
+| ProtocolRegistry | Platform/Networking | `resolve(uri)` | `registry:protocol:resolve_started`, `:resolve_succeeded`, `:resolve_failed`, `:fallback_used` | 2 contract tests (lookup/fallback, error path), 1 harness scenario |
+| ViewerRegistry | Desktop/Rendering | `render(ui, content)` | `registry:viewer:render_started`, `:render_succeeded`, `:render_failed`, `:fallback_used` | 2 contract tests (mime resolution, fallback), 1 harness scenario |
+| ActionRegistry | App/Core | `execute(action, context)` | `registry:action:execute_started`, `:execute_succeeded`, `:execute_failed` | 2 contract tests (registration/conflict, intent emission), 1 harness scenario |
+| InputRegistry | App/Input | `map_input(event)` | `registry:input:binding_resolved`, `:binding_missing`, `:binding_conflict` | 2 contract tests (mapping/override, missing binding), 1 harness scenario |
+| LayoutRegistry | App/Layout | `compute_layout(graph)` | `registry:layout:compute_started`, `:compute_succeeded`, `:compute_failed`, `:fallback_used` | 2 contract tests (algorithm lookup, fallback), 1 harness scenario |
+| ThemeRegistry | Desktop/UI | `get_theme(id)` | `registry:theme:lookup_succeeded`, `:lookup_failed`, `:fallback_used` | 2 contract tests (lookup/fallback, missing theme), 1 harness scenario |
+| PhysicsProfileRegistry | App/Presentation | `get_profile(id)` | `registry:physics:lookup_succeeded`, `:lookup_failed`, `:fallback_used` | 2 contract tests (lookup/fallback, profile validation), 1 harness scenario |
+| IdentityRegistry | Core/Security | `sign(payload, persona)` | `registry:identity:sign_started`, `:sign_succeeded`, `:sign_failed`, `:key_unavailable` | 2 contract tests (persona resolution, signing failure), 1 harness scenario |
+| IndexRegistry | Search/Recall | `query(text)` | `registry:index:query_started`, `:query_succeeded`, `:query_failed`, `:fallback_used` | 2 contract tests (provider selection, failure fallback), 1 harness scenario |
+| KnowledgeRegistry | Knowledge/Semantics | `validate(tag)`, `get_label(code)` | `registry:knowledge:lookup_succeeded`, `:lookup_failed`, `:fallback_used` | 2 contract tests (schema lookup/versioning, fallback), 1 harness scenario |
+| DiagnosticsRegistry | System/Observability | `register_channel(def)` | `registry:diagnostics:channel_registered`, `:config_changed` | 2 contract tests (registration, config override), 1 harness scenario |
+| ModRegistry | Platform/Extensibility | `load_mod(path)`, `unload_mod(id)`, `resolve_dependencies()` | `registry:mod:load_started`, `:load_succeeded`, `:load_failed`, `:dependency_missing`, `:security_violation`, `:quarantine` | 3 contract tests (load/unload, denied capability, dependency resolution), 1 harness scenario |
+| LensCompositor | App/Cross-Domain | `resolve_lens(id)` | `registry:lens:resolve_succeeded`, `:resolve_failed`, `:fallback_used` | 2 contract tests (composition resolution, fallback), 1 harness scenario |
+| WorkflowRegistry (future) | App/WorkbenchProfile | `activate_workflow(id)` | `registry:workflow:activate_started`, `:activate_succeeded`, `:activate_failed` | 2 contract tests (activation/switching, fallback), 1 harness scenario |
 
 **Note**: VerseRegistry has been removed from this matrix. Verse is a native mod that registers entries into atomic registries. Its diagnostics channels are scoped under the atomic registries it populates.
 
@@ -311,7 +315,7 @@ For async/provider-oriented registry boundaries, prefer a `tower::Service`-compa
 - **Use middleware at boundary seams**: protocol resolution, remote/federated index providers, external knowledge providers, and any registry path that crosses process/network/runtime fault domains.
 - **Keep direct dispatch for local sync paths**: pure in-memory lookups and deterministic reducers do not need middleware layering.
 - **Compose reliability concerns in layers**: timeout, concurrency/rate limits, retries (where idempotent), backpressure, tracing, and metrics.
-- **Preserve diagnostics contract ownership**: middleware may emit transport/service events, but canonical `registry.<name>.<event>` channels remain required and must still satisfy this plan's diagnostics checklist.
+- **Preserve diagnostics contract ownership**: middleware may emit transport/service events, but canonical `registry:<name>:<event>` channels remain required and must still satisfy this plan's diagnostics checklist.
 - **Avoid architecture inflation**: do not wrap every registry in middleware "for consistency" when the call path is local and bounded.
 
 #### Adoption Criteria
@@ -421,7 +425,7 @@ The current structure is flat and root-heavy. Registry migration is coupled with
 
 1. Created `desktop/registries/` root with `protocol`, `viewer`, and `diagnostics_contract` modules.
 2. Routed a single path (`https://` + `text/html`) through `ProtocolRegistry` → `ViewerRegistry`.
-3. Registered and emitted diagnostics channels for success + fallback + failure (`registry.protocol.*`, `registry.viewer.*`).
+3. Registered and emitted diagnostics channels for success + fallback + failure (`registry:protocol:*`, `registry:viewer:*`).
 4. Added contract test module covering register/resolve/fallback behavior.
 5. Added harness scenario validating emitted diagnostics for the same flow.
 6. Removed replaced legacy branch for that flow.
@@ -468,7 +472,7 @@ This phase encompasses what was originally planned as separate phases but was ex
 - Define `ModManifest` struct: `mod_id`, `display_name`, `mod_type` (Native | WASM), `provides`, `requires`, `capabilities`.
 - Implement mod dependency resolver (topological sort on `requires` → `provides` edges).
 - Implement native mod loader via `inventory::submit!` for compile-time registration.
-- Register mod lifecycle diagnostics (`registry.mod.load_started`, `.load_succeeded`, `.load_failed`, `.dependency_missing`).
+- Register mod lifecycle diagnostics (`registry:mod:load_started`, `:load_succeeded`, `:load_failed`, `:dependency_missing`).
 
 #### Step 2.2: Protocol & Viewer Contracts (Registry Surfaces)
 - Define `ProtocolHandler` trait as the contract surface. Implement as `tower::Service<Uri, Response = ContentStream>` for free middleware composition (timeouts, retries, tracing).
@@ -613,7 +617,7 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 
 **2026-02-24 audited open items (strict, historical snapshot):**
 - At the time of the 2026-02-24 audit, harness done-gate scenarios were still missing: `verse_delta_sync_basic`, `verse_access_control`.
-- At the time of the 2026-02-24 audit, runtime diagnostics gaps remained for conflict channels (`verse.sync.conflict_detected`, `verse.sync.conflict_resolved`) in code emission paths.
+- At the time of the 2026-02-24 audit, runtime diagnostics gaps remained for conflict channels (`verse:sync:conflict_detected`, `verse:sync:conflict_resolved`) in code emission paths.
 - Resolved on 2026-02-25 via Phase 5.4/5.5 done-gate closures tracked in issues `#1` and `#2`.
 
 **Goal**: Package direct P2P networking as the Verse native mod. Implements bilateral, zero-cost device sync between trusted devices via iroh (QUIC + Noise). No tokens, no servers, no Tier 2 complexity.
@@ -640,7 +644,7 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 - Generate Ed25519 keypair on first launch, persist in OS keychain via `keyring`.
 - Create iroh `Endpoint` with `SYNC_ALPN = b"graphshell-sync/1"`.
 - Register `identity:p2p` persona in `IdentityRegistry` (NodeId accessible to rest of app).
-- **Done gate**: `cargo run` starts iroh endpoint. `DiagnosticsRegistry` shows `registry.mod.load_succeeded` for "verse". `IdentityRegistry::p2p_node_id()` returns the device NodeId. App starts normally without Verse mod.
+- **Done gate**: `cargo run` starts iroh endpoint. `DiagnosticsRegistry` shows `registry:mod:load_succeeded` for "verse". `IdentityRegistry::p2p_node_id()` returns the device NodeId. App starts normally without Verse mod.
 
 #### Step 5.2: TrustedPeer Store & IdentityRegistry Extension
 
@@ -650,7 +654,7 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 - Implement `TrustedPeer` model (`PeerRole::Self_` | `PeerRole::Friend`, `WorkspaceGrant`).
 - Persist trust store in `user_registries.json` under `verse.trusted_peers`.
 - Implement `SyncLog` (per-workspace intent log + `VersionVector`) with rkyv + AES-256-GCM at rest.
-- Diagnostics: `registry.identity.p2p_key_loaded`, `verse.sync.pairing_succeeded`, `verse.sync.pairing_failed`.
+- Diagnostics: `registry:identity:p2p_key_loaded`, `verse:sync:pairing_succeeded`, `verse:sync:pairing_failed`.
 - **Done gate**: Contract tests cover P2P persona create/load, sign/verify round-trip, trust store persist/load round-trip, grant model serialization.
 
 #### Step 5.3: Pairing Ceremony & Settings UI
@@ -677,14 +681,14 @@ See [VERSO_SERVO_ARCHITECTURE.md](VERSO_SERVO_ARCHITECTURE.md) for detailed Vers
 - Implement conflict resolution per-intent-type (see Verse strategy §4.4): LWW for title/name, CRDT for tags, ghost-node for delete conflicts.
 - Add sync status indicator to toolbar (`●`/`○`/`!`).
 - Add non-blocking conflict notification bar.
-- Diagnostics: `verse.sync.unit_sent`, `verse.sync.unit_received`, `verse.sync.intent_applied`, `verse.sync.conflict_detected`, `verse.sync.conflict_resolved`.
+- Diagnostics: `verse:sync:unit_sent`, `verse:sync:unit_received`, `verse:sync:intent_applied`, `verse:sync:conflict_detected`, `verse:sync:conflict_resolved`.
 - **Done gate**: Create a node on instance A → appears on instance B within 5 seconds. Concurrent title rename → LWW resolves without crash. Harness scenario `verse_delta_sync_basic` passes.
 
 #### Step 5.5: Workspace Access Control
 
 **Spec Reference**: Tier 1 plan §9.5 (Workspace Access Control), §2.3 (Trust Store with WorkspaceGrant), §6.4 (Workspace Sharing Context Menu), §7.3 (Trust Boundary)
 
-- Enforce `WorkspaceGrant` on inbound sync: reject `SyncUnit` for non-granted workspaces → `verse.sync.access_denied` diagnostic.
+- Enforce `WorkspaceGrant` on inbound sync: reject `SyncUnit` for non-granted workspaces → `verse:sync:access_denied` diagnostic.
 - Enforce read-only grants: incoming mutating intents from `ReadOnly` peers are rejected.
 - Add "Manage Access" UI in Sync Panel (grant/revoke per device per workspace).
 - Add workspace sharing context menu (right-click workspace → "Share with...").
@@ -886,12 +890,12 @@ To avoid reinventing wheels, we adopt these established ecosystem patterns:
 #### 5. Mod Security & Capability Policy
 *   **WASM Mods**: Capability manifest per mod (`network`, `filesystem`, `identity`, `clipboard`, `exec`) with deny-by-default policy. Runtime quotas for CPU time, memory, message rate, outbound requests. Kill switch and quarantine mode for crashing or policy-violating mods.
 *   **Native Mods**: Not sandboxed (compiled into binary). Security comes from code review at compile time. First-party (Verso, Verse) or explicitly opt-in.
-*   Security diagnostics channels (`registry.mod.security_violation`, `registry.mod.quarantine`) apply to WASM mods only.
+*   Security diagnostics channels (`registry:mod:security_violation`, `registry:mod:quarantine`) apply to WASM mods only.
 
 #### 6. Configuration Precedence (No Ambiguity)
 *   **Precedence order**: `workspace override` > `user override` > `built-in default`.
 *   Every resolved value can report provenance (`resolved_from = workspace|user|default`).
-*   Conflicts emit diagnostics (`registry.config.conflict_detected`) and show deterministic UI resolution.
+*   Conflicts emit diagnostics (`registry:config:conflict_detected`) and show deterministic UI resolution.
 
 ---
 
@@ -980,7 +984,7 @@ The `ProtocolRegistry` effectively abstracts storage. In the future, Verse Tier 
     - Diagnostics registry implementation moved to `registries/atomic/diagnostics.rs`.
     - Temporary compatibility re-export at `desktop/registries/diagnostics.rs` removed.
     - Module wiring: `registries/mod.rs`, `registries/atomic/mod.rs`, crate root registration.
-    - Diagnostics contract continuity: `registry.diagnostics.config_changed` emission path validated.
+    - Diagnostics contract continuity: `registry:diagnostics:config_changed` emission path validated.
 - Validation: `cargo test webview_controller::`, `shell::desktop::registries::`, `shell::desktop::tests::scenarios::registries::` all pass. `cargo check` pass.
 - Documentation: `registry_migration_plan.md` and `2026-02-23_registry_architecture_critique.md` consolidated into this document and archived to `archive_docs/checkpoint_2026-02-23/`.
 - Phase 2 complete:

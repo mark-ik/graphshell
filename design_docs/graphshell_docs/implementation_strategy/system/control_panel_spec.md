@@ -69,4 +69,3 @@ It is a process host, not a hidden second reducer.
 - Background producers are not silently bypassing the supervised async boundary.
 - Control-panel responsibilities remain distinct from `RegistryRuntime` composition.
 - Failure, shutdown, and backpressure behavior are explicit and testable.
-

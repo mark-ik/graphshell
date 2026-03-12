@@ -29,7 +29,7 @@ the renderer boundary observable should be treated as in-flight companions to
 debt-clear changes. Full Sector F closure is not a blocker for starting or
 continuing debt-clear.
 
-```
+```text
 DiagnosticsRegistry   ← channels, schemas, retention — test confidence floor
 KnowledgeRegistry     ← semantic taxonomy, tag validation, UDC seed floor
 IndexRegistry         ← search/lookup providers, timeline, multi-source fanout
@@ -200,7 +200,7 @@ defaults form the offline seed floor. The app must be semantically functional wi
 
 Load a bundled UDC class set (top-level classes + 2 levels of depth) as the default seed:
 
-```
+```text
 0 — Science and knowledge
 1 — Philosophy and psychology
 2 — Religion
@@ -242,7 +242,7 @@ pub enum TagValidationResult {
 
 **Done gates:**
 - [x] `validate_tag()` implemented against UDC seed floor.
-- [x] Malformed/unknown tags emit `DIAG_KNOWLEDGE`-class warning diagnostics (`registry.knowledge.tag_validation_warn`).
+- [x] Malformed/unknown tags emit `DIAG_KNOWLEDGE`-class warning diagnostics (`registry:knowledge:tag_validation_warn`).
 - [x] Unknown tags emit a suggestion list; at least 3 nearest UDC candidates returned.
 
 ### F2.4 — Signal emission on semantic index update

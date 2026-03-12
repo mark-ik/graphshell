@@ -112,7 +112,7 @@ When persisted `ThreeD` state is restored and 3D rendering is unavailable, Graph
 `#19` (ViewDimension hotswitch implementation) remains blocked until:
 
 1. 3D rendering backend capability is confirmed.
-2. Compositor pass-order correctness and GL-state diagnostics are hardened (`viewer/2026-02-26_composited_viewer_pass_contract.md`).
+2. Compositor pass-order correctness and GL-state diagnostics are hardened (see `../aspect_render/frame_assembly_and_compositor_spec.md` — the archived `composited_viewer_pass_contract.md` was consolidated here per checkpoint_2026-03-10).
 3. The `TileRenderMode` enum is set on every `NodePaneState` at viewer attachment time.
 
 This spec defines the acceptance contract; implementation is not authorized until prerequisites are closed (see `canvas/2026-02-27_roadmap_lane_19_readiness_plan.md`).

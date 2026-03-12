@@ -171,19 +171,27 @@ it belongs primarily to the **Canvas**.
 
 ## 8. Deferred Spec: `canvas_render_pipeline_spec.md`
 
-**Status**: Deferred — not yet written.
+**Status**: Deferred — not yet written. Blocked on custom canvas paint callback stabilization.
 
 A `canvas_render_pipeline_spec.md` should be created once the canvas rendering
 architecture stabilizes past the `egui_graphs` custom canvas migration (see
-`aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`).
+`../aspect_render/2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`).
+
+### Prerequisite
+
+This spec is blocked on the custom canvas paint callback being established as the
+stable draw entry point. Until that migration is complete, the canvas render
+pipeline is partially owned by `egui_graphs` and cannot be fully specified.
 
 ### What the deferred spec must cover
 
 When written, `canvas_render_pipeline_spec.md` must define the normative contract for:
 
 - draw architecture: what primitives the canvas draws per frame and in what order,
-- LOD (level of detail) thresholds: when nodes collapse to badges/thumbnails/icons
-  based on camera zoom level,
+- LOD (level of detail) tier thresholds: when nodes collapse to badges/thumbnails/icons
+  based on camera zoom level — **must inherit and not redefine the canonical LOD tiers
+  from `graph_node_edge_interaction_spec.md §4.8`** (Point / Compact / Expanded with
+  `camera.scale` thresholds and hysteresis rules),
 - batching policy: how draw calls for edges, node fills, badges, and labels are
   batched to minimize GPU command overhead,
 - culling strategy: frustum and spatial-index culling rules for off-screen nodes/edges,
@@ -193,9 +201,3 @@ When written, `canvas_render_pipeline_spec.md` must define the normative contrac
   for node thumbnails and badges,
 - canvas-specific diagnostics channels for draw call counts, cull rates, and
   per-frame geometry budget.
-
-### Prerequisite
-
-This spec is blocked on the custom canvas paint callback being established as the
-stable draw entry point. Until that migration is complete, the canvas render
-pipeline is partially owned by `egui_graphs` and cannot be fully specified.

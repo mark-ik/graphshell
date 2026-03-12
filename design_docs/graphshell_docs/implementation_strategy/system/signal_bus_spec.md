@@ -73,4 +73,3 @@ The signal fabric belongs to the Register layer because it exists to decouple ca
 - Signal semantics are distinguishable from direct calls and intents.
 - At least one producer and multiple observers can be described through the same typed routing contract.
 - Routing health is observable through diagnostics.
-

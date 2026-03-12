@@ -7,9 +7,11 @@
 **Canonical references**:
 
 - `../../../TERMINOLOGY.md`
-- `pane_chrome_and_promotion_spec.md`
-- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
-- `graph_first_frame_semantics_spec.md`
+- `pane_chrome_and_promotion_spec.md` — `PanePresentationMode` enum and chrome behavior
+- `pane_presentation_and_locking_spec.md` — `PaneLock` contract and focus/close invariants
+- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` — `FrameTabSemantics` overlay and pane rest state
+- `graph_first_frame_semantics_spec.md` — frame membership and graph-citizenship entry rules
+- `../canvas/multi_view_pane_spec.md` — hoist/unhoist structural operations
 - `../2026-03-03_spec_conflict_resolution_register.md`
 
 ---
@@ -28,7 +30,7 @@ This plan separates them. Pane Opening Mode owns the first two. Pane Presentatio
 
 ## 2. Canonical Opening Modes
 
-```rust
+```text
 PaneOpeningMode =
   | QuarterPane
   | HalfPane

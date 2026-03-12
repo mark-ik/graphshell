@@ -65,13 +65,14 @@ The GUI decomposition is complete: `shell/desktop/ui/gui.rs` (681 lines) focuses
 
 ## 5. GUI Decomposition Note
 
-`shell/desktop/ui/gui.rs` currently owns frame orchestration, workbench driving, and composition dispatch as a single monolith. Plans exist to decompose it:
+The initial GUI decomposition has landed (see §3). `shell/desktop/ui/gui.rs` (681 lines) is now focused on `Gui` struct and lifecycle entrypoints. Frame orchestration moved to `gui/gui_update_coordinator.rs`; workbench driving is in `gui_orchestration.rs`.
+
+Remaining deferred decomposition work:
 
 - frame loop and GPU surface lifecycle → Render aspect module
-- workbench tile tree driving and focus handoff → Workbench domain
 - per-tile composition dispatch → CompositorAdapter (already partially extracted)
 
-This decomposition is deferred pending the `egui_graphs` custom canvas migration (see `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`). Plans belong in this folder; they are not abandoned.
+This remaining decomposition is pending the `egui_graphs` custom canvas migration (see `2026-02-27_egui_wgpu_custom_canvas_migration_strategy.md`). Plans belong in this folder; they are not abandoned.
 
 ---
 

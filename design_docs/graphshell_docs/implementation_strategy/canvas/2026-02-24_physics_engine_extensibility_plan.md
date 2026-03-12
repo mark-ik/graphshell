@@ -85,6 +85,16 @@ pub use egui_graphs::layouts::{Layout, LayoutState, AnimatedState};
 Every Graphshell file imports from `graph::physics` instead of `egui_graphs` directly.
 `PhysicsProfile.apply_to_state()` continues unchanged; only the import path changes.
 
+Implementation status note (2026-03-11): this level is now partially landed in code.
+`graph/physics.rs` exists and current callers import `GraphPhysicsState` / `GraphPhysicsLayout`
+through it. In addition, the current default FR state creation and semantic clustering helper have
+already been moved behind that module, which means the local seam is slightly ahead of pure naming.
+
+One correction to this sketch: egui_graphs 0.29.0 does not publicly re-export every item through
+the exact paths shown above. In practice, Graphshell should re-export only the public root exports
+that egui_graphs actually exposes and treat the rest as future-facing documentation, not a copy-
+paste contract.
+
 ---
 
 ### Level 2 — Extend via `ExtraForce` (Composable Custom Forces)
@@ -154,6 +164,20 @@ pub fn apply_to_state(&self, state: &mut GraphPhysicsState) {
     state.extras.3.enabled   = self.degree_repulsion;   // DegreeRepulsion
 }
 ```
+
+Implementation status note (2026-03-11): Graphshell is not at true Level 2 yet, but it now has
+the first adapter boundary needed to get there. `PhysicsProfile` no longer needs to write FR state
+fields directly everywhere; a local graph-physics tuning adapter owns that mapping, and the first
+extension config shape now exists for semantic clustering and related extra-force policy flags.
+The remaining missing step is to replace the current post-layout semantic-clustering helper with a
+real `ExtraForce` path rather than a render-phase position mutation.
+
+Practical blocker note (2026-03-11): with egui_graphs 0.29.0, `ExtraForce` and `ExtrasTuple`
+exist in the crate internals but are not publicly re-exported through a stable external path.
+That means Graphshell cannot currently implement a true external `ExtraForce` type without either
+patching/forking egui_graphs or waiting for that API to be exposed upstream. Until then, the
+correct interim move is to keep extension policy centralized under `graph/physics.rs` so the
+eventual swap from render-phase helpers to real extras is mechanical rather than architectural.
 
 **Compile-time tuple constraint**: The extras tuple is fixed at compile time. Adding a new
 `ExtraForce` requires one new tuple slot and one new line in `apply_to_state()`. This is a
@@ -466,6 +490,12 @@ graphs.
 variant is already scaffolded in `registries/infrastructure/mod_loader.rs`; the runtime itself
 is not yet wired.
 
+Implementation policy note (2026-03-11): FR remains the right default baseline even if Barnes-Hut
+is adopted as an additional option. The advantage of FR is not asymptotic performance; it is that
+the behavior is exact, simpler to tune, already integrated, and easier to reason about for small
+and medium graphs. Barnes-Hut should be treated as a higher-scale alternative behind the same
+Graphshell-owned layout boundary, not as a mandatory replacement for the default engine.
+
 ---
 
 ## Layout Algorithm Reference Table
@@ -528,6 +558,13 @@ The registry currently vends three presets as hardcoded constructors in `app.rs`
 
 Steps 1–4 are `app.rs` + new file changes. Step 5–6 introduce the hot-swap seam. Steps 7–8 are
 Phase 6 registry work.
+
+Implementation status note (2026-03-11): Steps 5–6 are now substantially landed for the built-in
+engine path. Graphshell has a Graphshell-owned `ActiveLayout` dispatcher, a render-local
+`ActiveLayoutState` wrapper that carries the selected algorithm kind plus `GraphPhysicsState`, and
+a first Barnes-Hut force-directed prototype under `graph/layouts/`. The rest of the app still uses
+`GraphPhysicsState` as the canonical runtime state, which keeps the migration bounded while the new
+algorithm surface is still stabilizing.
 
 ---
 

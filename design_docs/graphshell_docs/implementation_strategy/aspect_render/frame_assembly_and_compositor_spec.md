@@ -54,7 +54,7 @@ Every node viewer pane tile frame is composed in three ordered passes:
 
 `TileRenderMode` is the runtime-authoritative render pipeline classification for a node viewer pane tile. It is resolved from `ViewerRegistry` at viewer attachment time.
 
-```
+```text
 TileRenderMode =
   | CompositedTexture   -- Servo GL texture composited into egui frame
   | NativeOverlay       -- native window overlay (e.g. Wry); owns its own region

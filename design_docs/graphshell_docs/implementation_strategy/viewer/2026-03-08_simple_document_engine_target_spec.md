@@ -145,7 +145,7 @@ For `ServoHtml` targets, the `content_security_policy` field is generated from `
 
 The adaptation pipeline runs in the host crate on the I/O task pool (not the frame thread).
 
-```
+```text
 ProtocolResolver
     ↓ bytes + MIME
 ContentClassifier  (AddressKind + MIME → source type)

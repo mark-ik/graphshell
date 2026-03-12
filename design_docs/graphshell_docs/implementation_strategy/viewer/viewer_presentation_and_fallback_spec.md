@@ -5,11 +5,15 @@
 **Priority**: Pre-renderer/WGPU required
 
 **Related**:
+
 - `../2026-02-28_ux_contract_register.md`
 - `../subsystem_ux_semantics/2026-03-01_ux_execution_control_plane.md`
 - `../workbench/workbench_frame_tile_interaction_spec.md`
 - `../research/2026-02-27_viewer_state_matrix.md`
-- `../2026-02-26_composited_viewer_pass_contract.md`
+- `2026-02-26_composited_viewer_pass_contract.md`
+- `wry_integration_spec.md`
+- `node_lifecycle_and_runtime_reconcile_spec.md`
+- `webview_lifecycle_and_crash_recovery_spec.md`
 - `../technical_architecture/GRAPHSHELL_AS_BROWSER.md`
 - `../subsystem_ux_semantics/2026-03-04_model_boundary_control_matrix.md`
 - `../../TERMINOLOGY.md`
@@ -116,47 +120,25 @@ Special route:
 
 ### 4.1 Viewer Selection Policy
 
-**What this domain is for**
+Choose the correct viewer identity for the current content or internal route.
 
-- Choose the correct viewer identity for the current content or internal route.
+**Core rules**: Viewer selection uses Graphshell-owned policy, not ad hoc widget decisions. Stable baseline viewers must resolve deterministically. Internal routes such as settings resolve through special app-owned paths.
 
-**Core rules**
+**Owner**: Graphshell viewer registry and routing authority.
 
-- Viewer selection uses Graphshell-owned policy, not ad hoc widget decisions.
-- Stable baseline viewers must resolve deterministically.
-- Internal routes such as settings resolve through special app-owned paths.
+**State transitions**: Content open resolves a viewer ID. The resolved viewer ID maps to a render mode and concrete presentation path.
 
-**Who owns it**
+**Visual feedback**: The selected viewer class should be inferable from the pane's behavior and affordances.
 
-- Graphshell viewer registry and routing authority.
-
-**State transitions**
-
-- Content open resolves a viewer ID.
-- The resolved viewer ID maps to a render mode and concrete presentation path.
-
-**Visual feedback**
-
-- The selected viewer class should be inferable from the pane's behavior and affordances.
-
-**Fallback / degraded behavior**
-
-- If the preferred viewer is unavailable, the fallback choice must be deterministic and visible.
+**Fallback**: If the preferred viewer is unavailable, the fallback choice must be deterministic and visible.
 
 ### 4.2 Render-Mode Presentation Rules
 
-**What this domain is for**
+Present the chosen viewer in a way that matches the active render mode.
 
-- Present the chosen viewer in a way that matches the active render mode.
+**Core rules**: `CompositedTexture` tiles may render overlays over content. `NativeOverlay` tiles move Graphshell affordances into host chrome or gutters when direct overlay is constrained. `EmbeddedEgui` tiles use normal embedded affordance paths. `Placeholder` tiles are explicit non-content surfaces, not silent failures.
 
-**Core rules**
-
-- `CompositedTexture` tiles may render overlays over content.
-- `NativeOverlay` tiles move Graphshell affordances into host chrome or gutters when direct overlay is constrained.
-- `EmbeddedEgui` tiles use normal embedded affordance paths.
-- `Placeholder` tiles are explicit non-content surfaces, not silent failures.
-
-**Overlay affordance policy by render mode**
+**Overlay affordance policy by render mode**:
 
 | `TileRenderMode` | Focus/Hover affordance policy | Notes |
 |---|---|---|
@@ -165,101 +147,51 @@ Special route:
 | `EmbeddedEgui` | Standard embedded rect-stroke overlay path | Uses normal embedded paint path |
 | `Placeholder` | Standard embedded rect-stroke overlay path | Placeholder remains explicit, non-silent state |
 
-**Who owns it**
+**Owner**: Graphshell compositor and viewer policy. Backend renderers implement the path chosen by policy.
 
-- Graphshell compositor and viewer policy.
-- Backend renderers implement the path chosen by policy.
+**State transitions**: Pane lifecycle changes may promote or demote render readiness while preserving viewer identity.
 
-**State transitions**
+**Visual feedback**: The user must be able to distinguish content, overlay, placeholder, and degraded states.
 
-- Pane lifecycle changes may promote or demote render readiness while preserving viewer identity.
-
-**Visual feedback**
-
-- The user must be able to distinguish content, overlay, placeholder, and degraded states.
-
-**Fallback / degraded behavior**
-
-- Native-overlay limitations must be documented in-surface.
-- Placeholder state must explain why content is not currently rendered.
-- Degraded/placeholder state must include a user-visible reason and a recovery affordance (for example: switch viewer, retry/reactivate, or wait for cooldown).
-- Degradation/fallback transitions should emit diagnostics receipts so parity can be audited over time.
+**Fallback**: Native-overlay limitations must be documented in-surface. Placeholder state must explain why content is not currently rendered. Degraded/placeholder state must include a user-visible reason and a recovery affordance (e.g. switch viewer, retry/reactivate, or wait for cooldown). Degradation/fallback transitions should emit diagnostics receipts so parity can be audited over time.
 
 ### 4.3 Loading, Partial, and Deferred States
 
-**What this domain is for**
+Make incomplete viewer paths explicit.
 
-- Make incomplete viewer paths explicit.
+**Core rules**: Viewer state should be classifiable as `operational`, `partial`, or `deferred`. Declared but non-operational viewers must not be presented as complete.
 
-**Core rules**
+**Owner**: Graphshell viewer-state authority and diagnostics policy.
 
-- Viewer state should be classifiable as `operational`, `partial`, or `deferred`.
-- Declared but non-operational viewers must not be presented as complete.
+**State transitions**: A viewer may move from loading to operational. A viewer may remain partial if some but not all capabilities are available. A deferred viewer remains non-baseline until explicitly implemented.
 
-**Who owns it**
+**Visual feedback**: Loading, partial, and deferred states must be labeled distinctly.
 
-- Graphshell viewer-state authority and diagnostics policy.
-
-**State transitions**
-
-- A viewer may move from loading to operational.
-- A viewer may remain partial if some but not all capabilities are available.
-- A deferred viewer remains non-baseline until explicitly implemented.
-
-**Visual feedback**
-
-- Loading, partial, and deferred states must be labeled distinctly.
-
-**Fallback / degraded behavior**
-
-- Partial behavior must describe what is missing.
-- Deferred behavior must surface as intentional absence, not as a broken pane.
+**Fallback**: Partial behavior must describe what is missing. Deferred behavior must surface as intentional absence, not as a broken pane.
 
 ### 4.4 Tool Surfaces vs Node Surfaces
 
-**What this domain is for**
+Distinguish app tool pages from content-node viewers.
 
-- Distinguish app tool pages from content-node viewers.
+**Core rules**: Tool surfaces (settings, history, diagnostics) are real app surfaces with viewer-like presentation, but they do not erase Graphshell's authority over pane lifecycle. Internal routes should remain composable with the workbench model.
 
-**Core rules**
+**Owner**: Graphshell routing and tool-surface controllers.
 
-- Tool surfaces (settings, history, diagnostics) are real app surfaces with viewer-like presentation, but they do not erase Graphshell's authority over pane lifecycle.
-- Internal routes should remain composable with the workbench model.
+**State transitions**: Opening a tool route creates or focuses a pane destination with the correct tool surface.
 
-**Who owns it**
+**Visual feedback**: Tool surfaces must visibly read as app-owned surfaces, not anonymous placeholders.
 
-- Graphshell routing and tool-surface controllers.
-
-**State transitions**
-
-- Opening a tool route creates or focuses a pane destination with the correct tool surface.
-
-**Visual feedback**
-
-- Tool surfaces must visibly read as app-owned surfaces, not anonymous placeholders.
-
-**Fallback / degraded behavior**
-
-- If a tool page cannot render in its preferred form, Graphshell must fall back to a usable host-owned surface.
+**Fallback**: If a tool page cannot render in its preferred form, Graphshell must fall back to a usable host-owned surface.
 
 ### 4.5 Diagnostics, Accessibility, and Performance
 
-**What this domain is for**
+Keep viewer behavior observable and trustworthy.
 
-- Keep viewer behavior observable and trustworthy.
+**Diagnostics**: Viewer selection, render-mode choice, fallback, and degradation reasons must be observable.
 
-**Diagnostics**
+**Accessibility**: Viewer state must be explainable to non-visual users. Placeholder and blocked states must have accessible labels.
 
-- Viewer selection, render-mode choice, fallback, and degradation reasons must be observable.
-
-**Accessibility**
-
-- Viewer state must be explainable to non-visual users.
-- Placeholder and blocked states must have accessible labels.
-
-**Performance**
-
-- Degradation may reduce fidelity or warm/cold status, but it must not hide current viewer identity or reason.
+**Performance**: Degradation may reduce fidelity or warm/cold status, but it must not hide current viewer identity or reason.
 
 ---
 
@@ -290,5 +222,3 @@ Special route:
 4. Fallback and degraded states are visible and explained.
 5. Tool surfaces remain app-owned and composable with pane semantics.
 6. Viewer state is diagnosable and accessible.
-
-

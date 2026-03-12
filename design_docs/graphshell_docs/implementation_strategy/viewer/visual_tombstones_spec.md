@@ -13,6 +13,7 @@
 - `2026-02-26_visual_tombstones_plan.md`
 - `../canvas/CANVAS.md`
 - `../canvas/graph_node_edge_interaction_spec.md`
+- `node_lifecycle_and_runtime_reconcile_spec.md` — canonical lifecycle model; `Tombstone` is defined there as a `NodeLifecycle` state
 - `../subsystem_history/history_timeline_and_temporal_navigation_spec.md`
 
 ---
@@ -33,7 +34,7 @@ This spec defines the canonical contracts for:
 
 ### 2.1 NodeState Extension
 
-```
+```text
 NodeState =
   | Active
   | Warm
@@ -45,7 +46,7 @@ NodeState =
 
 ### 2.2 TombstoneNodeData
 
-```
+```text
 TombstoneNodeData {
     id: NodeKey,
     position: Vec2,                          -- preserved spatial anchor

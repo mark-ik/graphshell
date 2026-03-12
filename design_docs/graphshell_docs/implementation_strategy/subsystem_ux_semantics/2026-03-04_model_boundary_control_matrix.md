@@ -38,7 +38,7 @@
 3. No spec calls physics presets camera modes.
 4. No spec uses Canonical/Divergent as graph-view layout ownership labels; layout ownership is local-per-view.
 
-Each canonical spec review should include this 3-item drift check before approval.
+Each canonical spec review should include this 4-item drift check before approval.
 
 ---
 

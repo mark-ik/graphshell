@@ -247,7 +247,7 @@ Core requirements:
 
 Done gates:
 - [x] Register signal bus/fabric implementation replaces transitional direct routing in selected paths (navigation + lifecycle + registry/input event paths)
-- [x] Diagnostics channels report signal routing health (`register.signal_routing.*`)
+- [x] Diagnostics channels report signal routing health (`register:signal_routing:*`)
 - [x] Mod-triggered cross-registry workflow path uses signal routing instead of direct wiring (mod lifecycle route via `phase3_route_mod_lifecycle_event`)
 - [x] Subsystem health propagation path uses signal routing (or equivalent observer fabric) (`phase3_propagate_subsystem_health_memory_pressure`)
 
@@ -271,7 +271,7 @@ Done gates:
 
 ### The Two-Layer Model
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                   Frame Loop (sync)                     │
 │  drain intent_rx → sort by causality → apply_reducer_intents()  │
@@ -683,9 +683,9 @@ fn graceful_shutdown_drains_joinset_before_exit() { ... }
 ## References
 
 - [2026-02-20_embedder_decomposition_plan.md](../../aspect_render/2026-02-20_embedder_decomposition_plan.md) — Stage 5 overview
-- [2026-02-21_lifecycle_intent_model.md](2026-02-21_lifecycle_intent_model.md) — Intent schema and lifecycle state machine
-- [2026-02-22_registry_layer_plan.md](2026-02-22_registry_layer_plan.md) — The Register architecture and provider wiring
-- [PLANNING_REGISTER.md](PLANNING_REGISTER.md) — sequencing and backlog for Register/runtime follow-ups
+- [2026-02-21_lifecycle_intent_model.md](../2026-02-21_lifecycle_intent_model.md) — Intent schema and lifecycle state machine
+- [2026-02-22_registry_layer_plan.md](../2026-02-22_registry_layer_plan.md) — The Register architecture and provider wiring
+- [PLANNING_REGISTER.md](../../PLANNING_REGISTER.md) — sequencing and backlog for Register/runtime follow-ups
 - Crates: `tokio`, `tokio-util` (CancellationToken), `tokio::task::JoinSet`
 
 ## Registry Spec Index

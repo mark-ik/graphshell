@@ -7,7 +7,7 @@
 - `2026-03-08_graph_app_decomposition_plan.md`
 - `../technical_architecture/ARCHITECTURAL_CONCERNS.md`
 - `../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`
-- `2026-02-26_composited_viewer_pass_contract.md`
+- `../viewer/2026-02-26_composited_viewer_pass_contract.md`
 
 ---
 

@@ -85,7 +85,7 @@ When a modal subtree is active (`Dialog`, Radial Palette Mode, command palette):
 4. `Escape` always resolves to modal `Dismiss` if available.
 5. Focus restoration after dismiss returns to previous non-modal focus owner.
 
-Failure to restore focus emits `ux:navigation_violation` with severity Warn.
+Failure to restore focus emits `ux:contract_warning` (Warn). Path resolution failure during modal remapping emits `ux:navigation_violation` (Error) and aborts dispatch.
 
 ---
 
@@ -101,7 +101,7 @@ Dispatch layer is not allowed to mutate graph or workbench state directly.
 Routing invariant:
 
 - every emitted mutation intent includes an authority destination,
-- misrouted intent emits `ux:contract_warning` + `registry.action.execute_failed` context.
+- misrouted intent emits `ux:contract_warning` + `registry:action:execute_failed` context.
 
 ---
 
@@ -113,7 +113,7 @@ Required diagnostic channels for dispatch observability:
 - `ux:dispatch_phase` (Info; phase + node path)
 - `ux:dispatch_consumed` (Info; reason: stopped/immediate/modal)
 - `ux:dispatch_default_prevented` (Info)
-- `ux:navigation_violation` (Error/Warn)
+- `ux:navigation_violation` (Error)
 
 Minimum payload fields:
 

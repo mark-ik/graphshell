@@ -112,8 +112,8 @@ Goals:
 
 Done gates:
 
-- [ ] decisions in Section 3 are copied into canonical spec language
-- [ ] parity rule between Overview and Atlas is explicitly documented
+- [x] decisions in Section 3 are copied into canonical spec language — ownership rules (§3.1–3.4) are reflected in `multi_view_pane_spec.md §§3–6` (GraphViewId, per-view layout, slot lifecycle, routing semantics). Overlap policy (§3.5) is reflected in `multi_view_pane_spec.md §5.2` slot coordinate collision guard.
+- [ ] parity rule between Overview and Atlas transfer intents is explicitly documented in a spec (currently stated here only; should move to `multi_view_pane_spec.md §5` or a dedicated H1 spec)
 
 ### H1 - Reducer Contracts and State
 

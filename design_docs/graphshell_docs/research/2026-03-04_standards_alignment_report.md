@@ -40,6 +40,7 @@ Rules:
 | Node identity | RFC 4122 UUID v4 | POSIX inode semantics |
 | WAL / operation sequencing | RFC 4122 UUID v7 (operation tokens only) | OAIS ISO 14721 |
 | Persistence / storage paths | XDG Base Dir (via `directories` crate) | — |
+| Browser client storage (web-origin) | WHATWG Storage Standard | WICG Storage Buckets |
 | Accessibility | WCAG 2.2 Level AA | EN 301 549, WAI-ARIA 1.3 APG |
 | Diagnostics / observability | OpenTelemetry Semantic Conventions | RFC 5424 Syslog |
 | Registry layer | OSGi R8 Service Registry (conceptual) | — |
@@ -117,6 +118,41 @@ Requirements:
 - Path resolution uses the `directories` crate (`ProjectDirs::from("", "", "Graphshell")`), not hard-coded paths.
 - No path may be hard-coded relative to the binary or CWD.
 - XDG naming is used in documentation and diagnostics channel names even on non-Linux platforms.
+
+### 3.4A Browser Client Storage — WHATWG Storage Standard
+
+**Adopted**: yes, for future browser-origin client storage coordination only.
+
+The WHATWG Storage Standard is adopted as the target model for any future
+Servo-compatible `ClientStorageManager` that coordinates site data for
+IndexedDB, localStorage, Cache API, OPFS, and related storage endpoints.
+
+Scope clarification:
+
+- This adoption governs browser-origin storage coordination.
+- It does not redefine `GraphStore`, Graphshell WAL/snapshot/archive durability,
+	or Graphshell workspace persistence as shed/shelf/bucket/bottle state.
+- `GraphStore` remains governed by Graphshell's own persistence contracts plus
+	the storage-path and encryption standards already adopted above.
+
+Requirements for future adoption work:
+
+- Use **storage key** terminology rather than `origin` in the public authority
+	model.
+- Model the hierarchy in memory as storage shed -> storage shelf -> storage
+	bucket -> storage bottle.
+- Persist shelf/bucket/bottle metadata through an implementation-defined backend
+	so named buckets survive restart.
+- Keep the live hierarchy authoritative in memory; physical backends are
+	pluggable persistence/allocation services, not the conceptual owner of the
+	model.
+- Preserve the local-vs-session distinction from the standard.
+- Support asynchronous bucket deletion and site-data purge semantics compatible
+	with storage proxy maps.
+
+The WICG Storage Buckets draft is referenced as prior art for future named-
+bucket behavior, but the core adopted storage authority is the WHATWG Storage
+Standard itself.
 
 ### 3.5 Accessibility — WCAG 2.2 Level AA
 

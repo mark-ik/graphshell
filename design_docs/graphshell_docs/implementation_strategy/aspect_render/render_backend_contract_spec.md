@@ -73,7 +73,7 @@ The phased execution plan for the wgpu renderer is in
 
 ## 3. Backend Bridge Mode Enum
 
-```
+```text
 BackendContentBridgeMode =
   | GlowCallback
     -- current production path; egui_glow CallbackFn; GL state must be
@@ -114,7 +114,7 @@ the runtime environment supports the preferred backend mode.
 
 ### 4.1 Probe interface
 
-```
+```text
 BackendContentBridgeCapabilities {
     wgpu_interop_available: bool,
     -- true iff: wgpu device initialized, Servo WebRender wgpu backend active,
@@ -199,7 +199,7 @@ It is not yet production policy. The wgpu path is gated by readiness gates G1–
 On the wgpu path, WebRender's compositor output is a `wgpu::Texture` owned by the shared
 device. The `render_backend` module exposes:
 
-```
+```text
 CompositorOutputTexture {
     view: wgpu::TextureView,
     dimensions: (u32, u32),

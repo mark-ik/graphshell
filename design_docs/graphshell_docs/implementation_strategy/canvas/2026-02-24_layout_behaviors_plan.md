@@ -1,8 +1,9 @@
 # Layout Behaviors & Spatial Organization Plan (2026-02-24)
 
-**Status**: Implementation-Ready
+**Status**: Implementation-Ready (Phases 1–2); Phase 3 blocked on layout injection hook
 **Supersedes**: `2026-02-19_layout_advanced_plan.md`
-**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs), `2026-02-22_multi_graph_pane_plan.md` (graph-pane Canonical/Divergent semantics and per-pane budgets).
+**Canonical spec**: `layout_behaviors_and_physics_spec.md` — authoritative contracts for all behaviors described here; this plan documents the execution sequence and open prerequisites only.
+**Relates to**: `2026-02-24_performance_tuning_plan.md` (culling/perf ownership), `2026-02-23_graph_interaction_consistency_plan.md` (viewport gravity), `2026-02-23_udc_semantic_tagging_plan.md` (semantic clustering), `2026-02-24_physics_engine_extensibility_plan.md` (physics engine architecture, ExtraForce extension model, thematic preset designs), `2026-02-22_multi_graph_pane_plan.md` (graph-pane Canonical/Divergent semantics and per-pane budgets), `../workbench/graph_first_frame_semantics_spec.md` (Frame identity and membership authority).
 
 ## Context
 
@@ -81,87 +82,92 @@ This plan covers *behavioral layout features* (how the graph arranges itself), n
 
 ---
 
-## Phase 3: Magnetic Zones
+## Phase 3: Frame-Affinity Organizational Behavior
 
-**Status**: Design prerequisites defined. Implementation blocked pending layout injection hook (Phase 2 prerequisite) and Multi-view Canonical/Divergent scope settlement.
+**Status**: Implementation blocked on layout injection hook (Phase 2 prerequisite).
 
-**Tracking note**: This section is the authoritative tracked plan for Magnetic Zones / Group-in-a-Box. It was promoted from research/layout notes into the active implementation sequence per the concept adoption roadmap.
+> **Terminology**: The historical name "Magnetic Zones" is a legacy alias only. Canonical framing is **frame-affinity organizational behavior** using `GraphFrame` identity and `Frame membership` as defined in `../workbench/graph_first_frame_semantics_spec.md`. Do not use `Zone`, `MagneticZone`, or `node.zone_id` in new code or docs — these names are superseded. The authoritative contract for this behavior is `layout_behaviors_and_physics_spec.md §4`.
 
 ### 3.0 Prerequisites for Implementation
 
-Before any Phase 3 code lands, the following design gaps must be resolved:
+Before any Phase 3 code lands, the following must be in place:
 
-1. **Layout injection hook** (`apply_post_frame_layout_injection`) from Phase 2 must be in place. Zone forces are applied through this hook; they are not a separate layout engine.
-2. **Multi-view Canonical/Divergent semantics** must be settled enough to assign a zone scope. See `2026-02-22_multi_graph_pane_plan.md` for current state and blocking questions.
+1. **Layout injection hook** (`apply_post_frame_layout_injection`) from Phase 2 must be in place. Frame-affinity forces are applied through this hook; they are not a separate layout engine.
+2. **Graph-first frame semantics** (`../workbench/graph_first_frame_semantics_spec.md`) must be settled enough to use `GraphFrame` identity and `NodeFrameMembership` as the persistence authority.
 
 ### 3.1 Data Model
 
-- `Zone { id, name, centroid, strength }`
-- `GraphWorkspace.zones` persisted in snapshots
-- `node.zone_id: Option<Uuid>` membership pointer
+The canonical model is derived from `layout_behaviors_and_physics_spec.md §4.1`:
 
-### 3.2 Zone Persistence Scope
+```text
+FrameAffinityRegion {
+  frame_id: FrameId,     // references canonical GraphFrame identity
+  centroid: Vec2,
+  strength: f32,
+}
 
-Zones carry spatial meaning and must be scoped to a persistence boundary. Three candidate scopes are defined here; one must be selected before implementation begins.
+GraphFrame.member_nodes: Vec<NodeKey>         // canonical membership authority
+NodeFrameMembership.frames: Vec<FrameId>      // canonical per-node projection
+```
 
-| Scope | Definition | Trade-offs |
-| --- | --- | --- |
-| **Workspace** | Zone lives in `GraphWorkspace`; all views that open this workspace share the same zone set. | Simple model; natural snapshot/roundtrip unit. Risk: zones created for one view's layout may pollute other views of the same workspace. |
-| **View (per-pane)** | Zone belongs to a specific `GraphViewId`; deleted when the pane is closed unless explicitly promoted. | Clean isolation for Divergent views. Risk: zones are lost if a view is closed unexpectedly; requires view-lifecycle durability work. |
-| **Lens** | Zone is attached to a Lens definition and is activated/deactivated with the Lens. | Natural fit for thematic groupings. Risk: adds coupling between layout subsystem and Lens resolution; Lens lifecycle rules must be finalized first. |
+A node may belong to zero, one, or many frames. There is no `node.zone_id` field and no `GraphWorkspace.zones` store.
 
-**Recommended scope (pre-implementation)**: Start with **Workspace** scope. It aligns with the existing snapshot shape (`GraphWorkspace.zones`), requires no view-lifecycle or Lens coupling, and can be narrowed later if per-view isolation is needed.
+### 3.2 Persistence Scope
 
-**Overlap rules**:
-- A node may belong to at most one zone at a time (`node.zone_id: Option<Uuid>`).
-- If a zone membership reassignment occurs (e.g., drag into overlapping zone), the most recent explicit assignment wins (last-write precedence).
-- Overlapping zone backdrop regions are rendered with distinct visual depth (lower z-order zone renders behind, no force conflict occurs since membership is exclusive).
+Frame-affinity regions are **derived from graph-frame state**, not persisted as an independent workspace entity.
 
-### 3.3 Zone Force Application
+- `GraphFrame` identity and `NodeFrameMembership` are persisted in graph scope per `graph_first_frame_semantics_spec.md`.
+- Any region geometry cache (e.g., computed hull/bounds) is derivable runtime state; it must not create a second durable identity.
+- Snapshot roundtrip persists frame identity + memberships only; affinity projection recomputes from that source.
 
-- For zone-bound nodes, apply attraction to zone centroid during layout injection hook.
-- Force magnitude is proportional to `Zone.strength` and distance from centroid.
-- Zone force is applied **after** global physics forces in the injection hook so it acts as a soft bias, not a hard constraint.
-- Render subtle zone backdrop (member bounds + padding) for spatial affordance.
+### 3.3 Force Application
+
+- Frame-affinity force is applied through the post-physics injection hook (§3 above), after global physics forces.
+- Force: attraction toward each applicable frame-affinity centroid, magnitude proportional to `strength × distance`.
+- Frame-affinity force is a **soft bias**, not a hard constraint.
+- Gated by `CanvasRegistry.zones_enabled`.
+- When a node has multiple frame memberships, forces are composed from all active frame-affinity regions deterministically.
 
 ### 3.4 Interaction Model
 
-| Interaction | Behavior |
-| --- | --- |
-| **Create Zone** | Select ≥1 nodes → "Create Zone" action → derives initial centroid from selection bounding box center; assigns all selected nodes to new zone. |
-| **Rename Zone** | Double-click zone label or zone context menu → inline rename. |
-| **Add node to Zone** | Drag node onto zone backdrop; node's `zone_id` updated; physics bias shifts toward new centroid. |
-| **Remove node from Zone** | Context menu "Remove from Zone" or drag node entirely outside zone backdrop with confirmation; `zone_id` cleared. |
-| **Drag Zone** | Drag zone centroid handle → centroid moves; zone members follow by soft force (not teleport). |
-| **Delete Zone** | Context menu "Delete Zone" → zone removed; member nodes' `zone_id` fields cleared; nodes retain their last positions. |
-| **Merge Zones** | Drag one zone backdrop onto another → combine membership under target zone; source zone deleted. |
+Canonical interaction table from `layout_behaviors_and_physics_spec.md §4.5`:
 
-**Overlap interaction rules**:
-- Zone backdrops may visually overlap; membership is still exclusive (a node cannot be in two zones).
-- A drag gesture that ends inside an overlapping backdrop region assigns membership to the topmost (most recently created) zone unless the user explicitly targets the lower one via context menu.
+| Interaction | Required behavior |
+| ----------- | ----------------- |
+| Create frame-affinity region (≥1 nodes selected) | Create/resolve a `Frame` via graph-first semantics; derive centroid from frame member distribution |
+| Rename Frame | Rename canonical `GraphFrame` label; affinity rendering reflects updated label |
+| Add node to Frame | Drag node onto frame-affinity backdrop or command action → `AddNodeToFrame(frame_id, node_key)` |
+| Remove node from Frame | Contextual action or drag-out gesture → `RemoveNodeFromFrame(frame_id, node_key)` |
+| Drag region centroid | Visual centroid/anchor moves; members follow via soft force (not teleport) |
+| Delete Frame | `DeleteFrame(frame_id)` removes frame identity and memberships atomically |
+| Merge Frames | `MergeFrames(source, target)` combines memberships under target frame |
+
+**Invariant**: Canvas interactions that add/remove affinity membership must mutate canonical frame membership via the above intents. No direct mutation of a `zone_id` field.
 
 ### 3.5 Implementation Sequence
 
 Once prerequisites (§3.0) are resolved:
 
-1. **Step 1**: Add `Zone` type and `GraphWorkspace.zones: Vec<Zone>` to data model; wire snapshot serialization/deserialization.
-2. **Step 2**: Add `node.zone_id: Option<Uuid>` field; ensure existing snapshots deserialize with `zone_id = None`.
-3. **Step 3**: Implement zone force computation in layout injection hook; gate by `CanvasRegistry.zones_enabled`.
-4. **Step 4**: Render zone backdrop (bounding box of member nodes + padding, semi-transparent fill, label).
-5. **Step 5**: Wire "Create Zone from Selection" action through `ActionRegistry`.
-6. **Step 6**: Implement drag-to-assign and drag-zone interactions.
-7. **Step 7**: Implement merge, rename, and delete zone interactions.
+1. **Step 1**: Add `FrameAffinityRegion` as a derived runtime type (not persisted); wire it from `GraphFrame` + `NodeFrameMembership`.
+2. **Step 2**: Implement frame-affinity force computation in layout injection hook; gate by `CanvasRegistry.zones_enabled`.
+3. **Step 3**: Render frame-affinity backdrop (derived hull of member nodes + padding, semi-transparent fill, frame label) below nodes.
+4. **Step 4**: Wire "Create Frame from Selection" action through `ActionRegistry`.
+5. **Step 5**: Implement drag-to-assign (→ `AddNodeToFrame`) and drag-region-centroid interactions.
+6. **Step 6**: Implement merge, rename, and delete frame interactions.
 
 ---
 
 ## Validation
 
+See `layout_behaviors_and_physics_spec.md §8` for the full acceptance criteria table. Checklist summary:
+
 - [ ] Paused physics resumes automatically when structural intents add nodes/edges.
+- [ ] Snapshot load does not trigger reheat.
 - [ ] Link-triggered/new-context node spawns near source node.
 - [ ] Degree repulsion toggle changes hub spread behavior measurably.
 - [ ] Domain clustering toggle creates visible same-domain grouping.
-- [ ] Zone create/drag updates node spatial behavior and survives snapshot roundtrip.
-- [ ] Zone persistence scope is workspace-scoped; zones appear consistently across all views of the same workspace.
-- [ ] Node belongs to at most one zone; membership reassignment follows last-write precedence.
-- [ ] Deleting a zone clears `zone_id` on all member nodes; nodes retain their positions.
-- [ ] Zone force applies as a soft bias after physics forces, not a hard override.
+- [ ] Frame-affinity region is derived from `GraphFrame` + `NodeFrameMembership`; no separate zone store exists.
+- [ ] A node may have zero, one, or many frame memberships; multi-membership forces compose deterministically.
+- [ ] `DeleteFrame(frame_id)` removes all membership links atomically; no node retains membership to a deleted frame.
+- [ ] Frame-affinity force applies as a soft bias after physics forces, not a hard override.
+- [ ] Frame identity + memberships survive snapshot roundtrip; affinity projection recomputes without a separate persisted zone store.

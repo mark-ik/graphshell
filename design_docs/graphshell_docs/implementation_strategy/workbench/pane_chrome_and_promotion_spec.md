@@ -8,7 +8,10 @@
 
 - `WORKBENCH.md`
 - `workbench_frame_tile_interaction_spec.md`
-- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md`
+- `pane_presentation_and_locking_spec.md` — **canonical authority for `PaneLock`** (§7 here defers to it)
+- `2026-03-03_pane_opening_mode_and_simplification_suppressed_plan.md` — canonical authority for `PaneOpeningMode` and `SimplificationSuppressed`
+- `2026-02-22_workbench_tab_semantics_overlay_and_promotion_plan.md` — `FrameTabSemantics` overlay plan (§7 canonicalized there)
+- `../canvas/node_badge_and_tagging_spec.md` — badge strip rendering contract referenced in §3.1
 - `../../../TERMINOLOGY.md` — `Tiled Pane`, `Docked Pane`, `Pane Presentation Mode`, `Tab Group`, `Tile`
 
 ---
@@ -63,7 +66,7 @@ PanePresentationMode =
 
 Each Tab Group container renders a tab bar strip (the **Workbar** for frames; per-container tab strips for nested Tab Groups). The tab strip:
 
-- Shows one tab entry per child tile with: title, badge strip (compact, per `node_badge_and_tagging_spec.md §3.5`), close button.
+- Shows one tab entry per child tile with: title, badge strip (compact, per `../canvas/node_badge_and_tagging_spec.md §3.5`), close button.
 - Active tile's tab is highlighted.
 - Tab bar is scrollable horizontally if tab count overflows available width.
 
@@ -164,18 +167,24 @@ When a drag completes successfully, the tab animates to its new position (120 ms
 
 ## 7. Pane Locking Contract
 
-A pane may be **locked** to prevent all user-initiated reflow operations while preserving focus and interaction.
+> **Canonical authority**: `pane_presentation_and_locking_spec.md` owns the full `PaneLock` contract, invariants, diagnostics channel table, and test requirements. This section is a cross-reference summary only.
 
-```
+A pane may be **locked** to prevent user-initiated reflow operations while preserving focus and content interaction.
+
+```text
 PaneLock =
   | Unlocked
   | PositionLocked    -- cannot be moved/reordered; can be closed
   | FullyLocked       -- cannot be moved, reordered, or closed by user
 ```
 
-- `Docked` panes are implicitly `PositionLocked` from the user's perspective; their lock state is separate from `PanePresentationMode`.
-- `FullyLocked` is reserved for system-owned panes (e.g., a required diagnostics pane during a critical operation). It is not user-assignable.
-- Lock state is workbench-owned; it does not affect graph content.
+Key rules (full contract in `pane_presentation_and_locking_spec.md §3`):
+
+- `Docked` panes are implicitly `PositionLocked` from the user's perspective; their `PaneLock` field is nonetheless separate from `PanePresentationMode` and may be set independently.
+- `FullyLocked` is reserved for system-owned panes (e.g., a required diagnostics pane during a critical operation). It is not user-assignable through normal settings.
+- Lock state is workbench-owned; it does not affect graph content or node identity.
+- Lock state changes must route through explicit `GraphIntent` variants; no direct field mutation from UI callsites.
+- Forbidden operations on locked panes must produce explicit feedback — silent failure is forbidden.
 
 ---
 

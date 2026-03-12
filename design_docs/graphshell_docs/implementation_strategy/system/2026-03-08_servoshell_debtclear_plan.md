@@ -5,7 +5,7 @@
 **Scope**: `shell/desktop/` host, platform, and UI layers
 **Prerequisite reading**:
 - `2026-03-08_servoshell_residue_audit.md` — the findings this plan addresses
-- `2026-02-26_composited_viewer_pass_contract.md` — render pipeline contract
+- `../viewer/2026-02-26_composited_viewer_pass_contract.md` — render pipeline contract
 - `../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md`
 
 **Execution update (2026-03-09)**:
@@ -77,7 +77,7 @@ Folded into this plan:
   `ChromeProjectionSource` explicit instead of hidden `active_webview` /
   `preferred_input_webview` heuristics
 - the visible-renderer and overlay-pass alignment required by
-  `viewer/2026-02-26_composited_viewer_pass_contract.md`
+  `../viewer/2026-02-26_composited_viewer_pass_contract.md`
 - the narrow input/control-routing obligations from
   `aspect_input/input_interaction_spec.md` and
   `aspect_control/2026-02-24_control_ui_ux_plan.md`: browser verbs route
@@ -385,7 +385,7 @@ compositor marks visible.
 The source of truth must be:
 
 - the Pass 1 layout/occlusion visibility output defined by
-  `2026-02-26_composited_viewer_pass_contract.md`
+  `../viewer/2026-02-26_composited_viewer_pass_contract.md`
 - `RendererRegistry` for pane/renderer attachment
 
 It must not be:
@@ -654,7 +654,7 @@ The plan is complete when:
 | `2026-03-08_graph_app_decomposition_plan.md` | Adjacent and partially coupled. This plan will touch app intent/routing support surfaces and should stage with graph-app extraction rather than pretending the host boundary is isolated. |
 | `2026-03-08_render_mod_decomposition_plan.md` | Adjacent. Stage 3B depends on clearer visible-renderer/compositor seams, so render decomposition should preserve those boundaries rather than re-embed host heuristics. |
 | `2026-03-08_servoshell_residue_audit.md` | This plan implements the audit's remediation section. |
-| `2026-02-26_composited_viewer_pass_contract.md` | Stage 3B (repaint rebase) must stay consistent with the three-pass composition model. |
+| `../viewer/2026-02-26_composited_viewer_pass_contract.md` | Stage 3B (repaint rebase) must stay consistent with the three-pass composition model. |
 | `../technical_architecture/2026-03-08_graphshell_core_extraction_plan.md` | Phase 1A is prerequisite input for core extraction. Cleaner node/view/pane/renderer boundaries reduce what must remain host-only. |
 | `2026-03-06_reducer_only_mutation_enforcement_plan.md` | Strongly aligned. Phase 2 removes host-first mutation paths that currently escape reducer-only discipline. |
 | `register/2026-03-08_sector_b_input_dispatch_plan.md` | Only Sector B Phase B1 is a debt-clear prerequisite, and it is folded into debt-clear Phases 1–2. Sector B2/B3 remain follow-on registry work, not a reason to pause debt-clear execution. |

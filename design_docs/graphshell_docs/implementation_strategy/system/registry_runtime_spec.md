@@ -73,4 +73,3 @@ It is the place where capability availability becomes concrete at runtime.
 - Register-owned dispatch paths are routed through `RegistryRuntime` or its explicit delegates.
 - Capability availability can be described without spelunking unrelated subsystems.
 - Composition and supervision responsibilities stay distinct from `ControlPanel`.
-

@@ -11,6 +11,7 @@
 - `2026-02-22_registry_layer_plan.md` Phase 6 (three-authority-domain boundary, single-write-path enforcement, `pub(crate)` boundary lock)
 - `services/persistence/mod.rs` (GraphStore: fjall WAL + redb snapshots + rkyv serialization + zstd compression + AES-256-GCM encryption)
 - `2026-03-08_unified_storage_architecture_plan.md` (storage track split and durability-boundary clarification)
+- `2026-03-11_graphstore_vs_client_storage_manager_note.md` (GraphStore vs future WHATWG-style browser client storage boundary)
 - `archive_docs/` — historical persistence plans (superseded by this document)
 **Related**: `SUBSYSTEM_SECURITY.md` §3.4 (cryptographic correctness invariants overlap)
 
@@ -23,6 +24,7 @@ Policy in this file should be distilled from canonical specs and accepted resear
 - **RFC 4122 UUID v4** — node identity (`NodeId`); stable across sessions, no ordering semantics.
 - **RFC 4122 UUID v7** — WAL journal entry tokens only; time-ordered sequencing. Must not be used for `NodeId`.
 - **XDG Base Directory Specification** (via `directories` crate) — canonical storage path semantics across platforms. Data → `XDG_DATA_HOME`, config → `XDG_CONFIG_HOME`, cache → `XDG_CACHE_HOME`.
+- **WHATWG Storage Standard** — adopted for future browser-origin client storage coordination (`ClientStorageManager`), not for Graphshell app-state durability. Governs storage-key/scoped shed/shelf/bucket/bottle modeling when Graphshell grows a Servo-facing site-data authority.
 - **FIPS 197 / NIST SP 800-38D** — AES-256-GCM at-rest encryption. 256-bit key, 12-byte nonce, 16-byte GCM tag. Nonce never reused.
 
 **Referenced as prior art** (no conformance obligation):
@@ -38,6 +40,8 @@ Policy in this file should be distilled from canonical specs and accepted resear
 3. **Roundtrip-safety policy**: Serialization/deserialization and schema evolution must preserve state or degrade explicitly.
 4. **Encryption-completeness policy**: Sensitive persistence keyspaces require mandated cryptographic handling with explicit failure behavior.
 5. **Recovery-observability policy**: Recovery/snapshot corruption, fallback, and repair paths must be diagnosable and test-backed.
+6. **Servo-compatibility-first policy for browser storage**: Graphshell's browser-storage layer must align with Servo's storage-spec direction and avoid inventing a rival browser-storage model.
+7. **Reference-truth vs storage-truth policy**: Graph nodes and panes are not the default owners of browser site data; deleting a node does not implicitly purge the associated storage context.
 
 ---
 
@@ -48,6 +52,17 @@ The persistence layer is the single point where **durable graph state transition
 The dominant failure mode is **silent contract erosion**: a new serialization type is added without a round-trip test, a snapshot path writes unencrypted data, a new keyspace bypasses the WAL journal, a durable mutation path escapes the approved reducer/persistence boundary, or recovery silently skips corrupted entries without surfacing degraded state. None of these produce immediate errors. All produce data loss or integrity failure on the next recovery.
 
 Without subsystem-level treatment, every change to `Graph`, every new `LogEntry` variant, every new persistence keyspace, every new named-snapshot path, and every new persisted workspace/settings payload becomes an unaudited integrity boundary crossing.
+
+This subsystem authority is intentionally scoped to Graphshell-owned application
+durability. A future browser-origin storage authority for IndexedDB,
+localStorage, Cache API, OPFS, and related site data belongs to a separate
+`ClientStorageManager`-style component and must not be conflated with
+`GraphStore`.
+
+Graphshell may still host a thin runtime orchestration layer above that browser
+storage authority to manage backend compatibility and user-facing compound
+actions, especially for Servo/Wry interoperability. That orchestration layer is
+not itself a second storage authority.
 
 ---
 
@@ -72,6 +87,31 @@ The subsystem is not just "graph WAL + snapshots." It currently spans four relat
 4. **PersistenceRecoveryAndHealth** — startup open/recover supervision, timeout fallback, degradation/health observability
 
 The unified storage plan is the canonical staging document for closing the gaps between those tracks and the current guide language.
+
+## 2B. GraphStore vs Future ClientStorageManager
+
+The storage subsystem now distinguishes two different storage authorities:
+
+1. **`GraphStore`** — the landed persistence authority for Graphshell-owned app
+   state: graph durability, layouts, archives, recovery, encryption, and health.
+2. **Future `ClientStorageManager`** — a prospective Servo-compatible authority
+   for browser-origin site data modeled on the WHATWG Storage Standard.
+
+This distinction is architectural, not cosmetic.
+
+- `GraphStore` is keyed by Graphshell app concepts and durability contracts.
+- `ClientStorageManager` would be keyed by storage keys and site-data policy.
+- `GraphStore` owns Graphshell recovery semantics.
+- `ClientStorageManager` would own bucket lifecycle, quota, persistence mode,
+  and site-data clearing for web-origin storage endpoints.
+
+The two authorities may share low-level path, crypto, diagnostic, or quota
+helpers, but they are not a single merged conceptual model.
+
+Graphshell may additionally host a **StorageInteropCoordinator** policy layer
+that sits above browser storage truth and handles backend routing, Servo/Wry
+transition policy, and explicit compound actions. That layer must not take over
+ownership of storage-key/bucket metadata.
 
 ---
 
@@ -292,9 +332,10 @@ Current implementation note:
 Current priority order:
 
 1. close the storage taxonomy gap (`GraphDurability`, `WorkspaceLayoutPersistence`, `ArchivePersistence`, `PersistenceRecoveryAndHealth`)
-2. add missing integrity telemetry and persistence health summary
-3. formalize degraded persistence states
-4. audit durable mutation boundaries against actual app logging paths and document intentional non-durable exceptions
+2. keep the `GraphStore` / future `ClientStorageManager` seam explicit so app durability is not forced into browser site-data terminology
+3. add missing integrity telemetry and persistence health summary
+4. formalize degraded persistence states
+5. audit durable mutation boundaries against actual app logging paths and document intentional non-durable exceptions
 
 1. **Wire diagnostic channels** — Add `persistence.*` channel family to `DiagnosticsRegistry`. Emit from all `GraphStore` methods (open, journal, snapshot, recover, encrypt/decrypt).
 2. **Add round-trip test coverage** — Verify every serializable type has an explicit round-trip test. Audit all `GraphIntent` variants for `LogEntry` coverage.

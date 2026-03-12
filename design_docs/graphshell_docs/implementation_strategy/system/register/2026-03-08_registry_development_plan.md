@@ -69,7 +69,7 @@ All registries in the system spec family are listed here. Implementation state i
 
 The registries are grouped into eight development sectors. Each sector is a self-contained unit of work with its own implementation plan.
 
-```
+```text
 Sector A  — Content Pipeline         Protocol → ViewerSurface → Viewer → Lens
 Sector B  — Input & Dispatch         Input → Action → Renderer
 Sector C  — Identity & Verse         Identity → NostrCore
@@ -84,7 +84,7 @@ Sector H  — Signal Infrastructure    SignalRoutingLayer → SignalBus
 
 Sectors are not fully independent. The following constraints govern sequencing:
 
-```
+```text
 H (signal infrastructure) must stabilise before D, E cross-registry signals are live.
 F (diagnostics) must be complete before cross-sector test harness work; debt-clear only
 needs the narrow renderer-boundary diagnostics slices it introduces.
@@ -106,7 +106,7 @@ G (AgentRegistry) depends on H for supervised intent ingress.
 
 The content pipeline is the chain that takes a URI and produces a rendered surface:
 
-```
+```text
 URI → ProtocolRegistry (scheme → MIME) → ViewerRegistry (MIME → ViewerId)
     → ViewerSurfaceRegistry (ViewerId → viewport policy)
     → LensRegistry (MIME + graph context → LensProfile)
@@ -130,7 +130,7 @@ existence.
 
 Input → Action is the dispatch chain for all user interaction. `RendererRegistry` is a required new registry from the servoshell debtclear plan that enforces the renderer lifecycle boundary.
 
-```
+```text
 InputEvent → InputRegistry (binding → ActionId)
            → ActionRegistry (ActionId → Vec<GraphIntent> | WorkbenchIntent)
            → reducer / workbench authority

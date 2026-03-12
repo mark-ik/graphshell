@@ -5,7 +5,9 @@
 **Priority**: Immediate implementation guidance
 
 **Related**:
+
 - `viewer_presentation_and_fallback_spec.md`
+- `node_lifecycle_and_runtime_reconcile_spec.md`
 - `universal_content_model_spec.md`
 - `wry_integration_spec.md`
 - `../aspect_render/frame_assembly_and_compositor_spec.md`
@@ -83,7 +85,7 @@ Required channels:
 - `viewer:webview_attached` (Info)
 - `viewer:webview_crashed` (Error)
 - `viewer:webview_recover_attempt` (Info)
-- `viewer:webview_recover_failed` (Warn/Error)
+- `viewer:webview_recover_failed` (Error)
 - `viewer:webview_recovered` (Info)
 
 Minimum payload:

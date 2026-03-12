@@ -5,12 +5,13 @@
 **Scope**: In-canvas node preview/viewport behavior between static thumbnails and full workbench panes
 
 **Related**:
+
 - `VIEWER.md`
 - `viewer_presentation_and_fallback_spec.md`
-- `2026-02-23_wry_integration_strategy.md`
 - `wry_integration_spec.md`
 - `2026-02-26_composited_viewer_pass_contract.md`
 - `2026-03-05_node_viewport_preview_minimal_slice_plan.md`
+- `2026-02-23_wry_integration_strategy.md`
 
 ---
 
@@ -136,14 +137,14 @@ Potential node-level fields:
 
 ## 9. Diagnostics Contract
 
-Suggested channels:
+Suggested channels (follow `namespace:name` convention; severity per CLAUDE.md rules):
 
-- `viewer.preview.refresh_requested`
-- `viewer.preview.refresh_succeeded`
-- `viewer.preview.refresh_failed`
-- `viewer.preview.stale_frame_displayed`
-- `viewer.viewport.overlap_repulsion_applied`
-- `viewer.viewport.open_in_workbench_invoked`
+- `viewer:preview_refresh_requested` (Info)
+- `viewer:preview_refresh_succeeded` (Info)
+- `viewer:preview_refresh_failed` (Warn)
+- `viewer:preview_stale_frame_displayed` (Warn)
+- `viewer:viewport_overlap_repulsion_applied` (Info)
+- `viewer:viewport_open_in_workbench_invoked` (Info)
 
 ---
 

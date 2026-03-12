@@ -214,12 +214,12 @@ Nostr mod runtime must emit explicit diagnostics for policy and health visibilit
 
 Suggested channels (naming aligned to existing `namespace:name` style):
 
-- `mod.nostr.capability_denied` (`Warn`)
-- `mod.nostr.sign_request_denied` (`Warn`)
-- `mod.nostr.relay_publish_failed` (`Warn`)
-- `mod.nostr.relay_subscription_failed` (`Warn`)
-- `mod.nostr.intent_rejected` (`Warn`)
-- `mod.nostr.security_violation` (`Error`)
+- `mod:nostr:capability_denied` — Warn
+- `mod:nostr:sign_request_denied` — Warn
+- `mod:nostr:relay_publish_failed` — Warn
+- `mod:nostr:relay_subscription_failed` — Warn
+- `mod:nostr:intent_rejected` — Warn
+- `mod:nostr:security_violation` — Error
 
 Severity values follow canonical diagnostics policy: use `Error` for explicit security/failure channels, `Warn` for denied/fallback/degraded paths.
 

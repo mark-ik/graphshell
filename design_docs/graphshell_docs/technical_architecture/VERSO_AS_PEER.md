@@ -75,6 +75,35 @@ Non-web renderers (`PdfViewer`, `ImageViewer`, `PlaintextViewer`, `AudioViewer`,
 
 A Graphshell instance without Verso is a visual outliner/file manager — all core viewers work, no web access. Verso adds the web.
 
+### Verso as Storage Runtime Host
+
+If Graphshell adopts a future WHATWG-style `ClientStorageManager`, Verso is the
+correct runtime host for it on the browser side.
+
+Placement rules:
+
+- `ClientStorageManager` lives with Verso/browser runtime services in
+    `AppServices`, alongside `EmbedderCore`.
+- It is not owned by `GraphWorkspace` and is not part of Graphshell app-state
+    durability (`GraphStore`).
+- Servo-facing storage clients obtain bottle or shelf access through the
+    manager's bridge API; they do not become the authority for bucket metadata,
+    persistence mode, or site-data clearing.
+- Graphshell may also host a thin `StorageInteropCoordinator` above the browser
+    storage authority for backend-switch policy, Wry compatibility handling, and
+    explicit compound actions, but that layer must not become a rival storage
+    hierarchy.
+
+This keeps browser-origin storage policy runtime-owned and aligned with the
+same authority model used elsewhere in Graphshell: reducer-owned graph truth,
+workbench-owned layout truth, and runtime-owned browser services.
+
+See
+`../implementation_strategy/subsystem_storage/2026-03-11_graphstore_vs_client_storage_manager_note.md`
+and
+`../implementation_strategy/subsystem_storage/2026-03-11_client_storage_manager_implementation_plan.md`
+for the storage-specific boundary and phased execution plan.
+
 ---
 
 ## Verso as Verse Peer
@@ -182,4 +211,6 @@ The `GraphSemanticEvent` seam is the exclusive channel from Servo callbacks to g
 - [VERSE_AS_NETWORK.md](../../verse_docs/technical_architecture/VERSE_AS_NETWORK.md) — the network Verso participates in
 - [2026-02-22_registry_layer_plan.md](../implementation_strategy/2026-02-22_registry_layer_plan.md) — registry architecture; Verso's place in the mod system
 - [2026-02-23_wry_integration_strategy.md](../implementation_strategy/2026-02-23_wry_integration_strategy.md) — Wry OS webview overlay integration (7-step implementation plan)
+- [../implementation_strategy/subsystem_storage/2026-03-11_graphstore_vs_client_storage_manager_note.md](../implementation_strategy/subsystem_storage/2026-03-11_graphstore_vs_client_storage_manager_note.md) — GraphStore vs future `ClientStorageManager` runtime/storage boundary
+- [../implementation_strategy/subsystem_storage/2026-03-11_client_storage_manager_implementation_plan.md](../implementation_strategy/subsystem_storage/2026-03-11_client_storage_manager_implementation_plan.md) — phased plan for a Servo-compatible `ClientStorageManager`
 - [../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md](../../verse_docs/implementation_strategy/2026-02-23_verse_tier1_sync_plan.md) — Verse Tier 1 sync: iroh transport, identity, pairing, delta sync, SyncWorker

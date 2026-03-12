@@ -29,7 +29,7 @@ This split preserves deterministic behavior, testability, and long-term reuse ac
 
 ## 2. Core Decision
 
-**Servo is a Surface, not the Semantic Authority.**
+### Servo is a Surface, not the Semantic Authority
 
 Servo renders the editor UI via custom DOM overlays and positioned elements. It does **not** use `contenteditable` for edit semantics — Servo's `contenteditable` implementation is incomplete and should not be relied upon as a correctness boundary. All edit state lives in `editor-core`.
 
