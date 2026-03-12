@@ -355,7 +355,9 @@ impl GraphBrowserApp {
 
         for (view_id, lens) in &refreshes {
             if let Some(view) = self.workspace.views.get_mut(view_id) {
+                let layout_algorithm_id = view.lens.layout_algorithm_id.clone();
                 view.lens = lens.clone();
+                view.lens.layout_algorithm_id = layout_algorithm_id;
             }
         }
 

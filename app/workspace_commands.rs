@@ -156,6 +156,16 @@ impl GraphBrowserApp {
         }
     }
 
+    pub(crate) fn set_pending_graph_search_request(&mut self, request: Option<GraphSearchRequest>) {
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::ApplyGraphSearch { .. })
+        });
+
+        if let Some(request) = request {
+            self.enqueue_app_command(AppCommand::ApplyGraphSearch { request });
+        }
+    }
+
     pub(crate) fn sanitize_pending_frame_import_commands(&mut self) {
         let mut retained_commands =
             VecDeque::with_capacity(self.workspace.pending_app_commands.len());
@@ -268,6 +278,76 @@ impl GraphBrowserApp {
     /// Take and clear pending frame save request.
     pub fn take_pending_save_frame_snapshot(&mut self) -> bool {
         self.take_pending_save_workspace_snapshot()
+    }
+
+    pub fn request_graph_search(&mut self, query: impl Into<String>, filter_mode: bool) {
+        self.request_graph_search_with_context(query, filter_mode, GraphSearchOrigin::Manual, None);
+    }
+
+    pub fn request_graph_search_with_origin(
+        &mut self,
+        query: impl Into<String>,
+        filter_mode: bool,
+        origin: GraphSearchOrigin,
+    ) {
+        self.request_graph_search_with_context(query, filter_mode, origin, None);
+    }
+
+    pub fn request_graph_search_with_context(
+        &mut self,
+        query: impl Into<String>,
+        filter_mode: bool,
+        origin: GraphSearchOrigin,
+        neighborhood_anchor: Option<NodeKey>,
+    ) {
+        self.request_graph_search_with_options(
+            query,
+            filter_mode,
+            origin,
+            neighborhood_anchor,
+            1,
+            true,
+            None,
+        );
+    }
+
+    pub fn request_graph_search_with_options(
+        &mut self,
+        query: impl Into<String>,
+        filter_mode: bool,
+        origin: GraphSearchOrigin,
+        neighborhood_anchor: Option<NodeKey>,
+        neighborhood_depth: u8,
+        record_history: bool,
+        toast_message: Option<String>,
+    ) {
+        let query = query.into();
+        let trimmed = query.trim().to_string();
+        let has_neighborhood = neighborhood_anchor.is_some();
+        let neighborhood_depth = if has_neighborhood {
+            neighborhood_depth.clamp(1, 2)
+        } else {
+            1
+        };
+
+        self.set_pending_graph_search_request(Some(GraphSearchRequest {
+            query: trimmed,
+            filter_mode,
+            origin,
+            neighborhood_anchor,
+            neighborhood_depth,
+            record_history,
+            toast_message,
+        }));
+    }
+
+    pub fn take_pending_graph_search_request(&mut self) -> Option<GraphSearchRequest> {
+        match self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::ApplyGraphSearch { .. })
+        })? {
+            AppCommand::ApplyGraphSearch { request } => Some(request),
+            _ => None,
+        }
     }
 
     /// Request saving a named frame snapshot.
@@ -561,5 +641,132 @@ impl GraphBrowserApp {
             AppCommand::ToolSurfaceReturnTarget { target } => Some(target.clone()),
             _ => None,
         }
+    }
+
+    pub fn set_pending_command_surface_return_target(
+        &mut self,
+        target: Option<ToolSurfaceReturnTarget>,
+    ) {
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::CommandSurfaceReturnTarget { .. })
+        });
+
+        if let Some(target) = target {
+            self.enqueue_app_command(AppCommand::CommandSurfaceReturnTarget { target });
+        }
+    }
+
+    pub fn take_pending_command_surface_return_target(
+        &mut self,
+    ) -> Option<ToolSurfaceReturnTarget> {
+        match self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::CommandSurfaceReturnTarget { .. })
+        })? {
+            AppCommand::CommandSurfaceReturnTarget { target } => Some(target),
+            _ => None,
+        }
+    }
+
+    pub fn pending_command_surface_return_target(&self) -> Option<ToolSurfaceReturnTarget> {
+        match self.pending_app_command(|command| {
+            matches!(command, AppCommand::CommandSurfaceReturnTarget { .. })
+        })? {
+            AppCommand::CommandSurfaceReturnTarget { target } => Some(target.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn set_pending_transient_surface_return_target(
+        &mut self,
+        target: Option<ToolSurfaceReturnTarget>,
+    ) {
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::TransientSurfaceReturnTarget { .. })
+        });
+
+        if let Some(target) = target {
+            self.enqueue_app_command(AppCommand::TransientSurfaceReturnTarget { target });
+        }
+    }
+
+    pub fn take_pending_transient_surface_return_target(
+        &mut self,
+    ) -> Option<ToolSurfaceReturnTarget> {
+        match self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::TransientSurfaceReturnTarget { .. })
+        })? {
+            AppCommand::TransientSurfaceReturnTarget { target } => Some(target),
+            _ => None,
+        }
+    }
+
+    pub fn pending_transient_surface_return_target(&self) -> Option<ToolSurfaceReturnTarget> {
+        match self.pending_app_command(|command| {
+            matches!(command, AppCommand::TransientSurfaceReturnTarget { .. })
+        })? {
+            AppCommand::TransientSurfaceReturnTarget { target } => Some(target.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn request_restore_transient_surface_focus(&mut self) {
+        let _ = self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::RestoreTransientSurfaceFocus)
+        });
+        self.enqueue_app_command(AppCommand::RestoreTransientSurfaceFocus);
+    }
+
+    pub fn take_pending_restore_transient_surface_focus(&mut self) -> bool {
+        self.take_pending_app_command(|command| {
+            matches!(command, AppCommand::RestoreTransientSurfaceFocus)
+        })
+        .is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graph_search_request_replaces_previous_request() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.request_graph_search("udc:51", true);
+        app.request_graph_search("udc:519.6", false);
+
+        assert_eq!(
+            app.take_pending_graph_search_request(),
+            Some(GraphSearchRequest {
+                query: "udc:519.6".to_string(),
+                filter_mode: false,
+                origin: GraphSearchOrigin::Manual,
+                neighborhood_anchor: None,
+                neighborhood_depth: 1,
+                record_history: true,
+                toast_message: None,
+            })
+        );
+        assert!(app.take_pending_graph_search_request().is_none());
+    }
+
+    #[test]
+    fn graph_search_request_can_explicitly_clear_query() {
+        let mut app = GraphBrowserApp::new_for_testing();
+
+        app.request_graph_search("", false);
+
+        assert_eq!(
+            app.take_pending_graph_search_request(),
+            Some(GraphSearchRequest {
+                query: String::new(),
+                filter_mode: false,
+                origin: GraphSearchOrigin::Manual,
+                neighborhood_anchor: None,
+                neighborhood_depth: 1,
+                record_history: true,
+                toast_message: None,
+            })
+        );
     }
 }

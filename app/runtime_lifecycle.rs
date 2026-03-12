@@ -249,6 +249,9 @@ impl GraphBrowserApp {
     pub fn unmap_webview(&mut self, webview_id: RendererId) -> Option<NodeKey> {
         if let Some(node_key) = self.workspace.webview_to_node.remove(&webview_id) {
             self.workspace.node_to_webview.remove(&node_key);
+            if self.workspace.embedded_content_focus_webview == Some(webview_id) {
+                self.workspace.embedded_content_focus_webview = None;
+            }
             self.remove_active_node(node_key);
             self.remove_warm_cache_node(node_key);
             Some(node_key)
@@ -259,6 +262,14 @@ impl GraphBrowserApp {
 
     pub fn get_node_for_webview(&self, webview_id: RendererId) -> Option<NodeKey> {
         self.workspace.webview_to_node.get(&webview_id).copied()
+    }
+
+    pub fn embedded_content_focus_webview(&self) -> Option<RendererId> {
+        self.workspace.embedded_content_focus_webview
+    }
+
+    pub fn set_embedded_content_focus_webview(&mut self, webview_id: Option<RendererId>) {
+        self.workspace.embedded_content_focus_webview = webview_id;
     }
 
     pub(crate) fn take_pending_host_create_token(
@@ -410,7 +421,9 @@ impl GraphBrowserApp {
             && let Some(node) = self.workspace.domain.graph.get_node(node_key)
         {
             crate::shell::desktop::runtime::registries::phase3_publish_navigation_node_activated(
-                node_key, &node.url, &node.title,
+                node_key,
+                &node.url,
+                &node.title,
             );
         }
     }
@@ -648,5 +661,23 @@ mod tests {
                 .url
                 .starts_with("about:blank#")
         );
+    }
+
+    #[test]
+    fn unmap_webview_clears_embedded_content_focus_when_stale() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let node = app
+            .workspace
+            .domain
+            .graph
+            .add_node("https://focused.example".into(), Point2D::new(0.0, 0.0));
+        let webview_id = test_webview_id();
+        app.map_webview_to_node(webview_id, node);
+        app.set_embedded_content_focus_webview(Some(webview_id));
+
+        let unmapped = app.unmap_webview(webview_id);
+
+        assert_eq!(unmapped, Some(node));
+        assert!(app.embedded_content_focus_webview().is_none());
     }
 }

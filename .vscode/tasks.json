@@ -155,6 +155,42 @@
 			],
 			"isBackground": false,
 			"group": "test"
+		},
+		{
+			"label": "Focused enrichment tests",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q local_search_provider_matches_semantic_tags_for_knowledge_queries; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q semantic_badges_are_budgeted_to_one_plus_overflow; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q selected_node_enrichment_summary_includes_tags_suggestions_and_anchor"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Focused Barnes-Hut selector tests",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q requested_layout_algorithm_prefers_lens_override_when_present -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q requested_layout_algorithm_prefers_free_layout_algorithm_override -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q phase2_lens_registry_resolves_default_lens_id -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q active_layout_constructs_barnes_hut_variant -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Focused Barnes-Hut selector tests 2",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"cargo test -q requested_layout_algorithm_prefers_lens_override_when_present -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q requested_layout_algorithm_prefers_free_layout_algorithm_override -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q test_set_view_lens_applies_persisted_lens_default_when_lens_id_missing -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q refresh_registry_backed_view_lenses_reresolves_explicit_lens_ids_only -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q phase2_lens_registry_resolves_default_lens_id -- --nocapture; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -q active_layout_constructs_barnes_hut_variant -- --nocapture"
+			],
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }

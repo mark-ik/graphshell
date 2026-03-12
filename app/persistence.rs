@@ -246,10 +246,11 @@ pub fn is_reserved_workspace_layout_name(name: &str) -> bool {
         || name == Self::WORKSPACE_PIN_WORKSPACE_NAME
         || name == Self::WORKSPACE_PIN_PANE_NAME
         || name == Self::SETTINGS_TOAST_ANCHOR_NAME
-        || name == Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME
-        || name == Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME
-        || name == Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME
-        || name == Self::SETTINGS_KEYBOARD_PAN_STEP_NAME
+    || name == Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME
+    || name == Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME
+    || name == Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME
+    || name == Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME
+    || name == Self::SETTINGS_KEYBOARD_PAN_STEP_NAME
         || name == Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME
         || name == Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME
         || name == Self::SETTINGS_CAMERA_PAN_INERTIA_DAMPING_NAME
@@ -306,6 +307,18 @@ pub fn set_radial_menu_shortcut(&mut self, shortcut: RadialMenuShortcut) {
     self.save_radial_menu_shortcut();
 }
 
+pub fn context_command_surface_preference(&self) -> ContextCommandSurfacePreference {
+    self.workspace.context_command_surface_preference
+}
+
+pub fn set_context_command_surface_preference(
+    &mut self,
+    preference: ContextCommandSurfacePreference,
+) {
+    self.workspace.context_command_surface_preference = preference;
+    self.save_context_command_surface_preference();
+}
+
 pub fn keyboard_pan_step(&self) -> f32 {
     self.workspace.keyboard_pan_step
 }
@@ -357,6 +370,13 @@ fn save_radial_menu_shortcut(&mut self) {
     self.save_workspace_layout_json(
         Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
         &self.workspace.radial_menu_shortcut.to_string(),
+    );
+}
+
+fn save_context_command_surface_preference(&mut self) {
+    self.save_workspace_layout_json(
+        Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME,
+        &self.workspace.context_command_surface_preference.to_string(),
     );
 }
 
@@ -554,6 +574,14 @@ fn load_additional_persisted_ui_settings(&mut self) {
             warn!("Ignoring invalid persisted radial-menu shortcut: '{raw}'");
         }
     }
+    if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME)
+    {
+        if let Ok(preference) = raw.parse::<ContextCommandSurfacePreference>() {
+            self.workspace.context_command_surface_preference = preference;
+        } else {
+            warn!("Ignoring invalid persisted context-command surface preference: '{raw}'");
+        }
+    }
     if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_STEP_NAME) {
         if let Ok(step) = raw.trim().parse::<f32>() {
             self.workspace.keyboard_pan_step = step.clamp(1.0, 200.0);
@@ -664,6 +692,7 @@ pub fn delete_workspace_layout(&mut self, name: &str) -> Result<(), String> {
         .ok_or_else(|| "Persistence is not enabled".to_string())?
         .delete_workspace_layout(name)
         .map_err(|e| e.to_string())?;
+    self.remove_named_workbench_frame_graph_representation(name);
     self.workspace
         .node_last_active_workspace
         .retain(|_, (_, workspace_name)| workspace_name != name);

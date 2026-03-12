@@ -5,8 +5,10 @@ impl GraphBrowserApp {
         let protocol_resolution =
             crate::shell::desktop::runtime::registries::protocol::ProtocolRegistry::default()
                 .resolve(url);
-        let should_probe = matches!(crate::graph::address_kind_from_url(url), crate::graph::AddressKind::Http)
-            && protocol_resolution.inferred_mime_hint.is_none();
+        let should_probe = matches!(
+            crate::graph::address_kind_from_url(url),
+            crate::graph::AddressKind::Http
+        ) && protocol_resolution.inferred_mime_hint.is_none();
         if should_probe || enqueue_cancel {
             self.set_pending_protocol_probe(key, should_probe.then(|| url.to_string()));
         }
@@ -40,6 +42,36 @@ impl GraphBrowserApp {
         self.workspace.drag_release_frames_remaining = 0;
         self.refresh_protocol_probe_for_node(key, &url, false);
         key
+    }
+
+    pub(crate) fn preferred_new_node_anchor(&self, anchor: Option<NodeKey>) -> Option<NodeKey> {
+        anchor.or_else(|| {
+            self.focused_selection().primary().and_then(|key| {
+                crate::shell::desktop::runtime::registries::phase3_suggest_semantic_placement_anchor(
+                    self, key,
+                )
+            })
+        })
+    }
+
+    pub(crate) fn suggested_new_node_position(
+        &self,
+        anchor: Option<NodeKey>,
+    ) -> euclid::default::Point2D<f32> {
+        let base = self
+            .preferred_new_node_anchor(anchor)
+            .and_then(|key| self.domain_graph().node_projected_position(key))
+            .unwrap_or_else(|| {
+                self.workspace
+                    .domain
+                    .graph
+                    .projected_centroid()
+                    .unwrap_or_else(|| euclid::default::Point2D::new(400.0, 300.0))
+            });
+        let n = self.domain_graph().node_count() as f32;
+        let angle = n * std::f32::consts::FRAC_PI_4;
+        let radius = 90.0;
+        euclid::default::Point2D::new(base.x + radius * angle.cos(), base.y + radius * angle.sin())
     }
 
     pub fn add_edge_and_sync(
@@ -600,21 +632,7 @@ impl GraphBrowserApp {
     }
 
     pub fn create_new_node_near_center(&mut self) -> NodeKey {
-        use euclid::default::Point2D;
-        use rand::Rng;
-
-        let center = self
-            .workspace
-            .domain
-            .graph
-            .projected_centroid()
-            .unwrap_or_else(|| Point2D::new(400.0, 300.0));
-
-        let mut rng = rand::thread_rng();
-        let offset_x = rng.gen_range(-100.0..100.0);
-        let offset_y = rng.gen_range(-100.0..100.0);
-
-        let position = Point2D::new(center.x + offset_x, center.y + offset_y);
+        let position = self.suggested_new_node_position(None);
         let placeholder_url = self.next_placeholder_url();
 
         let key = self.add_node_and_sync(placeholder_url, position);

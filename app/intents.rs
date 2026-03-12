@@ -7,11 +7,11 @@ use crate::graph::{EdgeType, NodeKey};
 
 use super::{
     CameraCommand, ChooseFramePickerRequest, ClipboardCopyRequest, EdgeCommand,
-    FileTreeContainmentRelationSource, FileTreeSortMode, GraphViewId, GraphViewLayoutDirection,
-    HostOpenRequest, KeyboardZoomRequest, LensConfig, LifecycleCause, MemoryPressureLevel, NoteId,
-    PendingConnectedOpenScope, PendingNodeOpenRequest, PendingTileOpenMode, RendererId,
-    SelectionUpdateMode, ToolSurfaceReturnTarget, UnsavedFramePromptAction,
-    UnsavedFramePromptRequest, ViewDimension,
+    FileTreeContainmentRelationSource, FileTreeSortMode, GraphSearchRequest, GraphViewId,
+    GraphViewLayoutDirection, HostOpenRequest, KeyboardZoomRequest, LensConfig, LifecycleCause,
+    MemoryPressureLevel, NoteId, PendingConnectedOpenScope, PendingNodeOpenRequest,
+    PendingTileOpenMode, RendererId, SelectionUpdateMode, ToolSurfaceReturnTarget,
+    UnsavedFramePromptAction, UnsavedFramePromptRequest, ViewDimension,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,9 +59,19 @@ pub enum AppCommand {
     NodeContextTarget {
         target: NodeKey,
     },
+    ApplyGraphSearch {
+        request: GraphSearchRequest,
+    },
+    CommandSurfaceReturnTarget {
+        target: ToolSurfaceReturnTarget,
+    },
+    TransientSurfaceReturnTarget {
+        target: ToolSurfaceReturnTarget,
+    },
     ToolSurfaceReturnTarget {
         target: ToolSurfaceReturnTarget,
     },
+    RestoreTransientSurfaceFocus,
     SaveWorkspaceSnapshot,
     SaveWorkspaceSnapshotNamed {
         name: String,

@@ -6,6 +6,8 @@ use euclid::default::Point2D;
 use petgraph::Direction;
 
 pub(crate) const GRAPH_LAYOUT_FORCE_DIRECTED: &str = "graph_layout:force_directed";
+pub(crate) const GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT: &str =
+    "graph_layout:force_directed_barnes_hut";
 pub(crate) const GRAPH_LAYOUT_GRID: &str = "graph_layout:grid";
 pub(crate) const GRAPH_LAYOUT_TREE: &str = "graph_layout:tree";
 const LEGACY_LAYOUT_DEFAULT: &str = "layout:default";
@@ -39,7 +41,11 @@ pub(crate) trait LayoutAlgorithm: Send + Sync {
     fn id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
     fn is_deterministic(&self) -> bool;
-    fn execute(&self, graph: &mut Graph, layout_mode: &LayoutMode) -> Result<LayoutExecution, String>;
+    fn execute(
+        &self,
+        graph: &mut Graph,
+        layout_mode: &LayoutMode,
+    ) -> Result<LayoutExecution, String>;
 }
 
 pub(crate) struct ForceDirectedLayout;
@@ -57,8 +63,41 @@ impl LayoutAlgorithm for ForceDirectedLayout {
         true
     }
 
-    fn execute(&self, _graph: &mut Graph, layout_mode: &LayoutMode) -> Result<LayoutExecution, String> {
+    fn execute(
+        &self,
+        _graph: &mut Graph,
+        layout_mode: &LayoutMode,
+    ) -> Result<LayoutExecution, String> {
         let resolution = resolve_layout_algorithm(Some(layout_algorithm_id_for_mode(layout_mode)));
+        Ok(LayoutExecution {
+            resolution,
+            changed_positions: 0,
+            stable: false,
+        })
+    }
+}
+
+pub(crate) struct ForceDirectedBarnesHutLayout;
+
+impl LayoutAlgorithm for ForceDirectedBarnesHutLayout {
+    fn id(&self) -> &'static str {
+        GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Force Directed (Barnes-Hut)"
+    }
+
+    fn is_deterministic(&self) -> bool {
+        true
+    }
+
+    fn execute(
+        &self,
+        _graph: &mut Graph,
+        _layout_mode: &LayoutMode,
+    ) -> Result<LayoutExecution, String> {
+        let resolution = resolve_layout_algorithm(Some(self.id()));
         Ok(LayoutExecution {
             resolution,
             changed_positions: 0,
@@ -82,7 +121,11 @@ impl LayoutAlgorithm for GridLayout {
         true
     }
 
-    fn execute(&self, graph: &mut Graph, layout_mode: &LayoutMode) -> Result<LayoutExecution, String> {
+    fn execute(
+        &self,
+        graph: &mut Graph,
+        layout_mode: &LayoutMode,
+    ) -> Result<LayoutExecution, String> {
         let LayoutMode::Grid { gap } = layout_mode else {
             return Err("grid layout requested with non-grid mode".to_string());
         };
@@ -110,7 +153,11 @@ impl LayoutAlgorithm for TreeLayout {
         true
     }
 
-    fn execute(&self, graph: &mut Graph, layout_mode: &LayoutMode) -> Result<LayoutExecution, String> {
+    fn execute(
+        &self,
+        graph: &mut Graph,
+        layout_mode: &LayoutMode,
+    ) -> Result<LayoutExecution, String> {
         let LayoutMode::Tree {
             direction,
             layer_gap,
@@ -135,11 +182,12 @@ pub(crate) fn layout_algorithm_id_for_mode(layout_mode: &LayoutMode) -> &'static
     }
 }
 
+pub(crate) fn default_free_layout_algorithm_id() -> String {
+    GRAPH_LAYOUT_FORCE_DIRECTED.to_string()
+}
+
 pub(crate) fn resolve_layout_algorithm(requested_id: Option<&str>) -> LayoutResolution {
-    let requested = requested_id
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
+    let requested = requested_id.unwrap_or_default().trim().to_ascii_lowercase();
     let canonical_requested = match requested.as_str() {
         "" => GRAPH_LAYOUT_FORCE_DIRECTED,
         LEGACY_LAYOUT_DEFAULT => GRAPH_LAYOUT_FORCE_DIRECTED,
@@ -149,6 +197,7 @@ pub(crate) fn resolve_layout_algorithm(requested_id: Option<&str>) -> LayoutReso
 
     let resolved = match canonical_requested {
         GRAPH_LAYOUT_FORCE_DIRECTED => Some(LayoutMode::Free),
+        GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT => Some(LayoutMode::Free),
         GRAPH_LAYOUT_GRID => Some(LayoutMode::Grid { gap: 48.0 }),
         GRAPH_LAYOUT_TREE => Some(LayoutMode::Tree {
             direction: Direction::Outgoing,
@@ -185,6 +234,11 @@ pub(crate) fn resolve_layout_algorithm(requested_id: Option<&str>) -> LayoutReso
 
 pub(crate) fn capability_for_algorithm_id(algorithm_id: &str) -> LayoutCapability {
     match algorithm_id {
+        GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT => LayoutCapability {
+            algorithm_id: GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT.to_string(),
+            display_name: "Force Directed (Barnes-Hut)".to_string(),
+            deterministic: true,
+        },
         GRAPH_LAYOUT_GRID => LayoutCapability {
             algorithm_id: GRAPH_LAYOUT_GRID.to_string(),
             display_name: "Grid".to_string(),
@@ -314,7 +368,11 @@ fn apply_tree_layout(graph: &mut Graph, direction: Direction, layer_gap: f32) ->
     changed_positions
 }
 
-fn root_nodes_for_direction(graph: &Graph, all_keys: &[NodeKey], direction: Direction) -> Vec<NodeKey> {
+fn root_nodes_for_direction(
+    graph: &Graph,
+    all_keys: &[NodeKey],
+    direction: Direction,
+) -> Vec<NodeKey> {
     let mut roots: Vec<NodeKey> = all_keys
         .iter()
         .copied()
@@ -349,6 +407,13 @@ mod tests {
         let default_resolution = resolve_layout_algorithm(Some("layout:default"));
         assert_eq!(default_resolution.resolved_id, GRAPH_LAYOUT_FORCE_DIRECTED);
 
+        let barnes_hut_resolution =
+            resolve_layout_algorithm(Some(GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT));
+        assert_eq!(
+            barnes_hut_resolution.resolved_id,
+            GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+        );
+
         let grid_resolution = resolve_layout_algorithm(Some("layout:grid"));
         assert_eq!(grid_resolution.resolved_id, GRAPH_LAYOUT_GRID);
     }
@@ -361,7 +426,10 @@ mod tests {
             .expect("grid layout should execute");
 
         assert!(execution.changed_positions > 0);
-        let positions: Vec<_> = graph.nodes().map(|(_, node)| node.projected_position()).collect();
+        let positions: Vec<_> = graph
+            .nodes()
+            .map(|(_, node)| node.projected_position())
+            .collect();
         assert!(positions.windows(2).any(|pair| pair[0] != pair[1]));
     }
 
@@ -379,7 +447,10 @@ mod tests {
             .expect("tree layout should execute");
 
         assert!(execution.changed_positions > 0);
-        let mut ys: Vec<_> = graph.nodes().map(|(_, node)| node.projected_position().y).collect();
+        let mut ys: Vec<_> = graph
+            .nodes()
+            .map(|(_, node)| node.projected_position().y)
+            .collect();
         ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
         ys.dedup_by(|a, b| (*a - *b).abs() < f32::EPSILON);
         assert!(ys.len() >= 2);

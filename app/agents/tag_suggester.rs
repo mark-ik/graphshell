@@ -6,11 +6,11 @@ use url::Url;
 use crate::app::GraphIntent;
 use crate::shell::desktop::runtime::control_panel::{IntentSource, QueuedIntent};
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
+use crate::shell::desktop::runtime::registries::CHANNEL_AGENT_INTENT_DROPPED;
 use crate::shell::desktop::runtime::registries::agent::{
     Agent, AgentCapability, AgentContext, AgentHandle,
 };
 use crate::shell::desktop::runtime::registries::signal_routing::{NavigationSignal, SignalKind};
-use crate::shell::desktop::runtime::registries::CHANNEL_AGENT_INTENT_DROPPED;
 
 pub(crate) const AGENT_ID_TAG_SUGGESTER: &str = "agent:tag_suggester";
 
@@ -30,7 +30,10 @@ impl Agent for TagSuggesterAgent {
     }
 
     fn declared_capabilities(&self) -> Vec<AgentCapability> {
-        vec![AgentCapability::ReadNavigationSignals, AgentCapability::SuggestNodeTags]
+        vec![
+            AgentCapability::ReadNavigationSignals,
+            AgentCapability::SuggestNodeTags,
+        ]
     }
 
     fn spawn(self: Box<Self>, mut context: AgentContext) -> AgentHandle {
@@ -97,7 +100,11 @@ fn suggestion_queries(uri: &str, title: &str) -> Vec<(String, usize)> {
     let trimmed_title = title.trim();
     if !trimmed_title.is_empty() {
         queries.push((trimmed_title.to_string(), 4));
-        queries.extend(extract_tokens(trimmed_title).into_iter().map(|token| (token, 2)));
+        queries.extend(
+            extract_tokens(trimmed_title)
+                .into_iter()
+                .map(|token| (token, 2)),
+        );
     }
 
     if let Ok(parsed) = Url::parse(uri) {
