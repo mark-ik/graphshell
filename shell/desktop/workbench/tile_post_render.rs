@@ -12,7 +12,7 @@ use super::tile_grouping;
 use super::tile_kind::TileKind;
 use super::tile_runtime;
 use super::ux_tree;
-use crate::app::{GraphBrowserApp, GraphIntent};
+use crate::app::{GraphBrowserApp, GraphIntent, WorkbenchIntent};
 use crate::graph::NodeKey;
 use crate::shell::desktop::runtime::diagnostics::{DiagnosticEvent, emit_event};
 use crate::shell::desktop::runtime::registries::{
@@ -31,6 +31,30 @@ fn should_summon_radial_palette_on_secondary_click(
     radial_menu_open: bool,
 ) -> bool {
     secondary_clicked && hovered_graph_node.is_none() && !radial_menu_open
+}
+
+fn active_context_return_target(
+    tiles_tree: &Tree<TileKind>,
+) -> Option<crate::app::ToolSurfaceReturnTarget> {
+    for tile_id in tiles_tree.active_tiles() {
+        match tiles_tree.tiles.get(tile_id) {
+            Some(egui_tiles::Tile::Pane(TileKind::Graph(view_ref))) => {
+                return Some(crate::app::ToolSurfaceReturnTarget::Graph(
+                    view_ref.graph_view_id,
+                ));
+            }
+            Some(egui_tiles::Tile::Pane(TileKind::Node(state))) => {
+                return Some(crate::app::ToolSurfaceReturnTarget::Node(state.node));
+            }
+            Some(egui_tiles::Tile::Pane(TileKind::Tool(tool_ref))) => {
+                return Some(crate::app::ToolSurfaceReturnTarget::Tool(
+                    tool_ref.kind.clone(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 pub(crate) fn render_tile_tree_and_collect_outputs(
@@ -72,14 +96,37 @@ pub(crate) fn render_tile_tree_and_collect_outputs(
 
     drop(behavior);
 
-    // Secondary-click outside graph-node context summons the radial/context palette.
-    // Graph-node right-click remains owned by radial/context handling in render::mod.
+    // Secondary-click outside graph-node context summons the user-selected
+    // contextual command surface. Graph-node right-click remains owned by
+    // radial/context handling in render::mod.
     if should_summon_radial_palette_on_secondary_click(
         ui.ctx().input(|i| i.pointer.secondary_clicked()),
         graph_app.workspace.hovered_graph_node,
         graph_app.workspace.show_radial_menu,
     ) {
-        graph_app.toggle_radial_menu();
+        match graph_app.context_command_surface_preference() {
+            crate::app::ContextCommandSurfacePreference::RadialPalette => {
+                if graph_app
+                    .pending_transient_surface_return_target()
+                    .is_none()
+                {
+                    graph_app.set_pending_transient_surface_return_target(
+                        active_context_return_target(tiles_tree),
+                    );
+                }
+                if !graph_app.workspace.show_radial_menu {
+                    graph_app.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+                }
+            }
+            crate::app::ContextCommandSurfacePreference::ContextPalette => {
+                if graph_app.pending_command_surface_return_target().is_none() {
+                    graph_app.set_pending_command_surface_return_target(
+                        active_context_return_target(tiles_tree),
+                    );
+                }
+                graph_app.open_context_palette();
+            }
+        }
     }
 
     let uxtree_snapshot = ux_tree::build_snapshot(
@@ -134,8 +181,14 @@ pub(crate) fn mapped_nodes_without_tiles(
 
 #[cfg(test)]
 mod tests {
-    use super::should_summon_radial_palette_on_secondary_click;
+    use super::{active_context_return_target, should_summon_radial_palette_on_secondary_click};
+    use crate::app::{GraphViewId, ToolSurfaceReturnTarget};
     use crate::graph::NodeKey;
+    use crate::shell::desktop::workbench::pane_model::{
+        GraphPaneRef, NodePaneState, ToolPaneRef, ToolPaneState,
+    };
+    use crate::shell::desktop::workbench::tile_kind::TileKind;
+    use egui_tiles::{Tiles, Tree};
 
     #[test]
     fn secondary_click_without_node_summons_palette() {
@@ -165,5 +218,37 @@ mod tests {
         assert!(!should_summon_radial_palette_on_secondary_click(
             false, None, false
         ));
+    }
+
+    #[test]
+    fn active_context_return_target_uses_active_node_tile_when_present() {
+        let graph_view = GraphViewId::new();
+        let node = NodeKey::new(7);
+        let mut tiles = Tiles::default();
+        let graph = tiles.insert_pane(TileKind::Graph(GraphPaneRef::new(graph_view)));
+        let node_tile = tiles.insert_pane(TileKind::Node(NodePaneState::for_node(node)));
+        let root = tiles.insert_tab_tile(vec![graph, node_tile]);
+        let mut tree = Tree::new("context_return_target_node", root, tiles);
+
+        let _ = tree.make_active(
+            |_, tile| matches!(tile, egui_tiles::Tile::Pane(TileKind::Node(state)) if state.node == node),
+        );
+
+        assert_eq!(
+            active_context_return_target(&tree),
+            Some(ToolSurfaceReturnTarget::Node(node))
+        );
+    }
+
+    #[test]
+    fn active_context_return_target_supports_active_tool_tile() {
+        let mut tiles = Tiles::default();
+        let tool = tiles.insert_pane(TileKind::Tool(ToolPaneRef::new(ToolPaneState::Settings)));
+        let tree = Tree::new("context_return_target_tool", tool, tiles);
+
+        assert_eq!(
+            active_context_return_target(&tree),
+            Some(ToolSurfaceReturnTarget::Tool(ToolPaneState::Settings))
+        );
     }
 }

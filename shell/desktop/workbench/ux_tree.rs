@@ -692,6 +692,10 @@ fn push_nodes(
 
     let ux_node_id = ux_node_id_for_tile(tile_id, tile);
     let focused = active.contains(&tile_id);
+    let tile_selected = graph_app
+        .workbench_tile_selection()
+        .selected_tile_ids
+        .contains(&tile_id);
 
     match tile {
         Tile::Pane(TileKind::Graph(view_ref)) => {
@@ -702,7 +706,7 @@ fn push_nodes(
                 label: format!("Graph View {:?}", view_ref.graph_view_id),
                 state: UxNodeState {
                     focused,
-                    selected: false,
+                    selected: tile_selected,
                     blocked: false,
                     degraded: false,
                 },
@@ -781,7 +785,7 @@ fn push_nodes(
                 label: format!("Node Pane {:?}", state.node),
                 state: UxNodeState {
                     focused,
-                    selected,
+                    selected: selected || tile_selected,
                     blocked,
                     degraded,
                 },
@@ -824,7 +828,7 @@ fn push_nodes(
                 label: format!("Tool Pane {tool_kind}"),
                 state: UxNodeState {
                     focused,
-                    selected: false,
+                    selected: tile_selected,
                     blocked: false,
                     degraded: false,
                 },

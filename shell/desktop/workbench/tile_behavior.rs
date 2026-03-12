@@ -15,7 +15,7 @@ use egui_tiles::{
 
 use crate::app::{
     GraphBrowserApp, GraphIntent, GraphMutation, LifecycleCause, RuntimeEvent, SearchDisplayMode,
-    ViewAction, WorkbenchIntent,
+    SelectionUpdateMode, ViewAction, WorkbenchIntent,
 };
 use crate::graph::{NodeKey, NodeLifecycle};
 use crate::render;
@@ -371,10 +371,11 @@ impl<'a> GraphshellTileBehavior<'a> {
         let total_nodes = graph_app.domain_graph().node_count();
         let selected_node = focused_selection.primary().and_then(|node_key| {
             let node = graph_app.domain_graph().get_node(node_key)?;
-            let selection = crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
-                &node.url,
-                node.mime_hint.as_deref(),
-            );
+            let selection =
+                crate::shell::desktop::runtime::registries::phase0_select_viewer_for_content(
+                    &node.url,
+                    node.mime_hint.as_deref(),
+                );
             let capabilities = selection.capabilities.clone();
 
             Some(AccessibilityInspectorSelectedNodeSnapshot {
@@ -810,13 +811,7 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
                     .graph_app
                     .domain_graph()
                     .get_node(node_key)
-                    .map(|node| {
-                        (
-                            node.url.clone(),
-                            node.mime_hint.clone(),
-                            node.lifecycle,
-                        )
-                    })
+                    .map(|node| (node.url.clone(), node.mime_hint.clone(), node.lifecycle))
                 else {
                     ui.label("Missing node for this tile.");
                     return UiResponse::None;
@@ -1231,44 +1226,55 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             .interact(tab_rect, id, Sense::click_and_drag())
             .on_hover_cursor(self.tab_hover_cursor_icon());
 
-        if tab_response.clicked()
-            && let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id)
-        {
-            let node_key = state.node;
+        if tab_response.clicked() {
             let modifiers = ui.input(|i| i.modifiers);
-            if modifiers.shift {
-                let ordered_nodes = Self::tab_group_node_order_for_tile(tiles, tile_id)
-                    .unwrap_or_else(|| vec![node_key]);
-                let target_index = ordered_nodes
-                    .iter()
-                    .position(|key| *key == node_key)
-                    .unwrap_or(0);
-                let anchor_key = self
-                    .graph_app
-                    .workspace
-                    .tab_selection_anchor
-                    .unwrap_or(node_key);
-                let anchor_index = ordered_nodes
-                    .iter()
-                    .position(|key| *key == anchor_key)
-                    .unwrap_or(target_index);
-                if !modifiers.ctrl {
-                    self.graph_app.workspace.selected_tab_nodes.clear();
-                }
-                if let Some(range) =
-                    inclusive_index_range(anchor_index, target_index, ordered_nodes.len())
-                {
-                    self.graph_app
-                        .add_tab_selection_keys(range.map(|idx| ordered_nodes[idx]));
-                }
-            } else if modifiers.ctrl {
-                self.graph_app.toggle_tab_selection(node_key);
+            let tile_selection_mode = if modifiers.ctrl {
+                SelectionUpdateMode::Toggle
             } else {
-                self.graph_app.set_tab_selection_single(node_key);
-                self.queue_post_render_intent(GraphIntent::SelectNode {
-                    key: node_key,
-                    multi_select: false,
+                SelectionUpdateMode::Replace
+            };
+            self.graph_app
+                .enqueue_workbench_intent(WorkbenchIntent::UpdateTileSelection {
+                    tile_id,
+                    mode: tile_selection_mode,
                 });
+
+            if let Some(Tile::Pane(TileKind::Node(state))) = tiles.get(tile_id) {
+                let node_key = state.node;
+                if modifiers.shift {
+                    let ordered_nodes = Self::tab_group_node_order_for_tile(tiles, tile_id)
+                        .unwrap_or_else(|| vec![node_key]);
+                    let target_index = ordered_nodes
+                        .iter()
+                        .position(|key| *key == node_key)
+                        .unwrap_or(0);
+                    let anchor_key = self
+                        .graph_app
+                        .workspace
+                        .tab_selection_anchor
+                        .unwrap_or(node_key);
+                    let anchor_index = ordered_nodes
+                        .iter()
+                        .position(|key| *key == anchor_key)
+                        .unwrap_or(target_index);
+                    if !modifiers.ctrl {
+                        self.graph_app.workspace.selected_tab_nodes.clear();
+                    }
+                    if let Some(range) =
+                        inclusive_index_range(anchor_index, target_index, ordered_nodes.len())
+                    {
+                        self.graph_app
+                            .add_tab_selection_keys(range.map(|idx| ordered_nodes[idx]));
+                    }
+                } else if modifiers.ctrl {
+                    self.graph_app.toggle_tab_selection(node_key);
+                } else {
+                    self.graph_app.set_tab_selection_single(node_key);
+                    self.queue_post_render_intent(GraphIntent::SelectNode {
+                        key: node_key,
+                        multi_select: false,
+                    });
+                }
             }
         }
 
@@ -1299,6 +1305,22 @@ impl<'a> Behavior<TileKind> for GraphshellTileBehavior<'a> {
             if tab_multi_selected && !state.active {
                 bg_color = bg_color.linear_multiply(1.08);
                 stroke = Stroke::new(stroke.width.max(1.5), Color32::from_rgb(95, 170, 255));
+            }
+            let tile_selected = self
+                .graph_app
+                .workbench_tile_selection()
+                .selected_tile_ids
+                .contains(&tile_id);
+            if tile_selected {
+                bg_color = bg_color.linear_multiply(if state.active { 1.12 } else { 1.06 });
+                stroke = Stroke::new(
+                    stroke.width.max(if state.active { 2.0 } else { 1.75 }),
+                    if state.active {
+                        Color32::from_rgb(255, 210, 90)
+                    } else {
+                        Color32::from_rgb(120, 200, 255)
+                    },
+                );
             }
             ui.painter().rect(
                 tab_rect.shrink(0.5),

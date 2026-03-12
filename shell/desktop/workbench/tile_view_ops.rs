@@ -409,6 +409,187 @@ pub(crate) fn close_pane(tiles_tree: &mut Tree<TileKind>, pane_id: PaneId) -> bo
     true
 }
 
+fn ordered_selected_pane_tile_ids(
+    tiles_tree: &Tree<TileKind>,
+    selected_tile_ids: &HashSet<TileId>,
+    primary_tile_id: Option<TileId>,
+) -> Vec<TileId> {
+    let mut ordered: Vec<TileId> = tiles_tree
+        .tiles
+        .iter()
+        .filter_map(|(tile_id, tile)| {
+            (selected_tile_ids.contains(tile_id) && matches!(tile, Tile::Pane(_)))
+                .then_some(*tile_id)
+        })
+        .collect();
+    if let Some(primary_tile_id) = primary_tile_id
+        && let Some(index) = ordered
+            .iter()
+            .position(|tile_id| *tile_id == primary_tile_id)
+    {
+        let primary = ordered.remove(index);
+        ordered.insert(0, primary);
+    }
+    ordered
+}
+
+fn remove_child_from_container(
+    tiles_tree: &mut Tree<TileKind>,
+    parent_id: TileId,
+    child_id: TileId,
+) -> bool {
+    let Some(parent_tile) = tiles_tree.tiles.get_mut(parent_id) else {
+        return false;
+    };
+
+    match parent_tile {
+        Tile::Container(Container::Tabs(tabs)) => {
+            let Some(index) = tabs.children.iter().position(|child| *child == child_id) else {
+                return false;
+            };
+            let was_active = tabs.active == Some(child_id);
+            tabs.children.remove(index);
+            if was_active {
+                let next_active = tabs.children.get(index).copied().or_else(|| {
+                    index
+                        .checked_sub(1)
+                        .and_then(|left| tabs.children.get(left).copied())
+                });
+                tabs.active = None;
+                if let Some(next_active) = next_active {
+                    tabs.set_active(next_active);
+                }
+            }
+            true
+        }
+        Tile::Container(Container::Linear(linear)) => {
+            let Some(index) = linear.children.iter().position(|child| *child == child_id) else {
+                return false;
+            };
+            linear.children.remove(index);
+            true
+        }
+        Tile::Container(Container::Grid(_)) => false,
+        Tile::Pane(_) => false,
+    }
+}
+
+fn clear_container_children(tiles_tree: &mut Tree<TileKind>, container_id: TileId) {
+    let Some(container) = tiles_tree.tiles.get_mut(container_id) else {
+        return;
+    };
+    match container {
+        Tile::Container(Container::Tabs(tabs)) => {
+            tabs.children.clear();
+            tabs.active = None;
+        }
+        Tile::Container(Container::Linear(linear)) => {
+            linear.children.clear();
+        }
+        Tile::Container(Container::Grid(_)) | Tile::Pane(_) => {}
+    }
+}
+
+fn normalize_parent_after_child_removal(
+    tiles_tree: &mut Tree<TileKind>,
+    parent_id: TileId,
+) -> bool {
+    let (child_count, only_child) = match tiles_tree.tiles.get(parent_id) {
+        Some(Tile::Container(Container::Tabs(tabs))) => {
+            (tabs.children.len(), tabs.children.first().copied())
+        }
+        Some(Tile::Container(Container::Linear(linear))) => {
+            (linear.children.len(), linear.children.first().copied())
+        }
+        Some(Tile::Container(Container::Grid(_))) => return false,
+        _ => return true,
+    };
+
+    match child_count {
+        0 => {
+            if tiles_tree.root() == Some(parent_id) {
+                tiles_tree.root = None;
+            } else if let Some(grandparent_id) = tiles_tree.tiles.parent_of(parent_id) {
+                let _ = remove_child_from_container(tiles_tree, grandparent_id, parent_id);
+                let _ = normalize_parent_after_child_removal(tiles_tree, grandparent_id);
+            }
+            clear_container_children(tiles_tree, parent_id);
+            true
+        }
+        1 => {
+            let Some(only_child) = only_child else {
+                return false;
+            };
+            if tiles_tree.root() == Some(parent_id) {
+                tiles_tree.root = Some(only_child);
+            } else if let Some(grandparent_id) = tiles_tree.tiles.parent_of(parent_id) {
+                replace_child_in_parent(tiles_tree, grandparent_id, parent_id, only_child);
+            }
+            clear_container_children(tiles_tree, parent_id);
+            true
+        }
+        _ => true,
+    }
+}
+
+fn detach_tile_for_reparent(tiles_tree: &mut Tree<TileKind>, tile_id: TileId) -> bool {
+    if tiles_tree.root() == Some(tile_id) {
+        tiles_tree.root = None;
+        return true;
+    }
+    let Some(parent_id) = tiles_tree.tiles.parent_of(tile_id) else {
+        return false;
+    };
+    if !remove_child_from_container(tiles_tree, parent_id, tile_id) {
+        return false;
+    }
+    normalize_parent_after_child_removal(tiles_tree, parent_id)
+}
+
+pub(crate) fn group_selected_tiles(
+    tiles_tree: &mut Tree<TileKind>,
+    selected_tile_ids: &HashSet<TileId>,
+    primary_tile_id: Option<TileId>,
+) -> Option<(Vec<TileId>, TileId)> {
+    let ordered_selected =
+        ordered_selected_pane_tile_ids(tiles_tree, selected_tile_ids, primary_tile_id);
+    if ordered_selected.len() < 2 {
+        return None;
+    }
+
+    for tile_id in &ordered_selected {
+        if !matches!(tiles_tree.tiles.get(*tile_id), Some(Tile::Pane(_))) {
+            return None;
+        }
+    }
+    for tile_id in &ordered_selected {
+        if !detach_tile_for_reparent(tiles_tree, *tile_id) {
+            return None;
+        }
+    }
+
+    let primary_grouped_tile_id = ordered_selected[0];
+    let tile_group_id = tiles_tree.tiles.insert_tab_tile(ordered_selected.clone());
+    if let Some(Tile::Container(Container::Tabs(tabs))) = tiles_tree.tiles.get_mut(tile_group_id) {
+        tabs.set_active(primary_grouped_tile_id);
+    }
+
+    match tiles_tree.root() {
+        Some(root_id) => {
+            let split_root = tiles_tree
+                .tiles
+                .insert_horizontal_tile(vec![root_id, tile_group_id]);
+            tiles_tree.root = Some(split_root);
+        }
+        None => {
+            tiles_tree.root = Some(tile_group_id);
+        }
+    }
+
+    let _ = tiles_tree.make_active(|tile_id, _| tile_id == primary_grouped_tile_id);
+    Some((ordered_selected, primary_grouped_tile_id))
+}
+
 fn replace_child_in_parent(
     tiles_tree: &mut Tree<TileKind>,
     parent_id: TileId,

@@ -312,6 +312,7 @@ pub(crate) fn run_tile_render_pass(args: TileRenderPassArgs<'_>) -> Vec<GraphInt
     if repaired_active_tile {
         log::debug!("tile_render_pass: repaired empty active tile selection");
     }
+    graph_app.prune_workbench_tile_selection(tiles_tree);
     log::debug!(
         "tile_render_pass: active tile count after handoff {}",
         tiles_tree.active_tiles().len()
