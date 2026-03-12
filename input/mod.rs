@@ -10,8 +10,8 @@
 use crate::app::{
     EdgeCommand, GraphBrowserApp, GraphIntent, GraphMutation, ViewAction, WorkbenchIntent,
 };
-use crate::shell::desktop::runtime::registries::phase2_describe_input_bindings;
 use crate::shell::desktop::runtime::registries::input::{InputBinding, action_id};
+use crate::shell::desktop::runtime::registries::phase2_describe_input_bindings;
 use crate::util::{GraphshellSettingsPath, VersoAddress};
 use egui::Key;
 
@@ -103,7 +103,8 @@ fn key_binding_pressed(input: &egui::InputState, binding: &InputBinding) -> bool
                             Key::Num0
                         }
                     };
-                    input.key_pressed(expected) || (expected == Key::Plus && input.key_pressed(Key::Equals))
+                    input.key_pressed(expected)
+                        || (expected == Key::Plus && input.key_pressed(Key::Equals))
                 }
                 crate::shell::desktop::runtime::registries::input::Keycode::Char(ch) => {
                     let expected = match ch.to_ascii_lowercase() {
@@ -146,7 +147,10 @@ fn action_binding_pressed(
 }
 
 /// Collect keyboard actions from the egui context (input detection only).
-pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp) -> KeyboardActions {
+pub(crate) fn collect_actions(
+    ctx: &egui::Context,
+    _graph_app: &GraphBrowserApp,
+) -> KeyboardActions {
     // Don't handle shortcuts while egui is actively capturing keyboard input
     // (for example, URL bar text editing).
     let keyboard_captured_by_egui = ctx.wants_keyboard_input();
@@ -178,33 +182,17 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
             return;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::TOGGLE_PHYSICS,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::TOGGLE_PHYSICS, &binding_descriptors) {
             actions.toggle_physics = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::ZOOM_IN,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::ZOOM_IN, &binding_descriptors) {
             actions.zoom_in = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::graph::ZOOM_OUT,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::ZOOM_OUT, &binding_descriptors) {
             actions.zoom_out = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::graph::ZOOM_RESET,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::ZOOM_RESET, &binding_descriptors) {
             actions.zoom_reset = true;
         }
 
@@ -230,11 +218,7 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
             actions.toggle_history_manager = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::NODE_NEW,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::NODE_NEW, &binding_descriptors) {
             actions.create_node = true;
         }
 
@@ -254,41 +238,21 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
             actions.toggle_camera_position_fit_lock = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::REHEAT_PHYSICS,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::REHEAT_PHYSICS, &binding_descriptors) {
             actions.reheat_physics = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::EDGE_CONNECT_PAIR,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::EDGE_CONNECT_PAIR, &binding_descriptors) {
             actions.connect_selected_pair = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::graph::EDGE_CONNECT_BOTH,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::EDGE_CONNECT_BOTH, &binding_descriptors) {
             actions.connect_both_directions = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::graph::EDGE_REMOVE_USER,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::EDGE_REMOVE_USER, &binding_descriptors) {
             actions.remove_user_edge = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::NODE_PIN_SELECTED,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::NODE_PIN_SELECTED, &binding_descriptors) {
             actions.pin_selected = true;
         }
         if action_binding_pressed(
@@ -298,19 +262,11 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
         ) {
             actions.unpin_selected = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::graph::NODE_PIN_TOGGLE,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::NODE_PIN_TOGGLE, &binding_descriptors) {
             actions.toggle_pin_primary = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::workbench::HELP_OPEN,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::workbench::HELP_OPEN, &binding_descriptors) {
             actions.toggle_help_panel = true;
         }
         if action_binding_pressed(
@@ -320,48 +276,24 @@ pub(crate) fn collect_actions(ctx: &egui::Context, _graph_app: &GraphBrowserApp)
         ) {
             actions.toggle_command_palette = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::graph::RADIAL_MENU_OPEN,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::RADIAL_MENU_OPEN, &binding_descriptors) {
             actions.toggle_radial_menu = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::NODE_DELETE,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::NODE_DELETE, &binding_descriptors) {
             actions.delete_selected = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::graph::CLEAR,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::CLEAR, &binding_descriptors) {
             actions.clear_graph = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::workbench::UNDO,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::workbench::UNDO, &binding_descriptors) {
             actions.undo = true;
         }
-        if action_binding_pressed(
-            i,
-            action_id::workbench::REDO,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::workbench::REDO, &binding_descriptors) {
             actions.redo = true;
         }
 
-        if action_binding_pressed(
-            i,
-            action_id::graph::SELECT_ALL,
-            &binding_descriptors,
-        ) {
+        if action_binding_pressed(i, action_id::graph::SELECT_ALL, &binding_descriptors) {
             actions.select_all = true;
         }
 

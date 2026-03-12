@@ -75,6 +75,10 @@ pub struct GraphNodeShape {
     #[serde(default)]
     workspace_membership_names: Vec<String>,
     #[serde(default)]
+    semantic_badges: Vec<String>,
+    #[serde(default)]
+    semantic_badge_overflow: usize,
+    #[serde(default)]
     is_pinned: bool,
     #[serde(default)]
     is_crashed: bool,
@@ -107,6 +111,8 @@ impl From<NodeProps<Node>> for GraphNodeShape {
             favicon_handle: None,
             workspace_membership_count: 0,
             workspace_membership_names: Vec::new(),
+            semantic_badges: Vec::new(),
+            semantic_badge_overflow: 0,
             is_pinned: node_props.payload.is_pinned,
             is_crashed: false,
             selection_role: if node_props.selected {
@@ -163,6 +169,7 @@ impl DisplayNode<Node, EdgePayload, GraphDirection, GraphIndex> for GraphNodeSha
         }
         self.push_workspace_membership_badge(ctx, circle_center, circle_radius, &mut res);
         self.push_pinned_indicator(circle_center, circle_radius, &mut res);
+        self.push_semantic_badges(ctx, circle_center, circle_radius, &mut res);
         self.push_secondary_selection_halo(circle_center, circle_radius, &mut res);
 
         let Some(label_text) = self.label_text_for_zoom(ctx.meta.zoom) else {
@@ -254,6 +261,13 @@ impl GraphNodeShape {
         self.workspace_membership_names = names;
     }
 
+    fn set_semantic_badges(&mut self, badges: Vec<String>) {
+        const BADGE_BUDGET: usize = 1;
+
+        self.semantic_badge_overflow = badges.len().saturating_sub(BADGE_BUDGET);
+        self.semantic_badges = badges.into_iter().take(BADGE_BUDGET).collect();
+    }
+
     fn set_selection_role(&mut self, role: SelectionVisualRole) {
         self.selection_role = role;
     }
@@ -316,6 +330,69 @@ impl GraphNodeShape {
             }
             .into(),
         );
+    }
+
+    fn push_semantic_badges(
+        &self,
+        ctx: &DrawContext,
+        circle_center: Pos2,
+        circle_radius: f32,
+        shapes: &mut Vec<Shape>,
+    ) {
+        if self.semantic_badges.is_empty() && self.semantic_badge_overflow == 0 {
+            return;
+        }
+
+        let scale = (circle_radius / 15.0).clamp(0.7, 1.8);
+        let font = FontId::new((8.5 * scale).clamp(8.0, 16.0), FontFamily::Monospace);
+        let mut next_left = circle_center.x - circle_radius * 1.1;
+        let badge_center_y = circle_center.y + circle_radius * 0.95;
+
+        for badge in &self.semantic_badges {
+            let galley = ctx.ctx.fonts_mut(|f| {
+                f.layout_no_wrap(badge.clone(), font.clone(), Color32::from_gray(245))
+            });
+            let padding = Vec2::new(4.0 * scale, 2.0 * scale);
+            let badge_size = galley.size() + padding * 2.0;
+            let badge_rect = Rect::from_min_size(
+                Pos2::new(
+                    next_left - badge_size.x,
+                    badge_center_y - badge_size.y * 0.5,
+                ),
+                badge_size,
+            );
+            shapes.push(Shape::rect_filled(
+                badge_rect,
+                4.0 * scale,
+                Color32::from_rgba_unmultiplied(34, 44, 64, 224),
+            ));
+            let badge_pos = Pos2::new(badge_rect.min.x + padding.x, badge_rect.min.y + padding.y);
+            shapes.push(TextShape::new(badge_pos, galley, Color32::from_gray(245)).into());
+            next_left = badge_rect.min.x - 4.0 * scale;
+        }
+
+        if self.semantic_badge_overflow > 0 {
+            let overflow_text = format!("+{}", self.semantic_badge_overflow);
+            let galley = ctx
+                .ctx
+                .fonts_mut(|f| f.layout_no_wrap(overflow_text, font, Color32::from_gray(245)));
+            let padding = Vec2::new(4.0 * scale, 2.0 * scale);
+            let badge_size = galley.size() + padding * 2.0;
+            let badge_rect = Rect::from_min_size(
+                Pos2::new(
+                    next_left - badge_size.x,
+                    badge_center_y - badge_size.y * 0.5,
+                ),
+                badge_size,
+            );
+            shapes.push(Shape::rect_filled(
+                badge_rect,
+                4.0 * scale,
+                Color32::from_rgba_unmultiplied(24, 24, 24, 216),
+            ));
+            let badge_pos = Pos2::new(badge_rect.min.x + padding.x, badge_rect.min.y + padding.y);
+            shapes.push(TextShape::new(badge_pos, galley, Color32::from_gray(245)).into());
+        }
     }
 
     fn push_secondary_selection_halo(
@@ -976,6 +1053,7 @@ impl EguiGraphState {
         primary_selected: Option<NodeKey>,
         crashed_nodes: &HashSet<NodeKey>,
         memberships_by_uuid: &HashMap<Uuid, Vec<String>>,
+        semantic_badges_by_key: &HashMap<NodeKey, Vec<String>>,
     ) -> Self {
         Self::from_graph_with_memberships_projection(
             graph,
@@ -983,6 +1061,7 @@ impl EguiGraphState {
             primary_selected,
             crashed_nodes,
             memberships_by_uuid,
+            semantic_badges_by_key,
             true,
         )
     }
@@ -993,6 +1072,7 @@ impl EguiGraphState {
         primary_selected: Option<NodeKey>,
         crashed_nodes: &HashSet<NodeKey>,
         memberships_by_uuid: &HashMap<Uuid, Vec<String>>,
+        semantic_badges_by_key: &HashMap<NodeKey, Vec<String>>,
         represents_full_graph: bool,
     ) -> Self {
         let mut state = Self::from_graph_with_visual_state_projection(
@@ -1007,6 +1087,12 @@ impl EguiGraphState {
                 egui_node.display_mut().set_workspace_memberships(
                     memberships_by_uuid
                         .get(&node.id)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                egui_node.display_mut().set_semantic_badges(
+                    semantic_badges_by_key
+                        .get(&key)
                         .cloned()
                         .unwrap_or_default(),
                 );
@@ -1342,6 +1428,7 @@ mod tests {
             None,
             &HashSet::new(),
             &memberships,
+            &HashMap::new(),
         );
         let node = state.graph.node(key).unwrap();
         let shape = node.display();
@@ -1369,6 +1456,7 @@ mod tests {
             None,
             &HashSet::new(),
             &memberships,
+            &HashMap::new(),
         );
         let node = state.graph.node(key).unwrap();
         let shape = node.display();
@@ -1386,6 +1474,28 @@ mod tests {
         let state = EguiGraphState::from_graph(&graph, &HashSet::new());
         let shape = state.graph.node(key).unwrap().display();
         assert!(shape.is_pinned);
+    }
+
+    #[test]
+    fn semantic_badges_are_budgeted_to_one_plus_overflow() {
+        let mut graph = Graph::new();
+        let key = graph.add_node("https://example.com".to_string(), Point2D::new(0.0, 0.0));
+
+        let state = EguiGraphState::from_graph_with_memberships(
+            &graph,
+            &HashSet::new(),
+            None,
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashMap::from([(
+                key,
+                vec!["51".to_string(), "#pin".to_string(), "#focus".to_string()],
+            )]),
+        );
+
+        let shape = state.graph.node(key).unwrap().display();
+        assert_eq!(shape.semantic_badges, vec!["51".to_string()]);
+        assert_eq!(shape.semantic_badge_overflow, 2);
     }
 
     #[test]

@@ -21,6 +21,7 @@ use crate::graph::apply::{
     GraphDelta, GraphDeltaResult, apply_graph_delta as apply_domain_graph_delta,
 };
 use crate::graph::egui_adapter::EguiGraphState;
+use crate::graph::physics::{GraphPhysicsState, default_graph_physics_state};
 use crate::graph::{EdgeKind, EdgeType, Graph, NavigationTrigger, NodeKey, Traversal};
 use crate::registries::atomic::diagnostics::ChannelConfig;
 use crate::registries::atomic::knowledge::SemanticClassVector;
@@ -59,7 +60,6 @@ use crate::shell::desktop::runtime::registries::{
 use crate::util::{
     GraphAddress, GraphshellSettingsPath, NodeAddress, NoteAddress, VersoAddress, VersoViewTarget,
 };
-use egui_graphs::FruchtermanReingoldWithCenterGravityState;
 use euclid::default::Point2D;
 use log::{debug, warn};
 // Platform-agnostic renderer handle.
@@ -255,6 +255,9 @@ mod ux_navigation;
 #[path = "app/startup_persistence.rs"]
 mod startup_persistence;
 
+#[path = "app/storage_interop/mod.rs"]
+mod storage_interop;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsToolPage {
     #[default]
@@ -290,6 +293,8 @@ pub struct LensConfig {
     pub lens_id: Option<String>,
     pub physics: PhysicsProfile,
     pub layout: LayoutMode,
+    #[serde(default = "crate::app::graph_layout::default_free_layout_algorithm_id")]
+    pub layout_algorithm_id: String,
     #[serde(default, deserialize_with = "deserialize_optional_theme_data")]
     pub theme: Option<ThemeData>,
     pub filters: Vec<String>,
@@ -302,6 +307,7 @@ impl Default for LensConfig {
             lens_id: None,
             physics: PhysicsProfile::default(),
             layout: LayoutMode::Free,
+            layout_algorithm_id: crate::app::graph_layout::default_free_layout_algorithm_id(),
             theme: None,
             filters: Vec::new(),
         }
@@ -550,6 +556,33 @@ pub enum SearchDisplayMode {
     Filter,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphSearchOrigin {
+    Manual,
+    SemanticTag,
+    AnchorSlice,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphSearchHistoryEntry {
+    pub query: String,
+    pub filter_mode: bool,
+    pub origin: GraphSearchOrigin,
+    pub neighborhood_anchor: Option<NodeKey>,
+    pub neighborhood_depth: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphSearchRequest {
+    pub query: String,
+    pub filter_mode: bool,
+    pub origin: GraphSearchOrigin,
+    pub neighborhood_anchor: Option<NodeKey>,
+    pub neighborhood_depth: u8,
+    pub record_history: bool,
+    pub toast_message: Option<String>,
+}
+
 /// Deterministic mutation intent boundary for graph state updates.
 #[derive(Debug, Clone)]
 pub enum EdgeCommand {
@@ -713,6 +746,17 @@ impl_display_from_str!(RadialMenuShortcut {
 });
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextCommandSurfacePreference {
+    RadialPalette,
+    ContextPalette,
+}
+
+impl_display_from_str!(ContextCommandSurfacePreference {
+    ContextCommandSurfacePreference::RadialPalette => "radial-palette",
+    ContextCommandSurfacePreference::ContextPalette => "context-palette",
+});
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyboardPanInputMode {
     WasdAndArrows,
     ArrowsOnly,
@@ -757,7 +801,18 @@ impl_display_from_str!(OmnibarNonAtOrderPreset {
 pub enum WorkbenchIntent {
     OpenCommandPalette,
     ToggleCommandPalette,
+    ToggleHelpPanel,
+    ToggleRadialMenu,
     CycleFocusRegion,
+    SelectTile {
+        tile_id: egui_tiles::TileId,
+    },
+    UpdateTileSelection {
+        tile_id: egui_tiles::TileId,
+        mode: SelectionUpdateMode,
+    },
+    ClearTileSelection,
+    GroupSelectedTiles,
     OpenToolPane {
         kind: crate::shell::desktop::workbench::pane_model::ToolPaneState,
     },
@@ -819,6 +874,12 @@ pub enum WorkbenchIntent {
     },
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct WorkbenchTileSelectionState {
+    pub selected_tile_ids: HashSet<egui_tiles::TileId>,
+    pub primary_tile_id: Option<egui_tiles::TileId>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum UndoBoundaryReason {
     #[default]
@@ -841,6 +902,9 @@ pub struct ReducerDispatchContext {
 pub struct AppServices {
     persistence: Option<GraphStore>,
     sync_command_tx: Option<tokio_mpsc::Sender<crate::mods::native::verse::SyncCommand>>,
+    client_storage_manager:
+        Option<crate::mods::native::verso::client_storage::ClientStorageManagerHandle>,
+    storage_interop_coordinator: Option<storage_interop::StorageInteropCoordinatorHandle>,
 }
 
 impl AppServices {
@@ -848,6 +912,8 @@ impl AppServices {
         Self {
             persistence,
             sync_command_tx: None,
+            client_storage_manager: None,
+            storage_interop_coordinator: None,
         }
     }
 }
@@ -858,7 +924,7 @@ pub struct GraphWorkspace {
     pub domain: DomainState,
 
     /// Force-directed layout state owned by app/runtime UI controls.
-    pub physics: FruchtermanReingoldWithCenterGravityState,
+    pub physics: GraphPhysicsState,
 
     /// Physics running state before user drag/pan interaction began.
     physics_running_before_interaction: Option<bool>,
@@ -873,6 +939,8 @@ pub struct GraphWorkspace {
     /// Bidirectional mapping between renderer instances and graph nodes
     webview_to_node: HashMap<RendererId, NodeKey>,
     node_to_webview: HashMap<NodeKey, RendererId>,
+    /// Explicit embedded-content focus authority for host/content routing.
+    pub embedded_content_focus_webview: Option<RendererId>,
     /// Runtime-only block/backoff metadata keyed by graph node.
     runtime_block_state: HashMap<NodeKey, RuntimeBlockState>,
     /// Non-authoritative runtime caches for data-plane acceleration.
@@ -910,6 +978,8 @@ pub struct GraphWorkspace {
 
     /// Whether the command palette is open
     pub show_command_palette: bool,
+    /// Whether the command palette is in contextual list mode.
+    pub command_palette_contextual_mode: bool,
     /// Whether the radial command UI is open.
     pub show_radial_menu: bool,
 
@@ -921,6 +991,8 @@ pub struct GraphWorkspace {
     pub help_panel_shortcut: HelpPanelShortcut,
     /// Shortcut binding for radial menu.
     pub radial_menu_shortcut: RadialMenuShortcut,
+    /// Preferred contextual command surface for secondary-click invocation.
+    pub context_command_surface_preference: ContextCommandSurfacePreference,
     /// Keyboard pan speed for graph camera controls.
     pub keyboard_pan_step: f32,
     /// Keyboard pan input mode (WASD + arrows, or arrows-only).
@@ -945,6 +1017,20 @@ pub struct GraphWorkspace {
     pub hovered_graph_node: Option<NodeKey>,
     /// Graph search display mode (context-preserving highlight vs strict filter).
     pub search_display_mode: SearchDisplayMode,
+    /// Current graph search query mirrored from the UI search flow.
+    pub active_graph_search_query: String,
+    /// Current graph search match count mirrored from the UI search flow.
+    pub active_graph_search_match_count: usize,
+    /// Source of the active graph search query.
+    pub active_graph_search_origin: GraphSearchOrigin,
+    /// Optional node whose undirected neighborhood should be included in the active search slice.
+    pub active_graph_search_neighborhood_anchor: Option<NodeKey>,
+    /// Hop depth for the active neighborhood expansion when an anchor is present.
+    pub active_graph_search_neighborhood_depth: u8,
+    /// Recent graph search states for breadcrumb restore.
+    pub graph_search_history: Vec<GraphSearchHistoryEntry>,
+    /// Optional pinned graph search slice for quick restore.
+    pub pinned_graph_search: Option<GraphSearchHistoryEntry>,
     /// Graph-owned hierarchical projection runtime state for file-tree navigation.
     ///
     /// This is semantic view-projection state and must not be owned by workbench
@@ -1082,6 +1168,7 @@ pub struct GraphWorkspace {
 /// Main application state (workspace + runtime services).
 pub struct GraphBrowserApp {
     pub workspace: GraphWorkspace,
+    workbench_tile_selection: WorkbenchTileSelectionState,
     services: AppServices,
 }
 
@@ -1125,6 +1212,8 @@ impl GraphBrowserApp {
         "workspace:settings-help-panel-shortcut";
     pub const SETTINGS_RADIAL_MENU_SHORTCUT_NAME: &'static str =
         "workspace:settings-radial-menu-shortcut";
+    pub const SETTINGS_CONTEXT_COMMAND_SURFACE_NAME: &'static str =
+        "workspace:settings-context-command-surface";
     pub const SETTINGS_KEYBOARD_PAN_STEP_NAME: &'static str =
         "workspace:settings-keyboard-pan-step";
     pub const SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME: &'static str =
@@ -1172,21 +1261,8 @@ impl GraphBrowserApp {
     pub const TAG_PIN: &'static str = "#pin";
     pub const TAG_STARRED: &'static str = "#starred";
 
-    pub fn default_physics_state() -> FruchtermanReingoldWithCenterGravityState {
-        let mut state = FruchtermanReingoldWithCenterGravityState::default();
-        // Compact, less jittery default:
-        // - lower repulsion and ideal distance to avoid flyaway spread
-        // - higher attraction to pull distant components back together
-        // - lower step magnitude for more granular, predictable motion
-        state.base.c_repulse = 0.28;
-        state.base.c_attract = 0.22;
-        state.base.k_scale = 0.42;
-        state.base.dt = 0.03;
-        state.base.max_step = 3.0;
-        state.base.damping = 0.55;
-        // Keep the cluster attracted toward viewport center.
-        state.extras.0.params.c = 0.18;
-        state
+    pub fn default_physics_state() -> GraphPhysicsState {
+        default_graph_physics_state()
     }
 
     /// Create a new graph browser application
@@ -1213,6 +1289,7 @@ impl GraphBrowserApp {
                 selection_by_scope: HashMap::new(),
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
+                embedded_content_focus_webview: None,
                 runtime_block_state: HashMap::new(),
                 runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
                 active_webview_nodes: Vec::new(),
@@ -1226,11 +1303,13 @@ impl GraphBrowserApp {
                 settings_tool_page: SettingsToolPage::General,
                 show_help_panel: false,
                 show_command_palette: false,
+                command_palette_contextual_mode: false,
                 show_radial_menu: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
                 radial_menu_shortcut: RadialMenuShortcut::F3,
+                context_command_surface_preference: ContextCommandSurfacePreference::RadialPalette,
                 keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                 keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
                 camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
@@ -1243,6 +1322,13 @@ impl GraphBrowserApp {
                 tab_selection_anchor: None,
                 hovered_graph_node: None,
                 search_display_mode: SearchDisplayMode::Highlight,
+                active_graph_search_query: String::new(),
+                active_graph_search_match_count: 0,
+                active_graph_search_origin: GraphSearchOrigin::Manual,
+                active_graph_search_neighborhood_anchor: None,
+                active_graph_search_neighborhood_depth: 1,
+                graph_search_history: Vec::new(),
+                pinned_graph_search: None,
                 file_tree_projection_state: FileTreeProjectionState::default(),
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
@@ -1297,6 +1383,7 @@ impl GraphBrowserApp {
                 semantic_tags: HashMap::new(),
                 suggested_semantic_tags: HashMap::new(),
             },
+            workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(persistence),
         };
         app.load_persisted_ui_settings();
@@ -1318,6 +1405,7 @@ impl GraphBrowserApp {
                 selection_by_scope: HashMap::new(),
                 webview_to_node: HashMap::new(),
                 node_to_webview: HashMap::new(),
+                embedded_content_focus_webview: None,
                 runtime_block_state: HashMap::new(),
                 runtime_caches: RuntimeCaches::new(CachePolicy::default(), None),
                 active_webview_nodes: Vec::new(),
@@ -1331,11 +1419,13 @@ impl GraphBrowserApp {
                 settings_tool_page: SettingsToolPage::General,
                 show_help_panel: false,
                 show_command_palette: false,
+                command_palette_contextual_mode: false,
                 show_radial_menu: false,
                 toast_anchor_preference: ToastAnchorPreference::BottomRight,
                 command_palette_shortcut: CommandPaletteShortcut::F2,
                 help_panel_shortcut: HelpPanelShortcut::F1OrQuestion,
                 radial_menu_shortcut: RadialMenuShortcut::F3,
+                context_command_surface_preference: ContextCommandSurfacePreference::RadialPalette,
                 keyboard_pan_step: Self::DEFAULT_KEYBOARD_PAN_STEP,
                 keyboard_pan_input_mode: KeyboardPanInputMode::WasdAndArrows,
                 camera_pan_inertia_enabled: Self::DEFAULT_CAMERA_PAN_INERTIA_ENABLED,
@@ -1348,6 +1438,13 @@ impl GraphBrowserApp {
                 tab_selection_anchor: None,
                 hovered_graph_node: None,
                 search_display_mode: SearchDisplayMode::Highlight,
+                active_graph_search_query: String::new(),
+                active_graph_search_match_count: 0,
+                active_graph_search_origin: GraphSearchOrigin::Manual,
+                active_graph_search_neighborhood_anchor: None,
+                active_graph_search_neighborhood_depth: 1,
+                graph_search_history: Vec::new(),
+                pinned_graph_search: None,
                 file_tree_projection_state: FileTreeProjectionState::default(),
                 highlighted_graph_edge: None,
                 pending_workbench_intents: Vec::new(),
@@ -1401,6 +1498,7 @@ impl GraphBrowserApp {
                 semantic_tags: HashMap::new(),
                 suggested_semantic_tags: HashMap::new(),
             },
+            workbench_tile_selection: WorkbenchTileSelectionState::default(),
             services: AppServices::new(None),
         }
     }
@@ -2152,11 +2250,15 @@ impl GraphBrowserApp {
             | GraphIntent::RebuildFileTreeProjection => {
                 unreachable!("workspace-only intents are handled before side-effect reducer match")
             }
-            GraphIntent::ToggleHelpPanel => self.toggle_help_panel(),
+            GraphIntent::ToggleHelpPanel => {
+                self.enqueue_workbench_intent(WorkbenchIntent::ToggleHelpPanel);
+            }
             GraphIntent::ToggleCommandPalette => {
                 self.enqueue_workbench_intent(WorkbenchIntent::ToggleCommandPalette);
             }
-            GraphIntent::ToggleRadialMenu => self.toggle_radial_menu(),
+            GraphIntent::ToggleRadialMenu => {
+                self.enqueue_workbench_intent(WorkbenchIntent::ToggleRadialMenu);
+            }
             GraphIntent::TraverseBack => {
                 let target = BrowserCommandTarget::ChromeProjection {
                     fallback_node: self.focused_selection().primary(),
@@ -2260,14 +2362,16 @@ impl GraphBrowserApp {
             }
             GraphIntent::SetInteracting { interacting } => self.set_interacting(interacting),
             GraphIntent::SetViewLens { view_id, lens } => {
+                let requested_layout_algorithm_id = lens.layout_algorithm_id.clone();
                 let lens = self.with_registry_lens_defaults(lens);
-                let lens = if let Some(lens_id) = lens.lens_id.as_deref() {
+                let mut lens = if let Some(lens_id) = lens.lens_id.as_deref() {
                     crate::shell::desktop::runtime::registries::phase2_resolve_lens(lens_id)
                 } else if lens.name.starts_with("lens:") {
                     crate::shell::desktop::runtime::registries::phase2_resolve_lens(&lens.name)
                 } else {
                     lens
                 };
+                lens.layout_algorithm_id = requested_layout_algorithm_id;
                 if let Some(view) = self.workspace.views.get_mut(&view_id) {
                     view.lens = lens;
                 }
@@ -2651,9 +2755,7 @@ impl GraphBrowserApp {
                         mime_hint,
                     });
                 }
-                if updated
-                    && let Some(node) = self.workspace.domain.graph.get_node(key)
-                {
+                if updated && let Some(node) = self.workspace.domain.graph.get_node(key) {
                     crate::shell::desktop::runtime::registries::phase3_publish_navigation_mime_resolved(
                         key,
                         &node.url,
@@ -2745,6 +2847,28 @@ impl GraphBrowserApp {
         tx: Option<tokio_mpsc::Sender<crate::mods::native::verse::SyncCommand>>,
     ) {
         self.services.sync_command_tx = tx;
+    }
+
+    pub fn set_client_storage_manager(
+        &mut self,
+        manager: Option<crate::mods::native::verso::client_storage::ClientStorageManagerHandle>,
+    ) {
+        self.services.client_storage_manager = manager;
+    }
+
+    pub fn set_storage_interop_coordinator(
+        &mut self,
+        coordinator: Option<storage_interop::StorageInteropCoordinatorHandle>,
+    ) {
+        self.services.storage_interop_coordinator = coordinator;
+    }
+
+    pub fn has_client_storage_manager(&self) -> bool {
+        self.services.client_storage_manager.is_some()
+    }
+
+    pub fn has_storage_interop_coordinator(&self) -> bool {
+        self.services.storage_interop_coordinator.is_some()
     }
 
     pub fn request_sync_all_trusted_peers(&self, workspace_id: &str) -> Result<usize, String> {
@@ -2883,6 +3007,7 @@ impl GraphBrowserApp {
             || name == Self::SETTINGS_COMMAND_PALETTE_SHORTCUT_NAME
             || name == Self::SETTINGS_HELP_PANEL_SHORTCUT_NAME
             || name == Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME
+            || name == Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_STEP_NAME
             || name == Self::SETTINGS_KEYBOARD_PAN_INPUT_MODE_NAME
             || name == Self::SETTINGS_CAMERA_PAN_INERTIA_ENABLED_NAME
@@ -2944,6 +3069,18 @@ impl GraphBrowserApp {
         self.save_radial_menu_shortcut();
     }
 
+    pub fn context_command_surface_preference(&self) -> ContextCommandSurfacePreference {
+        self.workspace.context_command_surface_preference
+    }
+
+    pub fn set_context_command_surface_preference(
+        &mut self,
+        preference: ContextCommandSurfacePreference,
+    ) {
+        self.workspace.context_command_surface_preference = preference;
+        self.save_context_command_surface_preference();
+    }
+
     pub fn keyboard_pan_step(&self) -> f32 {
         crate::shell::desktop::runtime::registries::phase3_resolve_active_canvas_profile()
             .profile
@@ -2997,9 +3134,7 @@ impl GraphBrowserApp {
 
     pub fn set_lasso_binding_preference(&mut self, binding: CanvasLassoBinding) {
         self.workspace.lasso_binding_preference = binding;
-        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(
-            binding,
-        );
+        crate::shell::desktop::runtime::registries::phase3_set_active_canvas_lasso_binding(binding);
         self.save_lasso_binding_preference();
     }
 
@@ -3030,7 +3165,8 @@ impl GraphBrowserApp {
                 .into_iter()
                 .find(|entry| entry.action_id == action_id && entry.context == context);
             descriptor.as_ref().is_none_or(|entry| {
-                entry.default_binding
+                entry
+                    .default_binding
                     .as_ref()
                     .is_none_or(|default_binding| {
                         !(remap.context == context && remap.old == *default_binding)
@@ -3075,6 +3211,16 @@ impl GraphBrowserApp {
         self.save_workspace_layout_json(
             Self::SETTINGS_RADIAL_MENU_SHORTCUT_NAME,
             &self.workspace.radial_menu_shortcut.to_string(),
+        );
+    }
+
+    fn save_context_command_surface_preference(&mut self) {
+        self.save_workspace_layout_json(
+            Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME,
+            &self
+                .workspace
+                .context_command_surface_preference
+                .to_string(),
         );
     }
 
@@ -3278,11 +3424,12 @@ impl GraphBrowserApp {
     pub fn set_default_registry_physics_id(&mut self, physics_id: Option<&str>) {
         let normalized = Self::normalize_optional_registry_id(physics_id.map(str::to_owned));
         self.workspace.default_registry_physics_id = normalized.clone();
-        let resolution = crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
-            normalized
-                .as_deref()
-                .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT),
-        );
+        let resolution =
+            crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
+                normalized
+                    .as_deref()
+                    .unwrap_or(crate::registries::atomic::lens::PHYSICS_ID_DEFAULT),
+            );
         self.apply_physics_profile(&resolution.profile);
         self.save_workspace_layout_json(
             Self::SETTINGS_REGISTRY_PHYSICS_ID_NAME,
@@ -3387,6 +3534,15 @@ impl GraphBrowserApp {
                 warn!("Ignoring invalid persisted radial-menu shortcut: '{raw}'");
             }
         }
+        if let Some(raw) =
+            self.load_workspace_layout_json(Self::SETTINGS_CONTEXT_COMMAND_SURFACE_NAME)
+        {
+            if let Ok(preference) = raw.parse::<ContextCommandSurfacePreference>() {
+                self.workspace.context_command_surface_preference = preference;
+            } else {
+                warn!("Ignoring invalid persisted context-command surface preference: '{raw}'");
+            }
+        }
         if let Some(raw) = self.load_workspace_layout_json(Self::SETTINGS_KEYBOARD_PAN_STEP_NAME) {
             if let Ok(step) = raw.trim().parse::<f32>() {
                 self.workspace.keyboard_pan_step = step.clamp(1.0, 200.0);
@@ -3489,9 +3645,10 @@ impl GraphBrowserApp {
                 );
             self.apply_physics_profile(&resolution.profile);
         } else {
-            let resolution = crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
-                crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
-            );
+            let resolution =
+                crate::shell::desktop::runtime::registries::phase3_set_active_physics_profile(
+                    crate::registries::atomic::lens::PHYSICS_ID_DEFAULT,
+                );
             self.apply_physics_profile(&resolution.profile);
         }
         if let Some(profile_id) = canvas_profile_id.as_deref() {
@@ -3599,6 +3756,7 @@ impl GraphBrowserApp {
             .ok_or_else(|| "Persistence is not enabled".to_string())?
             .delete_workspace_layout(name)
             .map_err(|e| e.to_string())?;
+        self.remove_named_workbench_frame_graph_representation(name);
         self.workspace
             .node_last_active_workspace
             .retain(|_, (_, workspace_name)| workspace_name != name);
@@ -3771,6 +3929,13 @@ impl GraphBrowserApp {
         self.workspace.semantic_tags.clear();
         self.workspace.semantic_index.clear();
         self.workspace.semantic_index_dirty = true;
+        self.workspace.active_graph_search_query.clear();
+        self.workspace.active_graph_search_match_count = 0;
+        self.workspace.active_graph_search_origin = GraphSearchOrigin::Manual;
+        self.workspace.active_graph_search_neighborhood_anchor = None;
+        self.workspace.active_graph_search_neighborhood_depth = 1;
+        self.workspace.graph_search_history.clear();
+        self.workspace.pinned_graph_search = None;
     }
 
     /// List named full-graph snapshots.
@@ -3821,6 +3986,13 @@ impl GraphBrowserApp {
         self.workspace.semantic_tags.clear();
         self.workspace.semantic_index.clear();
         self.workspace.semantic_index_dirty = true;
+        self.workspace.active_graph_search_query.clear();
+        self.workspace.active_graph_search_match_count = 0;
+        self.workspace.active_graph_search_origin = GraphSearchOrigin::Manual;
+        self.workspace.active_graph_search_neighborhood_anchor = None;
+        self.workspace.active_graph_search_neighborhood_depth = 1;
+        self.workspace.graph_search_history.clear();
+        self.workspace.pinned_graph_search = None;
         self.workspace.last_session_workspace_layout_hash = None;
         self.workspace.last_session_workspace_layout_json = None;
         self.workspace.last_workspace_autosave_at = None;
@@ -3862,7 +4034,7 @@ impl GraphBrowserApp {
     }
 
     /// Update force-directed layout configuration.
-    pub fn update_physics_config(&mut self, config: FruchtermanReingoldWithCenterGravityState) {
+    pub fn update_physics_config(&mut self, config: GraphPhysicsState) {
         self.workspace.physics = config;
     }
 
@@ -3937,6 +4109,7 @@ impl GraphBrowserApp {
                 Some(SettingsRouteTarget::Settings(SettingsToolPage::Keybindings))
             }
             VersoAddress::Frame(_)
+            | VersoAddress::TileGroup(_)
             | VersoAddress::View(_)
             | VersoAddress::Tool { .. }
             | VersoAddress::Clip(_)
@@ -3949,6 +4122,7 @@ impl GraphBrowserApp {
         match VersoAddress::parse(url)? {
             VersoAddress::Frame(frame_name) => Some(frame_name),
             VersoAddress::Settings(_)
+            | VersoAddress::TileGroup(_)
             | VersoAddress::View(_)
             | VersoAddress::Tool { .. }
             | VersoAddress::Clip(_)
@@ -3971,6 +4145,7 @@ impl GraphBrowserApp {
             },
             VersoAddress::Settings(_)
             | VersoAddress::Frame(_)
+            | VersoAddress::TileGroup(_)
             | VersoAddress::View(_)
             | VersoAddress::Clip(_)
             | VersoAddress::Other { .. } => None,
@@ -3996,6 +4171,7 @@ impl GraphBrowserApp {
             }
             VersoAddress::Settings(_)
             | VersoAddress::Frame(_)
+            | VersoAddress::TileGroup(_)
             | VersoAddress::Tool { .. }
             | VersoAddress::Clip(_)
             | VersoAddress::Other { .. } => None,
@@ -4016,6 +4192,7 @@ impl GraphBrowserApp {
             VersoAddress::Clip(clip_id) => Some(clip_id),
             VersoAddress::Settings(_)
             | VersoAddress::Frame(_)
+            | VersoAddress::TileGroup(_)
             | VersoAddress::View(_)
             | VersoAddress::Tool { .. }
             | VersoAddress::Other { .. } => None,
@@ -4563,6 +4740,54 @@ mod tests {
         app.set_pending_tool_surface_return_target(Some(first));
         app.set_pending_tool_surface_return_target(None);
         assert!(app.take_pending_tool_surface_return_target().is_none());
+    }
+
+    #[test]
+    fn queued_command_surface_return_target_supports_replace_peek_and_take() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let first = ToolSurfaceReturnTarget::Graph(GraphViewId::new());
+        let second = ToolSurfaceReturnTarget::Node(NodeKey::new(42));
+
+        app.set_pending_command_surface_return_target(Some(first.clone()));
+        app.set_pending_command_surface_return_target(Some(second.clone()));
+
+        assert_eq!(
+            app.pending_command_surface_return_target(),
+            Some(second.clone())
+        );
+        assert_eq!(
+            app.take_pending_command_surface_return_target(),
+            Some(second)
+        );
+        assert!(app.pending_command_surface_return_target().is_none());
+
+        app.set_pending_command_surface_return_target(Some(first));
+        app.set_pending_command_surface_return_target(None);
+        assert!(app.take_pending_command_surface_return_target().is_none());
+    }
+
+    #[test]
+    fn queued_transient_surface_return_target_supports_replace_peek_and_take() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let first = ToolSurfaceReturnTarget::Graph(GraphViewId::new());
+        let second = ToolSurfaceReturnTarget::Node(NodeKey::new(42));
+
+        app.set_pending_transient_surface_return_target(Some(first.clone()));
+        app.set_pending_transient_surface_return_target(Some(second.clone()));
+
+        assert_eq!(
+            app.pending_transient_surface_return_target(),
+            Some(second.clone())
+        );
+        assert_eq!(
+            app.take_pending_transient_surface_return_target(),
+            Some(second)
+        );
+        assert!(app.pending_transient_surface_return_target().is_none());
+
+        app.set_pending_transient_surface_return_target(Some(first));
+        app.set_pending_transient_surface_return_target(None);
+        assert!(app.take_pending_transient_surface_return_target().is_none());
     }
 
     #[test]
@@ -9213,11 +9438,14 @@ mod tests {
         let _reopened = GraphBrowserApp::new_from_dir(path);
         assert_eq!(
             crate::shell::desktop::runtime::registries::phase3_nostr_nip07_permission_grants(),
-            vec![crate::shell::desktop::runtime::registries::Nip07PermissionGrant {
-                origin: "https://example.com".to_string(),
-                method: "signEvent".to_string(),
-                decision: crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
-            }]
+            vec![
+                crate::shell::desktop::runtime::registries::Nip07PermissionGrant {
+                    origin: "https://example.com".to_string(),
+                    method: "signEvent".to_string(),
+                    decision:
+                        crate::shell::desktop::runtime::registries::Nip07PermissionDecision::Allow,
+                }
+            ]
         );
     }
 
@@ -9244,9 +9472,10 @@ mod tests {
         app.workspace.physics.base.is_running = false;
 
         let view_id = GraphViewId::new();
-        app.workspace
-            .views
-            .insert(view_id, GraphViewState::new_with_id(view_id, "Physics Test"));
+        app.workspace.views.insert(
+            view_id,
+            GraphViewState::new_with_id(view_id, "Physics Test"),
+        );
 
         app.apply_reducer_intents([GraphIntent::SetPhysicsProfile {
             profile_id: crate::registries::atomic::lens::PHYSICS_ID_GAS.to_string(),
@@ -9290,7 +9519,10 @@ mod tests {
     #[test]
     fn suggest_node_tags_intent_stores_display_only_suggestions_and_prunes_on_tag_commit() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app.add_node_and_sync("https://math.example.edu".to_string(), Point2D::new(0.0, 0.0));
+        let key = app.add_node_and_sync(
+            "https://math.example.edu".to_string(),
+            Point2D::new(0.0, 0.0),
+        );
 
         app.apply_reducer_intents([GraphIntent::SuggestNodeTags {
             key,
@@ -9316,11 +9548,12 @@ mod tests {
             app.workspace.suggested_semantic_tags.get(&key),
             Some(&vec!["udc:51".to_string()])
         );
-        assert!(app
-            .workspace
-            .semantic_tags
-            .get(&key)
-            .is_some_and(|tags| tags.contains("udc:519.6")));
+        assert!(
+            app.workspace
+                .semantic_tags
+                .get(&key)
+                .is_some_and(|tags| tags.contains("udc:519.6"))
+        );
     }
 
     #[test]
@@ -9337,6 +9570,7 @@ mod tests {
             lens_id: None,
             physics: PhysicsProfile::gas(),
             layout: LayoutMode::Grid { gap: 24.0 },
+            layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_GRID.to_string(),
             theme: Some(ThemeData {
                 background_rgb: (1, 2, 3),
                 accent_rgb: (4, 5, 6),
@@ -9372,6 +9606,8 @@ mod tests {
             lens_id: None,
             physics: PhysicsProfile::default(),
             layout: LayoutMode::Free,
+            layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+                .to_string(),
             theme: None,
             filters: Vec::new(),
         };
@@ -9383,6 +9619,10 @@ mod tests {
         assert_eq!(resolved.name, "Default");
         assert_eq!(resolved.physics.name, "Liquid");
         assert!(matches!(resolved.layout, LayoutMode::Free));
+        assert_eq!(
+            resolved.layout_algorithm_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+        );
         assert_eq!(
             resolved.theme.as_ref().map(|theme| theme.background_rgb),
             Some((20, 20, 25))
@@ -9400,6 +9640,8 @@ mod tests {
             lens_id: Some("lens:default".to_string()),
             physics: PhysicsProfile::gas(),
             layout: LayoutMode::Grid { gap: 42.0 },
+            layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+                .to_string(),
             theme: None,
             filters: vec!["stale".to_string()],
         };
@@ -9414,6 +9656,7 @@ mod tests {
             lens_id: None,
             physics: PhysicsProfile::gas(),
             layout: LayoutMode::Grid { gap: 24.0 },
+            layout_algorithm_id: crate::app::graph_layout::GRAPH_LAYOUT_GRID.to_string(),
             theme: Some(ThemeData {
                 background_rgb: (9, 8, 7),
                 accent_rgb: (6, 5, 4),
@@ -9422,7 +9665,9 @@ mod tests {
             }),
             filters: vec!["custom".to_string()],
         };
-        app.workspace.views.insert(direct_view, direct_lens_view.clone());
+        app.workspace
+            .views
+            .insert(direct_view, direct_lens_view.clone());
 
         let refreshed = app.refresh_registry_backed_view_lenses();
         assert_eq!(refreshed, 1);
@@ -9432,6 +9677,10 @@ mod tests {
         assert_eq!(registry_backed.name, "Default");
         assert_eq!(registry_backed.physics.name, "Liquid");
         assert!(matches!(registry_backed.layout, LayoutMode::Free));
+        assert_eq!(
+            registry_backed.layout_algorithm_id,
+            crate::app::graph_layout::GRAPH_LAYOUT_FORCE_DIRECTED_BARNES_HUT
+        );
 
         let direct = &app.workspace.views.get(&direct_view).unwrap().lens;
         assert_eq!(direct.name, "Direct Lens");
@@ -9587,10 +9836,7 @@ mod tests {
     fn add_node_and_sync_http_url_queues_protocol_probe_request() {
         let mut app = GraphBrowserApp::new_for_testing();
 
-        let key = app.add_node_and_sync(
-            "https://example.com".to_string(),
-            Point2D::new(0.0, 0.0),
-        );
+        let key = app.add_node_and_sync("https://example.com".to_string(), Point2D::new(0.0, 0.0));
 
         assert_eq!(
             app.take_pending_protocol_probe(),
@@ -9601,10 +9847,8 @@ mod tests {
     #[test]
     fn update_node_url_and_log_to_file_url_queues_probe_cancellation() {
         let mut app = GraphBrowserApp::new_for_testing();
-        let key = app.add_node_and_sync(
-            "https://before.example".to_string(),
-            Point2D::new(0.0, 0.0),
-        );
+        let key =
+            app.add_node_and_sync("https://before.example".to_string(), Point2D::new(0.0, 0.0));
         let _ = app.take_pending_protocol_probe();
 
         app.update_node_url_and_log(key, "file:///home/user/report.pdf".to_string());
@@ -9799,6 +10043,63 @@ mod tests {
             [WorkbenchIntent::CycleFocusRegion]
         ));
         assert_eq!(app.pending_workbench_intent_count_for_tests(), 0);
+    }
+
+    #[test]
+    fn workbench_tile_selection_update_modes_track_primary_tile() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = egui_tiles::Tiles::default();
+        let tile_a = tiles.insert_pane(
+            crate::shell::desktop::workbench::tile_kind::TileKind::Graph(
+                crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::new()),
+            ),
+        );
+        let tile_b = tiles.insert_pane(
+            crate::shell::desktop::workbench::tile_kind::TileKind::Graph(
+                crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::new()),
+            ),
+        );
+
+        app.update_workbench_tile_selection(tile_a, SelectionUpdateMode::Replace);
+        assert_eq!(
+            app.workbench_tile_selection().selected_tile_ids,
+            HashSet::from([tile_a])
+        );
+        assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(tile_a));
+
+        app.update_workbench_tile_selection(tile_b, SelectionUpdateMode::Add);
+        assert_eq!(
+            app.workbench_tile_selection().selected_tile_ids,
+            HashSet::from([tile_a, tile_b])
+        );
+        assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(tile_b));
+
+        app.update_workbench_tile_selection(tile_b, SelectionUpdateMode::Toggle);
+        assert_eq!(
+            app.workbench_tile_selection().selected_tile_ids,
+            HashSet::from([tile_a])
+        );
+        assert_eq!(app.workbench_tile_selection().primary_tile_id, Some(tile_a));
+    }
+
+    #[test]
+    fn prune_workbench_tile_selection_discards_stale_tile_ids() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let mut tiles = egui_tiles::Tiles::default();
+        let tile = tiles.insert_pane(
+            crate::shell::desktop::workbench::tile_kind::TileKind::Graph(
+                crate::shell::desktop::workbench::pane_model::GraphPaneRef::new(GraphViewId::new()),
+            ),
+        );
+        let root = tiles.insert_tab_tile(vec![tile]);
+        let mut tree = egui_tiles::Tree::new("prune_workbench_tile_selection", root, tiles);
+
+        app.select_workbench_tile(tile);
+        tree.remove_recursively(tile);
+        app.prune_workbench_tile_selection(&tree);
+
+        assert!(app.workbench_tile_selection().selected_tile_ids.is_empty());
+        assert_eq!(app.workbench_tile_selection().primary_tile_id, None);
     }
 
     #[test]
@@ -10034,40 +10335,32 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "diagnostics")]
     #[test]
-    fn toggle_help_panel_emits_ux_navigation_transition_channel() {
-        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    fn toggle_help_panel_reducer_path_enqueues_workbench_intent() {
         let mut app = GraphBrowserApp::new_for_testing();
-        assert!(!app.workspace.show_help_panel);
 
         app.apply_reducer_intents([GraphIntent::ToggleHelpPanel]);
 
-        assert!(app.workspace.show_help_panel);
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
-        assert!(
-            snapshot.contains("ux:navigation_transition"),
-            "expected ux:navigation_transition when help panel focus surface toggles"
-        );
+        assert!(!app.workspace.show_help_panel);
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::ToggleHelpPanel]
+        ));
     }
 
-    #[cfg(feature = "diagnostics")]
     #[test]
-    fn toggle_radial_menu_emits_ux_navigation_transition_channel() {
-        let mut diagnostics = crate::shell::desktop::runtime::diagnostics::DiagnosticsState::new();
+    fn toggle_radial_menu_reducer_path_enqueues_workbench_intent() {
         let mut app = GraphBrowserApp::new_for_testing();
-        assert!(!app.workspace.show_radial_menu);
 
         app.apply_reducer_intents([GraphIntent::ToggleRadialMenu]);
 
-        assert!(app.workspace.show_radial_menu);
-        diagnostics.force_drain_for_tests();
-        let snapshot = diagnostics.snapshot_json_for_tests().to_string();
-        assert!(
-            snapshot.contains("ux:navigation_transition"),
-            "expected ux:navigation_transition when radial menu focus surface toggles"
-        );
+        assert!(!app.workspace.show_radial_menu);
+        let drained = app.take_pending_workbench_intents();
+        assert!(matches!(
+            drained.as_slice(),
+            [WorkbenchIntent::ToggleRadialMenu]
+        ));
     }
 
     #[cfg(feature = "diagnostics")]
@@ -10451,13 +10744,15 @@ mod tests {
     fn opening_help_panel_closes_other_capture_surfaces() {
         let mut app = GraphBrowserApp::new_for_testing();
         app.workspace.show_command_palette = true;
+        app.workspace.command_palette_contextual_mode = true;
         app.workspace.show_radial_menu = true;
         app.set_pending_node_context_target(Some(NodeKey::new(9)));
 
-        app.apply_reducer_intents([GraphIntent::ToggleHelpPanel]);
+        app.open_help_panel();
 
         assert!(app.workspace.show_help_panel);
         assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.command_palette_contextual_mode);
         assert!(!app.workspace.show_radial_menu);
         assert!(app.pending_node_context_target().is_none());
     }
@@ -10472,8 +10767,28 @@ mod tests {
         app.open_command_palette();
 
         assert!(app.workspace.show_command_palette);
+        assert!(!app.workspace.command_palette_contextual_mode);
         assert!(!app.workspace.show_help_panel);
         assert!(!app.workspace.show_radial_menu);
+        assert!(app.pending_node_context_target().is_none());
+    }
+
+    #[test]
+    fn opening_context_palette_preserves_node_context_until_close() {
+        let mut app = GraphBrowserApp::new_for_testing();
+        let target = NodeKey::new(11);
+        app.set_pending_node_context_target(Some(target));
+
+        app.open_context_palette();
+
+        assert!(app.workspace.show_command_palette);
+        assert!(app.workspace.command_palette_contextual_mode);
+        assert_eq!(app.pending_node_context_target(), Some(target));
+
+        app.close_command_palette();
+
+        assert!(!app.workspace.show_command_palette);
+        assert!(!app.workspace.command_palette_contextual_mode);
         assert!(app.pending_node_context_target().is_none());
     }
 
@@ -10497,7 +10812,7 @@ mod tests {
         app.workspace.show_help_panel = true;
         app.workspace.show_command_palette = true;
 
-        app.apply_reducer_intents([GraphIntent::ToggleRadialMenu]);
+        app.open_radial_menu();
 
         assert!(app.workspace.show_radial_menu);
         assert!(!app.workspace.show_help_panel);

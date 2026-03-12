@@ -3,3 +3,5 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 pub(crate) use crate::model::graph::*;
+pub(crate) mod layouts;
+pub(crate) mod physics;
